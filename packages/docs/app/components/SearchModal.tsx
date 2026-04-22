@@ -18,7 +18,7 @@ function highlightMatch(text: string, query: string) {
   return (
     <>
       <span className="text-[var(--fg-secondary)]">{before}</span>
-      <mark className="rounded-sm bg-[var(--accent)]/20 px-0.5 text-[var(--accent)]">
+      <mark className="rounded-sm bg-[var(--docs-accent)]/20 px-0.5 text-[var(--docs-accent)]">
         {match}
       </mark>
       <span className="text-[var(--fg-secondary)]">{after}</span>
@@ -139,11 +139,11 @@ export function SearchModal({
 
       {/* modal */}
       <div
-        className="relative w-full max-w-[600px] mx-4 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] shadow-2xl"
+        className="relative w-full max-w-[600px] mx-4 overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* search input */}
-        <div className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
+        <div className="flex items-center gap-3 border-b border-[var(--docs-border)] px-4 py-3">
           <svg
             width="18"
             height="18"
@@ -166,7 +166,7 @@ export function SearchModal({
             onChange={(e) => setQuery(e.target.value)}
             className="flex-1 border-0 bg-transparent text-base text-[var(--fg)] outline-none placeholder:text-[var(--fg-secondary)]"
           />
-          <kbd className="rounded border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-[var(--fg-secondary)]">
+          <kbd className="rounded border border-[var(--docs-border)] px-1.5 py-0.5 text-[10px] text-[var(--fg-secondary)]">
             Esc
           </kbd>
         </div>
@@ -190,7 +190,7 @@ export function SearchModal({
                   onMouseEnter={() => setActiveIdx(i)}
                   className={`flex w-full flex-col gap-1 px-4 py-3 text-left transition ${
                     i === activeIdx
-                      ? "bg-[var(--accent)]/10"
+                      ? "bg-[var(--docs-accent)]/10"
                       : "hover:bg-[var(--bg-secondary)]"
                   }`}
                 >
@@ -202,7 +202,7 @@ export function SearchModal({
                       fill="none"
                       stroke={
                         i === activeIdx
-                          ? "var(--accent)"
+                          ? "var(--docs-accent)"
                           : "var(--fg-secondary)"
                       }
                       strokeWidth="1.5"
@@ -220,7 +220,7 @@ export function SearchModal({
                       ›
                     </span>
                     <span
-                      className={`text-sm font-medium ${i === activeIdx ? "text-[var(--accent)]" : "text-[var(--fg)]"}`}
+                      className={`text-sm font-medium ${i === activeIdx ? "text-[var(--docs-accent)]" : "text-[var(--fg)]"}`}
                     >
                       {entry.section}
                     </span>
@@ -252,24 +252,24 @@ export function SearchModal({
 
         {/* footer */}
         {results.length > 0 && (
-          <div className="flex items-center gap-4 border-t border-[var(--border)] px-4 py-2 text-[10px] text-[var(--fg-secondary)]">
+          <div className="flex items-center gap-4 border-t border-[var(--docs-border)] px-4 py-2 text-[10px] text-[var(--fg-secondary)]">
             <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--border)] px-1 py-0.5">
+              <kbd className="rounded border border-[var(--docs-border)] px-1 py-0.5">
                 ↑
               </kbd>
-              <kbd className="rounded border border-[var(--border)] px-1 py-0.5">
+              <kbd className="rounded border border-[var(--docs-border)] px-1 py-0.5">
                 ↓
               </kbd>
               navigate
             </span>
             <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--border)] px-1 py-0.5">
+              <kbd className="rounded border border-[var(--docs-border)] px-1 py-0.5">
                 ↵
               </kbd>
               open
             </span>
             <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--border)] px-1 py-0.5">
+              <kbd className="rounded border border-[var(--docs-border)] px-1 py-0.5">
                 esc
               </kbd>
               close

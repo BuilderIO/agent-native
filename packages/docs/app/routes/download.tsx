@@ -180,7 +180,7 @@ export default function DownloadPage() {
       </div>
 
       {/* Mobile teaser */}
-      <div className="mt-16 mx-auto max-w-lg rounded-lg border border-dashed border-[var(--border)] px-6 py-5 text-center">
+      <div className="mt-16 mx-auto max-w-lg rounded-lg border border-dashed border-[var(--docs-border)] px-6 py-5 text-center">
         <p className="text-sm text-[var(--fg-secondary)]">
           <span className="mr-1.5">📱</span>A mobile app for iOS and Android is
           in the works.
@@ -211,7 +211,7 @@ function FeatureItem({
   description: string;
 }) {
   return (
-    <div className="rounded-lg border border-[var(--border)] p-5">
+    <div className="rounded-lg border border-[var(--docs-border)] p-5">
       <h4 className="mb-1 text-sm font-semibold">{title}</h4>
       <p className="text-xs leading-relaxed text-[var(--fg-secondary)]">
         {description}

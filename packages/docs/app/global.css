@@ -77,9 +77,9 @@
   --fg-secondary: #666;
   --bg: #fff;
   --bg-secondary: #fafafa;
-  --border: #ebebeb;
-  --accent: #0072f5;
-  --accent-light: rgba(0, 114, 245, 0.1);
+  --docs-border: #ebebeb;
+  --docs-accent: #0072f5;
+  --docs-accent-light: rgba(0, 114, 245, 0.1);
   --header-bg: rgba(255, 255, 255, 0.8);
   --code-bg: #f5f5f5;
   --code-border: #ebebeb;
@@ -93,9 +93,9 @@
   --fg-secondary: #a0a0a0;
   --bg: #000;
   --bg-secondary: #0a0a0a;
-  --border: #1f1f1f;
-  --accent: #52a8ff;
-  --accent-light: rgba(82, 168, 255, 0.1);
+  --docs-border: #1f1f1f;
+  --docs-accent: #52a8ff;
+  --docs-accent-light: rgba(82, 168, 255, 0.1);
   --header-bg: rgba(10, 10, 10, 0.8);
   --code-bg: #111;
   --code-border: #1f1f1f;
@@ -110,9 +110,9 @@
     --fg-secondary: #a0a0a0;
     --bg: #000;
     --bg-secondary: #0a0a0a;
-    --border: #1f1f1f;
-    --accent: #52a8ff;
-    --accent-light: rgba(82, 168, 255, 0.1);
+    --docs-border: #1f1f1f;
+    --docs-accent: #52a8ff;
+    --docs-accent-light: rgba(82, 168, 255, 0.1);
     --header-bg: rgba(10, 10, 10, 0.8);
     --code-bg: #111;
     --code-border: #1f1f1f;
@@ -156,7 +156,7 @@ body {
 }
 
 .docs-content a:not([class*="text-"]):not(.heading-anchor) {
-  color: var(--accent);
+  color: var(--docs-accent);
 }
 
 a {
@@ -198,7 +198,7 @@ pre {
 
 hr {
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--docs-border);
   margin: 24px 0;
 }
 
@@ -234,7 +234,7 @@ h4 {
   margin-top: 32px;
   margin-bottom: 12px;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--docs-border);
 }
 
 .docs-content h3 {
@@ -267,7 +267,7 @@ h4 {
 }
 
 .heading-anchor-hash:hover {
-  color: var(--accent);
+  color: var(--docs-accent);
 }
 
 .docs-content p {
@@ -316,19 +316,19 @@ h4 {
   text-align: left;
   font-weight: 600;
   padding: 8px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--docs-border);
   background: var(--table-header-bg);
   color: var(--fg);
 }
 
 .docs-content table td {
   padding: 8px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--docs-border);
   color: var(--fg-secondary);
 }
 
 .docs-content table td:first-child {
-  color: var(--accent);
+  color: var(--docs-accent);
   font-family: var(--font-mono);
   font-size: 13px;
 }
@@ -353,7 +353,7 @@ h4 {
 }
 
 .sidebar-link.is-active {
-  color: var(--accent);
+  color: var(--docs-accent);
   font-weight: 500;
 }
 
@@ -373,7 +373,7 @@ h4 {
 }
 
 .toc-link.is-active {
-  color: var(--accent);
+  color: var(--docs-accent);
 }
 
 /* Header nav */
@@ -446,7 +446,7 @@ html.dark .shiki span {
 
 /* Feature cards */
 .feature-card {
-  border: 1px solid var(--border);
+  border: 1px solid var(--docs-border);
   border-radius: 12px;
   padding: 24px;
   transition:
@@ -479,7 +479,7 @@ html.dark .shiki span {
 .hero-section {
   text-align: center;
   padding: 80px 24px 64px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--docs-border);
 }
 
 .hero-section h1 {
@@ -550,7 +550,7 @@ html.dark .shiki span {
   margin: 0 auto;
   max-width: 900px;
   border-radius: 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--docs-border);
   overflow: hidden;
 }
 
@@ -622,13 +622,13 @@ html.dark .shiki span {
   margin-bottom: 12px;
   padding: 4px 14px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--docs-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--docs-accent) 30%, transparent);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--docs-accent);
 }
 
 .approaches-solution-tagline {
@@ -710,7 +710,7 @@ html.dark .shiki span {
   margin: 0 -16px;
   padding: 0 16px;
   background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--docs-border);
 }
 
 @media (min-width: 640px) {
@@ -747,7 +747,7 @@ html.dark .shiki span {
   right: 0;
   top: 100%;
   background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--docs-border);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   max-height: 60vh;
   overflow-y: auto;
@@ -778,9 +778,9 @@ html.dark .shiki span {
 }
 
 .mobile-docs-nav-link.is-active {
-  color: var(--accent);
+  color: var(--docs-accent);
   font-weight: 500;
-  background: var(--accent-light);
+  background: var(--docs-accent-light);
 }
 
 /* Push doc content below the sticky mobile nav */
@@ -797,7 +797,7 @@ html.dark .shiki span {
   gap: 16px;
   margin-top: 48px;
   padding-top: 24px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--docs-border);
 }
 
 .docs-prev-next-link {
@@ -805,7 +805,7 @@ html.dark .shiki span {
   align-items: center;
   gap: 12px;
   padding: 16px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--docs-border);
   border-radius: 8px;
   text-decoration: none;
   color: var(--fg);
@@ -841,7 +841,7 @@ html.dark .shiki span {
 .docs-prev-next-title {
   font-size: 14px;
   font-weight: 500;
-  color: var(--accent);
+  color: var(--docs-accent);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

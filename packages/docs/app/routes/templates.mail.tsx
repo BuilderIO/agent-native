@@ -110,7 +110,7 @@ export default function MailTemplate() {
 
         <div className="grid gap-12 lg:grid-cols-2 lg:items-start">
           <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
               <span
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
@@ -161,7 +161,7 @@ export default function MailTemplate() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)]">
+          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
               alt="Mail template screenshot"
@@ -172,8 +172,8 @@ export default function MailTemplate() {
       </section>
 
       {/* By the numbers */}
-      <section className="border-t border-[var(--border)] py-16">
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-4">
+      <section className="border-t border-[var(--docs-border)] py-16">
+        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
           {[
             { number: "⌨️", label: "Keyboard-first" },
             { number: "AI", label: "Inbox triage" },
@@ -181,7 +181,7 @@ export default function MailTemplate() {
             { number: "∞", label: "Customizable" },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
-              <div className="mb-1 text-2xl font-bold text-[var(--accent)]">
+              <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
                 {stat.number}
               </div>
               <div className="text-sm text-[var(--fg-secondary)]">
@@ -193,7 +193,7 @@ export default function MailTemplate() {
       </section>
 
       {/* Core capabilities */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           What you can do
         </h2>
@@ -202,8 +202,8 @@ export default function MailTemplate() {
           inbox you fully own.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--accent)]">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
               <svg
                 width="20"
                 height="20"
@@ -224,8 +224,8 @@ export default function MailTemplate() {
               navigation. Zero mouse required.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--accent)]">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
               <svg
                 width="20"
                 height="20"
@@ -246,8 +246,8 @@ export default function MailTemplate() {
               auto-labeling and auto-archiving.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--accent)]">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
               <svg
                 width="20"
                 height="20"
@@ -268,8 +268,8 @@ export default function MailTemplate() {
               last week about the budget" just works.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--accent)]">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
               <svg
                 width="20"
                 height="20"
@@ -294,9 +294,9 @@ export default function MailTemplate() {
       </section>
 
       {/* Inbox + Compose */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-[var(--border)] p-6">
+          <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
               AI-Powered Inbox Management
             </h3>
@@ -307,7 +307,7 @@ export default function MailTemplate() {
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -323,7 +323,7 @@ export default function MailTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -339,7 +339,7 @@ export default function MailTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -355,7 +355,7 @@ export default function MailTemplate() {
               </li>
             </ul>
           </div>
-          <div className="rounded-xl border border-[var(--border)] p-6">
+          <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
               Keyboard-First Compose
             </h3>
@@ -366,7 +366,7 @@ export default function MailTemplate() {
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -382,7 +382,7 @@ export default function MailTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -398,7 +398,7 @@ export default function MailTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -418,7 +418,7 @@ export default function MailTemplate() {
       </section>
 
       {/* Agent actions */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="mb-3 text-2xl font-bold tracking-tight">
@@ -431,7 +431,7 @@ export default function MailTemplate() {
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -447,7 +447,7 @@ export default function MailTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -463,7 +463,7 @@ export default function MailTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -479,7 +479,7 @@ export default function MailTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -495,31 +495,31 @@ export default function MailTemplate() {
               </li>
             </ul>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
             <div className="space-y-3 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
                 {"// Available agent actions"}
               </div>
               <div>
-                <span className="text-[var(--accent)]">$</span>{" "}
+                <span className="text-[var(--docs-accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
                   pnpm action sync-inbox --since 7d
                 </span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">$</span>{" "}
+                <span className="text-[var(--docs-accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
                   pnpm action triage --label priority
                 </span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">$</span>{" "}
+                <span className="text-[var(--docs-accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
                   pnpm action draft-reply --thread "RE: Q2 update"
                 </span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">$</span>{" "}
+                <span className="text-[var(--docs-accent)]">$</span>{" "}
                 <span className="text-[var(--fg)]">
                   pnpm action summarize --unread
                 </span>
@@ -530,14 +530,14 @@ export default function MailTemplate() {
       </section>
 
       {/* Comparison table */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
           How it compares
         </h2>
-        <div className="overflow-hidden rounded-xl border border-[var(--border)]">
+        <div className="overflow-hidden rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table w-full text-sm">
             <thead>
-              <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+              <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   Gmail
@@ -545,13 +545,13 @@ export default function MailTemplate() {
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   Superhuman
                 </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--accent)]">
+                <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Mail
                 </th>
               </tr>
             </thead>
             <tbody className="text-[var(--fg-secondary)]">
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Keyboard shortcuts
                 </td>
@@ -561,7 +561,7 @@ export default function MailTemplate() {
                   Fully customizable
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   AI assistance
                 </td>
@@ -571,7 +571,7 @@ export default function MailTemplate() {
                   Full agent: triage, draft, automate
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Customization
                 </td>
@@ -579,7 +579,7 @@ export default function MailTemplate() {
                 <td className="px-5 py-3">Themes only</td>
                 <td className="px-5 py-3 text-[var(--fg)]">Full source code</td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Data ownership
                 </td>
@@ -603,7 +603,7 @@ export default function MailTemplate() {
       </section>
 
       {/* CTA */}
-      <section className="border-t border-[var(--border)] py-16 text-center">
+      <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           Get started in minutes
         </h2>
@@ -622,7 +622,7 @@ export default function MailTemplate() {
           <Link
             prefetch="render"
             to="/templates"
-            className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             View all templates
           </Link>

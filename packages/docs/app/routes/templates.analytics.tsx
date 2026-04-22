@@ -112,7 +112,7 @@ export default function AnalyticsTemplate() {
 
         <div className="grid gap-12 lg:grid-cols-2 lg:items-start">
           <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
               <span
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
@@ -162,7 +162,7 @@ export default function AnalyticsTemplate() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)]">
+          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
               alt="Analytics template screenshot"
@@ -173,8 +173,8 @@ export default function AnalyticsTemplate() {
       </section>
 
       {/* By the numbers */}
-      <section className="border-t border-[var(--border)] py-16">
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-4">
+      <section className="border-t border-[var(--docs-border)] py-16">
+        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
           {[
             { number: "10+", label: "Data connectors" },
             { number: "7", label: "Chart types" },
@@ -182,7 +182,7 @@ export default function AnalyticsTemplate() {
             { number: "AI", label: "Natural language" },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
-              <div className="mb-1 text-2xl font-bold text-[var(--accent)]">
+              <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
                 {stat.number}
               </div>
               <div className="text-sm text-[var(--fg-secondary)]">
@@ -194,7 +194,7 @@ export default function AnalyticsTemplate() {
       </section>
 
       {/* Core capabilities - icon cards */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           What you can do
         </h2>
@@ -202,8 +202,8 @@ export default function AnalyticsTemplate() {
           Everything you need to replace your analytics stack.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--accent)]">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
               <svg
                 width="20"
                 height="20"
@@ -225,8 +225,8 @@ export default function AnalyticsTemplate() {
               chart.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--accent)]">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
               <svg
                 width="20"
                 height="20"
@@ -248,8 +248,8 @@ export default function AnalyticsTemplate() {
               panels.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--accent)]">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
               <svg
                 width="20"
                 height="20"
@@ -270,8 +270,8 @@ export default function AnalyticsTemplate() {
               URLs.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--accent)]">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
               <svg
                 width="20"
                 height="20"
@@ -296,7 +296,7 @@ export default function AnalyticsTemplate() {
       </section>
 
       {/* Connectors */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           Connect everything
         </h2>
@@ -305,40 +305,40 @@ export default function AnalyticsTemplate() {
           new ones on demand.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] p-5">
             <h3 className="mb-2 text-sm font-semibold">CRM & Revenue</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               HubSpot, Stripe, Apollo — deals, subscriptions, MRR, and
               enrichment.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] p-5">
             <h3 className="mb-2 text-sm font-semibold">Engineering</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               GitHub, Jira, Sentry — PRs, tickets, sprints, and error tracking.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] p-5">
             <h3 className="mb-2 text-sm font-semibold">Infrastructure</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Google Cloud, Grafana — services, metrics, logs, and alerts.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] p-5">
             <h3 className="mb-2 text-sm font-semibold">Communication</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Slack, Gong, Twitter — channel history, call transcripts, and
               social metrics.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] p-5">
             <h3 className="mb-2 text-sm font-semibold">Content & SEO</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Notion, DataForSEO — content calendars, keywords, and top search
               terms.
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--border)] p-5">
+          <div className="rounded-xl border border-[var(--docs-border)] p-5">
             <h3 className="mb-2 text-sm font-semibold">Community</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
               Common Room, Pylon — member engagement and support tickets.
@@ -348,7 +348,7 @@ export default function AnalyticsTemplate() {
       </section>
 
       {/* Data dictionary highlight */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="mb-3 text-2xl font-bold tracking-tight">
@@ -362,7 +362,7 @@ export default function AnalyticsTemplate() {
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -378,7 +378,7 @@ export default function AnalyticsTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -394,7 +394,7 @@ export default function AnalyticsTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -410,7 +410,7 @@ export default function AnalyticsTemplate() {
               </li>
               <li className="flex items-start gap-2">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--accent)]"
+                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                   width="16"
                   height="16"
                   viewBox="0 0 24 24"
@@ -426,37 +426,37 @@ export default function AnalyticsTemplate() {
               </li>
             </ul>
           </div>
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
             <div className="space-y-3 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
                 {"// Example metric definition"}
               </div>
               <div>
-                <span className="text-[var(--accent)]">name:</span>{" "}
+                <span className="text-[var(--docs-accent)]">name:</span>{" "}
                 <span className="text-[var(--fg)]">Weekly Active Users</span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">query:</span>{" "}
+                <span className="text-[var(--docs-accent)]">query:</span>{" "}
                 <span className="text-[var(--fg)]">
                   SELECT COUNT(DISTINCT user_id)...
                 </span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">frequency:</span>{" "}
+                <span className="text-[var(--docs-accent)]">frequency:</span>{" "}
                 <span className="text-[var(--fg)]">Daily</span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">lag:</span>{" "}
+                <span className="text-[var(--docs-accent)]">lag:</span>{" "}
                 <span className="text-[var(--fg)]">~2 hours</span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">gotchas:</span>{" "}
+                <span className="text-[var(--docs-accent)]">gotchas:</span>{" "}
                 <span className="text-[var(--fg)]">
                   Excludes internal @company emails
                 </span>
               </div>
               <div>
-                <span className="text-[var(--accent)]">trust:</span>{" "}
+                <span className="text-[var(--docs-accent)]">trust:</span>{" "}
                 <span className="text-[var(--fg)]">Validated ✓</span>
               </div>
             </div>
@@ -465,14 +465,14 @@ export default function AnalyticsTemplate() {
       </section>
 
       {/* Comparison table */}
-      <section className="border-t border-[var(--border)] py-16">
+      <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
           How it compares
         </h2>
-        <div className="overflow-hidden rounded-xl border border-[var(--border)]">
+        <div className="overflow-hidden rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table w-full text-sm">
             <thead>
-              <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+              <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   Amplitude / Mixpanel
@@ -480,13 +480,13 @@ export default function AnalyticsTemplate() {
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   ChatGPT + CSV
                 </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--accent)]">
+                <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Analytics
                 </th>
               </tr>
             </thead>
             <tbody className="text-[var(--fg-secondary)]">
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Dashboard UI
                 </td>
@@ -496,7 +496,7 @@ export default function AnalyticsTemplate() {
                   Yes, fully customizable
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Natural language
                 </td>
@@ -506,7 +506,7 @@ export default function AnalyticsTemplate() {
                   Yes, persistent charts
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Data connectors
                 </td>
@@ -516,7 +516,7 @@ export default function AnalyticsTemplate() {
                   Multiple sources + custom
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Data dictionary
                 </td>
@@ -526,7 +526,7 @@ export default function AnalyticsTemplate() {
                   Full metrics with context
                 </td>
               </tr>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   Customization
                 </td>
@@ -550,7 +550,7 @@ export default function AnalyticsTemplate() {
       </section>
 
       {/* CTA */}
-      <section className="border-t border-[var(--border)] py-16 text-center">
+      <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           Get started in minutes
         </h2>
@@ -568,7 +568,7 @@ export default function AnalyticsTemplate() {
           <Link
             prefetch="render"
             to="/templates"
-            className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             View all templates
           </Link>

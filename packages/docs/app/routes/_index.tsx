@@ -179,8 +179,8 @@ function BidirectionalTabs() {
             }
             className={`cursor-pointer rounded-xl border p-4 text-left transition-all md:p-5 ${
               i === activeTab
-                ? "border-[var(--accent)] bg-[var(--accent)]/5 shadow-[0_0_0_1px_var(--accent)]"
-                : "border-[var(--border)] hover:border-[var(--fg-secondary)]/40"
+                ? "border-[var(--docs-accent)] bg-[var(--docs-accent)]/5 shadow-[0_0_0_1px_var(--docs-accent)]"
+                : "border-[var(--docs-border)] hover:border-[var(--fg-secondary)]/40"
             }`}
           >
             <div className="mb-1 whitespace-nowrap text-sm font-semibold md:whitespace-normal">
@@ -196,7 +196,7 @@ function BidirectionalTabs() {
           </button>
         ))}
       </div>
-      <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl border border-[var(--border)] bg-black md:w-3/4">
+      <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl border border-[var(--docs-border)] bg-black md:w-3/4">
         {bidirectionalTabs.map((tab, i) => (
           <video
             key={i}
@@ -247,8 +247,8 @@ export default function Home() {
             }}
           />
           <div className="relative z-10 hero-content">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-1.5 text-sm text-[var(--fg-secondary)]">
-              <span className="inline-block h-2 w-2 rounded-full bg-[var(--accent)]" />
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-4 py-1.5 text-sm text-[var(--fg-secondary)]">
+              <span className="inline-block h-2 w-2 rounded-full bg-[var(--docs-accent)]" />
               Open source framework
             </div>
 
@@ -292,7 +292,7 @@ export default function Home() {
                 href="https://github.com/BuilderIO/agent-native"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
                   trackEvent("click_cta", { label: "github", location: "hero" })
                 }
@@ -314,7 +314,7 @@ export default function Home() {
         </section>
 
         {/* Bidirectional Awareness - above templates */}
-        <section className="py-20 px-6 border-t border-[var(--border)]">
+        <section className="py-20 px-6 border-t border-[var(--docs-border)]">
           <div className="mb-12 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
               Agents and UIs — fully connected
@@ -353,7 +353,7 @@ export default function Home() {
             <Link
               prefetch="render"
               to="/templates"
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
               onClick={() =>
                 trackEvent("click_cta", {
                   label: "view_all_templates",
@@ -381,7 +381,7 @@ export default function Home() {
 
         <div className="mx-auto max-w-[1200px] px-6">
           {/* The best of both worlds */}
-          <section className="border-t border-[var(--border)] py-20">
+          <section className="border-t border-[var(--docs-border)] py-20">
             <div className="mb-12 text-center">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
                 The best of both worlds
@@ -398,7 +398,7 @@ export default function Home() {
                 <div className="approaches-table-scroll">
                   <table className="approaches-table">
                     <thead>
-                      <tr className="border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+                      <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                         <th className="approaches-th approaches-col-dim"></th>
                         <th className="approaches-th approaches-col-muted">
                           SaaS Tools
@@ -413,7 +413,7 @@ export default function Home() {
                       </tr>
                     </thead>
                     <tbody>
-                      <tr className="border-b border-[var(--border)]">
+                      <tr className="border-b border-[var(--docs-border)]">
                         <td className="approaches-td approaches-td--dim">UI</td>
                         <td className="approaches-td approaches-td--good">
                           Polished but rigid
@@ -428,7 +428,7 @@ export default function Home() {
                           Full UI, fork &amp; go
                         </td>
                       </tr>
-                      <tr className="border-b border-[var(--border)]">
+                      <tr className="border-b border-[var(--docs-border)]">
                         <td className="approaches-td approaches-td--dim">AI</td>
                         <td className="approaches-td approaches-td--bad">
                           Bolted on
@@ -443,7 +443,7 @@ export default function Home() {
                           Agent-first, integrated
                         </td>
                       </tr>
-                      <tr className="border-b border-[var(--border)]">
+                      <tr className="border-b border-[var(--docs-border)]">
                         <td className="approaches-td approaches-td--dim">
                           Customization
                         </td>
@@ -485,7 +485,7 @@ export default function Home() {
           </section>
 
           {/* Value props */}
-          <section className="border-t border-[var(--border)] py-20">
+          <section className="border-t border-[var(--docs-border)] py-20">
             <div className="mb-12 text-center">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
                 How it works
@@ -497,7 +497,7 @@ export default function Home() {
             </div>
 
             <div className="mx-auto grid max-w-4xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-xl border border-[var(--border)] p-6">
+              <div className="rounded-xl border border-[var(--docs-border)] p-6">
                 <h3 className="mb-2 text-base font-semibold">
                   Everything syncs
                 </h3>
@@ -506,14 +506,14 @@ export default function Home() {
                   either side show up instantly on the other.
                 </p>
               </div>
-              <div className="rounded-xl border border-[var(--border)] p-6">
+              <div className="rounded-xl border border-[var(--docs-border)] p-6">
                 <h3 className="mb-2 text-base font-semibold">Context-aware</h3>
                 <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
                   The agent knows what you're looking at. Select text, hit
                   Cmd+I, and tell it what to do.
                 </p>
               </div>
-              <div className="rounded-xl border border-[var(--border)] p-6">
+              <div className="rounded-xl border border-[var(--docs-border)] p-6">
                 <h3 className="mb-2 text-base font-semibold">
                   Agents call agents
                 </h3>
@@ -522,7 +522,7 @@ export default function Home() {
                   A2A and take action across your stack.
                 </p>
               </div>
-              <div className="rounded-xl border border-[var(--border)] p-6">
+              <div className="rounded-xl border border-[var(--docs-border)] p-6">
                 <h3 className="mb-2 text-base font-semibold">
                   Any database, any host
                 </h3>
@@ -531,14 +531,14 @@ export default function Home() {
                   supports. No lock-in.
                 </p>
               </div>
-              <div className="rounded-xl border border-[var(--border)] p-6">
+              <div className="rounded-xl border border-[var(--docs-border)] p-6">
                 <h3 className="mb-2 text-base font-semibold">Any AI agent</h3>
                 <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
                   Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use
                   whichever agent you prefer.
                 </p>
               </div>
-              <div className="rounded-xl border border-[var(--border)] p-6">
+              <div className="rounded-xl border border-[var(--docs-border)] p-6">
                 <h3 className="mb-2 text-base font-semibold">
                   Apps that improve themselves
                 </h3>
@@ -551,7 +551,7 @@ export default function Home() {
           </section>
 
           {/* Quick Start */}
-          <section className="border-t border-[var(--border)] py-20">
+          <section className="border-t border-[var(--docs-border)] py-20">
             <div className="mb-12 text-center">
               <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
                 Launch in minutes
@@ -567,7 +567,7 @@ export default function Home() {
           </section>
 
           {/* Bottom CTA */}
-          <section className="border-t border-[var(--border)] py-20 text-center">
+          <section className="border-t border-[var(--docs-border)] py-20 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
               Software you own, built for the agentic era
             </h2>
@@ -605,7 +605,7 @@ export default function Home() {
               <Link
                 prefetch="render"
                 to="/docs"
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
                   trackEvent("click_cta", {
                     label: "read_the_docs",
@@ -619,7 +619,7 @@ export default function Home() {
                 href="https://github.com/BuilderIO/agent-native"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
                   trackEvent("click_cta", {
                     label: "github",
