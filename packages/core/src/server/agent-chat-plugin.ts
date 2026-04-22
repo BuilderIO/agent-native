@@ -2484,22 +2484,12 @@ export function createAgentChatPlugin(
                 toolNames.size > 0
                   ? `Used: ${[...toolNames].join(", ")}`
                   : "Agent turn";
-              const sha = gitCheckpoint(
-                cwd,
-                `[agent-native] ${summary}`,
-              );
+              const sha = gitCheckpoint(cwd, `[agent-native] ${summary}`);
               if (sha) {
-                const { insertCheckpoint } = await import(
-                  "../checkpoints/store.js"
-                );
+                const { insertCheckpoint } =
+                  await import("../checkpoints/store.js");
                 const cpId = `cp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                await insertCheckpoint(
-                  cpId,
-                  threadId,
-                  run.runId,
-                  sha,
-                  summary,
-                );
+                await insertCheckpoint(cpId, threadId, run.runId, sha, summary);
               }
             }
           } catch {
@@ -3435,6 +3425,97 @@ export function createAgentChatPlugin(
               status: run.status,
               heartbeatAt: run.heartbeatAt,
             };
+          }
+
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }),
+      );
+
+      // ─── Checkpoint endpoints ──────────────────────────────────────────────
+      getH3App(nitroApp).use(
+        `${routePath}/checkpoints`,
+        defineEventHandler(async (event) => {
+          const method = getMethod(event);
+
+          // GET /checkpoints?threadId=... — list checkpoints for a thread
+          if (method === "GET") {
+            const query = getQuery(event);
+            const threadId = String(query.threadId || "");
+            if (!threadId) {
+              setResponseStatus(event, 400);
+              return { error: "threadId query parameter is required" };
+            }
+            try {
+              const { getCheckpointsByThread } =
+                await import("../checkpoints/store.js");
+              return await getCheckpointsByThread(threadId);
+            } catch {
+              return [];
+            }
+          }
+
+          // POST /checkpoints — restore to a checkpoint
+          // h3 prefix-matches, so /checkpoints/restore hits this handler with
+          // event.path containing "/restore".
+          const remainder = (event.path || "").replace(/^\/+/, "");
+          if (method === "POST" && remainder.startsWith("restore")) {
+            if (!canToggle) {
+              setResponseStatus(event, 403);
+              return { error: "Checkpoints only available in dev mode" };
+            }
+            if (!isLocalhost(event)) {
+              setResponseStatus(event, 403);
+              return { error: "Restore only available on localhost" };
+            }
+            const body = await readBody(event);
+            const checkpointId = body?.checkpointId;
+            if (!checkpointId) {
+              setResponseStatus(event, 400);
+              return { error: "checkpointId is required" };
+            }
+            try {
+              const { getCheckpointById } =
+                await import("../checkpoints/store.js");
+              const checkpoint = await getCheckpointById(checkpointId);
+              if (!checkpoint) {
+                setResponseStatus(event, 404);
+                return { error: "Checkpoint not found" };
+              }
+              const {
+                createCheckpoint: gitCheckpoint,
+                restoreToCheckpoint,
+                hasUncommittedChanges,
+                isGitRepo,
+              } = await import("../checkpoints/service.js");
+              const cwd = process.cwd();
+              if (!isGitRepo(cwd)) {
+                setResponseStatus(event, 400);
+                return { error: "Not a git repository" };
+              }
+              // Save current state before restoring so user can undo the undo
+              if (hasUncommittedChanges(cwd)) {
+                gitCheckpoint(cwd, "[agent-native] Pre-restore checkpoint");
+              }
+              const restored = restoreToCheckpoint(cwd, checkpoint.commitSha);
+              if (!restored) {
+                setResponseStatus(event, 500);
+                return { error: "Failed to restore checkpoint" };
+              }
+              // Trigger UI refresh
+              try {
+                const { recordChange } = await import("./poll.js");
+                recordChange({
+                  source: "checkpoint",
+                  type: "change",
+                  key: "*",
+                });
+              } catch {}
+              return { success: true, commitSha: checkpoint.commitSha };
+            } catch (err: any) {
+              setResponseStatus(event, 500);
+              return { error: err?.message ?? "Restore failed" };
+            }
           }
 
           setResponseStatus(event, 405);
