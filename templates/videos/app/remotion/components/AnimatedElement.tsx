@@ -48,7 +48,7 @@ export interface AnimatedElementProps {
   interactive: InteractiveComponentState;
 
   /** HTML element type or React component */
-  as?: keyof JSX.IntrinsicElements | React.ComponentType<any>;
+  as?: keyof React.JSX.IntrinsicElements | React.ComponentType<any>;
 
   /** Additional inline styles (merged with animated properties) */
   style?: React.CSSProperties;
