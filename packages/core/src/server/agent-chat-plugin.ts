@@ -3440,11 +3440,25 @@ export function createAgentChatPlugin(
 
           // GET /checkpoints?threadId=... — list checkpoints for a thread
           if (method === "GET") {
+            if (!canToggle) {
+              setResponseStatus(event, 403);
+              return { error: "Checkpoints only available in dev mode" };
+            }
+            if (!isLocalhost(event)) {
+              setResponseStatus(event, 403);
+              return { error: "Checkpoints only available on localhost" };
+            }
             const query = getQuery(event);
             const threadId = String(query.threadId || "");
             if (!threadId) {
               setResponseStatus(event, 400);
               return { error: "threadId query parameter is required" };
+            }
+            const owner = await getOwnerFromEvent(event);
+            const thread = await getThread(threadId);
+            if (!thread || thread.ownerEmail !== owner) {
+              setResponseStatus(event, 404);
+              return { error: "Thread not found" };
             }
             try {
               const { getCheckpointsByThread } =
@@ -3479,6 +3493,12 @@ export function createAgentChatPlugin(
                 await import("../checkpoints/store.js");
               const checkpoint = await getCheckpointById(checkpointId);
               if (!checkpoint) {
+                setResponseStatus(event, 404);
+                return { error: "Checkpoint not found" };
+              }
+              const owner = await getOwnerFromEvent(event);
+              const thread = await getThread(checkpoint.threadId);
+              if (!thread || thread.ownerEmail !== owner) {
                 setResponseStatus(event, 404);
                 return { error: "Checkpoint not found" };
               }
