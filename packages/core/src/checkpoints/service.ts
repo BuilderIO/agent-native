@@ -66,11 +66,30 @@ export function createCheckpoint(cwd: string, message: string): string | null {
 
 export function restoreToCheckpoint(cwd: string, sha: string): boolean {
   try {
+    // Restore all tracked files to the checkpoint state
     execFileSync("git", ["checkout", sha, "--", "."], {
       cwd,
       stdio: "pipe",
       timeout: TIMEOUT,
     });
+    // Remove files that were added after the checkpoint
+    try {
+      const added = execFileSync(
+        "git",
+        ["diff", "--name-only", "--diff-filter=A", sha, "HEAD"],
+        { cwd, stdio: "pipe", timeout: TIMEOUT, encoding: "utf-8" },
+      ).trim();
+      if (added) {
+        for (const file of added.split("\n")) {
+          const filePath = path.join(cwd, file);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        }
+      }
+    } catch {
+      // Best-effort cleanup of added files
+    }
     return true;
   } catch {
     return false;
