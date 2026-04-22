@@ -169,6 +169,25 @@ async function scaffoldWorkspaceRoot(
   replacePlaceholders(targetDir, name, titleCase(name));
   renameGitignore(targetDir);
 
+  // Inject the catalog from this repo's pnpm-workspace.yaml so templates'
+  // `catalog:` version references resolve in the scaffolded workspace.
+  const catalog = loadCatalog();
+  if (Object.keys(catalog).length > 0) {
+    const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
+    const existing = fs.existsSync(wsPath)
+      ? fs.readFileSync(wsPath, "utf-8")
+      : "";
+    if (!existing.includes("catalog:")) {
+      const catalogYaml = Object.entries(catalog)
+        .map(([k, v]) => `  "${k}": "${v}"`)
+        .join("\n");
+      fs.writeFileSync(
+        wsPath,
+        existing.trimEnd() + "\ncatalog:\n" + catalogYaml + "\n",
+      );
+    }
+  }
+
   const corePackageDir = path.join(targetDir, "packages", "core-module");
   fs.mkdirSync(path.join(targetDir, "packages"), { recursive: true });
   copyDir(coreTemplate, corePackageDir);
@@ -423,7 +442,10 @@ function postProcessStandalone(name: string, targetDir: string): void {
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
 
-  // Resolve workspace:* deps to `latest` for standalone.
+  // Resolve workspace:* and catalog: deps for standalone projects.
+  // catalog: references only resolve inside a pnpm workspace with a catalog
+  // defined in pnpm-workspace.yaml — standalone scaffolds don't have one.
+  const catalog = loadCatalog();
   const pkgPath = path.join(targetDir, "package.json");
   if (fs.existsSync(pkgPath)) {
     try {
@@ -438,6 +460,8 @@ function postProcessStandalone(name: string, targetDir: string): void {
         for (const [key, val] of Object.entries(deps)) {
           if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";
+          } else if (typeof val === "string" && val === "catalog:") {
+            deps[key] = catalog[key] ?? "latest";
           }
         }
       }
@@ -641,6 +665,36 @@ async function downloadGitHubRepo(
 /* ─────────────────────────────────────────────────────────────────────────
  * Text / filesystem helpers
  * ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Load the pnpm workspace catalog from this package's repo root.
+ * Returns a map of package name → version specifier (e.g. "^4.1.18").
+ * Falls back to empty if the file is missing or unparseable.
+ */
+function loadCatalog(): Record<string, string> {
+  try {
+    const repoRoot = path.resolve(__dirname, "../../../../..");
+    const wsPath = path.join(repoRoot, "pnpm-workspace.yaml");
+    if (!fs.existsSync(wsPath)) return {};
+    const content = fs.readFileSync(wsPath, "utf-8");
+    const result: Record<string, string> = {};
+    let inCatalog = false;
+    for (const line of content.split("\n")) {
+      if (/^catalog:\s*$/.test(line)) {
+        inCatalog = true;
+        continue;
+      }
+      if (inCatalog) {
+        if (/^\S/.test(line)) break;
+        const match = line.match(/^\s+"?([^":]+)"?\s*:\s*"?([^"]+)"?\s*$/);
+        if (match) result[match[1]] = match[2];
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
 
 function titleCase(name: string): string {
   return name
