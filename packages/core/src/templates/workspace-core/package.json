@@ -23,7 +23,7 @@
     "./styles/tokens.css": "./styles/tokens.css"
   },
   "dependencies": {
-    "@agent-native/core": "^0.6.0"
+    "@agent-native/core": "^0.7.10"
   },
   "devDependencies": {
     "@types/react": "^18.3.23",
