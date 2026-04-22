@@ -658,7 +658,8 @@ function generateRequireShim(): string {
     .map((m) => `"${m}":__${m.replace("/", "_")}`)
     .join(",");
 
-  return `${imports}\nconst __mods={${entries}};export var require=globalThis.require||function(m){const r=__mods[m];if(r!==undefined)return r;throw new Error("Cannot require: "+m)};\n`;
+  const messageChannelPolyfill = `if(typeof MessageChannel==="undefined"){globalThis.MessageChannel=class{constructor(){const a={onmessage:null},b={onmessage:null};a.postMessage=d=>{if(b.onmessage)setTimeout(()=>b.onmessage({data:d}),0)};b.postMessage=d=>{if(a.onmessage)setTimeout(()=>a.onmessage({data:d}),0)};this.port1=a;this.port2=b}}}`;
+  return `${imports}\n${messageChannelPolyfill}\nconst __mods={${entries}};export var require=globalThis.require||function(m){const r=__mods[m];if(r!==undefined)return r;throw new Error("Cannot require: "+m)};\n`;
 }
 
 function findEsbuild(): string {
