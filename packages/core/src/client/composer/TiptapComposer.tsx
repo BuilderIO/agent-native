@@ -72,7 +72,12 @@ interface TiptapComposerProps {
   /** Selected model override for this conversation */
   selectedModel?: string;
   /** Available models grouped by provider */
-  availableModels?: Array<{ engine: string; label: string; models: string[] }>;
+  availableModels?: Array<{
+    engine: string;
+    label: string;
+    models: string[];
+    configured: boolean;
+  }>;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
 }
@@ -151,31 +156,18 @@ function ModeSelector({
   );
 }
 
-function shortModelName(model: string): string {
-  if (model.startsWith("claude-opus-4")) return "Opus 4";
-  if (model.startsWith("claude-sonnet-4")) return "Sonnet 4";
-  if (model.startsWith("claude-haiku-4")) return "Haiku 4";
-  if (model.startsWith("claude-opus")) return "Opus";
-  if (model.startsWith("claude-sonnet")) return "Sonnet";
-  if (model.startsWith("claude-haiku")) return "Haiku";
-  if (model === "gpt-4o") return "GPT-4o";
-  if (model === "gpt-4o-mini") return "GPT-4o mini";
-  if (model === "gpt-4-turbo") return "GPT-4 Turbo";
-  if (model.startsWith("o1")) return "o1";
-  if (model.startsWith("o3")) return "o3";
-  if (model.startsWith("gemini-2.0-flash")) return "Gemini 2.0 Flash";
-  if (model.startsWith("gemini-2.0-pro")) return "Gemini 2.0 Pro";
-  if (model.startsWith("gemini-1.5")) return "Gemini 1.5";
-  return model; // fallback: show full name
-}
-
 function ModelSelector({
   model,
   engines,
   onChange,
 }: {
   model: string;
-  engines: Array<{ engine: string; label: string; models: string[] }>;
+  engines: Array<{
+    engine: string;
+    label: string;
+    models: string[];
+    configured: boolean;
+  }>;
   onChange: (model: string, engine: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -187,7 +179,7 @@ function ModelSelector({
           type="button"
           className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50"
         >
-          {shortModelName(model)}
+          {model}
           <IconChevronDown className="h-3 w-3 opacity-60" />
         </button>
       </PopoverPrimitive.Trigger>
@@ -201,23 +193,41 @@ function ModelSelector({
         >
           {engines.map((group) => (
             <div key={group.engine}>
-              <div className="px-3 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-                {group.label}
+              <div className="flex items-center gap-2 px-3 py-1.5">
+                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                  {group.label}
+                </span>
+                {!group.configured && (
+                  <span className="text-[10px] text-muted-foreground/60">
+                    needs API key
+                  </span>
+                )}
               </div>
               {group.models.map((m) => (
                 <button
                   key={m}
                   type="button"
                   onClick={() => {
+                    if (!group.configured) {
+                      window.dispatchEvent(
+                        new CustomEvent("agent-panel:open-settings"),
+                      );
+                      setOpen(false);
+                      return;
+                    }
                     onChange(m, group.engine);
                     setOpen(false);
                   }}
-                  className="flex w-full items-center gap-3 px-3 py-1.5 hover:bg-accent/50 text-left"
+                  className={`flex w-full items-center gap-3 px-3 py-1.5 text-left ${
+                    group.configured
+                      ? "hover:bg-accent/50"
+                      : "opacity-40 cursor-default"
+                  }`}
                 >
                   <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                    {shortModelName(m)}
+                    {m}
                   </span>
-                  {m === model && (
+                  {m === model && group.configured && (
                     <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
                   )}
                 </button>
