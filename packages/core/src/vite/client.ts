@@ -29,6 +29,69 @@ function hasDep(pkg: string, cwd: string): boolean {
 }
 
 /**
+ * Build the `resolve.dedupe` list dynamically. Reads core's package.json and
+ * collects every peerDependency that the consuming app also declares. This
+ * ensures Vite resolves them from the app root, not from core's own
+ * node_modules — preventing duplicate React context / singleton issues.
+ */
+function getClientDedupe(cwd: string): string[] {
+  // Always dedupe React internals (sub-path exports aren't in peerDeps)
+  const always = new Set(["react", "react-dom", "react-dom/client"]);
+
+  // Server-only packages that never run in the browser — no point deduping.
+  const serverOnly = new Set([
+    "drizzle-kit",
+    "node-pty",
+    "postgres",
+    "ws",
+    "typescript",
+    "vite",
+    "@vitejs/plugin-react-swc",
+    "tailwindcss",
+    "@tailwindcss/vite",
+  ]);
+
+  try {
+    const corePkgPath = path.resolve(__dirname, "../../package.json");
+    const corePkg = JSON.parse(fs.readFileSync(corePkgPath, "utf-8"));
+
+    // Scan both peerDependencies and dependencies. Direct deps like
+    // @radix-ui/* use React internally — they must resolve against the
+    // app's React, not a second copy inside core's node_modules.
+    const coreDeps = new Set([
+      ...Object.keys(corePkg.peerDependencies ?? {}),
+      ...Object.keys(corePkg.dependencies ?? {}),
+    ]);
+
+    // Read the consuming app's dependencies
+    const appPkg = JSON.parse(
+      fs.readFileSync(path.join(cwd, "package.json"), "utf-8"),
+    );
+    const appDeps = new Set([
+      ...Object.keys(appPkg.dependencies ?? {}),
+      ...Object.keys(appPkg.devDependencies ?? {}),
+    ]);
+
+    for (const dep of coreDeps) {
+      if (serverOnly.has(dep)) continue;
+      // Dedupe if the app also declares it, OR if it's a React-based
+      // UI library (Radix, Tanstack) that must share the app's React.
+      if (
+        appDeps.has(dep) ||
+        dep.startsWith("@radix-ui/") ||
+        dep.startsWith("@tanstack/")
+      ) {
+        always.add(dep);
+      }
+    }
+  } catch {
+    // Can't read package.json — fall back to known singletons
+  }
+
+  return [...always];
+}
+
+/**
  * In monorepo dev mode, resolve @agent-native/core imports to source (src/)
  * instead of dist/ so that Vite HMR picks up changes without rebuilding.
  *
@@ -641,20 +704,12 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
         : {}),
     },
     resolve: {
-      // Dedupe React and Radix — without this, a second copy of React can get
-      // loaded from `packages/core`'s own node_modules (via pnpm symlinks),
-      // which breaks hooks-based libraries like Radix Select with "Invalid
-      // hook call" / "Cannot read properties of null (reading 'useMemo')".
-      dedupe: [
-        "react",
-        "react-dom",
-        "react-dom/client",
-        "@tanstack/react-query",
-        "@radix-ui/react-select",
-        "@radix-ui/react-popover",
-        "@radix-ui/react-tooltip",
-        "@radix-ui/react-dialog",
-      ],
+      // Dedupe all client-side packages that core shares with the consuming
+      // app. In pnpm monorepos, core's devDependencies can install separate
+      // copies (linked to different React versions). Without deduping, each
+      // copy creates its own React context — QueryClientProvider, RouterProvider,
+      // Radix, etc. — causing "No provider" crashes at runtime.
+      dedupe: getClientDedupe(cwd),
       alias: [
         // In monorepo dev: resolve @agent-native/core to source for HMR.
         // Uses regex with $ anchor for exact matching to prevent

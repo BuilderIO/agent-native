@@ -23,7 +23,7 @@ interface BuilderRunResult {
   status: string;
 }
 
-const WAITLIST_URL = "https://www.builder.io/c/waitlist";
+const WAITLIST_URL = "https://forms.agent-native.com/f/builder-waitlist/36GWqf";
 
 /**
  * Builder.io monogram. Simple B letterform on a dark rounded tile.
