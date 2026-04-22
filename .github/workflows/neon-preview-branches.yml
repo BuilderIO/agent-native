@@ -66,6 +66,7 @@ jobs:
       - name: Set NETLIFY_DATABASE_URL for deploy previews
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NEON_DB_URL: ${{ steps.neon.outputs.db_url_pooled }}
         run: |
           # Set the branch DB URL as NETLIFY_DATABASE_URL in the deploy-preview context.
           # Netlify's auto-deploy will pick this up via the shell expansion in netlify.toml.
@@ -73,7 +74,7 @@ jobs:
             -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
             -H "Content-Type: application/json" \
             "https://api.netlify.com/api/v1/accounts/${{ secrets.NETLIFY_ACCOUNT_ID }}/env?site_id=${{ matrix.netlify_site }}" \
-            -d '[{"key":"NETLIFY_DATABASE_URL","scopes":["builds","functions","runtime"],"values":[{"value":"${{ steps.neon.outputs.db_url_with_pooler }}","context":"deploy-preview"}]}]' \
+            -d '[{"key":"NETLIFY_DATABASE_URL","scopes":["builds","functions","runtime"],"values":[{"value":"'"$NEON_DB_URL"'","context":"deploy-preview"}]}]' \
             || echo "Env var may already exist, trying PATCH..."
 
           # If it already exists, update the deploy-preview value
@@ -81,7 +82,7 @@ jobs:
             -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
             -H "Content-Type: application/json" \
             "https://api.netlify.com/api/v1/accounts/${{ secrets.NETLIFY_ACCOUNT_ID }}/env/NETLIFY_DATABASE_URL?site_id=${{ matrix.netlify_site }}" \
-            -d '{"value":"${{ steps.neon.outputs.db_url_with_pooler }}","context":"deploy-preview"}' \
+            -d '{"value":"'"$NEON_DB_URL"'","context":"deploy-preview"}' \
             || true
 
   delete-branches:
