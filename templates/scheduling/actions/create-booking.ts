@@ -25,7 +25,7 @@ export default defineAction({
     guests: z
       .array(z.object({ name: z.string(), email: z.string() }))
       .optional(),
-    customResponses: z.record(z.any()).optional(),
+    customResponses: z.record(z.string(), z.any()).optional(),
     description: z.string().optional(),
   }),
   run: async (args) => {

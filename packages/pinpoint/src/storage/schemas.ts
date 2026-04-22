@@ -15,9 +15,9 @@ export const ElementInfoSchema = z.object({
     width: z.number(),
     height: z.number(),
   }),
-  computedStyles: z.record(z.string()).optional(),
-  ariaAttributes: z.record(z.string()).optional(),
-  dataAttributes: z.record(z.string()).optional(),
+  computedStyles: z.record(z.string(), z.string()).optional(),
+  ariaAttributes: z.record(z.string(), z.string()).optional(),
+  dataAttributes: z.record(z.string(), z.string()).optional(),
   domPath: z.string().optional(),
 });
 

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { Check, Loader2, Database, Cloud, ChevronRight } from "lucide-react";
+import { Check, LoaderCircle, Database, Cloud, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -292,7 +292,7 @@ export function CloudUpgrade({
         >
           {isConnecting ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <LoaderCircle className="h-4 w-4 animate-spin" />
               <span>
                 {status === "saving"
                   ? "Saving credentials..."

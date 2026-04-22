@@ -22,8 +22,8 @@
     "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
-    "nanoid": "^4.0.2",
-    "zod": "^3.25.76"
+    "nanoid": "^5.1.9",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@radix-ui/react-accordion": "^1.2.12",
@@ -56,7 +56,7 @@
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
     "@tailwindcss/vite": "catalog:",
-    "@tanstack/react-query": "^5.84.2",
+    "@tanstack/react-query": "^5.99.2",
     "@types/node": "^24.2.1",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
@@ -65,18 +65,18 @@
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "drizzle-kit": "^0.31.10",
-    "lucide-react": "^0.539.0",
+    "lucide-react": "^1.8.0",
     "next-themes": "^0.4.6",
     "prettier": "^3.6.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router": "^7.13.1",
-    "sonner": "^1.7.4",
-    "tailwind-merge": "^2.6.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",
     "tsx": "^4.20.3",
-    "typescript": "^5.9.2",
+    "typescript": "^6.0.3",
     "vite": "^8.0.0",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.5"
   }
 }
