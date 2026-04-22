@@ -158,6 +158,77 @@ Core routes plugin mounts these under `/_agent-native/secrets/` automatically:
   If neither is set, the framework uses a machine-local fallback and logs a
   one-time warning — set `SECRETS_ENCRYPTION_KEY` in production.
 
+## Ad-hoc Keys
+
+Ad-hoc keys are user-created secrets that are not declared by the template.
+Users create them through the settings UI or the agent chat to use with
+automations and the `web-request` tool. They support `${keys.NAME}`
+substitution in outbound HTTP requests.
+
+### Ad-hoc API
+
+Core routes plugin mounts these under `/_agent-native/secrets/adhoc`:
+
+- `GET /_agent-native/secrets/adhoc` — list all ad-hoc keys (name, last 4
+  chars, URL allowlist). Values are never returned.
+- `POST /_agent-native/secrets/adhoc` — body `{ name, value, urlAllowlist? }`.
+  Creates or updates an ad-hoc key.
+- `DELETE /_agent-native/secrets/adhoc/:name` — remove an ad-hoc key.
+
+### URL Allowlists
+
+Each ad-hoc key can have a URL allowlist — an array of origin URLs that
+restrict where the key's value can be sent. The check is origin-level
+(scheme + host + port). If no allowlist is configured, the key can be used
+with any URL.
+
+```ts
+// Creating a key with an allowlist
+POST /_agent-native/secrets/adhoc
+{
+  "name": "SLACK_WEBHOOK",
+  "value": "https://hooks.slack.com/services/T00/B00/xxxx",
+  "urlAllowlist": ["https://hooks.slack.com"]
+}
+```
+
+### `${keys.NAME}` Substitution
+
+The `web-request` tool supports `${keys.NAME}` placeholders in the URL,
+headers, and body. Substitution happens server-side after the agent emits
+the tool call — the raw secret value never enters the agent's context.
+
+```ts
+import {
+  resolveKeyReferences,
+  validateUrlAllowlist,
+} from "@agent-native/core/secrets/substitution";
+
+// Resolve all ${keys.NAME} references in a string
+const { resolved, usedKeys } = await resolveKeyReferences(
+  "Bearer ${keys.API_TOKEN}",
+  "user",
+  "steve@builder.io",
+);
+
+// Validate a URL against a key's allowlist
+const allowed = validateUrlAllowlist(
+  "https://hooks.slack.com/services/T00/B00/xxxx",
+  ["https://hooks.slack.com"],
+);
+```
+
+Key resolution falls back from user scope to workspace scope, so users can
+override shared keys without breaking automations that reference workspace
+defaults.
+
+### Key Files (ad-hoc)
+
+| File                                           | Purpose                                     |
+| ---------------------------------------------- | ------------------------------------------- |
+| `packages/core/src/secrets/substitution.ts`    | `resolveKeyReferences()`, `validateUrlAllowlist()` |
+| `packages/core/src/tools/fetch-tool.ts`        | `web-request` tool consuming key references |
+
 ## Related skills
 
 - `onboarding` — the setup checklist that required secrets show up in.
@@ -165,3 +236,4 @@ Core routes plugin mounts these under `/_agent-native/secrets/` automatically:
 - `authentication` — session scoping; `scope: "user"` uses the session
   email.
 - `security` — input validation and never logging secrets.
+- `automations` — ad-hoc keys power `${keys.NAME}` in automation web requests.
