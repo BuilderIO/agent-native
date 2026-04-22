@@ -116,12 +116,11 @@ const PROVIDER_SUPPORTED_MODELS: Record<AISDKProvider, readonly string[]> = {
     "claude-sonnet-4-6",
     "claude-haiku-4-5-20251001",
   ],
-  openai: ["gpt-5.4", "gpt-5.4-mini", "o3", "o4-mini"],
+  openai: ["gpt-5.4", "gpt-5.4-mini"],
   openrouter: [
     "anthropic/claude-opus-4.7",
     "anthropic/claude-sonnet-4.6",
     "openai/gpt-5.4",
-    "openai/o3",
     "google/gemini-2.5-flash",
   ],
   google: [
