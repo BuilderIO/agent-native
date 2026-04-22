@@ -2637,6 +2637,8 @@ export function createAgentChatPlugin(
             ...callAgentScript,
             ...teamTools,
             ...jobTools,
+            ...automationTools,
+            ...fetchTool,
             ...browserTools,
             ...mcpActionEntries,
             ...(await createDevScriptRegistry()),
