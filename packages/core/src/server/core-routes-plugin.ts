@@ -47,6 +47,7 @@ import {
   createAdHocSecretHandler,
 } from "../secrets/routes.js";
 import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
+import { registerBuiltinProviders } from "../tracking/providers.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 
 /**
@@ -104,6 +105,7 @@ export function createCoreRoutesPlugin(
     // transcription, etc.). Each registration is guarded so templates that
     // already registered the same key win.
     registerFrameworkSecrets();
+    registerBuiltinProviders();
 
     const P = FRAMEWORK_ROUTE_PREFIX;
 
