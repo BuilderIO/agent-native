@@ -71,7 +71,7 @@
     "src/templates"
   ],
   "scripts": {
-    "build": "tsc && rm -rf dist/templates && cp -r src/templates dist/templates && mkdir -p dist/styles && cp src/styles/*.css dist/styles/",
+    "build": "tsc && node scripts/finalize-build.mjs",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run",

@@ -146,3 +146,17 @@ const proc = spawn(
 );
 
 proc.on("exit", (code) => process.exit(code ?? 0));
+
+// Forward signals to concurrently so Cmd+C doesn't leave zombie processes holding ports
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+  process.on(sig, () => {
+    proc.kill(sig);
+    setTimeout(() => {
+      try {
+        proc.kill("SIGKILL");
+      } catch {}
+      killPortProcesses();
+      process.exit(1);
+    }, 5000).unref();
+  });
+}

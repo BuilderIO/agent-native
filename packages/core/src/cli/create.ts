@@ -141,6 +141,8 @@ async function createWorkspaceInteractive(
     throw err;
   }
 
+  tryGitInit(targetDir);
+
   const firstApp = templates[0];
   clack.outro(
     [
@@ -341,6 +343,8 @@ async function createStandaloneApp(
     s.stop("Failed to create app.");
     throw err;
   }
+
+  tryGitInit(targetDir);
 
   clack.outro(`Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`);
 }
@@ -711,6 +715,31 @@ function fixPackageJsonName(appDir: string, name: string): void {
     pkg.name = name;
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   } catch {}
+}
+
+function tryGitInit(dir: string): boolean {
+  try {
+    execFileSync("git", ["init"], { cwd: dir, stdio: "pipe" });
+    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "pipe" });
+    execFileSync(
+      "git",
+      ["commit", "-m", "Initial commit from agent-native create"],
+      {
+        cwd: dir,
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "agent-native",
+          GIT_AUTHOR_EMAIL: "noreply@agent-native.dev",
+          GIT_COMMITTER_NAME: "agent-native",
+          GIT_COMMITTER_EMAIL: "noreply@agent-native.dev",
+        },
+      },
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function renameGitignore(dir: string): void {

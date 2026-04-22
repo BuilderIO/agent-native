@@ -116,11 +116,20 @@ export async function awaitBootstrap(nitroApp: any): Promise<void> {
  */
 export function trackPluginInit(nitroApp: any, promise: Promise<void>): void {
   if (!nitroApp) return;
+  // Attach a no-op catch so the promise doesn't surface as an unhandled
+  // rejection when Nitro v3 drops the async return value. The actual error
+  // is still observable when awaitPluginsReady() re-awaits the promise.
+  const safe = promise.catch((err) => {
+    console.error(
+      "[agent-native] Plugin init failed:",
+      (err as Error).message || err,
+    );
+  });
   const existing = nitroApp[PLUGIN_READY_KEY] as Promise<void>[] | undefined;
   if (existing) {
-    existing.push(promise);
+    existing.push(safe);
   } else {
-    nitroApp[PLUGIN_READY_KEY] = [promise];
+    nitroApp[PLUGIN_READY_KEY] = [safe];
   }
 }
 
