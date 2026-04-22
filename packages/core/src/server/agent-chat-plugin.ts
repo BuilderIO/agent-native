@@ -2460,6 +2460,52 @@ export function createAgentChatPlugin(
         } catch {
           // Event bus not available — skip
         }
+
+        // Auto-checkpoint in dev mode after file-modifying agent turns
+        if (isDevMode()) {
+          try {
+            const {
+              createCheckpoint: gitCheckpoint,
+              isGitRepo,
+              hasUncommittedChanges,
+            } = await import("../checkpoints/service.js");
+            const cwd = process.cwd();
+            if (isGitRepo(cwd) && hasUncommittedChanges(cwd)) {
+              const toolNames = new Set<string>();
+              for (const { event } of run.events ?? []) {
+                if (
+                  event.type === "tool_start" &&
+                  typeof event.tool === "string"
+                ) {
+                  toolNames.add(event.tool);
+                }
+              }
+              const summary =
+                toolNames.size > 0
+                  ? `Used: ${[...toolNames].join(", ")}`
+                  : "Agent turn";
+              const sha = gitCheckpoint(
+                cwd,
+                `[agent-native] ${summary}`,
+              );
+              if (sha) {
+                const { insertCheckpoint } = await import(
+                  "../checkpoints/store.js"
+                );
+                const cpId = `cp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                await insertCheckpoint(
+                  cpId,
+                  threadId,
+                  run.runId,
+                  sha,
+                  summary,
+                );
+              }
+            }
+          } catch {
+            // Checkpointing is best-effort — never break the run
+          }
+        }
       };
 
       // ─── Agent Teams: per-run send reference ─────────────────────────

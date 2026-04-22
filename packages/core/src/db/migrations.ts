@@ -223,14 +223,18 @@ export function runMigrations(
       }
     } catch (err) {
       console.error("[db] Migration failed:", (err as Error).message);
-      // In Node.js, hard-fail so dev catches errors immediately. On web
-      // runtimes (Cloudflare Workers, Netlify Functions) we keep the
-      // process alive — the app will return 500s for routes that depend
-      // on the missing tables, but at least other routes still work.
-      if (
-        typeof globalThis.process?.exit === "function" &&
-        !globalThis.navigator
-      ) {
+      // In local dev, hard-fail so the developer catches errors immediately.
+      // On serverless runtimes (Netlify Functions, Vercel, CF Workers) we
+      // keep the process alive — the app will return 500s for routes that
+      // depend on the missing tables, but at least other routes still work.
+      // Note: Node.js 21+ defines globalThis.navigator, so we check for
+      // serverless env vars instead of navigator presence.
+      const isServerless =
+        !!globalThis.process?.env?.NETLIFY ||
+        !!globalThis.process?.env?.AWS_LAMBDA_FUNCTION_NAME ||
+        !!globalThis.process?.env?.VERCEL ||
+        "__cf_env" in globalThis;
+      if (typeof globalThis.process?.exit === "function" && !isServerless) {
         process.exit(1);
       }
     }
