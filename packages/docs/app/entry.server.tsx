@@ -1,6 +1,5 @@
 import type { AppLoadContext, EntryContext } from "react-router";
 import { ServerRouter } from "react-router";
-// @ts-expect-error - react-dom/server.browser lacks type declarations
 import ReactDOMServer from "react-dom/server.browser";
 const { renderToReadableStream } = ReactDOMServer;
 import { isbot } from "isbot";
