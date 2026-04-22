@@ -1,3 +1,6 @@
+// Force production mode — hides onboarding steps and dev mode toggle
+process.env.AGENT_MODE = "production";
+
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
