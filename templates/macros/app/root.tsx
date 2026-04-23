@@ -14,6 +14,13 @@ import { TAB_ID } from "@/lib/tab-id";
 import { AppLayout } from "@/components/layout/AppLayout";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+import { configureTracking } from "@agent-native/core/client";
+configureTracking({
+  getDefaultProps: (_name, properties) => ({
+    ...properties,
+    app: "agent-native-macros",
+  }),
+});
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
