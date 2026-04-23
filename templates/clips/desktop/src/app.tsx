@@ -229,11 +229,6 @@ export function App() {
     await loadDevices();
   }, [loadDevices]);
 
-  useEffect(() => {
-    loadDevices();
-    unlockDeviceLabels();
-  }, [loadDevices, unlockDeviceLabels]);
-
   // ---- Esc closes the popover --------------------------------------------
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -319,6 +314,20 @@ export function App() {
       unlistens.length = 0;
     };
   }, []);
+
+  // Defer device-label unlocking until the popover is first shown. The
+  // getUserMedia({audio}) call triggers a macOS permission dialog — if it
+  // fires on mount (before the popover is visible), the OS dialog appears
+  // with no visible app context and can interfere with the tray icon and
+  // subsequent popover shows.
+  const deviceLabelsUnlocked = useRef(false);
+  useEffect(() => {
+    loadDevices();
+    if (popoverVisible && !deviceLabelsUnlocked.current) {
+      deviceLabelsUnlocked.current = true;
+      unlockDeviceLabels();
+    }
+  }, [loadDevices, unlockDeviceLabels, popoverVisible]);
 
   // ---- camera bubble session ---------------------------------------------
   // The bubble overlay (small circular PiP in the bottom-left of the screen

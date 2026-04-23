@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Clips",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.clips.tray",
   "build": {
     "beforeDevCommand": "pnpm vite:dev",
@@ -27,8 +27,8 @@
         "shadow": false,
         "center": false,
         "acceptFirstMouse": true,
-        "x": 99999,
-        "y": 99999
+        "x": 2,
+        "y": 2
       }
     ],
     "security": {
