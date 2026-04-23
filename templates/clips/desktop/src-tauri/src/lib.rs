@@ -129,6 +129,7 @@ fn build_overlay_url(path: &str) -> WebviewUrl {
 #[tauri::command]
 async fn show_countdown(app: AppHandle) -> Result<(), String> {
     eprintln!("[clips-tray] show_countdown invoked");
+    mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
         let _ = existing.close();
     }
@@ -215,6 +216,9 @@ async fn hide_finalizing(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     eprintln!("[clips-tray] show_toolbar invoked");
+    // Reset the blur guard — spawning an overlay can briefly steal focus
+    // from the popover on some macOS versions even with .focused(false).
+    mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(TOOLBAR_LABEL) {
         let _ = existing.show();
         let _ = existing.set_focus();
@@ -467,6 +471,9 @@ async fn save_bubble_position(app: AppHandle, x: i32, y: i32) -> Result<(), Stri
 #[tauri::command]
 async fn show_bubble(app: AppHandle) -> Result<(), String> {
     eprintln!("[clips-tray] show_bubble invoked");
+    // Reset the blur guard — getUserMedia for the camera can trigger a
+    // macOS permission dialog that steals focus from the popover.
+    mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(BUBBLE_LABEL) {
         let _ = existing.show();
         eprintln!("[clips-tray] bubble reused");

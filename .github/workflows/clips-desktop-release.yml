@@ -71,9 +71,19 @@ jobs:
       - name: Bump version
         if: inputs.version != ''
         working-directory: ${{ env.TAURI_APP_PATH }}
+        shell: bash
         env:
           RELEASE_VERSION: ${{ inputs.version }}
-        run: npm version "$RELEASE_VERSION" --no-git-tag-version
+        run: |
+          npm version "$RELEASE_VERSION" --no-git-tag-version
+          node -e "
+            const fs = require('fs');
+            const tc = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
+            tc.version = '$RELEASE_VERSION';
+            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(tc, null, 2) + '\n');
+            const cargo = fs.readFileSync('src-tauri/Cargo.toml','utf8');
+            fs.writeFileSync('src-tauri/Cargo.toml', cargo.replace(/^version = \".*\"/m, 'version = \"$RELEASE_VERSION\"'));
+          "
 
       - name: Resolve version
         id: resolve-version

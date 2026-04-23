@@ -4,11 +4,8 @@ import {
   IconBrandWindows,
   IconDownload,
   IconPlayerRecord,
-  IconKeyboard,
-  IconRefresh,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 
 export function meta() {
   return [
@@ -27,8 +24,6 @@ interface PlatformVariant {
   id: PlatformId;
   label: string;
   sublabel: string;
-  // Asset kinds (as classified by the server) that satisfy this variant.
-  // First match wins when picking the download URL.
   assetKinds: readonly (
     | "mac-universal"
     | "mac-arm64"
@@ -39,15 +34,8 @@ interface PlatformVariant {
   icon: typeof IconBrandApple;
 }
 
-// Same-origin endpoint that returns the latest `clips-v*` GitHub release
-// metadata with each asset classified as a specific installer kind. See
-// `server/routes/api/clips-latest.json.get.ts`.
 const LATEST_JSON_URL = "/api/clips-latest.json";
 
-// Fallback link when the manifest is unavailable — the all-releases
-// listing filtered to the `clips-v*` versioned releases, which is where
-// the actual installer files live. This is a real, browsable HTML URL
-// (NOT the JSON manifest), so the button never serves JSON by mistake.
 const RELEASE_PAGE_URL =
   "https://github.com/BuilderIO/agent-native/releases?q=clips-v";
 
@@ -101,6 +89,46 @@ function pickAsset(
   return null;
 }
 
+function downloadButton(
+  variant: PlatformVariant,
+  manifest: Manifest | null,
+  manifestError: boolean,
+) {
+  const asset = pickAsset(manifest, variant);
+  const Icon = variant.icon;
+  if (asset) {
+    return (
+      <Button asChild size="lg" className="h-12 gap-2 px-6 text-base">
+        <a href={asset.url} download>
+          <Icon className="h-5 w-5" />
+          Download for {variant.label}
+        </a>
+      </Button>
+    );
+  }
+  if (manifest === null && !manifestError) {
+    return (
+      <Button size="lg" className="h-12 gap-2 px-6 text-base" disabled>
+        <Icon className="h-5 w-5" />
+        Loading…
+      </Button>
+    );
+  }
+  return (
+    <Button
+      asChild
+      size="lg"
+      variant="outline"
+      className="h-12 gap-2 px-6 text-base"
+    >
+      <a href={RELEASE_PAGE_URL} rel="noreferrer">
+        <Icon className="h-5 w-5" />
+        Download for {variant.label}
+      </a>
+    </Button>
+  );
+}
+
 export default function DownloadPage() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
@@ -108,10 +136,6 @@ export default function DownloadPage() {
 
   useEffect(() => {
     let cancelled = false;
-    // Use default browser caching — the server sets `cache-control:
-    // max-age=60`, and there's a process-wide 5-minute cache behind
-    // it. Forcing `no-cache` would bypass both and amplify load on
-    // the GitHub REST upstream (60 req/hr/IP rate limit).
     fetch(LATEST_JSON_URL)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
       .then((json) => {
@@ -126,8 +150,7 @@ export default function DownloadPage() {
   }, []);
 
   const primary = VARIANTS.find((v) => v.id === detected) ?? VARIANTS[0];
-  const others = VARIANTS.filter((v) => v.id !== primary.id);
-  const primaryAsset = pickAsset(manifest, primary);
+  const secondary = VARIANTS.find((v) => v.id !== primary.id)!;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -159,32 +182,9 @@ export default function DownloadPage() {
             you stop.
           </p>
 
-          <div className="mt-10 flex flex-col items-center gap-3">
-            {primaryAsset ? (
-              <Button asChild size="lg" className="h-12 gap-2 px-6 text-base">
-                <a href={primaryAsset.url} download>
-                  <primary.icon className="h-5 w-5" />
-                  Download for {primary.label}
-                </a>
-              </Button>
-            ) : manifest === null && !manifestError ? (
-              <Button size="lg" className="h-12 gap-2 px-6 text-base" disabled>
-                <primary.icon className="h-5 w-5" />
-                Loading latest release…
-              </Button>
-            ) : (
-              <Button
-                asChild
-                size="lg"
-                variant="outline"
-                className="h-12 gap-2 px-6 text-base"
-              >
-                <a href={RELEASE_PAGE_URL} rel="noreferrer">
-                  <primary.icon className="h-5 w-5" />
-                  Get the latest release
-                </a>
-              </Button>
-            )}
+          <div className="mt-10 flex flex-col items-center gap-4">
+            {downloadButton(primary, manifest, manifestError)}
+            {downloadButton(secondary, manifest, manifestError)}
             <div className="text-xs text-muted-foreground">
               {manifest ? (
                 <>
@@ -204,80 +204,7 @@ export default function DownloadPage() {
             </div>
           </div>
         </div>
-
-        <div className="mt-16 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {others.map((v) => {
-            const asset = pickAsset(manifest, v);
-            const Icon = v.icon;
-            return (
-              <Card
-                key={v.id}
-                className="flex items-center gap-3 border border-border bg-muted/20 p-4"
-              >
-                <span className="grid h-9 w-9 place-items-center rounded-md bg-background">
-                  <Icon className="h-5 w-5" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{v.label}</div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {v.sublabel}
-                  </div>
-                </div>
-                {asset ? (
-                  <a
-                    href={asset.url}
-                    download
-                    className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-                  >
-                    <IconDownload className="h-4 w-4" />
-                    Get
-                  </a>
-                ) : (
-                  <span className="text-xs text-muted-foreground">
-                    Unavailable
-                  </span>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-
-        <section className="mt-20 grid grid-cols-1 gap-6 sm:grid-cols-3">
-          <Feature
-            icon={IconKeyboard}
-            title="Global shortcut"
-            body="Press ⌘⇧L anywhere to open the tray — start recording without switching windows."
-          />
-          <Feature
-            icon={IconRefresh}
-            title="Stays current"
-            body="New builds install themselves in the background and prompt you to restart. No manual updates."
-          />
-          <Feature
-            icon={IconPlayerRecord}
-            title="Camera bubble"
-            body="Screen + camera mode floats a draggable PiP of your face over everything you capture."
-          />
-        </section>
       </main>
-    </div>
-  );
-}
-
-function Feature({
-  icon: Icon,
-  title,
-  body,
-}: {
-  icon: typeof IconRefresh;
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="rounded-lg border border-border p-5">
-      <Icon className="mb-3 h-5 w-5 text-primary" />
-      <div className="text-sm font-semibold">{title}</div>
-      <p className="mt-1.5 text-sm text-muted-foreground">{body}</p>
     </div>
   );
 }
