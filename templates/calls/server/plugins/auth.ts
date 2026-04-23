@@ -3,6 +3,16 @@ import { createAuthPlugin } from "@agent-native/core/server";
 // Calls has public share pages, embeds, and view-event tracking that must
 // reach unauthenticated viewers. Everything else sits behind auth.
 export default createAuthPlugin({
+  marketing: {
+    appName: "Agent-Native Calls",
+    tagline:
+      "Your AI agent transcribes, summarizes, and surfaces key moments from every conversation.",
+    features: [
+      "Automatic recaps, action items, and next steps after every call",
+      "Smart trackers that detect competitor mentions, objections, and custom topics",
+      "Shareable snippets — clip and send the exact moment that matters",
+    ],
+  },
   publicPaths: [
     "/share",
     "/share-snippet",
