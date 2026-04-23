@@ -14,6 +14,13 @@ import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { TAB_ID } from "@/lib/tab-id";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+import { configureTracking } from "@agent-native/core/client";
+configureTracking({
+  getDefaultProps: (_name, properties) => ({
+    ...properties,
+    app: "agent-native-mail",
+  }),
+});
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },

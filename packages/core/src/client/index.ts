@@ -78,7 +78,11 @@ export { ErrorBoundary } from "./ErrorBoundary.js";
 export { ClientOnly } from "./ClientOnly.js";
 export { DefaultSpinner } from "./DefaultSpinner.js";
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
-export { trackEvent, trackSessionStatus } from "./analytics.js";
+export {
+  trackEvent,
+  trackSessionStatus,
+  configureTracking,
+} from "./analytics.js";
 export {
   useCollaborativeDoc,
   emailToColor,

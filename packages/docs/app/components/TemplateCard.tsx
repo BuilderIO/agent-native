@@ -1,16 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
+import { trackEvent } from "@agent-native/core/client";
 
-declare global {
-  interface Window {
-    gtag?: (...args: any[]) => void;
-  }
-}
-
-export function trackEvent(action: string, params: Record<string, string>) {
-  window.gtag?.("event", action, params);
-}
+export { trackEvent };
 
 export const templates = [
   {
@@ -104,7 +97,7 @@ function CliPopover({
   function handleCopy() {
     navigator.clipboard.writeText(template.cliCommand);
     setCopied(true);
-    trackEvent("copy_cli_command", {
+    trackEvent("copy cli command", {
       template: template.slug,
       location: "card",
     });
@@ -212,7 +205,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
           target="_blank"
           rel="noopener noreferrer"
           onClick={() =>
-            trackEvent("click_try_demo", {
+            trackEvent("click try demo", {
               template: template.slug,
               location: "card",
             })
@@ -240,7 +233,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
         ref={buttonRef}
         onClick={() => {
           if (!showCli)
-            trackEvent("click_run_locally", {
+            trackEvent("click run locally", {
               template: template.slug,
               location: "card",
             });
@@ -286,7 +279,7 @@ export function TemplateCard({ template }: { template: Template }) {
         to={`/templates/${template.slug}`}
         className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[4/3] items-center justify-center overflow-hidden border-b border-[var(--docs-border)] bg-[var(--bg-secondary)] transition hover:opacity-90"
         onClick={() =>
-          trackEvent("click_template", {
+          trackEvent("click template", {
             template: template.slug,
             location: "card",
           })

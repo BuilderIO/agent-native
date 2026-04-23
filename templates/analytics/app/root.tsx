@@ -14,6 +14,13 @@ import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+import { configureTracking } from "@agent-native/core/client";
+configureTracking({
+  getDefaultProps: (_name, properties) => ({
+    ...properties,
+    app: "agent-native-analytics",
+  }),
+});
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },

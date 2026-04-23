@@ -15,6 +15,13 @@ import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+import { configureTracking } from "@agent-native/core/client";
+configureTracking({
+  getDefaultProps: (_name, properties) => ({
+    ...properties,
+    app: "agent-native-content",
+  }),
+});
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },

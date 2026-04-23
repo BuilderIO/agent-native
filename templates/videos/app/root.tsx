@@ -11,6 +11,13 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+import { configureTracking } from "@agent-native/core/client";
+configureTracking({
+  getDefaultProps: (_name, properties) => ({
+    ...properties,
+    app: "agent-native-videos",
+  }),
+});
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },

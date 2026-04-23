@@ -34,7 +34,7 @@ function CliCopy() {
   function handleCopy() {
     navigator.clipboard.writeText(template.cliCommand);
     setCopied(true);
-    trackEvent("copy_cli_command", {
+    trackEvent("copy cli command", {
       template: template.slug,
       location: "landing_page",
     });
@@ -133,7 +133,7 @@ export default function VideoTemplate() {
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() =>
-                  trackEvent("click_try_demo", {
+                  trackEvent("click try demo", {
                     template: template.slug,
                     location: "landing_page",
                   })

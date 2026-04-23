@@ -94,7 +94,7 @@ export default function DownloadPage() {
   const info = PLATFORMS[platform];
 
   function handleDownload(label: string) {
-    trackEvent("desktop_download", { platform, label });
+    trackEvent("desktop download", { platform, label });
   }
 
   return (

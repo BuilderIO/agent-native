@@ -32,7 +32,7 @@ export default function TemplatesPage() {
         <a
           href="/docs"
           onClick={() =>
-            trackEvent("create_your_own", { location: "templates_index" })
+            trackEvent("create your own", { location: "templates_index" })
           }
           className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
         >

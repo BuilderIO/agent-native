@@ -24,6 +24,13 @@ import {
 import { InvitationBanner } from "@agent-native/core/client/org";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
+import { configureTracking } from "@agent-native/core/client";
+configureTracking({
+  getDefaultProps: (_name, properties) => ({
+    ...properties,
+    app: "agent-native-slides",
+  }),
+});
 
 /** Routes that render without the AgentSidebar / app shell */
 const BARE_ROUTES = new Set(["/slide"]);
