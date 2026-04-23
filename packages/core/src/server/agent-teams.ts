@@ -106,20 +106,25 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     title: opts.description.slice(0, 100),
   });
 
-  // Save the initial user message to thread data so the tab shows content immediately.
-  // Format must match assistant-ui's threadRuntime.import() expectations:
-  // content must be an array of parts, not a plain string.
+  // Save the initial user message to thread data so the tab shows content
+  // immediately. Shape must match assistant-ui's ExportedMessageRepository —
+  // each entry carries an explicit `parentId` so the runtime threads messages
+  // into a linked list; without it, later assistant messages render as
+  // orphaned siblings and only the one under `headId` is shown.
+  const userMsgId = `msg-${taskId}-user`;
   try {
     const { updateThreadData } = await import("../chat-threads/store.js");
     const threadData = JSON.stringify({
+      headId: userMsgId,
       messages: [
         {
           message: {
-            id: `msg-${Date.now()}-user`,
+            id: userMsgId,
             role: "user",
             content: [{ type: "text", text: opts.description }],
             metadata: {},
           },
+          parentId: null,
         },
       ],
     });
@@ -288,22 +293,28 @@ You are a focused sub-agent with a specific task. You have been given a curated 
           content: [{ type: "text", text: opts.description }],
           metadata: {},
         };
-        const repo: {
-          messages: Array<{ message: Record<string, unknown> }>;
-        } = { messages: [{ message: userMsg }] };
-
         const assistantMsg = buildAssistantMessage(
           run.events ?? [],
           `task-${taskId}`,
         );
+        // Chain assistant → user via parentId so assistant-ui renders them
+        // as a linked conversation, not orphaned siblings. headId points to
+        // the leaf (assistant if present, otherwise the user message).
+        const messages: Array<{
+          message: Record<string, unknown>;
+          parentId: string | null;
+        }> = [{ message: userMsg, parentId: null }];
         if (assistantMsg) {
-          repo.messages.push({
+          messages.push({
             message: {
               ...assistantMsg,
               status: { type: "complete", reason: "stop" },
             },
+            parentId: userMsg.id,
           });
         }
+        const headId = assistantMsg?.id ?? (userMsg.id as string | undefined);
+        const repo = { headId, messages };
 
         const title = opts.description.slice(0, 100);
         const preview = accumulatedText.slice(0, 200);

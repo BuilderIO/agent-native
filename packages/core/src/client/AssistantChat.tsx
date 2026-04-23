@@ -173,6 +173,10 @@ function loadHighlighter(): Promise<ShikiHighlighter> {
   return highlighterLoader;
 }
 
+import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
+
+const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
+
 // Map a few common aliases to languages we bundled above.
 const LANG_ALIASES: Record<string, string> = {
   js: "javascript",
@@ -1894,33 +1898,46 @@ const AssistantChatInner = forwardRef<
       window.removeEventListener("agent-chat:missing-api-key", handler);
   }, []);
 
-  // Proactively check if any LLM API key is configured on mount.
-  // Without this, users see suggestions and only discover the key is missing
-  // after their first message fails.
+  // Check on mount and whenever SettingsPanel dispatches
+  // `agent-engine:configured-changed` so the gate flips live without reload.
   useEffect(() => {
-    if (missingApiKey) return;
-    Promise.all([
-      fetch("/_agent-native/env-status")
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => []),
-      fetch("/_agent-native/builder/status")
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null),
-    ]).then(([envKeys, builderStatus]) => {
-      const keys = envKeys as Array<{ key: string; configured: boolean }>;
-      const llmKeys = keys.filter(
-        (k) =>
-          k.key === "ANTHROPIC_API_KEY" ||
-          k.key === "OPENAI_API_KEY" ||
-          k.key === "GOOGLE_GENERATIVE_AI_API_KEY",
-      );
-      const anyConfigured =
-        llmKeys.some((k) => k.configured) || builderStatus?.configured === true;
-      if (!anyConfigured && llmKeys.length > 0) {
-        setMissingApiKey(true);
+    let cancelled = false;
+    const check = async () => {
+      const [envKeys, builderStatus, engineStatus] = await Promise.all([
+        fetch("/_agent-native/env-status")
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        fetch("/_agent-native/builder/status")
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        fetch("/_agent-native/agent-engine/status")
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+      ]);
+      if (cancelled) return;
+      // All three status endpoints failed — avoid flashing the gate on a
+      // transient network error.
+      if (envKeys == null && builderStatus == null && engineStatus == null) {
+        return;
       }
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      const keys = (envKeys ?? []) as Array<{
+        key: string;
+        configured: boolean;
+      }>;
+      const llmKeys = keys.filter((k) => PROVIDER_ENV_VAR_SET.has(k.key));
+      const anyConfigured =
+        llmKeys.some((k) => k.configured) ||
+        builderStatus?.configured === true ||
+        engineStatus?.configured === true;
+      setMissingApiKey(!anyConfigured);
+    };
+    check();
+    window.addEventListener("agent-engine:configured-changed", check);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("agent-engine:configured-changed", check);
+    };
+  }, []);
 
   // Listen for auth error events from the adapter
   useEffect(() => {
@@ -2376,12 +2393,15 @@ const AssistantChatInner = forwardRef<
               <ComposerAttachmentPreviewStrip />
               <TiptapComposer
                 focusRef={tiptapRef}
+                disabled={missingApiKey}
                 placeholder={
-                  isRunning
-                    ? queuedMessages.length > 0
-                      ? `${queuedMessages.length} queued — type another...`
-                      : "Queue a message..."
-                    : undefined
+                  missingApiKey
+                    ? "Connect an AI engine above to start chatting…"
+                    : isRunning
+                      ? queuedMessages.length > 0
+                        ? `${queuedMessages.length} queued — type another...`
+                        : "Queue a message..."
+                      : undefined
                 }
                 onSubmit={
                   isRunning

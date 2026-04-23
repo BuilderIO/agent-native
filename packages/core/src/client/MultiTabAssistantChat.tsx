@@ -344,8 +344,7 @@ export function MultiTabAssistantChat({
     setSelectedModelForActiveThread(model);
   }, []);
 
-  // Fetch available engines/models on mount
-  useEffect(() => {
+  const refreshEngines = useCallback(() => {
     Promise.all([
       fetch("/_agent-native/actions/list-agent-engines", {
         method: "POST",
@@ -367,28 +366,49 @@ export function MultiTabAssistantChat({
             .map((k) => k.key),
         );
         const builderConnected = builderStatus?.configured === true;
-        const ALLOWED_ENGINES = ["anthropic", "ai-sdk:openai", "ai-sdk:google"];
-        const PROVIDER_LABELS: Record<string, string> = {
-          anthropic: "Anthropic",
-          "ai-sdk:openai": "OpenAI",
-          "ai-sdk:google": "Google",
-        };
+        const currentEngineName: string | undefined =
+          enginesData.current?.engine;
+        const currentModel: string | undefined = enginesData.current?.model;
+
+        // Prepend the active custom model string (OpenRouter/Ollama) so
+        // it shows up in the picker even when not in supportedModels.
         const groups: EngineModelGroup[] = enginesData.engines
-          .filter((e: any) => ALLOWED_ENGINES.includes(e.name))
-          .map((e: any) => ({
-            engine: e.name,
-            label: PROVIDER_LABELS[e.name] ?? e.label,
-            models: [...e.supportedModels],
-            configured:
-              e.requiredEnvVars.length === 0 ||
-              e.requiredEnvVars.some((v: string) => configuredKeys.has(v)) ||
-              (e.name === "anthropic" && builderConnected),
-          }));
+          .filter((e: any) => e.name !== "ai-sdk:anthropic")
+          .map((e: any) => {
+            const models = [...e.supportedModels];
+            if (
+              e.name === currentEngineName &&
+              currentModel &&
+              !models.includes(currentModel)
+            ) {
+              models.unshift(currentModel);
+            }
+            return {
+              engine: e.name,
+              label: e.label,
+              models,
+              configured:
+                e.requiredEnvVars.length === 0 ||
+                e.requiredEnvVars.some((v: string) => configuredKeys.has(v)) ||
+                (e.name === "anthropic" && builderConnected) ||
+                e.name === currentEngineName,
+            };
+          });
         setAvailableModels(groups);
-        setDefaultModel(enginesData.current?.model ?? "claude-sonnet-4-6");
+        setDefaultModel(currentModel ?? "claude-sonnet-4-6");
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    refreshEngines();
+    window.addEventListener("agent-engine:configured-changed", refreshEngines);
+    return () =>
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        refreshEngines,
+      );
+  }, [refreshEngines]);
 
   // Parent-child thread mapping — persisted to localStorage.
   // Maps childThreadId → parentThreadId for sub-agent tabs.
