@@ -40,7 +40,7 @@ function getAmplitudeScript(): string | null {
   if (!key) return null;
   return (
     `<script src="https://cdn.amplitude.com/script/${key}.js"></script>` +
-    `<script>window.amplitude.init('${key}',{autocapture:true});</script>`
+    `<script>window.amplitude?.init('${key}',{autocapture:true});</script>`
   );
 }
 

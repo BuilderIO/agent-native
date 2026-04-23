@@ -53,7 +53,7 @@ export function trackEvent(
 ): void {
   if (typeof window === "undefined") return;
   const props = resolveProps(name, params);
-  window.gtag?.("event", name, props);
+  window.gtag?.("event", name.replace(/\s+/g, "_"), props);
   window.amplitude?.track(name, props);
 }
 
