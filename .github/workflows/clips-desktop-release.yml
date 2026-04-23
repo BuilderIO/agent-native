@@ -7,6 +7,11 @@ name: Clips Desktop Release
 # which is what `endpoints` in tauri.conf.json points at.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'templates/clips/desktop/**'
+      - 'packages/shared-app-config/**'
   workflow_dispatch:
     inputs:
       version:
@@ -68,7 +73,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Bump version
+      - name: Auto-bump patch version (push trigger only)
+        if: github.event_name == 'push'
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        shell: bash
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          NEXT=$(node -e "const [ma,mi,pa]=process.argv[1].split('.').map(Number); console.log(ma+'.'+mi+'.'+(pa+1))" "$CURRENT")
+          npm version "$NEXT" --no-git-tag-version
+          node -e "
+            const fs = require('fs');
+            const tc = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
+            tc.version = '$NEXT';
+            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(tc, null, 2) + '\n');
+            const cargo = fs.readFileSync('src-tauri/Cargo.toml','utf8');
+            fs.writeFileSync('src-tauri/Cargo.toml', cargo.replace(/^version = \".*\"/m, 'version = \"$NEXT\"'));
+          "
+          echo "Auto-bumped version: $CURRENT → $NEXT"
+
+      - name: Bump version (manual)
         if: inputs.version != ''
         working-directory: ${{ env.TAURI_APP_PATH }}
         shell: bash
@@ -132,7 +155,7 @@ jobs:
         id: v
         run: echo "version=${{ needs.build-tauri.outputs.app-version }}" >> "$GITHUB_OUTPUT"
 
-      - name: Mark versioned release as latest
+      - name: Mark versioned release as published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -140,34 +163,31 @@ jobs:
             --draft=false \
             --latest=false
 
-      - name: Download latest.json from versioned release
+      - name: Download and publish updater manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p manifest
-          gh release download "clips-v${{ steps.v.outputs.version }}" \
-            --pattern 'latest.json' \
-            --dir manifest
-
-      # The updater endpoint in tauri.conf.json expects a file named
-      # `clips-latest.json` at a stable URL. We host it on the long-lived
-      # `clips-latest` release — overwriting its asset on every build.
-      - name: Rename manifest
-        run: mv manifest/latest.json manifest/clips-latest.json
-
-      - name: Publish / refresh clips-latest pointer release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if gh release view clips-latest >/dev/null 2>&1; then
-            gh release delete-asset clips-latest clips-latest.json --yes || true
-            gh release upload clips-latest manifest/clips-latest.json
-            gh release edit clips-latest \
-              --title "Clips Desktop — latest (updater manifest)" \
-              --notes "Stable URL for the Clips auto-updater. Overwritten on every release. Versioned bundles live in clips-v* releases."
+          # latest.json is only generated when TAURI_SIGNING_PRIVATE_KEY is
+          # configured. If it's missing, the release still works for manual
+          # downloads — just no auto-update.
+          if gh release download "clips-v${{ steps.v.outputs.version }}" \
+               --pattern 'latest.json' --dir manifest 2>/dev/null; then
+            mv manifest/latest.json manifest/clips-latest.json
+            if gh release view clips-latest >/dev/null 2>&1; then
+              gh release delete-asset clips-latest clips-latest.json --yes || true
+              gh release upload clips-latest manifest/clips-latest.json
+              gh release edit clips-latest \
+                --title "Clips Desktop — latest (updater manifest)" \
+                --notes "Stable URL for the Clips auto-updater. Overwritten on every release. Versioned bundles live in clips-v* releases."
+            else
+              gh release create clips-latest manifest/clips-latest.json \
+                --title "Clips Desktop — latest (updater manifest)" \
+                --notes "Stable URL for the Clips auto-updater. Overwritten on every release. Versioned bundles live in clips-v* releases." \
+                --latest=false
+            fi
+            echo "✅ Updater manifest published to clips-latest release"
           else
-            gh release create clips-latest manifest/clips-latest.json \
-              --title "Clips Desktop — latest (updater manifest)" \
-              --notes "Stable URL for the Clips auto-updater. Overwritten on every release. Versioned bundles live in clips-v* releases." \
-              --latest=false
+            echo "⚠️ No latest.json found — TAURI_SIGNING_PRIVATE_KEY may not be configured."
+            echo "⚠️ Release published without auto-update support. Users can still download manually."
           fi

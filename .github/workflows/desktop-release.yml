@@ -1,6 +1,11 @@
 name: Desktop App Release
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/desktop-app/**'
+      - 'packages/shared-app-config/**'
   workflow_dispatch:
     inputs:
       version:
@@ -27,7 +32,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Bump version
+      - name: Auto-bump patch version (push trigger only)
+        if: github.event_name == 'push'
+        working-directory: packages/desktop-app
+        shell: bash
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          NEXT=$(node -e "const [ma,mi,pa]=process.argv[1].split('.').map(Number); console.log(ma+'.'+mi+'.'+(pa+1))" "$CURRENT")
+          npm version "$NEXT" --no-git-tag-version
+          echo "Auto-bumped version: $CURRENT → $NEXT"
+
+      - name: Bump version (manual)
         if: inputs.version != ''
         working-directory: packages/desktop-app
         env:
@@ -71,7 +86,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Bump version
+      - name: Auto-bump patch version (push trigger only)
+        if: github.event_name == 'push'
+        working-directory: packages/desktop-app
+        shell: bash
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          NEXT=$(node -e "const [ma,mi,pa]=process.argv[1].split('.').map(Number); console.log(ma+'.'+mi+'.'+(pa+1))" "$CURRENT")
+          npm version "$NEXT" --no-git-tag-version
+          echo "Auto-bumped version: $CURRENT → $NEXT"
+
+      - name: Bump version (manual)
         if: inputs.version != ''
         working-directory: packages/desktop-app
         env:
@@ -99,7 +124,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Bump version
+      - name: Auto-bump patch version (push trigger only)
+        if: github.event_name == 'push'
+        working-directory: packages/desktop-app
+        shell: bash
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          NEXT=$(node -e "const [ma,mi,pa]=process.argv[1].split('.').map(Number); console.log(ma+'.'+mi+'.'+(pa+1))" "$CURRENT")
+          npm version "$NEXT" --no-git-tag-version
+          echo "Auto-bumped version: $CURRENT → $NEXT"
+
+      - name: Bump version (manual)
         if: inputs.version != ''
         working-directory: packages/desktop-app
         env:
