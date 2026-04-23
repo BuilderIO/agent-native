@@ -3,6 +3,16 @@ import { createAuthPlugin } from "@agent-native/core/server";
 // Clips has public share pages, embeds, and view-event tracking that must
 // reach unauthenticated viewers. Everything else sits behind auth.
 export default createAuthPlugin({
+  marketing: {
+    appName: "Agent-Native Clips",
+    tagline:
+      "Your AI agent titles, summarizes, and chapters your screen recordings while you keep working.",
+    features: [
+      "Auto-generated titles, summaries, and chapters from transcripts",
+      "Find the exact moment someone said anything by searching the transcript",
+      "Trim filler words, cut silences, and share recordings — all from the chat",
+    ],
+  },
   publicPaths: [
     "/share",
     "/embed",

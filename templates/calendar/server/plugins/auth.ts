@@ -5,6 +5,16 @@ import { createAuthPlugin } from "@agent-native/core/server";
 // account creation, since that path can't be used to access the calendar.
 export default createAuthPlugin({
   googleOnly: true,
+  marketing: {
+    appName: "Agent-Native Calendar",
+    tagline:
+      "Your AI agent schedules, reschedules, and manages your calendar so you never have to.",
+    features: [
+      "Finds open slots and books meetings on your behalf",
+      "Manages availability and booking links automatically",
+      "Answers schedule questions and resolves conflicts instantly",
+    ],
+  },
   publicPaths: [
     "/book",
     "/booking",

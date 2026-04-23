@@ -1070,41 +1070,28 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
           <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
         </div>
-        <div>
-          <h3 className="text-sm font-medium text-foreground">
-            Connect your AI
-          </h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Connect Builder or add an API key (Anthropic, OpenAI, or Google) to
-            enable the agent
-          </p>
-        </div>
+        <h3 className="text-sm font-medium text-foreground">Connect your AI</h3>
       </div>
 
       <div className="space-y-3">
-        {/* Builder path — managed LLM proxy, no API key needed */}
-        <div className="rounded-md border border-border px-3 py-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="text-xs font-medium text-foreground">
-                Connect Builder
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                Use Builder's managed Anthropic proxy — no API key needed
-              </p>
+        {/* Builder CTA */}
+        <div className="flex items-center gap-3 rounded-md border border-border px-3 py-3">
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-foreground">
+              Connect Builder.io
             </div>
-            <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-              Coming soon
-            </span>
+            <p className="text-[11px] text-muted-foreground mt-0.5 max-w-[200px]">
+              Managed LLM, hosting, and more — no API key needed
+            </p>
           </div>
           <a
             href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 mt-2 text-[11px] text-muted-foreground hover:text-foreground"
+            className="ml-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-muted/60 px-3 py-1.5 text-[11px] font-medium no-underline text-foreground hover:bg-muted"
           >
-            Join the waitlist
-            <IconExternalLink size={11} />
+            Join waitlist
+            <IconExternalLink size={10} />
           </a>
         </div>
 
@@ -1114,21 +1101,6 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
             or
           </span>
           <div className="flex-grow border-t border-border" />
-        </div>
-
-        <div className="rounded-md bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground leading-relaxed">
-          <p>
-            1. Go to{" "}
-            <a
-              href="https://console.anthropic.com/settings/keys"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline text-foreground/80 hover:text-foreground"
-            >
-              console.anthropic.com/settings/keys
-            </a>
-          </p>
-          <p className="mt-1">2. Create a new API key and paste it below</p>
         </div>
 
         <input
@@ -1148,16 +1120,25 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
 
         {error && <p className="text-xs text-destructive">{error}</p>}
 
-        <button
-          onClick={handleSave}
-          disabled={saving || !apiKey.trim()}
-          className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {saving ? "Saving..." : "Save API key"}
-        </button>
+        {apiKey.trim() && (
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? "Saving..." : "Save API key"}
+          </button>
+        )}
 
         <p className="text-[10px] text-muted-foreground/60 text-center">
-          OpenAI and Google keys can be configured in Settings.
+          <a
+            href="https://console.anthropic.com/settings/keys"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-foreground/80"
+          >
+            Get an Anthropic key
+          </a>
         </p>
       </div>
     </div>
@@ -1313,27 +1294,22 @@ export function BuilderCtaCard({
 
         <div className="rounded-md border border-border px-3 py-2.5">
           <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="text-xs font-medium text-foreground">
-                Connect Builder.io
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                Builder's managed Anthropic proxy — no API key needed
-              </p>
+            <div className="text-xs font-medium text-foreground">
+              Builder.io
             </div>
-            <span className="shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-              Coming soon
-            </span>
+            <a
+              href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
+            >
+              Join waitlist
+              <IconExternalLink size={10} />
+            </a>
           </div>
-          <a
-            href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 mt-2 text-[11px] text-muted-foreground hover:text-foreground"
-          >
-            Join the waitlist
-            <IconExternalLink size={11} />
-          </a>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Managed hosting, LLM, and more
+          </p>
         </div>
       </div>
     </div>

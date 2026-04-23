@@ -263,12 +263,8 @@ function MethodBlock({
       <div style={styles.methodHeader}>
         <span style={styles.methodLabel}>
           {method.label}
-          {waitlist ? (
-            <span style={badgeStyle("beta")}>coming soon</span>
-          ) : (
-            method.badge && (
-              <span style={badgeStyle(method.badge)}>{method.badge}</span>
-            )
+          {!waitlist && method.badge && (
+            <span style={badgeStyle(method.badge)}>{method.badge}</span>
           )}
         </span>
       </div>
@@ -314,15 +310,18 @@ function MethodBody({
   }
 }
 
-function WaitlistMethod({ primary }: { primary?: boolean }) {
+function WaitlistMethod({ primary: _primary }: { primary?: boolean }) {
   return (
     <a
       href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
       target="_blank"
       rel="noopener noreferrer"
-      style={{ ...buttonPrimary(primary), textDecoration: "none" }}
+      style={{
+        ...buttonPrimary(false),
+        textDecoration: "none",
+      }}
     >
-      Join the waitlist
+      Join waitlist
       <IconExternalLink size={12} style={{ marginLeft: 4 }} />
     </a>
   );

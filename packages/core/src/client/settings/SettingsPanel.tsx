@@ -176,40 +176,32 @@ function UseBuilderCard({
     <div className={`rounded-md border border-border px-2.5 py-2 ${bgClass}`}>
       <div className="flex items-center justify-between">
         <div className="text-[11px] font-medium text-foreground">
-          Connect Builder.io
+          Builder.io
         </div>
-        {showComingSoon && (
-          <span className="rounded-full bg-accent/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Coming soon
-          </span>
-        )}
-      </div>
-      <p className="text-[10px] text-muted-foreground mt-1">
-        Includes LLM, DB, Auth, hosting, & more
-      </p>
-      {showComingSoon ? (
-        <a
-          href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 mt-2.5 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium no-underline text-background hover:opacity-90"
-        >
-          Join the waitlist
-          <IconExternalLink size={10} />
-        </a>
-      ) : (
-        connectUrl && (
+        {showComingSoon ? (
           <a
-            href={connectUrl}
+            href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 mt-2.5 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium no-underline text-background hover:opacity-90"
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] font-medium no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
           >
-            {label}
+            Join waitlist
             <IconExternalLink size={10} />
           </a>
-        )
-      )}
+        ) : (
+          connectUrl && (
+            <a
+              href={connectUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium no-underline text-background hover:opacity-90"
+            >
+              {label}
+              <IconExternalLink size={10} />
+            </a>
+          )
+        )}
+      </div>
     </div>
   );
 }

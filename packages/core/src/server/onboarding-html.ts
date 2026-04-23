@@ -45,6 +45,17 @@ export interface OnboardingHtmlOptions {
    * If Google OAuth env vars are not configured, an error message is shown.
    */
   googleOnly?: boolean;
+  /**
+   * Product marketing content shown alongside the sign-in form.
+   * When provided, the page uses a split layout: marketing on the left,
+   * sign-in form on the right (stacked on mobile).
+   */
+  marketing?: {
+    appName: string;
+    tagline: string;
+    description?: string;
+    features?: string[];
+  };
 }
 
 const MIGRATE_FLAG_KEY = "an_migrate_from_local";
@@ -94,12 +105,232 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }`
     : "";
 
+  const marketing = opts.marketing;
+  const hasMarketing = !!marketing;
+  const esc = (s: string) =>
+    s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+
+  const marketingStyles = hasMarketing
+    ? `
+  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; }
+  #starfield {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .split {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .marketing-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 3rem 3.5rem;
+  }
+  .marketing-content { max-width: 480px; }
+  .app-name {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 0.625rem;
+    letter-spacing: -0.02em;
+  }
+  .app-tagline {
+    font-size: 1.25rem;
+    color: #a1a1aa;
+    line-height: 1.6;
+    margin-bottom: 2rem;
+  }
+  .app-desc {
+    font-size: 1rem;
+    color: #71717a;
+    line-height: 1.6;
+    margin-bottom: 2rem;
+  }
+  .feature-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+  }
+  .feature-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    font-size: 1rem;
+    color: #a1a1aa;
+    line-height: 1.5;
+  }
+  .feature-list li::before {
+    content: '';
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: #3f3f46;
+    border: 1px solid #52525b;
+  }
+  .form-panel {
+    flex: 0 0 440px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+  }
+  .form-panel .card { max-width: 400px; }
+  .form-panel .local-note { max-width: 400px; }
+  @media (max-width: 900px) {
+    .split { flex-direction: column; min-height: auto; }
+    .marketing-panel { padding: 2rem 1.5rem 1.5rem; }
+    .app-name { font-size: 1.375rem; }
+    .app-tagline { font-size: 1rem; margin-bottom: 1rem; }
+    .app-desc { margin-bottom: 1rem; }
+    .feature-list { gap: 0.5rem; }
+    .form-panel { flex: none; padding: 1.5rem 1rem; }
+  }
+`
+    : "";
+
+  const marketingPanelHtml = hasMarketing
+    ? `<canvas id="starfield"></canvas>
+<div class="split">
+  <div class="marketing-panel">
+    <div class="marketing-content">
+      <h2 class="app-name">${esc(marketing!.appName)}</h2>
+      <p class="app-tagline">${esc(marketing!.tagline)}</p>
+${marketing!.description ? `      <p class="app-desc">${esc(marketing!.description)}</p>\n` : ""}${
+        marketing!.features?.length
+          ? `      <ul class="feature-list">\n${marketing!.features.map((f) => `        <li>${esc(f)}</li>`).join("\n")}\n      </ul>\n`
+          : ""
+      }    </div>
+  </div>
+  <div class="form-panel">`
+    : "";
+
+  const marketingCloseHtml = hasMarketing ? `\n  </div>\n</div>` : "";
+
+  const starfieldScript = hasMarketing
+    ? `
+  (function initStarfield() {
+    var canvas = document.getElementById('starfield');
+    if (!canvas) return;
+    var gl = canvas.getContext('webgl', { alpha: false, antialias: false });
+    if (!gl) return;
+
+    var vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, 'attribute vec2 position;void main(){gl_Position=vec4(position,0.0,1.0);}');
+    gl.compileShader(vs);
+
+    var fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, [
+      'precision highp float;',
+      'uniform float iTime;uniform vec2 iResolution;',
+      '#define S(a,b,t) smoothstep(a,b,t)',
+      '#define NUM_LAYERS 4.',
+      'float N21(vec2 p){vec3 a=fract(vec3(p.xyx)*vec3(213.897,653.453,253.098));a+=dot(a,a.yzx+79.76);return fract((a.x+a.y)*a.z);}',
+      'vec2 GetPos(vec2 id,vec2 offs,float t){float n=N21(id+offs);float n1=fract(n*10.);float n2=fract(n*100.);float a=t+n;return offs+vec2(sin(a*n1),cos(a*n2))*.4;}',
+      'float df_line(vec2 a,vec2 b,vec2 p){vec2 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*h);}',
+      'float line(vec2 a,vec2 b,vec2 uv){float r1=.025;float r2=.006;float d=df_line(a,b,uv);float d2=length(a-b);float fade=S(1.5,.5,d2);fade+=S(.05,.02,abs(d2-.75));return S(r1,r2,d)*fade;}',
+      'float NetLayer(vec2 st,float n,float t){',
+      '  vec2 id=floor(st)+n;st=fract(st)-.5;',
+      '  vec2 p0=GetPos(id,vec2(-1,-1),t);vec2 p1=GetPos(id,vec2(0,-1),t);vec2 p2=GetPos(id,vec2(1,-1),t);',
+      '  vec2 p3=GetPos(id,vec2(-1,0),t);vec2 p4=GetPos(id,vec2(0,0),t);vec2 p5=GetPos(id,vec2(1,0),t);',
+      '  vec2 p6=GetPos(id,vec2(-1,1),t);vec2 p7=GetPos(id,vec2(0,1),t);vec2 p8=GetPos(id,vec2(1,1),t);',
+      '  float m=0.;float sparkle=0.;float d;float s;float pulse;',
+      '  m+=line(p4,p0,st);d=length(st-p0);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p0.x)+fract(p0.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
+      '  m+=line(p4,p1,st);d=length(st-p1);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p1.x)+fract(p1.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
+      '  m+=line(p4,p2,st);d=length(st-p2);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p2.x)+fract(p2.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
+      '  m+=line(p4,p3,st);d=length(st-p3);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p3.x)+fract(p3.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
+      '  m+=line(p4,p4,st);d=length(st-p4);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p4.x)+fract(p4.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
+      '  m+=line(p4,p5,st);d=length(st-p5);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p5.x)+fract(p5.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
+      '  m+=line(p4,p6,st);d=length(st-p6);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p6.x)+fract(p6.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
+      '  m+=line(p4,p7,st);d=length(st-p7);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p7.x)+fract(p7.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
+      '  m+=line(p4,p8,st);d=length(st-p8);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p8.x)+fract(p8.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
+      '  m+=line(p1,p3,st);m+=line(p1,p5,st);m+=line(p7,p5,st);m+=line(p7,p3,st);',
+      '  float sPhase=(sin(t+n)+sin(t*.1))*.25+.5;sPhase+=pow(sin(t*.1)*.5+.5,50.)*5.;m+=sparkle*sPhase;',
+      '  return m;',
+      '}',
+      'void mainImage(out vec4 fragColor,in vec2 fragCoord){',
+      '  vec2 uv=(fragCoord-iResolution.xy*.5)/iResolution.y;',
+      '  float t=iTime*.03;float s=sin(t);float c=cos(t);mat2 rot=mat2(c,-s,s,c);vec2 st=uv*rot;',
+      '  float m=0.;',
+      '  for(float i=0.;i<1.;i+=1./NUM_LAYERS){float z=fract(t+i);float size=mix(15.,1.,z);float fade=S(0.,.6,z)*S(1.,.8,z);m+=fade*NetLayer(st*size,i,iTime*0.3);}',
+      '  vec3 col=vec3(0.35)*m;col*=1.-dot(uv,uv);',
+      '  float tt=min(iTime,5.0);col*=S(0.,20.,tt);',
+      '  col=clamp(col,0.,1.);fragColor=vec4(col,1.);',
+      '}',
+      'void main(){mainImage(gl_FragColor,gl_FragCoord.xy);}'
+    ].join('\\n'));
+    gl.compileShader(fs);
+
+    var prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+
+    var buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
+    var pos = gl.getAttribLocation(prog, 'position');
+    gl.enableVertexAttribArray(pos);
+    gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+
+    var uTime = gl.getUniformLocation(prog, 'iTime');
+    var uRes = gl.getUniformLocation(prog, 'iResolution');
+
+    function resize() {
+      var w = window.innerWidth, h = window.innerHeight;
+      var dpr = Math.min(window.devicePixelRatio, 1.5);
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    var start = performance.now(), last = 0;
+    function render(now) {
+      requestAnimationFrame(render);
+      if (now - last < 33) return;
+      last = now;
+      gl.uniform1f(uTime, (now - start) * 0.001);
+      gl.uniform2f(uRes, canvas.width, canvas.height);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+    requestAnimationFrame(render);
+  })();`
+    : "";
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Welcome</title>
+<title>${hasMarketing ? esc(marketing!.appName) + " — Sign in" : "Welcome"}</title>
+${
+  hasMarketing
+    ? `<meta name="description" content="${esc(marketing!.tagline)}">
+<meta property="og:title" content="${esc(marketing!.appName)}">
+<meta property="og:description" content="${esc(marketing!.tagline)}">`
+    : ""
+}
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -261,11 +492,13 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .local-note.show { display: block; }
   .local-note strong { color: #999; font-weight: 500; }
-  .local-note a { color: #888; text-decoration: underline; text-underline-offset: 2px; }
+  .local-note a { color: #888; text-decoration: none; }
   .local-note a:hover { color: #bbb; }
+${marketingStyles}
 </style>
 </head>
-<body>
+<body${hasMarketing ? ' class="has-marketing"' : ""}>
+${marketingPanelHtml}
 <div class="card">
   <h1>Welcome</h1>
   <p class="subtitle">Create an account to get started</p>
@@ -336,10 +569,8 @@ ${
 ${localModeBlock}
 </div>
 <p class="local-note" id="local-note">
-  This account lives in <strong>your app</strong>, not an external service. Current connection: <strong>${getConnectionLabel()}</strong>.
-  <br />
-  <a href="https://github.com/BuilderIO/agent-native#readme" target="_blank" rel="noreferrer">Connect a different database or auth provider →</a>
-</p>
+  Your account is stored in this app's own DB (<strong>${getConnectionLabel()}</strong>), not a third-party service.
+</p>${marketingCloseHtml}
 <script>
   (function revealLocalNote() {
     var h = location.hostname;
@@ -589,6 +820,7 @@ ${
   }`
     : ""
 }
+${starfieldScript}
 </script>
 </body>
 </html>`;
