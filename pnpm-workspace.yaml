@@ -1,19 +1,25 @@
 packages:
-  - "packages/*"
-  - "templates/*"
-  - "templates/*/desktop"
-onlyBuiltDependencies: ["esbuild", "lightningcss", "electron", "@swc/core"]
+  - packages/*
+  - templates/*
+  - templates/*/desktop
+
 catalog:
-  "@tabler/icons-react": "^3.41.1"
-  "@tailwindcss/vite": "^4.2.4"
-  "@types/react": "^19.2.14"
-  "@types/react-dom": "^19.2.3"
-  "@vitejs/plugin-react": "^6.0.1"
-  h3: "^2.0.1-rc.20"
-  listhen: "^1.9.1"
-  react: "^19.2.5"
-  react-dom: "^19.2.5"
-  tailwindcss: "^4.2.4"
-  tsx: "^4.20.3"
-  typescript: "^6.0.3"
-  vite: "^8.0.0"
+  "@tabler/icons-react": ^3.41.1
+  "@tailwindcss/vite": ^4.2.4
+  "@types/react": ^19.2.14
+  "@types/react-dom": ^19.2.3
+  "@vitejs/plugin-react": ^6.0.1
+  h3: ^2.0.1-rc.20
+  listhen: ^1.9.1
+  react: ^19.2.5
+  react-dom: ^19.2.5
+  tailwindcss: ^4.2.4
+  tsx: ^4.20.3
+  typescript: ^6.0.3
+  vite: 8.0.3
+
+onlyBuiltDependencies:
+  - esbuild
+  - lightningcss
+  - electron
+  - "@swc/core"

@@ -98,6 +98,17 @@ export interface AuthOptions {
    */
   googleOnly?: boolean;
   /**
+   * Product marketing content shown alongside the sign-in form.
+   * When provided, the page uses a split layout: marketing on the left,
+   * sign-in form on the right.
+   */
+  marketing?: {
+    appName: string;
+    tagline: string;
+    description?: string;
+    features?: string[];
+  };
+  /**
    * Additional Better Auth configuration (social providers, plugins, etc.)
    */
   betterAuth?: BetterAuthConfig;
@@ -1068,8 +1079,16 @@ async function mountBetterAuthRoutes(
               expiresAt: Date.now() + sessionMaxAge * 1000,
             });
           }
+          return { ok: true };
         }
-        return { ok: true };
+        // signInEmail succeeded but returned no token — typically means the
+        // email isn't verified yet. Don't return { ok: true } without a
+        // session or the frontend will reload into a dead end.
+        setResponseStatus(event, 403);
+        return {
+          error:
+            "Email not verified. Check your inbox for a verification link.",
+        };
       } catch (e: any) {
         setResponseStatus(event, 401);
         return { error: e?.message || "Invalid email or password" };
@@ -1168,7 +1187,11 @@ async function mountBetterAuthRoutes(
   // Auth guard — stored both in framework middleware registry AND in
   // _authGuardFn so the server middleware can enforce it on ALL routes.
   const loginHtml =
-    options.loginHtml ?? getOnboardingHtml({ googleOnly: options.googleOnly });
+    options.loginHtml ??
+    getOnboardingHtml({
+      googleOnly: options.googleOnly,
+      marketing: options.marketing,
+    });
   _authGuardConfig = { loginHtml, publicPaths };
   const guardFn = createAuthGuardFn();
   _authGuardFn = guardFn;
@@ -1332,8 +1355,13 @@ function mountAuthFallbackRoutes(app: H3App): void {
               expiresAt: Date.now() + sessionMaxAge * 1000,
             });
           }
+          return { ok: true };
         }
-        return { ok: true };
+        setResponseStatus(event, 403);
+        return {
+          error:
+            "Email not verified. Check your inbox for a verification link.",
+        };
       } catch (e: any) {
         setResponseStatus(event, 401);
         return { error: e?.message || "Invalid email or password" };
@@ -1501,10 +1529,13 @@ export async function autoMountAuth(
       customGetSession = options.getSession;
     }
     if (_authGuardConfig) {
-      if (options.googleOnly || options.loginHtml) {
+      if (options.googleOnly || options.loginHtml || options.marketing) {
         _authGuardConfig.loginHtml =
           options.loginHtml ??
-          getOnboardingHtml({ googleOnly: options.googleOnly });
+          getOnboardingHtml({
+            googleOnly: options.googleOnly,
+            marketing: options.marketing,
+          });
       }
       if (options.publicPaths) {
         _authGuardConfig.publicPaths = [
@@ -1635,7 +1666,10 @@ export async function autoMountAuth(
     // page but won't be able to sign in until the DB is available.
     const loginHtml =
       options.loginHtml ??
-      getOnboardingHtml({ googleOnly: options.googleOnly });
+      getOnboardingHtml({
+        googleOnly: options.googleOnly,
+        marketing: options.marketing,
+      });
     _authGuardConfig = { loginHtml, publicPaths };
     const guardFn = createAuthGuardFn();
     _authGuardFn = guardFn;

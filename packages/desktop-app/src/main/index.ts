@@ -846,9 +846,15 @@ app.whenReady().then(() => {
   win.on("enter-full-screen", () => broadcastMaximized(true));
   win.on("leave-full-screen", () => broadcastMaximized(false));
 
-  // Re-create window on macOS when dock icon is clicked with no windows open
+  // macOS: restore/focus the window when dock icon is clicked
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    } else if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
   });
 });
 
