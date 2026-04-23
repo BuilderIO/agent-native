@@ -186,6 +186,17 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     background: #3f3f46;
     border: 1px solid #52525b;
   }
+  .oss-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-top: 2rem;
+    font-size: 0.8125rem;
+    color: #52525b;
+    text-decoration: none;
+  }
+  .oss-link:hover { color: #71717a; }
+  .oss-link svg { width: 15px; height: 15px; flex-shrink: 0; }
   .form-panel {
     flex: 0 0 440px;
     display: flex;
@@ -219,7 +230,11 @@ ${marketing!.description ? `      <p class="app-desc">${esc(marketing!.descripti
         marketing!.features?.length
           ? `      <ul class="feature-list">\n${marketing!.features.map((f) => `        <li>${esc(f)}</li>`).join("\n")}\n      </ul>\n`
           : ""
-      }    </div>
+      }      <a class="oss-link" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>
+        Open source — view on GitHub
+      </a>
+    </div>
   </div>
   <div class="form-panel">`
     : "";
