@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { codeToHtml } from "shiki";
+import { trackEvent } from "@agent-native/core/client";
 
 interface CodeBlockProps {
   code: string;
@@ -33,6 +34,7 @@ export default function CodeBlock({
   function handleCopy() {
     navigator.clipboard.writeText(code.trim());
     setCopied(true);
+    trackEvent("copy_code_block", { lang, snippet: code.trim().slice(0, 100) });
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => setCopied(false), 2000);
   }

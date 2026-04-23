@@ -3,6 +3,7 @@
  *
  * Supported environment variables:
  * - `GA_MEASUREMENT_ID` — Google Analytics 4 measurement ID
+ * - `AMPLITUDE_API_KEY` — Amplitude browser SDK client key
  * - `SENTRY_CLIENT_KEY` — Sentry browser SDK loader key (the hex portion of the CDN URL)
  *
  * When set, the corresponding script tags are injected before `</head>`.
@@ -34,6 +35,15 @@ function getGaScript(): string | null {
   );
 }
 
+function getAmplitudeScript(): string | null {
+  const key = process.env.AMPLITUDE_API_KEY;
+  if (!key) return null;
+  return (
+    `<script src="https://cdn.amplitude.com/script/${key}.js"></script>` +
+    `<script>window.amplitude.init('${key}',{autocapture:true});</script>`
+  );
+}
+
 function getSentryScript(): string | null {
   const key = process.env.SENTRY_CLIENT_KEY;
   if (!key) return null;
@@ -45,7 +55,9 @@ function getSentryScript(): string | null {
  * Returns the stream untouched if no tracking env vars are set.
  */
 export function wrapWithAnalytics(body: ReadableStream): ReadableStream {
-  const scripts = [getGaScript(), getSentryScript()].filter(Boolean).join("");
+  const scripts = [getGaScript(), getAmplitudeScript(), getSentryScript()]
+    .filter(Boolean)
+    .join("");
   if (!scripts) return body;
 
   const decoder = new TextDecoder();

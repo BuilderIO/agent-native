@@ -11,11 +11,18 @@ import {
 } from "react-router";
 import { useState, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar, configureTracking } from "@agent-native/core/client";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 
 import appCss from "./global.css?url";
+
+configureTracking({
+  getDefaultProps: (_name, properties) => ({
+    ...properties,
+    app: "agent-native-docs",
+  }),
+});
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
 
@@ -104,6 +111,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <script
           src="https://js.sentry-cdn.com/49a2686c80d08b5331c7b7e148dbb4a8.min.js"
           crossOrigin="anonymous"
+        />
+        <script src="https://cdn.amplitude.com/script/2532be1b0436a18cb938b21fc7fa9faf.js" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.amplitude.init('2532be1b0436a18cb938b21fc7fa9faf',{autocapture:true});`,
+          }}
         />
         <script
           async

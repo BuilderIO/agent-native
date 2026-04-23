@@ -1,16 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
+import { trackEvent } from "@agent-native/core/client";
 
-declare global {
-  interface Window {
-    gtag?: (...args: any[]) => void;
-  }
-}
-
-export function trackEvent(action: string, params: Record<string, string>) {
-  window.gtag?.("event", action, params);
-}
+export { trackEvent };
 
 export const templates = [
   {
