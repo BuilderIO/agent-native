@@ -115,7 +115,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <script src="https://cdn.amplitude.com/script/2532be1b0436a18cb938b21fc7fa9faf.js" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `window.amplitude?.init('2532be1b0436a18cb938b21fc7fa9faf',{autocapture:true});`,
+            __html: `window.amplitude.init('2532be1b0436a18cb938b21fc7fa9faf',{autocapture:true});`,
           }}
         />
         <script

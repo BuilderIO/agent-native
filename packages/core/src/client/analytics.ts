@@ -53,11 +53,11 @@ export function trackEvent(
 ): void {
   if (typeof window === "undefined") return;
   const props = resolveProps(name, params);
-  window.gtag?.("event", name.replace(/\s+/g, "_"), props);
+  window.gtag?.("event", name, props);
   window.amplitude?.track(name, props);
 }
 
 /** Track whether the current user is signed in. Call once per page load. */
 export function trackSessionStatus(signedIn: boolean): void {
-  trackEvent("session status", { signed_in: signedIn });
+  trackEvent("session_status", { signed_in: signedIn });
 }
