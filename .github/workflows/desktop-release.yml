@@ -16,8 +16,34 @@ on:
 permissions:
   contents: write
 
+env:
+  # Deterministic version for auto-triggered builds: base version from
+  # package.json + run number ensures uniqueness without committing back.
+  AUTO_VERSION_SUFFIX: ${{ github.run_number }}
+
 jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: v
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            BASE=$(node -p "require('./packages/desktop-app/package.json').version")
+            echo "version=${BASE}+${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+
   build-mac:
+    needs: resolve-version
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,22 +58,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Auto-bump patch version (push trigger only)
-        if: github.event_name == 'push'
+      - name: Set version
         working-directory: packages/desktop-app
-        shell: bash
-        run: |
-          CURRENT=$(node -p "require('./package.json').version")
-          NEXT=$(node -e "const [ma,mi,pa]=process.argv[1].split('.').map(Number); console.log(ma+'.'+mi+'.'+(pa+1))" "$CURRENT")
-          npm version "$NEXT" --no-git-tag-version
-          echo "Auto-bumped version: $CURRENT → $NEXT"
-
-      - name: Bump version (manual)
-        if: inputs.version != ''
-        working-directory: packages/desktop-app
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
-        run: npm version "$RELEASE_VERSION" --no-git-tag-version
+        run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
 
       - name: Import signing certificate
         env:
@@ -72,6 +85,7 @@ jobs:
         run: pnpm build && npx electron-builder --mac --config --publish always
 
   build-windows:
+    needs: resolve-version
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -86,22 +100,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Auto-bump patch version (push trigger only)
-        if: github.event_name == 'push'
+      - name: Set version
         working-directory: packages/desktop-app
-        shell: bash
-        run: |
-          CURRENT=$(node -p "require('./package.json').version")
-          NEXT=$(node -e "const [ma,mi,pa]=process.argv[1].split('.').map(Number); console.log(ma+'.'+mi+'.'+(pa+1))" "$CURRENT")
-          npm version "$NEXT" --no-git-tag-version
-          echo "Auto-bumped version: $CURRENT → $NEXT"
-
-      - name: Bump version (manual)
-        if: inputs.version != ''
-        working-directory: packages/desktop-app
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
-        run: npm version "$RELEASE_VERSION" --no-git-tag-version
+        run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
 
       - name: Build and publish
         working-directory: packages/desktop-app
@@ -110,6 +111,7 @@ jobs:
         run: pnpm build && npx electron-builder --win --config --publish always
 
   build-linux:
+    needs: resolve-version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -124,22 +126,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Auto-bump patch version (push trigger only)
-        if: github.event_name == 'push'
+      - name: Set version
         working-directory: packages/desktop-app
-        shell: bash
-        run: |
-          CURRENT=$(node -p "require('./package.json').version")
-          NEXT=$(node -e "const [ma,mi,pa]=process.argv[1].split('.').map(Number); console.log(ma+'.'+mi+'.'+(pa+1))" "$CURRENT")
-          npm version "$NEXT" --no-git-tag-version
-          echo "Auto-bumped version: $CURRENT → $NEXT"
-
-      - name: Bump version (manual)
-        if: inputs.version != ''
-        working-directory: packages/desktop-app
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
-        run: npm version "$RELEASE_VERSION" --no-git-tag-version
+        run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
 
       - name: Build and publish
         working-directory: packages/desktop-app
@@ -148,21 +137,10 @@ jobs:
         run: pnpm build && npx electron-builder --linux --config --publish always
 
   publish-release:
-    needs: [build-mac, build-windows, build-linux]
+    needs: [resolve-version, build-mac, build-windows, build-linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Get version
-        id: version
-        run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
-          else
-            echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> $GITHUB_OUTPUT
-          fi
-
       - name: Publish draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "v${{ steps.version.outputs.version }}" --draft=false --latest
+        run: gh release edit "v${{ needs.resolve-version.outputs.version }}" --draft=false --latest -R ${{ github.repository }}

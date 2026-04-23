@@ -73,13 +73,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Auto-bump patch version (push trigger only)
+      - name: Auto-bump version (push trigger only)
         if: github.event_name == 'push'
         working-directory: ${{ env.TAURI_APP_PATH }}
         shell: bash
         run: |
           CURRENT=$(node -p "require('./package.json').version")
-          NEXT=$(node -e "const [ma,mi,pa]=process.argv[1].split('.').map(Number); console.log(ma+'.'+mi+'.'+(pa+1))" "$CURRENT")
+          # Use major.minor from package.json + run_number as patch for
+          # guaranteed uniqueness without committing version bumps back.
+          NEXT=$(node -e "const [ma,mi]=process.argv[1].split('.'); console.log(ma+'.'+mi+'.${{ github.run_number }}')" "$CURRENT")
           npm version "$NEXT" --no-git-tag-version
           node -e "
             const fs = require('fs');
