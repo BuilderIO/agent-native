@@ -235,6 +235,7 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     let x: i32 = 48;
     let y: i32 = (mh as i32 - h as i32) / 2;
     eprintln!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
+    #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(&app, TOOLBAR_LABEL, build_overlay_url("toolbar"))
         .title("Clips Recorder")
         .decorations(false)
@@ -507,6 +508,7 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
         "[clips-tray] bubble pos=({},{}) source={} size={}x{} monitor={}x{}",
         x, y, source, size, win_h, mw, mh
     );
+    #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(&app, BUBBLE_LABEL, build_overlay_url("bubble"))
         .title("Clips Camera")
         .decorations(false)
@@ -517,11 +519,6 @@ async fn show_bubble(app: AppHandle) -> Result<(), String> {
         .shadow(false)
         .visible(false)
         .focused(false);
-    // macOS: let the first click drag / interact with the bubble instead
-    // of being eaten by window activation. Same reasoning as the toolbar
-    // above — the bubble is `.focused(false)` so it doesn't steal focus
-    // from the screen being recorded, but that otherwise forces users to
-    // click twice to grab or drag it.
     #[cfg(target_os = "macos")]
     {
         builder = builder.accept_first_mouse(true);
@@ -1101,12 +1098,12 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
+        .run(|_app_handle, _event| {
             // macOS: clicking the Dock icon ("reopen") toggles the popover.
-            // This is the most natural trigger in debug builds where the Dock
-            // icon is visible (production hides it via LSUIElement).
-            if let tauri::RunEvent::Reopen { .. } = event {
-                toggle_popover(app_handle);
+            // Reopen is macOS-only — gated behind cfg so Windows compiles.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                toggle_popover(_app_handle);
             }
         });
 }

@@ -165,6 +165,19 @@ export default function RecordRoute() {
       setUiState("pickingSources");
 
       try {
+        // 0. Verify a file upload provider is configured before recording.
+        const statusRes = await fetch("/_agent-native/file-upload/status");
+        if (statusRes.ok) {
+          const status = (await statusRes.json()) as {
+            configured?: boolean;
+          };
+          if (!status.configured) {
+            throw new Error(
+              "No video storage configured. Open Settings to connect Builder.io or an S3-compatible service.",
+            );
+          }
+        }
+
         // 1. Create the recording row server-side.
         const res = await fetch("/_agent-native/actions/create-recording", {
           method: "POST",
