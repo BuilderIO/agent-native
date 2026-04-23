@@ -192,7 +192,22 @@ function registerMiddleware(
     }
     try {
       const result = await handler(event);
-      return result === undefined ? next() : result;
+      if (result === undefined) {
+        // Restore the original pathname BEFORE calling next() so downstream
+        // middleware sees the full URL — not the stripped mount-relative path.
+        // Matches h3 v2's own sub-app middleware pattern where the restore
+        // happens inside the next() callback, not after it returns.
+        if (originalPathname !== undefined) {
+          try {
+            event.url.pathname = originalPathname;
+          } catch {
+            // ignore
+          }
+          originalPathname = undefined;
+        }
+        return next();
+      }
+      return result;
     } catch (err) {
       // Log 500s to the server console so they're debuggable, and respond
       // with JSON instead of the default HTML error page so clients can
