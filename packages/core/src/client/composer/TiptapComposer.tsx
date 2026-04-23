@@ -322,7 +322,7 @@ export function TiptapComposer({
   const composerRuntime = useComposerRuntime();
   const [editorHasText, setEditorHasText] = useState(false);
   const composerText = useComposer((state) => state.text);
-  const canSend = editorHasText;
+  const canSend = editorHasText && !disabled;
   const isMac =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -385,6 +385,12 @@ export function TiptapComposer({
   // Persist draft to localStorage so hot-reloads don't lose the prompt
   const DRAFT_KEY = "an-composer-draft";
   const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Tiptap reads extension config once at init; ref keeps runtime prop
+  // changes visible to Placeholder's function form.
+  const placeholderRef = useRef(placeholder);
+  useEffect(() => {
+    placeholderRef.current = placeholder;
+  }, [placeholder]);
 
   const editor = useEditor({
     extensions: [
@@ -402,7 +408,7 @@ export function TiptapComposer({
         code: false,
       }),
       Placeholder.configure({
-        placeholder,
+        placeholder: () => placeholderRef.current,
         emptyEditorClass: "is-editor-empty",
         showOnlyCurrent: false,
       }),
@@ -955,6 +961,13 @@ export function TiptapComposer({
     if (editor.isEmpty) return;
     editor.commands.clearContent();
   }, [composerText, editor]);
+
+  // Tiptap only reads `editable` at init; prop changes need setEditable.
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!disabled);
+    if (disabled) editor.commands.blur();
+  }, [editor, disabled]);
 
   return (
     <>

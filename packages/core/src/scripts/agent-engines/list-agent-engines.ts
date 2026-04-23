@@ -6,6 +6,7 @@ import type { ActionTool } from "../../agent/types.js";
 import {
   listAgentEngines,
   registerBuiltinEngines,
+  detectEngineFromEnv,
 } from "../../agent/engine/index.js";
 import { getSetting } from "../../settings/index.js";
 
@@ -28,6 +29,16 @@ export async function run(): Promise<string> {
     ? (currentSetting as { engine?: string; model?: string })
     : null;
 
+  // Resolve current engine in the same priority resolveEngine uses:
+  // settings → AGENT_ENGINE env → auto-detect → anthropic default. Validate
+  // against the registry so a stale `AGENT_ENGINE=local-openai` from a
+  // pre-migration template doesn't poison the Settings picker.
+  const explicit = current?.engine ?? process.env.AGENT_ENGINE;
+  const explicitEntry =
+    explicit != null ? engines.find((e) => e.name === explicit) : undefined;
+  const currentEntry = explicitEntry ?? detectEngineFromEnv() ?? undefined;
+  const currentEngineName = currentEntry?.name ?? "anthropic";
+
   const result = {
     engines: engines.map((e) => ({
       name: e.name,
@@ -40,14 +51,10 @@ export async function run(): Promise<string> {
       installPackage: e.installPackage,
     })),
     current: {
-      engine: current?.engine ?? process.env.AGENT_ENGINE ?? "anthropic",
+      engine: currentEngineName,
       model:
         current?.model ??
-        engines.find(
-          (e) =>
-            e.name ===
-            (current?.engine ?? process.env.AGENT_ENGINE ?? "anthropic"),
-        )?.defaultModel ??
+        currentEntry?.defaultModel ??
         "claude-haiku-4-5-20251001",
     },
   };

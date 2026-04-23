@@ -18,6 +18,7 @@ import type {
   EngineContentPart,
 } from "./engine/types.js";
 import { resolveEngine, registerBuiltinEngines } from "./engine/index.js";
+import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import {
   startRun,
@@ -34,15 +35,6 @@ import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
-
-const PROVIDER_TO_ENV: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  google: "GOOGLE_GENERATIVE_AI_API_KEY",
-  groq: "GROQ_API_KEY",
-  mistral: "MISTRAL_API_KEY",
-  cohere: "COHERE_API_KEY",
-};
 
 export { PROVIDER_TO_ENV };
 

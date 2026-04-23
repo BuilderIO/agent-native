@@ -29,7 +29,7 @@ import {
   deleteComposeDraft,
   deleteAllComposeDrafts,
 } from "../application-state/handlers.js";
-import { getSetting, putSetting } from "../settings/store.js";
+import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
 import { getSession } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
@@ -52,6 +52,12 @@ import { registerBuiltinNotificationChannels } from "../notifications/channels.j
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
+import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
+import {
+  isAgentEngineSettingConfigured,
+  getAgentEngineEntry,
+  detectEngineFromEnv,
+} from "../agent/engine/registry.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -377,12 +383,10 @@ export function createCoreRoutesPlugin(
     // Env key management — framework keys are always included
     const frameworkEnvKeys: EnvKeyConfig[] = [
       { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
-      { key: "ANTHROPIC_API_KEY", label: "Anthropic API Key" },
-      { key: "OPENAI_API_KEY", label: "OpenAI API Key" },
-      { key: "GOOGLE_GENERATIVE_AI_API_KEY", label: "Google Gemini API Key" },
-      { key: "GROQ_API_KEY", label: "Groq API Key" },
-      { key: "MISTRAL_API_KEY", label: "Mistral API Key" },
-      { key: "COHERE_API_KEY", label: "Cohere API Key" },
+      ...Object.values(PROVIDER_ENV_META).map(({ envVar, label }) => ({
+        key: envVar,
+        label,
+      })),
     ];
     {
       const envKeys = [...frameworkEnvKeys, ...(options.envKeys ?? [])];
@@ -491,6 +495,76 @@ export function createCoreRoutesPlugin(
         }),
       );
     }
+
+    // GET /_agent-native/agent-engine/status — reports whether an engine
+    // is configured (settings row, settings+env, or auto-detected from env).
+    // The agent-chat UI uses this to skip the onboarding gate for providers
+    // not in the env-status list (OpenRouter, Groq, Ollama, …).
+    getH3App(nitroApp).use(
+      `${P}/agent-engine/status`,
+      defineEventHandler(async () => {
+        try {
+          const stored = (await getSetting("agent-engine")) as {
+            engine?: string;
+          } | null;
+          if (isAgentEngineSettingConfigured(stored)) {
+            return {
+              configured: true,
+              engine: (stored as { engine: string }).engine,
+              source: "settings" as const,
+            };
+          }
+          if (stored && typeof stored.engine === "string") {
+            const entry = getAgentEngineEntry(stored.engine);
+            if (
+              entry &&
+              entry.requiredEnvVars.length > 0 &&
+              entry.requiredEnvVars.every((v) => !!process.env[v])
+            ) {
+              return {
+                configured: true,
+                engine: stored.engine,
+                source: "env" as const,
+                envVar: entry.requiredEnvVars[0],
+              };
+            }
+          }
+          const detected = detectEngineFromEnv();
+          if (detected) {
+            return {
+              configured: true,
+              engine: detected.name,
+              source: "env" as const,
+              envVar: detected.requiredEnvVars[0],
+            };
+          }
+        } catch {}
+        return { configured: false };
+      }),
+    );
+
+    // POST /_agent-native/agent-engine/disconnect — clear the agent-engine
+    // setting. Env vars are left alone so the next chat turn falls back to
+    // resolveEngine's env/default resolution.
+    getH3App(nitroApp).use(
+      `${P}/agent-engine/disconnect`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        try {
+          await deleteSetting("agent-engine");
+          return { ok: true };
+        } catch (err) {
+          setResponseStatus(event, 500);
+          return {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }),
+    );
 
     // ─── Usage & cost summary ────────────────────────────────────────
     // GET /_agent-native/usage?sinceDays=30

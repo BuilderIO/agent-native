@@ -69,6 +69,40 @@ export function listAgentEngines(): AgentEngineEntry[] {
   return Array.from(_registry.values());
 }
 
+/**
+ * First registered engine whose requiredEnvVars are all set. Registration
+ * order controls priority — Anthropic wins when multiple keys coexist.
+ */
+export function detectEngineFromEnv(): AgentEngineEntry | null {
+  for (const entry of _registry.values()) {
+    if (entry.requiredEnvVars.length === 0) continue;
+    if (entry.requiredEnvVars.every((v) => !!process.env[v])) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+/**
+ * True when an `agent-engine` setting entry names an engine AND carries an
+ * API key (top-level or inside `config`). Shared between the onboarding step
+ * and the /agent-engine/status endpoint so both agree on "is this configured".
+ */
+export function isAgentEngineSettingConfigured(stored: unknown): boolean {
+  if (!stored || typeof stored !== "object") return false;
+  const s = stored as {
+    engine?: unknown;
+    apiKey?: unknown;
+    config?: { apiKey?: unknown };
+  };
+  if (typeof s.engine !== "string" || !s.engine) return false;
+  if (typeof s.apiKey === "string" && s.apiKey) return true;
+  if (s.config && typeof s.config.apiKey === "string" && s.config.apiKey) {
+    return true;
+  }
+  return false;
+}
+
 export interface ResolveEngineConfig {
   /** Explicit engine name or instance from createAgentChatPlugin options */
   engineOption?:
@@ -149,14 +183,19 @@ export async function resolveEngine(
     // Settings not available — fall through
   }
 
-  // 5. Env var
+  // 5. Env var — explicit engine name override
   const envEngine = process.env.AGENT_ENGINE;
   if (envEngine) {
     const entry = _registry.get(envEngine);
     if (entry) return entry.create({ apiKey });
   }
 
-  // 6. Default: anthropic
+  // 6. Auto-detect from any provider env var — so just dropping a key in
+  // .env works without also setting AGENT_ENGINE.
+  const detected = detectEngineFromEnv();
+  if (detected) return detected.create({ apiKey });
+
+  // 7. Default: anthropic
   const anthropicEntry = _registry.get("anthropic");
   if (!anthropicEntry) {
     throw new Error(
