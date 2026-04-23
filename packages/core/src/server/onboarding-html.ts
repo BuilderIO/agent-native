@@ -192,10 +192,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     gap: 0.375rem;
     margin-top: 2rem;
     font-size: 0.8125rem;
-    color: #52525b;
+    color: #71717a;
     text-decoration: none;
   }
-  .oss-link:hover { color: #71717a; }
+  .oss-link:hover { color: #a1a1aa; }
   .oss-link svg { width: 15px; height: 15px; flex-shrink: 0; }
   .form-panel {
     flex: 0 0 440px;
