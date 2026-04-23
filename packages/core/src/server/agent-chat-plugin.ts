@@ -2529,6 +2529,11 @@ export function createAgentChatPlugin(
       let _currentRunUserApiKey: string | undefined;
       let _currentRunThreadId = "";
       let _currentRunSystemPrompt = basePrompt;
+      // Populated by onEngineResolved per request so sub-agents inherit
+      // whichever provider + model the user configured (OpenRouter, Groq, …)
+      // instead of silently falling back to Anthropic + Claude.
+      let _currentRunEngine: AgentEngine | undefined;
+      let _currentRunModel: string | undefined;
       // Default to Haiku in production mode to manage costs for hosted apps
       const resolvedModel =
         options?.model ??
@@ -2557,6 +2562,7 @@ export function createAgentChatPlugin(
                 ...chatScripts,
               },
         getEngine: () =>
+          _currentRunEngine ??
           createAnthropicEngine({
             // Sub-agents must inherit the parent run's resolved key so a
             // BYO-key user can't bypass the free-tier check on the parent
@@ -2566,7 +2572,7 @@ export function createAgentChatPlugin(
               options?.apiKey ??
               process.env.ANTHROPIC_API_KEY,
           }),
-        getModel: () => resolvedModel,
+        getModel: () => _currentRunModel ?? resolvedModel,
         getParentThreadId: () => _currentRunThreadId,
         getSend: () => {
           // Return the send for the current run's thread
@@ -2661,6 +2667,10 @@ export function createAgentChatPlugin(
           (isHostedProd ? "claude-haiku-4-5-20251001" : undefined),
         apiKey: options?.apiKey,
         skipFilesContext: leanPrompt,
+        onEngineResolved: (engine, model) => {
+          _currentRunEngine = engine;
+          _currentRunModel = model;
+        },
         onRunStart: (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,
@@ -2740,6 +2750,10 @@ export function createAgentChatPlugin(
           model: options?.model,
           apiKey: options?.apiKey,
           skipFilesContext: leanPrompt,
+          onEngineResolved: (engine, model) => {
+            _currentRunEngine = engine;
+            _currentRunModel = model;
+          },
           onRunStart: (
             send: (event: import("../agent/types.js").AgentChatEvent) => void,
             threadId: string,
