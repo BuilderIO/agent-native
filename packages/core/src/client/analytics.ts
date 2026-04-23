@@ -41,6 +41,10 @@ export function configureTracking(options: {
   if (options.getDefaultProps) {
     _getDefaultProps = options.getDefaultProps;
   }
+  if (typeof window !== "undefined") {
+    ensureSentry();
+    ensureAmplitude();
+  }
 }
 
 function resolveProps(
