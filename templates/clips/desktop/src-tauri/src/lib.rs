@@ -235,6 +235,7 @@ async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     let x: i32 = 48;
     let y: i32 = (mh as i32 - h as i32) / 2;
     eprintln!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
+    #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(&app, TOOLBAR_LABEL, build_overlay_url("toolbar"))
         .title("Clips Recorder")
         .decorations(false)
