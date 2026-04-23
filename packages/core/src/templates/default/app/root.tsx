@@ -20,7 +20,7 @@ import { configureTracking } from "@agent-native/core/client";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
-    app: "{{APP_SLUG}}",
+    app: "{{APP_NAME}}",
   }),
 });
 import "./global.css";
