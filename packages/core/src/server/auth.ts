@@ -973,7 +973,7 @@ async function mountBetterAuthRoutes(
         response.status < 400
       ) {
         const loc = response.headers.get("location");
-        if (loc && !loc.includes("verified")) {
+        if (loc && !/[?&]verified=/.test(loc)) {
           const sep = loc.includes("?") ? "&" : "?";
           const newResponse = new Response(null, {
             status: response.status,
