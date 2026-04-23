@@ -41,6 +41,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: "Architecture",
     items: [
       { label: "Authentication", to: "/docs/authentication" as const },
+      { label: "Multi-Tenancy", to: "/docs/multi-tenancy" as const },
       { label: "Security & Data Scoping", to: "/docs/security" as const },
       { label: "Server", to: "/docs/server" as const },
       { label: "Client", to: "/docs/client" as const },

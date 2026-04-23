@@ -18,8 +18,12 @@ import {
   deleteAppState,
   listAppState,
 } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
+import {
+  uploadFile,
+  getActiveFileUploadProvider,
+} from "@agent-native/core/file-upload";
 import { emit } from "@agent-native/core/event-bus";
+import { applyFaststart } from "../server/lib/faststart.js";
 import requestTranscript from "./request-transcript.js";
 
 /**
@@ -183,34 +187,46 @@ export default defineAction({
       // recordings.
       parts.length = 0;
 
-      // Upload to the configured provider. If none is configured the helper
-      // returns null and we fall back to a tiny application_state-hosted URL.
-      let videoUrl: string;
+      // Require a real upload provider — storing video blobs in the database
+      // is not viable for production. The onboarding step ensures this is
+      // configured before the user can record.
+      if (!getActiveFileUploadProvider()) {
+        throw new Error(
+          "No file upload provider configured. Connect Builder.io or configure S3-compatible storage in Settings.",
+        );
+      }
+
+      // Apply faststart to MP4 files — moves the moov atom before mdat so
+      // browsers can begin playback immediately via HTTP range requests.
+      let uploadData = assembled;
+      if (videoFormat === "mp4") {
+        try {
+          uploadData = applyFaststart(assembled);
+          if (uploadData !== assembled) {
+            console.log("[finalize] faststart applied", { id });
+          }
+        } catch (err) {
+          console.warn("[finalize] faststart failed, uploading as-is", {
+            id,
+            err: err instanceof Error ? err.message : String(err),
+          });
+          uploadData = assembled;
+        }
+      }
+
       const upload = await uploadFile({
-        data: assembled,
+        data: uploadData,
         filename: `${id}.${videoFormat}`,
         mimeType,
         ownerEmail,
       });
 
-      if (upload?.url) {
-        videoUrl = upload.url;
-      } else {
-        // Dev-only fallback: stash the assembled blob in application_state
-        // and serve it via /api/video/:id. (See server/plugins/auth.ts —
-        // /api/video is in publicPaths so anonymous viewers on /share/:id
-        // can play public recordings. /api/uploads stays protected because
-        // the chunk upload POST endpoints live under the same prefix.)
-        const b64 =
-          typeof Buffer !== "undefined"
-            ? Buffer.from(assembled).toString("base64")
-            : btoa(String.fromCharCode(...assembled));
-        await writeAppState(`recording-blob-${id}`, {
-          mimeType,
-          data: b64,
-        });
-        videoUrl = `/api/video/${id}`;
+      if (!upload?.url) {
+        throw new Error(
+          "File upload returned no URL. Check your storage provider configuration.",
+        );
       }
+      const videoUrl = upload.url;
 
       // Update the recording row with final metadata and flip to 'ready'.
       await db

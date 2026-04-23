@@ -67,13 +67,18 @@ const DEFAULT_CHUNK_MS = 2000;
 
 /** Pick a MediaRecorder mimeType the current browser actually supports. */
 export function pickMimeType(): string {
+  // Prefer MP4 (H.264) — produces faststart-friendly files that stream well
+  // with HTTP range requests. Chrome 121+ and Safari both support MP4 in
+  // MediaRecorder; Firefox falls back to WebM.
   const candidates = [
+    "video/mp4;codecs=avc1,opus",
+    "video/mp4;codecs=avc1",
+    "video/mp4",
     "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
     "video/webm;codecs=vp9",
     "video/webm;codecs=vp8",
     "video/webm",
-    "video/mp4",
   ];
   if (typeof MediaRecorder === "undefined") return "video/webm";
   for (const type of candidates) {
