@@ -6,10 +6,11 @@ import {
   type NotificationMeta,
   type Notification,
 } from "./types.js";
-import { insertNotification } from "./store.js";
+import { insertNotification, updateDeliveredChannels } from "./store.js";
 import { emit as emitBusEvent } from "../event-bus/bus.js";
 import { registerEvent } from "../event-bus/registry.js";
 import type { EventDefinition } from "../event-bus/types.js";
+import { truncate } from "../shared/truncate.js";
 
 registerEvent({
   name: "notification.sent",
@@ -75,6 +76,9 @@ export function listNotificationChannels(): string[] {
  * Also emits `notification.sent` on the event bus so automations can react
  * to notifications (e.g. "when a critical notification fires, also page me").
  */
+const MAX_TITLE_LEN = 100;
+const MAX_BODY_LEN = 2000;
+
 export async function notify(
   input: NotificationInput,
   meta: NotificationMeta,
@@ -82,6 +86,11 @@ export async function notify(
   if (!meta?.owner) {
     throw new Error("notify: meta.owner is required");
   }
+  input = {
+    ...input,
+    title: truncate(input.title, MAX_TITLE_LEN),
+    body: truncate(input.body, MAX_BODY_LEN),
+  };
   const channels = selectChannels(input.channels);
 
   // The inbox channel is always included unless explicitly excluded.
@@ -91,13 +100,15 @@ export async function notify(
 
   if (runInbox) {
     try {
+      // Stored with just "inbox" first; the real delivered list is written
+      // after fan-out so a failing webhook doesn't claim it was delivered.
       stored = await insertNotification({
         owner: meta.owner,
         severity: input.severity,
         title: input.title,
         body: input.body,
         metadata: input.metadata,
-        deliveredChannels: channels.map((c) => c.name).concat("inbox"),
+        deliveredChannels: ["inbox"],
       });
       delivered.push("inbox");
     } catch (err) {
@@ -105,21 +116,31 @@ export async function notify(
     }
   }
 
-  // Fan out to registered channels (best-effort).
-  for (const channel of channels) {
+  // Await every channel so a 500-ing webhook doesn't end up in `delivered`.
+  const results = await Promise.allSettled(
+    channels.map(async (channel) => {
+      await channel.deliver(input, meta);
+      return channel.name;
+    }),
+  );
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled") {
+      delivered.push(r.value);
+    } else {
+      console.error(
+        `[notifications] channel "${channels[i].name}" failed:`,
+        r.reason,
+      );
+    }
+  });
+
+  const hasExtraChannel = delivered.some((c) => c !== "inbox");
+  if (stored && hasExtraChannel) {
     try {
-      const result = channel.deliver(input, meta);
-      if (result && typeof (result as Promise<void>).catch === "function") {
-        (result as Promise<void>).catch((err) => {
-          console.error(
-            `[notifications] channel "${channel.name}" rejected:`,
-            err,
-          );
-        });
-      }
-      delivered.push(channel.name);
+      await updateDeliveredChannels(stored.id, delivered);
+      stored = { ...stored, deliveredChannels: delivered };
     } catch (err) {
-      console.error(`[notifications] channel "${channel.name}" threw:`, err);
+      console.error("[notifications] delivered-channel update failed:", err);
     }
   }
 

@@ -80,12 +80,16 @@ export function NotificationsBell({
         if (!res.ok) return;
         const rows = (await res.json()) as NotificationDto[];
         setUnreadCount(rows.length);
-        const isFirst = seenIdsRef.current === null;
-        const seen = isFirst ? new Set<string>() : seenIdsRef.current!;
+        // First run: treat everything as already seen so we don't pop
+        // retroactively on page load. After that, rebuild from the current
+        // unread list so ids for read/archived rows drop out — keeps the
+        // set bounded to the unread fetch limit (~20).
+        const prev = seenIdsRef.current;
+        const seen = new Set<string>();
         for (const n of rows) {
-          if (seen.has(n.id)) continue;
+          const alreadySeen = prev?.has(n.id) ?? true;
           seen.add(n.id);
-          if (isFirst) continue;
+          if (alreadySeen) continue;
           if (!SUPPORTS_NOTIFICATION) continue;
           if (Notification.permission !== "granted") continue;
           try {
@@ -95,7 +99,7 @@ export function NotificationsBell({
             // claims to be granted — silent no-op.
           }
         }
-        if (isFirst) seenIdsRef.current = seen;
+        seenIdsRef.current = seen;
       } catch {
         // best-effort
       }
@@ -263,7 +267,9 @@ export function NotificationsBell({
                 </button>
               ))
             ) : (
-              <div className="p-4 text-sm text-black/60">No notifications.</div>
+              <div className="p-4 text-sm text-muted-foreground">
+                No notifications.
+              </div>
             )}
           </div>
         </div>

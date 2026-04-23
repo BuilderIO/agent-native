@@ -78,7 +78,7 @@ function createWebhookChannel(urlTemplate: string): NotificationChannel {
         }
       });
 
-      await fetch(url, {
+      const res = await fetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -90,6 +90,38 @@ function createWebhookChannel(urlTemplate: string): NotificationChannel {
           emittedAt: new Date().toISOString(),
         }),
       });
+      if (!res.ok) {
+        throw new Error(
+          `[notifications] webhook ${new URL(url).origin} returned ${res.status}${
+            (await readErrorSnippet(res)) || ""
+          }`,
+        );
+      }
     },
   };
+}
+
+/**
+ * Read up to ~1 KB from the body for error context. Streams chunks so a
+ * misbehaving endpoint returning a large error page doesn't pin that whole
+ * payload in memory per failed webhook.
+ */
+async function readErrorSnippet(res: Response): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  const MAX = 1024;
+  let buf = "";
+  try {
+    while (buf.length < MAX) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+    }
+    reader.cancel().catch(() => {});
+  } catch {
+    return "";
+  }
+  if (!buf) return "";
+  return `: ${buf.slice(0, 200)}`;
 }

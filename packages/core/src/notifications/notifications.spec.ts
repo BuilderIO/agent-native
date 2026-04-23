@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockInsertNotification = vi.fn();
+const mockUpdateDeliveredChannels = vi.fn();
 const mockEmit = vi.fn();
 
 vi.mock("./store.js", () => ({
   insertNotification: (...args: unknown[]) => mockInsertNotification(...args),
+  updateDeliveredChannels: (...args: unknown[]) =>
+    mockUpdateDeliveredChannels(...args),
 }));
 
 vi.mock("../event-bus/bus.js", () => ({
@@ -100,6 +103,54 @@ describe("notifications registry", () => {
       expect(badDeliver).toHaveBeenCalled();
       expect(goodDeliver).toHaveBeenCalled();
       expect(mockInsertNotification).toHaveBeenCalled();
+    });
+
+    it("failed channels are excluded from deliveredChannels on the emit event", async () => {
+      registerNotificationChannel({
+        name: "slack",
+        deliver: () => {
+          throw new Error("slack is down");
+        },
+      });
+      registerNotificationChannel({
+        name: "pager",
+        deliver: async () => {},
+      });
+
+      await notify(
+        { severity: "critical", title: "DB offline" },
+        { owner: "boni@local" },
+      );
+
+      const eventCall = mockEmit.mock.calls.find(
+        ([name]) => name === "notification.sent",
+      );
+      expect(eventCall).toBeDefined();
+      const [, payload] = eventCall!;
+      expect(payload.deliveredChannels).toEqual(
+        expect.arrayContaining(["inbox", "pager"]),
+      );
+      expect(payload.deliveredChannels).not.toContain("slack");
+      expect(mockUpdateDeliveredChannels).toHaveBeenCalledWith(
+        "n-1",
+        expect.arrayContaining(["inbox", "pager"]),
+      );
+    });
+
+    it("truncates overlong titles + bodies", async () => {
+      const longTitle = "x".repeat(150);
+      const longBody = "y".repeat(3000);
+
+      await notify(
+        { severity: "info", title: longTitle, body: longBody },
+        { owner: "boni@local" },
+      );
+
+      const call = mockInsertNotification.mock.calls[0][0];
+      expect(call.title.length).toBeLessThanOrEqual(100);
+      expect(call.title.endsWith("…")).toBe(true);
+      expect(call.body.length).toBeLessThanOrEqual(2000);
+      expect(call.body.endsWith("…")).toBe(true);
     });
 
     it("explicit channels allowlist scopes delivery and excludes inbox when omitted", async () => {

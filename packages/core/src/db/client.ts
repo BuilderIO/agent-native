@@ -138,6 +138,29 @@ function isPgCatalogRace(e: any): boolean {
   );
 }
 
+/**
+ * True when `e` is a UNIQUE / PRIMARY KEY constraint violation from any
+ * supported driver (Postgres 23505, SQLite SQLITE_CONSTRAINT_PRIMARYKEY /
+ * _UNIQUE, D1). Used by stores that accept caller-provided ids and want to
+ * surface a clean "already exists" error instead of the raw SQL text.
+ */
+export function isUniqueViolation(e: any): boolean {
+  if (e?.code === "23505") return true;
+  const code = String(e?.code ?? "");
+  if (
+    code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
+    code === "SQLITE_CONSTRAINT_UNIQUE"
+  ) {
+    return true;
+  }
+  const msg = String(e?.message ?? "").toLowerCase();
+  return (
+    msg.includes("unique constraint") ||
+    msg.includes("primary key constraint") ||
+    msg.includes("duplicate key")
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Dialect detection
 // ---------------------------------------------------------------------------

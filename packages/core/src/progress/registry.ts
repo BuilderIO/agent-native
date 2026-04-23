@@ -9,6 +9,7 @@ import {
   type StartRunInput,
   type UpdateProgressInput,
 } from "./types.js";
+import { truncate } from "../shared/truncate.js";
 
 registerEvent({
   name: "run.progress.started",
@@ -44,12 +45,19 @@ registerEvent({
   },
 });
 
+const MAX_TITLE_LEN = 100;
+const MAX_STEP_LEN = 200;
+
 /**
  * Start a new run. Emits `run.progress.started` on the event bus so
  * automations can react (e.g. pinning the row in a UI tray).
  */
 export async function startRun(input: StartRunInput): Promise<AgentRun> {
-  const run = await insertRun(input);
+  const run = await insertRun({
+    ...input,
+    title: truncate(input.title, MAX_TITLE_LEN),
+    step: truncate(input.step, MAX_STEP_LEN),
+  });
   try {
     emitBusEvent(
       "run.progress.started",
@@ -75,7 +83,10 @@ export async function updateRunProgress(
   owner: string,
   input: UpdateProgressInput,
 ): Promise<AgentRun | null> {
-  const run = await updateRun(id, owner, input);
+  const run = await updateRun(id, owner, {
+    ...input,
+    step: truncate(input.step, MAX_STEP_LEN),
+  });
   if (!run) return null;
   try {
     emitBusEvent(

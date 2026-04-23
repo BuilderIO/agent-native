@@ -38,7 +38,13 @@ async function ensureTable(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_notifications_owner_unread ON notifications (owner, read_at)`,
         ),
       );
-    })();
+    })().catch((err) => {
+      // Reset on failure so a transient DB outage doesn't poison the cached
+      // promise and reject every future insert/list call for the lifetime of
+      // the process.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }
@@ -106,6 +112,18 @@ export async function insertNotification(
     createdAt: new Date(createdAt).toISOString(),
     readAt: null,
   };
+}
+
+export async function updateDeliveredChannels(
+  id: string,
+  channels: string[],
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  await client.execute({
+    sql: `UPDATE notifications SET delivered_channels = ? WHERE id = ?`,
+    args: [JSON.stringify(channels), id],
+  });
 }
 
 export interface ListNotificationsOptions {

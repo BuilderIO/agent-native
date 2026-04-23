@@ -2,14 +2,11 @@ import { randomUUID } from "node:crypto";
 import {
   getDbExec,
   intType,
+  isUniqueViolation,
   retryOnDdlRace,
   safeJsonParse,
 } from "../db/client.js";
 import { recordChange } from "../server/poll.js";
-
-function bumpPoll(owner: string): void {
-  recordChange({ source: "runs", type: "change", key: owner });
-}
 import type {
   AgentRun,
   ListRunsOptions,
@@ -17,6 +14,10 @@ import type {
   StartRunInput,
   UpdateProgressInput,
 } from "./types.js";
+
+function bumpPoll(owner: string): void {
+  recordChange({ source: "runs", type: "change", key: owner });
+}
 
 let _initPromise: Promise<void> | undefined;
 
@@ -50,7 +51,13 @@ async function ensureTable(): Promise<void> {
       // `agent_runs` for agent-chat turn lifecycle tracking. These are
       // separate concerns — progress = user-facing task status, agent_runs =
       // internal chat turn bookkeeping.
-    })();
+    })().catch((err) => {
+      // Reset on failure so a transient DB outage doesn't poison the cached
+      // promise and reject every future insert/update call for the lifetime
+      // of the process.
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }
@@ -84,20 +91,29 @@ export async function insertRun(input: StartRunInput): Promise<AgentRun> {
   const client = getDbExec();
   const id = input.id ?? randomUUID();
   const now = Date.now();
-  await client.execute({
-    sql: `INSERT INTO progress_runs
-      (id, owner, title, step, percent, status, metadata, started_at, updated_at, completed_at)
-      VALUES (?, ?, ?, ?, NULL, 'running', ?, ?, ?, NULL)`,
-    args: [
-      id,
-      input.owner,
-      input.title,
-      input.step ?? null,
-      input.metadata ? JSON.stringify(input.metadata) : null,
-      now,
-      now,
-    ],
-  });
+  try {
+    await client.execute({
+      sql: `INSERT INTO progress_runs
+        (id, owner, title, step, percent, status, metadata, started_at, updated_at, completed_at)
+        VALUES (?, ?, ?, ?, NULL, 'running', ?, ?, ?, NULL)`,
+      args: [
+        id,
+        input.owner,
+        input.title,
+        input.step ?? null,
+        input.metadata ? JSON.stringify(input.metadata) : null,
+        now,
+        now,
+      ],
+    });
+  } catch (err) {
+    if (input.id && isUniqueViolation(err)) {
+      throw new Error(
+        `insertRun: run id "${input.id}" already exists for this owner`,
+      );
+    }
+    throw err;
+  }
   bumpPoll(input.owner);
   return {
     id,
@@ -134,41 +150,54 @@ export async function updateRun(
 ): Promise<AgentRun | null> {
   await ensureTable();
   const client = getDbExec();
+  // Read current row first so we can return a consistent snapshot of this
+  // caller's update (avoids the UPDATE→SELECT race where a concurrent writer
+  // could have their change reflected in the returned value).
+  const current = await getRun(id, owner);
+  if (!current) return null;
+
   const now = Date.now();
   const sets: string[] = ["updated_at = ?"];
   const args: Array<string | number | null> = [now];
+  const next: AgentRun = {
+    ...current,
+    updatedAt: new Date(now).toISOString(),
+  };
 
   if (Object.prototype.hasOwnProperty.call(input, "percent")) {
+    const percent = input.percent == null ? null : clampPercent(input.percent);
     sets.push("percent = ?");
-    args.push(input.percent == null ? null : clampPercent(input.percent));
+    args.push(percent);
+    next.percent = percent;
   }
   if (input.step !== undefined) {
     sets.push("step = ?");
     args.push(input.step);
+    next.step = input.step;
   }
   if (input.metadata !== undefined) {
     sets.push("metadata = ?");
     args.push(JSON.stringify(input.metadata));
+    next.metadata = input.metadata;
   }
   if (input.status !== undefined) {
     sets.push("status = ?");
     args.push(input.status);
+    next.status = input.status;
     if (input.status !== "running") {
       sets.push("completed_at = ?");
       args.push(now);
+      next.completedAt = new Date(now).toISOString();
     }
   }
   args.push(id, owner);
 
-  const res = await client.execute({
+  await client.execute({
     sql: `UPDATE progress_runs SET ${sets.join(", ")} WHERE id = ? AND owner = ?`,
     args,
   });
-  if ((res as unknown as { rowsAffected?: number }).rowsAffected === 0) {
-    return null;
-  }
   bumpPoll(owner);
-  return getRun(id, owner);
+  return next;
 }
 
 function clampPercent(n: number): number {
