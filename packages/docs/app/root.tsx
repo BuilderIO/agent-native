@@ -109,16 +109,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
         />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script
-          src="https://js.sentry-cdn.com/49a2686c80d08b5331c7b7e148dbb4a8.min.js"
-          crossOrigin="anonymous"
-        />
-        <script src="https://cdn.amplitude.com/script/2532be1b0436a18cb938b21fc7fa9faf.js" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `window.amplitude?.init('2532be1b0436a18cb938b21fc7fa9faf',{autocapture:true});`,
-          }}
-        />
-        <script
           async
           src="https://www.googletagmanager.com/gtag/js?id=G-ESF7FYXGN9"
         />
