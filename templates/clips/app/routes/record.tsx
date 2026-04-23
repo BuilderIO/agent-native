@@ -26,6 +26,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 
 import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
+import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { CountdownOverlay } from "@/components/recorder/countdown-overlay";
 import { CameraBubble } from "@/components/recorder/camera-bubble";
 import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
@@ -104,6 +105,25 @@ export default function RecordRoute() {
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [recordingMode, setRecordingMode] =
     useState<RecordingMode>("screen+camera");
+
+  const [storageConfigured, setStorageConfigured] = useState<boolean | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/_agent-native/file-upload/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s: { configured?: boolean } | null) => {
+        if (!cancelled) setStorageConfigured(s?.configured ?? false);
+      })
+      .catch(() => {
+        if (!cancelled) setStorageConfigured(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const engineRef = useRef<RecorderEngine | null>(null);
   const pendingRef = useRef<PendingRecording | null>(null);
@@ -189,6 +209,9 @@ export default function RecordRoute() {
           }),
         });
         if (!res.ok) {
+          if (res.status === 401 || res.status === 403) {
+            throw new Error("SESSION_EXPIRED");
+          }
           throw new Error(`create-recording failed (${res.status})`);
         }
         const created = (await res.json()) as {
@@ -245,7 +268,12 @@ export default function RecordRoute() {
           err instanceof Error ? err.message : "Could not start recording";
         setError(message);
         setUiState("error");
-        toast.error(message);
+        if (
+          !message.includes("No video storage configured") &&
+          message !== "SESSION_EXPIRED"
+        ) {
+          toast.error(message);
+        }
       }
     },
     [],
@@ -423,7 +451,7 @@ export default function RecordRoute() {
   // with mode, the UI auto-kicks off. The actual poll is owned by root.tsx;
   // this component only reads URL query params for simpler agent hand-off.)
   useEffect(() => {
-    if (uiState !== "idle") return;
+    if (uiState !== "idle" || !storageConfigured) return;
     const url = new URL(window.location.href);
     const modeParam = url.searchParams.get("mode") as RecordingMode | null;
     if (
@@ -438,7 +466,7 @@ export default function RecordRoute() {
         cameraDeviceId: null,
       });
     }
-  }, [uiState, startFlow]);
+  }, [uiState, startFlow, storageConfigured]);
 
   // -------------------------------------------------------------------------
   // Render.
@@ -458,7 +486,11 @@ export default function RecordRoute() {
               Clips recorder
             </span>
           </div>
-          <PreRecordPanel onStart={startFlow} />
+          {storageConfigured === null ? null : storageConfigured ? (
+            <PreRecordPanel onStart={startFlow} />
+          ) : (
+            <StorageSetupCard onConfigured={() => setStorageConfigured(true)} />
+          )}
         </div>
       )}
 
@@ -547,35 +579,66 @@ export default function RecordRoute() {
       {/* Error state */}
       {uiState === "error" && error && (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4 text-center">
-          <div className="max-w-md rounded-xl border border-destructive/50 bg-destructive/10 p-6">
-            <div className="mb-2 text-sm font-semibold text-destructive">
-              Couldn't start recording
-            </div>
-            <div className="text-sm text-foreground/80">{error}</div>
-            <div className="mt-4 flex justify-center gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
+          {error.includes("No video storage configured") ? (
+            <>
+              <div className="mb-2 flex items-center gap-2 text-primary">
+                <IconVideo className="h-6 w-6" />
+                <span className="text-sm font-medium uppercase tracking-wide">
+                  Clips recorder
+                </span>
+              </div>
+              <StorageSetupCard
+                onConfigured={() => {
+                  setStorageConfigured(true);
                   setError(null);
                   setUiState("idle");
                 }}
-              >
-                Try again
-              </Button>
-              {/^darwin|mac/i.test(
-                typeof navigator !== "undefined" ? navigator.platform : "",
-              ) && (
+              />
+            </>
+          ) : error === "SESSION_EXPIRED" ? (
+            <div className="max-w-md rounded-xl border border-border bg-card p-6">
+              <div className="mb-2 text-sm font-semibold text-foreground">
+                Session expired
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Your login session has expired. Log in again to start recording.
+              </div>
+              <div className="mt-4 flex justify-center">
+                <Button onClick={() => window.location.reload()}>Log in</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="max-w-md rounded-xl border border-border bg-card p-6">
+              <div className="mb-2 text-sm font-semibold text-foreground">
+                Couldn't start recording
+              </div>
+              <div className="text-sm text-muted-foreground">{error}</div>
+              <div className="mt-4 flex justify-center gap-2">
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   onClick={() => {
-                    window.location.href = MAC_SCREEN_RECORDING_PREF_URL;
+                    setError(null);
+                    setUiState("idle");
                   }}
                 >
-                  Open Screen Recording settings
+                  Try again
                 </Button>
-              )}
+                {/screen|permission|denied|not allowed/i.test(error) &&
+                  /^darwin|mac/i.test(
+                    typeof navigator !== "undefined" ? navigator.platform : "",
+                  ) && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        window.location.href = MAC_SCREEN_RECORDING_PREF_URL;
+                      }}
+                    >
+                      Open Screen Recording settings
+                    </Button>
+                  )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 

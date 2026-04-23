@@ -21,12 +21,21 @@ import { isLocalDatabase } from "../db/client.js";
 
 let cachedPkgName: string | undefined | null = null;
 
+/**
+ * Read the app's package name, validated against the first-party template
+ * registry. On serverless runtimes (Netlify Functions, Cloudflare Workers),
+ * `process.cwd()` may point at a bundler-generated package.json with a
+ * bogus name (e.g. Nitro's "traced-node-modules"). Only trust the name if
+ * it matches a known template.
+ */
 function readPackageName(): string | undefined {
   if (cachedPkgName !== null) return cachedPkgName ?? undefined;
   try {
     const pkgPath = path.join(process.cwd(), "package.json");
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-    cachedPkgName = typeof pkg?.name === "string" ? pkg.name : undefined;
+    const name = typeof pkg?.name === "string" ? pkg.name : undefined;
+    const isKnown = name && TEMPLATES.some((t) => t.name === name);
+    cachedPkgName = isKnown ? name : undefined;
   } catch {
     cachedPkgName = undefined;
   }

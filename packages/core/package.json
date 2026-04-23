@@ -88,8 +88,8 @@
     "release": "npm version patch && npm publish --access public"
   },
   "dependencies": {
+    "@amplitude/analytics-browser": "^2.41.1",
     "@anthropic-ai/sdk": "^0.90.0",
-    "@sentry/node": "^10.50.0",
     "@clack/prompts": "^1.2.0",
     "@libsql/client": "^0.15.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -99,6 +99,8 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@react-router/dev": "^7.13.1",
     "@react-router/fs-routes": "^7.13.1",
+    "@sentry/browser": "^10.50.0",
+    "@sentry/node": "^10.50.0",
     "@standard-schema/spec": "^1.1.0",
     "@tabler/icons-react": "^3",
     "@tailwindcss/typography": "^0.5.19",
