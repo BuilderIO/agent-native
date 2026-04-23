@@ -90,7 +90,7 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
 - **Actions first** — use `defineAction` for new operations; only create `/api/` routes for file uploads, streaming, webhooks, or OAuth callbacks.
 - **TypeScript everywhere** — all code must be `.ts`/`.tsx`. Never `.js` or `.mjs`.
 - **Prettier** — run `npx prettier --write <files>` after modifying source files.
-- **Client-side rendering** — all app content renders client-side via the `ClientOnly` wrapper in `root.tsx`.
+- **SSR for public pages, CSR for logged-in pages.** Any page a visitor can see without logging in — homepages, landing pages, docs, marketing, pricing — must server-side render so crawlers get real HTML. Logged-in app pages use client-side rendering via the `ClientOnly` wrapper in `root.tsx` to keep things simple. Never wrap public/SEO-critical content in `ClientOnly`. If a client-only component (e.g. `AgentSidebar`) needs to appear on a public page, render the page content directly and add the component as a client-only progressive enhancement (render children on server, mount the wrapper after hydration).
 - **shadcn/ui components** for standard UI. Check `app/components/ui/` before building custom.
 - **Tabler Icons** (`@tabler/icons-react`) for all icons. **Never use emojis as icons** — not in buttons, not in avatars, not in labels, not in toasts/notifications, not in outbound messages (Slack, email). No other icon libraries, no inline SVGs. Emojis are fine when they are _user-authored content_ (a document title emoji picker, a reaction the user chose, a user-picked space icon) — the rule is about icons the UI picks, not data the user picks.
 - **No browser dialogs** — use shadcn AlertDialog instead of `window.confirm/alert/prompt`.
