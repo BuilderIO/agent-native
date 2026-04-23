@@ -103,6 +103,21 @@ export function isAgentEngineSettingConfigured(stored: unknown): boolean {
   return false;
 }
 
+/**
+ * True when the stored `agent-engine` row points at a registered engine
+ * AND an API key for it is reachable — either inline (settings + `config`)
+ * or via the engine's required env vars. When false, callers should fall
+ * through to env-detection so a stale disconnected row can't hijack chat.
+ */
+export function isStoredEngineUsable(
+  stored: unknown,
+  entry: AgentEngineEntry,
+): boolean {
+  if (isAgentEngineSettingConfigured(stored)) return true;
+  if (entry.requiredEnvVars.length === 0) return true;
+  return entry.requiredEnvVars.every((v) => !!process.env[v]);
+}
+
 export interface ResolveEngineConfig {
   /** Explicit engine name or instance from createAgentChatPlugin options */
   engineOption?:
@@ -166,12 +181,12 @@ export async function resolveEngine(
     return entry.create({ apiKey });
   }
 
-  // 4. Settings store
+  // 4. Settings store — only when the stored row's API key is reachable.
   try {
     const stored = await getSetting("agent-engine");
     if (stored && typeof stored.engine === "string") {
       const entry = _registry.get(stored.engine);
-      if (entry) {
+      if (entry && isStoredEngineUsable(stored, entry)) {
         const storedApiKey = (stored.apiKey as string | undefined) ?? apiKey;
         return entry.create({
           apiKey: storedApiKey,

@@ -57,6 +57,7 @@ import {
   isAgentEngineSettingConfigured,
   getAgentEngineEntry,
   detectEngineFromEnv,
+  isStoredEngineUsable,
 } from "../agent/engine/registry.js";
 
 /**
@@ -516,11 +517,7 @@ export function createCoreRoutesPlugin(
           }
           if (stored && typeof stored.engine === "string") {
             const entry = getAgentEngineEntry(stored.engine);
-            if (
-              entry &&
-              entry.requiredEnvVars.length > 0 &&
-              entry.requiredEnvVars.every((v) => !!process.env[v])
-            ) {
+            if (entry && isStoredEngineUsable(stored, entry)) {
               return {
                 configured: true,
                 engine: stored.engine,

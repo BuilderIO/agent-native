@@ -7,6 +7,8 @@ import {
   listAgentEngines,
   registerBuiltinEngines,
   detectEngineFromEnv,
+  getAgentEngineEntry,
+  isStoredEngineUsable,
 } from "../../agent/engine/index.js";
 import { getSetting } from "../../settings/index.js";
 
@@ -29,14 +31,24 @@ export async function run(): Promise<string> {
     ? (currentSetting as { engine?: string; model?: string })
     : null;
 
-  // Resolve current engine in the same priority resolveEngine uses:
-  // settings → AGENT_ENGINE env → auto-detect → anthropic default. Validate
-  // against the registry so a stale `AGENT_ENGINE=local-openai` from a
-  // pre-migration template doesn't poison the Settings picker.
-  const explicit = current?.engine ?? process.env.AGENT_ENGINE;
-  const explicitEntry =
-    explicit != null ? engines.find((e) => e.name === explicit) : undefined;
-  const currentEntry = explicitEntry ?? detectEngineFromEnv() ?? undefined;
+  // Same priority chain resolveEngine uses: stored (if usable) → AGENT_ENGINE
+  // → detect → anthropic. Gating stored on isStoredEngineUsable keeps this
+  // in step with /agent-engine/status.
+  const storedEntry =
+    typeof current?.engine === "string"
+      ? getAgentEngineEntry(current.engine)
+      : undefined;
+  const storedUsable =
+    !!storedEntry && isStoredEngineUsable(current, storedEntry);
+
+  const currentEntry =
+    (storedUsable ? storedEntry : undefined) ??
+    (process.env.AGENT_ENGINE
+      ? getAgentEngineEntry(process.env.AGENT_ENGINE)
+      : undefined) ??
+    detectEngineFromEnv() ??
+    undefined;
+  const currentModel = storedUsable ? current?.model : undefined;
   const currentEngineName = currentEntry?.name ?? "anthropic";
 
   const result = {
@@ -53,7 +65,7 @@ export async function run(): Promise<string> {
     current: {
       engine: currentEngineName,
       model:
-        current?.model ??
+        currentModel ??
         currentEntry?.defaultModel ??
         "claude-haiku-4-5-20251001",
     },
