@@ -169,27 +169,38 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          RELEASE_TAG="clips-v${{ steps.v.outputs.version }}"
           mkdir -p manifest
-          # latest.json is only generated when TAURI_SIGNING_PRIVATE_KEY is
-          # configured. If it's missing, the release still works for manual
-          # downloads — just no auto-update.
-          if gh release download "clips-v${{ steps.v.outputs.version }}" \
-               --pattern 'latest.json' --dir manifest 2>/dev/null; then
+
+          # latest.json is only produced when TAURI_SIGNING_PRIVATE_KEY is set.
+          # Check explicitly so real API/auth errors aren't silently swallowed.
+          HAS_MANIFEST=$(gh release view "$RELEASE_TAG" --json assets \
+            -q '[.assets[].name] | any(. == "latest.json")') || {
+            echo "❌ Failed to query release assets for $RELEASE_TAG"
+            exit 1
+          }
+
+          if [ "$HAS_MANIFEST" = "true" ]; then
+            gh release download "$RELEASE_TAG" --pattern 'latest.json' --dir manifest
             mv manifest/latest.json manifest/clips-latest.json
-            if gh release view clips-latest >/dev/null 2>&1; then
+
+            MANIFEST_TITLE="Clips Desktop — latest (updater manifest)"
+            MANIFEST_NOTES="Stable URL for the Clips auto-updater. Overwritten on every release. Versioned bundles live in clips-v* releases."
+
+            if gh release view clips-latest --json tagName -q .tagName >/dev/null 2>&1; then
               gh release delete-asset clips-latest clips-latest.json --yes || true
               gh release upload clips-latest manifest/clips-latest.json
               gh release edit clips-latest \
-                --title "Clips Desktop — latest (updater manifest)" \
-                --notes "Stable URL for the Clips auto-updater. Overwritten on every release. Versioned bundles live in clips-v* releases."
+                --title "$MANIFEST_TITLE" \
+                --notes "$MANIFEST_NOTES"
             else
               gh release create clips-latest manifest/clips-latest.json \
-                --title "Clips Desktop — latest (updater manifest)" \
-                --notes "Stable URL for the Clips auto-updater. Overwritten on every release. Versioned bundles live in clips-v* releases." \
+                --title "$MANIFEST_TITLE" \
+                --notes "$MANIFEST_NOTES" \
                 --latest=false
             fi
             echo "✅ Updater manifest published to clips-latest release"
           else
-            echo "⚠️ No latest.json found — TAURI_SIGNING_PRIVATE_KEY may not be configured."
+            echo "⚠️ No latest.json in $RELEASE_TAG — TAURI_SIGNING_PRIVATE_KEY may not be configured."
             echo "⚠️ Release published without auto-update support. Users can still download manually."
           fi
