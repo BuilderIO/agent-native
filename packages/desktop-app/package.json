@@ -2,6 +2,14 @@
   "name": "@agent-native/desktop-app",
   "version": "0.1.6",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/desktop-app"
+  },
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "main": "out/main/index.js",
   "productName": "Agent Native",
   "description": "Agent Native desktop app",

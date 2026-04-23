@@ -9,6 +9,10 @@
     "url": "https://github.com/BuilderIO/agent-native",
     "directory": "packages/pinpoint"
   },
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

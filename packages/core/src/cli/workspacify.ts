@@ -35,8 +35,10 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   const { appDir, workspaceCoreName } = opts;
 
   // 1) Rewrite package.json to add the workspace core dep and resolve
-  //    workspace:* refs to `latest` (since the created workspace does NOT
-  //    contain @agent-native/core — that's still an npm package).
+  //    @agent-native/core workspace:* refs to `latest` (it's an npm package,
+  //    not a workspace member). Other workspace:* deps (e.g.
+  //    @agent-native/scheduling) stay as-is — they resolve within the workspace
+  //    because the required package is scaffolded alongside the app.
   const pkgPath = path.join(appDir, "package.json");
   if (fs.existsSync(pkgPath)) {
     try {
@@ -49,7 +51,11 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
         const deps = pkg[depType];
         if (!deps) continue;
         for (const [key, val] of Object.entries(deps)) {
-          if (typeof val === "string" && val.startsWith("workspace:")) {
+          if (
+            typeof val === "string" &&
+            val.startsWith("workspace:") &&
+            key === "@agent-native/core"
+          ) {
             deps[key] = "latest";
           }
         }

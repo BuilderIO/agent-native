@@ -2,6 +2,14 @@
   "name": "@agent-native/mobile-app",
   "version": "0.1.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/mobile-app"
+  },
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",

@@ -3864,7 +3864,25 @@ export function createAgentChatPlugin(
       } catch (err) {
         // Triggers module not available — skip silently
       }
-    })();
+    })().catch((err) => {
+      // If the init fails, the routes never get registered and requests
+      // to /_agent-native/agent-chat silently 404. Register a fallback
+      // route so the user sees a meaningful error instead.
+      const routePath = options?.path ?? "/_agent-native/agent-chat";
+      const msg = (err as Error)?.message || String(err);
+      console.error(
+        `[agent-chat] Plugin init failed — registering error fallback: ${msg}`,
+      );
+      getH3App(nitroApp).use(
+        routePath,
+        defineEventHandler((event) => {
+          setResponseStatus(event, 503);
+          return {
+            error: `Agent chat failed to initialize: ${msg}`,
+          };
+        }),
+      );
+    });
     trackPluginInit(nitroApp, initPromise);
   };
 }

@@ -2,6 +2,14 @@
   "name": "@agent-native/shared-app-config",
   "version": "0.1.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/shared-app-config"
+  },
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "main": "index.ts",
   "types": "index.ts"
 }

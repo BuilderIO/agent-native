@@ -4,6 +4,7 @@ import { execSync, spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import * as Sentry from "@sentry/node";
 
 // Resolve version once at module scope — used by both --version and --help
 let _version = "unknown";
@@ -15,6 +16,21 @@ try {
   );
   _version = pkg.version;
 } catch {}
+
+Sentry.init({
+  dsn: "https://0d384e9eff2f6542af468b92769f2f5b@o117565.ingest.us.sentry.io/4511270386466816",
+  release: `agent-native-cli@${_version}`,
+  sendDefaultPii: true,
+  beforeSend(event) {
+    event.tags = {
+      ...event.tags,
+      command: process.argv[2] ?? "none",
+      nodeVersion: process.version,
+      platform: process.platform,
+    };
+    return event;
+  },
+});
 
 const FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV?source=cli";
@@ -42,7 +58,8 @@ process.on("uncaughtException", (err) => {
   console.error(`  Report this bug: ${BUGS_URL}`);
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: err.message });
-  process.exit(1);
+  Sentry.captureException(err);
+  Sentry.flush(2000).finally(() => process.exit(1));
 });
 
 process.on("unhandledRejection", (reason: any) => {
@@ -50,7 +67,8 @@ process.on("unhandledRejection", (reason: any) => {
   console.error(`  Report this bug: ${BUGS_URL}`);
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: reason?.message ?? String(reason) });
-  process.exit(1);
+  Sentry.captureException(reason);
+  Sentry.flush(2000).finally(() => process.exit(1));
 });
 
 function findViteBin(): string {
