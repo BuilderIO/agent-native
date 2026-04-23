@@ -18,6 +18,7 @@ import type {
   EngineContentPart,
 } from "./engine/types.js";
 import { resolveEngine, registerBuiltinEngines } from "./engine/index.js";
+import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import {
   startRun,
@@ -34,15 +35,6 @@ import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
-
-const PROVIDER_TO_ENV: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  google: "GOOGLE_GENERATIVE_AI_API_KEY",
-  groq: "GROQ_API_KEY",
-  mistral: "MISTRAL_API_KEY",
-  cohere: "COHERE_API_KEY",
-};
 
 export { PROVIDER_TO_ENV };
 
@@ -159,6 +151,12 @@ export interface ProductionAgentOptions {
     send: (event: AgentChatEvent) => void,
     threadId: string,
   ) => void;
+  /**
+   * Called after the engine + model are resolved for this request. Used by
+   * the plugin layer to thread the parent's choices into sub-agents so
+   * delegated tasks don't default back to Anthropic + Claude.
+   */
+  onEngineResolved?: (engine: AgentEngine, model: string) => void;
   /** Resolve the owner email from the H3 event (for usage tracking) */
   resolveOwnerEmail?: (event: any) => string | Promise<string>;
   /** Enable per-user usage limit checking and token tracking */
@@ -587,6 +585,8 @@ export function createProductionAgentHandler(
     }
 
     const model = requestModel ?? configuredModel ?? engine.defaultModel;
+
+    options.onEngineResolved?.(engine, model);
 
     // Check for API key before starting a run (only for anthropic engine)
     if (engine.name === "anthropic" && !effectiveApiKey) {

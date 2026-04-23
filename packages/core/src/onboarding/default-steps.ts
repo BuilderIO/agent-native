@@ -8,8 +8,50 @@
 
 import { registerOnboardingStep } from "./registry.js";
 import type { OnboardingStep } from "./types.js";
+import {
+  PROVIDER_ENV_META,
+  PROVIDER_ENV_VARS,
+} from "../agent/engine/provider-env-vars.js";
+import { isAgentEngineSettingConfigured } from "../agent/engine/registry.js";
+import { getSetting } from "../settings/store.js";
 
-/** Step 1 — an LLM must be reachable for the agent chat to work. */
+type LlmKeyMethod = {
+  provider: keyof typeof PROVIDER_ENV_META;
+  id: string;
+  label: string;
+  description: string;
+  primary?: boolean;
+};
+
+const LLM_KEY_METHODS: LlmKeyMethod[] = [
+  {
+    provider: "anthropic",
+    id: "anthropic-key",
+    label: "Use your Anthropic API key",
+    description: "Paste a key — stored locally in your .env file.",
+    primary: true,
+  },
+  {
+    provider: "openai",
+    id: "openai-key",
+    label: "Use your OpenAI API key",
+    description: "GPT models via the ai-sdk:openai engine.",
+  },
+  {
+    provider: "google",
+    id: "google-key",
+    label: "Use your Google Gemini API key",
+    description: "Gemini models via the ai-sdk:google engine.",
+  },
+  {
+    provider: "openrouter",
+    id: "openrouter-key",
+    label: "Use your OpenRouter API key",
+    description:
+      "One key, 300+ models via openrouter.ai — the ai-sdk:openrouter engine.",
+  },
+];
+
 const llmStep: OnboardingStep = {
   id: "llm",
   order: 10,
@@ -17,24 +59,27 @@ const llmStep: OnboardingStep = {
   title: "Connect an AI engine",
   description: "Agent-native needs an LLM to power the agent chat.",
   methods: [
-    {
-      id: "anthropic-key",
-      kind: "form",
-      label: "Use your Anthropic API key",
-      description: "Paste a key — stored locally in your .env file.",
-      primary: true,
-      payload: {
-        writeScope: "workspace",
-        fields: [
-          {
-            key: "ANTHROPIC_API_KEY",
-            label: "ANTHROPIC_API_KEY",
-            placeholder: "sk-ant-...",
-            secret: true,
-          },
-        ],
-      },
-    },
+    ...LLM_KEY_METHODS.map(({ provider, id, label, description, primary }) => {
+      const meta = PROVIDER_ENV_META[provider];
+      return {
+        id,
+        kind: "form" as const,
+        label,
+        description,
+        ...(primary ? { primary: true } : {}),
+        payload: {
+          writeScope: "workspace" as const,
+          fields: [
+            {
+              key: meta.envVar,
+              label: meta.envVar,
+              placeholder: meta.placeholder,
+              secret: true,
+            },
+          ],
+        },
+      };
+    }),
     {
       id: "builder",
       kind: "builder-cli-auth",
@@ -46,8 +91,15 @@ const llmStep: OnboardingStep = {
       payload: { scope: "browser" },
     },
   ],
-  isComplete: () =>
-    !!process.env.ANTHROPIC_API_KEY || !!process.env.BUILDER_PRIVATE_KEY,
+  isComplete: async () => {
+    if (process.env.BUILDER_PRIVATE_KEY) return true;
+    if (PROVIDER_ENV_VARS.some((k) => !!process.env[k])) return true;
+    try {
+      return isAgentEngineSettingConfigured(await getSetting("agent-engine"));
+    } catch {
+      return false;
+    }
+  },
 };
 
 /** Step 2 — where application data lives. SQLite default means non-blocking. */

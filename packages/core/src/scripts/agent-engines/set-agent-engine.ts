@@ -48,15 +48,12 @@ export async function run(args: Record<string, string>): Promise<string> {
 
   const resolvedModel = model ?? entry.defaultModel;
 
-  // Validate model is in supported list (if the list is non-empty)
-  if (
-    entry.supportedModels.length > 0 &&
-    !entry.supportedModels.includes(resolvedModel)
-  ) {
-    return `Error: Model "${resolvedModel}" is not supported by engine "${engineName}". Supported models: ${entry.supportedModels.join(", ")}`;
-  }
+  // supportedModels is a suggestion list, not an allowlist — accept any
+  // string (OpenRouter / Ollama / previews) and flag uncurated saves.
+  const modelIsCurated =
+    entry.supportedModels.length === 0 ||
+    entry.supportedModels.includes(resolvedModel);
 
-  // Check required env vars
   const missingEnvVars = entry.requiredEnvVars.filter((v) => !process.env[v]);
   if (missingEnvVars.length > 0) {
     return `Warning: Engine "${engineName}" requires the following environment variables which are not set: ${missingEnvVars.join(", ")}. The engine will fail at runtime without them.`;
@@ -67,10 +64,14 @@ export async function run(args: Record<string, string>): Promise<string> {
     model: resolvedModel,
   });
 
+  const customNote = modelIsCurated
+    ? ""
+    : ` (model "${resolvedModel}" isn't in the curated list for ${entry.label}; saved as a custom model — verify it's a real ID for this provider)`;
+
   return JSON.stringify({
     ok: true,
     engine: engineName,
     model: resolvedModel,
-    message: `Agent engine set to ${entry.label} with model ${resolvedModel}. Takes effect on the next conversation.`,
+    message: `Agent engine set to ${entry.label} with model ${resolvedModel}. Takes effect on the next conversation.${customNote}`,
   });
 }
