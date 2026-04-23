@@ -48,6 +48,9 @@ import {
 } from "../secrets/routes.js";
 import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
+import { registerBuiltinNotificationChannels } from "../notifications/channels.js";
+import { createNotificationsHandler } from "../notifications/routes.js";
+import { createProgressHandler } from "../progress/routes.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 
 /**
@@ -106,6 +109,7 @@ export function createCoreRoutesPlugin(
     // already registered the same key win.
     registerFrameworkSecrets();
     registerBuiltinProviders();
+    registerBuiltinNotificationChannels();
 
     const P = FRAMEWORK_ROUTE_PREFIX;
 
@@ -619,6 +623,20 @@ export function createCoreRoutesPlugin(
         return { error: "Not found" };
       }),
     );
+
+    // ─── Notifications inbox ──────────────────────────────────────────
+    // GET    /_agent-native/notifications[?unread&limit&before]
+    // GET    /_agent-native/notifications/count
+    // POST   /_agent-native/notifications/:id/read
+    // POST   /_agent-native/notifications/read-all
+    // DELETE /_agent-native/notifications/:id
+    getH3App(nitroApp).use(`${P}/notifications`, createNotificationsHandler());
+
+    // ─── Agent run progress ───────────────────────────────────────────
+    // GET    /_agent-native/runs[?active&limit]
+    // GET    /_agent-native/runs/:id
+    // DELETE /_agent-native/runs/:id
+    getH3App(nitroApp).use(`${P}/runs`, createProgressHandler());
 
     // ─── Automations API ──────────────────────────────────────────────
     // GET  /_agent-native/automations — list all automations (parsed triggers)

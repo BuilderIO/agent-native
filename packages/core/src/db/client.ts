@@ -56,6 +56,25 @@ export function getDatabaseAuthToken(): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
+// Safe JSON column parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a JSON-serialized column value defensively. A malformed row — from a
+ * hand-edit, dirty migration, or a misbehaving agent that wrote raw SQL —
+ * must not break an entire list endpoint. Callers supply a fallback for the
+ * malformed path; null/undefined values also fall back.
+ */
+export function safeJsonParse<T>(value: unknown, fallback: T): T {
+  if (value == null) return fallback;
+  try {
+    return JSON.parse(String(value)) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // SQLite retry helper
 // ---------------------------------------------------------------------------
 
@@ -116,6 +135,29 @@ function isPgCatalogRace(e: any): boolean {
     constraint.startsWith("pg_class") ||
     detail.includes("pg_type") ||
     detail.includes("pg_class")
+  );
+}
+
+/**
+ * True when `e` is a UNIQUE / PRIMARY KEY constraint violation from any
+ * supported driver (Postgres 23505, SQLite SQLITE_CONSTRAINT_PRIMARYKEY /
+ * _UNIQUE, D1). Used by stores that accept caller-provided ids and want to
+ * surface a clean "already exists" error instead of the raw SQL text.
+ */
+export function isUniqueViolation(e: any): boolean {
+  if (e?.code === "23505") return true;
+  const code = String(e?.code ?? "");
+  if (
+    code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
+    code === "SQLITE_CONSTRAINT_UNIQUE"
+  ) {
+    return true;
+  }
+  const msg = String(e?.message ?? "").toLowerCase();
+  return (
+    msg.includes("unique constraint") ||
+    msg.includes("primary key constraint") ||
+    msg.includes("duplicate key")
   );
 }
 
