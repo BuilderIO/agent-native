@@ -1905,8 +1905,8 @@ const AssistantChatInner = forwardRef<
     const check = async () => {
       const [envKeys, builderStatus, engineStatus] = await Promise.all([
         fetch("/_agent-native/env-status")
-          .then((r) => (r.ok ? r.json() : []))
-          .catch(() => []),
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
         fetch("/_agent-native/builder/status")
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
@@ -1915,7 +1915,15 @@ const AssistantChatInner = forwardRef<
           .catch(() => null),
       ]);
       if (cancelled) return;
-      const keys = envKeys as Array<{ key: string; configured: boolean }>;
+      // All three status endpoints failed — avoid flashing the gate on a
+      // transient network error.
+      if (envKeys == null && builderStatus == null && engineStatus == null) {
+        return;
+      }
+      const keys = (envKeys ?? []) as Array<{
+        key: string;
+        configured: boolean;
+      }>;
       const llmKeys = keys.filter((k) => PROVIDER_ENV_VAR_SET.has(k.key));
       const anyConfigured =
         llmKeys.some((k) => k.configured) ||

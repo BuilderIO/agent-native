@@ -383,6 +383,7 @@ function LLMSectionInner({
     | null
   >(null);
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus>(null);
+  const [disconnectError, setDisconnectError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/_agent-native/env-status")
@@ -497,6 +498,7 @@ function LLMSectionInner({
   };
 
   const handleDisconnect = async () => {
+    setDisconnectError(null);
     try {
       const res = await fetch("/_agent-native/agent-engine/disconnect", {
         method: "POST",
@@ -506,8 +508,20 @@ function LLMSectionInner({
         setApplyNote(false);
         refreshSettingsStatus();
         notifyConfigChanged();
+        return;
       }
-    } catch {}
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      setDisconnectError(
+        body?.error ??
+          (res.status === 401
+            ? "You must be signed in to disconnect."
+            : `Disconnect failed (HTTP ${res.status})`),
+      );
+    } catch (err) {
+      setDisconnectError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const handleTest = async () => {
@@ -718,6 +732,11 @@ function LLMSectionInner({
             {testResult && testResult.ok === false && (
               <p className="text-[10px] text-destructive">
                 Test failed: {testResult.error}
+              </p>
+            )}
+            {disconnectError && (
+              <p className="text-[10px] text-destructive">
+                Disconnect failed: {disconnectError}
               </p>
             )}
             {applyNote && (

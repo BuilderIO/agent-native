@@ -550,6 +550,11 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "unauthorized" };
+        }
         try {
           await deleteSetting("agent-engine");
           return { ok: true };
