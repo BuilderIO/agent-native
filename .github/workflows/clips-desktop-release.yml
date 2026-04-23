@@ -10,8 +10,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'templates/clips/desktop/**'
-      - 'packages/shared-app-config/**'
+      - "templates/clips/desktop/**"
+      - "packages/shared-app-config/**"
   workflow_dispatch:
     inputs:
       version:

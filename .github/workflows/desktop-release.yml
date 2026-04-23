@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'packages/desktop-app/**'
-      - 'packages/shared-app-config/**'
+      - "packages/desktop-app/**"
+      - "packages/shared-app-config/**"
   workflow_dispatch:
     inputs:
       version:
