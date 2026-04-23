@@ -16,6 +16,13 @@ import { ThemeProvider } from "next-themes";
 import { useDbSync } from "@agent-native/core";
 import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { Toaster } from "sonner";
+import { configureTracking } from "@agent-native/core/client";
+configureTracking({
+  getDefaultProps: (_name, properties) => ({
+    ...properties,
+    app: "{{APP_NAME}}",
+  }),
+});
 import "./global.css";
 
 export function Layout({ children }: { children: React.ReactNode }) {
