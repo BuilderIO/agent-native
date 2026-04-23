@@ -21,7 +21,7 @@ function TerminalCommand() {
   function handleCopy() {
     navigator.clipboard.writeText(command);
     setCopied(true);
-    trackEvent("copy_cli_command", { location: "hero" });
+    trackEvent("copy cli command", { location: "hero" });
     setTimeout(() => setCopied(false), 2000);
   }
 
@@ -267,7 +267,7 @@ export default function Home() {
                 href="#templates"
                 className="primary-button"
                 onClick={() =>
-                  trackEvent("click_cta", {
+                  trackEvent("click cta", {
                     label: "launch_a_template",
                     location: "hero",
                   })
@@ -294,7 +294,7 @@ export default function Home() {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
-                  trackEvent("click_cta", { label: "github", location: "hero" })
+                  trackEvent("click cta", { label: "github", location: "hero" })
                 }
               >
                 <svg
@@ -355,7 +355,7 @@ export default function Home() {
               to="/templates"
               className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
               onClick={() =>
-                trackEvent("click_cta", {
+                trackEvent("click cta", {
                   label: "view_all_templates",
                   location: "templates_section",
                 })
@@ -581,7 +581,7 @@ export default function Home() {
                 href="#templates"
                 className="primary-button"
                 onClick={() =>
-                  trackEvent("click_cta", {
+                  trackEvent("click cta", {
                     label: "launch_a_template",
                     location: "footer",
                   })
@@ -607,7 +607,7 @@ export default function Home() {
                 to="/docs"
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
-                  trackEvent("click_cta", {
+                  trackEvent("click cta", {
                     label: "read_the_docs",
                     location: "footer",
                   })
@@ -621,7 +621,7 @@ export default function Home() {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
-                  trackEvent("click_cta", {
+                  trackEvent("click cta", {
                     label: "github",
                     location: "footer",
                   })
