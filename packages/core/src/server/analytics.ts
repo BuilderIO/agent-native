@@ -1,8 +1,11 @@
 /**
- * Opt-in Google Analytics injection for SSR streams.
+ * Opt-in analytics & error-tracking injection for SSR streams.
  *
- * When the `GA_MEASUREMENT_ID` environment variable is set, this module
- * injects GA script tags into the HTML response before `</head>`.
+ * Supported environment variables:
+ * - `GA_MEASUREMENT_ID` — Google Analytics 4 measurement ID
+ * - `SENTRY_CLIENT_KEY` — Sentry browser SDK loader key (the hex portion of the CDN URL)
+ *
+ * When set, the corresponding script tags are injected before `</head>`.
  * When not set, the stream passes through untouched (zero overhead).
  *
  * Usage in entry.server.tsx:
@@ -31,13 +34,19 @@ function getGaScript(): string | null {
   );
 }
 
+function getSentryScript(): string | null {
+  const key = process.env.SENTRY_CLIENT_KEY;
+  if (!key) return null;
+  return `<script src="https://js.sentry-cdn.com/${key}.min.js" crossorigin="anonymous"></script>`;
+}
+
 /**
- * Wrap an SSR ReadableStream to inject Google Analytics scripts before `</head>`.
- * Returns the stream untouched if `GA_MEASUREMENT_ID` is not set.
+ * Wrap an SSR ReadableStream to inject analytics/error-tracking scripts before `</head>`.
+ * Returns the stream untouched if no tracking env vars are set.
  */
 export function wrapWithAnalytics(body: ReadableStream): ReadableStream {
-  const gaScript = getGaScript();
-  if (!gaScript) return body;
+  const scripts = [getGaScript(), getSentryScript()].filter(Boolean).join("");
+  if (!scripts) return body;
 
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
@@ -54,7 +63,7 @@ export function wrapWithAnalytics(body: ReadableStream): ReadableStream {
         const headCloseIdx = text.indexOf("</head>");
         if (headCloseIdx !== -1) {
           const modified =
-            text.slice(0, headCloseIdx) + gaScript + text.slice(headCloseIdx);
+            text.slice(0, headCloseIdx) + scripts + text.slice(headCloseIdx);
           controller.enqueue(encoder.encode(modified));
           injected = true;
         } else {

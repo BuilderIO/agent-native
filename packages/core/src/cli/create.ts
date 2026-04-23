@@ -513,16 +513,18 @@ async function scaffoldRequiredPackages(
       try {
         const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, "utf-8"));
         rootPkg.scripts = rootPkg.scripts ?? {};
-        if (!rootPkg.scripts.postinstall) {
-          const filters = [...needed]
-            .map((n) => `pnpm --filter ./packages/${n} build`)
-            .join(" && ");
-          rootPkg.scripts.postinstall = filters;
-          fs.writeFileSync(
-            rootPkgPath,
-            JSON.stringify(rootPkg, null, 2) + "\n",
-          );
+        const builds = [...needed]
+          .map((n) => `pnpm --filter ./packages/${n} build`)
+          .join(" && ");
+        const existing = rootPkg.scripts.postinstall;
+        if (existing) {
+          if (!existing.includes(builds)) {
+            rootPkg.scripts.postinstall = `${existing} && ${builds}`;
+          }
+        } else {
+          rootPkg.scripts.postinstall = builds;
         }
+        fs.writeFileSync(rootPkgPath, JSON.stringify(rootPkg, null, 2) + "\n");
       } catch {}
     }
   }
