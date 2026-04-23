@@ -59,5 +59,5 @@ export function trackEvent(
 
 /** Track whether the current user is signed in. Call once per page load. */
 export function trackSessionStatus(signedIn: boolean): void {
-  trackEvent("session_status", { signed_in: signedIn });
+  trackEvent("session status", { signed_in: signedIn });
 }
