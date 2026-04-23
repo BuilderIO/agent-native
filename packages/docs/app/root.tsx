@@ -102,6 +102,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
         />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script
+          src="https://js.sentry-cdn.com/49a2686c80d08b5331c7b7e148dbb4a8.min.js"
+          crossOrigin="anonymous"
+        />
+        <script
           async
           src="https://www.googletagmanager.com/gtag/js?id=G-ESF7FYXGN9"
         />
