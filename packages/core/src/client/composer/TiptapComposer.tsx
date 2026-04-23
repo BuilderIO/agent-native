@@ -1013,10 +1013,10 @@ export function TiptapComposer({
             {execMode && onExecModeChange && (
               <ModeSelector mode={execMode} onChange={onExecModeChange} />
             )}
-            {extraActionButton}
             {voiceEnabled && (
               <VoiceButton voice={voice} isMac={isMac} disabled={disabled} />
             )}
+            {extraActionButton}
             <button
               type="button"
               onClick={submitComposer}
