@@ -38,7 +38,7 @@
   "bundle": {
     "active": true,
     "targets": ["dmg", "msi"],
-    "icon": ["icons/icon.png"],
+    "icon": ["icons/icon.png", "icons/icon.ico"],
     "macOS": {
       "minimumSystemVersion": "11.0",
       "dmg": {
