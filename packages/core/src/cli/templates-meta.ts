@@ -42,6 +42,8 @@ export interface TemplateMeta {
   hidden?: boolean;
   /** Always scaffold without prompting (e.g. starter as fallback) */
   alwaysAvailable?: boolean;
+  /** Internal workspace packages this template depends on (e.g. "scheduling") */
+  requiredPackages?: string[];
 }
 
 export const TEMPLATES: TemplateMeta[] = [
@@ -66,6 +68,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8082,
     prodUrl: "https://calendar.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["scheduling"],
   },
   {
     name: "content",
@@ -197,6 +200,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8098,
     prodUrl: "https://scheduling.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["scheduling"],
   },
   {
     name: "macros",
