@@ -40,7 +40,12 @@ function isAllowedBrowserReturnUrl(urlString: string): boolean {
       hostname === "[::1]";
     const isBuilderDomain =
       hostname === "builder.io" || hostname.endsWith(".builder.io");
-    return isAllowedProtocol && (isLocalhost || isBuilderDomain);
+    const isAgentNativeDomain =
+      hostname === "agent-native.com" || hostname.endsWith(".agent-native.com");
+    return (
+      isAllowedProtocol &&
+      (isLocalhost || isBuilderDomain || isAgentNativeDomain)
+    );
   } catch {
     return false;
   }
