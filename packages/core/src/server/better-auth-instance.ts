@@ -451,14 +451,10 @@ async function createBetterAuthInstance(
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 8,
-      // Require email verification only when explicitly opted in via env var.
-      // Default OFF: verification emails depend on correct APP_URL/prodUrl
-      // and a working email provider — when either is misconfigured, users
-      // get stuck in a dead-end (can't verify, can't sign in, can't
-      // re-register with the same email). Templates that need verification
-      // can set REQUIRE_EMAIL_VERIFICATION=true.
-      requireEmailVerification:
-        process.env.REQUIRE_EMAIL_VERIFICATION === "true",
+      // Only require email verification when an email provider is configured.
+      // Without a provider, verification emails can't be sent, so requiring
+      // verification would lock users out of signup entirely.
+      requireEmailVerification: isEmailConfigured(),
       sendResetPassword: async ({ user, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
         // reset link must include that prefix so the page resolves correctly.
@@ -476,12 +472,10 @@ async function createBetterAuthInstance(
       },
     },
     emailVerification: {
-      // Fire verification email right after signup — pairs with
-      // requireEmailVerification above. Only when verification is required
-      // AND an email provider is configured.
-      sendOnSignUp:
-        process.env.REQUIRE_EMAIL_VERIFICATION === "true" &&
-        isEmailConfigured(),
+      // Fire verification email right after signup, before the user has a
+      // session — pairs with requireEmailVerification above. Only enabled
+      // when an email provider is configured.
+      sendOnSignUp: isEmailConfigured(),
       // Auto-create a session once the user clicks the link. Without this,
       // verified users would have to go back and sign in manually, which is
       // a confusing dead-end on the verify screen.
