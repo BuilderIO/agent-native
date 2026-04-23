@@ -1,3 +1,9 @@
 packages:
   - "packages/*"
   - "apps/*"
+
+onlyBuiltDependencies:
+  - esbuild
+  - better-sqlite3
+  - lightningcss
+  - "@swc/core"

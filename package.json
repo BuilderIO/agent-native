@@ -2,6 +2,14 @@
   "name": "agentnative",
   "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native"
+  },
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "packageManager": "pnpm@10.29.1",
   "scripts": {
     "postinstall": "pnpm --filter @agent-native/core build && pnpm --filter @agent-native/pinpoint build && pnpm --filter @agent-native/scheduling build",

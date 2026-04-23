@@ -468,6 +468,9 @@ async function scaffoldRequiredPackages(
     const localPkg = findLocalPackage(pkgName);
     if (localPkg) {
       copyDir(localPkg, targetDir);
+      // Remove node_modules from the local copy — pnpm install will resolve.
+      const nm = path.join(targetDir, "node_modules");
+      if (fs.existsSync(nm)) fs.rmSync(nm, { recursive: true });
     } else {
       await downloadGitHubSubdir(REPO, `packages/${pkgName}`, targetDir);
     }
@@ -497,6 +500,29 @@ async function scaffoldRequiredPackages(
           }
         }
         fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg, null, 2) + "\n");
+      } catch {}
+    }
+  }
+
+  // Add a postinstall script to build workspace packages so their dist/
+  // directories exist even when downloaded from GitHub (where dist/ is
+  // gitignored).
+  if (needed.size > 0) {
+    const rootPkgPath = path.join(workspaceRoot, "package.json");
+    if (fs.existsSync(rootPkgPath)) {
+      try {
+        const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, "utf-8"));
+        rootPkg.scripts = rootPkg.scripts ?? {};
+        if (!rootPkg.scripts.postinstall) {
+          const filters = [...needed]
+            .map((n) => `pnpm --filter ./packages/${n} build`)
+            .join(" && ");
+          rootPkg.scripts.postinstall = filters;
+          fs.writeFileSync(
+            rootPkgPath,
+            JSON.stringify(rootPkg, null, 2) + "\n",
+          );
+        }
       } catch {}
     }
   }
