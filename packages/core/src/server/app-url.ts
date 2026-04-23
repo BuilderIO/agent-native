@@ -17,6 +17,7 @@ import { getRequestURL, type H3Event } from "h3";
 import path from "node:path";
 import fs from "node:fs";
 import { TEMPLATES } from "../cli/templates-meta.js";
+import { isLocalDatabase } from "../db/client.js";
 
 let cachedPkgName: string | undefined | null = null;
 
@@ -65,10 +66,12 @@ export function getAppProductionUrl(event?: H3Event): string {
     }
   }
 
-  // Only fall back to a first-party template's hard-coded prod URL when we
-  // are actually running in production. In dev the hard-coded URL is always
-  // wrong (wrong host) and breaks auth via the Secure-cookie issue above.
-  if (process.env.NODE_ENV === "production") {
+  // Fall back to a first-party template's hard-coded prod URL when we're
+  // running in production OR on a remote database (Neon/Postgres/Turso).
+  // A remote DB means we're deployed even if NODE_ENV isn't explicitly
+  // "production" (e.g. Netlify Functions). In local dev with SQLite, skip
+  // this — the hard-coded URL breaks auth via Secure cookies on HTTP.
+  if (process.env.NODE_ENV === "production" || !isLocalDatabase()) {
     const firstParty = getFirstPartyProdUrl();
     if (firstParty) return stripTrailingSlash(firstParty);
   }
