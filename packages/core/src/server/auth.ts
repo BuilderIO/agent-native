@@ -1529,7 +1529,7 @@ export async function autoMountAuth(
       customGetSession = options.getSession;
     }
     if (_authGuardConfig) {
-      if (options.googleOnly || options.loginHtml) {
+      if (options.googleOnly || options.loginHtml || options.marketing) {
         _authGuardConfig.loginHtml =
           options.loginHtml ??
           getOnboardingHtml({

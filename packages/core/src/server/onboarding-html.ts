@@ -116,7 +116,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 
   const marketingStyles = hasMarketing
     ? `
-  body.has-marketing { padding: 0; position: relative; overflow: hidden; }
+  body.has-marketing { padding: 0; position: relative; overflow-x: hidden; }
   #starfield {
     position: fixed;
     inset: 0;
