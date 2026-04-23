@@ -963,6 +963,26 @@ async function mountBetterAuthRoutes(
     "/_agent-native/auth/ba",
     defineEventHandler(async (event) => {
       const response = await auth.handler(toWebRequest(event));
+      // After email verification, add ?verified to the redirect so the
+      // login page can show a "Email verified!" success message.
+      const reqPath = event.url?.pathname ?? event.path ?? "";
+      if (
+        reqPath.includes("verify-email") &&
+        response instanceof Response &&
+        response.status >= 300 &&
+        response.status < 400
+      ) {
+        const loc = response.headers.get("location");
+        if (loc && !loc.includes("verified")) {
+          const sep = loc.includes("?") ? "&" : "?";
+          const newResponse = new Response(null, {
+            status: response.status,
+            headers: new Headers(response.headers),
+          });
+          newResponse.headers.set("location", loc + sep + "verified=1");
+          return newResponse;
+        }
+      }
       return response;
     }),
   );

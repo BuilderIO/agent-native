@@ -620,12 +620,24 @@ ${
       var qp = params.get('tab');
       if (qp === 'login' || qp === 'signup') {
         initial = qp;
+      } else if (params.has('verified')) {
+        initial = 'login';
       } else {
         var stored = localStorage.getItem(TAB_STORAGE_KEY);
         if (stored === 'login' || stored === 'signup') initial = stored;
       }
     } catch (e) {}
     setActiveTab(initial, { persist: false });
+    try {
+      if (new URLSearchParams(location.search).has('verified')) {
+        var msg = document.getElementById('l-msg');
+        if (msg) {
+          msg.textContent = 'Email verified! Sign in to continue.';
+          msg.classList.remove('error');
+          msg.classList.add('show', 'success');
+        }
+      }
+    } catch (e) {}
   })();
   tabs.forEach(function(t) { t.addEventListener('click', function() {
     setActiveTab(t.dataset.tab, { persist: true });

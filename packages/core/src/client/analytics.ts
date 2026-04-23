@@ -40,7 +40,7 @@ function resolveProps(
 ): Record<string, unknown> {
   if (typeof window === "undefined") return { ...params };
   const base: Record<string, unknown> = {
-    url: window.location.href,
+    url: window.location.origin + window.location.pathname,
     app: window.location.hostname.split(".")[0] || "localhost",
     ...params,
   };

@@ -39,7 +39,7 @@ function getAmplitudeScript(): string | null {
   const key = process.env.AMPLITUDE_API_KEY;
   if (!key) return null;
   return (
-    `<script src="https://cdn.amplitude.com/script/${key}.js"></script>` +
+    `<script async src="https://cdn.amplitude.com/script/${key}.js"></script>` +
     `<script>window.amplitude?.init('${key}',{autocapture:true});</script>`
   );
 }
