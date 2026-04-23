@@ -1,6 +1,6 @@
 [package]
 name = "clips-tray"
-version = "0.1.0"
+version = "0.1.1"
 description = "Clips — menu-bar tray app (Tauri 2)"
 authors = ["Clips"]
 license = "MIT"

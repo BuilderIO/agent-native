@@ -1,7 +1,7 @@
 {
   "name": "clips-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Clips menu-bar tray app (Tauri 2). Quick-record + recent recordings from the OS tray.",
   "scripts": {
