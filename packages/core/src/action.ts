@@ -186,24 +186,32 @@ function schemaToJsonSchema(
   schema: StandardSchemaV1,
   _description?: string,
 ): ActionTool["parameters"] {
-  // Try Zod v4's toJSONSchema if available
   const s = schema as any;
+
+  // Prefer Zod's own JSON Schema output — it handles descriptions,
+  // enums, coerce, and all type wrappers correctly.
+  if (s["~standard"]?.jsonSchema?.input) {
+    try {
+      const result = s["~standard"].jsonSchema.input({
+        target: "draft-07",
+      }) as any;
+      // Strip $schema — the Claude API validates against draft 2020-12
+      // and a mismatched $schema declaration can cause rejections.
+      if (result && typeof result === "object") {
+        delete result.$schema;
+      }
+      return result as ActionTool["parameters"];
+    } catch {
+      // Fall through to manual converter
+    }
+  }
+
+  // Fallback: manual conversion from Zod v4 internal defs
   if (s._zod?.def) {
     return zodDefToJsonSchema(s._zod.def);
   }
 
-  // Try StandardJSONSchemaV1 interface (future-proof)
-  if (s["~standard"]?.jsonSchema?.input) {
-    try {
-      return s["~standard"].jsonSchema.input({
-        target: "draft-07",
-      }) as ActionTool["parameters"];
-    } catch {
-      // Fall through
-    }
-  }
-
-  // Fallback: empty object schema
+  // Last resort: empty object schema
   return { type: "object" as const, properties: {} };
 }
 
@@ -222,8 +230,11 @@ function zodDefToJsonSchema(def: any): any {
       for (const [key, fieldSchema] of Object.entries(shape) as any[]) {
         const fieldDef = fieldSchema?._zod?.def;
         if (fieldDef) {
-          properties[key] = zodDefToJsonSchema(fieldDef);
-          // Check if field is required (not optional, not default)
+          const prop = zodDefToJsonSchema(fieldDef);
+          // Zod v4 stores .describe() on the schema object, not in the def
+          const desc = fieldSchema?.description;
+          if (desc && !prop.description) prop.description = desc;
+          properties[key] = prop;
           if (fieldDef.type !== "optional" && fieldDef.type !== "default") {
             required.push(key);
           }
@@ -254,7 +265,15 @@ function zodDefToJsonSchema(def: any): any {
   }
 
   if (type === "enum") {
-    const result: any = { type: "string", enum: def.entries };
+    // Zod v4 stores enum entries as an object {a: "a", b: "b"};
+    // JSON Schema requires an array.
+    const entries = def.entries;
+    const enumValues = Array.isArray(entries)
+      ? entries
+      : typeof entries === "object" && entries !== null
+        ? Object.values(entries)
+        : entries;
+    const result: any = { type: "string", enum: enumValues };
     if (def.description) result.description = def.description;
     return result;
   }

@@ -9,6 +9,10 @@
     "url": "https://github.com/BuilderIO/agent-native",
     "directory": "packages/core"
   },
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bin": {
     "agent-native": "dist/cli/index.js"
   },
@@ -85,6 +89,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
+    "@sentry/node": "^10.50.0",
     "@clack/prompts": "^1.2.0",
     "@libsql/client": "^0.15.0",
     "@modelcontextprotocol/sdk": "^1.29.0",

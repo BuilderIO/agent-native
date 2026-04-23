@@ -2,6 +2,14 @@
   "name": "@agent-native/docs",
   "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/docs"
+  },
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "scripts": {
     "dev": "agent-native dev --port 3000",
     "generate-search-index": "tsx scripts/generate-search-index.ts",

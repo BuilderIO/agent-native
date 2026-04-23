@@ -135,6 +135,8 @@ async function createWorkspaceInteractive(
       setupAgentSymlinks(appDir);
     }
 
+    await scaffoldRequiredPackages(templates, targetDir);
+
     s.stop("Workspace scaffolded.");
   } catch (err) {
     s.stop("Failed to scaffold workspace.");
@@ -279,6 +281,7 @@ async function scaffoldOneAppIntoWorkspace(
     fixPackageJsonName(appDir, appName);
     renameGitignore(appDir);
     setupAgentSymlinks(appDir);
+    await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
     s.stop(`Scaffolded apps/${appName}.`);
   } catch (err) {
     s.stop(`Failed to scaffold apps/${appName}.`);
@@ -419,6 +422,110 @@ function findLocalTemplate(name: string): string | undefined {
     dir = parent;
   }
   return undefined;
+}
+
+/**
+ * Find a local packages/<name> directory (for framework development).
+ * Returns undefined when running as a published npm package.
+ */
+function findLocalPackage(name: string): string | undefined {
+  let dir = path.resolve(__dirname);
+  for (let i = 0; i < 10; i++) {
+    const candidate = path.join(dir, "packages", name);
+    if (fs.existsSync(path.join(candidate, "package.json"))) {
+      return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+/**
+ * Scaffold internal workspace packages required by the selected templates.
+ * Deduplicates so each package is only copied once even if multiple
+ * templates need it.
+ */
+async function scaffoldRequiredPackages(
+  templateNames: string[],
+  workspaceRoot: string,
+): Promise<void> {
+  const needed = new Set<string>();
+  for (const t of templateNames) {
+    const meta = getTemplate(t);
+    if (meta?.requiredPackages) {
+      for (const p of meta.requiredPackages) needed.add(p);
+    }
+  }
+
+  for (const pkgName of needed) {
+    const targetDir = path.join(workspaceRoot, "packages", pkgName);
+    if (fs.existsSync(targetDir)) continue;
+
+    fs.mkdirSync(path.join(workspaceRoot, "packages"), { recursive: true });
+
+    const localPkg = findLocalPackage(pkgName);
+    if (localPkg) {
+      copyDir(localPkg, targetDir);
+      // Remove node_modules from the local copy — pnpm install will resolve.
+      const nm = path.join(targetDir, "node_modules");
+      if (fs.existsSync(nm)) fs.rmSync(nm, { recursive: true });
+    } else {
+      await downloadGitHubSubdir(REPO, `packages/${pkgName}`, targetDir);
+    }
+
+    // The copied package may have @agent-native/core as a workspace:* dep.
+    // Convert it to "latest" since @agent-native/core is an npm package,
+    // not a workspace member.
+    const pkgJsonPath = path.join(targetDir, "package.json");
+    if (fs.existsSync(pkgJsonPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
+        for (const depType of [
+          "dependencies",
+          "devDependencies",
+          "peerDependencies",
+        ] as const) {
+          const deps = pkg[depType];
+          if (!deps) continue;
+          for (const [key, val] of Object.entries(deps)) {
+            if (
+              typeof val === "string" &&
+              val.startsWith("workspace:") &&
+              key === "@agent-native/core"
+            ) {
+              deps[key] = "latest";
+            }
+          }
+        }
+        fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg, null, 2) + "\n");
+      } catch {}
+    }
+  }
+
+  // Add a postinstall script to build workspace packages so their dist/
+  // directories exist even when downloaded from GitHub (where dist/ is
+  // gitignored).
+  if (needed.size > 0) {
+    const rootPkgPath = path.join(workspaceRoot, "package.json");
+    if (fs.existsSync(rootPkgPath)) {
+      try {
+        const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, "utf-8"));
+        rootPkg.scripts = rootPkg.scripts ?? {};
+        if (!rootPkg.scripts.postinstall) {
+          const filters = [...needed]
+            .map((n) => `pnpm --filter ./packages/${n} build`)
+            .join(" && ");
+          rootPkg.scripts.postinstall = filters;
+          fs.writeFileSync(
+            rootPkgPath,
+            JSON.stringify(rootPkg, null, 2) + "\n",
+          );
+        }
+      } catch {}
+    }
+  }
 }
 
 /**
