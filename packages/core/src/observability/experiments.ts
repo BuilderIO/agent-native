@@ -116,7 +116,11 @@ export async function resolveVariant(
   const experiment = await getExperiment(experimentId);
   if (!experiment) throw new Error(`Experiment ${experimentId} not found`);
 
+  if (experiment.variants.length === 0)
+    throw new Error("Experiment has no variants");
   const totalWeight = experiment.variants.reduce((sum, v) => sum + v.weight, 0);
+  if (totalWeight <= 0)
+    throw new Error("Experiment has no valid variant weights");
   const hashValue = simpleHash(experimentId + userId) % totalWeight;
 
   let cumulative = 0;
@@ -262,7 +266,7 @@ export async function computeExperimentResults(
       args: experiment.startedAt ? [...userIds, experiment.startedAt] : userIds,
     });
     const satisfactionScores = (satRows as any[]).map(
-      (r) => 1 - Number(r.frustration_score),
+      (r) => 1 - Number(r.frustration_score) / 100,
     );
 
     const sampleSize = userTraceRows.length;

@@ -21,14 +21,6 @@ export async function getObservabilityConfig(): Promise<ObservabilityConfig> {
   return DEFAULT_OBSERVABILITY_CONFIG;
 }
 
-/**
- * Wraps `runAgentLoop()` to capture trace spans and a summary.
- *
- * Transparent — the agent sees the exact same events and tool calls it
- * would without instrumentation. We intercept the `send` callback to
- * observe tool_start / tool_done / usage events, then forward them
- * untouched to the real send.
- */
 export async function instrumentAgentLoop(opts: {
   runAgentLoop: (loopOpts: {
     engine: any;
@@ -61,12 +53,20 @@ export async function instrumentAgentLoop(opts: {
   const parentSpanId = spanId();
 
   const spans: TraceSpan[] = [];
+  let toolInvocationCounter = 0;
+  // Keyed by counter to handle concurrent calls to the same tool name
   const pendingTools = new Map<
-    string,
-    { spanId: string; startMs: number; input: Record<string, string> }
+    number,
+    {
+      spanId: string;
+      startMs: number;
+      toolName: string;
+      input: Record<string, string>;
+    }
   >();
+  // Secondary index: tool name → latest invocation counter (for tool_done matching)
+  const toolNameToCounter = new Map<string, number>();
 
-  let llmCallCount = 0;
   let toolCallCount = 0;
   let successfulTools = 0;
   let failedTools = 0;
@@ -74,18 +74,29 @@ export async function instrumentAgentLoop(opts: {
   const instrumentedSend = (event: AgentChatEvent): void => {
     try {
       if (event.type === "tool_start") {
+        const counter = toolInvocationCounter++;
         const sid = spanId();
-        pendingTools.set(event.tool, {
+        pendingTools.set(counter, {
           spanId: sid,
           startMs: Date.now(),
+          toolName: event.tool,
           input: event.input,
         });
+        toolNameToCounter.set(event.tool, counter);
       } else if (event.type === "tool_done") {
-        const pending = pendingTools.get(event.tool);
-        pendingTools.delete(event.tool);
+        const counter = toolNameToCounter.get(event.tool);
+        const pending =
+          counter !== undefined ? pendingTools.get(counter) : undefined;
+        if (counter !== undefined) {
+          pendingTools.delete(counter);
+          toolNameToCounter.delete(event.tool);
+        }
         toolCallCount++;
 
-        const isError = event.result.startsWith("Error");
+        const isError =
+          typeof event.result === "string" &&
+          (event.result.startsWith("Error") ||
+            event.result.startsWith("Error running "));
         if (isError) failedTools++;
         else successfulTools++;
 
@@ -115,7 +126,7 @@ export async function instrumentAgentLoop(opts: {
     loopOpts.send(event);
   };
 
-  let usage: AgentLoopUsage;
+  let usage: AgentLoopUsage | undefined;
   let runStatus: "success" | "error" = "success";
   let errorMessage: string | null = null;
   try {
@@ -131,35 +142,31 @@ export async function instrumentAgentLoop(opts: {
     let costCentsX100 = 0;
     try {
       const { calculateCost } = await import("../usage/store.js");
-      const u = usage!;
-      costCentsX100 = u
-        ? calculateCost(
-            u.inputTokens,
-            u.outputTokens,
-            u.model,
-            u.cacheReadTokens,
-            u.cacheWriteTokens,
-          )
-        : 0;
+      if (usage) {
+        costCentsX100 = calculateCost(
+          usage.inputTokens,
+          usage.outputTokens,
+          usage.model,
+          usage.cacheReadTokens,
+          usage.cacheWriteTokens,
+        );
+      }
     } catch {}
 
-    if (usage!) {
-      llmCallCount = Math.max(
-        1,
-        spans.filter((s) => s.spanType === "llm_call").length || 1,
-      );
-
+    let llmCallCount = 0;
+    if (usage) {
+      llmCallCount = 1;
       const llmSpan: TraceSpan = {
         id: spanId(),
         runId,
         threadId,
         parentSpanId,
         spanType: "llm_call",
-        name: usage!.model,
-        inputTokens: usage!.inputTokens,
-        outputTokens: usage!.outputTokens,
-        cacheReadTokens: usage!.cacheReadTokens,
-        cacheWriteTokens: usage!.cacheWriteTokens,
+        name: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheWriteTokens: usage.cacheWriteTokens,
         costCentsX100,
         durationMs: totalDurationMs,
         status: runStatus,
@@ -168,7 +175,6 @@ export async function instrumentAgentLoop(opts: {
         createdAt: runStart,
       };
       spans.push(llmSpan);
-      llmCallCount = 1;
     }
 
     const parentSpan: TraceSpan = {
@@ -207,7 +213,7 @@ export async function instrumentAgentLoop(opts: {
       createdAt: runStart,
     };
 
-    writeTraceData(spans, summary).catch(() => {});
+    writeTraceData(spans, summary, runId, config).catch(() => {});
   }
 
   return usage!;
@@ -216,8 +222,16 @@ export async function instrumentAgentLoop(opts: {
 async function writeTraceData(
   spans: TraceSpan[],
   summary: TraceSummary,
+  runId: string,
+  config: ObservabilityConfig,
 ): Promise<void> {
   const { insertTraceSpan, upsertTraceSummary } = await import("./store.js");
   await Promise.all(spans.map((s) => insertTraceSpan(s).catch(() => {})));
   await upsertTraceSummary(summary).catch(() => {});
+
+  // Fire automated evals after trace data is persisted
+  try {
+    const { evaluateRun } = await import("./evals.js");
+    await evaluateRun(runId, { sampleRate: config.evalSampleRate });
+  } catch {}
 }

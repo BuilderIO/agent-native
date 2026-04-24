@@ -19,6 +19,15 @@ import type {
   ExperimentMetricResult,
 } from "./types.js";
 
+function safeJsonParse<T>(value: unknown, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return fallback;
+  }
+}
+
 let _initPromise: Promise<void> | undefined;
 
 export async function ensureObservabilityTables(): Promise<void> {
@@ -174,7 +183,10 @@ export async function ensureObservabilityTables(): Promise<void> {
           // Index might already exist
         }
       }
-    })();
+    })().catch((err) => {
+      _initPromise = undefined;
+      throw err;
+    });
   }
   return _initPromise;
 }
@@ -880,7 +892,7 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
     durationMs: Number(row.duration_ms ?? 0),
     status: row.status as TraceSpan["status"],
     errorMessage: row.error_message ? String(row.error_message) : null,
-    metadata: row.metadata ? JSON.parse(row.metadata) : null,
+    metadata: safeJsonParse(row.metadata, null),
     createdAt: Number(row.created_at),
   };
 }
@@ -938,7 +950,7 @@ function rowToEval(row: Record<string, any>): EvalResult {
     criteria: String(row.criteria),
     score: Number(row.score ?? 0),
     reasoning: row.reasoning ? String(row.reasoning) : null,
-    metadata: row.metadata ? JSON.parse(row.metadata) : null,
+    metadata: safeJsonParse(row.metadata, null),
     createdAt: Number(row.created_at),
   };
 }
@@ -948,7 +960,7 @@ function rowToDataset(row: Record<string, any>): EvalDataset {
     id: String(row.id),
     name: String(row.name),
     description: String(row.description ?? ""),
-    entries: JSON.parse(String(row.entries ?? "[]")),
+    entries: safeJsonParse(row.entries, []),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   };
@@ -959,8 +971,8 @@ function rowToExperiment(row: Record<string, any>): Experiment {
     id: String(row.id),
     name: String(row.name),
     status: row.status as Experiment["status"],
-    variants: JSON.parse(String(row.variants ?? "[]")),
-    metrics: JSON.parse(String(row.metrics ?? "[]")),
+    variants: safeJsonParse(row.variants, []),
+    metrics: safeJsonParse(row.metrics, []),
     assignmentLevel: (row.assignment_level as "user" | "session") ?? "user",
     startedAt: row.started_at ? Number(row.started_at) : null,
     endedAt: row.ended_at ? Number(row.ended_at) : null,
