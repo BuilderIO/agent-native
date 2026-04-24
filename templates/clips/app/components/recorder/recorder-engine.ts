@@ -287,22 +287,42 @@ export class RecorderEngine {
    */
   async stop(): Promise<RecorderFinalizeResult> {
     if (!this.recorder) throw new Error("Not recording");
+
+    // Resume first if paused — some browsers don't fire dataavailable
+    // from a paused MediaRecorder on stop().
+    if (this.recorder.state === "paused") {
+      try {
+        this.recorder.resume();
+      } catch {
+        // ignore
+      }
+      if (this.pausedStartedMs !== null) {
+        this.pausedAccumMs += performance.now() - this.pausedStartedMs;
+        this.pausedStartedMs = null;
+      }
+    }
+
+    if (this.recorder.state === "inactive") {
+      throw new Error("Recorder already stopped");
+    }
+
     this.transition("stopping");
 
-    const stopPromise = new Promise<Blob>((resolve) => {
-      // MediaRecorder.stop flushes one last ondataavailable BEFORE firing 'stop'.
-      // We capture that blob here so we can send it as isFinal=1.
+    const stopPromise = new Promise<Blob>((resolve, reject) => {
       const onData = (event: BlobEvent) => {
         this.recorder?.removeEventListener("dataavailable", onData);
         resolve(event.data);
       };
       this.recorder!.addEventListener("dataavailable", onData, { once: true });
+      // Timeout: if dataavailable never fires, don't hang forever.
+      setTimeout(() => reject(new Error("Stop timed out")), 5000);
     });
 
     try {
       this.recorder.stop();
     } catch (err) {
       this.emitError(err);
+      throw err;
     }
 
     const finalBlob = await stopPromise.catch(

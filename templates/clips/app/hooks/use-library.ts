@@ -112,6 +112,20 @@ export function useMoveRecording() {
   );
 }
 
+export function useTrashRecording() {
+  return useActionMutation<any, { id: string }>("trash-recording");
+}
+
+export function useArchiveRecording() {
+  return useActionMutation<any, { id: string }>("archive-recording");
+}
+
+export function useRenameRecording() {
+  return useActionMutation<any, { id: string; title: string }>(
+    "update-recording",
+  );
+}
+
 export function useAddRecordingToSpace() {
   return useActionMutation<
     any,
