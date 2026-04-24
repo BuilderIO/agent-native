@@ -88,11 +88,15 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }));
 
   const invitesRes = await e.execute({
+    // Case-insensitive match: invitations are stored with whatever case
+    // the inviter typed, but the session email may be normalized
+    // differently by the auth provider. LOWER(both sides) keeps these
+    // discoverable and matches getOrgContext.hasPendingInvitation.
     sql: `SELECT i.id AS id, i.org_id AS "orgId", o.name AS "orgName", i.invited_by AS "invitedBy"
           FROM org_invitations i
           INNER JOIN organizations o ON i.org_id = o.id
-          WHERE i.email = ? AND i.status = 'pending'`,
-    args: [ctx.email],
+          WHERE LOWER(i.email) = ? AND i.status = 'pending'`,
+    args: [ctx.email.toLowerCase()],
   });
   const pendingInvitations = invitesRes.rows.map((r: any) => ({
     id: String(r.id),
@@ -278,9 +282,11 @@ export const acceptInvitationHandler = defineEventHandler(
     const e = await exec();
 
     const invRes = await e.execute({
+      // Case-insensitive on email — see comment on the analogous
+      // pending-invitations query in getMyOrgHandler.
       sql: `SELECT id, org_id AS "orgId" FROM org_invitations
-            WHERE id = ? AND email = ? AND status = 'pending' LIMIT 1`,
-      args: [invitationId, email],
+            WHERE id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
+      args: [invitationId, email.toLowerCase()],
     });
     if (invRes.rows.length === 0) {
       throw createError({

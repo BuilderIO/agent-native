@@ -62,15 +62,22 @@ export function useOrgInvitations() {
   });
 }
 
-// NOTE: the onSuccess handlers below `await refetchQueries` so that
-// `mutation.isPending` stays true until the dependent queries have
-// actually refetched. We use refetchQueries (not invalidateQueries)
-// for unambiguous semantics: refetchQueries returns a promise that
-// resolves only when the network refetch settles, so awaiting it
-// guarantees `isPending` covers the full read-after-write window.
-// Without that, a submit button can re-enable the moment the HTTP
-// mutation response lands but before stale UI data is refreshed,
-// opening a window where two mutations race to overwrite active-org-id.
+// NOTE: the onSuccess handlers below `await invalidateQueries`. In
+// TanStack Query v5, invalidateQueries:
+//   1. Marks every matching query as stale, so the next mount of an
+//      INACTIVE query (e.g. the org-members table on a settings page
+//      the user hasn't visited yet) refetches immediately instead of
+//      serving 30-second-stale cached data.
+//   2. Triggers a refetch of every ACTIVE query that matches.
+//   3. Returns a promise that resolves once those refetches settle.
+//
+// `await`ing therefore keeps `mutation.isPending` true through the
+// full read-after-write window — closing the create-org / accept-
+// invite race where a button could re-enable mid-refetch. We
+// previously tried refetchQueries here for "unambiguous semantics",
+// but that variant doesn't mark inactive queries stale, leaving them
+// to serve stale data on next mount. invalidateQueries is the right
+// primitive — it just needed an `await`.
 
 export function useCreateOrg() {
   const qc = useQueryClient();
@@ -82,8 +89,8 @@ export function useCreateOrg() {
       }),
     onSuccess: async () => {
       await Promise.all([
-        qc.refetchQueries({ queryKey: ["org-me"] }),
-        qc.refetchQueries({ queryKey: ["org-members"] }),
+        qc.invalidateQueries({ queryKey: ["org-me"] }),
+        qc.invalidateQueries({ queryKey: ["org-members"] }),
       ]);
     },
   });
@@ -99,8 +106,8 @@ export function useInviteMember() {
       }),
     onSuccess: async () => {
       await Promise.all([
-        qc.refetchQueries({ queryKey: ["org-members"] }),
-        qc.refetchQueries({ queryKey: ["org-invitations"] }),
+        qc.invalidateQueries({ queryKey: ["org-members"] }),
+        qc.invalidateQueries({ queryKey: ["org-invitations"] }),
       ]);
     },
   });
@@ -114,9 +121,9 @@ export function useAcceptInvitation() {
         method: "POST",
       }),
     onSuccess: async () => {
-      // Joining/switching orgs changes all org-scoped data. invalidate
-      // (not refetch) here because we don't know which keys are mounted —
-      // invalidate marks them stale and the active ones refetch.
+      // Joining/switching orgs changes all org-scoped data — invalidate
+      // every cached query (no key filter) so each one refetches or is
+      // marked stale for the next mount.
       await qc.invalidateQueries();
     },
   });
@@ -130,7 +137,7 @@ export function useRemoveMember() {
         method: "DELETE",
       }),
     onSuccess: async () => {
-      await qc.refetchQueries({ queryKey: ["org-members"] });
+      await qc.invalidateQueries({ queryKey: ["org-members"] });
     },
   });
 }
