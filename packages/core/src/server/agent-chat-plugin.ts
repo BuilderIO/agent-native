@@ -2340,6 +2340,7 @@ export function createAgentChatPlugin(
         ? {
             ...resourceScripts,
             ...docsScripts,
+            ...(lazyContext ? frameworkContextTool : {}),
             ...chatScripts,
             ...callAgentScript,
             ...automationTools,
@@ -2356,6 +2357,7 @@ export function createAgentChatPlugin(
             ...docsScripts,
             ...dbScripts,
             ...refreshScreenTool,
+            ...(lazyContext ? frameworkContextTool : {}),
             ...urlTools,
             ...chatScripts,
             ...callAgentScript,

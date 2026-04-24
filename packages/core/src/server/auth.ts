@@ -1071,15 +1071,35 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/ba",
     defineEventHandler(async (event) => {
+      const reqPath = event.url?.pathname ?? event.path ?? "";
+      const isResetPassword =
+        reqPath.includes("reset-password") && getMethod(event) === "POST";
+
+      // Pre-read the body for reset-password so we can extract the
+      // token after Better Auth consumes the stream.
+      let resetToken: string | undefined;
+      if (isResetPassword) {
+        try {
+          const body = await readBody(event);
+          resetToken = body?.token;
+        } catch {
+          // ignore — Better Auth will handle validation
+        }
+      }
+
       const response = await auth.handler(toWebRequest(event));
+      const isResponse =
+        response != null &&
+        typeof (response as any).status === "number" &&
+        typeof (response as any).headers?.get === "function";
+
       // After email verification, add ?verified to the redirect so the
       // login page can show a "Email verified!" success message.
-      const reqPath = event.url?.pathname ?? event.path ?? "";
       if (
         reqPath.includes("verify-email") &&
-        response instanceof Response &&
-        response.status >= 300 &&
-        response.status < 400
+        isResponse &&
+        (response as Response).status >= 300 &&
+        (response as Response).status < 400
       ) {
         const loc = response.headers.get("location");
         if (loc && !/[?&]verified=/.test(loc)) {
@@ -1092,6 +1112,39 @@ async function mountBetterAuthRoutes(
           return newResponse;
         }
       }
+
+      // Auto-verify email after a successful password reset. The user
+      // proved email ownership by receiving and using the reset link.
+      if (
+        isResetPassword &&
+        resetToken &&
+        isResponse &&
+        (response as Response).status >= 200 &&
+        (response as Response).status < 300
+      ) {
+        try {
+          const { getDbExec } = await import("../db/client.js");
+          const db = getDbExec();
+          // Better Auth stores the reset token in its `verification`
+          // table with the user's identifier. Look up the user via the
+          // token and mark their email as verified — they proved
+          // ownership by receiving and using the email-delivered link.
+          const rows = await db.execute({
+            sql: "SELECT identifier FROM verification WHERE value = ?",
+            args: [resetToken],
+          });
+          const email = rows.rows[0]?.identifier as string | undefined;
+          if (email) {
+            await db.execute({
+              sql: "UPDATE user SET email_verified = 1 WHERE email = ? AND (email_verified = 0 OR email_verified IS NULL)",
+              args: [email],
+            });
+          }
+        } catch {
+          // Best-effort — don't block the response
+        }
+      }
+
       return response;
     }),
   );

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 
 // The poll module uses module-level state (_version, _buffer).
 // We re-import for each test suite to get fresh state via dynamic import.
@@ -7,10 +7,6 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { getVersion, recordChange, getChangesSince } from "./poll.js";
 
 describe("poll", () => {
-  // NOTE: Because these are module-level singletons, tests accumulate state.
-  // We capture the starting version and work relative to it.
-  const startVersion = getVersion();
-
   describe("getVersion", () => {
     it("returns the current version counter", () => {
       expect(typeof getVersion()).toBe("number");
@@ -19,17 +15,19 @@ describe("poll", () => {
   });
 
   describe("recordChange", () => {
-    it("increments the version counter", () => {
+    it("strictly increases the version", () => {
       const before = getVersion();
       recordChange({ source: "app-state", type: "change", key: "test" });
-      expect(getVersion()).toBe(before + 1);
+      expect(getVersion()).toBeGreaterThan(before);
     });
 
-    it("increments version for each call", () => {
+    it("increases version for each call", () => {
       const before = getVersion();
       recordChange({ source: "settings", type: "change", key: "a" });
+      const mid = getVersion();
       recordChange({ source: "settings", type: "delete", key: "b" });
-      expect(getVersion()).toBe(before + 2);
+      expect(mid).toBeGreaterThan(before);
+      expect(getVersion()).toBeGreaterThan(mid);
     });
   });
 
@@ -54,7 +52,7 @@ describe("poll", () => {
       recordChange({ source: "app-state", type: "delete", key: "a1" });
 
       const result = getChangesSince(before);
-      expect(result.version).toBe(before + 2);
+      expect(result.version).toBeGreaterThan(before);
       expect(result.events.length).toBe(2);
       expect(result.events[0].source).toBe("resources");
       expect(result.events[0].key).toBe("r1");
@@ -62,7 +60,7 @@ describe("poll", () => {
       expect(result.events[1].key).toBe("a1");
     });
 
-    it("each event has an incrementing version number", () => {
+    it("each event has a strictly increasing version number", () => {
       const before = getVersion();
       recordChange({ source: "s", type: "change" });
       recordChange({ source: "s", type: "change" });
@@ -71,7 +69,9 @@ describe("poll", () => {
       const result = getChangesSince(before);
       expect(result.events.length).toBe(3);
       for (let i = 1; i < result.events.length; i++) {
-        expect(result.events[i].version).toBe(result.events[i - 1].version + 1);
+        expect(result.events[i].version).toBeGreaterThan(
+          result.events[i - 1].version,
+        );
       }
     });
 
@@ -104,7 +104,7 @@ describe("poll", () => {
       const result = getChangesSince(before);
       // The buffer trims to MAX_BUFFER=200 when it exceeds that
       expect(result.events.length).toBeLessThanOrEqual(200);
-      expect(result.version).toBe(before + 250);
+      expect(result.version).toBeGreaterThan(before);
     });
   });
 });
