@@ -111,6 +111,26 @@ export function createCoreRoutesPlugin(
     // Otherwise wait so other default plugins finish mounting first.
     await awaitBootstrap(nitroApp);
 
+    // Restore env vars from the settings table. On serverless, .env
+    // writes don't persist across invocations — the DB is the durable
+    // store. Only set keys that are currently empty so explicit env
+    // vars (Netlify dashboard, process-level) always win.
+    try {
+      const persisted = (await getSetting("persisted-env-vars")) as Record<
+        string,
+        string
+      > | null;
+      if (persisted) {
+        for (const [k, v] of Object.entries(persisted)) {
+          if (typeof v === "string" && !process.env[k]) {
+            process.env[k] = v;
+          }
+        }
+      }
+    } catch {
+      // DB not ready yet — skip
+    }
+
     // Register framework-level secrets (OPENAI_API_KEY for composer voice
     // transcription, etc.). Each registration is guarded so templates that
     // already registered the same key win.
@@ -312,6 +332,21 @@ export function createCoreRoutesPlugin(
           process.env[key] = value;
         }
 
+        // Persist to settings table so serverless cold starts can
+        // restore credentials (.env writes don't survive on Netlify).
+        try {
+          const envMap: Record<string, string> = {};
+          for (const { key, value } of vars) envMap[key] = value;
+          const existing =
+            ((await getSetting("persisted-env-vars")) as Record<
+              string,
+              string
+            > | null) ?? {};
+          await putSetting("persisted-env-vars", { ...existing, ...envMap });
+        } catch {
+          // DB not ready yet — skip
+        }
+
         const previewUrl = resolveSafePreviewUrl(
           requestUrl.searchParams.get("preview-url"),
           event,
@@ -490,6 +525,20 @@ export function createCoreRoutesPlugin(
           // Update process.env immediately
           for (const { key, value } of filtered) {
             process.env[key] = value;
+          }
+
+          // Persist to settings table for serverless cold-start recovery.
+          try {
+            const envMap: Record<string, string> = {};
+            for (const { key, value } of filtered) envMap[key] = value;
+            const existing =
+              ((await getSetting("persisted-env-vars")) as Record<
+                string,
+                string
+              > | null) ?? {};
+            await putSetting("persisted-env-vars", { ...existing, ...envMap });
+          } catch {
+            // DB not ready yet — skip
           }
 
           return { saved: filtered.map((v) => v.key) };

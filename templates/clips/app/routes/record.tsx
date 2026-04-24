@@ -663,12 +663,29 @@ export default function RecordRoute() {
           <AlertDialogHeader>
             <AlertDialogTitle>Stop recording?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will end the recording and upload it to your library. You can
-              always re-record if you're not happy with it.
+              Save this recording to your library, discard it, or keep going.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
             <AlertDialogCancel>Keep recording</AlertDialogCancel>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowStopConfirm(false);
+                void doCancel();
+              }}
+            >
+              Discard
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowStopConfirm(false);
+                void restart();
+              }}
+            >
+              Restart
+            </Button>
             <AlertDialogAction
               onClick={() => {
                 setShowStopConfirm(false);
