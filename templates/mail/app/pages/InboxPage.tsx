@@ -156,11 +156,29 @@ const EMPTY_ACCOUNTS: { email: string; displayName?: string }[] = [];
 const EMPTY_LABELS: string[] = [];
 
 export function InboxPage() {
-  const { view = "inbox", threadId } = useParams<{
+  const { view = "inbox", threadId: routeThreadId } = useParams<{
     view: string;
     threadId: string;
   }>();
   const navigate = useNavigate();
+  // Immediate thread ID for instant list→thread transition. React Router
+  // wraps navigations in startTransition, which keeps the old list view
+  // visible until the route commits. This local state bypasses that: the
+  // click handler sets it synchronously, so the thread view renders on the
+  // next frame. The URL catches up via navigate() in the background.
+  const [pendingThreadId, setPendingThreadId] = useState<string | undefined>(
+    undefined,
+  );
+  const threadId = pendingThreadId || routeThreadId;
+  // Clear pending once the route catches up
+  useEffect(() => {
+    if (routeThreadId === pendingThreadId) setPendingThreadId(undefined);
+  }, [routeThreadId, pendingThreadId]);
+  // Clear pending when going back to list
+  useEffect(() => {
+    if (!routeThreadId) setPendingThreadId(undefined);
+  }, [routeThreadId]);
+
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const compose = useComposeState();
@@ -531,6 +549,7 @@ export function InboxPage() {
             onCompose={handleCompose}
             onArchived={setLastArchivedId}
             onDraftOpen={handleDraftOpen}
+            onNavigateThread={setPendingThreadId}
           />
         )}
       </div>
