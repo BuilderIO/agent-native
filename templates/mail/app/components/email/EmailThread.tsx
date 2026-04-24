@@ -1467,12 +1467,10 @@ function BodySkeleton() {
     <div className="space-y-2 pt-1">
       <div className={cn(bar, "w-full")} />
       <div className={cn(bar, "w-[95%]")} />
-      <div className={cn(bar, "w-full")} />
-      <div className={cn(bar, "w-[88%]")} />
       <div className={cn(bar, "w-[72%]")} />
       <div className="pt-1" />
       <div className={cn(bar, "w-full")} />
-      <div className={cn(bar, "w-[90%]")} />
+      <div className={cn(bar, "w-[88%]")} />
       <div className={cn(bar, "w-[60%]")} />
     </div>
   );
