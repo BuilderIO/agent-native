@@ -141,6 +141,13 @@ async function hasPendingInvitation(
   }
 }
 
+/** Stale-claim threshold. A claim row this old is treated as abandoned
+ *  (process crashed, DELETE failed, etc.) and a new caller may take it
+ *  over. Long enough that two genuine concurrent first-loads don't
+ *  trample each other (those settle in milliseconds), short enough that
+ *  a stuck user recovers on their next navigation. */
+const CLAIM_TTL_MS = 5 * 60 * 1000;
+
 /**
  * Attempt to provision a default org + owner membership for a user with
  * zero memberships.
@@ -153,6 +160,11 @@ async function hasPendingInvitation(
  * request retries on a subsequent navigation, the winner's org is in
  * `org_members` and the auto-create branch is skipped entirely.
  *
+ * Stuck-state recovery: a stale claim (held longer than CLAIM_TTL_MS)
+ * is reclaimed automatically. So even if the DELETE on the failure
+ * path fails (network blip, DB error), the user isn't stranded — the
+ * next request after the TTL elapses retries cleanly.
+ *
  * Returns null on any failure so the caller can fall back to the
  * empty-context / client-guard path.
  */
@@ -161,26 +173,20 @@ async function tryCreateDefaultOrg(
   email: string,
   session: { name?: string } | null,
 ): Promise<OrgContext | null> {
-  // Skip auto-create if there's a pending invite — the user should join
-  // the inviter's org via the RequireActiveOrg accept-invite pane, not
-  // be silently dropped into a personal workspace they didn't ask for.
-  if (await hasPendingInvitation(exec, email)) return null;
-
   // Make sure the framework `settings` table exists before we use it as
   // a claim primitive. getSetting() ensures the table on first call.
   await getSetting("__init").catch(() => null);
 
   const claimKey = `u:${email.toLowerCase()}:auto-create-claim`;
-  try {
-    await exec.execute({
-      sql: `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
-      args: [claimKey, JSON.stringify({ at: Date.now() }), Date.now()],
-    });
-  } catch {
-    // INSERT failed → another request already claimed this user's
-    // auto-create slot. Bail; their request will create the org and a
-    // future getOrgContext call from this user will see non-empty
-    // memberships and skip the auto-create branch.
+
+  if (!(await acquireClaim(exec, claimKey))) return null;
+
+  // Pending-invite check happens INSIDE the claim so the window where a
+  // newly-arrived invitation can be missed is narrowed to a single SQL
+  // round-trip. (A still-narrower window would require a transaction
+  // spanning org_invitations and settings — out of scope.)
+  if (await hasPendingInvitation(exec, email)) {
+    await releaseClaim(exec, claimKey);
     return null;
   }
 
@@ -202,14 +208,54 @@ async function tryCreateDefaultOrg(
 
     return { email, orgId, orgName, role: "owner" };
   } catch {
-    // Org / member insert failed AFTER we won the claim. Drop the claim
-    // so a future request from this user can retry auto-create —
-    // otherwise the claim row would permanently block provisioning and
-    // the user would be stuck on RequireActiveOrg without any recovery
-    // path short of manual creation.
+    await releaseClaim(exec, claimKey);
+    return null;
+  }
+}
+
+async function acquireClaim(
+  exec: ReturnType<typeof getDbExec>,
+  claimKey: string,
+): Promise<boolean> {
+  const now = Date.now();
+  try {
+    await exec.execute({
+      sql: `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
+      args: [claimKey, JSON.stringify({ at: now }), now],
+    });
+    return true;
+  } catch {
+    // Conflict — someone else's claim is in the row. If it's stale, take
+    // it over; otherwise yield.
+    const existing = (await getSetting(claimKey).catch(() => null)) as {
+      at?: number;
+    } | null;
+    const at = typeof existing?.at === "number" ? existing.at : 0;
+    if (now - at < CLAIM_TTL_MS) return false;
+
     await exec
       .execute({ sql: `DELETE FROM settings WHERE key = ?`, args: [claimKey] })
       .catch(() => {});
-    return null;
+    try {
+      await exec.execute({
+        sql: `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
+        args: [claimKey, JSON.stringify({ at: now }), now],
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
+}
+
+async function releaseClaim(
+  exec: ReturnType<typeof getDbExec>,
+  claimKey: string,
+): Promise<void> {
+  // Best-effort. If this fails (transient network/DB error), the
+  // CLAIM_TTL_MS-based takeover in acquireClaim recovers automatically
+  // on a future request — no permanent stuck state.
+  await exec
+    .execute({ sql: `DELETE FROM settings WHERE key = ?`, args: [claimKey] })
+    .catch(() => {});
 }
