@@ -58,6 +58,7 @@ import { MobileActionBar, DEFAULT_MOBILE_ACTIONS } from "./MobileActionBar";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 export function EmailThread({
+  activeThreadId,
   onArchived,
   emailIds = [],
   threads = [],
@@ -65,6 +66,7 @@ export function EmailThread({
   setSelectedIds,
   onContactSelect,
 }: {
+  activeThreadId?: string;
   onArchived?: (id: string) => void;
   emailIds?: string[];
   /**
@@ -82,10 +84,11 @@ export function EmailThread({
   setSelectedIds?: React.Dispatch<React.SetStateAction<Set<string>>>;
   onContactSelect?: (email: string) => void;
 }) {
-  const { view = "inbox", threadId } = useParams<{
+  const { view = "inbox", threadId: routeThreadId } = useParams<{
     view: string;
     threadId: string;
   }>();
+  const threadId = activeThreadId || routeThreadId;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const labelParam = searchParams.get("label");
@@ -139,12 +142,7 @@ export function EmailThread({
   }, [threadId, queryClient]);
 
   // Fetch all messages in the thread (URL param is the real threadId)
-  const {
-    data: threadMessages,
-    isLoading: isThreadLoading,
-    isFetching: isThreadFetching,
-    isFromCache: isThreadFromCache,
-  } = useThreadMessages(threadId);
+  const { data: threadMessages } = useThreadMessages(threadId);
 
   // Use the latestMessage from the threads prop as a last-resort preview (avoids
   // full skeleton when the user just clicked from the list and we have the data).
@@ -181,35 +179,12 @@ export function EmailThread({
       ),
     [allMessages],
   );
-  // True when we have no data at all (rare — deep link with empty list cache)
-  const isHydratingThread =
-    !!threadId && !threadMessages && (isThreadLoading || isThreadFetching);
-  // True when we have placeholder data from the list (metadata-only, no body)
-  // but the full thread hasn't loaded yet. The list API uses format=metadata
-  // so placeholder emails have snippet but no bodyHtml/body.
-  const isBodyLoading = !!threadId && isThreadFetching && !isThreadFromCache;
 
   // Use the latest message as the "primary" email for actions/metadata
   const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
 
-  // Extract preview data from the threads prop for loading states. When the
-  // user clicks from the list or presses j/k, we always have the thread
-  // summary even if the full thread hasn't loaded yet.
-  const threadPreview = useMemo(() => {
-    if (!threadId || !threads.length) return undefined;
-    const thread = threads.find(
-      (t) => (t.latestMessage.threadId || t.latestMessage.id) === threadId,
-    );
-    if (!thread) return undefined;
-    const msg = thread.latestMessage;
-    return {
-      subject: msg.subject,
-      from: msg.from,
-      date: msg.date,
-      snippet: msg.snippet,
-      to: msg.to,
-    };
-  }, [threadId, threads]);
+  // Simple loading check: do we have the full email body yet?
+  const hasFullBody = !!(email?.bodyHtml || email?.body);
 
   // Auto-expand latest + unread; user toggles override via this set
   const [userToggles, setUserToggles] = useState<Record<string, boolean>>({});
@@ -1034,14 +1009,21 @@ export function EmailThread({
   if (!threadId) return null;
 
   if (!email) {
-    if (isHydratingThread || isBodyLoading || threadPreview) {
-      return <ThreadLoadingState onBack={goBack} preview={threadPreview} />;
+    if (previewMessage) {
+      return (
+        <ThreadLoadingState
+          onBack={goBack}
+          preview={{
+            subject: previewMessage.subject,
+            from: previewMessage.from,
+            date: previewMessage.date,
+            snippet: previewMessage.snippet,
+            to: previewMessage.to,
+          }}
+        />
+      );
     }
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <p className="text-muted-foreground text-sm">Email not found</p>
-      </div>
-    );
+    return <ThreadLoadingState onBack={goBack} />;
   }
 
   // Filter to user labels for display
@@ -1065,7 +1047,7 @@ export function EmailThread({
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Thread header */}
-      <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3">
+      <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3 max-h-[40%]">
         <div className="flex items-start gap-2 sm:gap-3">
           <button
             onClick={goBack}
@@ -1077,10 +1059,10 @@ export function EmailThread({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-2 flex-wrap">
-              <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground">
+              <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
                 {threadSubject}
               </h1>
-              {isBodyLoading && (
+              {!hasFullBody && (
                 <Skeleton className="mt-0.5 h-5 w-28 rounded-full" />
               )}
               {displayLabels.map((labelId) => (
@@ -1181,18 +1163,6 @@ export function EmailThread({
         className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4"
       >
         <div className="max-w-3xl mx-auto pt-1.5 space-y-1.5">
-          {isBodyLoading && messages.length > 0 && (
-            <div className="sticky top-0 z-10 pb-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-background/90 px-3 py-1.5 shadow-sm backdrop-blur">
-                <Skeleton className="h-2 w-2 rounded-full" />
-                <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                  Loading full thread
-                </span>
-                <Skeleton className="h-2 w-16 rounded-full" />
-              </div>
-            </div>
-          )}
-
           {messages.map((msg, idx) => {
             const isExpanded = expandedIds.has(msg.id);
             const isFocused = idx === focusedIndex;
@@ -1212,7 +1182,6 @@ export function EmailThread({
                     email={msg}
                     isFocused={isFocused}
                     isFromMe={myEmails.has(msg.from.email.toLowerCase())}
-                    isLoadingBody={isBodyLoading}
                     onCollapse={() => {
                       setUserToggles((prev) => ({ ...prev, [msg.id]: false }));
                     }}
@@ -1391,7 +1360,7 @@ function ThreadLoadingState({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3">
+      <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3 max-h-[40%]">
         <div className="flex items-start gap-2 sm:gap-3">
           <button
             onClick={onBack}
@@ -1404,7 +1373,7 @@ function ThreadLoadingState({
           <div className="flex-1 min-w-0">
             {preview ? (
               <div className="flex items-start gap-2 flex-wrap">
-                <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground">
+                <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
                   {threadSubject}
                 </h1>
                 <Skeleton className="mt-0.5 h-5 w-28 rounded-full" />
@@ -1542,7 +1511,6 @@ const ExpandedMessageCard = forwardRef<
     email: EmailMessage;
     isFocused?: boolean;
     isFromMe?: boolean;
-    isLoadingBody?: boolean;
     onCollapse: () => void;
     onReply: () => void;
     onReplyAll: () => void;
@@ -1557,7 +1525,6 @@ const ExpandedMessageCard = forwardRef<
     email,
     isFocused,
     isFromMe,
-    isLoadingBody,
     onCollapse,
     onReply,
     onReplyAll,
@@ -1746,23 +1713,15 @@ const ExpandedMessageCard = forwardRef<
             searchTerm={searchTerm}
             activeLocalIdx={activeLocalIdx}
           />
-        ) : isLoadingBody ? (
+        ) : email.snippet ? (
           <div className="space-y-2">
-            {email.snippet && (
-              <p className="text-[13px] text-foreground/80 leading-relaxed">
-                {email.snippet}
-              </p>
-            )}
+            <p className="text-[13px] text-foreground/80 leading-relaxed">
+              {email.snippet}
+            </p>
             <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-[95%]" />
-            <Skeleton className="h-3 w-[88%]" />
+            <Skeleton className="h-3 w-[92%]" />
             <Skeleton className="h-3 w-[76%]" />
             <Skeleton className="h-3 w-[60%]" />
-          </div>
-        ) : email.snippet ? (
-          <div className="text-[13px] text-muted-foreground whitespace-pre-wrap">
-            {email.snippet}
-            <span className="text-muted-foreground/60">…</span>
           </div>
         ) : null}
       </div>

@@ -7,9 +7,9 @@ const TIMEOUT = 10_000;
 const CHECKPOINT_ENV = {
   ...process.env,
   GIT_AUTHOR_NAME: "agent-native",
-  GIT_AUTHOR_EMAIL: "noreply@agent-native.dev",
+  GIT_AUTHOR_EMAIL: "noreply@agent-native.com",
   GIT_COMMITTER_NAME: "agent-native",
-  GIT_COMMITTER_EMAIL: "noreply@agent-native.dev",
+  GIT_COMMITTER_EMAIL: "noreply@agent-native.com",
 };
 
 export function isGitRepo(cwd: string): boolean {
@@ -93,6 +93,33 @@ export function restoreToCheckpoint(cwd: string, sha: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+export function getChangedFileNames(cwd: string): string[] {
+  try {
+    const staged = execFileSync("git", ["diff", "--cached", "--name-only"], {
+      cwd,
+      stdio: "pipe",
+      timeout: TIMEOUT,
+      encoding: "utf-8",
+    }).trim();
+    const unstaged = execFileSync("git", ["diff", "--name-only"], {
+      cwd,
+      stdio: "pipe",
+      timeout: TIMEOUT,
+      encoding: "utf-8",
+    }).trim();
+    const untracked = execFileSync(
+      "git",
+      ["ls-files", "--others", "--exclude-standard"],
+      { cwd, stdio: "pipe", timeout: TIMEOUT, encoding: "utf-8" },
+    ).trim();
+    const all = [staged, unstaged, untracked].filter(Boolean).join("\n");
+    if (!all) return [];
+    return [...new Set(all.split("\n").map((f) => f.split("/").pop()!))];
+  } catch {
+    return [];
   }
 }
 
