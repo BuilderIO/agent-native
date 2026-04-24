@@ -85,4 +85,4 @@ If you're evaluating agent-native for a product like a CRM, project tracker, sup
 
 - [Authentication](/docs/authentication) — auth modes, social providers, session API
 - [Security & Data Scoping](/docs/security) — SQL-level isolation, input validation, access guards
-- [Enterprise Workspace](/docs/enterprise-workspace) — hosting multiple agent-native apps in one monorepo with shared auth and RBAC
+- [Multi-App Workspace](/docs/multi-app-workspace) — hosting multiple agent-native apps in one monorepo with shared auth and RBAC

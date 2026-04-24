@@ -270,4 +270,4 @@ For detailed guidance on specific patterns:
 - [Context Awareness](/docs/context-awareness) — navigation state, view-screen, navigate commands
 - [Skills Guide](/docs/skills-guide) — framework skills, domain skills, creating custom skills
 - [A2A Protocol](/docs/a2a-protocol) — agent-to-agent communication
-- [Enterprise Workspace](/docs/enterprise-workspace) — host many apps in one monorepo with shared auth, skills, components, and credentials
+- [Multi-App Workspace](/docs/multi-app-workspace) — host many apps in one monorepo with shared auth, skills, components, and credentials

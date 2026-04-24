@@ -213,12 +213,16 @@ export function SearchModal({
                       <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
                       <polyline points="13 2 13 9 20 9" />
                     </svg>
-                    <span className="text-xs text-[var(--fg-secondary)]">
-                      {entry.page}
-                    </span>
-                    <span className="text-xs text-[var(--fg-secondary)]">
-                      ›
-                    </span>
+                    {entry.section !== entry.page && (
+                      <>
+                        <span className="text-xs text-[var(--fg-secondary)]">
+                          {entry.page}
+                        </span>
+                        <span className="text-xs text-[var(--fg-secondary)]">
+                          ›
+                        </span>
+                      </>
+                    )}
                     <span
                       className={`text-sm font-medium ${i === activeIdx ? "text-[var(--docs-accent)]" : "text-[var(--fg)]"}`}
                     >

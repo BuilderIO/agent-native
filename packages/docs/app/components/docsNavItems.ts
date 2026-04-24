@@ -48,8 +48,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Client", to: "/docs/client" as const },
       { label: "Actions", to: "/docs/actions" as const },
       {
-        label: "Enterprise Workspace",
-        to: "/docs/enterprise-workspace" as const,
+        label: "Multi-App Workspace",
+        to: "/docs/multi-app-workspace" as const,
       },
       { label: "Deployment", to: "/docs/deployment" as const },
     ],

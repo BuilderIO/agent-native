@@ -7,7 +7,7 @@ description: "Dispatch is the workspace control plane — central inbox, cross-a
 
 Dispatch is the **workspace control plane**. Where other templates are domain apps (Mail, Calendar, Analytics), Dispatch is the app you run _alongside_ them to coordinate everything: a central inbox, a secrets vault, scheduled jobs, Slack/Telegram integration, and an orchestrator agent that delegates domain work to the right specialist app over [A2A](/docs/a2a-protocol).
 
-If you're running an [enterprise workspace](/docs/enterprise-workspace) with many apps, Dispatch is the glue.
+If you're running an [multi-app workspace](/docs/multi-app-workspace) with many apps, Dispatch is the glue.
 
 ## What it does {#what-it-does}
 
@@ -44,7 +44,7 @@ pnpm dlx @agent-native/core create my-platform
 # pick "Dispatch" in the multi-select picker, plus whichever domain apps you want
 ```
 
-Dispatch is usually scaffolded into a workspace alongside the apps it coordinates. For a workspace, Dispatch's shared auth, database, and brand are inherited from the workspace core — see [Enterprise Workspace](/docs/enterprise-workspace).
+Dispatch is usually scaffolded into a workspace alongside the apps it coordinates. For a workspace, Dispatch's shared auth, database, and brand are inherited from the workspace core — see [Multi-App Workspace](/docs/multi-app-workspace).
 
 ## Customize it {#customize}
 
@@ -52,7 +52,7 @@ Dispatch is a full cloneable SaaS like any other template — see [Cloneable Saa
 
 ## What's next
 
-- [**Enterprise Workspace**](/docs/enterprise-workspace) — running Dispatch alongside multiple apps
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — running Dispatch alongside multiple apps
 - [**A2A Protocol**](/docs/a2a-protocol) — how Dispatch delegates to specialist agents
 - [**MCP Clients — Hub Mode**](/docs/mcp-clients#hub) — sharing MCP servers across the workspace
 - [**Recurring Jobs**](/docs/recurring-jobs) — scheduled tasks Dispatch runs

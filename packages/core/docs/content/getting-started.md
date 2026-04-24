@@ -35,7 +35,7 @@ Need to add more apps later? From inside the workspace:
 agent-native add-app
 ```
 
-From here, use your AI coding tool (Claude Code, Cursor, Windsurf, etc.) to customize it. The agent instructions in `AGENTS.md` are already set up so any tool understands the codebase. See [Enterprise Workspace](/docs/enterprise-workspace) for the full story on sharing auth, skills, components, and credentials across apps.
+From here, use your AI coding tool (Claude Code, Cursor, Windsurf, etc.) to customize it. The agent instructions in `AGENTS.md` are already set up so any tool understands the codebase. See [Multi-App Workspace](/docs/multi-app-workspace) for the full story on sharing auth, skills, components, and credentials across apps.
 
 ## Templates {#templates}
 
