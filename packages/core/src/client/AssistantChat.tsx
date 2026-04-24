@@ -984,7 +984,7 @@ function AssistantMessage() {
                   | string
                   | undefined) ?? ""
               }
-              messageSeq={thread.messages.indexOf(msg)}
+              messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
             />
           </React.Suspense>
           {showRestore && restoreState === "idle" && (
