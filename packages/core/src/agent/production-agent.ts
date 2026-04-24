@@ -17,6 +17,7 @@ import type {
   EngineMessage,
   EngineContentPart,
 } from "./engine/types.js";
+import { EngineError } from "./engine/types.js";
 import {
   resolveEngine,
   registerBuiltinEngines,
@@ -377,7 +378,10 @@ export async function runAgentLoop(opts: {
             usage.cacheReadTokens += event.cacheReadTokens ?? 0;
             usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
           } else if (event.type === "stop" && event.reason === "error") {
-            throw new Error(event.error ?? "Engine stream error");
+            throw new EngineError(event.error ?? "Engine stream error", {
+              errorCode: event.errorCode,
+              upgradeUrl: event.upgradeUrl,
+            });
           }
         }
 
@@ -600,6 +604,15 @@ export function createProductionAgentHandler(
       engine.defaultModel;
 
     options.onEngineResolved?.(engine, model);
+
+    // One-line per-turn resolution log so it's obvious in dev which engine
+    // is actually handling the request. `requestEngine` is what the client
+    // sent from the model picker; `engine.name` is what resolveEngine picked.
+    // Divergence between them is the usual cause of "status says builder but
+    // no [builder-engine] log lines appear" confusion.
+    console.log(
+      `[agent-chat] resolved engine=${engine.name} model=${model} requestEngine=${requestEngine ?? "(none)"}`,
+    );
 
     // Check for API key before starting a run (only for anthropic engine)
     if (engine.name === "anthropic" && !effectiveApiKey) {

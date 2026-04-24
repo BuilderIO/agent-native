@@ -29,7 +29,6 @@ const LLM_KEY_METHODS: LlmKeyMethod[] = [
     id: "anthropic-key",
     label: "Use your Anthropic API key",
     description: "Paste a key — stored locally in your .env file.",
-    primary: true,
   },
   {
     provider: "openai",
@@ -83,13 +82,13 @@ const llmStep: OnboardingStep = {
     {
       id: "builder",
       kind: "builder-cli-auth",
-      // TODO: expand scope to "llm" once the Builder LLM gateway ships so
-      // connecting Builder also provisions a managed model.
       label: "Connect Builder",
-      description: "Unlocks LLM + browser automation + more. Free during beta.",
+      description:
+        "One click, no API key needed. Claude, GPT, Gemini, GLM, and more via Builder's managed gateway. Free during beta.",
       badge: "free",
+      primary: true,
       payload: {
-        scope: "browser",
+        scope: "llm",
         waitlistUrl: "https://forms.agent-native.com/f/builder-waitlist/36GWqf",
       },
     },

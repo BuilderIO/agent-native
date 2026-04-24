@@ -10,6 +10,29 @@
  * selection.
  */
 
+/**
+ * Thrown when an engine emits a terminal stop-error event. Carries optional
+ * structured fields (errorCode / upgradeUrl) that propagate up to the SSE
+ * "error" event so the chat UI can render a structured CTA — e.g. an
+ * Upgrade button for Builder gateway 402 quota errors.
+ *
+ * Lives in the engine types module (not production-agent) so run-manager and
+ * other consumers can `instanceof` it without an import cycle.
+ */
+export class EngineError extends Error {
+  readonly errorCode?: string;
+  readonly upgradeUrl?: string;
+  constructor(
+    message: string,
+    opts?: { errorCode?: string; upgradeUrl?: string },
+  ) {
+    super(message);
+    this.name = "EngineError";
+    this.errorCode = opts?.errorCode;
+    this.upgradeUrl = opts?.upgradeUrl;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tool / parameter types
 // ---------------------------------------------------------------------------
@@ -117,6 +140,19 @@ export type EngineEvent =
         | "stop_sequence"
         | "error";
       error?: string;
+      /**
+       * Optional machine-readable error code for structured UI handling.
+       * Used by the Builder gateway engine to signal quota/auth failures
+       * (e.g. "credits-limit-monthly", "gateway_not_enabled") so the UI
+       * can render an upgrade CTA instead of a plain error string.
+       */
+      errorCode?: string;
+      /**
+       * Optional URL the UI should link to when rendering the error.
+       * Paired with errorCode — e.g. credits-limit-* stop events carry
+       * a link to the user's Builder billing page.
+       */
+      upgradeUrl?: string;
     };
 
 // ---------------------------------------------------------------------------

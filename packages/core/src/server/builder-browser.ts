@@ -108,6 +108,23 @@ export function getBuilderBrowserStatusForEvent(
   return getBuilderBrowserStatus(getOrigin(event));
 }
 
+/**
+ * Env vars written by the Builder CLI-auth callback. Single source of truth
+ * for the connect/disconnect key set — `getBuilderCallbackEnvVars` and the
+ * disconnect handler's scrub loop both derive from this list, so drift
+ * (e.g. disconnect silently leaving `BUILDER_USER_ID` behind because
+ * someone added a key to one site but not the other) is impossible.
+ */
+export const BUILDER_ENV_KEYS = [
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
+  "BUILDER_USER_ID",
+  "BUILDER_ORG_NAME",
+  "BUILDER_ORG_KIND",
+] as const;
+
+export type BuilderEnvKey = (typeof BUILDER_ENV_KEYS)[number];
+
 export function getBuilderCallbackEnvVars(params: {
   privateKey?: string | null;
   publicKey?: string | null;
@@ -115,13 +132,14 @@ export function getBuilderCallbackEnvVars(params: {
   orgName?: string | null;
   orgKind?: string | null;
 }) {
-  return [
-    { key: "BUILDER_PRIVATE_KEY", value: params.privateKey?.trim() || "" },
-    { key: "BUILDER_PUBLIC_KEY", value: params.publicKey?.trim() || "" },
-    { key: "BUILDER_USER_ID", value: params.userId?.trim() || "" },
-    { key: "BUILDER_ORG_NAME", value: params.orgName?.trim() || "" },
-    { key: "BUILDER_ORG_KIND", value: params.orgKind?.trim() || "" },
-  ];
+  const values: Record<BuilderEnvKey, string> = {
+    BUILDER_PRIVATE_KEY: params.privateKey?.trim() || "",
+    BUILDER_PUBLIC_KEY: params.publicKey?.trim() || "",
+    BUILDER_USER_ID: params.userId?.trim() || "",
+    BUILDER_ORG_NAME: params.orgName?.trim() || "",
+    BUILDER_ORG_KIND: params.orgKind?.trim() || "",
+  };
+  return BUILDER_ENV_KEYS.map((key) => ({ key, value: values[key] }));
 }
 
 export function resolveSafePreviewUrl(

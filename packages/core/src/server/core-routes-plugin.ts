@@ -13,6 +13,7 @@ import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
 import { readBody } from "./h3-helpers.js";
 import {
+  BUILDER_ENV_KEYS,
   createBuilderBrowserCallbackPage,
   getBuilderBrowserStatusForEvent,
   getBuilderCallbackEnvVars,
@@ -131,6 +132,27 @@ export function createCoreRoutesPlugin(
       // DB not ready yet — skip
     }
 
+    // Honor Builder disconnect. Nitro's dev env-runner preserves
+    // `process.env` across `.env` file reloads inside the same worker, so
+    // deleting BUILDER_PRIVATE_KEY in the disconnect handler can bleed
+    // back through an env-runner restart. We persist a
+    // `builder-disconnected` flag in SQL and scrub BUILDER_* on every
+    // plugin init while the flag is set. The flag is cleared by the
+    // Builder cli-auth callback when the user re-connects.
+    try {
+      const disconnected = (await getSetting("builder-disconnected")) as {
+        at?: number;
+      } | null;
+      if (disconnected) {
+        for (const key of BUILDER_ENV_KEYS) {
+          delete process.env[key];
+        }
+      }
+    } catch {
+      // DB not ready — skip; the disconnect flag will be enforced on the
+      // next plugin boot once the settings table is reachable.
+    }
+
     // Register framework-level secrets (OPENAI_API_KEY for composer voice
     // transcription, etc.). Each registration is guarded so templates that
     // already registered the same key win.
@@ -222,7 +244,28 @@ export function createCoreRoutesPlugin(
 
     getH3App(nitroApp).use(
       `${P}/builder/status`,
-      defineEventHandler((event) => getBuilderBrowserStatusForEvent(event)),
+      defineEventHandler(async (event) => {
+        const status = getBuilderBrowserStatusForEvent(event);
+        // Honor the SQL disconnect flag even when process.env still has
+        // BUILDER_* (dev env-runner weirdness — see plugin init above).
+        try {
+          const disconnected = await getSetting("builder-disconnected");
+          if (disconnected) {
+            return {
+              ...status,
+              configured: false,
+              privateKeyConfigured: false,
+              publicKeyConfigured: false,
+              userId: undefined,
+              orgName: undefined,
+              orgKind: undefined,
+            };
+          }
+        } catch {
+          // DB not reachable — fall back to env-only status.
+        }
+        return status;
+      }),
     );
 
     // Lightweight 302 to the Builder CLI-auth URL. Lets clients do
@@ -310,6 +353,18 @@ export function createCoreRoutesPlugin(
           return { error: "Method not allowed" };
         }
 
+        // Require a signed-in session before we accept Builder credentials
+        // into the server's .env / process.env. Without this, a logged-in
+        // user visiting an attacker-crafted URL would silently swap the
+        // workspace's Builder account with the attacker's. In AUTH_MODE=local
+        // the session is always `local@localhost`, so this is a no-op in
+        // local dev; it matters in hosted / multi-tenant deploys.
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "Authentication required" };
+        }
+
         const requestUrl = new URL(
           `${event.url?.pathname || "/"}${event.url?.search || ""}`,
           getOrigin(event),
@@ -329,6 +384,16 @@ export function createCoreRoutesPlugin(
           orgName: requestUrl.searchParams.get("org-name"),
           orgKind: requestUrl.searchParams.get("kind"),
         });
+
+        // Clear the disconnect flag first — a prior disconnect would
+        // otherwise cause the plugin init to scrub these keys right back
+        // out on the next env-runner reload.
+        try {
+          await deleteSetting("builder-disconnected");
+        } catch {
+          // DB not ready — proceed; the worst case is a stale disconnect
+          // flag that gets cleared on the next reconnect attempt.
+        }
 
         // Prefer the workspace root .env when in an enterprise workspace so
         // Builder credentials are shared across every app automatically.
@@ -367,6 +432,92 @@ export function createCoreRoutesPlugin(
         );
         setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
         return createBuilderBrowserCallbackPage(previewUrl);
+      }),
+    );
+
+    // POST /_agent-native/builder/disconnect — revoke the stored Builder
+    // credentials so the next turn falls back to BYO / env detection. Mirrors
+    // the callback handler's three write locations: the template `.env` file,
+    // the in-process `process.env`, and the `persisted-env-vars` settings row
+    // (rehydrated on serverless cold starts). All three must be cleared to
+    // avoid a "still connected after disconnect" state on restart.
+    getH3App(nitroApp).use(
+      `${P}/builder/disconnect`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "unauthorized" };
+        }
+
+        // We intentionally do NOT rewrite the `.env` file on disconnect.
+        // A `.env` write triggers nitro's file watcher → env-runner
+        // restart, which tears down in-flight SSE / HMR connections and
+        // surfaces as `read ECONNRESET` in the vite overlay. The
+        // authoritative disconnect signal is the SQL `builder-disconnected`
+        // flag (checked in plugin init, the status endpoint, and the
+        // Builder engine before any gateway call). `.env` keys, if any
+        // survive, are neutered by the flag-driven scrub in plugin init.
+
+        // 1. Write the disconnect flag. This is load-bearing — every
+        // subsequent check (plugin init scrub, /builder/status override,
+        // BuilderEngine.stream short-circuit) reads this flag. If the
+        // write fails, we FAIL HARD: clearing process.env without
+        // persisting the flag means the next env-runner reload would
+        // silently restore BUILDER_* from whatever inherited env the
+        // worker was spawned with, and the user would see "Disconnected"
+        // in the UI that flips back to "Connected" moments later.
+        try {
+          await putSetting("builder-disconnected", { at: Date.now() });
+        } catch (err) {
+          setResponseStatus(event, 500);
+          return {
+            ok: false,
+            error:
+              "Could not persist disconnect flag — your Builder connection is unchanged. Please retry.",
+            cause: err instanceof Error ? err.message : String(err),
+          };
+        }
+
+        // 2. Scrub the persisted-env-vars row so serverless cold starts
+        // don't rehydrate BUILDER_* from SQL. Best-effort: the disconnect
+        // flag above already prevents Builder from being used; this is
+        // cleanup.
+        let warnPersisted: string | undefined;
+        try {
+          const existing =
+            ((await getSetting("persisted-env-vars")) as Record<
+              string,
+              string
+            > | null) ?? {};
+          const cleaned: Record<string, string> = {};
+          for (const [k, v] of Object.entries(existing)) {
+            if (!(BUILDER_ENV_KEYS as readonly string[]).includes(k))
+              cleaned[k] = v;
+          }
+          await putSetting("persisted-env-vars", cleaned);
+        } catch (err) {
+          warnPersisted = err instanceof Error ? err.message : String(err);
+        }
+
+        // 3. Clear in-process env vars so the current worker stops routing
+        // through Builder immediately. Nitro's env-runner may re-populate
+        // these across a module reload, but by then the `builder-disconnected`
+        // flag will be enforced at the plugin-init scrub.
+        for (const key of BUILDER_ENV_KEYS) {
+          delete process.env[key];
+        }
+
+        return {
+          ok: true,
+          ...(warnPersisted
+            ? { warnings: { persistedEnvVars: warnPersisted } }
+            : {}),
+        };
       }),
     );
 
@@ -433,6 +584,11 @@ export function createCoreRoutesPlugin(
     // Env key management — framework keys are always included
     const frameworkEnvKeys: EnvKeyConfig[] = [
       { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
+      {
+        key: "AGENT_ENGINE_PREFER_BYO_KEY",
+        label:
+          "Prefer BYO LLM key over Builder gateway (default: false — gateway wins)",
+      },
       ...Object.values(PROVIDER_ENV_META).map(({ envVar, label }) => ({
         key: envVar,
         label,

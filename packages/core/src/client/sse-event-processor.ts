@@ -1,4 +1,5 @@
 import type { ChatModelRunResult } from "@assistant-ui/react";
+import { formatChatErrorText } from "./error-format.js";
 
 export type ContentPart =
   | { type: "text"; text: string }
@@ -31,6 +32,10 @@ export interface SSEEvent {
   // Usage limit fields
   usageCents?: number;
   limitCents?: number;
+  // Structured error metadata — Builder gateway sets these on 402/403 so the
+  // UI can render an upgrade CTA alongside the error text.
+  errorCode?: string;
+  upgradeUrl?: string;
 }
 
 /**
@@ -241,7 +246,10 @@ export function processEvent(
         } as ChatModelRunResult,
       };
     }
-    content.push({ type: "text", text: `Error: ${errMsg}` });
+    content.push({
+      type: "text",
+      text: formatChatErrorText(errMsg, ev.upgradeUrl),
+    });
     return {
       action: "error",
       result: {
