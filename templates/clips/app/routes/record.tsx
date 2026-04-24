@@ -114,9 +114,22 @@ export default function RecordRoute() {
     let cancelled = false;
     fetch("/_agent-native/file-upload/status")
       .then((r) => (r.ok ? r.json() : null))
-      .then((s: { configured?: boolean } | null) => {
-        if (!cancelled) setStorageConfigured(s?.configured ?? false);
-      })
+      .then(
+        (
+          s: {
+            configured?: boolean;
+            activeProvider?: { id: string };
+          } | null,
+        ) => {
+          if (cancelled) return;
+          // Builder.io's upload API only handles images, not video.
+          // Only consider storage configured if a non-Builder provider
+          // (S3, R2, etc.) is active.
+          const videoCapable =
+            !!s?.configured && s.activeProvider?.id !== "builder";
+          setStorageConfigured(videoCapable);
+        },
+      )
       .catch(() => {
         if (!cancelled) setStorageConfigured(false);
       });
@@ -185,15 +198,17 @@ export default function RecordRoute() {
       setUiState("pickingSources");
 
       try {
-        // 0. Verify a file upload provider is configured before recording.
+        // 0. Verify a video-capable upload provider is configured.
+        // Builder.io's upload API only handles images — video needs S3.
         const statusRes = await fetch("/_agent-native/file-upload/status");
         if (statusRes.ok) {
           const status = (await statusRes.json()) as {
             configured?: boolean;
+            activeProvider?: { id: string };
           };
-          if (!status.configured) {
+          if (!status.configured || status.activeProvider?.id === "builder") {
             throw new Error(
-              "No video storage configured. Open Settings to connect Builder.io or an S3-compatible service.",
+              "No video storage configured. Open Settings to connect S3-compatible storage (AWS S3, Cloudflare R2, DigitalOcean Spaces).",
             );
           }
         }
