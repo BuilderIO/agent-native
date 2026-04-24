@@ -58,6 +58,7 @@ import { MobileActionBar, DEFAULT_MOBILE_ACTIONS } from "./MobileActionBar";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 export function EmailThread({
+  activeThreadId,
   onArchived,
   emailIds = [],
   threads = [],
@@ -65,6 +66,7 @@ export function EmailThread({
   setSelectedIds,
   onContactSelect,
 }: {
+  activeThreadId?: string;
   onArchived?: (id: string) => void;
   emailIds?: string[];
   /**
@@ -82,10 +84,11 @@ export function EmailThread({
   setSelectedIds?: React.Dispatch<React.SetStateAction<Set<string>>>;
   onContactSelect?: (email: string) => void;
 }) {
-  const { view = "inbox", threadId } = useParams<{
+  const { view = "inbox", threadId: routeThreadId } = useParams<{
     view: string;
     threadId: string;
   }>();
+  const threadId = activeThreadId || routeThreadId;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const labelParam = searchParams.get("label");

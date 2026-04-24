@@ -532,6 +532,7 @@ export function InboxPage() {
       <div className="flex flex-1 flex-col overflow-hidden">
         {hasThread ? (
           <EmailThread
+            activeThreadId={threadId}
             onArchived={setLastArchivedId}
             emailIds={threadIds}
             threads={threads}
