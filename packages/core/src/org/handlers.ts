@@ -63,7 +63,7 @@ async function exec() {
 
 function requireAuthEmail(session: { email?: string } | null): string {
   const email = session?.email;
-  if (!email || email === "local@localhost") {
+  if (!email) {
     throw createError({ statusCode: 401, message: "Authentication required" });
   }
   return email;
@@ -72,17 +72,6 @@ function requireAuthEmail(session: { email?: string } | null): string {
 /** GET /_agent-native/org/me — current user's active org, all orgs, pending invitations */
 export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
-
-  if (ctx.email === "local@localhost") {
-    return {
-      email: ctx.email,
-      orgId: null,
-      orgName: null,
-      role: null,
-      orgs: [],
-      pendingInvitations: [],
-    };
-  }
 
   const e = await exec();
   const allOrgsRes = await e.execute({

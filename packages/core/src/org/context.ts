@@ -7,17 +7,14 @@ import type { OrgContext, OrgRole } from "./types.js";
 /**
  * Resolve the current user's organization context from their session.
  *
- * - Returns `orgId: null` for solo / dev mode (`local@localhost`).
  * - For users in multiple orgs, honors their `active-org-id` user setting.
  * - Falls back to the user's first membership.
+ * - `local@localhost` (dev / no-auth mode) is treated as a regular identity:
+ *   it owns whatever orgs it has created locally.
  */
 export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   const session = await getSession(event);
   const email = session?.email ?? "local@localhost";
-
-  if (email === "local@localhost") {
-    return { email, orgId: null, orgName: null, role: null };
-  }
 
   const exec = getDbExec();
 
