@@ -47,15 +47,19 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
       return active;
     };
 
-    // Set immediately on mount so the sidebar isn't blank
     setActiveId(getActiveId());
 
     const onScroll = () => {
       const next = getActiveId();
       setActiveId((prev) => (prev === next ? prev : next));
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    // Capture phase catches scroll events from any ancestor (e.g. AgentSidebar's overflow-auto div)
+    document.addEventListener("scroll", onScroll, {
+      passive: true,
+      capture: true,
+    });
+    return () =>
+      document.removeEventListener("scroll", onScroll, { capture: true });
   }, [items]);
 
   return (
