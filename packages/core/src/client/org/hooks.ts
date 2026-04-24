@@ -62,11 +62,15 @@ export function useOrgInvitations() {
   });
 }
 
-// NOTE: the onSuccess handlers below `await` invalidateQueries so that
-// `mutation.isPending` stays true until the refetch completes. Without the
-// await, isPending flips false the instant the HTTP response lands, opening
-// a window where a submit button can re-enable, the user can fire another
-// mutation, and two mutations race to overwrite active-org-id last.
+// NOTE: the onSuccess handlers below `await refetchQueries` so that
+// `mutation.isPending` stays true until the dependent queries have
+// actually refetched. We use refetchQueries (not invalidateQueries)
+// for unambiguous semantics: refetchQueries returns a promise that
+// resolves only when the network refetch settles, so awaiting it
+// guarantees `isPending` covers the full read-after-write window.
+// Without that, a submit button can re-enable the moment the HTTP
+// mutation response lands but before stale UI data is refreshed,
+// opening a window where two mutations race to overwrite active-org-id.
 
 export function useCreateOrg() {
   const qc = useQueryClient();
@@ -78,8 +82,8 @@ export function useCreateOrg() {
       }),
     onSuccess: async () => {
       await Promise.all([
-        qc.invalidateQueries({ queryKey: ["org-me"] }),
-        qc.invalidateQueries({ queryKey: ["org-members"] }),
+        qc.refetchQueries({ queryKey: ["org-me"] }),
+        qc.refetchQueries({ queryKey: ["org-members"] }),
       ]);
     },
   });
@@ -95,8 +99,8 @@ export function useInviteMember() {
       }),
     onSuccess: async () => {
       await Promise.all([
-        qc.invalidateQueries({ queryKey: ["org-members"] }),
-        qc.invalidateQueries({ queryKey: ["org-invitations"] }),
+        qc.refetchQueries({ queryKey: ["org-members"] }),
+        qc.refetchQueries({ queryKey: ["org-invitations"] }),
       ]);
     },
   });
@@ -110,7 +114,9 @@ export function useAcceptInvitation() {
         method: "POST",
       }),
     onSuccess: async () => {
-      // Joining/switching orgs changes all org-scoped data — clear caches.
+      // Joining/switching orgs changes all org-scoped data. invalidate
+      // (not refetch) here because we don't know which keys are mounted —
+      // invalidate marks them stale and the active ones refetch.
       await qc.invalidateQueries();
     },
   });
@@ -124,7 +130,7 @@ export function useRemoveMember() {
         method: "DELETE",
       }),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["org-members"] });
+      await qc.refetchQueries({ queryKey: ["org-members"] });
     },
   });
 }
