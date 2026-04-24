@@ -223,11 +223,31 @@ export class RecorderEngine {
     }
     this.combinedStream = this.buildCombinedStream();
 
-    this.mimeType = pickMimeType();
-    this.recorder = new MediaRecorder(this.combinedStream, {
-      mimeType: this.mimeType || undefined,
-      videoBitsPerSecond: 4_000_000,
-    });
+    // `pickMimeType` returns "" when nothing in our candidate list is
+    // supported. Don't throw in that case — the browser's MediaRecorder
+    // default may still work. Construct with `mimeType: undefined` to
+    // let the browser pick, then read `recorder.mimeType` (always set
+    // once constructed) as the canonical type for chunk uploads. Only
+    // bail if even that is empty (genuinely no supported codec). On
+    // any failure here, release the media streams we already acquired
+    // so the browser's screen/camera indicator doesn't linger after
+    // the caller's error handler.
+    try {
+      const preferred = pickMimeType();
+      this.recorder = new MediaRecorder(this.combinedStream, {
+        mimeType: preferred || undefined,
+        videoBitsPerSecond: 4_000_000,
+      });
+      this.mimeType = preferred || this.recorder.mimeType;
+      if (!this.mimeType) {
+        throw new Error(
+          "Your browser doesn't support any of the video codecs Clips needs. Try a recent Chrome, Edge, Safari, or Firefox.",
+        );
+      }
+    } catch (err) {
+      this.cleanupTracks();
+      throw err;
+    }
 
     this.chunkIndex = 0;
 
@@ -437,7 +457,7 @@ export class RecorderEngine {
 
   private queueChunk(blob: Blob, index: number, isFinal: boolean): void {
     this.chunkQueue = this.chunkQueue.then(() =>
-      this.uploadChunk(blob, index, { isFinal }).then(
+      this.uploadChunk(blob, index, { isFinal, mimeType: this.mimeType }).then(
         () => {
           this.opts.onChunk?.({
             index,
