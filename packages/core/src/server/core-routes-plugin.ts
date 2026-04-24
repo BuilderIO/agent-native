@@ -13,6 +13,7 @@ import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
 import { readBody } from "./h3-helpers.js";
 import {
+  BUILDER_ENV_KEYS,
   createBuilderBrowserCallbackPage,
   getBuilderBrowserStatusForEvent,
   getBuilderCallbackEnvVars,
@@ -103,18 +104,6 @@ export interface CoreRoutesPluginOptions {
  *   PUT    /_agent-native/application-state/compose/:id — upsert compose draft
  *   DELETE /_agent-native/application-state/compose/:id — delete compose draft
  */
-// All env vars written by the Builder CLI-auth callback. Listed once so
-// the plugin-init scrub, the /builder/disconnect handler, and any future
-// consumers stay in sync — drift here is how a disconnect silently leaves
-// BUILDER_USER_ID or BUILDER_ORG_NAME behind.
-const BUILDER_ENV_KEYS: readonly string[] = [
-  "BUILDER_PRIVATE_KEY",
-  "BUILDER_PUBLIC_KEY",
-  "BUILDER_USER_ID",
-  "BUILDER_ORG_NAME",
-  "BUILDER_ORG_KIND",
-];
-
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
@@ -350,6 +339,18 @@ export function createCoreRoutesPlugin(
           return { error: "Method not allowed" };
         }
 
+        // Require a signed-in session before we accept Builder credentials
+        // into the server's .env / process.env. Without this, a logged-in
+        // user visiting an attacker-crafted URL would silently swap the
+        // workspace's Builder account with the attacker's. In AUTH_MODE=local
+        // the session is always `local@localhost`, so this is a no-op in
+        // local dev; it matters in hosted / multi-tenant deploys.
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "Authentication required" };
+        }
+
         const requestUrl = new URL(
           `${event.url?.pathname || "/"}${event.url?.search || ""}`,
           getOrigin(event),
@@ -481,7 +482,8 @@ export function createCoreRoutesPlugin(
             > | null) ?? {};
           const cleaned: Record<string, string> = {};
           for (const [k, v] of Object.entries(existing)) {
-            if (!BUILDER_ENV_KEYS.includes(k)) cleaned[k] = v;
+            if (!(BUILDER_ENV_KEYS as readonly string[]).includes(k))
+              cleaned[k] = v;
           }
           await putSetting("persisted-env-vars", cleaned);
         } catch (err) {

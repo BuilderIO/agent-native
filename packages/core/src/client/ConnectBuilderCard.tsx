@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { IconExternalLink, IconLoader2 } from "@tabler/icons-react";
 import { getCallbackOrigin } from "./frame.js";
+import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { BuilderBMark } from "./builder-mark.js";
 import { cn } from "./utils.js";
 
@@ -31,19 +32,32 @@ export function ConnectBuilderCard({
   orgName: initialOrgName,
   prompt = "",
 }: ConnectBuilderCardProps) {
-  const [configured, setConfigured] = useState(initialConfigured);
-  const [orgName, setOrgName] = useState<string | null>(initialOrgName ?? null);
-  const [connecting, setConnecting] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  // The connect-poll state machine is shared — the tool-call result is
+  // frozen at render time, so the hook's mount-time fetch + focus refresh
+  // is what catches a flow the user completed in another tab.
+  const flow = useBuilderConnectFlow({ popupUrl: initialConnectUrl });
+  // Fall back to the initial props if the hook's status fetch hasn't
+  // returned yet (first paint shows server-rendered state).
+  const configured = flow.configured || initialConfigured;
+  const orgName = flow.orgName ?? initialOrgName ?? null;
+  const connecting = flow.connecting;
+
   const [sending, setSending] = useState(false);
   const [runResult, setRunResult] = useState<BuilderRunResult | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [sendErr, setSendErr] = useState<string | null>(null);
   const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const handleSend = useCallback(async () => {
     if (!prompt.trim()) return;
     setSending(true);
-    setErr(null);
+    setSendErr(null);
     try {
       const origin = getCallbackOrigin() || window.location.origin;
       const res = await fetch(`${origin}/_agent-native/builder/run`, {
@@ -64,128 +78,13 @@ export function ConnectBuilderCard({
       setSending(false);
     } catch (e) {
       if (!mountedRef.current) return;
-      setErr(e instanceof Error ? e.message : "Send failed");
+      setSendErr(e instanceof Error ? e.message : "Send failed");
       setSending(false);
     }
   }, [prompt]);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-  }, []);
-
-  // Re-fetch status on mount and whenever the tab regains focus/visibility.
-  // The tool-call result is frozen at render time, so if the user completed
-  // the Builder CLI-auth flow in another tab (or a popup that downgraded to
-  // a full-page nav), this is how we notice and flip the card to "connected".
-  useEffect(() => {
-    if (configured) return;
-    let cancelled = false;
-    const refresh = async () => {
-      try {
-        const origin = getCallbackOrigin() || window.location.origin;
-        const r = await fetch(`${origin}/_agent-native/builder/status`);
-        if (!r.ok) return;
-        const s = (await r.json()) as {
-          configured: boolean;
-          orgName?: string | null;
-        };
-        if (cancelled || !mountedRef.current) return;
-        if (s.configured) {
-          setConfigured(true);
-          setOrgName(s.orgName ?? null);
-          setConnecting(false);
-          if (pollRef.current) {
-            clearInterval(pollRef.current);
-            pollRef.current = null;
-          }
-        }
-      } catch {}
-    };
-    refresh();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [configured]);
-
-  const handleConnect = useCallback(async () => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    setConnecting(true);
-    setErr(null);
-    // Open the popup SYNCHRONOUSLY inside the click handler. Any await
-    // before window.open() lets the user-gesture token expire, which
-    // causes popup blockers to block entirely or fall back to same-tab
-    // navigation. The URL was generated server-side with the correct
-    // callback origin, so no re-fetch is needed.
-    try {
-      const popup = window.open(
-        initialConnectUrl,
-        "_blank",
-        "noopener,noreferrer",
-      );
-      // Some browsers return null with noopener — treat as "opened" since
-      // the navigation still happens. Only treat explicit popup-blocker
-      // errors as failures.
-      if (popup === null && !initialConnectUrl) {
-        throw new Error("Popup blocked — allow popups and retry.");
-      }
-      const origin = getCallbackOrigin() || window.location.origin;
-
-      const start = Date.now();
-      const timeoutMs = 5 * 60 * 1000;
-      const stop = () => {
-        if (pollRef.current) {
-          clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
-      };
-      pollRef.current = setInterval(async () => {
-        try {
-          const r = await fetch(`${origin}/_agent-native/builder/status`);
-          if (!r.ok) return;
-          const s = (await r.json()) as {
-            configured: boolean;
-            orgName?: string | null;
-          };
-          if (!mountedRef.current) {
-            stop();
-            return;
-          }
-          if (s.configured) {
-            stop();
-            setConfigured(true);
-            setOrgName(s.orgName ?? null);
-            setConnecting(false);
-          } else if (Date.now() - start > timeoutMs) {
-            stop();
-            setConnecting(false);
-            setErr("Timed out — try again.");
-          }
-        } catch {
-          // transient poll error — keep going
-        }
-      }, 2000);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Connect failed");
-      setConnecting(false);
-    }
-  }, [initialConnectUrl]);
+  // Combine connect-flow errors and send errors into one surface.
+  const err = sendErr ?? flow.error;
 
   const canSend = configured && prompt.trim().length > 0;
 
@@ -297,7 +196,7 @@ export function ConnectBuilderCard({
             ) : !configured ? (
               <button
                 type="button"
-                onClick={handleConnect}
+                onClick={flow.start}
                 disabled={connecting}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
