@@ -1462,17 +1462,18 @@ function ThreadMessageSkeleton({ compact = false }: { compact?: boolean }) {
 }
 
 function BodySkeleton() {
+  const bar = "animate-pulse rounded-md bg-muted-foreground/10 h-3";
   return (
     <div className="space-y-2 pt-1">
-      <Skeleton className="h-3 w-full" />
-      <Skeleton className="h-3 w-[95%]" />
-      <Skeleton className="h-3 w-full" />
-      <Skeleton className="h-3 w-[88%]" />
-      <Skeleton className="h-3 w-[72%]" />
+      <div className={cn(bar, "w-full")} />
+      <div className={cn(bar, "w-[95%]")} />
+      <div className={cn(bar, "w-full")} />
+      <div className={cn(bar, "w-[88%]")} />
+      <div className={cn(bar, "w-[72%]")} />
       <div className="pt-1" />
-      <Skeleton className="h-3 w-full" />
-      <Skeleton className="h-3 w-[90%]" />
-      <Skeleton className="h-3 w-[60%]" />
+      <div className={cn(bar, "w-full")} />
+      <div className={cn(bar, "w-[90%]")} />
+      <div className={cn(bar, "w-[60%]")} />
     </div>
   );
 }
