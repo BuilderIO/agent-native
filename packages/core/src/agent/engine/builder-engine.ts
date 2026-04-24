@@ -120,9 +120,16 @@ class BuilderEngine implements AgentEngine {
         : {}),
     };
 
+    const gatewayBaseUrl = getBuilderGatewayBaseUrl();
+    const orgLabel = process.env.BUILDER_ORG_NAME || "unknown-org";
+    const tStart = Date.now();
+    console.log(
+      `[builder-engine] → POST ${gatewayBaseUrl}/messages model=${opts.model} tools=${tools.length} org=${orgLabel}`,
+    );
+
     let response: Response;
     try {
-      response = await fetch(`${getBuilderGatewayBaseUrl()}/messages`, {
+      response = await fetch(`${gatewayBaseUrl}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -139,6 +146,10 @@ class BuilderEngine implements AgentEngine {
       };
       return;
     }
+
+    console.log(
+      `[builder-engine] ← ${response.status} ${response.statusText} in ${Date.now() - tStart}ms`,
+    );
 
     if (!response.ok) {
       yield* emitHttpError(response);
