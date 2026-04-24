@@ -3,6 +3,8 @@ export {
   type ObservabilityDashboardProps,
 } from "./ObservabilityDashboard.js";
 
+export { ThumbsFeedback } from "./ThumbsFeedback.js";
+
 export {
   useObservabilityOverview,
   useTraces,

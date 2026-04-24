@@ -66,6 +66,12 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 
+const ThumbsFeedbackLazy = React.lazy(() =>
+  import("./observability/ThumbsFeedback.js").then((m) => ({
+    default: m.ThumbsFeedback,
+  })),
+);
+
 // ─── Markdown Text ──────────────────────────────────────────────────────────
 
 const markdownStyles = `
@@ -970,6 +976,17 @@ function AssistantMessage() {
               <IconCopy className="h-3 w-3" />
             )}
           </button>
+          <React.Suspense fallback={null}>
+            <ThumbsFeedbackLazy
+              threadId={cpCtx?.threadId ?? ""}
+              runId={
+                ((messageRuntime.getState().metadata as any)?.runId as
+                  | string
+                  | undefined) ?? ""
+              }
+              messageSeq={thread.messages.indexOf(msg)}
+            />
+          </React.Suspense>
           {showRestore && restoreState === "idle" && (
             <button
               onClick={handleRestore}

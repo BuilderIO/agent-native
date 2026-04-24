@@ -67,7 +67,7 @@ function parseSince(q: Record<string, any>): number {
   const raw = q.since;
   if (typeof raw === "string" && raw.length > 0) {
     const n = Number(raw);
-    if (!isNaN(n) && n > 0) return n;
+    if (!isNaN(n) && n >= 0) return n;
   }
   return Date.now() - 7 * 86_400_000;
 }
@@ -153,7 +153,13 @@ export function createObservabilityHandler() {
 
     // POST /feedback — submit feedback
     if (method === "POST" && parts.length === 1 && parts[0] === "feedback") {
-      const body = await readBody(event);
+      let body: any;
+      try {
+        body = await readBody(event);
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid JSON body" };
+      }
       const feedbackType = body?.feedbackType as FeedbackType | undefined;
       if (
         !feedbackType ||
@@ -162,14 +168,22 @@ export function createObservabilityHandler() {
         setResponseStatus(event, 400);
         return { error: "feedbackType is required" };
       }
+      const rawValue = body.value;
+      const value =
+        rawValue == null
+          ? ""
+          : typeof rawValue === "object"
+            ? JSON.stringify(rawValue)
+            : String(rawValue);
       const id = nanoid();
       await insertFeedback({
         id,
-        runId: body.runId ?? null,
-        threadId: body.threadId ?? null,
-        messageSeq: body.messageSeq ?? null,
+        runId: body.runId ? String(body.runId) : null,
+        threadId: body.threadId ? String(body.threadId) : null,
+        messageSeq:
+          typeof body.messageSeq === "number" ? body.messageSeq : null,
         feedbackType,
-        value: String(body.value ?? ""),
+        value,
         userId: owner,
         createdAt: Date.now(),
       });
@@ -204,19 +218,30 @@ export function createObservabilityHandler() {
 
     // POST /experiments — create experiment
     if (method === "POST" && parts.length === 1 && parts[0] === "experiments") {
-      const body = await readBody(event);
+      let body: any;
+      try {
+        body = await readBody(event);
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid JSON body" };
+      }
       if (!body?.name) {
         setResponseStatus(event, 400);
         return { error: "name is required" };
       }
+      if (body.variants !== undefined && !Array.isArray(body.variants)) {
+        setResponseStatus(event, 400);
+        return { error: "variants must be an array" };
+      }
       const id = nanoid();
       await insertExperiment({
         id,
-        name: body.name,
+        name: String(body.name),
         status: "draft",
-        variants: body.variants ?? [],
-        metrics: body.metrics ?? [],
-        assignmentLevel: body.assignmentLevel ?? "user",
+        variants: Array.isArray(body.variants) ? body.variants : [],
+        metrics: Array.isArray(body.metrics) ? body.metrics : [],
+        assignmentLevel:
+          body.assignmentLevel === "session" ? "session" : "user",
         startedAt: null,
         endedAt: null,
         createdAt: Date.now(),
@@ -242,10 +267,21 @@ export function createObservabilityHandler() {
     // PUT /experiments/:id — update experiment
     if (method === "PUT" && parts.length === 2 && parts[0] === "experiments") {
       const id = decodeURIComponent(parts[1]);
-      const body = await readBody(event);
+      const existing = await getExperiment(id);
+      if (!existing) {
+        setResponseStatus(event, 404);
+        return { error: "Experiment not found" };
+      }
+      let body: any;
+      try {
+        body = await readBody(event);
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid JSON body" };
+      }
       const updates: Record<string, any> = {};
-      if (body.name !== undefined) updates.name = body.name;
-      if (body.status !== undefined) {
+      if (typeof body.name === "string") updates.name = body.name;
+      if (typeof body.status === "string") {
         const s = body.status as ExperimentStatus;
         if (!["draft", "running", "paused", "completed"].includes(s)) {
           setResponseStatus(event, 400);
@@ -254,8 +290,8 @@ export function createObservabilityHandler() {
         updates.status = s;
         if (s === "completed") updates.endedAt = Date.now();
       }
-      if (body.variants !== undefined) updates.variants = body.variants;
-      if (body.metrics !== undefined) updates.metrics = body.metrics;
+      if (Array.isArray(body.variants)) updates.variants = body.variants;
+      if (Array.isArray(body.metrics)) updates.metrics = body.metrics;
       await updateExperiment(id, updates);
       return { ok: true };
     }
