@@ -80,6 +80,61 @@ jobs:
       - name: Build all packages
         run: pnpm build
 
+  scaffold-e2e:
+    name: Scaffold E2E — create + pnpm install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - name: Scaffold standalone app (starter) and verify pnpm install
+        run: |
+          cd "$(mktemp -d)"
+          node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" create test-standalone --template starter
+          cd test-standalone
+          # Fail fast if any workspace: or catalog: refs leaked
+          if grep -r '"workspace:' package.json; then
+            echo "::error::workspace:* ref found in standalone scaffold"
+            exit 1
+          fi
+          if grep -r '"catalog:' package.json; then
+            echo "::error::catalog: ref found in standalone scaffold"
+            exit 1
+          fi
+          pnpm install
+
+      - name: Scaffold workspace (starter + calendar) and verify pnpm install
+        run: |
+          cd "$(mktemp -d)"
+          node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" create test-workspace --template starter,calendar
+          cd test-workspace
+          # Required package must be scaffolded
+          if [ ! -d "packages/scheduling" ]; then
+            echo "::error::packages/scheduling not scaffolded for calendar template"
+            exit 1
+          fi
+          # Root must have postinstall for required packages
+          if ! grep -q 'postinstall' package.json; then
+            echo "::error::postinstall script missing for required packages"
+            exit 1
+          fi
+          # No workspace:* on @agent-native/core in any package.json
+          if grep -r '"@agent-native/core": "workspace:' apps/ packages/; then
+            echo "::error::@agent-native/core still has workspace:* in scaffold"
+            exit 1
+          fi
+          pnpm install
+
   guard-no-drizzle-push:
     name: Guard — no drizzle-kit push in build paths
     runs-on: ubuntu-latest
