@@ -42,12 +42,21 @@ export function useBuilderStatus() {
     function onFocus() {
       fetchStatus();
     }
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("visibilitychange", () => {
+    function onVisibility() {
       if (document.visibilityState === "visible") fetchStatus();
-    });
+    }
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    // Engine connect/disconnect actions (e.g. the Builder disconnect button)
+    // dispatch this event so dependent cards refresh without a full reload.
+    window.addEventListener("agent-engine:configured-changed", fetchStatus);
     return () => {
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        fetchStatus,
+      );
     };
   }, [fetchStatus]);
 
