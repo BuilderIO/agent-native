@@ -1193,6 +1193,10 @@ export interface AgentChatPluginOptions {
    * Return `null` or an empty string to skip. The string you return is
    * appended verbatim, so wrap it in your own XML tags (e.g.
    * `<data-dictionary>…</data-dictionary>`) to keep the prompt scannable.
+   *
+   * Called on every request in every prompt variant (lean, lazy, full).
+   * Templates that want to suppress it in a particular mode should return
+   * `null` from the callback based on their own logic.
    */
   extraContext?: (
     event: any,
@@ -2927,17 +2931,29 @@ export function createAgentChatPlugin(
       // DB round-trips and tokens that minimal/voice apps don't need.
       const leanBasePrompt = (options?.systemPrompt ?? "") + prodActionsPrompt;
 
+      // Per-request preamble shared by both prod and dev handlers. Resolves
+      // owner + user API key (stashed on the closure so downstream tools can
+      // reach them) and the template-authored `extraContext`. `extraContext`
+      // runs in every prompt variant (lean, lazy, full) — if a template
+      // defined it, they opted in; framework-provided content is what the
+      // token-saving modes strip.
+      const prepareRun = async (event: any) => {
+        _currentRequestOrigin = getOrigin(event);
+        const owner = await getOwnerFromEvent(event);
+        _currentRunOwner = owner;
+        const { getOwnerActiveApiKey } =
+          await import("../agent/production-agent.js");
+        _currentRunUserApiKey = await getOwnerActiveApiKey(owner);
+        const extra = await resolveExtraContext(event, owner);
+        return { owner, extra };
+      };
+
       const prodHandler = createProductionAgentHandler({
         actions: prodActions,
         systemPrompt: async (event: any) => {
-          _currentRequestOrigin = getOrigin(event);
-          const owner = await getOwnerFromEvent(event);
-          _currentRunOwner = owner;
-          const { getOwnerActiveApiKey } =
-            await import("../agent/production-agent.js");
-          _currentRunUserApiKey = await getOwnerActiveApiKey(owner);
+          const { owner, extra } = await prepareRun(event);
           if (leanPrompt) {
-            _currentRunSystemPrompt = leanBasePrompt;
+            _currentRunSystemPrompt = leanBasePrompt + extra;
             return _currentRunSystemPrompt;
           }
           const resources = await loadResourcesForPrompt(owner, lazyContext);
@@ -2946,9 +2962,6 @@ export function createAgentChatPlugin(
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, false);
-          const extra = lazyContext
-            ? ""
-            : await resolveExtraContext(event, owner);
           _currentRunSystemPrompt =
             basePrompt + resources + schemaBlock + extra;
           return _currentRunSystemPrompt;
@@ -3022,23 +3035,15 @@ export function createAgentChatPlugin(
         devHandler = createProductionAgentHandler({
           actions: devActions,
           systemPrompt: async (event: any) => {
-            _currentRequestOrigin = getOrigin(event);
-            const owner = await getOwnerFromEvent(event);
-            _currentRunOwner = owner;
-            const { getOwnerActiveApiKey } =
-              await import("../agent/production-agent.js");
-            _currentRunUserApiKey = await getOwnerActiveApiKey(owner);
+            const { owner, extra } = await prepareRun(event);
             if (leanPrompt) {
-              _currentRunSystemPrompt = leanBasePrompt;
+              _currentRunSystemPrompt = leanBasePrompt + extra;
               return _currentRunSystemPrompt;
             }
             const resources = await loadResourcesForPrompt(owner, lazyContext);
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(owner, true);
-            const extra = lazyContext
-              ? ""
-              : await resolveExtraContext(event, owner);
             _currentRunSystemPrompt =
               devPrompt + resources + schemaBlock + extra;
             return _currentRunSystemPrompt;
