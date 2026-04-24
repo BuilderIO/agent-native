@@ -17,8 +17,23 @@ async function apiFetch(path: string, init?: RequestInit) {
     },
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(body || res.statusText);
+    // Prefer a JSON `error` / `message` field when the server returns one,
+    // and only fall back to the raw body for plaintext responses. Avoids
+    // surfacing `{"error":"..."}` as the user-visible message.
+    const text = await res.text().catch(() => "");
+    let message: string = res.statusText;
+    if (text) {
+      try {
+        const parsed = JSON.parse(text) as {
+          error?: string;
+          message?: string;
+        };
+        message = parsed.error ?? parsed.message ?? text;
+      } catch {
+        message = text;
+      }
+    }
+    throw new Error(message);
   }
   return res.json();
 }
@@ -47,6 +62,12 @@ export function useOrgInvitations() {
   });
 }
 
+// NOTE: the onSuccess handlers below `await` invalidateQueries so that
+// `mutation.isPending` stays true until the refetch completes. Without the
+// await, isPending flips false the instant the HTTP response lands, opening
+// a window where a submit button can re-enable, the user can fire another
+// mutation, and two mutations race to overwrite active-org-id last.
+
 export function useCreateOrg() {
   const qc = useQueryClient();
   return useMutation({
@@ -55,9 +76,11 @@ export function useCreateOrg() {
         method: "POST",
         body: JSON.stringify({ name }),
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["org-me"] });
-      qc.invalidateQueries({ queryKey: ["org-members"] });
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["org-me"] }),
+        qc.invalidateQueries({ queryKey: ["org-members"] }),
+      ]);
     },
   });
 }
@@ -70,9 +93,11 @@ export function useInviteMember() {
         method: "POST",
         body: JSON.stringify({ email }),
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["org-members"] });
-      qc.invalidateQueries({ queryKey: ["org-invitations"] });
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["org-members"] }),
+        qc.invalidateQueries({ queryKey: ["org-invitations"] }),
+      ]);
     },
   });
 }
@@ -84,9 +109,9 @@ export function useAcceptInvitation() {
       apiFetch(`${ORG_BASE}/invitations/${invitationId}/accept`, {
         method: "POST",
       }),
-    onSuccess: () => {
+    onSuccess: async () => {
       // Joining/switching orgs changes all org-scoped data — clear caches.
-      qc.invalidateQueries();
+      await qc.invalidateQueries();
     },
   });
 }
@@ -98,8 +123,8 @@ export function useRemoveMember() {
       apiFetch(`${ORG_BASE}/members/${encodeURIComponent(email)}`, {
         method: "DELETE",
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["org-members"] });
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-members"] });
     },
   });
 }
@@ -112,9 +137,9 @@ export function useSwitchOrg() {
         method: "PUT",
         body: JSON.stringify({ orgId }),
       }),
-    onSuccess: () => {
+    onSuccess: async () => {
       // Switching org changes everything scoped to AGENT_ORG_ID.
-      qc.invalidateQueries();
+      await qc.invalidateQueries();
     },
   });
 }

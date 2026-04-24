@@ -35,6 +35,8 @@ Better Auth's organization plugin is built in. Every app supports creating orgs,
 
 The active org flows automatically: `session.orgId` → `AGENT_ORG_ID` → SQL scoping (see `security` skill).
 
+**If your template requires an org to function** (data is scoped by `organization_id`, core features can't run without one), wrap your app shell in `<RequireActiveOrg>` from `@agent-native/core/client/org`. It blocks the wrapped area with a "Create your organization" pane (and accept-invite CTAs for pending invitations) until the user has an active org. Place it **inside** the agent sidebar so the setup checklist, chat, and CLI stay usable while the user completes org setup — do not auto-create orgs on signup, org creation is always an explicit user action.
+
 ## A2A Identity
 
 Set `A2A_SECRET` (same value) on all apps that must verify each other's identity.

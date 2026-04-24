@@ -17,6 +17,10 @@ export {
   type InvitationBannerProps,
 } from "./InvitationBanner.js";
 export { TeamPage, type TeamPageProps } from "./TeamPage.js";
+export {
+  RequireActiveOrg,
+  type RequireActiveOrgProps,
+} from "./RequireActiveOrg.js";
 
 // Re-export the shared types so consumers can import them from one place.
 export type {

@@ -31,6 +31,16 @@ export const builderFileUploadProvider: FileUploadProvider = {
     const url = new URL("/api/v1/upload", builderUploadHost());
     if (filename) url.searchParams.set("name", filename);
 
+    // Strip any media-type parameters (e.g. `;codecs=avc1,opus` from
+    // MediaRecorder blobs) — Builder's upload API parses the body as raw
+    // binary only when Content-Type is a bare MIME type. A parameterized
+    // Content-Type falls through to the multipart/base64 paths which look
+    // for an `image` field, and returns "No image specified" when it
+    // doesn't find one.
+    const bareMimeType = (mimeType || "application/octet-stream")
+      .split(";")[0]
+      .trim();
+
     const buffer =
       data instanceof Uint8Array ? data : new Uint8Array(data as any);
     const bytes = new Uint8Array(
@@ -40,16 +50,14 @@ export const builderFileUploadProvider: FileUploadProvider = {
     );
     const body =
       typeof Blob !== "undefined"
-        ? new Blob([bytes], {
-            type: mimeType || "application/octet-stream",
-          })
+        ? new Blob([bytes], { type: bareMimeType })
         : (bytes as unknown as BodyInit);
 
     const response = await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${privateKey}`,
-        "Content-Type": mimeType || "application/octet-stream",
+        "Content-Type": bareMimeType,
       },
       body,
     });
