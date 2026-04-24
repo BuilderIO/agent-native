@@ -30,6 +30,14 @@ const MAX_BUFFER = 200;
 let _version = 0;
 const _buffer: ChangeEvent[] = [];
 
+/**
+ * Whether we've seeded _version from the DB. In serverless (Netlify,
+ * Vercel, etc.) each invocation starts fresh — without seeding, _version
+ * resets to 0 and polling clients see the version jump backwards, causing
+ * duplicate events and stuck UI.
+ */
+let _versionSeeded = false;
+
 /** Tracks the latest updated_at we've seen from the DB, per table. */
 let _lastDbCheck = 0;
 let _lastAppStateTs = 0;
@@ -61,7 +69,10 @@ export function recordChange(event: {
   key?: string;
   [k: string]: unknown;
 }): void {
-  _version++;
+  // Use timestamp-aligned versions so all serverless instances produce
+  // values in the same range (seeded from DB, then incremented via
+  // Date.now). Plain ++counter diverges across cold starts.
+  _version = Math.max(_version + 1, Date.now());
   const entry: ChangeEvent = { ...event, version: _version };
   _buffer.push(entry);
   if (_buffer.length > MAX_BUFFER) {
@@ -79,6 +90,43 @@ export function getChangesSince(since: number): {
   }
   const events = _buffer.filter((e) => e.version > since);
   return { version: _version, events };
+}
+
+/**
+ * Seed _version from DB timestamps on the first call so serverless
+ * cold starts don't return version 0 and confuse polling clients.
+ */
+async function seedVersionFromDb(): Promise<void> {
+  if (_versionSeeded) return;
+  _versionSeeded = true;
+
+  try {
+    const db = getDbExec();
+
+    const [appResult, settingsResult, refreshResult] = await Promise.all([
+      db.execute("SELECT MAX(updated_at) as max_ts FROM application_state"),
+      db.execute("SELECT MAX(updated_at) as max_ts FROM settings"),
+      db.execute({
+        sql: "SELECT updated_at FROM application_state WHERE key = ?",
+        args: [SCREEN_REFRESH_KEY],
+      }),
+    ]);
+
+    const appTs = Number(appResult.rows[0]?.max_ts) || 0;
+    const settingsTs = Number(settingsResult.rows[0]?.max_ts) || 0;
+    const refreshTs = Number(refreshResult.rows[0]?.updated_at) || 0;
+
+    // Seed version — never decrease an already-set value
+    _version = Math.max(_version, appTs, settingsTs);
+
+    // Set baselines so checkExternalDbChanges detects future writes
+    _lastAppStateTs = appTs;
+    _lastSettingsTs = settingsTs;
+    _lastScreenRefreshTs = refreshTs;
+    _screenRefreshInitialized = true;
+  } catch {
+    // Tables may not exist yet — ignore
+  }
 }
 
 /**
@@ -100,7 +148,6 @@ async function checkExternalDbChanges(): Promise<void> {
     const appTs = Number(appResult.rows[0]?.max_ts) || 0;
     if (appTs > _lastAppStateTs) {
       if (_lastAppStateTs > 0) {
-        // There was an external write — emit a generic app-state change event
         recordChange({ source: "app-state", type: "change", key: "*" });
       }
       _lastAppStateTs = appTs;
@@ -116,9 +163,6 @@ async function checkExternalDbChanges(): Promise<void> {
     });
     const refreshTs = Number(refreshResult.rows[0]?.updated_at) || 0;
     if (!_screenRefreshInitialized) {
-      // First poll — take a baseline so we don't emit for the existing row
-      // (if any). Subsequent increases will emit normally, including the
-      // very next `refresh-screen` call made by the agent.
       _lastScreenRefreshTs = refreshTs;
       _screenRefreshInitialized = true;
     } else if (refreshTs > _lastScreenRefreshTs) {
@@ -162,6 +206,8 @@ async function checkExternalDbChanges(): Promise<void> {
  */
 export function createPollHandler() {
   return defineEventHandler(async (event) => {
+    // On cold start, seed _version from DB so we don't return version: 0
+    await seedVersionFromDb();
     // Check for cross-process writes before responding
     await checkExternalDbChanges();
 

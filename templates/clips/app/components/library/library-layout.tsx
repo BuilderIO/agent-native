@@ -273,7 +273,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 </Button>
               </div>
             )}
-            <main className="flex flex-1 flex-col min-h-0 overflow-hidden">
+            <main className="flex flex-1 flex-col min-h-0 overflow-y-auto">
               {children}
             </main>
           </div>

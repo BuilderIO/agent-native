@@ -46,7 +46,15 @@ import {
   writeDesktopSso,
   clearDesktopSso,
 } from "./desktop-sso.js";
-import { isElectron as isElectronRequest } from "./google-oauth.js";
+import {
+  isElectron as isElectronRequest,
+  getOrigin,
+  encodeOAuthState,
+  decodeOAuthState,
+  createOAuthSession,
+  oauthCallbackResponse,
+  oauthErrorPage,
+} from "./google-oauth.js";
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -943,7 +951,9 @@ async function mountBetterAuthRoutes(
     if (!publicPaths.includes(pp)) publicPaths.push(pp);
   }
 
-  // Auto-add Google OAuth routes when credentials are configured
+  // Auto-add Google OAuth routes when credentials are configured.
+  // Templates can override by defining their own Nitro routes at the same
+  // paths (e.g. mail/calendar need broader scopes for API access).
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     for (const gp of [
       "/_agent-native/google/callback",
@@ -951,6 +961,105 @@ async function mountBetterAuthRoutes(
     ]) {
       if (!publicPaths.includes(gp)) publicPaths.push(gp);
     }
+
+    const googleScopes = [
+      "openid",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile",
+    ].join(" ");
+
+    app.use(
+      "/_agent-native/google/auth-url",
+      defineEventHandler((event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const redirectUri =
+          (getQuery(event).redirect_uri as string) ||
+          `${getOrigin(event)}/_agent-native/google/callback`;
+        const desktop = isElectronRequest(event);
+        const state = encodeOAuthState(redirectUri, undefined, desktop, false);
+        const params = new URLSearchParams({
+          client_id: process.env.GOOGLE_CLIENT_ID!,
+          redirect_uri: redirectUri,
+          response_type: "code",
+          scope: googleScopes,
+          access_type: "online",
+          prompt: "select_account",
+          state,
+        });
+        return {
+          url: `https://accounts.google.com/o/oauth2/v2/auth?${params}`,
+        };
+      }),
+    );
+
+    app.use(
+      "/_agent-native/google/callback",
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        try {
+          const query = getQuery(event);
+          const code = query.code as string;
+          if (!code) {
+            setResponseStatus(event, 400);
+            return { error: "Missing authorization code" };
+          }
+
+          const { redirectUri, desktop } = decodeOAuthState(
+            query.state as string | undefined,
+            `${getOrigin(event)}/_agent-native/google/callback`,
+          );
+
+          const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+              code,
+              client_id: process.env.GOOGLE_CLIENT_ID!,
+              client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+              redirect_uri: redirectUri,
+              grant_type: "authorization_code",
+            }),
+          });
+          const tokens = await tokenRes.json();
+          if (!tokenRes.ok) {
+            throw new Error(
+              tokens.error_description ||
+                tokens.error ||
+                "Token exchange failed",
+            );
+          }
+
+          const userRes = await fetch(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            { headers: { Authorization: `Bearer ${tokens.access_token}` } },
+          );
+          const user = await userRes.json();
+          const email = user.email as string;
+          if (!email) throw new Error("Could not get email from Google");
+
+          const { sessionToken } = await createOAuthSession(event, email, {
+            hasProductionSession: false,
+            desktop,
+          });
+
+          return oauthCallbackResponse(event, email, {
+            sessionToken,
+            desktop,
+          });
+        } catch (error: any) {
+          const msg = error.message || "Unknown error";
+          return oauthErrorPage(`Connection failed: ${msg}`);
+        }
+      }),
+    );
   }
 
   const accessTokens = getAccessTokens();
@@ -962,15 +1071,35 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/ba",
     defineEventHandler(async (event) => {
+      const reqPath = event.url?.pathname ?? event.path ?? "";
+      const isResetPassword =
+        reqPath.includes("reset-password") && getMethod(event) === "POST";
+
+      // Pre-read the body for reset-password so we can extract the
+      // token after Better Auth consumes the stream.
+      let resetToken: string | undefined;
+      if (isResetPassword) {
+        try {
+          const body = await readBody(event);
+          resetToken = body?.token;
+        } catch {
+          // ignore — Better Auth will handle validation
+        }
+      }
+
       const response = await auth.handler(toWebRequest(event));
+      const isResponse =
+        response != null &&
+        typeof (response as any).status === "number" &&
+        typeof (response as any).headers?.get === "function";
+
       // After email verification, add ?verified to the redirect so the
       // login page can show a "Email verified!" success message.
-      const reqPath = event.url?.pathname ?? event.path ?? "";
       if (
         reqPath.includes("verify-email") &&
-        response instanceof Response &&
-        response.status >= 300 &&
-        response.status < 400
+        isResponse &&
+        (response as Response).status >= 300 &&
+        (response as Response).status < 400
       ) {
         const loc = response.headers.get("location");
         if (loc && !/[?&]verified=/.test(loc)) {
@@ -983,6 +1112,39 @@ async function mountBetterAuthRoutes(
           return newResponse;
         }
       }
+
+      // Auto-verify email after a successful password reset. The user
+      // proved email ownership by receiving and using the reset link.
+      if (
+        isResetPassword &&
+        resetToken &&
+        isResponse &&
+        (response as Response).status >= 200 &&
+        (response as Response).status < 300
+      ) {
+        try {
+          const { getDbExec } = await import("../db/client.js");
+          const db = getDbExec();
+          // Better Auth stores the reset token in its `verification`
+          // table with the user's identifier. Look up the user via the
+          // token and mark their email as verified — they proved
+          // ownership by receiving and using the email-delivered link.
+          const rows = await db.execute({
+            sql: "SELECT identifier FROM verification WHERE value = ?",
+            args: [resetToken],
+          });
+          const email = rows.rows[0]?.identifier as string | undefined;
+          if (email) {
+            await db.execute({
+              sql: "UPDATE user SET email_verified = 1 WHERE email = ? AND (email_verified = 0 OR email_verified IS NULL)",
+              args: [email],
+            });
+          }
+        } catch {
+          // Best-effort — don't block the response
+        }
+      }
+
       return response;
     }),
   );

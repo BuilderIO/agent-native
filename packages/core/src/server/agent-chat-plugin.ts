@@ -2340,6 +2340,7 @@ export function createAgentChatPlugin(
         ? {
             ...resourceScripts,
             ...docsScripts,
+            ...(lazyContext ? frameworkContextTool : {}),
             ...chatScripts,
             ...callAgentScript,
             ...automationTools,
@@ -2356,6 +2357,7 @@ export function createAgentChatPlugin(
             ...docsScripts,
             ...dbScripts,
             ...refreshScreenTool,
+            ...(lazyContext ? frameworkContextTool : {}),
             ...urlTools,
             ...chatScripts,
             ...callAgentScript,
@@ -2471,6 +2473,7 @@ export function createAgentChatPlugin(
             ? {
                 ...resourceScripts,
                 ...docsScripts,
+                ...(lazyContext ? frameworkContextTool : {}),
                 ...chatScripts,
                 ...browserTools,
                 ...devScriptsForA2A,
@@ -2481,6 +2484,7 @@ export function createAgentChatPlugin(
                 ...docsScripts,
                 ...dbScripts,
                 ...refreshScreenTool,
+                ...(lazyContext ? frameworkContextTool : {}),
                 ...urlTools,
                 ...chatScripts,
                 ...browserTools,
@@ -2605,6 +2609,7 @@ export function createAgentChatPlugin(
             ? {
                 ...resourceScripts,
                 ...docsScripts,
+                ...(lazyContext ? frameworkContextTool : {}),
                 ...chatScripts,
                 ...devScriptsForA2A,
               }
@@ -2614,6 +2619,7 @@ export function createAgentChatPlugin(
                 ...docsScripts,
                 ...dbScripts,
                 ...refreshScreenTool,
+                ...(lazyContext ? frameworkContextTool : {}),
                 ...urlTools,
                 ...chatScripts,
               };
@@ -2627,8 +2633,21 @@ export function createAgentChatPlugin(
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock("local@localhost", devActiveMcp);
+          // Build the MCP handler's own prompt — always use the shell-based
+          // dev prompt in dev mode because mcpActions routes template actions
+          // through shell (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
+          const mcpDevPrompt =
+            (options?.devSystemPrompt
+              ? options.devSystemPrompt +
+                (options?.systemPrompt ??
+                  (lazyContext
+                    ? PROD_FRAMEWORK_PROMPT_COMPACT
+                    : PROD_FRAMEWORK_PROMPT))
+              : lazyContext
+                ? DEV_FRAMEWORK_PROMPT_COMPACT
+                : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
           const systemPrompt = devActiveMcp
-            ? devPrompt + resources + schemaBlock
+            ? mcpDevPrompt + resources + schemaBlock
             : basePrompt + resources + schemaBlock;
 
           let accumulatedText = "";
@@ -2953,8 +2972,8 @@ export function createAgentChatPlugin(
       };
 
       // Lean mode: use only the template's systemPrompt + actions list.
-      // Skip resource loading, schema block, and extraContext — those add
-      // DB round-trips and tokens that minimal/voice apps don't need.
+      // Skip resource loading and schema block — those add DB round-trips
+      // and tokens that minimal/voice apps don't need.
       const leanBasePrompt = (options?.systemPrompt ?? "") + prodActionsPrompt;
 
       // Per-request preamble shared by both prod and dev handlers. Resolves
@@ -4133,6 +4152,7 @@ export function createAgentChatPlugin(
             ...templateScripts,
             ...resourceScripts,
             ...docsScripts,
+            ...(lazyContext ? frameworkContextTool : {}),
             ...chatScripts,
             ...jobTools,
             ...automationTools,
@@ -4174,6 +4194,7 @@ export function createAgentChatPlugin(
             ...templateScripts,
             ...resourceScripts,
             ...docsScripts,
+            ...(lazyContext ? frameworkContextTool : {}),
             ...chatScripts,
             ...jobTools,
             ...automationTools,
