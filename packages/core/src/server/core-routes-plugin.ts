@@ -441,19 +441,17 @@ export function createCoreRoutesPlugin(
           "BUILDER_ORG_KIND",
         ];
 
-        // Order matters: set the disconnect flag + clear the DB row FIRST,
-        // process.env second, and .env last. The `.env` write triggers
-        // nitro's file watcher which restarts the env runner; in nitro's
-        // dev env-runner (node-worker), `process.env` persists across
-        // reloads within the same worker, so deleting BUILDER_* here can
-        // bleed back after the restart. The `builder-disconnected` flag
-        // is the authoritative source of truth — the plugin init scrubs
-        // BUILDER_* from process.env as long as the flag is set, and the
-        // cli-auth callback clears the flag when the user reconnects.
+        // We intentionally do NOT rewrite the `.env` file on disconnect.
+        // A `.env` write triggers nitro's file watcher → env-runner
+        // restart, which tears down in-flight SSE / HMR connections and
+        // surfaces as `read ECONNRESET` in the vite overlay. The
+        // authoritative disconnect signal is the SQL `builder-disconnected`
+        // flag (checked in plugin init, the status endpoint, and the
+        // Builder engine before any gateway call). `.env` keys, if any
+        // survive, are neutered by the flag-driven scrub in plugin init.
 
-        // 1. Write the disconnect flag. This is load-bearing — even if
-        // process.env clearing below fails to stick, the flag ensures
-        // the next init scrubs BUILDER_* correctly.
+        // 1. Write the disconnect flag. This is load-bearing — it's what
+        // every subsequent check consults.
         let dbErr: Error | null = null;
         try {
           await putSetting("builder-disconnected", { at: Date.now() });
@@ -478,55 +476,22 @@ export function createCoreRoutesPlugin(
           if (!dbErr) dbErr = err instanceof Error ? err : new Error(String(err));
         }
 
-        // 2. Clear in-process env vars so the current server immediately
-        // stops routing through Builder for any in-flight-after-this
-        // turn.
+        // 3. Clear in-process env vars so the current worker stops routing
+        // through Builder immediately. Nitro's env-runner may re-populate
+        // these across a module reload, but by then the `builder-disconnected`
+        // flag will be enforced at the plugin-init scrub.
         for (const key of BUILDER_ENV_KEYS) {
           delete process.env[key];
         }
 
-        // 3. Strip Builder keys from the template `.env` file so they
-        // aren't re-loaded on the next cold start. This triggers nitro's
-        // watcher → env runner restart, which is why it runs last.
-        let envWriteErr: Error | null = null;
-        try {
-          const workspaceRoot = findWorkspaceRoot(process.cwd());
-          const envPath = workspaceRoot
-            ? path.join(workspaceRoot, ".env")
-            : path.join(process.cwd(), ".env");
-          const fs = await import("fs");
-          let content = "";
-          try {
-            content = fs.readFileSync(envPath, "utf-8");
-          } catch {
-            // No .env yet — nothing to filter.
-          }
-          if (content) {
-            const filtered = content.split("\n").filter((line) => {
-              const trimmed = line.trim();
-              if (!trimmed || trimmed.startsWith("#")) return true;
-              const eqIndex = trimmed.indexOf("=");
-              if (eqIndex === -1) return true;
-              const key = trimmed.slice(0, eqIndex).trim();
-              return !BUILDER_ENV_KEYS.includes(key);
-            });
-            let result = filtered.join("\n");
-            if (!result.endsWith("\n")) result += "\n";
-            fs.writeFileSync(envPath, result);
-          }
-        } catch (err) {
-          envWriteErr = err instanceof Error ? err : new Error(String(err));
-        }
-
         // Surface partial-failure info so the UI can tell the user when
-        // process.env was cleared but disk / DB cleanup failed. The UI
-        // still treats the response as success — in-memory routing is
+        // process.env was cleared but the DB write failed. The UI still
+        // treats the response as success — in-memory routing is
         // disconnected, which is the user-visible effect.
         return {
           ok: true,
           warnings: {
             ...(dbErr ? { db: dbErr.message } : {}),
-            ...(envWriteErr ? { envFile: envWriteErr.message } : {}),
           },
         };
       }),
