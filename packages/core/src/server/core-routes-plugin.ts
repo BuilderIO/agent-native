@@ -356,6 +356,93 @@ export function createCoreRoutesPlugin(
       }),
     );
 
+    // POST /_agent-native/builder/disconnect — revoke the stored Builder
+    // credentials so the next turn falls back to BYO / env detection. Mirrors
+    // the callback handler's three write locations: the template `.env` file,
+    // the in-process `process.env`, and the `persisted-env-vars` settings row
+    // (rehydrated on serverless cold starts). All three must be cleared to
+    // avoid a "still connected after disconnect" state on restart.
+    getH3App(nitroApp).use(
+      `${P}/builder/disconnect`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "unauthorized" };
+        }
+
+        const BUILDER_ENV_KEYS = [
+          "BUILDER_PRIVATE_KEY",
+          "BUILDER_PUBLIC_KEY",
+          "BUILDER_USER_ID",
+          "BUILDER_ORG_NAME",
+          "BUILDER_ORG_KIND",
+        ];
+
+        // 1. Strip Builder keys from the template's `.env` file. We filter
+        // lines out entirely instead of blanking values so a disconnect
+        // leaves the file as if Builder had never been connected.
+        try {
+          const workspaceRoot = findWorkspaceRoot(process.cwd());
+          const envPath = workspaceRoot
+            ? path.join(workspaceRoot, ".env")
+            : path.join(process.cwd(), ".env");
+          const fs = await import("fs");
+          let content = "";
+          try {
+            content = fs.readFileSync(envPath, "utf-8");
+          } catch {
+            // No .env yet — nothing to filter.
+          }
+          if (content) {
+            const filtered = content.split("\n").filter((line) => {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed.startsWith("#")) return true;
+              const eqIndex = trimmed.indexOf("=");
+              if (eqIndex === -1) return true;
+              const key = trimmed.slice(0, eqIndex).trim();
+              return !BUILDER_ENV_KEYS.includes(key);
+            });
+            let result = filtered.join("\n");
+            if (!result.endsWith("\n")) result += "\n";
+            fs.writeFileSync(envPath, result);
+          }
+        } catch {
+          // Edge runtime / read-only FS — fall through to in-memory + DB
+          // clearing so the session at least loses Builder routing.
+        }
+
+        // 2. Clear in-process env vars so the current server immediately
+        // stops routing through Builder.
+        for (const key of BUILDER_ENV_KEYS) {
+          delete process.env[key];
+        }
+
+        // 3. Scrub the settings row. Without this, a serverless cold start
+        // would rehydrate the keys from the DB and "un-disconnect" itself.
+        try {
+          const existing =
+            ((await getSetting("persisted-env-vars")) as Record<
+              string,
+              string
+            > | null) ?? {};
+          const cleaned: Record<string, string> = {};
+          for (const [k, v] of Object.entries(existing)) {
+            if (!BUILDER_ENV_KEYS.includes(k)) cleaned[k] = v;
+          }
+          await putSetting("persisted-env-vars", cleaned);
+        } catch {
+          // DB not ready — skip; process.env + .env are already cleared.
+        }
+
+        return { ok: true };
+      }),
+    );
+
     // Proxy to Builder's agents-run API for background code changes.
     getH3App(nitroApp).use(
       `${P}/builder/agents-run`,
