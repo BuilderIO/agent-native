@@ -2,6 +2,7 @@ import type { H3Event } from "h3";
 import { getSession } from "../server/auth.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import { getDbExec } from "../db/client.js";
+import { getSetting } from "../settings/store.js";
 import type { OrgContext, OrgRole } from "./types.js";
 
 const EMPTY_CONTEXT: OrgContext = {
@@ -118,10 +119,41 @@ function defaultOrgName(
 }
 
 /**
+ * Check whether the user has a pending invitation. If so, auto-create
+ * MUST be skipped — otherwise we'd provision a personal org for them
+ * before they ever see the inviter's org in the RequireActiveOrg
+ * accept-invite pane, and they'd never join the team that invited them.
+ */
+async function hasPendingInvitation(
+  exec: ReturnType<typeof getDbExec>,
+  email: string,
+): Promise<boolean> {
+  try {
+    const { rows } = await exec.execute({
+      sql: `SELECT 1 FROM org_invitations WHERE LOWER(email) = ? AND status = 'pending' LIMIT 1`,
+      args: [email.toLowerCase()],
+    });
+    return rows.length > 0;
+  } catch {
+    // If we can't tell, err on the side of NOT auto-creating — the
+    // RequireActiveOrg client guard will surface the situation.
+    return true;
+  }
+}
+
+/**
  * Attempt to provision a default org + owner membership for a user with
- * zero memberships. Re-queries before inserting to catch a concurrent
- * request that already created one, and returns the existing org in that
- * case. Returns null on any failure so the caller can fall back to the
+ * zero memberships.
+ *
+ * Race protection: claims the user's auto-create slot via an atomic
+ * INSERT into the framework `settings` table (PRIMARY KEY (key) — so
+ * concurrent inserts for the same key throw uniqueness violations on
+ * both SQLite and Postgres). Only the request that wins the claim
+ * proceeds to create the org; losers bail. By the time a losing
+ * request retries on a subsequent navigation, the winner's org is in
+ * `org_members` and the auto-create branch is skipped entirely.
+ *
+ * Returns null on any failure so the caller can fall back to the
  * empty-context / client-guard path.
  */
 async function tryCreateDefaultOrg(
@@ -129,25 +161,30 @@ async function tryCreateDefaultOrg(
   email: string,
   session: { name?: string } | null,
 ): Promise<OrgContext | null> {
-  try {
-    const existing = await exec.execute({
-      sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName"
-            FROM org_members m
-            INNER JOIN organizations o ON m.org_id = o.id
-            WHERE LOWER(m.email) = ?
-            LIMIT 1`,
-      args: [email.toLowerCase()],
-    });
-    if (existing.rows.length > 0) {
-      const r = existing.rows[0] as any;
-      return {
-        email,
-        orgId: String(r.orgId ?? r.org_id),
-        orgName: String(r.orgName ?? r.org_name),
-        role: String(r.role) as OrgRole,
-      };
-    }
+  // Skip auto-create if there's a pending invite — the user should join
+  // the inviter's org via the RequireActiveOrg accept-invite pane, not
+  // be silently dropped into a personal workspace they didn't ask for.
+  if (await hasPendingInvitation(exec, email)) return null;
 
+  // Make sure the framework `settings` table exists before we use it as
+  // a claim primitive. getSetting() ensures the table on first call.
+  await getSetting("__init").catch(() => null);
+
+  const claimKey = `u:${email.toLowerCase()}:auto-create-claim`;
+  try {
+    await exec.execute({
+      sql: `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
+      args: [claimKey, JSON.stringify({ at: Date.now() }), Date.now()],
+    });
+  } catch {
+    // INSERT failed → another request already claimed this user's
+    // auto-create slot. Bail; their request will create the org and a
+    // future getOrgContext call from this user will see non-empty
+    // memberships and skip the auto-create branch.
+    return null;
+  }
+
+  try {
     const orgId = nanoid();
     const orgName = defaultOrgName(email, session);
     const now = Date.now();
@@ -163,6 +200,14 @@ async function tryCreateDefaultOrg(
 
     return { email, orgId, orgName, role: "owner" };
   } catch {
+    // Org / member insert failed AFTER we won the claim. Drop the claim
+    // so a future request from this user can retry auto-create —
+    // otherwise the claim row would permanently block provisioning and
+    // the user would be stuck on RequireActiveOrg without any recovery
+    // path short of manual creation.
+    await exec
+      .execute({ sql: `DELETE FROM settings WHERE key = ?`, args: [claimKey] })
+      .catch(() => {});
     return null;
   }
 }
