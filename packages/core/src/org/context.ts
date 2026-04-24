@@ -1,6 +1,6 @@
 import type { H3Event } from "h3";
 import { getSession } from "../server/auth.js";
-import { getUserSetting } from "../settings/user-settings.js";
+import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
 import { getDbExec } from "../db/client.js";
 import type { OrgContext, OrgRole } from "./types.js";
 
@@ -160,6 +160,8 @@ async function tryCreateDefaultOrg(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), orgId, email, "owner", now],
     });
+
+    await putUserSetting(email, "active-org-id", { orgId });
 
     return { email, orgId, orgName, role: "owner" };
   } catch {

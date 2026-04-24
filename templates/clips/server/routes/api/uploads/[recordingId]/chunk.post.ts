@@ -42,8 +42,7 @@ function toBase64(bytes: Uint8Array): string {
 export default defineEventHandler(async (event: H3Event) => {
   const recordingId = getRouterParam(event, "recordingId");
   if (!recordingId) {
-    setResponseStatus(event, 400);
-    return { error: "Missing recordingId" };
+    throw createError({ statusCode: 400, message: "Missing recordingId" });
   }
 
   const query = getQuery(event);
@@ -70,8 +69,7 @@ export default defineEventHandler(async (event: H3Event) => {
   });
 
   if (!Number.isFinite(index) || index < 0) {
-    setResponseStatus(event, 400);
-    return { error: "Invalid chunk index" };
+    throw createError({ statusCode: 400, message: "Invalid chunk index" });
   }
 
   let ownerEmail: string;
@@ -79,8 +77,7 @@ export default defineEventHandler(async (event: H3Event) => {
     ownerEmail = await getEventOwnerEmail(event);
   } catch (err) {
     console.error("[chunk] getEventOwnerEmail threw:", err);
-    setResponseStatus(event, 401);
-    return { error: "Unauthorized" };
+    throw createError({ statusCode: 401, message: "Unauthorized" });
   }
   console.log("[chunk] resolved owner:", ownerEmail);
   const db = getDb();
@@ -105,8 +102,7 @@ export default defineEventHandler(async (event: H3Event) => {
       recordingId,
       ownerEmail,
     });
-    setResponseStatus(event, 404);
-    return { error: "Recording not found" };
+    throw createError({ statusCode: 404, message: "Recording not found" });
   }
 
   const raw = await readRawBody(event, false);
@@ -120,8 +116,7 @@ export default defineEventHandler(async (event: H3Event) => {
   // forever. For isFinal we just skip the chunk write and fall through to
   // the finalize branch below.
   if (!isFinal && bodySize === 0) {
-    setResponseStatus(event, 400);
-    return { error: "Empty chunk body" };
+    throw createError({ statusCode: 400, message: "Empty chunk body" });
   }
 
   // readRawBody(event, false) returns Uint8Array. Buffer is a Uint8Array
