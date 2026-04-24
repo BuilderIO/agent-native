@@ -1029,6 +1029,17 @@ function ThinkingIndicator({ label = "Thinking" }: { label?: string } = {}) {
 
 // ─── Builder.io Connect CTA (shared by setup + usage-limit cards) ───────────
 //
+// TODO(consolidation): this is the fourth copy of the "open CLI-auth popup +
+// poll /builder/status" flow in the codebase, alongside:
+//   • `useBuilderStatus` hook in client/settings/useBuilderStatus.ts
+//   • `BuilderCliAuthMethod` in client/onboarding/OnboardingPanel.tsx
+//   • `ConnectBuilderCard` in client/ConnectBuilderCard.tsx
+// They've already drifted on error-text surfacing and post-connect behavior
+// (only this one does a hard reload). When we next touch Builder connect
+// UX, extract a shared `useBuilderConnectFlow()` hook that owns the popup
+// + poll state machine and have each card render its own UI on top. Don't
+// ship a fifth copy.
+//
 // Renders a single row with left-aligned copy and a right-aligned action.
 // Click opens the Builder CLI-auth flow in a popup (via the `/builder/connect`
 // 302, so the open call stays synchronous and popup blockers don't downgrade

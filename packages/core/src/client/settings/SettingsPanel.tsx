@@ -161,7 +161,11 @@ function DisconnectBuilderButton() {
       // Parse defensively — a nitro 404 fallback returns HTML, not JSON,
       // and res.json() on that would throw.
       const text = await res.text();
-      let body: { ok?: boolean; error?: string } = {};
+      let body: {
+        ok?: boolean;
+        error?: string;
+        warnings?: Record<string, string>;
+      } = {};
       if (text) {
         try {
           body = JSON.parse(text);
@@ -176,6 +180,15 @@ function DisconnectBuilderButton() {
       }
       if (body.ok !== true) {
         throw new Error(body.error || "Disconnect didn't confirm ok");
+      }
+      if (body.warnings && Object.keys(body.warnings).length > 0) {
+        // Disconnect flag persisted (we only reach here when ok:true), so
+        // the user IS disconnected — but some ancillary cleanup failed.
+        // Log so it's visible during dev; don't block the success path.
+        console.warn(
+          "[builder-disconnect] completed with warnings:",
+          body.warnings,
+        );
       }
       window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
       setPhase("idle");

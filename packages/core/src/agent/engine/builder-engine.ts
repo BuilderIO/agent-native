@@ -192,20 +192,25 @@ class BuilderEngine implements AgentEngine {
 
 async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
   const status = response.status;
+  // Read the body once as text and then try to parse — calling `.json()`
+  // and then `.text()` as a fallback fails because the body stream is
+  // already consumed (TypeError: Body has already been read), so we'd
+  // silently lose non-JSON error payloads like HTML proxy 502s.
   let errBody: GatewayErrorBody = {};
-  try {
-    errBody = (await response.json()) as GatewayErrorBody;
-  } catch {
+  const rawText = await response.text().catch(() => "");
+  if (rawText) {
     try {
-      errBody.message = await response.text();
+      errBody = JSON.parse(rawText) as GatewayErrorBody;
     } catch {
-      // Ignore — errBody stays empty
+      errBody.message = rawText;
     }
   }
   const code = errBody.code ?? `http_${status}`;
   const message = errBody.message ?? `Builder gateway returned ${status}`;
 
-  if (code.startsWith("credits-limit")) {
+  // Belt-and-suspenders: 402 without a structured `credits-limit` code
+  // (e.g. bare proxy response) still means quota → show upgrade CTA.
+  if (code.startsWith("credits-limit") || status === 402) {
     yield {
       type: "stop",
       reason: "error",

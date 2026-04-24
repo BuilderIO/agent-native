@@ -527,13 +527,21 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
       const host = u.hostname.toLowerCase();
       const isLocalhost =
         host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+      // (a) The localhost 302 starter the in-app button opens.
       if (
         isLocalhost &&
         u.pathname.endsWith("/_agent-native/builder/connect")
       ) {
         return true;
       }
-      return host === "builder.io" || host.endsWith(".builder.io");
+      // (b) The resolved Builder CLI-auth URL. Gate on `/cli-auth` so
+      // ordinary builder.io links (docs, marketing, etc.) opened from a
+      // webview don't get hijacked into the OAuth popup — they'd load
+      // fine but never hit the callback and the popup would just sit
+      // open on a docs page.
+      const isBuilderDomain =
+        host === "builder.io" || host.endsWith(".builder.io");
+      return isBuilderDomain && u.pathname.startsWith("/cli-auth");
     },
     callbackPathFragment: "/_agent-native/builder/callback",
   },

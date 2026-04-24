@@ -286,6 +286,50 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("unauthorized");
   });
 
+  it("surfaces a non-JSON 4xx body (e.g. proxy HTML) in the error message", async () => {
+    // A reverse proxy returning a bare HTML 502/504 should not swallow the
+    // body silently. Before the fix, `.json()` would throw and the
+    // `.text()` fallback would fail because the body stream was already
+    // consumed — leaving only the generic "Builder gateway returned N" message.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("<html><body>Bad Gateway</body></html>", {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("http_502");
+    expect(stop?.error).toContain("Bad Gateway");
+  });
+
+  it("treats bare 402 (no structured code) as a credits-limit with upgrade CTA", async () => {
+    vi.stubEnv("BUILDER_ORG_NAME", "acme");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("Payment Required", {
+          status: 402,
+          headers: { "Content-Type": "text/plain" },
+        }),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.upgradeUrl).toContain("acme");
+  });
+
   it("maps 429 concurrency to a retryable error message", async () => {
     vi.stubGlobal(
       "fetch",
