@@ -122,6 +122,62 @@ function SettingsSelect({
   );
 }
 
+// ─── Disconnect button for the Builder card's connected state ───────────────
+//
+// Hits /_agent-native/builder/disconnect which scrubs BUILDER_* keys from the
+// template `.env`, `process.env`, and the `persisted-env-vars` settings row.
+// On success we reload so every card that reads Builder status (engine
+// picker, LLM section, File Uploads, etc.) re-fetches cleanly.
+function DisconnectBuilderButton() {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const handleClick = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/_agent-native/builder/disconnect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || `Failed (${res.status})`);
+      }
+      // Full reload — simpler than rewiring every dependent card's refetch.
+      window.location.reload();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Disconnect failed");
+      setBusy(false);
+    }
+  }, [busy]);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={busy}
+        className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60 disabled:cursor-wait"
+        aria-busy={busy}
+      >
+        {busy ? (
+          <>
+            <IconLoader2 size={10} className="animate-spin" />
+            Disconnecting…
+          </>
+        ) : (
+          "Disconnect"
+        )}
+      </button>
+      {err && (
+        <span className="text-[10px] text-destructive">{err}</span>
+      )}
+    </>
+  );
+}
+
 // ─── "Connect Builder.io" card (shared across all sections) ─────────────────
 
 function UseBuilderCard({
@@ -161,17 +217,20 @@ function UseBuilderCard({
         {orgName && (
           <p className="text-[10px] text-muted-foreground mt-0.5">{orgName}</p>
         )}
-        {connectUrl && (
-          <a
-            href={connectUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 mt-2.5 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
-          >
-            Reconnect
-            <IconExternalLink size={10} />
-          </a>
-        )}
+        <div className="flex items-center gap-2 mt-2.5">
+          {connectUrl && (
+            <a
+              href={connectUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
+            >
+              Reconnect
+              <IconExternalLink size={10} />
+            </a>
+          )}
+          <DisconnectBuilderButton />
+        </div>
       </div>
     );
   }
