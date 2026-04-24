@@ -232,11 +232,13 @@ function ConversationsTab({ days }: { days: number }) {
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
-      <table className="w-full text-left text-xs">
+      <table className="w-full table-fixed text-left text-xs">
         <thead>
           <tr className="border-b border-border bg-muted/30">
-            <th className="px-3 py-2 font-medium text-muted-foreground">Run</th>
-            <th className="px-3 py-2 font-medium text-muted-foreground">
+            <th className="px-3 py-2 font-medium text-muted-foreground w-[15%]">
+              Run
+            </th>
+            <th className="px-3 py-2 font-medium text-muted-foreground w-[20%]">
               Model
             </th>
             <th className="px-3 py-2 font-medium text-muted-foreground">
@@ -261,10 +263,10 @@ function ConversationsTab({ days }: { days: number }) {
               onClick={() => setSelectedRunId(t.runId)}
               className="border-b border-border last:border-b-0 cursor-pointer hover:bg-accent/30"
             >
-              <td className="px-3 py-2 font-mono text-foreground">
+              <td className="px-3 py-2 font-mono text-foreground truncate">
                 {truncateId(t.runId)}
               </td>
-              <td className="px-3 py-2 text-muted-foreground">
+              <td className="px-3 py-2 text-muted-foreground truncate">
                 {t.model || "unknown"}
               </td>
               <td className="px-3 py-2 tabular-nums text-muted-foreground">
@@ -281,7 +283,7 @@ function ConversationsTab({ days }: { days: number }) {
                   </span>
                 )}
               </td>
-              <td className="px-3 py-2 text-muted-foreground">
+              <td className="px-3 py-2 text-muted-foreground truncate">
                 {timeAgo(t.createdAt)}
               </td>
               <td className="px-3 py-2">
@@ -323,7 +325,7 @@ function TraceDetailView({
               <div className="text-[10px] text-muted-foreground mb-1">
                 Model
               </div>
-              <div className="text-sm font-medium text-foreground">
+              <div className="text-sm font-medium text-foreground truncate">
                 {data.summary.model || "unknown"}
               </div>
             </div>
@@ -352,13 +354,13 @@ function TraceDetailView({
           </div>
 
           <div className="rounded-lg border border-border overflow-hidden">
-            <table className="w-full text-left text-xs">
+            <table className="w-full table-fixed text-left text-xs">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  <th className="px-3 py-2 font-medium text-muted-foreground">
+                  <th className="px-3 py-2 font-medium text-muted-foreground w-[15%]">
                     Type
                   </th>
-                  <th className="px-3 py-2 font-medium text-muted-foreground">
+                  <th className="px-3 py-2 font-medium text-muted-foreground w-[35%]">
                     Name
                   </th>
                   <th className="px-3 py-2 font-medium text-muted-foreground">
@@ -378,12 +380,12 @@ function TraceDetailView({
                     key={span.id}
                     className="border-b border-border last:border-b-0"
                   >
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 truncate">
                       <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                         {span.spanType.replace("_", " ")}
                       </span>
                     </td>
-                    <td className="px-3 py-2 font-medium text-foreground">
+                    <td className="px-3 py-2 font-medium text-foreground truncate">
                       {span.name}
                     </td>
                     <td className="px-3 py-2 tabular-nums text-muted-foreground">
@@ -442,9 +444,11 @@ function EvalsTab({ days }: { days: number }) {
           <div className="space-y-2">
             {data.byCriteria.map((c) => (
               <div key={c.criteria}>
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="text-foreground">{c.criteria}</span>
-                  <span className="text-muted-foreground tabular-nums">
+                <div className="flex items-center justify-between gap-2 text-xs mb-1 min-w-0">
+                  <span className="text-foreground truncate min-w-0">
+                    {c.criteria}
+                  </span>
+                  <span className="shrink-0 text-muted-foreground tabular-nums">
                     {c.avgScore.toFixed(2)} avg ({c.count})
                   </span>
                 </div>
@@ -484,10 +488,10 @@ function ExperimentsTab() {
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
-      <table className="w-full text-left text-xs">
+      <table className="w-full table-fixed text-left text-xs">
         <thead>
           <tr className="border-b border-border bg-muted/30">
-            <th className="px-3 py-2 font-medium text-muted-foreground">
+            <th className="px-3 py-2 font-medium text-muted-foreground w-[40%]">
               Name
             </th>
             <th className="px-3 py-2 font-medium text-muted-foreground">
@@ -509,7 +513,7 @@ function ExperimentsTab() {
               onClick={() => setSelectedId(exp.id)}
               className="border-b border-border last:border-b-0 cursor-pointer hover:bg-accent/30"
             >
-              <td className="px-3 py-2 font-medium text-foreground">
+              <td className="px-3 py-2 font-medium text-foreground truncate">
                 {exp.name}
               </td>
               <td className="px-3 py-2">
@@ -556,8 +560,10 @@ function ExperimentDetailView({
 
       {exp && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-foreground">{exp.name}</h3>
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <h3 className="text-sm font-medium text-foreground truncate min-w-0">
+              {exp.name}
+            </h3>
             <StatusBadge status={exp.status} />
           </div>
 
@@ -617,13 +623,13 @@ function ExperimentDetailView({
                 Results
               </h4>
               <div className="rounded-lg border border-border overflow-hidden">
-                <table className="w-full text-left text-xs">
+                <table className="w-full table-fixed text-left text-xs">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
-                      <th className="px-3 py-2 font-medium text-muted-foreground">
+                      <th className="px-3 py-2 font-medium text-muted-foreground w-[20%]">
                         Variant
                       </th>
-                      <th className="px-3 py-2 font-medium text-muted-foreground">
+                      <th className="px-3 py-2 font-medium text-muted-foreground w-[25%]">
                         Metric
                       </th>
                       <th className="px-3 py-2 font-medium text-muted-foreground">
@@ -643,10 +649,10 @@ function ExperimentDetailView({
                         key={r.id}
                         className="border-b border-border last:border-b-0"
                       >
-                        <td className="px-3 py-2 font-mono text-foreground">
+                        <td className="px-3 py-2 font-mono text-foreground truncate">
                           {truncateId(r.variantId)}
                         </td>
-                        <td className="px-3 py-2 text-foreground">
+                        <td className="px-3 py-2 text-foreground truncate">
                           {r.metric}
                         </td>
                         <td className="px-3 py-2 tabular-nums text-foreground">
@@ -743,10 +749,10 @@ function FeedbackTab({ days }: { days: number }) {
             {Object.entries(stats.categories).map(([cat, count]) => (
               <span
                 key={cat}
-                className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-[10px] text-foreground"
+                className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-[10px] text-foreground max-w-[200px]"
               >
-                {cat}
-                <span className="text-muted-foreground tabular-nums">
+                <span className="truncate">{cat}</span>
+                <span className="shrink-0 text-muted-foreground tabular-nums">
                   {count}
                 </span>
               </span>
@@ -760,11 +766,11 @@ function FeedbackTab({ days }: { days: number }) {
           <h3 className="text-xs font-medium text-foreground mb-2">
             Recent feedback
           </h3>
-          <div className="space-y-1 max-h-64 overflow-y-auto rounded-lg border border-border">
+          <div className="space-y-1 max-h-64 overflow-y-auto overflow-x-hidden rounded-lg border border-border">
             {entries.map((entry) => (
               <div
                 key={entry.id}
-                className="flex items-center gap-2 px-3 py-2 text-xs border-b border-border last:border-b-0"
+                className="flex items-center gap-2 px-3 py-2 text-xs border-b border-border last:border-b-0 min-w-0"
               >
                 <span className="shrink-0">
                   {entry.feedbackType === "thumbs_up" && (
