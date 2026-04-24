@@ -99,9 +99,13 @@ async function createWorkspaceInteractive(
     "About workspaces",
   );
 
-  // Multi-select picker for apps to include.
+  // If templates were explicitly passed via --template, use them directly.
+  // Otherwise show the multi-select picker.
   const preselected = parseTemplateList(opts?.template);
-  const templates = await promptTemplatePicker(preselected, clack);
+  const templates =
+    preselected.length > 0
+      ? preselected
+      : await promptTemplatePicker(preselected, clack);
   if (templates.length === 0) {
     clack.cancel("No apps selected. Cancelled.");
     process.exit(0);
@@ -468,9 +472,6 @@ async function scaffoldRequiredPackages(
     const localPkg = findLocalPackage(pkgName);
     if (localPkg) {
       copyDir(localPkg, targetDir);
-      // Remove node_modules from the local copy — pnpm install will resolve.
-      const nm = path.join(targetDir, "node_modules");
-      if (fs.existsSync(nm)) fs.rmSync(nm, { recursive: true });
     } else {
       await downloadGitHubSubdir(REPO, `packages/${pkgName}`, targetDir);
     }
@@ -716,6 +717,17 @@ export function detectWorkspace(
 
 export { parseWorkspaceScope };
 
+/** @internal — exported for E2E tests */
+export {
+  scaffoldWorkspaceRoot as _scaffoldWorkspaceRoot,
+  scaffoldAppTemplate as _scaffoldAppTemplate,
+  scaffoldRequiredPackages as _scaffoldRequiredPackages,
+  postProcessStandalone as _postProcessStandalone,
+  loadCatalog as _loadCatalog,
+  fixPackageJsonName as _fixPackageJsonName,
+  renameGitignore as _renameGitignore,
+};
+
 /* ─────────────────────────────────────────────────────────────────────────
  * Download / copy helpers
  * ───────────────────────────────────────────────────────────────────────── */
@@ -794,7 +806,8 @@ function loadCatalog(): Record<string, string> {
     }
 
     // Fallback: parse pnpm-workspace.yaml from the monorepo root
-    const repoRoot = path.resolve(__dirname, "../../../../..");
+    // From dist/cli/ or src/cli/: 4 levels up → packages/core → packages → repo root
+    const repoRoot = path.resolve(__dirname, "../../../..");
     const wsPath = path.join(repoRoot, "pnpm-workspace.yaml");
     if (!fs.existsSync(wsPath)) return {};
     const content = fs.readFileSync(wsPath, "utf-8");
@@ -908,6 +921,7 @@ function copyDir(src: string, dest: string, root?: string): void {
   const resolvedRoot = root ?? path.resolve(src);
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    if (entry.name === "node_modules") continue;
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isSymbolicLink()) {
@@ -915,10 +929,17 @@ function copyDir(src: string, dest: string, root?: string): void {
       const resolvedTarget = path.resolve(path.dirname(srcPath), target);
       if (resolvedTarget.startsWith(resolvedRoot)) {
         fs.symlinkSync(target, destPath);
-      } else if (fs.statSync(srcPath).isDirectory()) {
-        copyDir(srcPath, destPath, resolvedRoot);
       } else {
-        fs.copyFileSync(srcPath, destPath);
+        try {
+          const stat = fs.statSync(srcPath);
+          if (stat.isDirectory()) {
+            copyDir(srcPath, destPath, resolvedRoot);
+          } else {
+            fs.copyFileSync(srcPath, destPath);
+          }
+        } catch {
+          // Broken symlink — skip silently
+        }
       }
     } else if (entry.isDirectory()) {
       copyDir(srcPath, destPath, resolvedRoot);

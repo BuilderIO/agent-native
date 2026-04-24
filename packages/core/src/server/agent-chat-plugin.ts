@@ -137,6 +137,45 @@ function wrapCliScript(
 }
 
 /**
+ * Creates the `get-framework-context` tool. Returns detailed instructions
+ * for framework capabilities that are summarized in the compact prompt.
+ * The agent calls this on-demand when it needs specifics about embeds,
+ * agent teams, recurring jobs, etc.
+ */
+function createFrameworkContextEntry(): Record<string, ActionEntry> {
+  const topicList = Object.keys(FRAMEWORK_CONTEXT_SECTIONS).join(", ");
+  return {
+    "get-framework-context": {
+      tool: {
+        description: `Read detailed framework instructions for a specific capability. Available topics: ${topicList}. Call with topic="all" to get everything.`,
+        parameters: {
+          type: "object" as const,
+          properties: {
+            topic: {
+              type: "string",
+              description: `Topic to read. One of: ${topicList}, or "all" for everything.`,
+            },
+          },
+          required: ["topic"],
+        },
+      },
+      run: async (args: Record<string, string>) => {
+        const topic = String(args.topic ?? "all").toLowerCase();
+        if (topic === "all") {
+          return Object.values(FRAMEWORK_CONTEXT_SECTIONS).join("\n\n");
+        }
+        const section = FRAMEWORK_CONTEXT_SECTIONS[topic];
+        if (!section) {
+          return `Unknown topic "${topic}". Available: ${topicList}`;
+        }
+        return section;
+      },
+      readOnly: true,
+    },
+  };
+}
+
+/**
  * Creates the `refresh-screen` tool. Writes a bump to `application_state`
  * under a well-known key; the client's `useDbSync` watches for this and
  * invalidates react-query caches so the on-screen UI re-fetches its data
@@ -1175,6 +1214,21 @@ export interface AgentChatPluginOptions {
    * leave this off.
    */
   leanPrompt?: boolean;
+  /**
+   * Use a compact system prompt with on-demand context loading. The system
+   * prompt includes essential behavioral rules and action signatures, but
+   * defers verbose framework details, SQL schema, skills, learnings, and
+   * memory behind tools (`get-framework-context`, `db-schema`,
+   * `resource-read`). The agent fetches these on-demand when needed.
+   *
+   * This reduces the system prompt by ~60-70%, significantly improving
+   * time-to-first-token and reducing "thinking" time. The agent retains
+   * all capabilities — it just loads context lazily instead of upfront.
+   *
+   * Defaults to `true`. Set to `false` to use the original full prompt.
+   * Ignored when `leanPrompt` is set (lean mode is even more minimal).
+   */
+  lazyContext?: boolean;
 }
 
 /**
@@ -1182,8 +1236,168 @@ export interface AgentChatPluginOptions {
  * This is the single source of truth for the core philosophy, rules, and patterns.
  * Template AGENTS.md resources only need template-specific content.
  */
+
 /**
- * Framework instructions shared across both modes. The mode-specific
+ * Compact framework instructions for lazy-context mode. Keeps the critical
+ * behavioral rules but defers verbose details (chat history, agent teams,
+ * recurring jobs, builder.io, browser, A2A, structured memory) behind the
+ * `get-framework-context` tool.
+ */
+const FRAMEWORK_CORE_COMPACT = `
+### Core Rules
+
+1. **Data lives in SQL** — All app state is in a SQL database. Use the available database tools. Call \`db-schema\` to see the full schema when needed.
+2. **Context awareness** — The user's current screen state is in \`<current-screen>\`, current URL in \`<current-url>\`. Use both to understand what the user is looking at. To change URL state, use \`set-search-params\` or \`set-url-path\`.
+3. **Navigate the UI** — Use the \`navigate\` tool to switch views, open items, or focus elements.
+4. **Application state** — Ephemeral UI state lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\`.
+5. **Screen refresh is automatic** — The framework auto-refreshes after mutating tool calls. Only call \`refresh-screen\` when you mutated data via a path the framework can't detect.
+6. **Memory** — Use \`save-memory\` proactively when you learn preferences, corrections, or project context.
+7. **Security** — Always use parameterized queries. Never \`dangerouslySetInnerHTML\`, \`innerHTML\`, or \`eval()\`.
+
+### Resources
+
+Use resource-list, resource-read, resource-write, and resource-delete for persistent notes and context files.
+Resources are NOT an agent scratchpad — never create executable scripts, task plans, or work-in-progress files.
+
+### Navigation Rule
+
+When the user says "show me", "go to", "open", etc., ALWAYS use \`navigate\` first.
+
+### Extended Capabilities
+
+You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, and browser access. Call \`get-framework-context\` to read detailed instructions for any of these when needed.
+`;
+
+/**
+ * Verbose framework sections returned by the `get-framework-context` tool.
+ * Keyed by topic so the agent can request specific sections.
+ */
+const FRAMEWORK_CONTEXT_SECTIONS: Record<string, string> = {
+  embeds: `### Inline Embeds
+
+You can embed an interactive view inline in your chat reply by writing an \`embed\` fenced code block. The chat renderer swaps the fence for a sandboxed iframe pointing at a route inside this app.
+
+Syntax:
+
+\`\`\`\`
+\`\`\`embed
+src: /some/path?param=value
+aspect: 16/9
+title: Optional label
+\`\`\`
+\`\`\`\`
+
+Keys:
+- \`src\` (required) — **must be a same-origin path starting with \`/\`**. Cross-origin URLs are blocked. No \`javascript:\` or \`data:\` URLs.
+- \`aspect\` (optional) — one of \`16/9\` (default), \`4/3\`, \`3/2\`, \`2/1\`, \`21/9\`, \`1/1\`.
+- \`title\` (optional) — accessible label / hover tooltip.
+- \`height\` (optional) — fixed pixel height when aspect ratio isn't a good fit.
+
+Use for charts, visualizations, previews. Don't use for simple text/tables or external sites.`,
+
+  "chat-history": `### Chat History
+
+You can search and restore previous chat conversations:
+- \`search-chats\` — Search or list past chat threads by keyword
+- \`open-chat\` — Open a chat thread in the UI as a new tab and focus it
+
+When the user asks to find a previous conversation, use \`search-chats\` first to find matching threads, then \`open-chat\` to restore the one they want.`,
+
+  "agent-teams": `### Agent Teams — Orchestration
+
+You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents:
+- \`spawn-task\` — Spawn a sub-agent for a task. It runs in its own thread while you stay available.
+- \`task-status\` — Check the progress of a running sub-agent.
+- \`read-task-result\` — Read the result when a sub-agent finishes.
+
+**When to delegate vs do directly:**
+- **Delegate** when the task involves multiple tool calls, research, content generation, or anything that takes more than a few seconds.
+- **Do directly** for quick single-step tasks like navigation, reading state, or answering simple questions.
+- **Spawn multiple sub-agents** when the user asks for multiple independent things — they'll run in parallel.
+
+Sub-agents have access to all template tools but **cannot spawn sub-agents themselves**.`,
+
+  "recurring-jobs": `### Recurring Jobs
+
+You can create recurring jobs that run on a cron schedule. Jobs are resource files under \`jobs/\`.
+
+- \`create-job\` — Create a new recurring job with a cron schedule and instructions
+- \`list-jobs\` — List all recurring jobs and their status
+- \`update-job\` — Update a job's schedule, instructions, or toggle enabled/disabled
+- Delete a job with \`resource-delete --path jobs/<name>.md\`
+
+Convert natural language to 5-field cron format:
+- "every morning" / "daily at 9am" → \`0 9 * * *\`
+- "every weekday at 9am" → \`0 9 * * 1-5\`
+- "every hour" → \`0 * * * *\`
+- "every monday at 9am" → \`0 9 * * 1\``,
+
+  builder: `### Connecting Builder.io
+
+When the user asks to connect Builder.io or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a one-click Connect card inline — do NOT write out multi-step setup instructions yourself.`,
+
+  browser: `### Browser Access
+
+Use \`get-browser-connection\` when you need a real browser session backed by Builder. It returns websocket connection details for a provisioned browser session.
+
+- If the tool says Builder is not configured, call \`connect-builder\`.
+- Reuse a stable \`sessionId\` when you want to reconnect to the same browser session.`,
+
+  "call-agent": `### call-agent — External Apps Only
+
+The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app's agent (A2A protocol). It is **not** for calling actions within the current app.
+
+**NEVER use \`call-agent\` to:**
+- Call your own app by name
+- Perform tasks you can accomplish with your own registered tools
+
+**ONLY use \`call-agent\` when:**
+- The user explicitly asks you to communicate with a different app
+- You need data that only another deployed app can provide`,
+
+  memory: `### Structured Memory
+
+Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every conversation.
+
+**Tools:**
+- \`save-memory\` — Create or update a memory (name, type, description, content)
+- \`delete-memory\` — Remove a memory and its index entry
+- \`resource-read --path memory/<name>.md\` — Read the full content of a specific memory
+
+**Memory types:** user, feedback, project, reference
+
+**When to save (proactively):**
+- User corrects your approach → \`feedback\`
+- User shares preferences → \`user\`
+- Non-obvious pattern or gotcha → \`feedback\`
+- Personal context (contacts, team) → \`user\`
+- Project context to track → \`project\`
+
+**Rules:**
+- Don't save things obvious from code or standard framework behavior
+- When updating, read first and merge — don't overwrite
+- Keep descriptions concise
+- One memory per logical topic`,
+
+  "sql-tools": `### SQL Tools
+
+- \`db-schema\` — refresh the full schema with indexes and foreign keys
+- \`db-query\` — run a SELECT (read-only; results already filtered to the current user/org)
+- \`db-exec\` — run INSERT / UPDATE / DELETE (writes already scoped; owner_email and org_id are auto-injected on INSERT)
+- \`db-patch\` — surgical search-and-replace on a large text column. Use for edits to large fields instead of re-sending multi-kilobyte strings.
+
+### When to pick which SQL tool
+- Set a short column outright, update multiple columns, or do computed updates → \`db-exec UPDATE\`
+- Change a small slice of a large text/JSON column → \`db-patch\`
+- A template-specific action exists for the table → use that action (it encodes business rules and pushes live Yjs updates)
+- Read data → \`db-query\`. Never re-add \`WHERE owner_email = ...\` — scoping already applies it.
+
+### External data sources vs the app database
+The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach external data warehouses. If the user asks about tables NOT in the schema, use the appropriate template action instead.`,
+};
+
+/**
+ * Full framework instructions shared across both modes. The mode-specific
  * preamble is prepended by the prompt composition below.
  */
 const FRAMEWORK_CORE = `
@@ -1399,6 +1613,36 @@ When editing code, follow the agent-native architecture:
 - Use shadcn/ui components and Tabler Icons for all UI work
 ${FRAMEWORK_CORE}`;
 
+const PROD_FRAMEWORK_PROMPT_COMPACT = `## Agent-Native Framework — Production Mode
+
+You are an AI agent in an agent-native application, running in **production mode**.
+
+The agent and the UI are equal partners — everything the UI can do, you can do via your tools, and vice versa. They share the same SQL database and stay in sync automatically.
+
+**In production mode, you operate through registered actions exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
+
+### Code Changes — Call \`connect-builder\`
+
+When the user asks to change the UI, modify code, add a feature, or fix a bug in the app itself — call \`connect-builder\` immediately, passing the user's request as the \`prompt\`. Do NOT write code, list files, make plans, or spawn sub-agents for code changes. Builder handles it in the cloud. Mention \`npx agent-native create <app-name>\` as an offline fallback.
+${FRAMEWORK_CORE_COMPACT}`;
+
+const DEV_FRAMEWORK_PROMPT_COMPACT = `## Agent-Native Framework — Development Mode
+
+You are an AI agent in an agent-native application, running in **development mode**.
+
+The agent and the UI are equal partners — everything the UI can do, you can do via tools/scripts, and vice versa. They share the same SQL database and stay in sync automatically.
+
+**In development mode, you have UNRESTRICTED access.** You can run any shell command, read/write files, query the database, call external APIs, edit source code, and install packages.
+
+**Template-specific actions are invoked via shell, NOT as direct tools.** Run them with: \`shell({ command: 'pnpm action <name> --arg value' })\`. See the "Available Actions" section below for CLI syntax.
+
+When editing code, follow the agent-native architecture:
+- Every feature needs all four areas: UI + scripts + skills/instructions + application-state sync
+- All SQL must be dialect-agnostic (works on SQLite and Postgres)
+- No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
+- Use shadcn/ui components and Tabler Icons for all UI work
+${FRAMEWORK_CORE_COMPACT}`;
+
 const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
 
 /**
@@ -1419,7 +1663,10 @@ const DEFAULT_SYSTEM_PROMPT = PROD_FRAMEWORK_PROMPT;
  * AGENTS.md and restarting the server is all it takes; Vite HMR invalidates
  * the bundle in dev so changes land instantly.
  */
-async function loadResourcesForPrompt(owner: string): Promise<string> {
+async function loadResourcesForPrompt(
+  owner: string,
+  compact = false,
+): Promise<string> {
   await ensurePersonalDefaults(owner);
 
   const sections: string[] = [];
@@ -1437,37 +1684,58 @@ async function loadResourcesForPrompt(owner: string): Promise<string> {
       );
     }
 
-    // 2. Template AGENTS.md.
+    // 2. Template AGENTS.md — always included (critical template instructions).
     if (bundle.agentsMd.trim()) {
       sections.push(
         `<resource name="AGENTS.md" scope="template">\n${bundle.agentsMd.trim()}\n</resource>`,
       );
     }
-    const skillsBlock = generateSkillsPromptBlock(bundle);
-    if (skillsBlock) sections.push(skillsBlock);
-  } catch {}
 
-  // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md above).
-  // 2. Shared SQL scope
-  try {
-    const shared = await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md");
-    if (shared?.content?.trim()) {
+    // In compact mode, skip the full skills block — the agent can use
+    // `docs-search` to find skills when it needs them.
+    if (!compact) {
+      const skillsBlock = generateSkillsPromptBlock(bundle);
+      if (skillsBlock) sections.push(skillsBlock);
+    } else if (Object.keys(bundle.skills).length > 0) {
+      const names = Object.values(bundle.skills)
+        .map((s) => s.meta.name)
+        .join(", ");
       sections.push(
-        `<resource name="LEARNINGS.md" scope="shared">\n${shared.content.trim()}\n</resource>`,
+        `<skills-summary>\nSkills available in .agents/skills/: ${names}. Use \`docs-search\` to read a skill before starting a task it applies to.\n</skills-summary>`,
       );
     }
   } catch {}
 
-  // 3. Personal memory index (skip if owner is the shared sentinel)
-  if (owner !== SHARED_OWNER) {
+  if (compact) {
+    // In compact mode, skip learnings and memory in the prompt.
+    // The agent can access them via resource-read when needed.
+    // Add a brief pointer so the agent knows they exist.
+    sections.push(
+      `<context-note>Shared learnings (LEARNINGS.md) and your personal memory (memory/MEMORY.md) are available via \`resource-read\`. Check them when making decisions that might benefit from prior context.</context-note>`,
+    );
+  } else {
+    // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md above).
+    // 2. Shared SQL scope
     try {
-      const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md");
-      if (memoryIndex?.content?.trim()) {
+      const shared = await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md");
+      if (shared?.content?.trim()) {
         sections.push(
-          `<resource name="memory/MEMORY.md" scope="personal">\n${memoryIndex.content.trim()}\n</resource>`,
+          `<resource name="LEARNINGS.md" scope="shared">\n${shared.content.trim()}\n</resource>`,
         );
       }
     } catch {}
+
+    // 3. Personal memory index (skip if owner is the shared sentinel)
+    if (owner !== SHARED_OWNER) {
+      try {
+        const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md");
+        if (memoryIndex?.content?.trim()) {
+          sections.push(
+            `<resource name="memory/MEMORY.md" scope="personal">\n${memoryIndex.content.trim()}\n</resource>`,
+          );
+        }
+      } catch {}
+    }
   }
 
   if (sections.length === 0) return "";
@@ -1838,6 +2106,9 @@ export function createAgentChatPlugin(
       const docsScripts = await createDocsScriptEntries();
       const dbScripts = await createDbScriptEntries();
       const refreshScreenTool = createRefreshScreenEntry();
+      const frameworkContextTool = createFrameworkContextEntry();
+      const leanPrompt = options?.leanPrompt === true;
+      const lazyContext = options?.lazyContext !== false && !leanPrompt;
       const urlTools = createUrlTools();
       const engineScripts = await createAgentEngineScriptEntries();
       const chatScripts = {
@@ -2156,8 +2427,10 @@ export function createAgentChatPlugin(
 
           // Build the same system prompt the interactive agent uses
           const owner = userEmail || "local@localhost";
-          const resources = await loadResourcesForPrompt(owner);
-          const schemaBlock = await buildSchemaBlock(owner, devActive);
+          const resources = await loadResourcesForPrompt(owner, lazyContext);
+          const schemaBlock = lazyContext
+            ? ""
+            : await buildSchemaBlock(owner, devActive);
           const systemPrompt = devActive
             ? devPrompt + resources + schemaBlock
             : basePrompt + resources + schemaBlock;
@@ -2260,12 +2533,20 @@ export function createAgentChatPlugin(
       // Production gets PROD_FRAMEWORK_PROMPT, dev gets DEV_FRAMEWORK_PROMPT.
       // Custom systemPrompt from options overrides the framework default entirely.
       const prodPrompt =
-        (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT) + prodActionsPrompt;
+        (options?.systemPrompt ??
+          (lazyContext
+            ? PROD_FRAMEWORK_PROMPT_COMPACT
+            : PROD_FRAMEWORK_PROMPT)) + prodActionsPrompt;
       const devPrompt =
         (options?.devSystemPrompt
           ? options.devSystemPrompt +
-            (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT)
-          : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
+            (options?.systemPrompt ??
+              (lazyContext
+                ? PROD_FRAMEWORK_PROMPT_COMPACT
+                : PROD_FRAMEWORK_PROMPT))
+          : lazyContext
+            ? DEV_FRAMEWORK_PROMPT_COMPACT
+            : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
       const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
@@ -2309,11 +2590,13 @@ export function createAgentChatPlugin(
 
           const mcpTools = actionsToEngineTools(mcpActions);
 
-          const resources = await loadResourcesForPrompt("local@localhost");
-          const schemaBlock = await buildSchemaBlock(
+          const resources = await loadResourcesForPrompt(
             "local@localhost",
-            devActiveMcp,
+            lazyContext,
           );
+          const schemaBlock = lazyContext
+            ? ""
+            : await buildSchemaBlock("local@localhost", devActiveMcp);
           const systemPrompt = devActiveMcp
             ? devPrompt + resources + schemaBlock
             : basePrompt + resources + schemaBlock;
@@ -2549,6 +2832,7 @@ export function createAgentChatPlugin(
                 // via shell, so omit them from the native tool registry.
                 ...resourceScripts,
                 ...docsScripts,
+                ...(lazyContext ? frameworkContextTool : {}),
                 ...chatScripts,
                 ...devScriptsForA2A,
               }
@@ -2558,6 +2842,7 @@ export function createAgentChatPlugin(
                 ...docsScripts,
                 ...dbScripts,
                 ...refreshScreenTool,
+                ...(lazyContext ? frameworkContextTool : {}),
                 ...urlTools,
                 ...chatScripts,
               },
@@ -2595,6 +2880,7 @@ export function createAgentChatPlugin(
         ...docsScripts,
         ...dbScripts,
         ...refreshScreenTool,
+        ...(lazyContext ? frameworkContextTool : {}),
         ...urlTools,
         ...chatScripts,
         ...callAgentScript,
@@ -2636,7 +2922,6 @@ export function createAgentChatPlugin(
         }
       };
 
-      const leanPrompt = options?.leanPrompt === true;
       // Lean mode: use only the template's systemPrompt + actions list.
       // Skip resource loading, schema block, and extraContext — those add
       // DB round-trips and tokens that minimal/voice apps don't need.
@@ -2655,9 +2940,15 @@ export function createAgentChatPlugin(
             _currentRunSystemPrompt = leanBasePrompt;
             return _currentRunSystemPrompt;
           }
-          const resources = await loadResourcesForPrompt(owner);
-          const schemaBlock = await buildSchemaBlock(owner, false);
-          const extra = await resolveExtraContext(event, owner);
+          const resources = await loadResourcesForPrompt(owner, lazyContext);
+          // In lazy context mode, skip embedding the full schema — the agent
+          // calls `db-schema` on demand. This saves ~1-2K tokens per request.
+          const schemaBlock = lazyContext
+            ? ""
+            : await buildSchemaBlock(owner, false);
+          const extra = lazyContext
+            ? ""
+            : await resolveExtraContext(event, owner);
           _currentRunSystemPrompt =
             basePrompt + resources + schemaBlock + extra;
           return _currentRunSystemPrompt;
@@ -2707,6 +2998,7 @@ export function createAgentChatPlugin(
           : {
               ...resourceScripts,
               ...docsScripts,
+              ...(lazyContext ? frameworkContextTool : {}),
               ...chatScripts,
               ...callAgentScript,
               ...teamTools,
@@ -2740,9 +3032,13 @@ export function createAgentChatPlugin(
               _currentRunSystemPrompt = leanBasePrompt;
               return _currentRunSystemPrompt;
             }
-            const resources = await loadResourcesForPrompt(owner);
-            const schemaBlock = await buildSchemaBlock(owner, true);
-            const extra = await resolveExtraContext(event, owner);
+            const resources = await loadResourcesForPrompt(owner, lazyContext);
+            const schemaBlock = lazyContext
+              ? ""
+              : await buildSchemaBlock(owner, true);
+            const extra = lazyContext
+              ? ""
+              : await resolveExtraContext(event, owner);
             _currentRunSystemPrompt =
               devPrompt + resources + schemaBlock + extra;
             return _currentRunSystemPrompt;
@@ -3813,8 +4109,10 @@ export function createAgentChatPlugin(
             ...fetchTool,
           }),
           getSystemPrompt: async (owner: string) => {
-            const resources = await loadResourcesForPrompt(owner);
-            const schemaBlock = await buildSchemaBlock(owner, false);
+            const resources = await loadResourcesForPrompt(owner, lazyContext);
+            const schemaBlock = lazyContext
+              ? ""
+              : await buildSchemaBlock(owner, false);
             return basePrompt + resources + schemaBlock;
           },
           apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
@@ -3852,8 +4150,10 @@ export function createAgentChatPlugin(
             ...fetchTool,
           }),
           getSystemPrompt: async (owner: string) => {
-            const resources = await loadResourcesForPrompt(owner);
-            const schemaBlock = await buildSchemaBlock(owner, false);
+            const resources = await loadResourcesForPrompt(owner, lazyContext);
+            const schemaBlock = lazyContext
+              ? ""
+              : await buildSchemaBlock(owner, false);
             return basePrompt + resources + schemaBlock;
           },
           apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY,
