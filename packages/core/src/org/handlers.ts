@@ -191,8 +191,12 @@ export const createInvitationHandler = defineEventHandler(
 
     const e = await exec();
 
+    // Existing rows in org_members / org_invitations may have any case
+    // (writes haven't been normalized historically). Compare with LOWER
+    // on both sides so an "alice@..." invite check correctly recognizes
+    // an existing "Alice@..." membership.
     const existingMember = await e.execute({
-      sql: `SELECT 1 FROM org_members WHERE org_id = ? AND email = ? LIMIT 1`,
+      sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
       args: [ctx.orgId, email],
     });
     if (existingMember.rows.length > 0) {
@@ -203,7 +207,7 @@ export const createInvitationHandler = defineEventHandler(
     }
 
     const existingInvite = await e.execute({
-      sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND email = ? AND status = 'pending' LIMIT 1`,
+      sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
       args: [ctx.orgId, email],
     });
     if (existingInvite.rows.length > 0) {
@@ -298,8 +302,8 @@ export const acceptInvitationHandler = defineEventHandler(
     const invOrgId = String(inv.orgId ?? inv.org_id);
 
     const existingMembership = await e.execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND email = ? LIMIT 1`,
-      args: [invOrgId, email],
+      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [invOrgId, email.toLowerCase()],
     });
 
     const orgRes = await e.execute({
@@ -363,10 +367,14 @@ export const removeMemberHandler = defineEventHandler(
       });
     }
 
+    // memberEmail comes from the URL path verbatim; org_members may
+    // hold the row with any case. LOWER both sides for the lookup AND
+    // the DELETE so removal works regardless of how either side cased it.
+    const memberEmailLower = memberEmail.toLowerCase();
     const e = await exec();
     const target = await e.execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND email = ? LIMIT 1`,
-      args: [ctx.orgId, memberEmail],
+      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [ctx.orgId, memberEmailLower],
     });
     if ((target.rows[0] as any)?.role === "owner") {
       throw createError({
@@ -376,8 +384,8 @@ export const removeMemberHandler = defineEventHandler(
     }
 
     await e.execute({
-      sql: `DELETE FROM org_members WHERE org_id = ? AND email = ?`,
-      args: [ctx.orgId, memberEmail],
+      sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
+      args: [ctx.orgId, memberEmailLower],
     });
 
     return { success: true };
@@ -402,8 +410,8 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
     sql: `SELECT m.role AS role, o.name AS "orgName"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
-          WHERE m.org_id = ? AND m.email = ? LIMIT 1`,
-    args: [orgId, email],
+          WHERE m.org_id = ? AND LOWER(m.email) = ? LIMIT 1`,
+    args: [orgId, email.toLowerCase()],
   });
 
   if (membership.rows.length === 0) {
