@@ -49,7 +49,7 @@ Every cloneable SaaS follows the same lifecycle:
 pnpm dlx @agent-native/core create my-platform
 ```
 
-The CLI shows a multi-select picker. Pick one app (standalone) or several (workspace — apps share auth, brand, agent config, and database). Each picked template is scaffolded into `apps/<name>/` with every file you need. See [Getting Started](/docs) for the full flow or [Enterprise Workspace](/docs/enterprise-workspace) for the workspace story.
+The CLI shows a multi-select picker. Pick one app (standalone) or several (workspace — apps share auth, brand, agent config, and database). Each picked template is scaffolded into `apps/<name>/` with every file you need. See [Getting Started](/docs) for the full flow or [Multi-App Workspace](/docs/multi-app-workspace) for the workspace story.
 
 ### 2. Use it immediately
 
@@ -92,7 +92,7 @@ Want to publish a new template — your own cloneable SaaS? See [Creating Templa
 
 ## What's next
 
-- [**Enterprise Workspace**](/docs/enterprise-workspace) — bundle many cloneable-SaaS apps into one monorepo that shares auth, brand, and agent instructions
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — bundle many cloneable-SaaS apps into one monorepo that shares auth, brand, and agent instructions
 - [**Key Concepts**](/docs/key-concepts) — the architecture that makes this work
 - [**Deployment**](/docs/deployment) — ship your forked app
 - [**Creating Templates**](/docs/creating-templates) — author and publish a new cloneable SaaS

@@ -145,7 +145,7 @@ agent-native deploy
 # https://your-agents.com/forms/*      → forms
 ```
 
-Same-origin deploy means a **shared login session** across every app and **zero-config cross-app A2A** — tag `@mail` from the calendar's agent chat and it just works (no JWT signing, no CORS). Full details at **[agent-native.com/docs/enterprise-workspace](https://agent-native.com/docs/enterprise-workspace)**.
+Same-origin deploy means a **shared login session** across every app and **zero-config cross-app A2A** — tag `@mail` from the calendar's agent chat and it just works (no JWT signing, no CORS). Full details at **[agent-native.com/docs/multi-app-workspace](https://agent-native.com/docs/multi-app-workspace)**.
 
 ## The Best of Both Worlds
 

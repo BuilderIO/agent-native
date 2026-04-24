@@ -113,6 +113,31 @@ export function buildSearchIndex(): SearchEntry[] {
       }
     }
 
+    // Add a page-level entry for the title + intro text (before first h2/h3)
+    const introEndLine =
+      sections.length > 0 ? sections[0].startLine - 1 : lines.length;
+    const introText = lines
+      .slice(0, introEndLine)
+      .filter((l) => !l.startsWith("```") && !l.startsWith("#"))
+      .join(" ")
+      .replace(/[`*_\[\](){}]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const pageText =
+      [doc.description, introText].filter(Boolean).join(" — ").trim() ||
+      doc.title;
+    entries.push({
+      page: doc.title,
+      path,
+      section: doc.title,
+      sectionId: "",
+      text:
+        pageText.length > 300
+          ? pageText.slice(0, 300).replace(/\s\S*$/, "...")
+          : pageText,
+    });
+
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
       const endLine =

@@ -9,7 +9,7 @@ Agent-native apps use [Nitro](https://nitro.build) under the hood, which means y
 
 ## Workspace Deploy: One Origin, Many Apps {#workspace-deploy}
 
-If your project is a [workspace](/docs/enterprise-workspace), you can ship every app in it to a single origin with one command:
+If your project is a [workspace](/docs/multi-app-workspace), you can ship every app in it to a single origin with one command:
 
 ```bash
 agent-native deploy
@@ -125,58 +125,7 @@ export default defineConfig({
 });
 ```
 
-…or set `NITRO_PRESET=netlify` at build time from `netlify.toml` (recommended for monorepo templates — keeps the preset scoped to the deploy rather than hard-coded in the template's Vite config).
-
-### Monorepo template pattern {#netlify-monorepo}
-
-For a workspace template at `templates/<name>/`, commit a `netlify.toml` at the template's root. All paths are **repo-root-relative** (Netlify's `base` should stay empty — the whole repo is the build context so pnpm workspace resolution works):
-
-```toml
-# templates/<name>/netlify.toml
-[build]
-  command = "pnpm install && NITRO_PRESET=netlify pnpm --filter <name> build"
-  publish = "templates/<name>/dist"
-  functions = "templates/<name>/.netlify/functions-internal"
-
-[build.environment]
-  NITRO_PRESET = "netlify"
-```
-
-Notes:
-
-- `.netlify/functions-internal` is where Nitro 3 writes its server functions — Netlify picks them up from there.
-- When you create a new Netlify site via the dashboard, its monorepo auto-detect sometimes picks the wrong template (e.g. selecting `templates/calendar` when you wanted `templates/<name>`). Manually clear the base directory and let `netlify.toml` drive the build.
-- Do not put `netlify.toml` at the repo root — each template manages its own.
-
-### Always build on Netlify CI {#netlify-ci-only}
-
-**Do not run `netlify deploy --prod` from your Mac.** The framework's Nitro build (`createDanglingOptionalDepStubs()` in `packages/core/src/deploy/build.ts`) stubs platform-specific optional native deps that aren't installed on the current OS. On macOS, that stubs out the Linux `libsql` binaries; on Netlify's Linux runtime the server function then crashes with:
-
-```
-Cannot find module '@libsql/linux-x64-gnu'
-```
-
-Letting Netlify CI run the build fixes this — on Linux, pnpm installs the real binary and the stub creator skips it. Push to the branch connected to the Netlify site and let it build.
-
-### Env vars {#netlify-env}
-
-From the template directory, link the site and import `.env`:
-
-```bash
-cd templates/<name>
-netlify link --name <netlify-site-name>
-netlify env:import .env
-```
-
-Then set deployment-only vars that aren't in `.env`:
-
-```bash
-netlify env:set BETTER_AUTH_URL https://<your-domain>
-netlify env:set BETTER_AUTH_SECRET "$(openssl rand -hex 32)"
-netlify env:set NITRO_PRESET netlify
-```
-
-`BETTER_AUTH_URL` must match the public URL the app is served on (custom domain or `<site>.netlify.app`). `BETTER_AUTH_SECRET` should be a fresh 32-byte hex — do not reuse the dev secret.
+…or set `NITRO_PRESET=netlify` at build time.
 
 ## Cloudflare Pages {#cloudflare-pages}
 
@@ -186,14 +135,6 @@ export default defineConfig({
   nitro: { preset: "cloudflare_pages" },
 });
 ```
-
-### External Postgres latency {#cloudflare-hyperdrive}
-
-Cloudflare Workers open a fresh connection per request. Against external Postgres (Neon, Supabase, RDS) the TLS + auth handshake dominates every cold hit, which is why we've seen ~9s TTFB on cold-start routes that query the DB.
-
-Mitigate with [Cloudflare Hyperdrive](https://developers.cloudflare.com/hyperdrive/), which pools Postgres connections at the edge. Requires a TCP-based driver — `pg`, `postgres`, or Drizzle's `node-postgres` adapter. The HTTP-based `@neondatabase/serverless` driver does not go through Hyperdrive. Workers Paid plan only.
-
-If you're hitting this and don't want to move to Hyperdrive, the Netlify preset above is a simpler path.
 
 ## AWS Lambda {#aws-lambda}
 
@@ -224,6 +165,25 @@ export default defineConfig({
 | `APP_BASE_PATH`     | Mount the app under a prefix (e.g. `/mail`). Set automatically by `agent-native deploy`; leave unset for standalone. |
 
 Inside a workspace, the root `.env` is loaded into every app automatically, so shared keys like `ANTHROPIC_API_KEY` and `A2A_SECRET` only need to be set once. Per-app `apps/<name>/.env` wins on conflict.
+
+## Updating UI in Production {#updating-ui-in-production}
+
+One of agent-native's core features is that the agent can modify your app's source code — components, routes, styles, actions. During local development this works seamlessly because the agent has full filesystem access.
+
+In a standard production deployment, however, the agent runs in **production mode** with access to app tools (actions, database, MCP) but **not** the filesystem. This means the agent can read and write data, run actions, and interact with external services — but it can't edit your React components or add new routes on a deployed instance.
+
+### Builder.io: Visual Editing in Production {#builderio}
+
+[Builder.io](https://www.builder.io) solves this by providing a managed cloud environment where the agent retains the ability to modify your app's UI in production. Connect your repo to Builder.io and prompt for UI changes directly — no redeploy needed.
+
+**How it works:**
+
+1. Connect your agent-native repo to Builder.io
+2. Builder.io provides a cloud frame with the agent, visual editing, and real-time collaboration
+3. Prompt the agent to make UI changes — it edits your components, routes, and styles live
+4. Changes are committed back to your repo
+
+See [Frames](/docs/frames) for more on the embedded agent panel vs. cloud frame options.
 
 ## Multi-instance deploys {#multi-instance}
 

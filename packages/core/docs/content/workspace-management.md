@@ -7,7 +7,7 @@ description: "Branching strategies, code ownership, PR review, and governance pr
 
 This guide covers the operational side of running an agent-native workspace — how to branch, who reviews what, how to set up code ownership, and how the dispatch control plane fits into your governance model.
 
-For workspace setup, shared auth, and deployment, see [Enterprise Workspace](/docs/enterprise-workspace).
+For workspace setup, shared auth, and deployment, see [Multi-App Workspace](/docs/multi-app-workspace).
 
 ## Branching
 
