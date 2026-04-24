@@ -605,6 +605,15 @@ export function createProductionAgentHandler(
 
     options.onEngineResolved?.(engine, model);
 
+    // One-line per-turn resolution log so it's obvious in dev which engine
+    // is actually handling the request. `requestEngine` is what the client
+    // sent from the model picker; `engine.name` is what resolveEngine picked.
+    // Divergence between them is the usual cause of "status says builder but
+    // no [builder-engine] log lines appear" confusion.
+    console.log(
+      `[agent-chat] resolved engine=${engine.name} model=${model} requestEngine=${requestEngine ?? "(none)"}`,
+    );
+
     // Check for API key before starting a run (only for anthropic engine)
     if (engine.name === "anthropic" && !effectiveApiKey) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
