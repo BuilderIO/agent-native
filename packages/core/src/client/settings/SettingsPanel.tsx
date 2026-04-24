@@ -783,12 +783,11 @@ function LLMSectionInner({
           orgName={orgName}
           label="Connect Builder.io"
         />
-        <ManualSetupCard
+        {!connected && <ManualSetupCard
           hint="Choose your AI provider and model."
           docsUrl={PROVIDER_DOCS[selectedEngine]}
           sourceBadge={sourceBadge}
           docsLabel="Get an API key"
-          dim={connected}
         >
           <div className="space-y-2 mb-1">
             <SettingsSelect
@@ -921,7 +920,7 @@ function LLMSectionInner({
               </p>
             )}
           </div>
-        </ManualSetupCard>
+        </ManualSetupCard>}
       </div>
     </SettingsSection>
   );
