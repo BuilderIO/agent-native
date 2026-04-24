@@ -84,9 +84,7 @@ export interface BuilderConnectFlowOptions {
   /** URL to synchronously open on start(). Defaults to the 302 shortcut. */
   popupUrl?: string;
   /** Invoked after the status poll first sees `configured: true`. */
-  onConnected?: (state: {
-    orgName: string | null;
-  }) => void | Promise<void>;
+  onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
 }
 
 export interface BuilderConnectFlow {

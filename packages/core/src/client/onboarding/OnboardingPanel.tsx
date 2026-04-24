@@ -330,7 +330,6 @@ function WaitlistMethod({ url }: { url: string }) {
   );
 }
 
-
 // ─── link ──────────────────────────────────────────────────────────────────
 
 function LinkMethod({

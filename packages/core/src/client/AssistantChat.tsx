@@ -1062,12 +1062,13 @@ function BuilderConnectCta({
 }: {
   variant?: "primary" | "compact";
 }) {
-  const { configured, orgName, connecting, error, start } = useBuilderConnectFlow({
-    onConnected: () => {
-      // Reload so the enclosing card re-evaluates `missingApiKey`.
-      window.setTimeout(() => window.location.reload(), 300);
-    },
-  });
+  const { configured, orgName, connecting, error, start } =
+    useBuilderConnectFlow({
+      onConnected: () => {
+        // Reload so the enclosing card re-evaluates `missingApiKey`.
+        window.setTimeout(() => window.location.reload(), 300);
+      },
+    });
 
   const containerClass =
     variant === "compact"

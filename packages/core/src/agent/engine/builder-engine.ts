@@ -395,8 +395,7 @@ async function* parseJsonlStream(
 
         case "usage": {
           const cacheWrite =
-            (event.cacheCreatedTokens ?? 0) +
-            (event.cacheCreated1hTokens ?? 0);
+            (event.cacheCreatedTokens ?? 0) + (event.cacheCreated1hTokens ?? 0);
           yield {
             type: "usage",
             inputTokens: event.inputTokens ?? 0,
