@@ -113,8 +113,10 @@ export function StorageSetupCard({ onConfigured }: StorageSetupCardProps) {
 
       {/* Builder.io — primary option. Gated behind ENABLE_BUILDER so
           deployments without Builder access see a waitlist CTA instead
-          of a path that won't work for them. */}
-      {builderEnabled ? (
+          of a path that won't work for them. While env-status is
+          resolving (builderEnabled === null) render nothing in this
+          slot so enabled deployments don't briefly flash the waitlist. */}
+      {builderEnabled === null ? null : builderEnabled ? (
         <button
           type="button"
           onClick={handleConnect}

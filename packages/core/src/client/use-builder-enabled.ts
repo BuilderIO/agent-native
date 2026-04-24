@@ -1,25 +1,36 @@
 import { useEffect, useState } from "react";
 
 /**
- * Returns `true` when the server reports `ENABLE_BUILDER` is configured —
- * i.e. Builder.io integration is opted in for this deployment. When `false`,
- * callers should hide Builder-specific options (or render a waitlist CTA)
- * so users aren't shown a path that isn't turned on for their deployment.
+ * Tri-state:
+ *   - `null`   → still loading (env-status hasn't resolved yet)
+ *   - `true`   → `ENABLE_BUILDER` is configured, show Builder flows
+ *   - `false`  → not configured, hide Builder flows / show waitlist
  *
- * Fetches `/_agent-native/env-status` once on mount. Returns `false` while
- * loading or on fetch failure.
+ * Callers must handle `null` (render skeleton / nothing) rather than
+ * defaulting to `false` — otherwise Builder-enabled deployments briefly
+ * flash the waitlist CTA before the fetch settles, and a user could
+ * click "Join waitlist" when Connect Builder.io would have worked.
+ *
+ * Resolves to `false` on network failure so callers don't hang on
+ * loading forever; transient errors gracefully degrade to the
+ * conservative "Builder off" branch.
  */
-export function useBuilderEnabled(): boolean {
-  const [enabled, setEnabled] = useState(false);
+export function useBuilderEnabled(): boolean | null {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
   useEffect(() => {
+    let cancelled = false;
     fetch("/_agent-native/env-status")
       .then((r) => (r.ok ? r.json() : []))
       .then((keys: Array<{ key: string; configured: boolean }>) => {
-        if (keys.find((k) => k.key === "ENABLE_BUILDER")?.configured) {
-          setEnabled(true);
-        }
+        if (cancelled) return;
+        setEnabled(!!keys.find((k) => k.key === "ENABLE_BUILDER")?.configured);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
   return enabled;
 }

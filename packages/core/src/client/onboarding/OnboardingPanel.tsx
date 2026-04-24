@@ -158,7 +158,7 @@ function StepCard({
 }: {
   step: OnboardingStepStatus;
   expanded: boolean;
-  builderEnabled: boolean;
+  builderEnabled: boolean | null;
   onMarkComplete: () => void;
   onRefresh: () => Promise<void>;
 }) {
@@ -238,11 +238,15 @@ function MethodBlock({
 }: {
   method: OnboardingMethod;
   stepId: string;
-  builderEnabled: boolean;
+  builderEnabled: boolean | null;
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
   const isBuilder = method.kind === "builder-cli-auth";
+  // While env-status is loading (builderEnabled === null), don't render
+  // the builder method at all — otherwise we flash the waitlist CTA for
+  // Builder-enabled deployments.
+  if (isBuilder && builderEnabled === null) return null;
   const waitlist = isBuilder && !builderEnabled;
   return (
     <div style={method.primary ? styles.methodPrimary : styles.method}>
