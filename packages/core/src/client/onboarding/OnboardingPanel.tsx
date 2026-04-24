@@ -6,7 +6,7 @@
  * its `kind` (link / form / builder-cli-auth / agent-task).
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import {
   IconCheck,
   IconChecklist,
@@ -19,7 +19,7 @@ import {
 import { useOnboarding } from "./use-onboarding.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { useDevMode } from "../use-dev-mode.js";
-import { getCallbackOrigin } from "../frame.js";
+import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import type {
   OnboardingMethod,
   OnboardingStepStatus,
@@ -408,82 +408,15 @@ function BuilderCliAuthMethod({
   onCompleted: () => Promise<void>;
   primary?: boolean;
 }) {
-  const [connecting, setConnecting] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-  }, []);
-
-  const handleConnect = useCallback(() => {
-    // Restart: clear any lingering poll from a prior click.
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    setConnecting(true);
-    setErr(null);
-    // Open SYNCHRONOUSLY inside the click handler — any await before
-    // window.open lets the user gesture expire and popup blockers
-    // downgrade to same-tab navigation. The /builder/connect endpoint
-    // 302-redirects to the real CLI-auth URL so the new tab always
-    // ends up where it should, with no client-side prefetch needed.
-    const origin = getCallbackOrigin() || window.location.origin;
-    window.open(
-      `${origin}/_agent-native/builder/connect`,
-      "_blank",
-      "noopener,noreferrer",
-    );
-
-    // Poll builder status until credentials appear (user finished the flow).
-    const start = Date.now();
-    const timeoutMs = 5 * 60 * 1000;
-    const stop = () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-    pollRef.current = setInterval(async () => {
-      try {
-        const r = await fetch(`${origin}/_agent-native/builder/status`);
-        if (!r.ok) return;
-        const s = (await r.json()) as { configured: boolean };
-        if (!mountedRef.current) {
-          stop();
-          return;
-        }
-        if (s.configured) {
-          stop();
-          setConnecting(false);
-          await onCompleted();
-        } else if (Date.now() - start > timeoutMs) {
-          stop();
-          setConnecting(false);
-          setErr(
-            "Didn't hear back from Builder in 5 minutes. Check the popup, allow popups if blocked, and try again.",
-          );
-        }
-      } catch {
-        // ignore transient poll errors
-      }
-    }, 2000);
-  }, [onCompleted]);
+  const { connecting, error, start } = useBuilderConnectFlow({
+    onConnected: onCompleted,
+  });
 
   return (
     <>
       <button
         type="button"
-        onClick={handleConnect}
+        onClick={start}
         disabled={connecting}
         style={{ ...buttonPrimary(primary), opacity: connecting ? 0.7 : 1 }}
       >
@@ -500,7 +433,7 @@ function BuilderCliAuthMethod({
           "Connect Builder"
         )}
       </button>
-      {err && <p style={styles.errText}>{err}</p>}
+      {error && <p style={styles.errText}>{error}</p>}
     </>
   );
 }

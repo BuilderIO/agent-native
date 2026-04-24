@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { getCallbackOrigin } from "../frame.js";
 
 export interface BuilderStatus {
   configured: boolean;
@@ -61,4 +62,157 @@ export function useBuilderStatus() {
   }, [fetchStatus]);
 
   return { status, loading, refetch: fetchStatus };
+}
+
+// ─── useBuilderConnectFlow ──────────────────────────────────────────────────
+//
+// Shared state machine for the "open Builder CLI-auth popup + poll
+// /builder/status until credentials land" interaction. Replaces three
+// near-duplicate inline implementations: `BuilderCliAuthMethod` in
+// OnboardingPanel, `ConnectBuilderCard`, and `BuilderConnectCta` in
+// AssistantChat. Each consumer supplies its own popup URL / completion
+// behavior; the hook owns the polling + timeout + focus refresh.
+//
+// `popupUrl` is what we pass to `window.open`. The default
+// `/_agent-native/builder/connect` is a server-side 302 to the real
+// cli-auth URL — using it keeps the click handler synchronous so popup
+// blockers don't downgrade the open to same-tab navigation. Pass an
+// explicit `popupUrl` (e.g. the already-computed cli-auth URL) if your
+// caller already has it in hand.
+
+export interface BuilderConnectFlowOptions {
+  /** URL to synchronously open on start(). Defaults to the 302 shortcut. */
+  popupUrl?: string;
+  /** Invoked after the status poll first sees `configured: true`. */
+  onConnected?: (state: {
+    orgName: string | null;
+  }) => void | Promise<void>;
+}
+
+export interface BuilderConnectFlow {
+  configured: boolean;
+  orgName: string | null;
+  connecting: boolean;
+  error: string | null;
+  /** Open the popup and begin polling. Must be called from a user-gesture handler. */
+  start: () => void;
+}
+
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+
+export function useBuilderConnectFlow(
+  opts: BuilderConnectFlowOptions = {},
+): BuilderConnectFlow {
+  const { popupUrl, onConnected } = opts;
+  const [configured, setConfigured] = useState(false);
+  const [orgName, setOrgName] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef(true);
+  // Keep onConnected in a ref so start() doesn't need to re-create when the
+  // caller passes an inline arrow function.
+  const onConnectedRef = useRef(onConnected);
+  onConnectedRef.current = onConnected;
+
+  const stopPoll = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const fetchStatus = useCallback(async () => {
+    const origin = getCallbackOrigin() || window.location.origin;
+    try {
+      const r = await fetch(`${origin}/_agent-native/builder/status`);
+      if (!r.ok) return null;
+      return (await r.json()) as {
+        configured: boolean;
+        orgName?: string | null;
+      };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Initial fetch + focus/visibility refresh so if the user completed the
+  // flow in another tab (or a downgraded same-tab nav) we notice it. Also
+  // listen for `agent-engine:configured-changed` so a Disconnect click in
+  // Settings propagates to any connect-CTA cards rendered elsewhere in
+  // the app without waiting for the next focus event.
+  useEffect(() => {
+    mountedRef.current = true;
+    let cancelled = false;
+    const refresh = async () => {
+      const s = await fetchStatus();
+      if (cancelled || !mountedRef.current || !s) return;
+      setConfigured(!!s.configured);
+      setOrgName(s.orgName ?? null);
+    };
+    refresh();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("agent-engine:configured-changed", refresh);
+    return () => {
+      cancelled = true;
+      mountedRef.current = false;
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("agent-engine:configured-changed", refresh);
+      stopPoll();
+    };
+  }, [fetchStatus, stopPoll]);
+
+  const start = useCallback(() => {
+    stopPoll();
+    setConnecting(true);
+    setError(null);
+
+    // Open SYNCHRONOUSLY inside the caller's click handler — any await
+    // before window.open lets the user-gesture token expire, which causes
+    // popup blockers to block entirely or fall back to same-tab navigation.
+    const origin = getCallbackOrigin() || window.location.origin;
+    const url = popupUrl ?? `${origin}/_agent-native/builder/connect`;
+    try {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      // Fall through — polling still detects completion if the user
+      // opens the URL themselves.
+    }
+
+    const started = Date.now();
+    pollRef.current = setInterval(async () => {
+      const s = await fetchStatus();
+      if (!mountedRef.current) {
+        stopPoll();
+        return;
+      }
+      if (s?.configured) {
+        stopPoll();
+        setConfigured(true);
+        const org = s.orgName ?? null;
+        setOrgName(org);
+        setConnecting(false);
+        try {
+          await onConnectedRef.current?.({ orgName: org });
+        } catch {
+          // Consumer's callback failed; we've already flipped the UI state
+          // to connected. Swallow so we don't re-arm the flow.
+        }
+      } else if (Date.now() - started > POLL_TIMEOUT_MS) {
+        stopPoll();
+        setConnecting(false);
+        setError(
+          "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
+        );
+      }
+    }, POLL_INTERVAL_MS);
+  }, [fetchStatus, popupUrl, stopPoll]);
+
+  return { configured, orgName, connecting, error, start };
 }

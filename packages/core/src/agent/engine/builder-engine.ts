@@ -31,7 +31,11 @@ import { getSetting } from "../../settings/store.js";
 
 export const BUILDER_CAPABILITIES: EngineCapabilities = {
   thinking: true,
-  promptCaching: true,
+  // TODO: flip to true once we forward `cache_control` blocks through to
+  // the gateway request body. Today the engine builds the Anthropic-shaped
+  // body without cache_control markers, and Anthropic caching is opt-in
+  // (not automatic), so claiming `promptCaching: true` would overpromise.
+  promptCaching: false,
   vision: true,
   computerUse: false,
   parallelToolCalls: true,
@@ -55,6 +59,21 @@ export const BUILDER_SUPPORTED_MODELS = [
 
 export const BUILDER_DEFAULT_MODEL = "claude-sonnet-4-6";
 
+/**
+ * Bucket an Anthropic `thinking.budgetTokens` value into the gateway's
+ * three-level `reasoning_effort` enum (low / medium / high).
+ *
+ * The thresholds are chosen to align with typical Anthropic extended-thinking
+ * budgets we see in the wild:
+ *   • < 2000  → short one-step reasoning ("low")
+ *   • 2000–8000 → multi-step thinking ("medium")
+ *   • ≥ 8000  → deep planning / long chains ("high")
+ *
+ * 8000 is Anthropic's documented default in our framework (see
+ * engine/types.ts:195), so callers that don't explicitly set
+ * `budgetTokens` map to "high" via the default. If the gateway later
+ * exposes more granular knobs or different thresholds, revisit this map.
+ */
 function mapReasoningEffort(budgetTokens: number): "low" | "medium" | "high" {
   if (budgetTokens < 2000) return "low";
   if (budgetTokens < 8000) return "medium";
