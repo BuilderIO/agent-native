@@ -143,6 +143,7 @@ export function EmailThread({
     data: threadMessages,
     isLoading: isThreadLoading,
     isFetching: isThreadFetching,
+    isFromCache: isThreadFromCache,
   } = useThreadMessages(threadId);
 
   // Use the latestMessage from the threads prop as a last-resort preview (avoids
@@ -180,8 +181,13 @@ export function EmailThread({
       ),
     [allMessages],
   );
+  // True when we have no data at all (rare — deep link with empty list cache)
   const isHydratingThread =
     !!threadId && !threadMessages && (isThreadLoading || isThreadFetching);
+  // True when we have placeholder data from the list (metadata-only, no body)
+  // but the full thread hasn't loaded yet. The list API uses format=metadata
+  // so placeholder emails have snippet but no bodyHtml/body.
+  const isBodyLoading = !!threadId && isThreadFetching && !isThreadFromCache;
 
   // Use the latest message as the "primary" email for actions/metadata
   const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
@@ -1028,7 +1034,7 @@ export function EmailThread({
   if (!threadId) return null;
 
   if (!email) {
-    if (isHydratingThread || threadPreview) {
+    if (isHydratingThread || isBodyLoading || threadPreview) {
       return <ThreadLoadingState onBack={goBack} preview={threadPreview} />;
     }
     return (
@@ -1074,7 +1080,7 @@ export function EmailThread({
               <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground">
                 {threadSubject}
               </h1>
-              {isHydratingThread && (
+              {isBodyLoading && (
                 <Skeleton className="mt-0.5 h-5 w-28 rounded-full" />
               )}
               {displayLabels.map((labelId) => (
@@ -1175,7 +1181,7 @@ export function EmailThread({
         className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4"
       >
         <div className="max-w-3xl mx-auto pt-1.5 space-y-1.5">
-          {isHydratingThread && messages.length > 0 && (
+          {isBodyLoading && messages.length > 0 && (
             <div className="sticky top-0 z-10 pb-2">
               <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-background/90 px-3 py-1.5 shadow-sm backdrop-blur">
                 <Skeleton className="h-2 w-2 rounded-full" />
@@ -1206,7 +1212,7 @@ export function EmailThread({
                     email={msg}
                     isFocused={isFocused}
                     isFromMe={myEmails.has(msg.from.email.toLowerCase())}
-                    isLoadingBody={isHydratingThread}
+                    isLoadingBody={isBodyLoading}
                     onCollapse={() => {
                       setUserToggles((prev) => ({ ...prev, [msg.id]: false }));
                     }}
