@@ -323,7 +323,10 @@ if (typeof window !== "undefined") {
       window.fetch = (window as any).__origFetch;
       delete (window as any).__origFetch;
     }
-    console.log("[skeleton] Normal fetch restored.");
+    inflight.clear();
+    console.log(
+      "[skeleton] Normal fetch restored. Reload the page to refetch threads.",
+    );
   };
 }
 

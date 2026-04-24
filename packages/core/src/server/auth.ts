@@ -974,7 +974,11 @@ async function mountBetterAuthRoutes(
     app.use(
       "/_agent-native/google/auth-url",
       defineEventHandler((event) => {
-        if (event.context.matchedRoute) return undefined;
+        if (
+          event.context.matchedRoute &&
+          (event.context.matchedRoute as any).path !== "/**:page"
+        )
+          return undefined;
         if (getMethod(event) !== "GET") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
@@ -1002,7 +1006,11 @@ async function mountBetterAuthRoutes(
     app.use(
       "/_agent-native/google/callback",
       defineEventHandler(async (event) => {
-        if (event.context.matchedRoute) return undefined;
+        if (
+          event.context.matchedRoute &&
+          (event.context.matchedRoute as any).path !== "/**:page"
+        )
+          return undefined;
         if (getMethod(event) !== "GET") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
