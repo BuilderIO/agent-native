@@ -287,27 +287,55 @@ export class RecorderEngine {
    */
   async stop(): Promise<RecorderFinalizeResult> {
     if (!this.recorder) throw new Error("Not recording");
+
+    // Resume first if paused — some browsers don't fire dataavailable
+    // from a paused MediaRecorder on stop().
+    if (this.recorder.state === "paused") {
+      try {
+        this.recorder.resume();
+      } catch {
+        // ignore
+      }
+      if (this.pausedStartedMs !== null) {
+        this.pausedAccumMs += performance.now() - this.pausedStartedMs;
+        this.pausedStartedMs = null;
+      }
+    }
+
+    if (this.recorder.state === "inactive") {
+      throw new Error("Recorder already stopped");
+    }
+
     this.transition("stopping");
 
     const stopPromise = new Promise<Blob>((resolve) => {
-      // MediaRecorder.stop flushes one last ondataavailable BEFORE firing 'stop'.
-      // We capture that blob here so we can send it as isFinal=1.
+      let resolved = false;
       const onData = (event: BlobEvent) => {
+        if (resolved) return;
+        resolved = true;
         this.recorder?.removeEventListener("dataavailable", onData);
         resolve(event.data);
       };
       this.recorder!.addEventListener("dataavailable", onData, { once: true });
+      // Safety net: if dataavailable never fires (broken recorder),
+      // resolve with empty blob after 10s so we don't hang forever.
+      // Normal path fires within milliseconds of recorder.stop().
+      setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        this.recorder?.removeEventListener("dataavailable", onData);
+        resolve(new Blob([], { type: this.mimeType }));
+      }, 10_000);
     });
 
     try {
       this.recorder.stop();
     } catch (err) {
       this.emitError(err);
+      throw err;
     }
 
-    const finalBlob = await stopPromise.catch(
-      () => new Blob([], { type: this.mimeType }),
-    );
+    const finalBlob = await stopPromise;
     const finalIndex = this.chunkIndex++;
 
     // Wait for all pending in-flight chunks before we send the isFinal one.
