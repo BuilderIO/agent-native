@@ -120,6 +120,89 @@ describe("AgentEngine registry", () => {
     expect(resolved).toBe(fakeAnthropicEngine);
   });
 
+  describe("getStoredModelForEngine", () => {
+    beforeEach(() => {
+      vi.resetModules();
+    });
+
+    it("returns the stored model when the stored engine name matches", async () => {
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue({
+          engine: "ai-sdk:openrouter",
+          model: "google/gemini-2.5-flash",
+        }),
+      }));
+      const { getStoredModelForEngine } = await import("./registry.js");
+
+      const result = await getStoredModelForEngine("ai-sdk:openrouter");
+      expect(result).toBe("google/gemini-2.5-flash");
+    });
+
+    it("returns undefined when the stored engine doesn't match", async () => {
+      // Don't apply a Claude model string to an OpenRouter engine.
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue({
+          engine: "anthropic",
+          model: "claude-sonnet-4-6",
+        }),
+      }));
+      const { getStoredModelForEngine } = await import("./registry.js");
+
+      expect(
+        await getStoredModelForEngine("ai-sdk:openrouter"),
+      ).toBeUndefined();
+    });
+
+    it("returns undefined when no model is stored", async () => {
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue({ engine: "ai-sdk:openrouter" }),
+      }));
+      const { getStoredModelForEngine } = await import("./registry.js");
+
+      expect(
+        await getStoredModelForEngine("ai-sdk:openrouter"),
+      ).toBeUndefined();
+    });
+
+    it("returns undefined for an empty-string model", async () => {
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi
+          .fn()
+          .mockResolvedValue({ engine: "ai-sdk:openrouter", model: "" }),
+      }));
+      const { getStoredModelForEngine } = await import("./registry.js");
+
+      expect(
+        await getStoredModelForEngine("ai-sdk:openrouter"),
+      ).toBeUndefined();
+    });
+
+    it("swallows settings-store errors", async () => {
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi
+          .fn()
+          .mockRejectedValue(new Error("settings table not ready")),
+      }));
+      const { getStoredModelForEngine } = await import("./registry.js");
+
+      expect(
+        await getStoredModelForEngine("ai-sdk:openrouter"),
+      ).toBeUndefined();
+    });
+
+    it("accepts an engine instance and uses its .name", async () => {
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi
+          .fn()
+          .mockResolvedValue({ engine: "ai-sdk:openai", model: "gpt-4o" }),
+      }));
+      const { getStoredModelForEngine } = await import("./registry.js");
+
+      const fakeEngine = { name: "ai-sdk:openai" } as any;
+      expect(await getStoredModelForEngine(fakeEngine)).toBe("gpt-4o");
+    });
+  });
+
   it("resolveEngine uses env AGENT_ENGINE when set", async () => {
     const { registerAgentEngine, resolveEngine } =
       await import("./registry.js");

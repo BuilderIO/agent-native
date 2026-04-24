@@ -1193,6 +1193,10 @@ export interface AgentChatPluginOptions {
    * Return `null` or an empty string to skip. The string you return is
    * appended verbatim, so wrap it in your own XML tags (e.g.
    * `<data-dictionary>…</data-dictionary>`) to keep the prompt scannable.
+   *
+   * Called on every request in every prompt variant (lean, lazy, full).
+   * Templates that want to suppress it in a particular mode should return
+   * `null` from the callback based on their own logic.
    */
   extraContext?: (
     event: any,
@@ -1229,6 +1233,26 @@ export interface AgentChatPluginOptions {
    * Ignored when `leanPrompt` is set (lean mode is even more minimal).
    */
   lazyContext?: boolean;
+  /**
+   * In dev mode, register the template's actions as native tools the agent
+   * can call directly with structured JSON args — skipping the default
+   * `shell(command="pnpm action <name> ...")` indirection.
+   *
+   * The default dev behavior shells out because it "mirrors how Claude Code
+   * works locally" and reduces empty-object tool calls for templates with
+   * simple string args. But templates whose actions take structured data
+   * (objects, arrays, nested JSON) can't round-trip those cleanly through
+   * the CLI parser — stringified JSON on the way in, loss of type fidelity
+   * on the way out.
+   *
+   * Set to `true` to get the same tool surface in dev that production uses.
+   * `leanPrompt: true` implies this already (lean mode has no shell-usage
+   * guidance, so actions must be native). Set this flag without
+   * `leanPrompt` when you want native actions AND the full system prompt.
+   *
+   * Defaults to `false`.
+   */
+  nativeActionsInDev?: boolean;
 }
 
 /**
@@ -2537,16 +2561,22 @@ export function createAgentChatPlugin(
           (lazyContext
             ? PROD_FRAMEWORK_PROMPT_COMPACT
             : PROD_FRAMEWORK_PROMPT)) + prodActionsPrompt;
-      const devPrompt =
-        (options?.devSystemPrompt
-          ? options.devSystemPrompt +
-            (options?.systemPrompt ??
-              (lazyContext
-                ? PROD_FRAMEWORK_PROMPT_COMPACT
-                : PROD_FRAMEWORK_PROMPT))
-          : lazyContext
-            ? DEV_FRAMEWORK_PROMPT_COMPACT
-            : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
+      // When template actions are registered as native tools in dev (via
+      // `nativeActionsInDev` or `leanPrompt`), the dev prompt's "invoke
+      // template actions via shell" guidance is wrong — use the prod prompt
+      // + tool-format action list instead, same as production.
+      const devNative = options?.nativeActionsInDev === true || leanPrompt;
+      const devPrompt = devNative
+        ? prodPrompt
+        : (options?.devSystemPrompt
+            ? options.devSystemPrompt +
+              (options?.systemPrompt ??
+                (lazyContext
+                  ? PROD_FRAMEWORK_PROMPT_COMPACT
+                  : PROD_FRAMEWORK_PROMPT))
+            : lazyContext
+              ? DEV_FRAMEWORK_PROMPT_COMPACT
+              : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
       const devPrefix = options?.devSystemPrompt ?? DEFAULT_DEV_PROMPT;
@@ -2927,17 +2957,29 @@ export function createAgentChatPlugin(
       // DB round-trips and tokens that minimal/voice apps don't need.
       const leanBasePrompt = (options?.systemPrompt ?? "") + prodActionsPrompt;
 
+      // Per-request preamble shared by both prod and dev handlers. Resolves
+      // owner + user API key (stashed on the closure so downstream tools can
+      // reach them) and the template-authored `extraContext`. `extraContext`
+      // runs in every prompt variant (lean, lazy, full) — if a template
+      // defined it, they opted in; framework-provided content is what the
+      // token-saving modes strip.
+      const prepareRun = async (event: any) => {
+        _currentRequestOrigin = getOrigin(event);
+        const owner = await getOwnerFromEvent(event);
+        _currentRunOwner = owner;
+        const { getOwnerActiveApiKey } =
+          await import("../agent/production-agent.js");
+        _currentRunUserApiKey = await getOwnerActiveApiKey(owner);
+        const extra = await resolveExtraContext(event, owner);
+        return { owner, extra };
+      };
+
       const prodHandler = createProductionAgentHandler({
         actions: prodActions,
         systemPrompt: async (event: any) => {
-          _currentRequestOrigin = getOrigin(event);
-          const owner = await getOwnerFromEvent(event);
-          _currentRunOwner = owner;
-          const { getOwnerActiveApiKey } =
-            await import("../agent/production-agent.js");
-          _currentRunUserApiKey = await getOwnerActiveApiKey(owner);
+          const { owner, extra } = await prepareRun(event);
           if (leanPrompt) {
-            _currentRunSystemPrompt = leanBasePrompt;
+            _currentRunSystemPrompt = leanBasePrompt + extra;
             return _currentRunSystemPrompt;
           }
           const resources = await loadResourcesForPrompt(owner, lazyContext);
@@ -2946,9 +2988,6 @@ export function createAgentChatPlugin(
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, false);
-          const extra = lazyContext
-            ? ""
-            : await resolveExtraContext(event, owner);
           _currentRunSystemPrompt =
             basePrompt + resources + schemaBlock + extra;
           return _currentRunSystemPrompt;
@@ -2990,10 +3029,11 @@ export function createAgentChatPlugin(
         // how Claude Code works locally and dramatically reduces the rate of
         // degenerate empty-object tool calls. The CLI syntax for each action is
         // listed in the dev system prompt's "Available Actions" section.
-        // In lean mode, expose the template's actions directly as native tools
-        // instead of routing through shell — the lean system prompt has no
-        // shell-usage guidance, so shell-based action invocation would break.
-        const devActions = leanPrompt
+        // In lean mode — or when `nativeActionsInDev` is set — expose the
+        // template's actions as native tools instead of routing through shell.
+        // Templates with structured-arg actions (objects/arrays) need this to
+        // avoid round-tripping JSON through the CLI parser.
+        const devActions = devNative
           ? prodActions
           : {
               ...resourceScripts,
@@ -3012,8 +3052,8 @@ export function createAgentChatPlugin(
               ...(await createDevScriptRegistry()),
             };
         // Keep dev action dict in sync with runtime MCP additions. When
-        // leanPrompt is true, devActions === prodActions so the prod listener
-        // already covers it.
+        // native-actions mode is on (lean or `nativeActionsInDev`), devActions
+        // === prodActions so the prod listener already covers it.
         if (devActions !== prodActions) {
           mcpManager.onChange(() => {
             syncMcpActionEntries(mcpManager, devActions);
@@ -3022,23 +3062,15 @@ export function createAgentChatPlugin(
         devHandler = createProductionAgentHandler({
           actions: devActions,
           systemPrompt: async (event: any) => {
-            _currentRequestOrigin = getOrigin(event);
-            const owner = await getOwnerFromEvent(event);
-            _currentRunOwner = owner;
-            const { getOwnerActiveApiKey } =
-              await import("../agent/production-agent.js");
-            _currentRunUserApiKey = await getOwnerActiveApiKey(owner);
+            const { owner, extra } = await prepareRun(event);
             if (leanPrompt) {
-              _currentRunSystemPrompt = leanBasePrompt;
+              _currentRunSystemPrompt = leanBasePrompt + extra;
               return _currentRunSystemPrompt;
             }
             const resources = await loadResourcesForPrompt(owner, lazyContext);
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(owner, true);
-            const extra = lazyContext
-              ? ""
-              : await resolveExtraContext(event, owner);
             _currentRunSystemPrompt =
               devPrompt + resources + schemaBlock + extra;
             return _currentRunSystemPrompt;
