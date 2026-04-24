@@ -1122,9 +1122,26 @@ export function createProductionAgentHandler(
           }
         }
 
+        // Apply experiment variant overrides (A/B testing)
+        let effectiveModel = model;
+        try {
+          const { resolveActiveExperimentConfig } =
+            await import("../observability/experiments.js");
+          const expConfig = await resolveActiveExperimentConfig(
+            ownerEmail || "local@localhost",
+          );
+          if (expConfig) {
+            if (typeof expConfig.configs.model === "string") {
+              effectiveModel = expConfig.configs.model;
+            }
+          }
+        } catch {
+          // Experiments module unavailable — use default model
+        }
+
         const agentLoopOpts = {
           engine,
-          model,
+          model: effectiveModel,
           systemPrompt,
           tools: getEngineTools(),
           messages,
