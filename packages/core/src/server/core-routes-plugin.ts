@@ -103,6 +103,18 @@ export interface CoreRoutesPluginOptions {
  *   PUT    /_agent-native/application-state/compose/:id — upsert compose draft
  *   DELETE /_agent-native/application-state/compose/:id — delete compose draft
  */
+// All env vars written by the Builder CLI-auth callback. Listed once so
+// the plugin-init scrub, the /builder/disconnect handler, and any future
+// consumers stay in sync — drift here is how a disconnect silently leaves
+// BUILDER_USER_ID or BUILDER_ORG_NAME behind.
+const BUILDER_ENV_KEYS: readonly string[] = [
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_PUBLIC_KEY",
+  "BUILDER_USER_ID",
+  "BUILDER_ORG_NAME",
+  "BUILDER_ORG_KIND",
+];
+
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
@@ -143,13 +155,7 @@ export function createCoreRoutesPlugin(
         at?: number;
       } | null;
       if (disconnected) {
-        for (const key of [
-          "BUILDER_PRIVATE_KEY",
-          "BUILDER_PUBLIC_KEY",
-          "BUILDER_USER_ID",
-          "BUILDER_ORG_NAME",
-          "BUILDER_ORG_KIND",
-        ]) {
+        for (const key of BUILDER_ENV_KEYS) {
           delete process.env[key];
         }
       }
@@ -433,14 +439,6 @@ export function createCoreRoutesPlugin(
           return { error: "unauthorized" };
         }
 
-        const BUILDER_ENV_KEYS = [
-          "BUILDER_PRIVATE_KEY",
-          "BUILDER_PUBLIC_KEY",
-          "BUILDER_USER_ID",
-          "BUILDER_ORG_NAME",
-          "BUILDER_ORG_KIND",
-        ];
-
         // We intentionally do NOT rewrite the `.env` file on disconnect.
         // A `.env` write triggers nitro's file watcher → env-runner
         // restart, which tears down in-flight SSE / HMR connections and
@@ -450,17 +448,31 @@ export function createCoreRoutesPlugin(
         // Builder engine before any gateway call). `.env` keys, if any
         // survive, are neutered by the flag-driven scrub in plugin init.
 
-        // 1. Write the disconnect flag. This is load-bearing — it's what
-        // every subsequent check consults.
-        let dbErr: Error | null = null;
+        // 1. Write the disconnect flag. This is load-bearing — every
+        // subsequent check (plugin init scrub, /builder/status override,
+        // BuilderEngine.stream short-circuit) reads this flag. If the
+        // write fails, we FAIL HARD: clearing process.env without
+        // persisting the flag means the next env-runner reload would
+        // silently restore BUILDER_* from whatever inherited env the
+        // worker was spawned with, and the user would see "Disconnected"
+        // in the UI that flips back to "Connected" moments later.
         try {
           await putSetting("builder-disconnected", { at: Date.now() });
         } catch (err) {
-          dbErr = err instanceof Error ? err : new Error(String(err));
+          setResponseStatus(event, 500);
+          return {
+            ok: false,
+            error:
+              "Could not persist disconnect flag — your Builder connection is unchanged. Please retry.",
+            cause: err instanceof Error ? err.message : String(err),
+          };
         }
 
         // 2. Scrub the persisted-env-vars row so serverless cold starts
-        // don't rehydrate BUILDER_* from SQL.
+        // don't rehydrate BUILDER_* from SQL. Best-effort: the disconnect
+        // flag above already prevents Builder from being used; this is
+        // cleanup.
+        let warnPersisted: string | undefined;
         try {
           const existing =
             ((await getSetting("persisted-env-vars")) as Record<
@@ -473,7 +485,7 @@ export function createCoreRoutesPlugin(
           }
           await putSetting("persisted-env-vars", cleaned);
         } catch (err) {
-          if (!dbErr) dbErr = err instanceof Error ? err : new Error(String(err));
+          warnPersisted = err instanceof Error ? err.message : String(err);
         }
 
         // 3. Clear in-process env vars so the current worker stops routing
@@ -484,15 +496,9 @@ export function createCoreRoutesPlugin(
           delete process.env[key];
         }
 
-        // Surface partial-failure info so the UI can tell the user when
-        // process.env was cleared but the DB write failed. The UI still
-        // treats the response as success — in-memory routing is
-        // disconnected, which is the user-visible effect.
         return {
           ok: true,
-          warnings: {
-            ...(dbErr ? { db: dbErr.message } : {}),
-          },
+          ...(warnPersisted ? { warnings: { persistedEnvVars: warnPersisted } } : {}),
         };
       }),
     );
