@@ -32,7 +32,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       p.startsWith("/api/") ||
       p === "/favicon.ico" ||
       p === "/favicon.png" ||
-      /\.\w+$/.test(p)
+      (/\.\w+$/.test(p) && !p.endsWith(".data"))
     ) {
       return new Response(null, { status: 404 });
     }
