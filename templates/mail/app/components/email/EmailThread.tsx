@@ -1160,6 +1160,9 @@ export function EmailThread({
         className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4"
       >
         <div className="max-w-3xl mx-auto pt-1.5 space-y-1.5">
+          {!hasFullBody && messages.length > 0 && (
+            <ThreadMessageSkeleton compact />
+          )}
           {messages.map((msg, idx) => {
             const isExpanded = expandedIds.has(msg.id);
             const isFocused = idx === focusedIndex;
@@ -1408,17 +1411,7 @@ function ThreadLoadingState({
                     <p className="text-[13px] text-foreground/80 leading-relaxed">
                       {preview.snippet}
                     </p>
-                    <div className="space-y-2 pt-1">
-                      <Skeleton className="h-3 w-full" />
-                      <Skeleton className="h-3 w-[95%]" />
-                      <Skeleton className="h-3 w-full" />
-                      <Skeleton className="h-3 w-[88%]" />
-                      <Skeleton className="h-3 w-[72%]" />
-                      <div className="pt-1" />
-                      <Skeleton className="h-3 w-full" />
-                      <Skeleton className="h-3 w-[90%]" />
-                      <Skeleton className="h-3 w-[60%]" />
-                    </div>
+                    <BodySkeleton />
                   </div>
                 </div>
               </div>
@@ -1464,6 +1457,22 @@ function ThreadMessageSkeleton({ compact = false }: { compact?: boolean }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function BodySkeleton() {
+  return (
+    <div className="space-y-2 pt-1">
+      <Skeleton className="h-3 w-full" />
+      <Skeleton className="h-3 w-[95%]" />
+      <Skeleton className="h-3 w-full" />
+      <Skeleton className="h-3 w-[88%]" />
+      <Skeleton className="h-3 w-[72%]" />
+      <div className="pt-1" />
+      <Skeleton className="h-3 w-full" />
+      <Skeleton className="h-3 w-[90%]" />
+      <Skeleton className="h-3 w-[60%]" />
     </div>
   );
 }
@@ -1708,30 +1717,16 @@ const ExpandedMessageCard = forwardRef<
             searchTerm={searchTerm}
             activeLocalIdx={activeLocalIdx}
           />
-        ) : email.body ? (
-          <PlainTextBody
-            body={email.body}
-            searchTerm={searchTerm}
-            activeLocalIdx={activeLocalIdx}
-          />
-        ) : email.snippet ? (
+        ) : (
           <div className="space-y-2.5">
-            <p className="text-[13px] text-foreground/80 leading-relaxed">
-              {email.snippet}
-            </p>
-            <div className="space-y-2 pt-1">
-              <Skeleton className="h-3 w-full" />
-              <Skeleton className="h-3 w-[95%]" />
-              <Skeleton className="h-3 w-full" />
-              <Skeleton className="h-3 w-[88%]" />
-              <Skeleton className="h-3 w-[72%]" />
-              <div className="pt-1" />
-              <Skeleton className="h-3 w-full" />
-              <Skeleton className="h-3 w-[90%]" />
-              <Skeleton className="h-3 w-[60%]" />
-            </div>
+            {(email.body || email.snippet) && (
+              <p className="text-[13px] text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                {email.body || email.snippet}
+              </p>
+            )}
+            <BodySkeleton />
           </div>
-        ) : null}
+        )}
       </div>
 
       {/* Attachments */}
