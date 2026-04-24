@@ -192,6 +192,27 @@ export function EmailThread({
   // Use the latest message as the "primary" email for actions/metadata
   const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
 
+  // DEBUG — remove after confirming skeleton works
+  if (threadId) {
+    const e = email;
+    console.log(
+      "%c[EmailThread DEBUG]",
+      "color:red;font-weight:bold",
+      JSON.stringify({
+        isBodyLoading,
+        isHydratingThread,
+        isThreadFetching,
+        isThreadFromCache,
+        hasEmail: !!e,
+        bodyHtml: !!e?.bodyHtml,
+        bodyLen: e?.body?.length ?? -1,
+        bodyTruthy: !!e?.body,
+        snippet: !!e?.snippet,
+        msgCount: messages.length,
+      }),
+    );
+  }
+
   // Extract preview data from the threads prop for loading states. When the
   // user clicks from the list or presses j/k, we always have the thread
   // summary even if the full thread hasn't loaded yet.
@@ -1747,7 +1768,12 @@ const ExpandedMessageCard = forwardRef<
             activeLocalIdx={activeLocalIdx}
           />
         ) : isLoadingBody ? (
-          <div className="space-y-2">
+          <div className="space-y-2 border-2 border-red-500 p-2">
+            <p className="text-xs text-red-500 font-bold">
+              DEBUG: isLoadingBody=true, bodyHtml={String(!!email.bodyHtml)},
+              body="{email.body?.slice(0, 20)}", snippet=
+              {String(!!email.snippet)}
+            </p>
             {email.snippet && (
               <p className="text-[13px] text-foreground/80 leading-relaxed">
                 {email.snippet}
