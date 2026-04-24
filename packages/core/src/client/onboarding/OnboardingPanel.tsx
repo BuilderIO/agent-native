@@ -242,12 +242,18 @@ function MethodBlock({
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
-  const isBuilder = method.kind === "builder-cli-auth";
-  // While env-status is loading (builderEnabled === null), don't render
-  // the builder method at all — otherwise we flash the waitlist CTA for
-  // Builder-enabled deployments.
-  if (isBuilder && builderEnabled === null) return null;
-  const waitlist = isBuilder && !builderEnabled;
+  // Waitlist branch only applies to builder-cli-auth methods that opted in
+  // by specifying a `waitlistUrl` in their payload — e.g. the framework's
+  // "Connect an AI engine" step (Builder LLM gateway is still closed beta).
+  // GA methods like clips' Video storage omit waitlistUrl and always
+  // render the real Connect flow.
+  const waitlistUrl =
+    method.kind === "builder-cli-auth" ? method.payload.waitlistUrl : undefined;
+  const gated = method.kind === "builder-cli-auth" && !!waitlistUrl;
+  // While env-status is loading for a gated method, render nothing rather
+  // than flashing the waitlist CTA on Builder-enabled deployments.
+  if (gated && builderEnabled === null) return null;
+  const waitlist = gated && !builderEnabled;
   return (
     <div style={method.primary ? styles.methodPrimary : styles.method}>
       <div style={styles.methodHeader}>
@@ -265,6 +271,7 @@ function MethodBlock({
         method={method}
         stepId={stepId}
         waitlist={waitlist}
+        waitlistUrl={waitlistUrl}
         onCompleted={onCompleted}
         onMarkManualComplete={onMarkManualComplete}
       />
@@ -276,12 +283,14 @@ function MethodBody({
   method,
   stepId,
   waitlist,
+  waitlistUrl,
   onCompleted,
   onMarkManualComplete,
 }: {
   method: OnboardingMethod;
   stepId: string;
   waitlist: boolean;
+  waitlistUrl: string | undefined;
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
@@ -293,17 +302,17 @@ function MethodBody({
     case "form":
       return <FormMethod method={method} onCompleted={onCompleted} />;
     case "builder-cli-auth":
-      if (waitlist) return <WaitlistMethod primary={method.primary} />;
+      if (waitlist && waitlistUrl) return <WaitlistMethod url={waitlistUrl} />;
       return <BuilderCliAuthMethod onCompleted={onCompleted} />;
     case "agent-task":
       return <AgentTaskMethod method={method} stepId={stepId} />;
   }
 }
 
-function WaitlistMethod({ primary: _primary }: { primary?: boolean }) {
+function WaitlistMethod({ url }: { url: string }) {
   return (
     <a
-      href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
+      href={url}
       target="_blank"
       rel="noopener noreferrer"
       style={{

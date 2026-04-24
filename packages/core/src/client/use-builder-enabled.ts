@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 /**
  * Tri-state:
@@ -11,26 +11,26 @@ import { useEffect, useState } from "react";
  * flash the waitlist CTA before the fetch settles, and a user could
  * click "Join waitlist" when Connect Builder.io would have worked.
  *
- * Resolves to `false` on network failure so callers don't hang on
- * loading forever; transient errors gracefully degrade to the
- * conservative "Builder off" branch.
+ * Backed by React Query so multiple consumers (OnboardingPanel,
+ * template-specific setup cards, etc.) share a single in-flight request
+ * and a cached answer — no duplicate fetches to /_agent-native/env-status.
  */
 export function useBuilderEnabled(): boolean | null {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/_agent-native/env-status")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((keys: Array<{ key: string; configured: boolean }>) => {
-        if (cancelled) return;
-        setEnabled(!!keys.find((k) => k.key === "ENABLE_BUILDER")?.configured);
-      })
-      .catch(() => {
-        if (!cancelled) setEnabled(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return enabled;
+  const { data, isLoading, isError } = useQuery<boolean>({
+    queryKey: ["env-status", "ENABLE_BUILDER"],
+    queryFn: async () => {
+      const res = await fetch("/_agent-native/env-status");
+      if (!res.ok) return false;
+      const keys = (await res.json()) as Array<{
+        key: string;
+        configured: boolean;
+      }>;
+      return !!keys.find((k) => k.key === "ENABLE_BUILDER")?.configured;
+    },
+    staleTime: 30_000,
+    retry: false,
+  });
+  if (isLoading) return null;
+  if (isError) return false;
+  return data ?? null;
 }

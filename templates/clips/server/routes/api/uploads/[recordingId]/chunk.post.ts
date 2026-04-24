@@ -14,6 +14,7 @@
  */
 
 import {
+  createError,
   defineEventHandler,
   getRouterParam,
   getQuery,
@@ -53,8 +54,10 @@ export default defineEventHandler(async (event: H3Event) => {
   // whole recording and sends it on every chunk. Never guess — a wrong
   // default writes the wrong Content-Type to storage.
   if (typeof query.mimeType !== "string" || !query.mimeType) {
-    setResponseStatus(event, 400);
-    return { error: "Missing mimeType query param" };
+    throw createError({
+      statusCode: 400,
+      message: "Missing mimeType query param",
+    });
   }
   const mimeType = query.mimeType;
 

@@ -88,7 +88,10 @@ const llmStep: OnboardingStep = {
       label: "Connect Builder",
       description: "Unlocks LLM + browser automation + more. Free during beta.",
       badge: "free",
-      payload: { scope: "browser" },
+      payload: {
+        scope: "browser",
+        waitlistUrl: "https://forms.agent-native.com/f/builder-waitlist/36GWqf",
+      },
     },
   ],
   isComplete: async () => {
