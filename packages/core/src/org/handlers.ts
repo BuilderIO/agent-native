@@ -194,10 +194,13 @@ export const createInvitationHandler = defineEventHandler(
     // Existing rows in org_members / org_invitations may have any case
     // (writes haven't been normalized historically). Compare with LOWER
     // on both sides so an "alice@..." invite check correctly recognizes
-    // an existing "Alice@..." membership.
+    // an existing "Alice@..." membership. `email` is already lowercased
+    // at parse time above, but call .toLowerCase() explicitly here so
+    // the contract at the SQL boundary matches every other handler in
+    // this file.
     const existingMember = await e.execute({
       sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-      args: [ctx.orgId, email],
+      args: [ctx.orgId, email.toLowerCase()],
     });
     if (existingMember.rows.length > 0) {
       throw createError({
@@ -208,7 +211,7 @@ export const createInvitationHandler = defineEventHandler(
 
     const existingInvite = await e.execute({
       sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
-      args: [ctx.orgId, email],
+      args: [ctx.orgId, email.toLowerCase()],
     });
     if (existingInvite.rows.length > 0) {
       throw createError({
@@ -360,17 +363,20 @@ export const removeMemberHandler = defineEventHandler(
       throw createError({ statusCode: 400, message: "Email is required" });
     }
 
-    if (memberEmail === ctx.email && ctx.role === "owner") {
+    // memberEmail comes from the URL path verbatim; org_members may
+    // hold the row with any case. LOWER both sides for the lookup AND
+    // the DELETE so removal works regardless of how either side cased
+    // it. The self-removal guard ALSO compares case-insensitively —
+    // otherwise an owner whose email was stored as Alice@... could
+    // remove themselves via the lowercase URL alice@..., bypassing the
+    // guard and leaving the org ownerless.
+    const memberEmailLower = memberEmail.toLowerCase();
+    if (memberEmailLower === ctx.email.toLowerCase() && ctx.role === "owner") {
       throw createError({
         statusCode: 400,
         message: "Organization owner cannot remove themselves",
       });
     }
-
-    // memberEmail comes from the URL path verbatim; org_members may
-    // hold the row with any case. LOWER both sides for the lookup AND
-    // the DELETE so removal works regardless of how either side cased it.
-    const memberEmailLower = memberEmail.toLowerCase();
     const e = await exec();
     const target = await e.execute({
       sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
