@@ -225,26 +225,24 @@ async function acquireClaim(
     });
     return true;
   } catch {
-    // Conflict — someone else's claim is in the row. If it's stale, take
-    // it over; otherwise yield.
-    const existing = (await getSetting(claimKey).catch(() => null)) as {
-      at?: number;
-    } | null;
-    const at = typeof existing?.at === "number" ? existing.at : 0;
-    if (now - at < CLAIM_TTL_MS) return false;
-
-    await exec
-      .execute({ sql: `DELETE FROM settings WHERE key = ?`, args: [claimKey] })
-      .catch(() => {});
-    try {
-      await exec.execute({
-        sql: `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
-        args: [claimKey, JSON.stringify({ at: now }), now],
-      });
-      return true;
-    } catch {
-      return false;
-    }
+    // Conflict — someone else's claim is already in the row. If it's
+    // stale (older than CLAIM_TTL_MS) we take it over.
+    //
+    // CRITICAL: this MUST be a single atomic UPDATE guarded on
+    // `updated_at <= staleThreshold`. A read-then-DELETE-then-INSERT
+    // sequence lets two concurrent reclaimers each observe the stale
+    // timestamp, delete each other's fresh claim, and both think they
+    // won — duplicating org creation. The conditional UPDATE matches
+    // each stale row at most once: only the first writer sees
+    // rowsAffected === 1; the row's updated_at is now `now`, so any
+    // subsequent UPDATE no longer satisfies `updated_at <= staleThreshold`
+    // and matches zero rows.
+    const staleThreshold = now - CLAIM_TTL_MS;
+    const result = (await exec.execute({
+      sql: `UPDATE settings SET value = ?, updated_at = ? WHERE key = ? AND updated_at <= ?`,
+      args: [JSON.stringify({ at: now }), now, claimKey, staleThreshold],
+    })) as { rowsAffected?: number };
+    return (result.rowsAffected ?? 0) > 0;
   }
 }
 
