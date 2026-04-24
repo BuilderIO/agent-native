@@ -219,3 +219,36 @@ export async function resolveEngine(
   }
   return anthropicEntry.create({ apiKey });
 }
+
+/**
+ * Read the user-selected model for an engine from the `agent-engine` setting.
+ *
+ * The settings UI writes `{engine, model}` via the `set-agent-engine` action,
+ * but `resolveEngine` only uses the stored engine (the model is a separate
+ * per-request concern). Call this helper alongside `resolveEngine` to honor
+ * the user's model choice without requiring a process restart.
+ *
+ * Returns the stored model only when the stored engine name matches `engine`
+ * — otherwise returns `undefined` to avoid applying an Anthropic model string
+ * to, say, an OpenRouter engine.
+ */
+export async function getStoredModelForEngine(
+  engine: AgentEngine | string,
+): Promise<string | undefined> {
+  const engineName = typeof engine === "string" ? engine : engine.name;
+  try {
+    const stored = await getSetting("agent-engine");
+    if (
+      stored &&
+      typeof stored.engine === "string" &&
+      stored.engine === engineName &&
+      typeof stored.model === "string" &&
+      stored.model.length > 0
+    ) {
+      return stored.model;
+    }
+  } catch {
+    // Settings store not ready (fresh install, migration pending) — skip.
+  }
+  return undefined;
+}

@@ -17,7 +17,11 @@ import type {
   EngineMessage,
   EngineContentPart,
 } from "./engine/types.js";
-import { resolveEngine, registerBuiltinEngines } from "./engine/index.js";
+import {
+  resolveEngine,
+  registerBuiltinEngines,
+  getStoredModelForEngine,
+} from "./engine/index.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import {
@@ -584,7 +588,16 @@ export function createProductionAgentHandler(
       });
     }
 
-    const model = requestModel ?? configuredModel ?? engine.defaultModel;
+    // Honor the model the user picked in the settings UI (written via
+    // `set-agent-engine`), but only when the caller hasn't overridden it for
+    // this request or at plugin construction time. Read per-request so a
+    // dropdown change in the UI takes effect without a server restart. Skip
+    // the DB read entirely when a higher-precedence value is set.
+    const model =
+      requestModel ??
+      configuredModel ??
+      (await getStoredModelForEngine(engine)) ??
+      engine.defaultModel;
 
     options.onEngineResolved?.(engine, model);
 

@@ -22,6 +22,7 @@ export {
   getAgentEngineEntry,
   listAgentEngines,
   resolveEngine,
+  getStoredModelForEngine,
   detectEngineFromEnv,
   isAgentEngineSettingConfigured,
   isStoredEngineUsable,
