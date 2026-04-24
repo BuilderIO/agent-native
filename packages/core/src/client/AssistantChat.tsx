@@ -67,6 +67,12 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 
+const ThumbsFeedbackLazy = React.lazy(() =>
+  import("./observability/ThumbsFeedback.js").then((m) => ({
+    default: m.ThumbsFeedback,
+  })),
+);
+
 // ─── Markdown Text ──────────────────────────────────────────────────────────
 
 const markdownStyles = `
@@ -970,6 +976,17 @@ function AssistantMessage() {
               <IconCopy className="h-3 w-3" />
             )}
           </button>
+          <React.Suspense fallback={null}>
+            <ThumbsFeedbackLazy
+              threadId={cpCtx?.threadId ?? ""}
+              runId={
+                ((messageRuntime.getState().metadata as any)?.runId as
+                  | string
+                  | undefined) ?? ""
+              }
+              messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
+            />
+          </React.Suspense>
           {showRestore && restoreState === "idle" && (
             <button
               onClick={handleRestore}
@@ -1447,17 +1464,22 @@ export function clearChatStorage(tabId?: string) {
 }
 
 /**
- * Ensure all messages in a thread repository have `metadata: {}`.
- * assistant-ui's _getMessageRuntime accesses `message.metadata.submittedFeedback`
- * without null-checking, so server-constructed messages without metadata crash.
+ * Ensure all messages in a thread repository have required fields.
+ * assistant-ui accesses `message.metadata.submittedFeedback` and
+ * `lastMessage.status.type` without null-checking, so server-constructed
+ * messages missing these fields crash.
  */
 function ensureMessageMetadata(repo: any): any {
   if (!repo?.messages || !Array.isArray(repo.messages)) return repo;
   for (const entry of repo.messages) {
     // Handle both wrapped ({ message: { ... } }) and flat ({ role, ... }) formats
     const msg = entry?.message ?? entry;
-    if (msg && !msg.metadata) {
+    if (!msg) continue;
+    if (!msg.metadata) {
       msg.metadata = {};
+    }
+    if (msg.role === "assistant" && !msg.status) {
+      msg.status = { type: "complete", reason: "stop" };
     }
   }
   return repo;

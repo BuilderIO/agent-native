@@ -1,23 +1,42 @@
 import type { H3Event } from "h3";
 import { getSession } from "../server/auth.js";
-import { getUserSetting } from "../settings/user-settings.js";
+import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
 import { getDbExec } from "../db/client.js";
+import { getSetting } from "../settings/store.js";
 import type { OrgContext, OrgRole } from "./types.js";
+
+const EMPTY_CONTEXT: OrgContext = {
+  email: "",
+  orgId: null,
+  orgName: null,
+  role: null,
+};
+
+const nanoid = (): string =>
+  globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
+  Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 /**
  * Resolve the current user's organization context from their session.
  *
- * - Returns `orgId: null` for solo / dev mode (`local@localhost`).
  * - For users in multiple orgs, honors their `active-org-id` user setting.
  * - Falls back to the user's first membership.
+ * - `local@localhost` (dev / no-auth mode) is treated as a regular identity:
+ *   it owns whatever orgs it has created locally.
+ * - When `AUTO_CREATE_DEFAULT_ORG` is set and the authenticated user has
+ *   zero memberships, provisions a default org named after the user
+ *   ({name}'s workspace, falling back to the email local-part). Opt-in
+ *   per deployment so templates that don't use orgs don't accrue phantom
+ *   default orgs in their DB. The <RequireActiveOrg> client guard remains
+ *   the safety net for pre-existing accounts or provisioning failures.
  */
 export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   const session = await getSession(event);
-  const email = session?.email ?? "local@localhost";
-
-  if (email === "local@localhost") {
-    return { email, orgId: null, orgName: null, role: null };
-  }
+  const email = session?.email;
+  // No `?? "local@localhost"` fallback — if the session is genuinely
+  // missing (misconfigured prod, expired token mid-request) don't
+  // silently promote the caller to the shared dev identity.
+  if (!email) return EMPTY_CONTEXT;
 
   const exec = getDbExec();
 
@@ -42,6 +61,13 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   } catch {
     // Tables may not exist yet on first boot before migrations finish.
     return { email, orgId: null, orgName: null, role: null };
+  }
+
+  if (memberships.length === 0 && process.env.AUTO_CREATE_DEFAULT_ORG) {
+    const created = await tryCreateDefaultOrg(exec, email, session);
+    if (created) return created;
+    // Creation failed (race / DB error); fall through and let the
+    // RequireActiveOrg client guard prompt the user.
   }
 
   if (memberships.length === 0) {
@@ -73,4 +99,117 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
     orgName: memberships[0].orgName,
     role: memberships[0].role,
   };
+}
+
+function defaultOrgName(
+  email: string,
+  session: { name?: string } | null,
+): string {
+  const full = session?.name?.trim();
+  if (full) return `${full}'s workspace`;
+  const local = email.split("@")[0] ?? email;
+  const cleaned = local.replace(/[._-]+/g, " ").trim();
+  const titled =
+    cleaned
+      .split(" ")
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ") || "My";
+  return `${titled}'s workspace`;
+}
+
+/**
+ * Check whether the user has a pending invitation. If so, auto-create
+ * MUST be skipped — otherwise we'd provision a personal org for them
+ * before they ever see the inviter's org in the RequireActiveOrg
+ * accept-invite pane, and they'd never join the team that invited them.
+ */
+async function hasPendingInvitation(
+  exec: ReturnType<typeof getDbExec>,
+  email: string,
+): Promise<boolean> {
+  try {
+    const { rows } = await exec.execute({
+      sql: `SELECT 1 FROM org_invitations WHERE LOWER(email) = ? AND status = 'pending' LIMIT 1`,
+      args: [email.toLowerCase()],
+    });
+    return rows.length > 0;
+  } catch {
+    // If we can't tell, err on the side of NOT auto-creating — the
+    // RequireActiveOrg client guard will surface the situation.
+    return true;
+  }
+}
+
+/**
+ * Attempt to provision a default org + owner membership for a user with
+ * zero memberships.
+ *
+ * Race protection: claims the user's auto-create slot via an atomic
+ * INSERT into the framework `settings` table (PRIMARY KEY (key) — so
+ * concurrent inserts for the same key throw uniqueness violations on
+ * both SQLite and Postgres). Only the request that wins the claim
+ * proceeds to create the org; losers bail. By the time a losing
+ * request retries on a subsequent navigation, the winner's org is in
+ * `org_members` and the auto-create branch is skipped entirely.
+ *
+ * Returns null on any failure so the caller can fall back to the
+ * empty-context / client-guard path.
+ */
+async function tryCreateDefaultOrg(
+  exec: ReturnType<typeof getDbExec>,
+  email: string,
+  session: { name?: string } | null,
+): Promise<OrgContext | null> {
+  // Skip auto-create if there's a pending invite — the user should join
+  // the inviter's org via the RequireActiveOrg accept-invite pane, not
+  // be silently dropped into a personal workspace they didn't ask for.
+  if (await hasPendingInvitation(exec, email)) return null;
+
+  // Make sure the framework `settings` table exists before we use it as
+  // a claim primitive. getSetting() ensures the table on first call.
+  await getSetting("__init").catch(() => null);
+
+  const claimKey = `u:${email.toLowerCase()}:auto-create-claim`;
+  try {
+    await exec.execute({
+      sql: `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
+      args: [claimKey, JSON.stringify({ at: Date.now() }), Date.now()],
+    });
+  } catch {
+    // INSERT failed → another request already claimed this user's
+    // auto-create slot. Bail; their request will create the org and a
+    // future getOrgContext call from this user will see non-empty
+    // memberships and skip the auto-create branch.
+    return null;
+  }
+
+  try {
+    const orgId = nanoid();
+    const orgName = defaultOrgName(email, session);
+    const now = Date.now();
+
+    await exec.execute({
+      sql: `INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)`,
+      args: [orgId, orgName, email, now],
+    });
+    await exec.execute({
+      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+      args: [nanoid(), orgId, email, "owner", now],
+    });
+
+    await putUserSetting(email, "active-org-id", { orgId });
+
+    return { email, orgId, orgName, role: "owner" };
+  } catch {
+    // Org / member insert failed AFTER we won the claim. Drop the claim
+    // so a future request from this user can retry auto-create —
+    // otherwise the claim row would permanently block provisioning and
+    // the user would be stuck on RequireActiveOrg without any recovery
+    // path short of manual creation.
+    await exec
+      .execute({ sql: `DELETE FROM settings WHERE key = ?`, args: [claimKey] })
+      .catch(() => {});
+    return null;
+  }
 }

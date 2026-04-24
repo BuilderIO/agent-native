@@ -72,6 +72,8 @@ export interface AuthSession {
   email: string;
   userId?: string;
   token?: string;
+  /** Display name from the auth provider, when available (Better Auth user.name). */
+  name?: string;
   /** Active organization ID (from Better Auth organization plugin) */
   orgId?: string;
   /** User's role in the active organization (owner/admin/member) */
@@ -522,12 +524,13 @@ function createAuthGuardFn(): (
  * Map a Better Auth session to our AuthSession type.
  */
 function mapBetterAuthSession(baSession: {
-  user: { id: string; email: string };
+  user: { id: string; email: string; name?: string };
   session: { token: string; activeOrganizationId?: string };
 }): AuthSession {
   return {
     email: baSession.user.email,
     userId: baSession.user.id,
+    name: baSession.user.name,
     token: baSession.session?.token,
     orgId: baSession.session?.activeOrganizationId ?? undefined,
   };

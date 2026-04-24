@@ -69,6 +69,7 @@ Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant s
 | `onboarding`          | Registering setup steps for API keys / OAuth                  |
 | `secrets`             | Declaratively register API keys the template needs            |
 | `automations`         | Event-triggered and schedule-triggered automations            |
+| `observability`       | Agent traces, evals, feedback, experiments, and dashboard     |
 | `tracking`            | Server-side analytics with pluggable providers                |
 | `sharing`             | Per-user / per-org sharing and access checks on resources     |
 | `voice-transcription` | Voice dictation in the agent composer (Whisper / browser)     |

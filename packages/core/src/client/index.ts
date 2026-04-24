@@ -5,6 +5,7 @@ export {
 } from "./agent-chat.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
 export { useDevMode } from "./use-dev-mode.js";
+export { useBuilderEnabled } from "./use-builder-enabled.js";
 export { useSendToAgentChat } from "./use-send-to-agent-chat.js";
 export {
   CodeRequiredDialog,
@@ -151,3 +152,7 @@ export {
   uploadAvatar,
   invalidateAvatarCache,
 } from "./use-avatar.js";
+export {
+  ObservabilityDashboard,
+  ThumbsFeedback,
+} from "./observability/index.js";
