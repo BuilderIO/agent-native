@@ -33,9 +33,17 @@ function adaptSqlForSqlite(sql: string): string {
   return sql.replace(/ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS/gi, "ADD COLUMN");
 }
 
-function isDuplicateColumnError(err: unknown): boolean {
+/**
+ * True when an error from `ALTER TABLE ... ADD COLUMN` indicates the
+ * column already existed. Recognizes both SQLite ("duplicate column
+ * name") and Postgres ("column ... already exists" — exact text varies
+ * by error code 42701, but the substring is stable). Exported so other
+ * idempotent column-upgrade loops in the codebase don't reinvent this
+ * regex with subtly different shapes.
+ */
+export function isDuplicateColumnError(err: unknown): boolean {
   const msg = (err as Error | undefined)?.message ?? "";
-  return /duplicate column name/i.test(msg);
+  return /duplicate column name/i.test(msg) || /already exists/i.test(msg);
 }
 
 /**

@@ -15,6 +15,10 @@ export interface TraceSpan {
   id: string;
   runId: string;
   threadId: string | null;
+  /** Owner of the run that produced this span. Null for legacy rows
+   *  written before per-user isolation; null also means "no auth context"
+   *  (background tasks, etc.) and is filtered out of per-user reads. */
+  userId: string | null;
   parentSpanId: string | null;
   spanType: SpanType;
   name: string;
@@ -33,6 +37,8 @@ export interface TraceSpan {
 export interface TraceSummary {
   runId: string;
   threadId: string | null;
+  /** See `TraceSpan.userId`. */
+  userId: string | null;
   totalSpans: number;
   llmCalls: number;
   toolCalls: number;
@@ -64,6 +70,9 @@ export interface FeedbackEntry {
 export interface SatisfactionScore {
   id: string;
   threadId: string;
+  /** Owner of the thread the score was computed for. Same null semantics
+   *  as `TraceSpan.userId`. */
+  userId: string | null;
   frustrationScore: number;
   rephrasingScore: number;
   abandonmentScore: number;
@@ -80,6 +89,9 @@ export interface EvalResult {
   id: string;
   runId: string;
   threadId: string | null;
+  /** Owner of the run being evaluated. Same null semantics as
+   *  `TraceSpan.userId`. */
+  userId: string | null;
   evalType: EvalType;
   criteria: string;
   score: number;

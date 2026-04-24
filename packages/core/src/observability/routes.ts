@@ -101,11 +101,14 @@ export function createObservabilityHandler() {
       }
     }
 
+    // Every read endpoint passes `userId: owner` to the store. Omitting
+    // it returns rows from every user — load-bearing.
+
     // GET / — overview stats
     if (method === "GET" && parts.length === 0) {
       const q = getQuery(event);
       const sinceMs = parseSince(q);
-      return getObservabilityOverview(sinceMs);
+      return getObservabilityOverview(sinceMs, { userId: owner });
     }
 
     // GET /traces — list trace summaries
@@ -114,6 +117,7 @@ export function createObservabilityHandler() {
       return getTraceSummaries({
         sinceMs: parseSince(q),
         limit: parseLimit(q),
+        userId: owner,
       });
     }
 
@@ -124,15 +128,19 @@ export function createObservabilityHandler() {
       parts[0] === "traces" &&
       parts[2] === "evals"
     ) {
-      return getEvalsForRun(decodeURIComponent(parts[1]));
+      return getEvalsForRun(decodeURIComponent(parts[1]), { userId: owner });
     }
 
-    // GET /traces/:runId — trace detail (summary + spans)
+    // GET /traces/:runId — trace detail (summary + spans). Looking up by
+    // runId opens an IDOR vector if we don't ALSO scope to the owner —
+    // a user who knows or guesses another user's runId would otherwise
+    // get back the trace. The `userId: owner` filter on both lookups
+    // returns 404 instead.
     if (method === "GET" && parts.length === 2 && parts[0] === "traces") {
       const runId = decodeURIComponent(parts[1]);
       const [summary, spans] = await Promise.all([
-        getTraceSummary(runId),
-        getTraceSpansForRun(runId),
+        getTraceSummary(runId, { userId: owner }),
+        getTraceSpansForRun(runId, { userId: owner }),
       ]);
       if (!summary) {
         setResponseStatus(event, 404);
@@ -149,7 +157,7 @@ export function createObservabilityHandler() {
       parts[1] === "stats"
     ) {
       const q = getQuery(event);
-      return getFeedbackStats(parseSince(q));
+      return getFeedbackStats(parseSince(q), { userId: owner });
     }
 
     // POST /feedback — submit feedback
@@ -188,11 +196,13 @@ export function createObservabilityHandler() {
         userId: owner,
         createdAt: Date.now(),
       });
-      // Fire-and-forget: recompute satisfaction score for the thread
+      // Fire-and-forget: recompute satisfaction score for the thread.
       if (body.threadId) {
         import("./feedback.js")
           .then(({ computeSatisfactionScore }) =>
-            computeSatisfactionScore(String(body.threadId)).catch(() => {}),
+            computeSatisfactionScore(String(body.threadId), {
+              userId: owner,
+            }).catch(() => {}),
           )
           .catch(() => {});
       }
@@ -205,13 +215,17 @@ export function createObservabilityHandler() {
       return getFeedback({
         sinceMs: parseSince(q),
         limit: parseLimit(q),
+        userId: owner,
       });
     }
 
     // GET /satisfaction — satisfaction scores
     if (method === "GET" && parts.length === 1 && parts[0] === "satisfaction") {
       const q = getQuery(event);
-      return getSatisfactionScores({ sinceMs: parseSince(q) });
+      return getSatisfactionScores({
+        sinceMs: parseSince(q),
+        userId: owner,
+      });
     }
 
     // GET /evals/stats — eval stats
@@ -222,7 +236,7 @@ export function createObservabilityHandler() {
       parts[1] === "stats"
     ) {
       const q = getQuery(event);
-      return getEvalStats(parseSince(q));
+      return getEvalStats(parseSince(q), { userId: owner });
     }
 
     // POST /experiments — create experiment

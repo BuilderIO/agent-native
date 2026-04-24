@@ -16,25 +16,39 @@ const LATENCY_BASELINE_PER_TOOL_MS = 10_000;
 const COST_BASELINE_PER_TOOL_CX100 = 50;
 const LLM_JUDGE_TIMEOUT_MS = 30_000;
 
-function makeEvalResult(
-  runId: string,
-  threadId: string | null,
-  evalType: EvalResult["evalType"],
-  criteria: string,
-  score: number,
-  reasoning: string | null = null,
-  metadata: Record<string, unknown> | null = null,
-): EvalResult {
+interface MakeEvalResultOpts {
+  runId: string;
+  threadId: string | null;
+  userId: string | null;
+  evalType: EvalResult["evalType"];
+  criteria: string;
+  score: number;
+  reasoning?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+function makeEvalResult(opts: MakeEvalResultOpts): EvalResult {
   return {
     id: crypto.randomUUID(),
-    runId,
-    threadId,
-    evalType,
-    criteria,
-    score: Math.max(0, Math.min(1, score)),
-    reasoning,
-    metadata,
+    runId: opts.runId,
+    threadId: opts.threadId,
+    userId: opts.userId,
+    evalType: opts.evalType,
+    criteria: opts.criteria,
+    score: Math.max(0, Math.min(1, opts.score)),
+    reasoning: opts.reasoning ?? null,
+    metadata: opts.metadata ?? null,
     createdAt: Date.now(),
+  };
+}
+
+/** Lift the (runId, threadId, userId) triple off a TraceSummary —
+ *  every automated scorer pulls these together. */
+function fromSummary(summary: TraceSummary) {
+  return {
+    runId: summary.runId,
+    threadId: summary.threadId,
+    userId: summary.userId,
   };
 }
 
@@ -43,19 +57,17 @@ function makeEvalResult(
 function scoreToolSuccessRate(summary: TraceSummary): EvalResult {
   const total = summary.toolCalls;
   const score = total > 0 ? summary.successfulTools / total : 1.0;
-  return makeEvalResult(
-    summary.runId,
-    summary.threadId,
-    "automated",
-    "tool_success_rate",
+  return makeEvalResult({
+    ...fromSummary(summary),
+    evalType: "automated",
+    criteria: "tool_success_rate",
     score,
-    null,
-    {
+    metadata: {
       totalTools: total,
       successfulTools: summary.successfulTools,
       failedTools: summary.failedTools,
     },
-  );
+  });
 }
 
 function scoreStepEfficiency(summary: TraceSummary): EvalResult {
@@ -67,15 +79,13 @@ function scoreStepEfficiency(summary: TraceSummary): EvalResult {
       : summary.llmCalls > 0
         ? Math.min(1, summary.toolCalls / summary.llmCalls)
         : 1.0;
-  return makeEvalResult(
-    summary.runId,
-    summary.threadId,
-    "automated",
-    "step_efficiency",
+  return makeEvalResult({
+    ...fromSummary(summary),
+    evalType: "automated",
+    criteria: "step_efficiency",
     score,
-    null,
-    { llmCalls: summary.llmCalls, toolCalls: summary.toolCalls },
-  );
+    metadata: { llmCalls: summary.llmCalls, toolCalls: summary.toolCalls },
+  });
 }
 
 function scoreLatency(summary: TraceSummary): EvalResult {
@@ -84,15 +94,13 @@ function scoreLatency(summary: TraceSummary): EvalResult {
     summary.toolCalls * LATENCY_BASELINE_PER_TOOL_MS,
   );
   const score = Math.max(0, 1 - summary.totalDurationMs / expectedMs);
-  return makeEvalResult(
-    summary.runId,
-    summary.threadId,
-    "automated",
-    "latency_score",
+  return makeEvalResult({
+    ...fromSummary(summary),
+    evalType: "automated",
+    criteria: "latency_score",
     score,
-    null,
-    { actualMs: summary.totalDurationMs, expectedMs },
-  );
+    metadata: { actualMs: summary.totalDurationMs, expectedMs },
+  });
 }
 
 function scoreCostEfficiency(summary: TraceSummary): EvalResult {
@@ -101,15 +109,13 @@ function scoreCostEfficiency(summary: TraceSummary): EvalResult {
     summary.toolCalls * COST_BASELINE_PER_TOOL_CX100,
   );
   const score = Math.max(0, 1 - summary.totalCostCentsX100 / expectedCx100);
-  return makeEvalResult(
-    summary.runId,
-    summary.threadId,
-    "automated",
-    "cost_efficiency",
+  return makeEvalResult({
+    ...fromSummary(summary),
+    evalType: "automated",
+    criteria: "cost_efficiency",
     score,
-    null,
-    { actualCx100: summary.totalCostCentsX100, expectedCx100 },
-  );
+    metadata: { actualCx100: summary.totalCostCentsX100, expectedCx100 },
+  });
 }
 
 function scoreErrorRecovery(
@@ -125,15 +131,13 @@ function scoreErrorRecovery(
   } else {
     score = 0;
   }
-  return makeEvalResult(
-    summary.runId,
-    summary.threadId,
-    "automated",
-    "error_recovery",
+  return makeEvalResult({
+    ...fromSummary(summary),
+    evalType: "automated",
+    criteria: "error_recovery",
     score,
-    null,
-    { hadErrors, runStatus },
-  );
+    metadata: { hadErrors, runStatus },
+  });
 }
 
 export async function runAutomatedEvals(runId: string): Promise<EvalResult[]> {
@@ -220,7 +224,7 @@ Evaluate the conversation and respond with ONLY a JSON object (no markdown, no e
 export async function runLlmJudgeEval(
   runId: string,
   criteria: EvalCriteria,
-  opts?: { engine?: AgentEngine; model?: string },
+  opts?: { engine?: AgentEngine; model?: string; userId?: string | null },
 ): Promise<EvalResult | null> {
   try {
     const [events, run] = await Promise.all([
@@ -282,15 +286,16 @@ export async function runLlmJudgeEval(
     const normalizedScore =
       max > min ? (parsed.score - min) / (max - min) : parsed.score;
 
-    const result = makeEvalResult(
+    const result = makeEvalResult({
       runId,
-      run?.threadId ?? null,
-      "llm_judge",
-      criteria.name,
-      normalizedScore,
-      parsed.reasoning,
-      { model, rawScore: parsed.score, scoreRange: { min, max } },
-    );
+      threadId: run?.threadId ?? null,
+      userId: opts?.userId ?? null,
+      evalType: "llm_judge",
+      criteria: criteria.name,
+      score: normalizedScore,
+      reasoning: parsed.reasoning,
+      metadata: { model, rawScore: parsed.score, scoreRange: { min, max } },
+    });
 
     insertEvalResult(result).catch(() => {});
     return result;
@@ -430,14 +435,19 @@ async function evaluateTestCase(
     // Dataset evals use a synthetic runId since there's no real run
     const syntheticRunId = `dataset:${datasetId}:${crypto.randomUUID()}`;
 
-    const result = makeEvalResult(
-      syntheticRunId,
-      null,
-      "llm_judge",
-      criteria.name,
-      normalizedScore,
-      parsed.reasoning,
-      {
+    // Dataset evals are administrative — there's no per-user runId, so
+    // we leave userId null. Per-user reads filter null rows out, which
+    // is the right default; admins can fetch dataset evals via the
+    // unfiltered call path.
+    const result = makeEvalResult({
+      runId: syntheticRunId,
+      threadId: null,
+      userId: null,
+      evalType: "llm_judge",
+      criteria: criteria.name,
+      score: normalizedScore,
+      reasoning: parsed.reasoning,
+      metadata: {
         datasetId,
         model,
         testCaseInput: testCase.input,
@@ -446,7 +456,7 @@ async function evaluateTestCase(
         rawScore: parsed.score,
         scoreRange: { min, max },
       },
-    );
+    });
 
     insertEvalResult(result).catch(() => {});
     return result;
@@ -462,6 +472,11 @@ export async function evaluateRun(
   opts?: { sampleRate?: number },
 ): Promise<EvalResult[]> {
   const results = await runAutomatedEvals(runId);
+  // The automated scorers already stamped each result with the same
+  // userId pulled from the trace summary. Reusing it here avoids a
+  // redundant `getTraceSummary` lookup on every turn (the LLM-judge
+  // path is sample-gated; the lookup wasn't).
+  const userId = results[0]?.userId ?? null;
 
   const sampleRate = opts?.sampleRate ?? 0;
   if (sampleRate > 0 && Math.random() < sampleRate) {
@@ -479,7 +494,7 @@ export async function evaluateRun(
     ];
 
     const judgeResults = await Promise.all(
-      defaultCriteria.map((c) => runLlmJudgeEval(runId, c)),
+      defaultCriteria.map((c) => runLlmJudgeEval(runId, c, { userId })),
     );
 
     for (const r of judgeResults) {
