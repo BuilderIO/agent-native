@@ -383,9 +383,44 @@ export function createCoreRoutesPlugin(
           "BUILDER_ORG_KIND",
         ];
 
-        // 1. Strip Builder keys from the template's `.env` file. We filter
-        // lines out entirely instead of blanking values so a disconnect
-        // leaves the file as if Builder had never been connected.
+        // Order matters: clear the DB row FIRST, process.env second, and
+        // .env last. The .env write triggers nitro's file watcher which
+        // restarts the env runner; on restart, `persisted-env-vars` is
+        // rehydrated into process.env (see core-routes-plugin.ts:118). If
+        // the DB row still has BUILDER_* when the restart fires, the keys
+        // pop right back and the user appears "still connected" even
+        // though the handler returned 200. Clearing the DB before the
+        // .env write closes that race.
+
+        // 1. Scrub the settings row. This is the durable source that
+        // rehydrates on cold start / env-runner restart.
+        let dbErr: Error | null = null;
+        try {
+          const existing =
+            ((await getSetting("persisted-env-vars")) as Record<
+              string,
+              string
+            > | null) ?? {};
+          const cleaned: Record<string, string> = {};
+          for (const [k, v] of Object.entries(existing)) {
+            if (!BUILDER_ENV_KEYS.includes(k)) cleaned[k] = v;
+          }
+          await putSetting("persisted-env-vars", cleaned);
+        } catch (err) {
+          dbErr = err instanceof Error ? err : new Error(String(err));
+        }
+
+        // 2. Clear in-process env vars so the current server immediately
+        // stops routing through Builder for any in-flight-after-this
+        // turn.
+        for (const key of BUILDER_ENV_KEYS) {
+          delete process.env[key];
+        }
+
+        // 3. Strip Builder keys from the template `.env` file so they
+        // aren't re-loaded on the next cold start. This triggers nitro's
+        // watcher → env runner restart, which is why it runs last.
+        let envWriteErr: Error | null = null;
         try {
           const workspaceRoot = findWorkspaceRoot(process.cwd());
           const envPath = workspaceRoot
@@ -411,35 +446,21 @@ export function createCoreRoutesPlugin(
             if (!result.endsWith("\n")) result += "\n";
             fs.writeFileSync(envPath, result);
           }
-        } catch {
-          // Edge runtime / read-only FS — fall through to in-memory + DB
-          // clearing so the session at least loses Builder routing.
+        } catch (err) {
+          envWriteErr = err instanceof Error ? err : new Error(String(err));
         }
 
-        // 2. Clear in-process env vars so the current server immediately
-        // stops routing through Builder.
-        for (const key of BUILDER_ENV_KEYS) {
-          delete process.env[key];
-        }
-
-        // 3. Scrub the settings row. Without this, a serverless cold start
-        // would rehydrate the keys from the DB and "un-disconnect" itself.
-        try {
-          const existing =
-            ((await getSetting("persisted-env-vars")) as Record<
-              string,
-              string
-            > | null) ?? {};
-          const cleaned: Record<string, string> = {};
-          for (const [k, v] of Object.entries(existing)) {
-            if (!BUILDER_ENV_KEYS.includes(k)) cleaned[k] = v;
-          }
-          await putSetting("persisted-env-vars", cleaned);
-        } catch {
-          // DB not ready — skip; process.env + .env are already cleared.
-        }
-
-        return { ok: true };
+        // Surface partial-failure info so the UI can tell the user when
+        // process.env was cleared but disk / DB cleanup failed. The UI
+        // still treats the response as success — in-memory routing is
+        // disconnected, which is the user-visible effect.
+        return {
+          ok: true,
+          warnings: {
+            ...(dbErr ? { db: dbErr.message } : {}),
+            ...(envWriteErr ? { envFile: envWriteErr.message } : {}),
+          },
+        };
       }),
     );
 

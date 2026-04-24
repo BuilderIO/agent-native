@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useState, useEffect, useCallback } from "react";
+import React, { Suspense, lazy, useState, useEffect, useCallback, useRef } from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import {
   IconChevronDown,
@@ -124,27 +124,42 @@ function SettingsSelect({
 
 // ─── Disconnect button for the Builder card's connected state ───────────────
 //
+// Two-step confirmation: first click arms the button ("Confirm?"), second
+// click actually disconnects. Arm auto-reverts after 4s of idle so a user
+// who wandered off doesn't come back to a disconnect waiting for them.
+//
 // Hits /_agent-native/builder/disconnect which scrubs BUILDER_* keys from the
 // template `.env`, `process.env`, and the `persisted-env-vars` settings row.
-// On success we reload so every card that reads Builder status (engine
-// picker, LLM section, File Uploads, etc.) re-fetches cleanly.
+// On success we dispatch `agent-engine:configured-changed` so dependent cards
+// refresh inline (no hard reload — that was racing with nitro's env-runner
+// restart and hitting React Router's error boundary).
 function DisconnectBuilderButton() {
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<"idle" | "armed" | "busy">("idle");
   const [err, setErr] = useState<string | null>(null);
+  const armedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleClick = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
+  const clearArmedTimer = useCallback(() => {
+    if (armedTimerRef.current) {
+      clearTimeout(armedTimerRef.current);
+      armedTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => clearArmedTimer();
+  }, [clearArmedTimer]);
+
+  const performDisconnect = useCallback(async () => {
+    setPhase("busy");
     setErr(null);
+    clearArmedTimer();
     try {
       const res = await fetch("/_agent-native/builder/disconnect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-      // Read as text first — nitro's 404 fallback returns an HTML page, not
-      // JSON, and `res.json()` on that would throw. We parse JSON defensively
-      // so a missing route (e.g. stale server dist) surfaces as a readable
-      // error instead of bubbling up to the React error boundary.
+      // Parse defensively — a nitro 404 fallback returns HTML, not JSON,
+      // and res.json() on that would throw.
       const text = await res.text();
       let body: { ok?: boolean; error?: string } = {};
       if (text) {
@@ -155,29 +170,75 @@ function DisconnectBuilderButton() {
         }
       }
       if (!res.ok) {
-        throw new Error(body.error || `Failed (${res.status}). Is dev:all up to date?`);
+        throw new Error(
+          body.error || `Failed (${res.status}). Is dev:all up to date?`,
+        );
       }
       if (body.ok !== true) {
         throw new Error(body.error || "Disconnect didn't confirm ok");
       }
-      // Full reload — simpler than rewiring every dependent card's refetch.
-      window.location.reload();
+      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
+      setPhase("idle");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Disconnect failed");
-      setBusy(false);
+      setPhase("idle");
     }
-  }, [busy]);
+  }, [clearArmedTimer]);
+
+  const handleDisconnectClick = useCallback(() => {
+    if (phase === "busy") return;
+    if (phase === "idle") {
+      // First click — arm the button. Auto-revert after 4s to avoid a
+      // stale "confirm" state someone else could hit by accident.
+      setPhase("armed");
+      setErr(null);
+      clearArmedTimer();
+      armedTimerRef.current = setTimeout(() => {
+        setPhase("idle");
+        armedTimerRef.current = null;
+      }, 4000);
+      return;
+    }
+    // phase === "armed" — user confirmed, actually disconnect.
+    void performDisconnect();
+  }, [phase, performDisconnect, clearArmedTimer]);
+
+  const handleCancel = useCallback(() => {
+    clearArmedTimer();
+    setPhase("idle");
+  }, [clearArmedTimer]);
+
+  if (phase === "armed") {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={handleDisconnectClick}
+          className="inline-flex items-center gap-1 rounded border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/20"
+        >
+          Confirm disconnect
+        </button>
+        <button
+          type="button"
+          onClick={handleCancel}
+          className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
+        >
+          Cancel
+        </button>
+      </>
+    );
+  }
 
   return (
     <>
       <button
         type="button"
-        onClick={handleClick}
-        disabled={busy}
+        onClick={handleDisconnectClick}
+        disabled={phase === "busy"}
         className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60 disabled:cursor-wait"
-        aria-busy={busy}
+        aria-busy={phase === "busy"}
       >
-        {busy ? (
+        {phase === "busy" ? (
           <>
             <IconLoader2 size={10} className="animate-spin" />
             Disconnecting…
@@ -186,9 +247,7 @@ function DisconnectBuilderButton() {
           "Disconnect"
         )}
       </button>
-      {err && (
-        <span className="text-[10px] text-destructive">{err}</span>
-      )}
+      {err && <span className="text-[10px] text-destructive">{err}</span>}
     </>
   );
 }
