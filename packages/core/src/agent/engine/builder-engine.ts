@@ -287,11 +287,34 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
   };
 }
 
+// Yields one non-empty JSONL line at a time. Flushes any trailing content
+// after the stream ends so a final event without a newline terminator
+// isn't silently dropped — some gateway proxies close the connection on
+// a complete line and the client must still process it.
+async function* readJsonlLines(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): AsyncIterable<string> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newlineIdx = buffer.indexOf("\n");
+    while (newlineIdx !== -1) {
+      const line = buffer.slice(0, newlineIdx).trim();
+      buffer = buffer.slice(newlineIdx + 1);
+      newlineIdx = buffer.indexOf("\n");
+      if (line) yield line;
+    }
+  }
+  const tail = buffer.trim();
+  if (tail) yield tail;
+}
+
 async function* parseJsonlStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
 ): AsyncIterable<EngineEvent> {
-  const decoder = new TextDecoder();
-  let buffer = "";
   const parts: EngineContentPart[] = [];
   let pendingText = "";
   let pendingThinking: { text: string; signature?: string } | null = null;
@@ -314,130 +337,118 @@ async function* parseJsonlStream(
   };
 
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    for await (const line of readJsonlLines(reader)) {
+      let event: any;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        yield {
+          type: "stop",
+          reason: "error",
+          error: `Builder gateway emitted invalid JSONL: ${line}`,
+        };
+        return;
+      }
 
-      let newlineIdx = buffer.indexOf("\n");
-      while (newlineIdx !== -1) {
-        const line = buffer.slice(0, newlineIdx).trim();
-        buffer = buffer.slice(newlineIdx + 1);
-        newlineIdx = buffer.indexOf("\n");
-        if (!line) continue;
+      switch (event.type) {
+        case "text-delta": {
+          const text = event.text ?? "";
+          pendingText += text;
+          yield { type: "text-delta", text };
+          break;
+        }
 
-        let event: any;
-        try {
-          event = JSON.parse(line);
-        } catch {
+        case "thinking-delta": {
+          const text = event.text ?? "";
+          if (!pendingThinking) pendingThinking = { text: "" };
+          pendingThinking.text += text;
+          if (event.signature) pendingThinking.signature = event.signature;
           yield {
-            type: "stop",
-            reason: "error",
-            error: `Builder gateway emitted invalid JSONL: ${line}`,
+            type: "thinking-delta",
+            text,
+            ...(event.signature ? { signature: event.signature } : {}),
           };
+          break;
+        }
+
+        case "tool-call-delta":
+          // Engine contract has no equivalent; drop. The authoritative
+          // `tool-call` event follows with the fully-parsed input.
+          break;
+
+        case "tool-call": {
+          flushPending();
+          parts.push({
+            type: "tool-call",
+            id: event.id,
+            name: event.name,
+            input: event.input,
+          });
+          yield {
+            type: "tool-call",
+            id: event.id,
+            name: event.name,
+            input: event.input,
+          };
+          break;
+        }
+
+        case "usage": {
+          const cacheWrite =
+            (event.cacheCreatedTokens ?? 0) +
+            (event.cacheCreated1hTokens ?? 0);
+          yield {
+            type: "usage",
+            inputTokens: event.inputTokens ?? 0,
+            outputTokens: event.outputTokens ?? 0,
+            ...(event.cacheInputTokens !== undefined
+              ? { cacheReadTokens: event.cacheInputTokens }
+              : {}),
+            ...(cacheWrite > 0 ? { cacheWriteTokens: cacheWrite } : {}),
+          };
+          break;
+        }
+
+        case "stop": {
+          flushPending();
+          yield { type: "assistant-content", parts };
+
+          const reason = event.reason ?? "end_turn";
+          if (reason === "rate_limited") {
+            // Include "rate_limit" in the message so production-agent's
+            // isRetryableError picks it up and retries.
+            yield {
+              type: "stop",
+              reason: "error",
+              error: `rate_limit exceeded: ${event.error ?? "upstream provider rate limited"}`,
+              errorCode: "rate_limited",
+            };
+          } else if (reason === "error") {
+            yield {
+              type: "stop",
+              reason: "error",
+              error: event.error ?? "Gateway error",
+            };
+          } else if (
+            reason === "end_turn" ||
+            reason === "tool_use" ||
+            reason === "max_tokens" ||
+            reason === "stop_sequence"
+          ) {
+            yield { type: "stop", reason };
+          } else {
+            yield {
+              type: "stop",
+              reason: "error",
+              error: `Unknown stop reason: ${reason}`,
+            };
+          }
           return;
         }
 
-        switch (event.type) {
-          case "text-delta": {
-            const text = event.text ?? "";
-            pendingText += text;
-            yield { type: "text-delta", text };
-            break;
-          }
-
-          case "thinking-delta": {
-            const text = event.text ?? "";
-            if (!pendingThinking) pendingThinking = { text: "" };
-            pendingThinking.text += text;
-            if (event.signature) pendingThinking.signature = event.signature;
-            yield {
-              type: "thinking-delta",
-              text,
-              ...(event.signature ? { signature: event.signature } : {}),
-            };
-            break;
-          }
-
-          case "tool-call-delta":
-            // Engine contract has no equivalent; drop. The authoritative
-            // `tool-call` event follows with the fully-parsed input.
-            break;
-
-          case "tool-call": {
-            flushPending();
-            parts.push({
-              type: "tool-call",
-              id: event.id,
-              name: event.name,
-              input: event.input,
-            });
-            yield {
-              type: "tool-call",
-              id: event.id,
-              name: event.name,
-              input: event.input,
-            };
-            break;
-          }
-
-          case "usage": {
-            const cacheWrite =
-              (event.cacheCreatedTokens ?? 0) +
-              (event.cacheCreated1hTokens ?? 0);
-            yield {
-              type: "usage",
-              inputTokens: event.inputTokens ?? 0,
-              outputTokens: event.outputTokens ?? 0,
-              ...(event.cacheInputTokens !== undefined
-                ? { cacheReadTokens: event.cacheInputTokens }
-                : {}),
-              ...(cacheWrite > 0 ? { cacheWriteTokens: cacheWrite } : {}),
-            };
-            break;
-          }
-
-          case "stop": {
-            flushPending();
-            yield { type: "assistant-content", parts };
-
-            const reason = event.reason ?? "end_turn";
-            if (reason === "rate_limited") {
-              // Include "rate_limit" in the message so production-agent's
-              // isRetryableError picks it up and retries.
-              yield {
-                type: "stop",
-                reason: "error",
-                error: `rate_limit exceeded: ${event.error ?? "upstream provider rate limited"}`,
-                errorCode: "rate_limited",
-              };
-            } else if (reason === "error") {
-              yield {
-                type: "stop",
-                reason: "error",
-                error: event.error ?? "Gateway error",
-              };
-            } else if (
-              reason === "end_turn" ||
-              reason === "tool_use" ||
-              reason === "max_tokens" ||
-              reason === "stop_sequence"
-            ) {
-              yield { type: "stop", reason };
-            } else {
-              yield {
-                type: "stop",
-                reason: "error",
-                error: `Unknown stop reason: ${reason}`,
-              };
-            }
-            return;
-          }
-
-          default:
-            // Unknown event type — ignore for forward compat.
-            break;
-        }
+        default:
+          // Unknown event type — ignore for forward compat.
+          break;
       }
     }
 

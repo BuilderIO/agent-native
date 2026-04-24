@@ -430,6 +430,41 @@ describe("createBuilderEngine", () => {
     expect(stop?.error?.toLowerCase()).toContain("rate_limit");
   });
 
+  it("processes a final event without a trailing newline", async () => {
+    // Some gateway proxies end the stream with a complete JSONL line that
+    // lacks a terminating `\n`. The parser must flush that tail through the
+    // same event-handling path, otherwise the stop event is silently
+    // dropped and the consumer gets the synthetic
+    // "stream ended without a stop event" error instead.
+    const body =
+      JSON.stringify({ type: "text-delta", text: "hi" }) +
+      "\n" +
+      JSON.stringify({ type: "stop", reason: "end_turn" }); // no trailing \n
+    const encoded = new TextEncoder().encode(body);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoded);
+        controller.close();
+      },
+    });
+    const response = new Response(stream, {
+      status: 200,
+      headers: { "Content-Type": "application/jsonl" },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("end_turn");
+    expect(stop?.error).toBeUndefined();
+    // Text-delta before the stop should still have been yielded.
+    expect(events.some((e) => e.type === "text-delta" && e.text === "hi")).toBe(
+      true,
+    );
+  });
+
   it("surfaces invalid JSONL lines as a stop-error", async () => {
     const body = "not a json\n";
     const stream = new ReadableStream<Uint8Array>({

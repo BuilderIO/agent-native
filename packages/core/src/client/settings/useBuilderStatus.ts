@@ -94,6 +94,15 @@ export interface BuilderConnectFlow {
   orgName: string | null;
   connecting: boolean;
   error: string | null;
+  /**
+   * True once the first `/builder/status` fetch has completed (successfully
+   * or not). Consumers that accept an `initialConfigured` prop (e.g. agent
+   * tool-call results rendered with server-side state) should treat
+   * `configured`/`orgName` as authoritative only once this flips true —
+   * otherwise the hook's starting `false` defaults would cause a flash
+   * back to "Connect Builder" on first paint.
+   */
+  hasFetchedStatus: boolean;
   /** Open the popup and begin polling. Must be called from a user-gesture handler. */
   start: () => void;
 }
@@ -109,6 +118,7 @@ export function useBuilderConnectFlow(
   const [orgName, setOrgName] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
   // Keep onConnected in a ref so start() doesn't need to re-create when the
@@ -147,7 +157,12 @@ export function useBuilderConnectFlow(
     let cancelled = false;
     const refresh = async () => {
       const s = await fetchStatus();
-      if (cancelled || !mountedRef.current || !s) return;
+      if (cancelled || !mountedRef.current) return;
+      // Flip `hasFetchedStatus` even when the fetch failed — the caller's
+      // "use initial props until the hook has an answer" pattern wants to
+      // stop waiting after we've tried, regardless of network outcome.
+      setHasFetchedStatus(true);
+      if (!s) return;
       setConfigured(!!s.configured);
       setOrgName(s.orgName ?? null);
     };
@@ -214,5 +229,5 @@ export function useBuilderConnectFlow(
     }, POLL_INTERVAL_MS);
   }, [fetchStatus, popupUrl, stopPoll]);
 
-  return { configured, orgName, connecting, error, start };
+  return { configured, orgName, connecting, error, hasFetchedStatus, start };
 }

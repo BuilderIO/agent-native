@@ -155,20 +155,36 @@ export function runMigrations(
               sql: adaptSqlForSqlite(orig),
               hadIfNotExists: IF_NOT_EXISTS_ADD_COLUMN_RE.test(orig),
             }));
-            // Run individually so we can honor `ADD COLUMN IF NOT EXISTS`
-            // semantics by swallowing duplicate-column errors.
-            for (const { sql: stmt, hadIfNotExists } of statements) {
-              try {
-                await d1.prepare(stmt).run();
-              } catch (err) {
-                if (hadIfNotExists && isDuplicateColumnError(err)) continue;
-                throw err;
+            const hasIfNotExists = statements.some((s) => s.hadIfNotExists);
+            if (hasIfNotExists) {
+              // Per-statement path: we need to swallow "duplicate column"
+              // errors for statements that originally carried
+              // `ADD COLUMN IF NOT EXISTS`, which a batch() can't express.
+              // Loses atomicity, but the idempotent-ADD-COLUMN semantic
+              // means a partial re-run resolves cleanly on retry.
+              for (const { sql: stmt, hadIfNotExists } of statements) {
+                try {
+                  await d1.prepare(stmt).run();
+                } catch (err) {
+                  if (hadIfNotExists && isDuplicateColumnError(err)) continue;
+                  throw err;
+                }
               }
+              await d1
+                .prepare(`INSERT OR IGNORE INTO ${table} VALUES (?)`)
+                .bind(m.version)
+                .run();
+            } else {
+              // Atomic batch: all statements + version-row insert land in
+              // the same transaction. A failing statement rolls the whole
+              // migration back, so we never record a half-applied version.
+              await d1.batch([
+                ...statements.map((s) => d1.prepare(s.sql)),
+                d1
+                  .prepare(`INSERT OR IGNORE INTO ${table} VALUES (?)`)
+                  .bind(m.version),
+              ]);
             }
-            await d1
-              .prepare(`INSERT OR IGNORE INTO ${table} VALUES (?)`)
-              .bind(m.version)
-              .run();
             console.log(
               `[db] Applied migration v${m.version} (${statements.length} statement${statements.length === 1 ? "" : "s"})`,
             );

@@ -36,10 +36,16 @@ export function ConnectBuilderCard({
   // frozen at render time, so the hook's mount-time fetch + focus refresh
   // is what catches a flow the user completed in another tab.
   const flow = useBuilderConnectFlow({ popupUrl: initialConnectUrl });
-  // Fall back to the initial props if the hook's status fetch hasn't
-  // returned yet (first paint shows server-rendered state).
-  const configured = flow.configured || initialConfigured;
-  const orgName = flow.orgName ?? initialOrgName ?? null;
+  // Only use the server-rendered props until the hook's first status
+  // fetch returns. After that, the hook is authoritative — including for
+  // the disconnect case (where `flow.configured` flips back to `false`
+  // even though `initialConfigured` was `true` at render time).
+  const configured = flow.hasFetchedStatus
+    ? flow.configured
+    : initialConfigured;
+  const orgName = flow.hasFetchedStatus
+    ? flow.orgName
+    : (initialOrgName ?? null);
   const connecting = flow.connecting;
 
   const [sending, setSending] = useState(false);
