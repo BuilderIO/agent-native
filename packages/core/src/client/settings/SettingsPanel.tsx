@@ -141,9 +141,24 @@ function DisconnectBuilderButton() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
+      // Read as text first — nitro's 404 fallback returns an HTML page, not
+      // JSON, and `res.json()` on that would throw. We parse JSON defensively
+      // so a missing route (e.g. stale server dist) surfaces as a readable
+      // error instead of bubbling up to the React error boundary.
+      const text = await res.text();
+      let body: { ok?: boolean; error?: string } = {};
+      if (text) {
+        try {
+          body = JSON.parse(text);
+        } catch {
+          // Non-JSON response — likely a 404/HTML fallback.
+        }
+      }
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error || `Failed (${res.status})`);
+        throw new Error(body.error || `Failed (${res.status}). Is dev:all up to date?`);
+      }
+      if (body.ok !== true) {
+        throw new Error(body.error || "Disconnect didn't confirm ok");
       }
       // Full reload — simpler than rewiring every dependent card's refetch.
       window.location.reload();
