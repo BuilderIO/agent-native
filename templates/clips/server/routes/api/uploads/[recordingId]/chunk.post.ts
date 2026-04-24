@@ -49,8 +49,14 @@ export default defineEventHandler(async (event: H3Event) => {
   const index = Number(query.index ?? 0);
   const total = Number(query.total ?? 0);
   const isFinal = query.isFinal === "1" || query.isFinal === "true";
-  const mimeType =
-    typeof query.mimeType === "string" ? query.mimeType : "video/webm";
+  // The client (recorder-engine) knows the exact mimeType it picked for the
+  // whole recording and sends it on every chunk. Never guess — a wrong
+  // default writes the wrong Content-Type to storage.
+  if (typeof query.mimeType !== "string" || !query.mimeType) {
+    setResponseStatus(event, 400);
+    return { error: "Missing mimeType query param" };
+  }
+  const mimeType = query.mimeType;
 
   console.log("[chunk] received", {
     recordingId,

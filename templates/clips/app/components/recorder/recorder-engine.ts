@@ -437,7 +437,7 @@ export class RecorderEngine {
 
   private queueChunk(blob: Blob, index: number, isFinal: boolean): void {
     this.chunkQueue = this.chunkQueue.then(() =>
-      this.uploadChunk(blob, index, { isFinal }).then(
+      this.uploadChunk(blob, index, { isFinal, mimeType: this.mimeType }).then(
         () => {
           this.opts.onChunk?.({
             index,
