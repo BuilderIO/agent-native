@@ -190,9 +190,17 @@ export default defineAction({
       // Require a real upload provider — storing video blobs in the database
       // is not viable for production. The onboarding step ensures this is
       // configured before the user can record.
-      if (!getActiveFileUploadProvider()) {
+      const activeProvider = getActiveFileUploadProvider();
+      if (!activeProvider) {
         throw new Error(
-          "No file upload provider configured. Connect Builder.io or configure S3-compatible storage in Settings.",
+          "No file upload provider configured. Configure S3-compatible storage in Settings.",
+        );
+      }
+      // Builder.io's upload API only handles images. Video files need
+      // S3-compatible storage (AWS S3, Cloudflare R2, etc.).
+      if (activeProvider.id === "builder") {
+        throw new Error(
+          "Builder.io does not support video uploads. Configure S3-compatible storage (AWS S3, Cloudflare R2, DigitalOcean Spaces) in Settings → Video Storage.",
         );
       }
 
