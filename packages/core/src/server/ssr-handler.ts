@@ -31,7 +31,8 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       p.startsWith("/_agent-native/") ||
       p.startsWith("/api/") ||
       p === "/favicon.ico" ||
-      p === "/favicon.png"
+      p === "/favicon.png" ||
+      /\.\w+$/.test(p)
     ) {
       return new Response(null, { status: 404 });
     }

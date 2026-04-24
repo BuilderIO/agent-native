@@ -22,6 +22,7 @@ export function buildAssistantMessage(
   id: string;
   role: "assistant";
   content: ContentPart[];
+  status: { type: "complete"; reason: "stop" };
   metadata: Record<string, unknown>;
 } | null {
   const content: ContentPart[] = [];
@@ -81,6 +82,7 @@ export function buildAssistantMessage(
     id: `server-${runId ?? Date.now()}`,
     role: "assistant",
     content,
+    status: { type: "complete" as const, reason: "stop" as const },
     metadata: runId ? { runId } : {},
   };
 }

@@ -151,3 +151,7 @@ export {
   uploadAvatar,
   invalidateAvatarCache,
 } from "./use-avatar.js";
+export {
+  ObservabilityDashboard,
+  ThumbsFeedback,
+} from "./observability/index.js";
