@@ -18,12 +18,24 @@ function adaptSqlForPostgres(sql: string): string {
     .replace(/\bINTEGER\b/gi, "BIGINT");
 }
 
+const IF_NOT_EXISTS_ADD_COLUMN_RE = /ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS/i;
+
 /**
  * Strip Postgres-only syntax that SQLite doesn't support.
  * Handles: ALTER TABLE ... ADD COLUMN IF NOT EXISTS → ADD COLUMN
+ *
+ * Note: SQLite does not have a native equivalent, so the idempotent
+ * semantic is emulated at the executor level by swallowing the
+ * "duplicate column name" error for statements that originally carried
+ * the clause. See `hadIfNotExists` tracking in the run loop.
  */
 function adaptSqlForSqlite(sql: string): string {
   return sql.replace(/ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS/gi, "ADD COLUMN");
+}
+
+function isDuplicateColumnError(err: unknown): boolean {
+  const msg = (err as Error | undefined)?.message ?? "";
+  return /duplicate column name/i.test(msg);
 }
 
 /**
@@ -138,13 +150,25 @@ export function runMigrations(
                 .run();
               continue;
             }
-            const statements = splitSqlStatements(raw);
-            await d1.batch([
-              ...statements.map((s: string) => d1.prepare(s)),
-              d1
-                .prepare(`INSERT OR IGNORE INTO ${table} VALUES (?)`)
-                .bind(m.version),
-            ]);
+            const originalStatements = splitSqlStatements(raw);
+            const statements = originalStatements.map((orig) => ({
+              sql: adaptSqlForSqlite(orig),
+              hadIfNotExists: IF_NOT_EXISTS_ADD_COLUMN_RE.test(orig),
+            }));
+            // Run individually so we can honor `ADD COLUMN IF NOT EXISTS`
+            // semantics by swallowing duplicate-column errors.
+            for (const { sql: stmt, hadIfNotExists } of statements) {
+              try {
+                await d1.prepare(stmt).run();
+              } catch (err) {
+                if (hadIfNotExists && isDuplicateColumnError(err)) continue;
+                throw err;
+              }
+            }
+            await d1
+              .prepare(`INSERT OR IGNORE INTO ${table} VALUES (?)`)
+              .bind(m.version)
+              .run();
             console.log(
               `[db] Applied migration v${m.version} (${statements.length} statement${statements.length === 1 ? "" : "s"})`,
             );
@@ -199,13 +223,32 @@ export function runMigrations(
           await exec.execute({ sql: insertSql, args: [m.version] });
           continue;
         }
-        const sql = pg ? adaptSqlForPostgres(raw) : adaptSqlForSqlite(raw);
-        const statements = splitSqlStatements(sql);
+        // Split BEFORE adapting so we can remember which original statements
+        // carried `ADD COLUMN IF NOT EXISTS` — SQLite drops the clause, so we
+        // emulate the idempotent semantic by swallowing duplicate-column
+        // errors only for those statements.
+        const originalStatements = splitSqlStatements(raw);
+        const statements = originalStatements.map((orig) => ({
+          sql: pg ? adaptSqlForPostgres(orig) : adaptSqlForSqlite(orig),
+          hadIfNotExists: IF_NOT_EXISTS_ADD_COLUMN_RE.test(orig),
+        }));
         let currentStmt = "";
         try {
-          for (const stmt of statements) {
+          for (const { sql: stmt, hadIfNotExists } of statements) {
             currentStmt = stmt;
-            await exec.execute(stmt);
+            try {
+              await exec.execute(stmt);
+            } catch (err) {
+              if (
+                !pg &&
+                hadIfNotExists &&
+                isDuplicateColumnError(err)
+              ) {
+                // IF NOT EXISTS semantic: column already present, skip.
+                continue;
+              }
+              throw err;
+            }
           }
           await exec.execute({ sql: insertSql, args: [m.version] });
           console.log(

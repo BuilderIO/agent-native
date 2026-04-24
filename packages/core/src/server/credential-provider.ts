@@ -55,6 +55,19 @@ export function getBuilderProxyOrigin(): string {
   );
 }
 
+/**
+ * Base URL for the public Builder LLM gateway (distinct from the internal
+ * proxy origin above — the public gateway lives at api.builder.io/codegen,
+ * while the internal origin is ai-services.builder.io).
+ * Override via BUILDER_GATEWAY_BASE_URL for staging / testing.
+ */
+export function getBuilderGatewayBaseUrl(): string {
+  return (
+    process.env.BUILDER_GATEWAY_BASE_URL ||
+    "https://api.builder.io/codegen/gateway/v1"
+  );
+}
+
 /** Authorization header value for Builder-proxied calls. */
 export function getBuilderAuthHeader(): string | null {
   const key = process.env.BUILDER_PRIVATE_KEY;

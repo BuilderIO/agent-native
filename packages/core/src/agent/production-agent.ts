@@ -17,6 +17,7 @@ import type {
   EngineMessage,
   EngineContentPart,
 } from "./engine/types.js";
+import { EngineError } from "./engine/types.js";
 import {
   resolveEngine,
   registerBuiltinEngines,
@@ -377,7 +378,10 @@ export async function runAgentLoop(opts: {
             usage.cacheReadTokens += event.cacheReadTokens ?? 0;
             usage.cacheWriteTokens += event.cacheWriteTokens ?? 0;
           } else if (event.type === "stop" && event.reason === "error") {
-            throw new Error(event.error ?? "Engine stream error");
+            throw new EngineError(event.error ?? "Engine stream error", {
+              errorCode: event.errorCode,
+              upgradeUrl: event.upgradeUrl,
+            });
           }
         }
 
