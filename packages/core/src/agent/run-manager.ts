@@ -1,4 +1,5 @@
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
+import { EngineError } from "./engine/types.js";
 import {
   insertRun,
   insertRunEvent,
@@ -119,7 +120,16 @@ export function startRun(
         return;
       }
       run.status = "errored";
-      send({ type: "error", error: err?.message ?? "Unknown error" });
+      send({
+        type: "error",
+        error: err?.message ?? "Unknown error",
+        ...(err instanceof EngineError && err.errorCode
+          ? { errorCode: err.errorCode }
+          : {}),
+        ...(err instanceof EngineError && err.upgradeUrl
+          ? { upgradeUrl: err.upgradeUrl }
+          : {}),
+      });
     })
     .finally(async () => {
       // Ordering matters here — this is the atomic-complete boundary.

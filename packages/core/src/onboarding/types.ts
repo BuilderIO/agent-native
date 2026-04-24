@@ -41,8 +41,9 @@ export type OnboardingMethod =
   | (OnboardingMethodBase & {
       kind: "builder-cli-auth";
       payload: {
-        // "browser" today; "llm" | "google" planned for future gateway.
-        scope: "browser";
+        // "llm" (managed gateway) and "browser" (browser automation) are
+        // live; "google" may land later.
+        scope: "llm" | "browser";
         /**
          * When set, the method renders a "Join waitlist" CTA pointing to
          * this URL if the deployment hasn't opted into Builder features

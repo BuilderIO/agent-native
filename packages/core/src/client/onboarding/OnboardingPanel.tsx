@@ -6,7 +6,7 @@
  * its `kind` (link / form / builder-cli-auth / agent-task).
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import {
   IconCheck,
   IconChecklist,
@@ -19,8 +19,8 @@ import {
 import { useOnboarding } from "./use-onboarding.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { useDevMode } from "../use-dev-mode.js";
+import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { useBuilderEnabled } from "../use-builder-enabled.js";
-import { getCallbackOrigin } from "../frame.js";
 import type {
   OnboardingMethod,
   OnboardingStepStatus,
@@ -39,6 +39,7 @@ export function OnboardingPanel({
 }: OnboardingPanelProps) {
   const onboarding = useOnboarding();
   const { isDevMode } = useDevMode();
+  const builderEnabled = useBuilderEnabled();
   const {
     steps: rawSteps,
     currentStepId: rawCurrentStepId,
@@ -65,7 +66,6 @@ export function OnboardingPanel({
       null);
   // Default expanded when setup is incomplete; collapsed once everything's done.
   const [expanded, setExpanded] = useState(!allComplete);
-  const builderEnabled = useBuilderEnabled();
 
   if (loading || totalCount === 0) return null;
   if (dismissed) return null;
@@ -244,9 +244,8 @@ function MethodBlock({
 }) {
   // Waitlist branch only applies to builder-cli-auth methods that opted in
   // by specifying a `waitlistUrl` in their payload — e.g. the framework's
-  // "Connect an AI engine" step (Builder LLM gateway is still closed beta).
-  // GA methods like clips' Video storage omit waitlistUrl and always
-  // render the real Connect flow.
+  // "Connect an AI engine" step when Builder is still closed beta. GA
+  // methods omit waitlistUrl and always render the real Connect flow.
   const waitlistUrl =
     method.kind === "builder-cli-auth" ? method.payload.waitlistUrl : undefined;
   const gated = method.kind === "builder-cli-auth" && !!waitlistUrl;
@@ -259,7 +258,7 @@ function MethodBlock({
       <div style={styles.methodHeader}>
         <span style={styles.methodLabel}>
           {method.label}
-          {!waitlist && method.badge && (
+          {method.badge && (
             <span style={badgeStyle(method.badge)}>{method.badge}</span>
           )}
         </span>
@@ -303,7 +302,12 @@ function MethodBody({
       return <FormMethod method={method} onCompleted={onCompleted} />;
     case "builder-cli-auth":
       if (waitlist && waitlistUrl) return <WaitlistMethod url={waitlistUrl} />;
-      return <BuilderCliAuthMethod onCompleted={onCompleted} />;
+      return (
+        <BuilderCliAuthMethod
+          onCompleted={onCompleted}
+          primary={method.primary}
+        />
+      );
     case "agent-task":
       return <AgentTaskMethod method={method} stepId={stepId} />;
   }
@@ -442,87 +446,22 @@ function FormMethod({
 
 function BuilderCliAuthMethod({
   onCompleted,
+  primary,
 }: {
   onCompleted: () => Promise<void>;
+  primary?: boolean;
 }) {
-  const [connecting, setConnecting] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-  }, []);
-
-  const handleConnect = useCallback(() => {
-    // Restart: clear any lingering poll from a prior click.
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    setConnecting(true);
-    setErr(null);
-    // Open SYNCHRONOUSLY inside the click handler — any await before
-    // window.open lets the user gesture expire and popup blockers
-    // downgrade to same-tab navigation. The /builder/connect endpoint
-    // 302-redirects to the real CLI-auth URL so the new tab always
-    // ends up where it should, with no client-side prefetch needed.
-    const origin = getCallbackOrigin() || window.location.origin;
-    window.open(
-      `${origin}/_agent-native/builder/connect`,
-      "_blank",
-      "noopener,noreferrer",
-    );
-
-    // Poll builder status until credentials appear (user finished the flow).
-    const start = Date.now();
-    const timeoutMs = 5 * 60 * 1000;
-    const stop = () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-    pollRef.current = setInterval(async () => {
-      try {
-        const r = await fetch(`${origin}/_agent-native/builder/status`);
-        if (!r.ok) return;
-        const s = (await r.json()) as { configured: boolean };
-        if (!mountedRef.current) {
-          stop();
-          return;
-        }
-        if (s.configured) {
-          stop();
-          setConnecting(false);
-          await onCompleted();
-        } else if (Date.now() - start > timeoutMs) {
-          stop();
-          setConnecting(false);
-          setErr(
-            "Didn't hear back from Builder in 5 minutes. Check the popup, allow popups if blocked, and try again.",
-          );
-        }
-      } catch {
-        // ignore transient poll errors
-      }
-    }, 2000);
-  }, [onCompleted]);
+  const { connecting, error, start } = useBuilderConnectFlow({
+    onConnected: onCompleted,
+  });
 
   return (
     <>
       <button
         type="button"
-        onClick={handleConnect}
+        onClick={start}
         disabled={connecting}
-        style={{ ...buttonPrimary(false), opacity: connecting ? 0.7 : 1 }}
+        style={{ ...buttonPrimary(primary), opacity: connecting ? 0.7 : 1 }}
       >
         {connecting ? (
           <>
@@ -537,7 +476,7 @@ function BuilderCliAuthMethod({
           "Connect Builder"
         )}
       </button>
-      {err && <p style={styles.errText}>{err}</p>}
+      {error && <p style={styles.errText}>{error}</p>}
     </>
   );
 }

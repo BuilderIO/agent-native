@@ -496,15 +496,77 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
 // the app webviews. After the callback completes, auto-close the OAuth
 // window and reload webviews to pick up the new auth state.
 
-const OAUTH_HOSTS = ["accounts.google.com"];
+// OAuth providers we recognize as "safe to open inside an Electron popup"
+// instead of handing off to the system browser. Each provider specifies:
+//   - a `matches` predicate on the initial URL (from window.open)
+//   - a `callbackPathFragment` used to detect when the OAuth callback has
+//     been reached so we can auto-close the popup
+//
+// Builder is matched on two URL shapes: (1) the localhost 302 starter at
+// `/_agent-native/builder/connect`, which is what the in-app button opens,
+// and (2) the resolved `builder.io/cli-auth` URL, so both shapes route
+// through the same popup. Private keys delivered by the callback are
+// written server-side (template `.env` + SQL `persisted-env-vars`) — they
+// never touch the webview/renderer. See credential-provider.ts.
+interface OAuthProvider {
+  name: string;
+  matches: (url: URL) => boolean;
+  /** Substring to look for in the navigation URL to detect callback arrival. */
+  callbackPathFragment: string;
+}
 
-function openOAuthWindow(url: string, sourceSession?: Electron.Session) {
+const OAUTH_PROVIDERS: OAuthProvider[] = [
+  {
+    name: "google",
+    matches: (u) => u.hostname === "accounts.google.com",
+    callbackPathFragment: "/api/google/",
+  },
+  {
+    name: "builder",
+    matches: (u) => {
+      const host = u.hostname.toLowerCase();
+      const isLocalhost =
+        host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+      // (a) The localhost 302 starter the in-app button opens.
+      if (
+        isLocalhost &&
+        u.pathname.endsWith("/_agent-native/builder/connect")
+      ) {
+        return true;
+      }
+      // (b) The resolved Builder CLI-auth URL. Gate on `/cli-auth` so
+      // ordinary builder.io links (docs, marketing, etc.) opened from a
+      // webview don't get hijacked into the OAuth popup — they'd load
+      // fine but never hit the callback and the popup would just sit
+      // open on a docs page.
+      const isBuilderDomain =
+        host === "builder.io" || host.endsWith(".builder.io");
+      return isBuilderDomain && u.pathname.startsWith("/cli-auth");
+    },
+    callbackPathFragment: "/_agent-native/builder/callback",
+  },
+];
+
+function matchOAuthProvider(urlString: string): OAuthProvider | null {
+  try {
+    const parsed = new URL(urlString);
+    return OAUTH_PROVIDERS.find((p) => p.matches(parsed)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function openOAuthWindow(
+  url: string,
+  sourceSession: Electron.Session | undefined,
+  provider: OAuthProvider,
+) {
   const mainWin = BrowserWindow.getAllWindows()[0];
 
   // Critical: the popup MUST share the source webview's session so the
   // OAuth callback hits the server with the user's auth cookies. Without
   // this, the callback runs in Electron's default session (no cookies),
-  // sees `local@localhost`, and saves tokens under the connected Google
+  // sees `local@localhost`, and saves tokens under the connected account's
   // email instead of the actual signed-in user — turning the "connect"
   // flow into an infinite redirect loop in dev mode.
   const oauthWin = new BrowserWindow({
@@ -522,9 +584,12 @@ function openOAuthWindow(url: string, sourceSession?: Electron.Session) {
 
   oauthWin.loadURL(url);
 
-  // Once navigation leaves Google's domain, the OAuth callback has been
-  // reached and the server has set cookies. Wait for the page to finish
-  // loading then auto-close the window.
+  // Close once we've reached the OAuth callback URL. Matching on path
+  // fragment works for both Google (callback on localhost /api/google/*)
+  // and Builder (callback on localhost /_agent-native/builder/callback).
+  // The Builder callback HTML also calls window.close() itself; this
+  // close-path is the Electron-side safety net if the page's script
+  // hasn't fired yet (or doesn't, e.g. on future callback redesigns).
   let closeScheduled = false;
 
   function scheduleClose() {
@@ -537,15 +602,10 @@ function openOAuthWindow(url: string, sourceSession?: Electron.Session) {
     });
   }
 
-  const isGoogleDomain = (hostname: string) =>
-    hostname.endsWith("google.com") ||
-    hostname.endsWith("googleapis.com") ||
-    hostname.endsWith("gstatic.com");
-
   const onNavigate = (_event: Electron.Event, navUrl: string) => {
     try {
       const parsed = new URL(navUrl);
-      if (!isGoogleDomain(parsed.hostname)) {
+      if (parsed.pathname.includes(provider.callbackPathFragment)) {
         scheduleClose();
       }
     } catch {
@@ -581,10 +641,11 @@ app.on("web-contents-created", (_event, contents) => {
       if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
         return { action: "deny" };
       }
-      if (OAUTH_HOSTS.includes(parsed.hostname)) {
+      const provider = matchOAuthProvider(url);
+      if (provider) {
         // Pass the source webview's session so the popup carries its
         // auth cookies into the OAuth callback (see openOAuthWindow).
-        openOAuthWindow(url, contents.session);
+        openOAuthWindow(url, contents.session, provider);
       } else {
         shell.openExternal(url);
       }
