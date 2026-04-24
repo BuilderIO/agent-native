@@ -404,7 +404,7 @@ export function EmailThread({
       // multi-selection so the next shortcut (e/d/s/u) doesn't act on it.
       setSelectedIds?.(new Set());
       void ensureThread(nextThreadId);
-      navigate(`/${view}/${nextThreadId}${labelSuffix}`);
+      navigate(`/${view}/${nextThreadId}${labelSuffix}`, { flushSync: true });
     },
     [threadId, view, navigate, labelSuffix, setSelectedIds],
   );

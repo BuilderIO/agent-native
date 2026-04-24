@@ -275,7 +275,7 @@ export function EmailList({
     // in-progress multi-selection so shortcuts in detail view start fresh.
     setSelectedIds(new Set());
     void ensureThread(targetThreadId);
-    navigate(`/${view}/${targetThreadId}${labelSuffix}`);
+    navigate(`/${view}/${targetThreadId}${labelSuffix}`, { flushSync: true });
     // Defer the mark-read mutation past the navigation commit. Its onMutate
     // calls setQueriesData on the whole ['emails'] tree; running it before
     // React commits the route change stalls reconciliation and delays the
@@ -651,7 +651,7 @@ export function EmailList({
       return;
     }
     void ensureThread(targetThreadId);
-    navigate(`/${view}/${targetThreadId}${labelSuffix}`);
+    navigate(`/${view}/${targetThreadId}${labelSuffix}`, { flushSync: true });
     // Defer the optimistic mark-read until after navigation commits — see
     // matching comment in openFocused above.
     if (thread.hasUnread) {
