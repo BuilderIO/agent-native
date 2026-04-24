@@ -9,7 +9,7 @@ Agent-native apps use [Nitro](https://nitro.build) under the hood, which means y
 
 ## Workspace Deploy: One Origin, Many Apps {#workspace-deploy}
 
-If your project is a [workspace](/docs/enterprise-workspace), you can ship every app in it to a single origin with one command:
+If your project is a [workspace](/docs/multi-app-workspace), you can ship every app in it to a single origin with one command:
 
 ```bash
 agent-native deploy
