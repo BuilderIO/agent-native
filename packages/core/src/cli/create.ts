@@ -860,9 +860,9 @@ function tryGitInit(dir: string): boolean {
         env: {
           ...process.env,
           GIT_AUTHOR_NAME: "agent-native",
-          GIT_AUTHOR_EMAIL: "noreply@agent-native.dev",
+          GIT_AUTHOR_EMAIL: "noreply@agent-native.com",
           GIT_COMMITTER_NAME: "agent-native",
-          GIT_COMMITTER_EMAIL: "noreply@agent-native.dev",
+          GIT_COMMITTER_EMAIL: "noreply@agent-native.com",
         },
       },
     );

@@ -35,6 +35,7 @@ interface EmailListProps {
   onCompose?: (email: EmailMessage, mode: "reply" | "forward") => void;
   onArchived?: (id: string) => void;
   onDraftOpen?: (email: EmailMessage) => void;
+  onNavigateThread?: (threadId: string) => void;
 }
 
 // ─── Inbox Zero ─────────────────────────────────────────────────────────────
@@ -137,6 +138,7 @@ export function EmailList({
   onCompose,
   onArchived,
   onDraftOpen,
+  onNavigateThread,
 }: EmailListProps) {
   const navigate = useNavigate();
   const { view = "inbox", threadId } = useParams<{
@@ -275,12 +277,8 @@ export function EmailList({
     // in-progress multi-selection so shortcuts in detail view start fresh.
     setSelectedIds(new Set());
     void ensureThread(targetThreadId);
+    onNavigateThread?.(targetThreadId);
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
-    // Defer the mark-read mutation past the navigation commit. Its onMutate
-    // calls setQueriesData on the whole ['emails'] tree; running it before
-    // React commits the route change stalls reconciliation and delays the
-    // detail view's first render by hundreds of ms. setTimeout(0) pushes it
-    // to the next macrotask, after React has committed the navigation.
     if (thread.hasUnread) {
       setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
     }
@@ -651,9 +649,8 @@ export function EmailList({
       return;
     }
     void ensureThread(targetThreadId);
+    onNavigateThread?.(targetThreadId);
     navigate(`/${view}/${targetThreadId}${labelSuffix}`);
-    // Defer the optimistic mark-read until after navigation commits — see
-    // matching comment in openFocused above.
     if (thread.hasUnread) {
       setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
     }
