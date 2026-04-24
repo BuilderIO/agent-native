@@ -59,10 +59,14 @@ function scoreToolSuccessRate(summary: TraceSummary): EvalResult {
 }
 
 function scoreStepEfficiency(summary: TraceSummary): EvalResult {
+  // No tool calls = simple Q&A, maximally efficient.
+  // With tools: penalize excessive LLM iterations relative to tool calls.
   const score =
-    summary.llmCalls > 0
-      ? Math.min(1, summary.toolCalls / summary.llmCalls)
-      : 1.0;
+    summary.toolCalls === 0
+      ? 1.0
+      : summary.llmCalls > 0
+        ? Math.min(1, summary.toolCalls / summary.llmCalls)
+        : 1.0;
   return makeEvalResult(
     summary.runId,
     summary.threadId,
