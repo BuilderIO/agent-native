@@ -419,6 +419,11 @@ export function createCoreRoutesPlugin(
     // Env key management — framework keys are always included
     const frameworkEnvKeys: EnvKeyConfig[] = [
       { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
+      {
+        key: "AGENT_ENGINE_PREFER_BYO_KEY",
+        label:
+          "Prefer BYO LLM key over Builder gateway (default: false — gateway wins)",
+      },
       ...Object.values(PROVIDER_ENV_META).map(({ envVar, label }) => ({
         key: envVar,
         label,

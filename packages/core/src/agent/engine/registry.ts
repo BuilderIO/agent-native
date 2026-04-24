@@ -71,9 +71,30 @@ export function listAgentEngines(): AgentEngineEntry[] {
 
 /**
  * First registered engine whose requiredEnvVars are all set. Registration
- * order controls priority — Anthropic wins when multiple keys coexist.
+ * order controls priority — the Builder gateway is registered first so it
+ * wins when BUILDER_PRIVATE_KEY is present.
+ *
+ * Escape hatch: AGENT_ENGINE_PREFER_BYO_KEY=true skips the Builder engine
+ * on the first pass, so an explicit provider key (ANTHROPIC_API_KEY etc.)
+ * is picked instead. Builder is still used as the fallback when no other
+ * provider key is set.
  */
 export function detectEngineFromEnv(): AgentEngineEntry | null {
+  const preferByo = /^(1|true)$/i.test(
+    process.env.AGENT_ENGINE_PREFER_BYO_KEY ?? "",
+  );
+
+  if (preferByo) {
+    for (const entry of _registry.values()) {
+      if (entry.name === "builder") continue;
+      if (entry.requiredEnvVars.length === 0) continue;
+      if (entry.requiredEnvVars.every((v) => !!process.env[v])) {
+        return entry;
+      }
+    }
+    // No BYO key matched — fall through to include Builder as fallback.
+  }
+
   for (const entry of _registry.values()) {
     if (entry.requiredEnvVars.length === 0) continue;
     if (entry.requiredEnvVars.every((v) => !!process.env[v])) {

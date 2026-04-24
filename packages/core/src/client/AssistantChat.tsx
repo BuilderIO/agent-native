@@ -33,6 +33,7 @@ import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
+import { getCallbackOrigin } from "./frame.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import { useDevMode } from "./use-dev-mode.js";
 import {
@@ -435,7 +436,6 @@ function ToolCallDisplay({
         return (
           <ConnectBuilderCard
             configured={!!parsed.configured}
-            builderEnabled={!!parsed.builderEnabled}
             connectUrl={parsed.connectUrl || ""}
             orgName={parsed.orgName ?? null}
             prompt={typeof parsed.prompt === "string" ? parsed.prompt : ""}
@@ -1027,6 +1027,209 @@ function ThinkingIndicator({ label = "Thinking" }: { label?: string } = {}) {
   );
 }
 
+// ─── Builder.io Connect CTA (shared by setup + usage-limit cards) ───────────
+//
+// Renders a single row with left-aligned copy and a right-aligned action.
+// Click opens the Builder CLI-auth flow in a popup (via the `/builder/connect`
+// 302, so the open call stays synchronous and popup blockers don't downgrade
+// it to same-tab). A 2s poll watches `/builder/status` until credentials
+// arrive — the callback writes BUILDER_PRIVATE_KEY to the server's `.env` and
+// the `persisted-env-vars` settings row, both of which are server-side only
+// (the renderer/webview never sees the key). We then reload so the enclosing
+// setup/usage cards reevaluate `missingApiKey` against the new credentials.
+//
+// Desktop note: when this component runs inside the Electron shell, the
+// window.open call is intercepted by the main process's webview popup handler,
+// which opens the flow in an Electron BrowserWindow that shares the webview's
+// session. See packages/desktop-app/src/main/index.ts.
+
+function BuilderConnectCta({
+  variant = "primary",
+}: {
+  variant?: "primary" | "compact";
+}) {
+  const [configured, setConfigured] = useState(false);
+  const [orgName, setOrgName] = useState<string | null>(null);
+  const [connectUrl, setConnectUrl] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef(true);
+
+  const origin =
+    (typeof window !== "undefined" && getCallbackOrigin()) ||
+    (typeof window !== "undefined" ? window.location.origin : "");
+
+  const fetchStatus = useCallback(async () => {
+    if (!origin) return;
+    try {
+      const r = await fetch(`${origin}/_agent-native/builder/status`);
+      if (!r.ok) return;
+      const s = (await r.json()) as {
+        configured: boolean;
+        connectUrl?: string;
+        orgName?: string | null;
+      };
+      if (!mountedRef.current) return;
+      setConfigured(!!s.configured);
+      setOrgName(s.orgName ?? null);
+      setConnectUrl(s.connectUrl ?? null);
+    } catch {
+      // transient — leave state as-is
+    }
+  }, [origin]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchStatus();
+    return () => {
+      mountedRef.current = false;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [fetchStatus]);
+
+  const handleConnect = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    setConnecting(true);
+    setErr(null);
+    // Open SYNCHRONOUSLY inside the click handler — any await before
+    // window.open lets the user-gesture token expire and popup blockers
+    // downgrade to same-tab navigation. The /builder/connect endpoint
+    // 302-redirects to the real CLI-auth URL, so no client-side prefetch
+    // of the connectUrl is needed.
+    try {
+      window.open(
+        `${origin}/_agent-native/builder/connect`,
+        "_blank",
+        "noopener,noreferrer",
+      );
+    } catch {
+      // Fall through — polling will still detect completion if the user
+      // opens the URL manually.
+    }
+
+    const start = Date.now();
+    const timeoutMs = 5 * 60 * 1000;
+    const stop = () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+    pollRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(`${origin}/_agent-native/builder/status`);
+        if (!r.ok) return;
+        const s = (await r.json()) as {
+          configured: boolean;
+          orgName?: string | null;
+        };
+        if (!mountedRef.current) {
+          stop();
+          return;
+        }
+        if (s.configured) {
+          stop();
+          setConfigured(true);
+          setOrgName(s.orgName ?? null);
+          setConnecting(false);
+          // Reload so the enclosing card re-evaluates `missingApiKey`.
+          window.setTimeout(() => window.location.reload(), 300);
+        } else if (Date.now() - start > timeoutMs) {
+          stop();
+          setConnecting(false);
+          setErr(
+            "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
+          );
+        }
+      } catch {
+        // transient — keep polling
+      }
+    }, 2000);
+  }, [origin]);
+
+  // Also re-check on tab refocus — a user who completed auth in another
+  // window should see the "Connected" state without needing to click again.
+  useEffect(() => {
+    if (configured) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") fetchStatus();
+    };
+    window.addEventListener("focus", fetchStatus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", fetchStatus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [configured, fetchStatus]);
+
+  const containerClass =
+    variant === "compact"
+      ? "rounded-md border border-border px-3 py-2.5"
+      : "flex items-center gap-3 rounded-md border border-border px-3 py-3";
+
+  if (configured) {
+    return (
+      <div className={containerClass}>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-foreground">
+            Builder.io
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            {orgName ? `Connected — ${orgName}` : "Connected"}
+          </p>
+        </div>
+        <span className="ml-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
+          <IconCheck size={10} />
+          Connected
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={containerClass}>
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium text-foreground">
+          Connect Builder.io
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-0.5 max-w-[220px]">
+          Managed LLM, hosting, and more — no API key needed
+        </p>
+        {err && <p className="mt-1 text-[10px] text-destructive">{err}</p>}
+      </div>
+      <button
+        type="button"
+        onClick={handleConnect}
+        disabled={connecting}
+        className="ml-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
+        aria-busy={connecting}
+      >
+        {connecting ? (
+          <>
+            <IconLoader2 size={10} className="animate-spin" />
+            Waiting…
+          </>
+        ) : (
+          <>
+            Connect
+            <IconExternalLink size={10} />
+          </>
+        )}
+      </button>
+      {/* connectUrl is fetched for parity with the settings card; falling
+          back to /builder/connect keeps the flow synchronous. */}
+      {!connectUrl && null}
+    </div>
+  );
+}
+
 // ─── API Key Setup Card ─────────────────────────────────────────────────────
 
 function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
@@ -1078,26 +1281,8 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
       </div>
 
       <div className="space-y-3">
-        {/* Builder CTA */}
-        <div className="flex items-center gap-3 rounded-md border border-border px-3 py-3">
-          <div className="min-w-0">
-            <div className="text-xs font-medium text-foreground">
-              Connect Builder.io
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5 max-w-[200px]">
-              Managed LLM, hosting, and more — no API key needed
-            </p>
-          </div>
-          <a
-            href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-muted/60 px-3 py-1.5 text-[11px] font-medium no-underline text-foreground hover:bg-muted"
-          >
-            Join waitlist
-            <IconExternalLink size={10} />
-          </a>
-        </div>
+        {/* Builder CTA — live Connect flow, replaces the old waitlist link. */}
+        <BuilderConnectCta />
 
         <div className="relative flex items-center">
           <div className="flex-grow border-t border-border" />
@@ -1296,25 +1481,8 @@ export function BuilderCtaCard({
           </code>
         </div>
 
-        <div className="rounded-md border border-border px-3 py-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-xs font-medium text-foreground">
-              Builder.io
-            </div>
-            <a
-              href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 shrink-0 rounded border border-border px-2 py-0.5 text-[10px] font-medium no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
-            >
-              Join waitlist
-              <IconExternalLink size={10} />
-            </a>
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            Managed hosting, LLM, and more
-          </p>
-        </div>
+        {/* Builder CTA — live Connect flow, replaces the old waitlist link. */}
+        <BuilderConnectCta variant="compact" />
       </div>
     </div>
   );

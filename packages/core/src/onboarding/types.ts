@@ -40,8 +40,9 @@ export type OnboardingMethod =
     })
   | (OnboardingMethodBase & {
       kind: "builder-cli-auth";
-      // "browser" today; "llm" | "google" planned for future gateway.
-      payload: { scope: "browser" };
+      // "llm" (managed gateway) and "browser" (browser automation) are live;
+      // other scopes like "google" may land later.
+      payload: { scope: "llm" | "browser" };
     })
   | (OnboardingMethodBase & {
       kind: "agent-task";

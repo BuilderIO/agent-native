@@ -22,6 +22,12 @@ import {
   PROVIDER_PACKAGES,
   type AISDKProvider,
 } from "./ai-sdk-engine.js";
+import {
+  createBuilderEngine,
+  BUILDER_CAPABILITIES,
+  BUILDER_DEFAULT_MODEL,
+  BUILDER_SUPPORTED_MODELS,
+} from "./builder-engine.js";
 
 let _registered = false;
 
@@ -32,7 +38,24 @@ export function registerBuiltinEngines(): void {
   if (_registered) return;
   _registered = true;
 
-  // ── Anthropic (default) ────────────────────────────────────────────────────
+  // ── Builder.io managed gateway ─────────────────────────────────────────────
+  // Registered first so detectEngineFromEnv picks it when BUILDER_PRIVATE_KEY
+  // is set — Builder is the managed path we want everyone on long-term.
+  // Users who prefer BYO keys can opt out via AGENT_ENGINE_PREFER_BYO_KEY=true,
+  // which drops Builder to the fallback slot in detectEngineFromEnv.
+  registerAgentEngine({
+    name: "builder",
+    label: "Builder.io Gateway",
+    description:
+      "Managed LLM access via Builder.io — Claude, GPT, Gemini, GLM, and more through a single connection. Free during beta.",
+    capabilities: BUILDER_CAPABILITIES,
+    defaultModel: BUILDER_DEFAULT_MODEL,
+    supportedModels: BUILDER_SUPPORTED_MODELS,
+    requiredEnvVars: ["BUILDER_PRIVATE_KEY"],
+    create: (config) => createBuilderEngine(config),
+  });
+
+  // ── Anthropic ──────────────────────────────────────────────────────────────
   registerAgentEngine({
     name: "anthropic",
     label: "Claude (Anthropic SDK)",

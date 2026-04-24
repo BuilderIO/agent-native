@@ -22,6 +22,7 @@ import {
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
+import { BuilderBMark } from "../builder-mark.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { UsageSection } from "./UsageSection.js";
 import { SecretsSection } from "./SecretsSection.js";
@@ -130,6 +131,7 @@ function UseBuilderCard({
   comingSoon,
   builderEnabled,
   label = "Connect Builder.io",
+  subtitle = "One click, no API key needed. Free during beta.",
   dim,
 }: {
   connectUrl?: string;
@@ -138,6 +140,7 @@ function UseBuilderCard({
   comingSoon?: boolean;
   builderEnabled?: boolean;
   label?: string;
+  subtitle?: string;
   dim?: boolean;
 }) {
   const showComingSoon = comingSoon && !builderEnabled;
@@ -173,13 +176,13 @@ function UseBuilderCard({
     );
   }
 
-  return (
-    <div className={`rounded-md border border-border px-2.5 py-2 ${bgClass}`}>
-      <div className="flex items-center justify-between">
-        <div className="text-[11px] font-medium text-foreground">
-          Builder.io
-        </div>
-        {showComingSoon ? (
+  if (showComingSoon) {
+    return (
+      <div className={`rounded-md border border-border px-2.5 py-2 ${bgClass}`}>
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] font-medium text-foreground">
+            Builder.io
+          </div>
           <a
             href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
             target="_blank"
@@ -189,21 +192,43 @@ function UseBuilderCard({
             Join waitlist
             <IconExternalLink size={10} />
           </a>
-        ) : (
-          connectUrl && (
-            <a
-              href={connectUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 rounded bg-foreground px-2.5 py-1 text-[10px] font-medium no-underline text-background hover:opacity-90"
-            >
-              {label}
-              <IconExternalLink size={10} />
-            </a>
-          )
-        )}
+        </div>
       </div>
-    </div>
+    );
+  }
+
+  if (!connectUrl) return null;
+
+  return (
+    <a
+      href={connectUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`block rounded-md border border-border px-3 py-3 no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors`}
+    >
+      <div className="flex items-start gap-2.5">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
+          <BuilderBMark className="h-3.5 w-3.5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[12px] font-semibold text-foreground">
+              {label}
+            </span>
+            <span className="inline-flex items-center rounded-sm bg-green-500/15 px-1 text-[9px] font-medium uppercase tracking-wide text-green-500">
+              Free
+            </span>
+          </div>
+          <p className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">
+            {subtitle}
+          </p>
+        </div>
+        <IconExternalLink
+          size={12}
+          className="shrink-0 text-muted-foreground mt-0.5"
+        />
+      </div>
+    </a>
   );
 }
 
@@ -603,8 +628,6 @@ function LLMSectionInner({
           connectUrl={connectUrl}
           connected={connected}
           orgName={orgName}
-          comingSoon
-          builderEnabled={builderEnabled}
           label="Connect Builder.io"
         />
         <ManualSetupCard
@@ -1187,8 +1210,6 @@ export function SettingsPanel({
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
-            comingSoon
-            builderEnabled={builderEnabled}
           />
           <ManualSetupCard
             hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."

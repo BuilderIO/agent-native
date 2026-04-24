@@ -102,7 +102,18 @@ export type AgentChatEvent =
       summary: string;
     }
   | { type: "done" }
-  | { type: "error"; error: string }
+  | {
+      type: "error";
+      error: string;
+      /**
+       * Optional machine-readable error code. Builder gateway uses codes
+       * like "credits-limit-monthly" / "unauthorized" / "gateway_not_enabled"
+       * so the chat UI can render a structured CTA (e.g. upgrade button).
+       */
+      errorCode?: string;
+      /** Optional link paired with errorCode — e.g. Builder billing page. */
+      upgradeUrl?: string;
+    }
   | { type: "missing_api_key" }
   | { type: "usage_limit_reached"; usageCents: number; limitCents: number }
   | { type: "loop_limit" }

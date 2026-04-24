@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import type { AgentMessage, AgentChatEvent } from "../agent/types.js";
+import { formatChatErrorText } from "./error-format.js";
 
 export interface ProductionAgentMessage {
   id: string;
@@ -185,10 +186,14 @@ export function useProductionAgent(
               }
             } else if (ev.type === "done" || ev.type === "error") {
               if (ev.type === "error") {
+                const fallbackContent = formatChatErrorText(
+                  ev.error ?? "Unknown error",
+                  ev.upgradeUrl,
+                );
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === assistantId
-                      ? { ...m, content: m.content || `Error: ${ev.error}` }
+                      ? { ...m, content: m.content || fallbackContent }
                       : m,
                   ),
                 );
