@@ -1189,9 +1189,7 @@ function BuilderConnectCta({
     return (
       <div className={containerClass}>
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-foreground">
-            Builder.io
-          </div>
+          <div className="text-xs font-medium text-foreground">Builder.io</div>
           <p className="text-[11px] text-muted-foreground mt-0.5">
             {orgName ? `Connected — ${orgName}` : "Connected"}
           </p>

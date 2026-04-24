@@ -239,11 +239,7 @@ export function runMigrations(
             try {
               await exec.execute(stmt);
             } catch (err) {
-              if (
-                !pg &&
-                hadIfNotExists &&
-                isDuplicateColumnError(err)
-              ) {
+              if (!pg && hadIfNotExists && isDuplicateColumnError(err)) {
                 // IF NOT EXISTS semantic: column already present, skip.
                 continue;
               }

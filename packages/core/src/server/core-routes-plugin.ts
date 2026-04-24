@@ -498,7 +498,9 @@ export function createCoreRoutesPlugin(
 
         return {
           ok: true,
-          ...(warnPersisted ? { warnings: { persistedEnvVars: warnPersisted } } : {}),
+          ...(warnPersisted
+            ? { warnings: { persistedEnvVars: warnPersisted } }
+            : {}),
         };
       }),
     );
