@@ -224,8 +224,17 @@ export class RecorderEngine {
     this.combinedStream = this.buildCombinedStream();
 
     this.mimeType = pickMimeType();
+    // `pickMimeType` returns "" when MediaRecorder exists but nothing in the
+    // candidate list is supported. Fail here with a user-readable message
+    // instead of letting the empty type propagate to the chunk uploader
+    // (which would surface a confusing "Missing mimeType query param").
+    if (!this.mimeType) {
+      throw new Error(
+        "Your browser doesn't support any of the video codecs Clips needs. Try a recent Chrome, Edge, Safari, or Firefox.",
+      );
+    }
     this.recorder = new MediaRecorder(this.combinedStream, {
-      mimeType: this.mimeType || undefined,
+      mimeType: this.mimeType,
       videoBitsPerSecond: 4_000_000,
     });
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { IconVideo } from "@tabler/icons-react";
+import { RequireActiveOrg } from "@agent-native/core/client/org";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
 // and cannot be bundled for the browser).
@@ -480,21 +481,31 @@ export default function RecordRoute() {
 
   return (
     <div className="relative min-h-screen bg-background">
-      {/* Idle / pre-record panel */}
+      {/* Idle / pre-record panel. `/record` sits outside the `_app`
+          layout, so its own <RequireActiveOrg> gate is needed — otherwise
+          a direct visit (URL bar, bookmark, agent intent) would skip the
+          shell guard and hit a runtime error at create-recording. */}
       {uiState === "idle" && (
-        <div className="flex min-h-screen flex-col items-center justify-center px-4">
-          <div className="mb-6 flex items-center gap-2 text-primary">
-            <IconVideo className="h-6 w-6" />
-            <span className="text-sm font-medium uppercase tracking-wide">
-              Clips recorder
-            </span>
+        <RequireActiveOrg
+          title="Create your organization"
+          description="Clips organizes recordings by team. Create an organization to continue — you can invite teammates afterward."
+        >
+          <div className="flex min-h-screen flex-col items-center justify-center px-4">
+            <div className="mb-6 flex items-center gap-2 text-primary">
+              <IconVideo className="h-6 w-6" />
+              <span className="text-sm font-medium uppercase tracking-wide">
+                Clips recorder
+              </span>
+            </div>
+            {storageConfigured === null ? null : storageConfigured ? (
+              <PreRecordPanel onStart={startFlow} />
+            ) : (
+              <StorageSetupCard
+                onConfigured={() => setStorageConfigured(true)}
+              />
+            )}
           </div>
-          {storageConfigured === null ? null : storageConfigured ? (
-            <PreRecordPanel onStart={startFlow} />
-          ) : (
-            <StorageSetupCard onConfigured={() => setStorageConfigured(true)} />
-          )}
-        </div>
+        </RequireActiveOrg>
       )}
 
       {uiState === "pickingSources" && (

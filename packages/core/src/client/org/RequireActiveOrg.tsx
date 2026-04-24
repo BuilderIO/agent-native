@@ -1,5 +1,10 @@
 import { ReactNode, useState } from "react";
-import { IconBuilding, IconLoader2, IconUserPlus } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconBuilding,
+  IconLoader2,
+  IconUserPlus,
+} from "@tabler/icons-react";
 import { useAcceptInvitation, useCreateOrg, useOrg } from "./hooks.js";
 
 export interface RequireActiveOrgProps {
@@ -39,9 +44,24 @@ export function RequireActiveOrg({
   description = "This app organizes your content by team. Create an organization to continue — you can invite teammates afterward.",
   className,
 }: RequireActiveOrgProps) {
-  const { data: org, isLoading } = useOrg();
+  const { data: org, isLoading, isError, error, refetch } = useOrg();
 
   if (isLoading) return null;
+
+  // Network / server failure on the org lookup — do NOT fall through to the
+  // create-org pane (that would lock out an existing member on a transient
+  // 500). Render a retry state instead. Only treat a successful null orgId
+  // response as "genuinely no org".
+  if (isError) {
+    return (
+      <ErrorPane
+        message={(error as Error)?.message ?? "Couldn't load organization."}
+        onRetry={() => void refetch()}
+        className={className}
+      />
+    );
+  }
+
   if (org?.orgId) return <>{children}</>;
 
   return (
@@ -51,6 +71,40 @@ export function RequireActiveOrg({
       description={description}
       className={className}
     />
+  );
+}
+
+function ErrorPane({
+  message,
+  onRetry,
+  className,
+}: {
+  message: string;
+  onRetry: () => void;
+  className?: string;
+}) {
+  return (
+    <div
+      className={
+        "flex h-full w-full items-center justify-center overflow-y-auto bg-background p-8 " +
+        (className ?? "")
+      }
+    >
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-lg">
+        <div className="mb-4 flex items-center gap-2">
+          <IconAlertTriangle className="h-5 w-5 text-muted-foreground" />
+          <h1 className="text-lg font-semibold">Couldn't load organization</h1>
+        </div>
+        <p className="mb-5 text-sm text-muted-foreground">{message}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Try again
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -76,14 +130,19 @@ function CreateOrgPane({
 
   const hasInvites = pendingInvitations.length > 0;
 
+  // Block both mutations when either is in flight — prevents a user from
+  // firing `create` and `accept` concurrently and landing in whichever
+  // `active-org-id` setting happens to settle last.
+  const busy = createOrg.isPending || acceptInvitation.isPending;
+
   return (
     <div
       className={
-        "flex h-full w-full items-center justify-center bg-background p-8 " +
+        "flex h-full w-full items-center justify-center overflow-y-auto bg-background p-8 " +
         (className ?? "")
       }
     >
-      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-lg">
+      <div className="my-auto w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-lg">
         <div className="mb-6 flex items-center gap-2">
           <IconBuilding className="h-5 w-5 text-muted-foreground" />
           <h1 className="text-lg font-semibold">{title}</h1>
@@ -112,7 +171,7 @@ function CreateOrgPane({
                   </div>
                   <button
                     type="button"
-                    disabled={acceptInvitation.isPending}
+                    disabled={busy}
                     onClick={() => acceptInvitation.mutate(inv.id)}
                     className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                   >
@@ -157,7 +216,7 @@ function CreateOrgPane({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Acme Inc."
-              disabled={createOrg.isPending}
+              disabled={busy}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
             />
           </label>
@@ -173,7 +232,7 @@ function CreateOrgPane({
           )}
           <button
             type="submit"
-            disabled={createOrg.isPending || !name.trim()}
+            disabled={busy || !name.trim()}
             className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {createOrg.isPending ? "Creating…" : "Create organization"}
