@@ -16,6 +16,7 @@
  *   POST   /experiments                — create experiment
  *   GET    /experiments/:id            — get experiment detail
  *   PUT    /experiments/:id            — update experiment
+ *   POST   /experiments/:id/results    — compute experiment results
  *   GET    /experiments/:id/results    — get experiment results
  */
 
@@ -187,6 +188,14 @@ export function createObservabilityHandler() {
         userId: owner,
         createdAt: Date.now(),
       });
+      // Fire-and-forget: recompute satisfaction score for the thread
+      if (body.threadId) {
+        import("./feedback.js")
+          .then(({ computeSatisfactionScore }) =>
+            computeSatisfactionScore(String(body.threadId)).catch(() => {}),
+          )
+          .catch(() => {});
+      }
       return { id };
     }
 
@@ -252,6 +261,25 @@ export function createObservabilityHandler() {
     // GET /experiments — list experiments
     if (method === "GET" && parts.length === 1 && parts[0] === "experiments") {
       return listExperiments();
+    }
+
+    // POST /experiments/:id/results — compute experiment results
+    if (
+      method === "POST" &&
+      parts.length === 3 &&
+      parts[0] === "experiments" &&
+      parts[2] === "results"
+    ) {
+      try {
+        const { computeExperimentResults } = await import("./experiments.js");
+        const results = await computeExperimentResults(
+          decodeURIComponent(parts[1]),
+        );
+        return results;
+      } catch (err: any) {
+        setResponseStatus(event, 500);
+        return { error: err?.message ?? "Failed to compute results" };
+      }
     }
 
     // GET /experiments/:id/results — experiment results
