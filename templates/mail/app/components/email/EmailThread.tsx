@@ -1206,6 +1206,7 @@ export function EmailThread({
                     email={msg}
                     isFocused={isFocused}
                     isFromMe={myEmails.has(msg.from.email.toLowerCase())}
+                    isLoadingBody={isHydratingThread}
                     onCollapse={() => {
                       setUserToggles((prev) => ({ ...prev, [msg.id]: false }));
                     }}
@@ -1535,6 +1536,7 @@ const ExpandedMessageCard = forwardRef<
     email: EmailMessage;
     isFocused?: boolean;
     isFromMe?: boolean;
+    isLoadingBody?: boolean;
     onCollapse: () => void;
     onReply: () => void;
     onReplyAll: () => void;
@@ -1549,6 +1551,7 @@ const ExpandedMessageCard = forwardRef<
     email,
     isFocused,
     isFromMe,
+    isLoadingBody,
     onCollapse,
     onReply,
     onReplyAll,
@@ -1737,6 +1740,19 @@ const ExpandedMessageCard = forwardRef<
             searchTerm={searchTerm}
             activeLocalIdx={activeLocalIdx}
           />
+        ) : isLoadingBody ? (
+          <div className="space-y-2">
+            {email.snippet && (
+              <p className="text-[13px] text-foreground/80 leading-relaxed">
+                {email.snippet}
+              </p>
+            )}
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-[95%]" />
+            <Skeleton className="h-3 w-[88%]" />
+            <Skeleton className="h-3 w-[76%]" />
+            <Skeleton className="h-3 w-[60%]" />
+          </div>
         ) : email.snippet ? (
           <div className="text-[13px] text-muted-foreground whitespace-pre-wrap">
             {email.snippet}
