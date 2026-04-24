@@ -143,6 +143,7 @@ export function EmailThread({
     data: threadMessages,
     isLoading: isThreadLoading,
     isFetching: isThreadFetching,
+    isFromCache: isThreadFromCache,
   } = useThreadMessages(threadId);
 
   // Use the latestMessage from the threads prop as a last-resort preview (avoids
@@ -180,11 +181,35 @@ export function EmailThread({
       ),
     [allMessages],
   );
+  // True when we have no data at all (rare — deep link with empty list cache)
   const isHydratingThread =
     !!threadId && !threadMessages && (isThreadLoading || isThreadFetching);
+  // True when we have placeholder data from the list (metadata-only, no body)
+  // but the full thread hasn't loaded yet. The list API uses format=metadata
+  // so placeholder emails have snippet but no bodyHtml/body.
+  const isBodyLoading = !!threadId && isThreadFetching && !isThreadFromCache;
 
   // Use the latest message as the "primary" email for actions/metadata
   const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
+
+  // Extract preview data from the threads prop for loading states. When the
+  // user clicks from the list or presses j/k, we always have the thread
+  // summary even if the full thread hasn't loaded yet.
+  const threadPreview = useMemo(() => {
+    if (!threadId || !threads.length) return undefined;
+    const thread = threads.find(
+      (t) => (t.latestMessage.threadId || t.latestMessage.id) === threadId,
+    );
+    if (!thread) return undefined;
+    const msg = thread.latestMessage;
+    return {
+      subject: msg.subject,
+      from: msg.from,
+      date: msg.date,
+      snippet: msg.snippet,
+      to: msg.to,
+    };
+  }, [threadId, threads]);
 
   // Auto-expand latest + unread; user toggles override via this set
   const [userToggles, setUserToggles] = useState<Record<string, boolean>>({});
@@ -1009,8 +1034,8 @@ export function EmailThread({
   if (!threadId) return null;
 
   if (!email) {
-    if (isHydratingThread) {
-      return <ThreadLoadingState onBack={goBack} />;
+    if (isHydratingThread || isBodyLoading || threadPreview) {
+      return <ThreadLoadingState onBack={goBack} preview={threadPreview} />;
     }
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -1055,7 +1080,7 @@ export function EmailThread({
               <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground">
                 {threadSubject}
               </h1>
-              {isHydratingThread && (
+              {isBodyLoading && (
                 <Skeleton className="mt-0.5 h-5 w-28 rounded-full" />
               )}
               {displayLabels.map((labelId) => (
@@ -1156,7 +1181,7 @@ export function EmailThread({
         className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4"
       >
         <div className="max-w-3xl mx-auto pt-1.5 space-y-1.5">
-          {isHydratingThread && messages.length > 0 && (
+          {isBodyLoading && messages.length > 0 && (
             <div className="sticky top-0 z-10 pb-2">
               <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-background/90 px-3 py-1.5 shadow-sm backdrop-blur">
                 <Skeleton className="h-2 w-2 rounded-full" />
@@ -1187,6 +1212,7 @@ export function EmailThread({
                     email={msg}
                     isFocused={isFocused}
                     isFromMe={myEmails.has(msg.from.email.toLowerCase())}
+                    isLoadingBody={isBodyLoading}
                     onCollapse={() => {
                       setUserToggles((prev) => ({ ...prev, [msg.id]: false }));
                     }}
@@ -1348,7 +1374,21 @@ export function EmailThread({
   );
 }
 
-function ThreadLoadingState({ onBack }: { onBack: () => void }) {
+function ThreadLoadingState({
+  onBack,
+  preview,
+}: {
+  onBack: () => void;
+  preview?: {
+    subject: string;
+    from: { name: string; email: string };
+    date: string;
+    snippet: string;
+    to: { name: string; email: string }[];
+  };
+}) {
+  const threadSubject = preview?.subject?.replace(/^(Re|Fwd|Fw):\s*/i, "");
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3">
@@ -1361,26 +1401,65 @@ function ThreadLoadingState({ onBack }: { onBack: () => void }) {
             <IconArrowLeft className="h-[14px] w-[14px]" />
           </button>
 
-          <div className="flex-1 min-w-0 space-y-3 pt-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <Skeleton className="h-7 w-80 max-w-[70%]" />
-              <Skeleton className="h-5 w-24 rounded-full" />
-            </div>
-            <div className="flex items-center gap-1">
-              <Skeleton className="h-7 w-7 rounded" />
-              <Skeleton className="h-7 w-7 rounded" />
-              <Skeleton className="h-7 w-7 rounded" />
-              <Skeleton className="h-7 w-7 rounded" />
-            </div>
+          <div className="flex-1 min-w-0">
+            {preview ? (
+              <div className="flex items-start gap-2 flex-wrap">
+                <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground">
+                  {threadSubject}
+                </h1>
+                <Skeleton className="mt-0.5 h-5 w-28 rounded-full" />
+              </div>
+            ) : (
+              <div className="space-y-3 pt-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Skeleton className="h-7 w-80 max-w-[70%]" />
+                  <Skeleton className="h-5 w-24 rounded-full" />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4">
         <div className="mx-auto max-w-3xl space-y-3 pt-1.5">
-          <ThreadMessageSkeleton />
-          <ThreadMessageSkeleton compact />
-          <ThreadMessageSkeleton />
+          {preview ? (
+            <div className="rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4">
+              <div className="flex items-start gap-3">
+                <Skeleton className="h-9 w-9 rounded-full shrink-0" />
+                <div className="flex-1 min-w-0 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[13px] font-semibold text-foreground truncate">
+                        {preview.from.name || preview.from.email}
+                      </span>
+                      <span className="text-[12px] text-muted-foreground/60 shrink-0">
+                        {formatEmailDate(preview.date)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-[12px] text-muted-foreground/50">
+                    To: {preview.to.map((r) => r.name || r.email).join(", ")}
+                  </div>
+                  <div className="space-y-2 pt-1">
+                    <p className="text-[13px] text-foreground/80 leading-relaxed">
+                      {preview.snippet}
+                    </p>
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-[92%]" />
+                    <Skeleton className="h-3 w-[76%]" />
+                    <Skeleton className="h-3 w-[60%]" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <ThreadMessageSkeleton />
+              <ThreadMessageSkeleton compact />
+              <ThreadMessageSkeleton />
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -1463,6 +1542,7 @@ const ExpandedMessageCard = forwardRef<
     email: EmailMessage;
     isFocused?: boolean;
     isFromMe?: boolean;
+    isLoadingBody?: boolean;
     onCollapse: () => void;
     onReply: () => void;
     onReplyAll: () => void;
@@ -1477,6 +1557,7 @@ const ExpandedMessageCard = forwardRef<
     email,
     isFocused,
     isFromMe,
+    isLoadingBody,
     onCollapse,
     onReply,
     onReplyAll,
@@ -1665,6 +1746,19 @@ const ExpandedMessageCard = forwardRef<
             searchTerm={searchTerm}
             activeLocalIdx={activeLocalIdx}
           />
+        ) : isLoadingBody ? (
+          <div className="space-y-2">
+            {email.snippet && (
+              <p className="text-[13px] text-foreground/80 leading-relaxed">
+                {email.snippet}
+              </p>
+            )}
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-[95%]" />
+            <Skeleton className="h-3 w-[88%]" />
+            <Skeleton className="h-3 w-[76%]" />
+            <Skeleton className="h-3 w-[60%]" />
+          </div>
         ) : email.snippet ? (
           <div className="text-[13px] text-muted-foreground whitespace-pre-wrap">
             {email.snippet}
