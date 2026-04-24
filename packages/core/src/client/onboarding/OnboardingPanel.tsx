@@ -64,7 +64,6 @@ export function OnboardingPanel({
       null);
   // Default expanded when setup is incomplete; collapsed once everything's done.
   const [expanded, setExpanded] = useState(!allComplete);
-  const builderEnabled = useBuilderEnabled();
 
   if (loading || totalCount === 0) return null;
   if (dismissed) return null;
@@ -130,7 +129,6 @@ export function OnboardingPanel({
             key={step.id}
             step={step}
             expanded={step.id === currentStepId}
-            builderEnabled={builderEnabled}
             onMarkComplete={() => complete(step.id)}
             onRefresh={refresh}
           />
@@ -146,33 +144,16 @@ export function OnboardingPanel({
   );
 }
 
-function useBuilderEnabled(): boolean {
-  const [enabled, setEnabled] = useState(false);
-  useEffect(() => {
-    fetch("/_agent-native/env-status")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((keys: Array<{ key: string; configured: boolean }>) => {
-        if (keys.find((k) => k.key === "ENABLE_BUILDER")?.configured) {
-          setEnabled(true);
-        }
-      })
-      .catch(() => {});
-  }, []);
-  return enabled;
-}
-
 // ─── StepCard ──────────────────────────────────────────────────────────────
 
 function StepCard({
   step,
   expanded: expandedProp,
-  builderEnabled,
   onMarkComplete,
   onRefresh,
 }: {
   step: OnboardingStepStatus;
   expanded: boolean;
-  builderEnabled: boolean;
   onMarkComplete: () => void;
   onRefresh: () => Promise<void>;
 }) {
@@ -227,7 +208,6 @@ function StepCard({
                 key={method.id}
                 method={method}
                 stepId={step.id}
-                builderEnabled={builderEnabled}
                 onCompleted={async () => {
                   await onRefresh();
                 }}
@@ -246,24 +226,20 @@ function StepCard({
 function MethodBlock({
   method,
   stepId,
-  builderEnabled,
   onCompleted,
   onMarkManualComplete,
 }: {
   method: OnboardingMethod;
   stepId: string;
-  builderEnabled: boolean;
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
-  const isBuilder = method.kind === "builder-cli-auth";
-  const waitlist = isBuilder && !builderEnabled;
   return (
     <div style={method.primary ? styles.methodPrimary : styles.method}>
       <div style={styles.methodHeader}>
         <span style={styles.methodLabel}>
           {method.label}
-          {!waitlist && method.badge && (
+          {method.badge && (
             <span style={badgeStyle(method.badge)}>{method.badge}</span>
           )}
         </span>
@@ -274,7 +250,6 @@ function MethodBlock({
       <MethodBody
         method={method}
         stepId={stepId}
-        waitlist={waitlist}
         onCompleted={onCompleted}
         onMarkManualComplete={onMarkManualComplete}
       />
@@ -285,13 +260,11 @@ function MethodBlock({
 function MethodBody({
   method,
   stepId,
-  waitlist,
   onCompleted,
   onMarkManualComplete,
 }: {
   method: OnboardingMethod;
   stepId: string;
-  waitlist: boolean;
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
@@ -303,28 +276,10 @@ function MethodBody({
     case "form":
       return <FormMethod method={method} onCompleted={onCompleted} />;
     case "builder-cli-auth":
-      if (waitlist) return <WaitlistMethod primary={method.primary} />;
       return <BuilderCliAuthMethod onCompleted={onCompleted} />;
     case "agent-task":
       return <AgentTaskMethod method={method} stepId={stepId} />;
   }
-}
-
-function WaitlistMethod({ primary: _primary }: { primary?: boolean }) {
-  return (
-    <a
-      href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
-      target="_blank"
-      rel="noopener noreferrer"
-      style={{
-        ...buttonPrimary(false),
-        textDecoration: "none",
-      }}
-    >
-      Join waitlist
-      <IconExternalLink size={12} style={{ marginLeft: 4 }} />
-    </a>
-  );
 }
 
 // ─── link ──────────────────────────────────────────────────────────────────
@@ -612,6 +567,10 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: "1px solid rgba(255,255,255,0.06)",
     background: "rgba(255,255,255,0.02)",
     fontSize: 12,
+    display: "flex",
+    flexDirection: "column",
+    maxHeight: "60vh",
+    minHeight: 0,
   },
   compactBanner: {
     display: "flex",
@@ -665,6 +624,9 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: "column",
     gap: 4,
     padding: "4px 8px 10px",
+    overflowY: "auto",
+    minHeight: 0,
+    flex: "1 1 auto",
   },
   card: {
     border: "1px solid hsl(var(--border, 0 0% 100%) / 0.06)",

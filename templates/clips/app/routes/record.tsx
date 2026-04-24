@@ -114,22 +114,10 @@ export default function RecordRoute() {
     let cancelled = false;
     fetch("/_agent-native/file-upload/status")
       .then((r) => (r.ok ? r.json() : null))
-      .then(
-        (
-          s: {
-            configured?: boolean;
-            activeProvider?: { id: string };
-          } | null,
-        ) => {
-          if (cancelled) return;
-          // Builder.io's upload API only handles images, not video.
-          // Only consider storage configured if a non-Builder provider
-          // (S3, R2, etc.) is active.
-          const videoCapable =
-            !!s?.configured && s.activeProvider?.id !== "builder";
-          setStorageConfigured(videoCapable);
-        },
-      )
+      .then((s: { configured?: boolean } | null) => {
+        if (cancelled) return;
+        setStorageConfigured(!!s?.configured);
+      })
       .catch(() => {
         if (!cancelled) setStorageConfigured(false);
       });
@@ -198,17 +186,12 @@ export default function RecordRoute() {
       setUiState("pickingSources");
 
       try {
-        // 0. Verify a video-capable upload provider is configured.
-        // Builder.io's upload API only handles images — video needs S3.
         const statusRes = await fetch("/_agent-native/file-upload/status");
         if (statusRes.ok) {
-          const status = (await statusRes.json()) as {
-            configured?: boolean;
-            activeProvider?: { id: string };
-          };
-          if (!status.configured || status.activeProvider?.id === "builder") {
+          const status = (await statusRes.json()) as { configured?: boolean };
+          if (!status.configured) {
             throw new Error(
-              "No video storage configured. Open Settings to connect S3-compatible storage (AWS S3, Cloudflare R2, DigitalOcean Spaces).",
+              "No video storage configured. Open Settings to connect Builder.io or S3-compatible storage.",
             );
           }
         }
@@ -227,7 +210,12 @@ export default function RecordRoute() {
           if (res.status === 401 || res.status === 403) {
             throw new Error("SESSION_EXPIRED");
           }
-          throw new Error(`create-recording failed (${res.status})`);
+          const body = (await res.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          throw new Error(
+            body?.error ?? `create-recording failed (${res.status})`,
+          );
         }
         const created = (await res.json()) as {
           result?: {
