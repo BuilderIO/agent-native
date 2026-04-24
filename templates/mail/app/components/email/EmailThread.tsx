@@ -1065,7 +1065,7 @@ export function EmailThread({
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Thread header */}
-      <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3">
+      <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3 max-h-[40%]">
         <div className="flex items-start gap-2 sm:gap-3">
           <button
             onClick={goBack}
@@ -1077,7 +1077,7 @@ export function EmailThread({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-2 flex-wrap">
-              <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground">
+              <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
                 {threadSubject}
               </h1>
               {isBodyLoading && (
@@ -1391,7 +1391,7 @@ function ThreadLoadingState({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3">
+      <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3 max-h-[40%]">
         <div className="flex items-start gap-2 sm:gap-3">
           <button
             onClick={onBack}
@@ -1404,7 +1404,7 @@ function ThreadLoadingState({
           <div className="flex-1 min-w-0">
             {preview ? (
               <div className="flex items-start gap-2 flex-wrap">
-                <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground">
+                <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
                   {threadSubject}
                 </h1>
                 <Skeleton className="mt-0.5 h-5 w-28 rounded-full" />
