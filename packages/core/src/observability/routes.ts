@@ -89,7 +89,16 @@ export function createObservabilityHandler() {
       .replace(/\/+$/, "");
     const parts = pathname ? pathname.split("/") : [];
 
-    await resolveOwner(event);
+    const owner = await resolveOwner(event);
+    if (!owner || owner === "local@localhost") {
+      const isLocal =
+        process.env.NODE_ENV !== "production" ||
+        process.env.AUTH_MODE === "local";
+      if (!isLocal) {
+        setResponseStatus(event, 401);
+        return { error: "Authentication required" };
+      }
+    }
 
     // GET / — overview stats
     if (method === "GET" && parts.length === 0) {
@@ -161,7 +170,7 @@ export function createObservabilityHandler() {
         messageSeq: body.messageSeq ?? null,
         feedbackType,
         value: String(body.value ?? ""),
-        userId: body.userId ?? null,
+        userId: owner,
         createdAt: Date.now(),
       });
       return { id };
