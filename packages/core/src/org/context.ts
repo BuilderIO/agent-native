@@ -200,6 +200,14 @@ async function tryCreateDefaultOrg(
 
     return { email, orgId, orgName, role: "owner" };
   } catch {
+    // Org / member insert failed AFTER we won the claim. Drop the claim
+    // so a future request from this user can retry auto-create —
+    // otherwise the claim row would permanently block provisioning and
+    // the user would be stuck on RequireActiveOrg without any recovery
+    // path short of manual creation.
+    await exec
+      .execute({ sql: `DELETE FROM settings WHERE key = ?`, args: [claimKey] })
+      .catch(() => {});
     return null;
   }
 }
