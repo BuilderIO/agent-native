@@ -6,6 +6,7 @@ import {
   IconLoader2,
   IconServer,
 } from "@tabler/icons-react";
+import { useBuilderEnabled } from "@agent-native/core/client";
 
 function BuilderBMark({ className }: { className?: string }) {
   return (
@@ -34,6 +35,7 @@ export function StorageSetupCard({ onConfigured }: StorageSetupCardProps) {
   const [err, setErr] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  const builderEnabled = useBuilderEnabled();
 
   useEffect(() => {
     mountedRef.current = true;
@@ -109,52 +111,78 @@ export function StorageSetupCard({ onConfigured }: StorageSetupCardProps) {
         </p>
       </div>
 
-      {/* Builder.io — primary option */}
-      <button
-        type="button"
-        onClick={handleConnect}
-        disabled={connecting || connected}
-        className={
-          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-left " +
-          (connected
-            ? "border-primary/50 bg-primary/5"
-            : "border-border bg-background hover:border-foreground/30")
-        }
-      >
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
-          {connected ? (
-            <IconCheck className="h-5 w-5" />
-          ) : connecting ? (
-            <IconLoader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <BuilderBMark className="h-5 w-5" />
-          )}
-        </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">
-              {connected
-                ? "Builder.io connected"
-                : connecting
-                  ? "Waiting for Builder..."
-                  : "Connect Builder.io"}
-            </span>
-            {!connected && !connecting && (
-              <>
-                <span className="rounded-sm bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                  Free
-                </span>
-                <IconExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-              </>
+      {/* Builder.io — primary option. Gated behind ENABLE_BUILDER so
+          deployments without Builder access see a waitlist CTA instead
+          of a path that won't work for them. */}
+      {builderEnabled ? (
+        <button
+          type="button"
+          onClick={handleConnect}
+          disabled={connecting || connected}
+          className={
+            "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-left " +
+            (connected
+              ? "border-primary/50 bg-primary/5"
+              : "border-border bg-background hover:border-foreground/30")
+          }
+        >
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
+            {connected ? (
+              <IconCheck className="h-5 w-5" />
+            ) : connecting ? (
+              <IconLoader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <BuilderBMark className="h-5 w-5" />
             )}
           </div>
-          <span className="mt-0.5 block text-xs text-muted-foreground">
-            {connected
-              ? "You're all set. Starting recorder..."
-              : "One-click setup — also unlocks LLM and browser automation."}
-          </span>
-        </div>
-      </button>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">
+                {connected
+                  ? "Builder.io connected"
+                  : connecting
+                    ? "Waiting for Builder..."
+                    : "Connect Builder.io"}
+              </span>
+              {!connected && !connecting && (
+                <>
+                  <span className="rounded-sm bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                    Free
+                  </span>
+                  <IconExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                </>
+              )}
+            </div>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              {connected
+                ? "You're all set. Starting recorder..."
+                : "One-click setup — also unlocks LLM and browser automation."}
+            </span>
+          </div>
+        </button>
+      ) : (
+        <a
+          href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-start gap-3 rounded-xl border border-border bg-background px-4 py-3.5 text-left hover:border-foreground/30"
+        >
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
+            <BuilderBMark className="h-5 w-5" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">
+                Builder.io — join waitlist
+              </span>
+              <IconExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+            </div>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              One-click video storage is coming soon.
+            </span>
+          </div>
+        </a>
+      )}
 
       {err && <p className="text-xs text-destructive">{err}</p>}
 

@@ -19,6 +19,7 @@ import {
 import { useOnboarding } from "./use-onboarding.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { useDevMode } from "../use-dev-mode.js";
+import { useBuilderEnabled } from "../use-builder-enabled.js";
 import { getCallbackOrigin } from "../frame.js";
 import type {
   OnboardingMethod,
@@ -64,6 +65,7 @@ export function OnboardingPanel({
       null);
   // Default expanded when setup is incomplete; collapsed once everything's done.
   const [expanded, setExpanded] = useState(!allComplete);
+  const builderEnabled = useBuilderEnabled();
 
   if (loading || totalCount === 0) return null;
   if (dismissed) return null;
@@ -129,6 +131,7 @@ export function OnboardingPanel({
             key={step.id}
             step={step}
             expanded={step.id === currentStepId}
+            builderEnabled={builderEnabled}
             onMarkComplete={() => complete(step.id)}
             onRefresh={refresh}
           />
@@ -149,11 +152,13 @@ export function OnboardingPanel({
 function StepCard({
   step,
   expanded: expandedProp,
+  builderEnabled,
   onMarkComplete,
   onRefresh,
 }: {
   step: OnboardingStepStatus;
   expanded: boolean;
+  builderEnabled: boolean;
   onMarkComplete: () => void;
   onRefresh: () => Promise<void>;
 }) {
@@ -208,6 +213,7 @@ function StepCard({
                 key={method.id}
                 method={method}
                 stepId={step.id}
+                builderEnabled={builderEnabled}
                 onCompleted={async () => {
                   await onRefresh();
                 }}
@@ -226,20 +232,24 @@ function StepCard({
 function MethodBlock({
   method,
   stepId,
+  builderEnabled,
   onCompleted,
   onMarkManualComplete,
 }: {
   method: OnboardingMethod;
   stepId: string;
+  builderEnabled: boolean;
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
+  const isBuilder = method.kind === "builder-cli-auth";
+  const waitlist = isBuilder && !builderEnabled;
   return (
     <div style={method.primary ? styles.methodPrimary : styles.method}>
       <div style={styles.methodHeader}>
         <span style={styles.methodLabel}>
           {method.label}
-          {method.badge && (
+          {!waitlist && method.badge && (
             <span style={badgeStyle(method.badge)}>{method.badge}</span>
           )}
         </span>
@@ -250,6 +260,7 @@ function MethodBlock({
       <MethodBody
         method={method}
         stepId={stepId}
+        waitlist={waitlist}
         onCompleted={onCompleted}
         onMarkManualComplete={onMarkManualComplete}
       />
@@ -260,11 +271,13 @@ function MethodBlock({
 function MethodBody({
   method,
   stepId,
+  waitlist,
   onCompleted,
   onMarkManualComplete,
 }: {
   method: OnboardingMethod;
   stepId: string;
+  waitlist: boolean;
   onCompleted: () => Promise<void>;
   onMarkManualComplete: () => void;
 }) {
@@ -276,10 +289,28 @@ function MethodBody({
     case "form":
       return <FormMethod method={method} onCompleted={onCompleted} />;
     case "builder-cli-auth":
+      if (waitlist) return <WaitlistMethod primary={method.primary} />;
       return <BuilderCliAuthMethod onCompleted={onCompleted} />;
     case "agent-task":
       return <AgentTaskMethod method={method} stepId={stepId} />;
   }
+}
+
+function WaitlistMethod({ primary: _primary }: { primary?: boolean }) {
+  return (
+    <a
+      href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        ...buttonPrimary(false),
+        textDecoration: "none",
+      }}
+    >
+      Join waitlist
+      <IconExternalLink size={12} style={{ marginLeft: 4 }} />
+    </a>
+  );
 }
 
 // ─── link ──────────────────────────────────────────────────────────────────
