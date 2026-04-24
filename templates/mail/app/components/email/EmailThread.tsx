@@ -1716,15 +1716,24 @@ const ExpandedMessageCard = forwardRef<
             searchTerm={searchTerm}
             activeLocalIdx={activeLocalIdx}
           />
-        ) : (
+        ) : email.body ? (
           <div className="space-y-2.5">
-            {(email.body || email.snippet) && (
-              <p className="text-[13px] text-foreground/80 leading-relaxed whitespace-pre-wrap">
-                {email.body || email.snippet}
-              </p>
-            )}
+            <PlainTextBody
+              body={email.body}
+              searchTerm={searchTerm}
+              activeLocalIdx={activeLocalIdx}
+            />
             <BodySkeleton />
           </div>
+        ) : email.snippet ? (
+          <div className="space-y-2.5">
+            <p className="text-[13px] text-foreground/80 leading-relaxed">
+              {email.snippet}
+            </p>
+            <BodySkeleton />
+          </div>
+        ) : (
+          <BodySkeleton />
         )}
       </div>
 
