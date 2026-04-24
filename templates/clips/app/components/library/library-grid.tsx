@@ -6,6 +6,7 @@ import {
   useMoveRecording,
   useTrashRecording,
   useArchiveRecording,
+  useRestoreRecording,
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
@@ -74,6 +75,7 @@ export function LibraryGrid({
   const moveRecording = useMoveRecording();
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
+  const restoreRecording = useRestoreRecording();
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -190,12 +192,22 @@ export function LibraryGrid({
                     );
                   }}
                   onArchive={(rec) => {
-                    archiveRecording.mutate(
-                      { id: rec.id },
-                      {
-                        onSuccess: () => toast.success("Archived"),
-                      },
-                    );
+                    if (rec.archivedAt) {
+                      restoreRecording.mutate(
+                        { id: rec.id },
+                        {
+                          onSuccess: () =>
+                            toast.success("Restored from archive"),
+                        },
+                      );
+                    } else {
+                      archiveRecording.mutate(
+                        { id: rec.id },
+                        {
+                          onSuccess: () => toast.success("Archived"),
+                        },
+                      );
+                    }
                   }}
                 />
               ))}

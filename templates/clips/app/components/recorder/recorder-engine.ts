@@ -308,14 +308,24 @@ export class RecorderEngine {
 
     this.transition("stopping");
 
-    const stopPromise = new Promise<Blob>((resolve, reject) => {
+    const stopPromise = new Promise<Blob>((resolve) => {
+      let resolved = false;
       const onData = (event: BlobEvent) => {
+        if (resolved) return;
+        resolved = true;
         this.recorder?.removeEventListener("dataavailable", onData);
         resolve(event.data);
       };
       this.recorder!.addEventListener("dataavailable", onData, { once: true });
-      // Timeout: if dataavailable never fires, don't hang forever.
-      setTimeout(() => reject(new Error("Stop timed out")), 5000);
+      // Safety net: if dataavailable never fires (broken recorder),
+      // resolve with empty blob after 10s so we don't hang forever.
+      // Normal path fires within milliseconds of recorder.stop().
+      setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        this.recorder?.removeEventListener("dataavailable", onData);
+        resolve(new Blob([], { type: this.mimeType }));
+      }, 10_000);
     });
 
     try {
@@ -325,9 +335,7 @@ export class RecorderEngine {
       throw err;
     }
 
-    const finalBlob = await stopPromise.catch(
-      () => new Blob([], { type: this.mimeType }),
-    );
+    const finalBlob = await stopPromise;
     const finalIndex = this.chunkIndex++;
 
     // Wait for all pending in-flight chunks before we send the isFinal one.
