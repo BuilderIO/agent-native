@@ -516,7 +516,7 @@ ${marketingStyles}
 ${marketingPanelHtml}
 <div class="card">
   <h1>Welcome</h1>
-  <p class="subtitle">Create an account to get started</p>
+  <p class="subtitle" id="subtitle">Create an account to get started</p>
   <p class="upgrade-note" id="upgrade-note">
     You started this flow from <code>local@localhost</code>. Continue signing in to upgrade this workspace to a real account and migrate your local data. If you want to cancel that and keep using local mode, use the secondary button below.
   </p>
@@ -600,6 +600,7 @@ ${
     : `  var TAB_STORAGE_KEY = 'an.onboarding.tab';
   var tabs = document.querySelectorAll('.tab');
   var forms = document.querySelectorAll('.form');
+  var subtitles = { signup: 'Create an account to get started', login: 'Sign in to your account' };
   function setActiveTab(name, opts) {
     if (name !== 'signup' && name !== 'login') return;
     var form = document.getElementById(name + '-form');
@@ -609,6 +610,8 @@ ${
     var btn = document.querySelector('.tab[data-tab="' + name + '"]');
     if (btn) btn.classList.add('active');
     form.classList.add('active');
+    var sub = document.getElementById('subtitle');
+    if (sub && subtitles[name]) sub.textContent = subtitles[name];
     if (opts && opts.persist) {
       try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch (e) {}
     }
@@ -681,12 +684,18 @@ ${
           window.location.reload();
           return;
         }
-        // Login failed — likely email verification required
-        msg.textContent = 'Account created! Check your email to verify, then sign in.';
-        msg.classList.add('show', 'success');
+        // Login failed — likely email verification required.
+        // Switch to login tab first, then show the message there so
+        // the user actually sees it (the signup form is hidden after switch).
         btn.disabled = false;
         btn.textContent = originalLabel;
         setActiveTab('login', { persist: true });
+        var loginMsg = document.getElementById('l-msg');
+        if (loginMsg) {
+          loginMsg.textContent = 'Account created! Check your email to verify, then sign in.';
+          loginMsg.classList.remove('error');
+          loginMsg.classList.add('show', 'success');
+        }
         return;
       }
       msg.textContent = data.error || 'Registration failed';
@@ -707,6 +716,8 @@ ${
     e.preventDefault();
     document.getElementById('login-form').classList.remove('active');
     document.getElementById('forgot-form').classList.add('active');
+    var sub = document.getElementById('subtitle');
+    if (sub) sub.textContent = 'Reset your password';
     var fEmail = document.getElementById('f-email');
     var lEmail = document.getElementById('l-email');
     if (lEmail && lEmail.value) fEmail.value = lEmail.value;
@@ -716,6 +727,8 @@ ${
     e.preventDefault();
     document.getElementById('forgot-form').classList.remove('active');
     document.getElementById('login-form').classList.add('active');
+    var sub = document.getElementById('subtitle');
+    if (sub) sub.textContent = subtitles.login;
   });
 
   var forgotForm = document.getElementById('forgot-form');

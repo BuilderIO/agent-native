@@ -90,7 +90,9 @@ export function useDbSync(
           }
         }
 
-        versionRef = version;
+        // Never decrease — protects against serverless instances with
+        // slightly different version counters.
+        versionRef = Math.max(versionRef, version);
       } catch {
         // Network error — will retry on next interval
       }
@@ -154,7 +156,7 @@ export function useScreenRefreshKey(
           if (data.events?.some((e) => e.source === "screen-refresh")) {
             setKey((k) => k + 1);
           }
-          versionRef = data.version;
+          versionRef = Math.max(versionRef, data.version);
         }
       } catch {
         // Network error — retry on next interval.
