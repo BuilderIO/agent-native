@@ -26,6 +26,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "A2A Protocol", to: "/docs/a2a-protocol" as const },
       { label: "MCP Clients", to: "/docs/mcp-clients" as const },
       { label: "MCP Protocol", to: "/docs/mcp-protocol" as const },
+      { label: "Observability", to: "/docs/observability" as const },
       { label: "Recurring Jobs", to: "/docs/recurring-jobs" as const },
       { label: "Voice Input", to: "/docs/voice-input" as const },
       {
