@@ -58,7 +58,7 @@ export function registerBuiltinEngines(): void {
   // ── Anthropic ──────────────────────────────────────────────────────────────
   registerAgentEngine({
     name: "anthropic",
-    label: "Claude (Anthropic SDK)",
+    label: "Claude",
     description:
       "Anthropic's SDK — best-in-class Claude models with full feature support (thinking, prompt caching, vision, computer use).",
     capabilities: ANTHROPIC_CAPABILITIES,
@@ -81,14 +81,14 @@ export function registerBuiltinEngines(): void {
   ];
 
   const providerLabels: Record<AISDKProvider, string> = {
-    anthropic: "Claude via AI SDK",
-    openai: "OpenAI (AI SDK)",
-    openrouter: "OpenRouter (AI SDK)",
-    google: "Google Gemini (AI SDK)",
-    groq: "Groq (AI SDK)",
-    mistral: "Mistral (AI SDK)",
-    cohere: "Cohere (AI SDK)",
-    ollama: "Ollama (local, AI SDK)",
+    anthropic: "Claude",
+    openai: "OpenAI",
+    openrouter: "OpenRouter",
+    google: "Gemini",
+    groq: "Groq",
+    mistral: "Mistral",
+    cohere: "Cohere",
+    ollama: "Ollama",
   };
 
   const providerDescriptions: Record<AISDKProvider, string> = {

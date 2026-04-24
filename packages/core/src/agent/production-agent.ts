@@ -1135,9 +1135,26 @@ export function createProductionAgentHandler(
           }
         }
 
-        const loopUsage = await runAgentLoop({
+        // Apply experiment variant overrides (A/B testing)
+        let effectiveModel = model;
+        try {
+          const { resolveActiveExperimentConfig } =
+            await import("../observability/experiments.js");
+          const expConfig = await resolveActiveExperimentConfig(
+            ownerEmail || "local@localhost",
+          );
+          if (expConfig) {
+            if (typeof expConfig.configs.model === "string") {
+              effectiveModel = expConfig.configs.model;
+            }
+          }
+        } catch {
+          // Experiments module unavailable — use default model
+        }
+
+        const agentLoopOpts = {
           engine,
-          model,
+          model: effectiveModel,
           systemPrompt,
           tools: getEngineTools(),
           messages,
@@ -1145,7 +1162,32 @@ export function createProductionAgentHandler(
           send,
           signal,
           providerOptions: options.providerOptions,
-        });
+        };
+
+        let loopUsage: AgentLoopUsage;
+        let instrumented = false;
+        try {
+          const { getObservabilityConfig, instrumentAgentLoop } =
+            await import("../observability/traces.js");
+          const obsConfig = await getObservabilityConfig();
+          if (obsConfig.enabled) {
+            instrumented = true;
+            loopUsage = await instrumentAgentLoop({
+              runAgentLoop,
+              loopOpts: agentLoopOpts,
+              runId,
+              threadId: threadId ?? null,
+              config: obsConfig,
+            });
+          }
+        } catch (err) {
+          // If instrumentation setup failed, fall through to uninstrumented.
+          // If the agent loop itself failed (via instrumentAgentLoop), re-throw.
+          if (instrumented) throw err;
+        }
+        if (!instrumented) {
+          loopUsage = await runAgentLoop(agentLoopOpts);
+        }
 
         // Record token usage for cost monitoring. Always on (not gated by
         // trackUsage) so the Usage panel in settings works in every mode,

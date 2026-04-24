@@ -160,6 +160,20 @@ export function createCoreRoutesPlugin(
     registerBuiltinProviders();
     registerBuiltinNotificationChannels();
 
+    try {
+      const { createObservabilityHandler } =
+        await import("../observability/routes.js");
+      const { ensureObservabilityTables } =
+        await import("../observability/store.js");
+      ensureObservabilityTables().catch(() => {});
+      getH3App(nitroApp).use(
+        `${FRAMEWORK_ROUTE_PREFIX}/observability`,
+        createObservabilityHandler(),
+      );
+    } catch {
+      // Observability module not available — skip
+    }
+
     const P = FRAMEWORK_ROUTE_PREFIX;
 
     // CORS for framework routes. Desktop tray apps (Tauri/Electron) run on

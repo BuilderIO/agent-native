@@ -193,14 +193,7 @@ export default defineAction({
       const activeProvider = getActiveFileUploadProvider();
       if (!activeProvider) {
         throw new Error(
-          "No file upload provider configured. Configure S3-compatible storage in Settings.",
-        );
-      }
-      // Builder.io's upload API only handles images. Video files need
-      // S3-compatible storage (AWS S3, Cloudflare R2, etc.).
-      if (activeProvider.id === "builder") {
-        throw new Error(
-          "Builder.io does not support video uploads. Configure S3-compatible storage (AWS S3, Cloudflare R2, DigitalOcean Spaces) in Settings → Video Storage.",
+          "No file upload provider configured. Connect Builder.io or S3-compatible storage in Settings.",
         );
       }
 

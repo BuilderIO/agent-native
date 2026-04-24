@@ -372,8 +372,13 @@ export function MultiTabAssistantChat({
 
         // Prepend the active custom model string (OpenRouter/Ollama) so
         // it shows up in the picker even when not in supportedModels.
+        const allowedEngines = new Set([
+          "anthropic",
+          "ai-sdk:openai",
+          "ai-sdk:google",
+        ]);
         const groups: EngineModelGroup[] = enginesData.engines
-          .filter((e: any) => e.name !== "ai-sdk:anthropic")
+          .filter((e: any) => allowedEngines.has(e.name))
           .map((e: any) => {
             const models = [...e.supportedModels];
             if (
