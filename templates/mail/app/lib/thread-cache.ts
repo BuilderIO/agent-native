@@ -295,6 +295,36 @@ if (typeof window !== "undefined") {
       } catch {}
     },
   };
+
+  (window as any).__showSkeleton = () => {
+    const origFetch = (window as any).__origFetch || window.fetch;
+    (window as any).__origFetch = origFetch;
+    window.fetch = function (url: any, opts: any) {
+      if (
+        typeof url === "string" &&
+        url.includes("/api/threads/") &&
+        url.includes("/messages")
+      ) {
+        return new Promise(() => {});
+      }
+      return origFetch.call(window, url, opts);
+    } as typeof fetch;
+    cache.clear();
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {}
+    console.log(
+      "[skeleton] Thread API blocked, cache cleared. Click an email to see the skeleton.",
+    );
+    console.log("[skeleton] Run __hideSkeleton() to restore normal behavior.");
+  };
+  (window as any).__hideSkeleton = () => {
+    if ((window as any).__origFetch) {
+      window.fetch = (window as any).__origFetch;
+      delete (window as any).__origFetch;
+    }
+    console.log("[skeleton] Normal fetch restored.");
+  };
 }
 
 // Hydrate after everything above is defined.

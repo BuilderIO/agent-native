@@ -1062,9 +1062,6 @@ export function EmailThread({
               <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
                 {threadSubject}
               </h1>
-              {!hasFullBody && (
-                <Skeleton className="mt-0.5 h-5 w-28 rounded-full" />
-              )}
               {displayLabels.map((labelId) => (
                 <span
                   key={labelId}
@@ -1372,12 +1369,9 @@ function ThreadLoadingState({
 
           <div className="flex-1 min-w-0">
             {preview ? (
-              <div className="flex items-start gap-2 flex-wrap">
-                <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
-                  {threadSubject}
-                </h1>
-                <Skeleton className="mt-0.5 h-5 w-28 rounded-full" />
-              </div>
+              <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
+                {threadSubject}
+              </h1>
             ) : (
               <div className="space-y-3 pt-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -1410,14 +1404,21 @@ function ThreadLoadingState({
                   <div className="text-[12px] text-muted-foreground/50">
                     To: {preview.to.map((r) => r.name || r.email).join(", ")}
                   </div>
-                  <div className="space-y-2 pt-1">
+                  <div className="space-y-2.5 pt-1">
                     <p className="text-[13px] text-foreground/80 leading-relaxed">
                       {preview.snippet}
                     </p>
-                    <Skeleton className="h-3 w-full" />
-                    <Skeleton className="h-3 w-[92%]" />
-                    <Skeleton className="h-3 w-[76%]" />
-                    <Skeleton className="h-3 w-[60%]" />
+                    <div className="space-y-2 pt-1">
+                      <Skeleton className="h-3 w-full" />
+                      <Skeleton className="h-3 w-[95%]" />
+                      <Skeleton className="h-3 w-full" />
+                      <Skeleton className="h-3 w-[88%]" />
+                      <Skeleton className="h-3 w-[72%]" />
+                      <div className="pt-1" />
+                      <Skeleton className="h-3 w-full" />
+                      <Skeleton className="h-3 w-[90%]" />
+                      <Skeleton className="h-3 w-[60%]" />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1714,14 +1715,21 @@ const ExpandedMessageCard = forwardRef<
             activeLocalIdx={activeLocalIdx}
           />
         ) : email.snippet ? (
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             <p className="text-[13px] text-foreground/80 leading-relaxed">
               {email.snippet}
             </p>
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-[92%]" />
-            <Skeleton className="h-3 w-[76%]" />
-            <Skeleton className="h-3 w-[60%]" />
+            <div className="space-y-2 pt-1">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-[95%]" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-[88%]" />
+              <Skeleton className="h-3 w-[72%]" />
+              <div className="pt-1" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-[90%]" />
+              <Skeleton className="h-3 w-[60%]" />
+            </div>
           </div>
         ) : null}
       </div>
