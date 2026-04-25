@@ -289,6 +289,7 @@ function computeRetryScore(userMessages: string[]): number {
 
 export async function computeSatisfactionScore(
   threadId: string,
+  opts: { userId?: string | null } = {},
 ): Promise<SatisfactionScore> {
   const messages = await getThreadMessages(threadId);
   const userMessages = messages
@@ -314,6 +315,7 @@ export async function computeSatisfactionScore(
   const score: SatisfactionScore = {
     id: `sat-${threadId}`,
     threadId,
+    userId: opts.userId ?? null,
     frustrationScore: Math.round(frustrationScore * 100) / 100,
     rephrasingScore: Math.round(rephrasingScore * 100) / 100,
     abandonmentScore: Math.round(abandonmentScore * 100) / 100,
