@@ -296,7 +296,7 @@ Keep the skill concise (under 500 lines) and actionable.`,
       message: `Create a recurring job: ${trimmed}`,
       context: `The user wants to create a recurring job. Their description: "${trimmed}"
 
-Use the create-job tool to create this. You need to:
+Use the manage-jobs tool with action "create" to create this. You need to:
 1. Derive a hyphen-case name from the description
 2. Convert the schedule to a cron expression (e.g., "every weekday at 9am" → "0 9 * * 1-5")
 3. Write clear, self-contained instructions for what the agent should do each time the job runs
@@ -491,7 +491,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
         sendToAgentChat({
           message:
             "Help me create a new automation. Ask me what I want to automate.",
-          context: `The user wants to create a new automation. Scope: personal. Use define-automation to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
+          context: `The user wants to create a new automation. Scope: personal. Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
           submit: true,
         });
         onCreated?.();

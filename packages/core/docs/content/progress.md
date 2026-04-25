@@ -41,7 +41,7 @@ Separate concern from [notifications](/docs/notifications): notifications fire o
 | `failed`    | Error terminal              |
 | `cancelled` | User interrupted            |
 
-Terminal statuses set `completed_at`. The UI tray shows only `running` rows; completed rows stay in the database for `list-runs` queries.
+Terminal statuses set `completed_at`. The UI tray shows only `running` rows; completed rows stay in the database for `manage-progress --action=list` queries.
 
 ## API {#api}
 
@@ -123,22 +123,22 @@ export function HeaderBar() {
 
 Inline header widget — mount it next to the notifications bell. Shows a spinner icon + count badge when runs are active; click opens a dropdown with one live percent bar per run. Hides the trigger entirely when no active runs. Polls `/_agent-native/runs?active=true` every `pollMs` (default 3 s). Uses shadcn semantic tokens, adapts to light and dark themes.
 
-## Agent tools {#agent-tools}
+## Agent tool {#agent-tool}
 
-Four native tools are registered in every template:
+A single `manage-progress` tool is registered in every template. The `action` parameter selects the operation:
 
-| Tool                  | Purpose                                                         |
-| --------------------- | --------------------------------------------------------------- |
-| `start-run`           | Call at the top of a long task. Returns a runId.                |
-| `update-run-progress` | Call periodically during the task with `percent` and/or `step`. |
-| `complete-run`        | Terminal — one of `succeeded`, `failed`, `cancelled`.           |
-| `list-runs`           | Inspect recent runs (filter by `active=true`).                  |
+| Action     | Purpose                                                         |
+| ---------- | --------------------------------------------------------------- |
+| `start`    | Call at the top of a long task. Returns a runId.                |
+| `update`   | Call periodically during the task with `percent` and/or `step`. |
+| `complete` | Terminal — one of `succeeded`, `failed`, `cancelled`.           |
+| `list`     | Inspect recent runs (filter by `active=true`).                  |
 
 ### When to start a run {#when-to-start}
 
 - Use for anything > ~5 seconds. A spinner with no context feels frozen.
 - Update at natural checkpoints, not every iteration. Every 5–10% is plenty.
-- **Always** call `complete-run`, including in error paths. An orphan `running` row is worse than no row.
+- **Always** call `manage-progress --action=complete`, including in error paths. An orphan `running` row is worse than no row.
 - Pair with `notify` on completion so the user sees the outcome when they're not actively watching the tray.
 
 ## Event bus {#event-bus}
@@ -171,6 +171,6 @@ Notify me that run {{runId}} has been running for a long time.
 
 ## What's next
 
-- [**Notifications**](/docs/notifications) — pair with `complete-run` to tell the user when work finishes
+- [**Notifications**](/docs/notifications) — pair with `manage-progress --action=complete` to tell the user when work finishes
 - [**Automations**](/docs/automations) — watchdog slow runs via `run.progress.updated`
 - [**Client**](/docs/client) — `useDbSync` for real-time cache invalidation
