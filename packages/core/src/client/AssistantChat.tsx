@@ -969,15 +969,15 @@ function AssistantMessage() {
       </div>
       {/* Action bar — only show after message is complete */}
       {isComplete && (
-        <div className="mt-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+        <div className="mt-1 flex items-center justify-between">
           <button
             onClick={handleCopy}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground"
           >
             {copied ? (
-              <IconCheck className="h-3 w-3" />
+              <IconCheck className="h-3.5 w-3.5" />
             ) : (
-              <IconCopy className="h-3 w-3" />
+              <IconCopy className="h-3.5 w-3.5" />
             )}
           </button>
           <React.Suspense fallback={null}>
