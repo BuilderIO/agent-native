@@ -783,145 +783,146 @@ function LLMSectionInner({
           orgName={orgName}
           label="Connect Builder.io"
         />
-        <ManualSetupCard
-          hint="Choose your AI provider and model."
-          docsUrl={PROVIDER_DOCS[selectedEngine]}
-          sourceBadge={sourceBadge}
-          docsLabel="Get an API key"
-          dim={connected}
-        >
-          <div className="space-y-2 mb-1">
-            <SettingsSelect
-              label="Provider"
-              value={selectedEngine}
-              options={providerOptions}
-              onValueChange={(val) => {
-                setSelectedEngine(val);
-                const info = engines.find((e) => e.name === val);
-                setSelectedModel(info?.defaultModel ?? "");
-                setApiKey("");
-              }}
-            />
-
-            {/* Free-form input so OpenRouter/Ollama custom model IDs can
-                be typed — the registry's supportedModels is only suggestions. */}
-            <div className="space-y-1.5">
-              <p className="text-[12px] font-medium text-foreground">Model</p>
-              <input
-                type="text"
-                list={`model-suggestions-${selectedEngine}`}
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                placeholder={
-                  selectedEngineInfo?.defaultModel ?? "e.g. model-id"
-                }
-                spellCheck={false}
-                autoComplete="off"
-                className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent placeholder:text-muted-foreground/50"
-                style={CONTROL_STYLE}
+        {!connected && (
+          <ManualSetupCard
+            hint="Choose your AI provider and model."
+            docsUrl={PROVIDER_DOCS[selectedEngine]}
+            sourceBadge={sourceBadge}
+            docsLabel="Get an API key"
+          >
+            <div className="space-y-2 mb-1">
+              <SettingsSelect
+                label="Provider"
+                value={selectedEngine}
+                options={providerOptions}
+                onValueChange={(val) => {
+                  setSelectedEngine(val);
+                  const info = engines.find((e) => e.name === val);
+                  setSelectedModel(info?.defaultModel ?? "");
+                  setApiKey("");
+                }}
               />
-              {modelOptions.length > 0 && (
-                <datalist id={`model-suggestions-${selectedEngine}`}>
-                  {modelOptions.map((opt) => (
-                    <option
-                      key={opt.value}
-                      value={opt.value}
-                      label={opt.label}
-                    />
-                  ))}
-                </datalist>
-              )}
-            </div>
 
-            {envVar && envConfigured ? (
-              <div className="flex items-center gap-1.5 text-[10px] text-green-500">
-                <IconCheck size={10} />
-                {envVar} configured
-              </div>
-            ) : envVar ? (
-              <div className="flex gap-1.5">
+              {/* Free-form input so OpenRouter/Ollama custom model IDs can
+                be typed — the registry's supportedModels is only suggestions. */}
+              <div className="space-y-1.5">
+                <p className="text-[12px] font-medium text-foreground">Model</p>
                 <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSave();
-                  }}
-                  placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
-                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  type="text"
+                  list={`model-suggestions-${selectedEngine}`}
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  placeholder={
+                    selectedEngineInfo?.defaultModel ?? "e.g. model-id"
+                  }
+                  spellCheck={false}
+                  autoComplete="off"
+                  className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent placeholder:text-muted-foreground/50"
+                  style={CONTROL_STYLE}
                 />
+                {modelOptions.length > 0 && (
+                  <datalist id={`model-suggestions-${selectedEngine}`}>
+                    {modelOptions.map((opt) => (
+                      <option
+                        key={opt.value}
+                        value={opt.value}
+                        label={opt.label}
+                      />
+                    ))}
+                  </datalist>
+                )}
+              </div>
+
+              {envVar && envConfigured ? (
+                <div className="flex items-center gap-1.5 text-[10px] text-green-500">
+                  <IconCheck size={10} />
+                  {envVar} configured
+                </div>
+              ) : envVar ? (
+                <div className="flex gap-1.5">
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSave();
+                    }}
+                    placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
+                    className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  />
+                  <button
+                    onClick={handleSave}
+                    disabled={!apiKey.trim() || saving}
+                    className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                  >
+                    {saving ? (
+                      <IconLoader2 size={10} className="animate-spin" />
+                    ) : saved ? (
+                      <IconCheck size={10} />
+                    ) : (
+                      "Save"
+                    )}
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={handleSave}
-                  disabled={!apiKey.trim() || saving}
-                  className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                  onClick={handleTest}
+                  disabled={testing}
+                  className="rounded border border-border px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/40 disabled:opacity-40"
                 >
-                  {saving ? (
-                    <IconLoader2 size={10} className="animate-spin" />
-                  ) : saved ? (
-                    <IconCheck size={10} />
+                  {testing ? (
+                    <span className="flex items-center gap-1">
+                      <IconLoader2 size={10} className="animate-spin" />
+                      Testing…
+                    </span>
                   ) : (
-                    "Save"
+                    "Test"
                   )}
                 </button>
-              </div>
-            ) : null}
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleTest}
-                disabled={testing}
-                className="rounded border border-border px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/40 disabled:opacity-40"
-              >
-                {testing ? (
-                  <span className="flex items-center gap-1">
-                    <IconLoader2 size={10} className="animate-spin" />
-                    Testing…
-                  </span>
-                ) : (
-                  "Test"
+                {engineChanged && (
+                  <button
+                    onClick={handleApply}
+                    className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80"
+                  >
+                    Apply
+                  </button>
                 )}
-              </button>
-              {engineChanged && (
-                <button
-                  onClick={handleApply}
-                  className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80"
-                >
-                  Apply
-                </button>
+                {settingsStatus != null && (
+                  <button
+                    onClick={handleDisconnect}
+                    className="ml-auto rounded border border-border px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
+                    title="Clear the saved engine — the app will fall back to the default until you re-apply."
+                  >
+                    Disconnect
+                  </button>
+                )}
+              </div>
+              {testResult && testResult.ok && (
+                <p className="flex items-center gap-1 text-[10px] text-green-500">
+                  <IconCheck size={10} />
+                  Test passed — {testResult.latencyMs}ms
+                </p>
               )}
-              {settingsStatus != null && (
-                <button
-                  onClick={handleDisconnect}
-                  className="ml-auto rounded border border-border px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
-                  title="Clear the saved engine — the app will fall back to the default until you re-apply."
-                >
-                  Disconnect
-                </button>
+              {testResult && testResult.ok === false && (
+                <p className="text-[10px] text-destructive">
+                  Test failed: {testResult.error}
+                </p>
+              )}
+              {disconnectError && (
+                <p className="text-[10px] text-destructive">
+                  Disconnect failed: {disconnectError}
+                </p>
+              )}
+              {applyNote && (
+                <p className="text-[10px] text-muted-foreground">
+                  Changes take effect on next conversation
+                </p>
               )}
             </div>
-            {testResult && testResult.ok && (
-              <p className="flex items-center gap-1 text-[10px] text-green-500">
-                <IconCheck size={10} />
-                Test passed — {testResult.latencyMs}ms
-              </p>
-            )}
-            {testResult && testResult.ok === false && (
-              <p className="text-[10px] text-destructive">
-                Test failed: {testResult.error}
-              </p>
-            )}
-            {disconnectError && (
-              <p className="text-[10px] text-destructive">
-                Disconnect failed: {disconnectError}
-              </p>
-            )}
-            {applyNote && (
-              <p className="text-[10px] text-muted-foreground">
-                Changes take effect on next conversation
-              </p>
-            )}
-          </div>
-        </ManualSetupCard>
+          </ManualSetupCard>
+        )}
       </div>
     </SettingsSection>
   );

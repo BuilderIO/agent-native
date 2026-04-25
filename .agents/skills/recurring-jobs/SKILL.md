@@ -15,17 +15,17 @@ Recurring jobs are scheduled tasks the agent executes automatically on a cron sc
 ## How It Works
 
 1. User asks for something recurring via the agent chat
-2. Agent uses `create-job` tool to write a job file at `jobs/<name>.md`
+2. Agent uses `manage-jobs` tool (action: "create") to write a job file at `jobs/<name>.md`
 3. A scheduler polls every 60 seconds, finds due jobs, and executes them via `runAgentLoop`
 4. Job results are saved as chat threads
 
-## Job Tools (built in)
+## Job Tool (built in)
 
-| Tool         | Purpose                                                    |
-| ------------ | ---------------------------------------------------------- |
-| `create-job` | Create a recurring job (name, cron schedule, instructions) |
-| `list-jobs`  | List all jobs and their status                             |
-| `update-job` | Update schedule, instructions, or toggle enabled           |
+| Tool          | Action     | Purpose                                                    |
+| ------------- | ---------- | ---------------------------------------------------------- |
+| `manage-jobs` | `create`   | Create a recurring job (name, cron schedule, instructions) |
+| `manage-jobs` | `list`     | List all jobs and their status                             |
+| `manage-jobs` | `update`   | Update schedule, instructions, or toggle enabled           |
 
 ## Key Files
 
@@ -33,7 +33,7 @@ Recurring jobs are scheduled tasks the agent executes automatically on a cron sc
 | ------------------------------------- | -------------------------------------------------------- |
 | `packages/core/src/jobs/cron.ts`      | Cron parsing (`nextOccurrence`, `isValidCron`, `describeCron`) |
 | `packages/core/src/jobs/scheduler.ts` | Job execution engine (`processRecurringJobs`)            |
-| `packages/core/src/jobs/tools.ts`     | Agent tools (`create-job`, `list-jobs`, `update-job`)    |
+| `packages/core/src/jobs/tools.ts`     | Agent tool (`manage-jobs` with create/list/update actions) |
 
 ## Related Skills
 

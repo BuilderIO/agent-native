@@ -14,11 +14,15 @@ import type { EnvKeyConfig } from "./create-server.js";
 import { readBody } from "./h3-helpers.js";
 import {
   BUILDER_ENV_KEYS,
+  BUILDER_STATE_PARAM,
+  buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackPage,
   getBuilderBrowserStatusForEvent,
   getBuilderCallbackEnvVars,
   resolveSafePreviewUrl,
   runBuilderAgent,
+  signBuilderCallbackState,
+  verifyBuilderCallbackState,
 } from "./builder-browser.js";
 import {
   getState,
@@ -271,13 +275,22 @@ export function createCoreRoutesPlugin(
     // Lightweight 302 to the Builder CLI-auth URL. Lets clients do
     // `window.open('/_agent-native/builder/connect', '_blank')` synchronously
     // inside a click handler, avoiding the popup-blocker downgrade that
-    // happens when an await sits before window.open.
+    // happens when an await sits before window.open. We mint a signed
+    // CSRF state here and embed it in the callback URL we hand to
+    // Builder; the callback handler verifies it before accepting any
+    // keys. See `signBuilderCallbackState` for the threat model.
     getH3App(nitroApp).use(
       `${P}/builder/connect`,
-      defineEventHandler((event) => {
-        const status = getBuilderBrowserStatusForEvent(event);
+      defineEventHandler(async (event) => {
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "Authentication required" };
+        }
+        const state = signBuilderCallbackState(session.email);
+        const cliAuthUrl = buildBuilderCliAuthUrl(getOrigin(event), state);
         setResponseStatus(event, 302);
-        setResponseHeader(event, "Location", status.connectUrl);
+        setResponseHeader(event, "Location", cliAuthUrl);
         return "";
       }),
     );
@@ -353,12 +366,9 @@ export function createCoreRoutesPlugin(
           return { error: "Method not allowed" };
         }
 
-        // Require a signed-in session before we accept Builder credentials
-        // into the server's .env / process.env. Without this, a logged-in
-        // user visiting an attacker-crafted URL would silently swap the
-        // workspace's Builder account with the attacker's. In AUTH_MODE=local
-        // the session is always `local@localhost`, so this is a no-op in
-        // local dev; it matters in hosted / multi-tenant deploys.
+        // Session blocks anonymous callers; the signed state below blocks
+        // CSRF (session cookies are SameSite=None;Secure for the iframe
+        // editor, so they ride along on attacker-crafted top-level links).
         const session = await getSession(event).catch(() => null);
         if (!session?.email) {
           setResponseStatus(event, 401);
@@ -369,6 +379,16 @@ export function createCoreRoutesPlugin(
           `${event.url?.pathname || "/"}${event.url?.search || ""}`,
           getOrigin(event),
         );
+
+        const state = requestUrl.searchParams.get(BUILDER_STATE_PARAM);
+        if (!verifyBuilderCallbackState(state, session.email)) {
+          setResponseStatus(event, 403);
+          return {
+            error:
+              "Invalid or expired connect token. Restart the Builder connect flow from Settings.",
+          };
+        }
+
         const privateKey = requestUrl.searchParams.get("p-key");
         const publicKey = requestUrl.searchParams.get("api-key");
 

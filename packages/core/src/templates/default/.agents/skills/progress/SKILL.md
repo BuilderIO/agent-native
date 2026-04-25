@@ -22,25 +22,27 @@ Separate concern from `notifications`:
 
 Common pattern: on completion, emit a `notify()` so the user sees the outcome when they're not actively watching the tray.
 
-## Available Tools
+## Tool
 
-| Tool | Purpose |
+All progress operations go through a single `manage-progress` tool with an `action` parameter:
+
+| Action | Purpose |
 |---|---|
-| `start-run` | Mark the start of a long task. Returns a runId. |
-| `update-run-progress` | Update percent and/or current step. Call frequently. |
-| `complete-run` | Mark terminal status: `succeeded`, `failed`, `cancelled`. |
-| `list-runs` | List recent runs (all or `--active=true`). |
+| `start` | Mark the start of a long task. Returns a runId. |
+| `update` | Update percent and/or current step. Call frequently. |
+| `complete` | Mark terminal status: `succeeded`, `failed`, `cancelled`. |
+| `list` | List recent runs (all or `--active=true`). |
 
 ## Canonical Flow
 
 ```
-start-run --title "Triage 128 unread emails" --step "Fetching inbox"
+manage-progress --action=start --title "Triage 128 unread emails" --step "Fetching inbox"
   → runId=abc
 
-update-run-progress --runId=abc --percent=25 --step="Classifying 32/128"
-update-run-progress --runId=abc --percent=75 --step="Drafting replies 97/128"
+manage-progress --action=update --runId=abc --percent=25 --step="Classifying 32/128"
+manage-progress --action=update --runId=abc --percent=75 --step="Drafting replies 97/128"
 
-complete-run --runId=abc --status=succeeded
+manage-progress --action=complete --runId=abc --status=succeeded
 notify --severity=info --title="Triage done" --body="12 archived, 6 drafts ready to review"
 ```
 
@@ -48,9 +50,9 @@ notify --severity=info --title="Triage done" --body="12 archived, 6 drafts ready
 
 - **Start a run for anything > ~5 seconds.** Users want feedback; a spinner with no context feels frozen.
 - **Update at natural checkpoints**, not every iteration. Every 5–10% is enough for most UIs.
-- **Always call `complete-run`** at the end — including the error path. An orphaned `running` row is worse than no row.
+- **Always call `manage-progress --action=complete`** at the end — including the error path. An orphaned `running` row is worse than no row.
 - **Pair with `notify`** on completion. The tray tells users what's *running*; notifications tell them what *finished*.
-- **Use `metadataJson`** on `start-run` to pass a link back to the produced artifact (thread id, document path), so the UI can deep-link from the runs tray.
+- **Use `metadataJson`** on `manage-progress --action=start` to pass a link back to the produced artifact (thread id, document path), so the UI can deep-link from the runs tray.
 
 ## Runs API
 

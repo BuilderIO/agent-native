@@ -6,6 +6,21 @@ interface TocItem {
   indent?: boolean;
 }
 
+function findScrollParent(el: HTMLElement | null): HTMLElement | Window {
+  let node = el?.parentElement ?? null;
+  while (node) {
+    const { overflowY } = getComputedStyle(node);
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      node.scrollHeight > node.clientHeight
+    ) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return window;
+}
+
 export default function TableOfContents({ items }: { items: TocItem[] }) {
   const [activeId, setActiveId] = useState<string>("");
   const [headingLevels, setHeadingLevels] = useState<Record<string, number>>(
@@ -13,7 +28,6 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
   );
 
   useEffect(() => {
-    // Detect heading levels for indentation
     const levels: Record<string, number> = {};
     for (const item of items) {
       const el = document.getElementById(item.id);
@@ -29,12 +43,9 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
     const ids = items.map((item) => item.id);
     if (ids.length === 0) return;
 
-    // How far from the top of the viewport a heading is considered "active"
     const OFFSET = 120;
 
     const getActiveId = () => {
-      // Query elements fresh each time — MarkdownRenderer replaces the DOM
-      // when async syntax highlighting finishes, which detaches old nodes.
       let active = ids[0] ?? "";
       for (const id of ids) {
         const el = document.getElementById(id);
@@ -47,15 +58,17 @@ export default function TableOfContents({ items }: { items: TocItem[] }) {
       return active;
     };
 
-    // Set immediately on mount so the sidebar isn't blank
+    const firstEl = document.getElementById(ids[0]);
+    const scrollTarget = findScrollParent(firstEl);
+
     setActiveId(getActiveId());
 
     const onScroll = () => {
       const next = getActiveId();
       setActiveId((prev) => (prev === next ? prev : next));
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    scrollTarget.addEventListener("scroll", onScroll, { passive: true });
+    return () => scrollTarget.removeEventListener("scroll", onScroll);
   }, [items]);
 
   return (
