@@ -35,7 +35,7 @@ export function BrowserSection() {
           <p className="text-[10px] text-muted-foreground">
             Agents can request live browser sessions via{" "}
             <code className="rounded bg-muted px-1 py-0.5 text-[9px]">
-              get-browser-connection
+              connect-builder
             </code>
           </p>
           {builder?.connectUrl && (

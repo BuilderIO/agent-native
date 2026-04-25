@@ -244,7 +244,7 @@ export async function resolveEngine(
 /**
  * Read the user-selected model for an engine from the `agent-engine` setting.
  *
- * The settings UI writes `{engine, model}` via the `set-agent-engine` action,
+ * The settings UI writes `{engine, model}` via the `manage-agent-engine` action="set",
  * but `resolveEngine` only uses the stored engine (the model is a separate
  * per-request concern). Call this helper alongside `resolveEngine` to honor
  * the user's model choice without requiring a process restart.

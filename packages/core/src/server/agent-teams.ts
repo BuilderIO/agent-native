@@ -213,7 +213,7 @@ You are a focused sub-agent with a specific task. You have been given a curated 
         if (!force && now - lastPreviewSent < PREVIEW_INTERVAL_MS) return;
         lastPreviewSent = now;
         task.preview = accumulatedText.slice(-800);
-        // Persist to SQL so task-status calls from other processes see live state
+        // Persist to SQL so status checks from other processes see live state
         await saveTask(task);
         opts.parentSend({
           type: "agent_task_update",

@@ -171,7 +171,7 @@ export function processEvent(
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("agent-task-event", { detail: ev }));
     }
-    // Don't add to content — the spawn-task tool call handles rendering
+    // Don't add to content — the agent-teams tool call handles rendering
     return { action: "continue" };
   }
 

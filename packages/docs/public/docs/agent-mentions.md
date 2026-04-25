@@ -166,6 +166,6 @@ All reference types follow the same pattern: select from the popover, and the re
 
 ## Sub-agent selection {#sub-agent-selection}
 
-The main agent can also use custom agents when spawning sub-agents with `spawn-task`.
+The main agent can also use custom agents when spawning sub-agents with `agent-teams` (action: "spawn").
 
 Pass the `agent` parameter to choose a profile from `agents/*.md`. That profile's instructions are added to the delegated run, and its `model` frontmatter can override the default model for that sub-agent.

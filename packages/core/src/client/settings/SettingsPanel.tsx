@@ -600,10 +600,10 @@ function LLMSectionInner({
   }, [refreshSettingsStatus]);
 
   useEffect(() => {
-    fetch("/_agent-native/actions/list-agent-engines", {
+    fetch("/_agent-native/actions/manage-agent-engine", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ action: "list" }),
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
@@ -706,10 +706,11 @@ function LLMSectionInner({
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch("/_agent-native/actions/test-agent-engine", {
+      const res = await fetch("/_agent-native/actions/manage-agent-engine", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "test",
           engine: selectedEngine,
           model: selectedModel || selectedEngineInfo?.defaultModel,
         }),
@@ -747,10 +748,11 @@ function LLMSectionInner({
 
   const handleApply = async () => {
     try {
-      const res = await fetch("/_agent-native/actions/set-agent-engine", {
+      const res = await fetch("/_agent-native/actions/manage-agent-engine", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "set",
           engine: selectedEngine,
           model: selectedModel,
         }),

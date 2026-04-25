@@ -593,7 +593,7 @@ export function createProductionAgentHandler(
     }
 
     // Honor the model the user picked in the settings UI (written via
-    // `set-agent-engine`), but only when the caller hasn't overridden it for
+    // `manage-agent-engine` action="set"), but only when the caller hasn't overridden it for
     // this request or at plugin construction time. Read per-request so a
     // dropdown change in the UI takes effect without a server restart. Skip
     // the DB read entirely when a higher-precedence value is set.
@@ -809,7 +809,7 @@ export function createProductionAgentHandler(
             }
             if (agentLines.length > 0) {
               blocks.push(
-                `<available-agents>\nCustom and connected agents in the workspace:\n${agentLines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via spawn-task with the agent parameter.\n</available-agents>`,
+                `<available-agents>\nCustom and connected agents in the workspace:\n${agentLines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via agent-teams (action: "spawn") with the agent parameter.\n</available-agents>`,
               );
             }
             if (jobLines.length > 0) {

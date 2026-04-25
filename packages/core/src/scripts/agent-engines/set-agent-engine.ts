@@ -12,14 +12,14 @@ import { putSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
   description:
-    "Set the active AI agent engine and model. Changes take effect on the next conversation. Use list-agent-engines first to see available options.",
+    'Set the active AI agent engine and model. Changes take effect on the next conversation. Use manage-agent-engine with action="list" first to see available options.',
   parameters: {
     type: "object",
     properties: {
       engine: {
         type: "string",
         description:
-          'Engine name (e.g. "anthropic", "ai-sdk:openai", "ai-sdk:google"). Use list-agent-engines to see all options.',
+          'Engine name (e.g. "anthropic", "ai-sdk:openai", "ai-sdk:google"). Use manage-agent-engine with action="list" to see all options.',
       },
       model: {
         type: "string",
