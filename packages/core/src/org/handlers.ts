@@ -378,11 +378,19 @@ export const removeMemberHandler = defineEventHandler(
       });
     }
     const e = await exec();
-    const target = await e.execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    // Look specifically for an OWNER row matching this email rather
+    // than just "any matching row". Duplicate-case rows are possible
+    // (e.g. legacy data with both "Alice@..." and "alice@..." in
+    // org_members), and the prior `SELECT role ... LIMIT 1` could
+    // return the non-owner duplicate, pass the role check, and then
+    // the case-insensitive DELETE below would remove BOTH rows —
+    // including the owner — leaving the org ownerless. Querying for
+    // the owner row directly closes that case-mismatch attack.
+    const ownerCheck = await e.execute({
+      sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? AND role = 'owner' LIMIT 1`,
       args: [ctx.orgId, memberEmailLower],
     });
-    if ((target.rows[0] as any)?.role === "owner") {
+    if (ownerCheck.rows.length > 0) {
       throw createError({
         statusCode: 403,
         message: "Cannot remove the organization owner",
