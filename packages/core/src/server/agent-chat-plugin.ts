@@ -2051,12 +2051,23 @@ export function createAgentChatPlugin(
         process.once("SIGINT", stop);
       }
 
-      // Resolve actions — prefer `actions`, fall back to deprecated `scripts`
+      // Resolve actions — prefer explicit `actions`, fall back to deprecated
+      // `scripts`, then auto-discover from the filesystem as a safety net.
+      // Templates that don't pass `actions` explicitly (e.g. mail, recruiting)
+      // would otherwise have zero template actions in production.
       const rawActions = options?.actions ?? options?.scripts;
-      const templateScripts =
+      let templateScripts: Record<string, ActionEntry> =
         typeof rawActions === "function"
           ? await rawActions()
           : (rawActions ?? {});
+      if (Object.keys(templateScripts).length === 0) {
+        try {
+          const { autoDiscoverActions } = await import("./action-discovery.js");
+          templateScripts = await autoDiscoverActions(process.cwd());
+        } catch {
+          // Filesystem discovery unavailable (serverless bundle) — skip.
+        }
+      }
 
       // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
       const resourceScripts = await createResourceScriptEntries();

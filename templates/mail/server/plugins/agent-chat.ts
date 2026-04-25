@@ -1,8 +1,12 @@
 import "../onboarding.js";
-import { createAgentChatPlugin } from "@agent-native/core/server";
+import {
+  createAgentChatPlugin,
+  autoDiscoverActions,
+} from "@agent-native/core/server";
 import { getOrgContext } from "@agent-native/core/org";
 
 export default createAgentChatPlugin({
+  actions: () => autoDiscoverActions(import.meta.url),
   appId: "mail",
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
