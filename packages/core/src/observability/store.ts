@@ -7,6 +7,7 @@
  * rather than Drizzle ORM (which is for template-level schemas).
  */
 import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { isDuplicateColumnError } from "../db/migrations.js";
 import type {
   TraceSpan,
   TraceSummary,
@@ -28,6 +29,35 @@ function safeJsonParse<T>(value: unknown, fallback: T): T {
   }
 }
 
+// Tables whose rows are owned by an end user — drives the boot-time
+// user_id ALTER loop and the per-user composite indexes below. Every
+// new user-owned observability table must be added here so the upgrade
+// path and the per-user query plan stay in sync.
+const USER_SCOPED_TABLES = [
+  "agent_trace_spans",
+  "agent_trace_summaries",
+  "agent_satisfaction_scores",
+  "agent_evals",
+  "agent_feedback",
+] as const;
+
+/**
+ * Append an `AND user_id = ?` clause when a userId filter is requested.
+ * Returns the fully-bound WHERE clause + args ready to splice into the
+ * caller's SQL. Centralizes the pattern so tests can assert one shape.
+ */
+function withUserFilter(
+  baseWhere: string,
+  baseArgs: any[],
+  userId: string | undefined,
+): { where: string; args: any[] } {
+  if (userId == null) return { where: baseWhere, args: baseArgs };
+  return {
+    where: `${baseWhere} AND user_id = ?`,
+    args: [...baseArgs, userId],
+  };
+}
+
 let _initPromise: Promise<void> | undefined;
 
 export async function ensureObservabilityTables(): Promise<void> {
@@ -40,6 +70,7 @@ export async function ensureObservabilityTables(): Promise<void> {
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL,
           thread_id TEXT,
+          user_id TEXT,
           parent_span_id TEXT,
           span_type TEXT NOT NULL,
           name TEXT NOT NULL,
@@ -60,6 +91,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         CREATE TABLE IF NOT EXISTS agent_trace_summaries (
           run_id TEXT PRIMARY KEY,
           thread_id TEXT,
+          user_id TEXT,
           total_spans ${intType()} NOT NULL DEFAULT 0,
           llm_calls ${intType()} NOT NULL DEFAULT 0,
           tool_calls ${intType()} NOT NULL DEFAULT 0,
@@ -91,6 +123,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         CREATE TABLE IF NOT EXISTS agent_satisfaction_scores (
           id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
+          user_id TEXT,
           frustration_score REAL NOT NULL DEFAULT 0,
           rephrasing_score REAL NOT NULL DEFAULT 0,
           abandonment_score REAL NOT NULL DEFAULT 0,
@@ -105,6 +138,7 @@ export async function ensureObservabilityTables(): Promise<void> {
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL,
           thread_id TEXT,
+          user_id TEXT,
           eval_type TEXT NOT NULL,
           criteria TEXT NOT NULL,
           score REAL NOT NULL DEFAULT 0,
@@ -163,17 +197,35 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `);
 
+      // Idempotent column upgrades for DBs created before per-user
+      // isolation. SQLite has no `ADD COLUMN IF NOT EXISTS`; Postgres
+      // surfaces "column ... already exists". `isDuplicateColumnError`
+      // (from db/migrations.ts) recognizes both shapes.
+      for (const table of USER_SCOPED_TABLES) {
+        try {
+          await client.execute(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
+        } catch (err) {
+          if (isDuplicateColumnError(err)) continue;
+          throw err;
+        }
+      }
+
       // Indexes for common query patterns
       const indexes = [
         `CREATE INDEX IF NOT EXISTS idx_trace_spans_run ON agent_trace_spans (run_id)`,
         `CREATE INDEX IF NOT EXISTS idx_trace_spans_thread ON agent_trace_spans (thread_id)`,
         `CREATE INDEX IF NOT EXISTS idx_trace_spans_created ON agent_trace_spans (created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_trace_summaries_created ON agent_trace_summaries (created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_trace_summaries_user ON agent_trace_summaries (user_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_trace_spans_user ON agent_trace_spans (user_id)`,
         `CREATE INDEX IF NOT EXISTS idx_feedback_thread ON agent_feedback (thread_id)`,
         `CREATE INDEX IF NOT EXISTS idx_feedback_created ON agent_feedback (created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_feedback_user ON agent_feedback (user_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_satisfaction_thread ON agent_satisfaction_scores (thread_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_satisfaction_user ON agent_satisfaction_scores (user_id, computed_at)`,
         `CREATE INDEX IF NOT EXISTS idx_evals_run ON agent_evals (run_id)`,
         `CREATE INDEX IF NOT EXISTS idx_evals_created ON agent_evals (created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_evals_user ON agent_evals (user_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_experiment_results_exp ON agent_experiment_results (experiment_id)`,
       ];
       for (const sql of indexes) {
@@ -198,14 +250,15 @@ export async function insertTraceSpan(span: TraceSpan): Promise<void> {
   const client = getDbExec();
   await client.execute({
     sql: `INSERT INTO agent_trace_spans
-      (id, run_id, thread_id, parent_span_id, span_type, name,
+      (id, run_id, thread_id, user_id, parent_span_id, span_type, name,
        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
        cost_cents_x100, duration_ms, status, error_message, metadata, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       span.id,
       span.runId,
       span.threadId,
+      span.userId,
       span.parentSpanId,
       span.spanType,
       span.name,
@@ -226,14 +279,16 @@ export async function insertTraceSpan(span: TraceSpan): Promise<void> {
 export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
   await ensureObservabilityTables();
   const client = getDbExec();
+  // user_id is intentionally NOT updated on conflict — once a run's
+  // owner is recorded it shouldn't change under us.
   if (isPostgres()) {
     await client.execute({
       sql: `INSERT INTO agent_trace_summaries
-        (run_id, thread_id, total_spans, llm_calls, tool_calls,
+        (run_id, thread_id, user_id, total_spans, llm_calls, tool_calls,
          successful_tools, failed_tools, total_duration_ms,
          total_cost_cents_x100, total_input_tokens, total_output_tokens,
          model, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (run_id) DO UPDATE SET
           total_spans = EXCLUDED.total_spans,
           llm_calls = EXCLUDED.llm_calls,
@@ -248,6 +303,7 @@ export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
       args: [
         summary.runId,
         summary.threadId,
+        summary.userId,
         summary.totalSpans,
         summary.llmCalls,
         summary.toolCalls,
@@ -263,15 +319,27 @@ export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
     });
   } else {
     await client.execute({
-      sql: `INSERT OR REPLACE INTO agent_trace_summaries
-        (run_id, thread_id, total_spans, llm_calls, tool_calls,
+      sql: `INSERT INTO agent_trace_summaries
+        (run_id, thread_id, user_id, total_spans, llm_calls, tool_calls,
          successful_tools, failed_tools, total_duration_ms,
          total_cost_cents_x100, total_input_tokens, total_output_tokens,
          model, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (run_id) DO UPDATE SET
+          total_spans = EXCLUDED.total_spans,
+          llm_calls = EXCLUDED.llm_calls,
+          tool_calls = EXCLUDED.tool_calls,
+          successful_tools = EXCLUDED.successful_tools,
+          failed_tools = EXCLUDED.failed_tools,
+          total_duration_ms = EXCLUDED.total_duration_ms,
+          total_cost_cents_x100 = EXCLUDED.total_cost_cents_x100,
+          total_input_tokens = EXCLUDED.total_input_tokens,
+          total_output_tokens = EXCLUDED.total_output_tokens,
+          model = EXCLUDED.model`,
       args: [
         summary.runId,
         summary.threadId,
+        summary.userId,
         summary.totalSpans,
         summary.llmCalls,
         summary.toolCalls,
@@ -288,12 +356,16 @@ export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
   }
 }
 
-export async function getTraceSpansForRun(runId: string): Promise<TraceSpan[]> {
+export async function getTraceSpansForRun(
+  runId: string,
+  opts: { userId?: string } = {},
+): Promise<TraceSpan[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
+  const { where, args } = withUserFilter("run_id = ?", [runId], opts.userId);
   const { rows } = await client.execute({
-    sql: `SELECT * FROM agent_trace_spans WHERE run_id = ? ORDER BY created_at ASC`,
-    args: [runId],
+    sql: `SELECT * FROM agent_trace_spans WHERE ${where} ORDER BY created_at ASC`,
+    args,
   });
   return (rows as any[]).map(rowToTraceSpan);
 }
@@ -301,29 +373,37 @@ export async function getTraceSpansForRun(runId: string): Promise<TraceSpan[]> {
 export async function getTraceSummaries(opts: {
   sinceMs?: number;
   limit?: number;
+  userId?: string;
 }): Promise<TraceSummary[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
   const sinceMs = opts.sinceMs ?? 0;
   const limit = opts.limit ?? 100;
+  const { where, args } = withUserFilter(
+    "created_at >= ?",
+    [sinceMs],
+    opts.userId,
+  );
   const { rows } = await client.execute({
     sql: `SELECT * FROM agent_trace_summaries
-      WHERE created_at >= ?
+      WHERE ${where}
       ORDER BY created_at DESC
       LIMIT ?`,
-    args: [sinceMs, limit],
+    args: [...args, limit],
   });
   return (rows as any[]).map(rowToTraceSummary);
 }
 
 export async function getTraceSummary(
   runId: string,
+  opts: { userId?: string } = {},
 ): Promise<TraceSummary | null> {
   await ensureObservabilityTables();
   const client = getDbExec();
+  const { where, args } = withUserFilter("run_id = ?", [runId], opts.userId);
   const { rows } = await client.execute({
-    sql: `SELECT * FROM agent_trace_summaries WHERE run_id = ?`,
-    args: [runId],
+    sql: `SELECT * FROM agent_trace_summaries WHERE ${where}`,
+    args,
   });
   if (rows.length === 0) return null;
   return rowToTraceSummary(rows[0] as any);
@@ -356,6 +436,7 @@ export async function getFeedback(opts: {
   sinceMs?: number;
   limit?: number;
   feedbackType?: string;
+  userId?: string;
 }): Promise<FeedbackEntry[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
@@ -373,6 +454,10 @@ export async function getFeedback(opts: {
     conditions.push("feedback_type = ?");
     args.push(opts.feedbackType);
   }
+  if (opts.userId) {
+    conditions.push("user_id = ?");
+    args.push(opts.userId);
+  }
   const where =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const limit = opts.limit ?? 100;
@@ -383,7 +468,10 @@ export async function getFeedback(opts: {
   return (rows as any[]).map(rowToFeedback);
 }
 
-export async function getFeedbackStats(sinceMs: number): Promise<{
+export async function getFeedbackStats(
+  sinceMs: number,
+  opts: { userId?: string } = {},
+): Promise<{
   total: number;
   thumbsUp: number;
   thumbsDown: number;
@@ -391,11 +479,16 @@ export async function getFeedbackStats(sinceMs: number): Promise<{
 }> {
   await ensureObservabilityTables();
   const client = getDbExec();
+  const { where, args } = withUserFilter(
+    "created_at >= ?",
+    [sinceMs],
+    opts.userId,
+  );
   const { rows } = await client.execute({
     sql: `SELECT feedback_type, value, COUNT(*) as cnt
-      FROM agent_feedback WHERE created_at >= ?
+      FROM agent_feedback WHERE ${where}
       GROUP BY feedback_type, value`,
-    args: [sinceMs],
+    args,
   });
   let total = 0;
   let thumbsUp = 0;
@@ -422,9 +515,9 @@ export async function upsertSatisfactionScore(
   if (isPostgres()) {
     await client.execute({
       sql: `INSERT INTO agent_satisfaction_scores
-        (id, thread_id, frustration_score, rephrasing_score,
+        (id, thread_id, user_id, frustration_score, rephrasing_score,
          abandonment_score, sentiment_score, length_trend_score, computed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET
           frustration_score = EXCLUDED.frustration_score,
           rephrasing_score = EXCLUDED.rephrasing_score,
@@ -435,6 +528,7 @@ export async function upsertSatisfactionScore(
       args: [
         score.id,
         score.threadId,
+        score.userId,
         score.frustrationScore,
         score.rephrasingScore,
         score.abandonmentScore,
@@ -445,13 +539,21 @@ export async function upsertSatisfactionScore(
     });
   } else {
     await client.execute({
-      sql: `INSERT OR REPLACE INTO agent_satisfaction_scores
-        (id, thread_id, frustration_score, rephrasing_score,
+      sql: `INSERT INTO agent_satisfaction_scores
+        (id, thread_id, user_id, frustration_score, rephrasing_score,
          abandonment_score, sentiment_score, length_trend_score, computed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO UPDATE SET
+          frustration_score = EXCLUDED.frustration_score,
+          rephrasing_score = EXCLUDED.rephrasing_score,
+          abandonment_score = EXCLUDED.abandonment_score,
+          sentiment_score = EXCLUDED.sentiment_score,
+          length_trend_score = EXCLUDED.length_trend_score,
+          computed_at = EXCLUDED.computed_at`,
       args: [
         score.id,
         score.threadId,
+        score.userId,
         score.frustrationScore,
         score.rephrasingScore,
         score.abandonmentScore,
@@ -467,6 +569,7 @@ export async function getSatisfactionScores(opts: {
   sinceMs?: number;
   limit?: number;
   minFrustration?: number;
+  userId?: string;
 }): Promise<SatisfactionScore[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
@@ -479,6 +582,10 @@ export async function getSatisfactionScores(opts: {
   if (opts.minFrustration != null) {
     conditions.push("frustration_score >= ?");
     args.push(opts.minFrustration);
+  }
+  if (opts.userId) {
+    conditions.push("user_id = ?");
+    args.push(opts.userId);
   }
   const where =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -497,12 +604,13 @@ export async function insertEvalResult(result: EvalResult): Promise<void> {
   const client = getDbExec();
   await client.execute({
     sql: `INSERT INTO agent_evals
-      (id, run_id, thread_id, eval_type, criteria, score, reasoning, metadata, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, run_id, thread_id, user_id, eval_type, criteria, score, reasoning, metadata, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       result.id,
       result.runId,
       result.threadId,
+      result.userId,
       result.evalType,
       result.criteria,
       result.score,
@@ -513,35 +621,47 @@ export async function insertEvalResult(result: EvalResult): Promise<void> {
   });
 }
 
-export async function getEvalsForRun(runId: string): Promise<EvalResult[]> {
+export async function getEvalsForRun(
+  runId: string,
+  opts: { userId?: string } = {},
+): Promise<EvalResult[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
+  const { where, args } = withUserFilter("run_id = ?", [runId], opts.userId);
   const { rows } = await client.execute({
-    sql: `SELECT * FROM agent_evals WHERE run_id = ? ORDER BY created_at ASC`,
-    args: [runId],
+    sql: `SELECT * FROM agent_evals WHERE ${where} ORDER BY created_at ASC`,
+    args,
   });
   return (rows as any[]).map(rowToEval);
 }
 
-export async function getEvalStats(sinceMs: number): Promise<{
+export async function getEvalStats(
+  sinceMs: number,
+  opts: { userId?: string } = {},
+): Promise<{
   totalEvals: number;
   avgScore: number;
   byCriteria: Array<{ criteria: string; avgScore: number; count: number }>;
 }> {
   await ensureObservabilityTables();
   const client = getDbExec();
+  const { where, args } = withUserFilter(
+    "created_at >= ?",
+    [sinceMs],
+    opts.userId,
+  );
   const { rows: totalRows } = await client.execute({
     sql: `SELECT COUNT(*) as cnt, AVG(score) as avg_score
-      FROM agent_evals WHERE created_at >= ?`,
-    args: [sinceMs],
+      FROM agent_evals WHERE ${where}`,
+    args,
   });
   const t = (totalRows[0] ?? {}) as Record<string, number | null>;
 
   const { rows: criteriaRows } = await client.execute({
     sql: `SELECT criteria, AVG(score) as avg_score, COUNT(*) as cnt
-      FROM agent_evals WHERE created_at >= ?
+      FROM agent_evals WHERE ${where}
       GROUP BY criteria ORDER BY cnt DESC`,
-    args: [sinceMs],
+    args,
   });
 
   return {
@@ -810,7 +930,10 @@ export async function getExperimentResults(
 
 // ─── Aggregate queries for dashboard ─────────────────────────────────
 
-export async function getObservabilityOverview(sinceMs: number): Promise<{
+export async function getObservabilityOverview(
+  sinceMs: number,
+  opts: { userId?: string } = {},
+): Promise<{
   totalRuns: number;
   totalCostCents: number;
   avgDurationMs: number;
@@ -822,6 +945,13 @@ export async function getObservabilityOverview(sinceMs: number): Promise<{
   await ensureObservabilityTables();
   const client = getDbExec();
 
+  // Three of the four sub-queries time-key on `created_at`; satisfaction
+  // uses `computed_at`. Each gets its own `withUserFilter` invocation so
+  // the args array isn't aliased across calls (some drivers mutate args
+  // for prepared-statement caching).
+  const created = withUserFilter("created_at >= ?", [sinceMs], opts.userId);
+  const computed = withUserFilter("computed_at >= ?", [sinceMs], opts.userId);
+
   const [tracesResult, satisfactionResult, feedbackResult, evalsResult] =
     await Promise.all([
       client.execute({
@@ -831,25 +961,25 @@ export async function getObservabilityOverview(sinceMs: number): Promise<{
           COALESCE(AVG(total_duration_ms), 0) as avg_duration,
           COALESCE(SUM(successful_tools), 0) as success_tools,
           COALESCE(SUM(tool_calls), 0) as total_tools
-          FROM agent_trace_summaries WHERE created_at >= ?`,
-        args: [sinceMs],
+          FROM agent_trace_summaries WHERE ${created.where}`,
+        args: created.args,
       }),
       client.execute({
         sql: `SELECT COALESCE(AVG(frustration_score), 0) as avg_frustration
-          FROM agent_satisfaction_scores WHERE computed_at >= ?`,
-        args: [sinceMs],
+          FROM agent_satisfaction_scores WHERE ${computed.where}`,
+        args: computed.args,
       }),
       client.execute({
         sql: `SELECT
           COALESCE(SUM(CASE WHEN feedback_type = 'thumbs_up' THEN 1 ELSE 0 END), 0) as up,
           COALESCE(SUM(CASE WHEN feedback_type IN ('thumbs_up', 'thumbs_down') THEN 1 ELSE 0 END), 0) as total
-          FROM agent_feedback WHERE created_at >= ?`,
-        args: [sinceMs],
+          FROM agent_feedback WHERE ${created.where}`,
+        args: created.args,
       }),
       client.execute({
         sql: `SELECT COALESCE(AVG(score), 0) as avg_score
-          FROM agent_evals WHERE created_at >= ?`,
-        args: [sinceMs],
+          FROM agent_evals WHERE ${created.where}`,
+        args: created.args,
       }),
     ]);
 
@@ -881,6 +1011,7 @@ function rowToTraceSpan(row: Record<string, any>): TraceSpan {
     id: String(row.id),
     runId: String(row.run_id),
     threadId: row.thread_id ? String(row.thread_id) : null,
+    userId: row.user_id ? String(row.user_id) : null,
     parentSpanId: row.parent_span_id ? String(row.parent_span_id) : null,
     spanType: row.span_type as TraceSpan["spanType"],
     name: String(row.name),
@@ -901,6 +1032,7 @@ function rowToTraceSummary(row: Record<string, any>): TraceSummary {
   return {
     runId: String(row.run_id),
     threadId: row.thread_id ? String(row.thread_id) : null,
+    userId: row.user_id ? String(row.user_id) : null,
     totalSpans: Number(row.total_spans ?? 0),
     llmCalls: Number(row.llm_calls ?? 0),
     toolCalls: Number(row.tool_calls ?? 0),
@@ -932,6 +1064,7 @@ function rowToSatisfaction(row: Record<string, any>): SatisfactionScore {
   return {
     id: String(row.id),
     threadId: String(row.thread_id),
+    userId: row.user_id ? String(row.user_id) : null,
     frustrationScore: Number(row.frustration_score ?? 0),
     rephrasingScore: Number(row.rephrasing_score ?? 0),
     abandonmentScore: Number(row.abandonment_score ?? 0),
@@ -946,6 +1079,7 @@ function rowToEval(row: Record<string, any>): EvalResult {
     id: String(row.id),
     runId: String(row.run_id),
     threadId: row.thread_id ? String(row.thread_id) : null,
+    userId: row.user_id ? String(row.user_id) : null,
     evalType: row.eval_type as EvalResult["evalType"],
     criteria: String(row.criteria),
     score: Number(row.score ?? 0),
