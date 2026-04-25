@@ -46,9 +46,14 @@ export async function instrumentAgentLoop(opts: {
   };
   runId: string;
   threadId: string | null;
+  /** Owner of this run; persisted on every span + summary so dashboard
+   *  reads can filter to a single user. Null for unauthenticated callers
+   *  (background tasks, etc.) — those rows aren't returned by per-user
+   *  reads. */
+  userId: string | null;
   config: ObservabilityConfig;
 }): Promise<AgentLoopUsage> {
-  const { runAgentLoop, loopOpts, runId, threadId, config } = opts;
+  const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
   const runStart = Date.now();
   const parentSpanId = spanId();
 
@@ -104,6 +109,7 @@ export async function instrumentAgentLoop(opts: {
           id: pending?.spanId ?? spanId(),
           runId,
           threadId,
+          userId,
           parentSpanId,
           spanType: "tool_call",
           name: event.tool,
@@ -160,6 +166,7 @@ export async function instrumentAgentLoop(opts: {
         id: spanId(),
         runId,
         threadId,
+        userId,
         parentSpanId,
         spanType: "llm_call",
         name: usage.model,
@@ -181,6 +188,7 @@ export async function instrumentAgentLoop(opts: {
       id: parentSpanId,
       runId,
       threadId,
+      userId,
       parentSpanId: null,
       spanType: "agent_run",
       name: "agent_run",
@@ -200,6 +208,7 @@ export async function instrumentAgentLoop(opts: {
     const summary: TraceSummary = {
       runId,
       threadId,
+      userId,
       totalSpans: spans.length,
       llmCalls: llmCallCount,
       toolCalls: toolCallCount,

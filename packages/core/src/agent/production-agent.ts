@@ -1177,6 +1177,7 @@ export function createProductionAgentHandler(
               loopOpts: agentLoopOpts,
               runId,
               threadId: threadId ?? null,
+              userId: ownerEmail || "local@localhost",
               config: obsConfig,
             });
           }
