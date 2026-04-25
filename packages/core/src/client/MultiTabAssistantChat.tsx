@@ -657,6 +657,7 @@ export function MultiTabAssistantChat({
       }
 
       const isPlanMode = (() => {
+        if (!props.execMode) return false;
         try {
           return localStorage.getItem(execModeKey) === "plan";
         } catch {

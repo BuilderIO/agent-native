@@ -13,8 +13,8 @@
  *   - shadcn/ui-compatible `@theme` color tokens that resolve from raw HSL
  *     CSS variables (--background, --foreground, --muted, …) defined per
  *     template in `:root`/`.dark` (or `.light`).
- *   - Accordion keyframes/animations (replaces the v3 tailwindcss-animate
- *     plugin for the small subset of animations the framework uses).
+ *   - Full shadcn/ui animation utilities via tw-animate-css (animate-in,
+ *     animate-out, fade, zoom, slide, spin) plus accordion keyframes.
  *   - The official typography plugin.
  *
  * Templates remain in control of their own colour palette: they only need
@@ -32,6 +32,10 @@
 @custom-variant dark (&:is(.dark *));
 
 @plugin "@tailwindcss/typography";
+
+/* shadcn/ui animation utilities (animate-in, animate-out, fade-in/out,
+   zoom-in/out, slide-in-from-*, spin-in, etc.). */
+@import "tw-animate-css";
 
 @theme {
   --color-border: hsl(var(--border));

@@ -1058,8 +1058,8 @@ export function AgentPanel({
             emptyStateText={emptyStateText}
             suggestions={suggestions}
             onSwitchToCli={() => switchMode("cli")}
-            execMode={execMode}
-            onExecModeChange={switchExecMode}
+            execMode={isDevMode ? execMode : undefined}
+            onExecModeChange={isDevMode ? switchExecMode : undefined}
             storageKey={storageKey}
           />
         )}

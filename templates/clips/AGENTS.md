@@ -346,7 +346,7 @@ All standard CRUD (list, get, create, update) goes through `/_agent-native/actio
 - **Inter font** for all UI.
 - **Monochrome aesthetic.** Default space/folder/org color is `#18181B` (neutral zinc-900). Brand color is user-customizable via `set-organization-branding` (stored in `organization_settings`).
 - **1.2x** is the default playback speed for every recording (stored in `recordings.default_speed`).
-- **No decorative CSS transitions.** Keep the UI snappy.
+- **Keep shadcn default transitions** (animate-in/out, fade, zoom, slide). Avoid custom decorative transitions — keep the UI snappy.
 
 ## Rules
 

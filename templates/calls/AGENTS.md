@@ -410,7 +410,7 @@ All standard CRUD (list, get, create, update) goes through `/_agent-native/actio
 - **Inter font** for all UI.
 - **Monochrome palette** — `#111111` is the Calls primary brand color. It maps to `--brand` in the Tailwind config and is the default `workspaces.brand_color`.
 - **1.0x** is the default playback speed for calls (stored in `calls.default_speed`). Calls are conversations, not demos — normal speed by default.
-- **No decorative CSS transitions.** Keep the UI snappy.
+- **Keep shadcn default transitions** (animate-in/out, fade, zoom, slide). Avoid custom decorative transitions — keep the UI snappy.
 
 ## Rules
 
