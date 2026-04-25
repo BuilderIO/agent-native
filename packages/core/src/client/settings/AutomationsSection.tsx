@@ -254,7 +254,7 @@ export function AutomationsSection() {
       );
       sendToAgentChat({
         message: newPrompt.trim(),
-        context: `The user wants to create a new automation. Scope: ${newScope}. Use define-automation to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
+        context: `The user wants to create a new automation. Scope: ${newScope}. Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
         submit: true,
       });
       setNewPrompt("");

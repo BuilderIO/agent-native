@@ -24,8 +24,8 @@ Event triggers can optionally include a `condition` -- a natural-language string
 ## How It Works
 
 1. User asks the agent to create an automation (or uses the settings UI).
-2. Agent calls `list-automation-events` to discover available events.
-3. Agent calls `define-automation` to write a `jobs/<name>.md` resource.
+2. Agent calls `manage-automations` with `action=list-events` to discover available events.
+3. Agent calls `manage-automations` with `action=define` to write a `jobs/<name>.md` resource.
 4. The trigger dispatcher subscribes to the event on the bus.
 5. When the event fires, the dispatcher loads all matching triggers, evaluates conditions via Haiku, and dispatches matching ones.
 6. In `agentic` mode, the dispatcher runs a full `runAgentLoop` with the automation body as the prompt and the event payload as context.
@@ -71,15 +71,18 @@ Use the web-request tool with ${keys.SLACK_WEBHOOK}.
 
 ## Agent Tools
 
-| Tool                      | Purpose                                                          |
-| ------------------------- | ---------------------------------------------------------------- |
-| `define-automation`       | Create a new automation (name, trigger type, event, condition, body) |
-| `list-automation-events`  | Discover all registered events with descriptions and payload schemas |
-| `list-automations`        | List all automations with status, filter by domain or enabled    |
-| `update-automation`       | Update an existing automation (enabled, condition, body)         |
-| `delete-automation`       | Delete an automation (always confirm with user first)            |
-| `fire-test-event`         | Emit a `test.event.fired` event to validate automations          |
-| `web-request`             | Outbound HTTP with `${keys.NAME}` substitution                   |
+All automation operations are accessed through a single `manage-automations` tool with an `action` parameter:
+
+| Action        | Purpose                                                              |
+| ------------- | -------------------------------------------------------------------- |
+| `list-events` | Discover all registered events with descriptions and payload schemas |
+| `list`        | List all automations with status, filter by domain or enabled        |
+| `define`      | Create a new automation (name, trigger type, event, condition, body)  |
+| `update`      | Update an existing automation (enabled, condition, body)             |
+| `delete`      | Delete an automation (always confirm with user first)                |
+| `fire-test`   | Emit a `test.event.fired` event to validate automations              |
+
+Additional tool: `web-request` — outbound HTTP with `${keys.NAME}` substitution.
 
 ## The Event Bus
 
@@ -113,7 +116,7 @@ emit("calendar.booking.created", {
 
 | Event                     | Source              |
 | ------------------------- | ------------------- |
-| `test.event.fired`        | Manual / fire-test-event tool |
+| `test.event.fired`        | Manual / manage-automations action=fire-test |
 | `agent.turn.completed`    | Agent chat          |
 | `calendar.*`              | Calendar integration |
 | `clip.*`                  | Clips integration   |
@@ -157,9 +160,9 @@ User: "When someone books a meeting with a @builder.io email, message me in Slac
 
 Agent flow:
 
-1. Calls `list-automation-events` to find `calendar.booking.created`.
+1. Calls `manage-automations` with `action=list-events` to find `calendar.booking.created`.
 2. Confirms the plan with the user.
-3. Calls `define-automation`:
+3. Calls `manage-automations` with `action=define`:
    - `name`: `slack-on-builder-booking`
    - `trigger_type`: `event`
    - `event`: `calendar.booking.created`

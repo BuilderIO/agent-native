@@ -7,7 +7,7 @@
  *   GET    /_agent-native/runs/:id
  *   DELETE /_agent-native/runs/:id
  *
- * Writes happen through the `update-run-progress` agent tool, not HTTP —
+ * Writes happen through the `manage-progress` agent tool, not HTTP —
  * the agent is the canonical writer, the UI only reads. (We can add write
  * routes later if a non-agent producer needs them.)
  */
