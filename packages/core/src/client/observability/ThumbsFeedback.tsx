@@ -94,11 +94,11 @@ export function ThumbsFeedback({
           "flex h-6 w-6 items-center justify-center rounded",
           selection === "up"
             ? "text-emerald-500"
-            : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50",
+            : "text-muted-foreground/70 hover:text-muted-foreground hover:bg-accent/50",
         )}
       >
         <IconThumbUp
-          size={14}
+          size={16}
           stroke={selection === "up" ? 2.5 : 1.5}
           fill={selection === "up" ? "currentColor" : "none"}
         />
@@ -114,11 +114,11 @@ export function ThumbsFeedback({
               "flex h-6 w-6 items-center justify-center rounded",
               selection === "down"
                 ? "text-red-500"
-                : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50",
+                : "text-muted-foreground/70 hover:text-muted-foreground hover:bg-accent/50",
             )}
           >
             <IconThumbDown
-              size={14}
+              size={16}
               stroke={selection === "down" ? 2.5 : 1.5}
               fill={selection === "down" ? "currentColor" : "none"}
             />
