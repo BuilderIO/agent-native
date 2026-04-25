@@ -64,7 +64,7 @@ import {
  * to sign in again. Pinning the secret to `.env.local` on first boot
  * removes that footgun.
  */
-function resolveAuthSecret(): string {
+export function resolveAuthSecret(): string {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
 
   // Only persist on a real filesystem (not edge / workers). If fs writes

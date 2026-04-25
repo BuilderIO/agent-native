@@ -1,10 +1,26 @@
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
+import { resolveAuthSecret } from "./better-auth-instance.js";
 import { getOrigin } from "./google-oauth.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
 const BUILDER_BROWSER_HOST = "agent-native-browser";
 const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
+
+export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
+
+/**
+ * Query-param name carrying the signed CSRF state on the connect→callback
+ * round-trip. Builder's cli-auth flow doesn't echo a top-level `state`
+ * parameter, but it preserves the path/query of `redirect_url` verbatim
+ * when redirecting back. We embed `state=…` inside the redirect_url query
+ * string at connect time, and the callback handler reads it back from its
+ * own URL after Builder appends `p-key`, `api-key`, etc.
+ */
+export const BUILDER_STATE_PARAM = "state";
+
+const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
 
 export interface BuilderBrowserStatus {
   configured: boolean;
@@ -26,6 +42,66 @@ export interface BrowserConnectionArgs {
   proxyOrigin?: string;
   proxyDefaultOrigin?: string;
   proxyDestination?: string;
+}
+
+function macForParts(nonce: string, emailEncoded: string, ts: number): string {
+  return createHmac("sha256", resolveAuthSecret())
+    .update(`${nonce}.${emailEncoded}.${ts}`)
+    .digest("base64url");
+}
+
+/**
+ * Mint a signed CSRF state token bound to the current session's email
+ * and a fresh nonce. Round-trips through Builder's cli-auth flow inside
+ * the redirect_url query string and is verified on the callback before
+ * any keys are written.
+ *
+ * Why bind to email: it's the only stable, universally-available
+ * identity field across all auth modes (Better Auth, BYOA, AUTH_MODE=local).
+ * Binding to the session token instead would put the cookie value in a
+ * URL that may end up in server logs / browser history.
+ */
+export function signBuilderCallbackState(sessionEmail: string): string {
+  const nonce = randomBytes(16).toString("base64url");
+  const ts = Date.now();
+  const emailEncoded = Buffer.from(sessionEmail, "utf8").toString("base64url");
+  const mac = macForParts(nonce, emailEncoded, ts);
+  return `${nonce}.${emailEncoded}.${ts}.${mac}`;
+}
+
+/**
+ * Verify a state token produced by `signBuilderCallbackState`. Returns
+ * false on any malformed, forged, expired, or cross-session token.
+ */
+export function verifyBuilderCallbackState(
+  token: string | null | undefined,
+  sessionEmail: string,
+): boolean {
+  if (typeof token !== "string" || token.length === 0) return false;
+  const parts = token.split(".");
+  if (parts.length !== 4) return false;
+  const [nonce, emailEncoded, tsStr, mac] = parts;
+  if (!nonce || !emailEncoded || !tsStr || !mac) return false;
+
+  let boundEmail: string;
+  try {
+    boundEmail = Buffer.from(emailEncoded, "base64url").toString("utf8");
+  } catch {
+    return false;
+  }
+  if (boundEmail !== sessionEmail) return false;
+
+  const ts = Number(tsStr);
+  if (!Number.isFinite(ts)) return false;
+  // Reject expired AND far-future timestamps — a clock-skew attacker
+  // (or a bug that mints states with `ts` in the future) shouldn't get
+  // an arbitrarily-long-lived token.
+  if (Math.abs(Date.now() - ts) > BUILDER_STATE_TTL_MS) return false;
+
+  const expected = Buffer.from(macForParts(nonce, emailEncoded, ts));
+  const candidate = Buffer.from(mac);
+  if (expected.length !== candidate.length) return false;
+  return timingSafeEqual(expected, candidate);
 }
 
 function isAllowedBrowserReturnUrl(urlString: string): boolean {
@@ -72,17 +148,48 @@ export function getBuilderApiHost(): string {
   );
 }
 
-export function getBuilderBrowserConnectUrl(origin: string): string {
+/**
+ * Build the Builder cli-auth URL for the connect popup. When a signed
+ * `state` token is supplied it is embedded inside the `redirect_url`
+ * query string so it survives Builder's redirect verbatim — Builder
+ * preserves the redirect_url's existing query when appending p-key /
+ * api-key / etc., so we don't depend on Builder echoing a top-level
+ * `state` parameter (it doesn't).
+ *
+ * The user-facing connect entry point is `/_agent-native/builder/connect`
+ * (a server-side 302). Status / chat-card responses surface that path
+ * rather than the cli-auth URL directly, so the 302 handler can mint a
+ * fresh state bound to the current session on every click.
+ */
+export function buildBuilderCliAuthUrl(
+  origin: string,
+  state: string | null = null,
+): string {
   const normalizedOrigin = normalizeOrigin(origin);
-  const callbackUrl = `${normalizedOrigin}/_agent-native/builder/callback`;
+  const callbackUrl = new URL(BUILDER_CALLBACK_PATH, normalizedOrigin);
+  if (state) {
+    callbackUrl.searchParams.set(BUILDER_STATE_PARAM, state);
+  }
   const url = new URL("/cli-auth", getBuilderAppHost());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("host", BUILDER_BROWSER_HOST);
   url.searchParams.set("client_id", BUILDER_BROWSER_CLIENT_ID);
-  url.searchParams.set("redirect_url", callbackUrl);
+  url.searchParams.set("redirect_url", callbackUrl.toString());
   url.searchParams.set("preview_url", normalizedOrigin);
   url.searchParams.set("framework", "agent-native");
   return url.toString();
+}
+
+/**
+ * The URL surfaced to clients (chat card, settings panels, status
+ * endpoint) as `connectUrl`. Pointing every entry point at our local 302
+ * means the cli-auth URL — and the CSRF state token bound to the current
+ * session — are minted server-side at click time, instead of being baked
+ * into a status response that may be cached or rendered for a different
+ * session.
+ */
+export function getBuilderBrowserConnectUrl(origin: string): string {
+  return `${normalizeOrigin(origin)}/_agent-native/builder/connect`;
 }
 
 export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
