@@ -35,6 +35,7 @@ import type {
 } from "./types.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
+import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
 
 export interface TiptapComposerHandle {
   focus(): void;
@@ -998,17 +999,7 @@ export function TiptapComposer({
       </div>
       {voiceEnabled && <VoiceRecordingOverlay voice={voice} />}
       <div className="flex items-center gap-1 px-2 py-1.5">
-        {attachButton ?? (
-          <ComposerPrimitive.AddAttachment asChild>
-            <button
-              type="button"
-              className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Attach files"
-            >
-              <IconPlus className="h-4 w-4" />
-            </button>
-          </ComposerPrimitive.AddAttachment>
-        )}
+        {attachButton ?? <ComposerPlusMenu />}
         <div className="flex-1" />
         {actionButton ?? (
           <>
