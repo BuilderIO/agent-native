@@ -529,109 +529,105 @@ async function createResourceScriptEntries(): Promise<
       import("../scripts/resources/delete-memory.js"),
     ]);
 
+    // Wrap each CLI runner so it captures stdout and converts args properly
+    const listEntry = wrapCliScript(
+      {
+        description: "",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      list.default,
+      { readOnly: true },
+    );
+    const readEntry = wrapCliScript(
+      {
+        description: "",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      read.default,
+      { readOnly: true },
+    );
+    const writeEntry = wrapCliScript(
+      {
+        description: "",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      write.default,
+    );
+    const deleteEntry = wrapCliScript(
+      {
+        description: "",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      del.default,
+    );
+
     return {
-      "resource-list": wrapCliScript(
-        {
+      resources: {
+        tool: {
           description:
-            "List resources (persistent files/notes). Returns file paths, sizes, and metadata.",
+            'Manage persistent resources (files/notes). Actions: "list" (browse), "read" (get contents), "write" (create/update), "delete" (remove).',
           parameters: {
             type: "object",
             properties: {
-              prefix: {
+              action: {
                 type: "string",
-                description: "Filter by path prefix (e.g. 'notes/')",
+                description: "The operation to perform",
+                enum: ["list", "read", "write", "delete"],
               },
-              scope: {
-                type: "string",
-                description:
-                  "Which resources to list: personal, shared, or all (default: all)",
-                enum: ["personal", "shared", "all"],
-              },
-              format: {
-                type: "string",
-                description: 'Output format: "json" or "text" (default: text)',
-                enum: ["json", "text"],
-              },
-            },
-          },
-        },
-        list.default,
-      ),
-      "resource-read": wrapCliScript(
-        {
-          description: "Read a resource by path. Returns the file contents.",
-          parameters: {
-            type: "object",
-            properties: {
               path: {
                 type: "string",
                 description:
-                  "Resource path (e.g. 'LEARNINGS.md', 'notes/ideas.md')",
-              },
-              scope: {
-                type: "string",
-                description:
-                  "personal or shared (default: personal, falls back to shared)",
-                enum: ["personal", "shared"],
-              },
-            },
-            required: ["path"],
-          },
-        },
-        read.default,
-      ),
-      "resource-write": wrapCliScript(
-        {
-          description:
-            "Write or update a resource. Creates the resource if it doesn't exist.",
-          parameters: {
-            type: "object",
-            properties: {
-              path: {
-                type: "string",
-                description:
-                  "Resource path (e.g. 'LEARNINGS.md', 'notes/ideas.md')",
+                  "Resource path (e.g. 'LEARNINGS.md', 'notes/ideas.md'). Required for read/write/delete.",
               },
               content: {
                 type: "string",
-                description: "The content to write",
+                description: "Content to write. Required for write.",
               },
               scope: {
                 type: "string",
-                description: "personal or shared (default: personal)",
-                enum: ["personal", "shared"],
+                description:
+                  "personal, shared, or all (default varies by action)",
+                enum: ["personal", "shared", "all"],
+              },
+              prefix: {
+                type: "string",
+                description:
+                  "Filter by path prefix when listing (e.g. 'notes/')",
               },
               mime: {
                 type: "string",
-                description: "MIME type (default: inferred from extension)",
+                description:
+                  "MIME type for write (default: inferred from extension)",
+              },
+              format: {
+                type: "string",
+                description:
+                  'Output format for list: "json" or "text" (default: text)',
+                enum: ["json", "text"],
               },
             },
-            required: ["path", "content"],
+            required: ["action"],
           },
         },
-        write.default,
-      ),
-      "resource-delete": wrapCliScript(
-        {
-          description: "Delete a resource by path.",
-          parameters: {
-            type: "object",
-            properties: {
-              path: {
-                type: "string",
-                description: "Resource path to delete",
-              },
-              scope: {
-                type: "string",
-                description: "personal or shared (default: personal)",
-                enum: ["personal", "shared"],
-              },
-            },
-            required: ["path"],
-          },
+        run: async (args: Record<string, string>) => {
+          const { action: a, ...rest } = args;
+          if (a === "list") return listEntry.run(rest);
+          if (a === "read") {
+            if (!rest.path) return "Error: path is required for read";
+            return readEntry.run(rest);
+          }
+          if (a === "write") {
+            if (!rest.path || !rest.content)
+              return "Error: path and content are required for write";
+            return writeEntry.run(rest);
+          }
+          if (a === "delete") {
+            if (!rest.path) return "Error: path is required for delete";
+            return deleteEntry.run(rest);
+          }
+          return `Error: unknown action "${a}". Use: list, read, write, delete`;
         },
-        del.default,
-      ),
+      },
       "save-memory": wrapCliScript(
         {
           description:
@@ -1344,9 +1340,9 @@ Sub-agents have access to all template tools but **cannot spawn sub-agents thems
 
 You can create recurring jobs that run on a cron schedule. Jobs are resource files under \`jobs/\`.
 
-- \`create-job\` — Create a new recurring job with a cron schedule and instructions
-- \`list-jobs\` — List all recurring jobs and their status
-- \`update-job\` — Update a job's schedule, instructions, or toggle enabled/disabled
+- \`manage-jobs\` (action: "create") — Create a new recurring job with a cron schedule and instructions
+- \`manage-jobs\` (action: "list") — List all recurring jobs and their status
+- \`manage-jobs\` (action: "update") — Update a job's schedule, instructions, or toggle enabled/disabled
 - Delete a job with \`resource-delete --path jobs/<name>.md\`
 
 Convert natural language to 5-field cron format:
@@ -1442,7 +1438,7 @@ Resources can be personal (per-user) or shared (team-wide). By default, resource
 
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource.
 
-**Resources are NOT an agent scratchpad.** Never use \`resource-write\` to store executable scripts, task plans, retry notes, or work-in-progress files you're writing to yourself. Specifically, do NOT create resources under \`scripts/\` or \`tasks/\` unless the user explicitly asked for a file at that path, or a tool (like \`create-job\` or \`spawn-task\`) writes there as part of its contract. If you can't complete a task with the tools you have, say so — don't improvise by leaving behind \`FINAL-*.md\`, \`EXECUTE-NOW-*.js\`, or similar artifacts. Resources are visible to the user in the workspace sidebar; every file you write is something they'll see and have to clean up.
+**Resources are NOT an agent scratchpad.** Never use \`resource-write\` to store executable scripts, task plans, retry notes, or work-in-progress files you're writing to yourself. Specifically, do NOT create resources under \`scripts/\` or \`tasks/\` unless the user explicitly asked for a file at that path, or a tool (like \`manage-jobs\` or \`spawn-task\`) writes there as part of its contract. If you can't complete a task with the tools you have, say so — don't improvise by leaving behind \`FINAL-*.md\`, \`EXECUTE-NOW-*.js\`, or similar artifacts. Resources are visible to the user in the workspace sidebar; every file you write is something they'll see and have to clean up.
 
 ### Navigation Rule
 
@@ -1512,9 +1508,9 @@ Sub-agents have access to all template tools but **cannot spawn sub-agents thems
 
 You can create recurring jobs that run on a cron schedule. Jobs are resource files under \`jobs/\`. Each job has a cron schedule and instructions that the agent executes automatically.
 
-- \`create-job\` — Create a new recurring job with a cron schedule and instructions
-- \`list-jobs\` — List all recurring jobs and their status (schedule, last run, next run, errors)
-- \`update-job\` — Update a job's schedule, instructions, or toggle enabled/disabled
+- \`manage-jobs\` (action: "create") — Create a new recurring job with a cron schedule and instructions
+- \`manage-jobs\` (action: "list") — List all recurring jobs and their status (schedule, last run, next run, errors)
+- \`manage-jobs\` (action: "update") — Update a job's schedule, instructions, or toggle enabled/disabled
 - Delete a job with \`resource-delete --path jobs/<name>.md\`
 
 When the user asks for something recurring ("every morning", "daily at 9am", "weekly on Mondays"), create a job. Convert natural language to 5-field cron format:
@@ -1888,9 +1884,9 @@ ${lines.join("\n")}`;
 
   return `\n\n## Available Actions
 
-**Use these actions directly to accomplish tasks. Do NOT use \`db-schema\`, \`search-files\`, or \`shell\` to explore the app — these actions already connect to the correct database and services.**
+**ALWAYS use these actions as direct tool calls for any task they can accomplish.** These are your primary tools — they handle database access, validation, and business logic internally. Do NOT replicate their work with lower-level tools like \`web-request\`, \`db-query\`, \`db-schema\`, or \`shell\`. In particular, never call \`/_agent-native/actions/\` endpoints via \`web-request\` — the action IS a tool in your tool list; call it directly.
 
-**For external data sources (BigQuery, HubSpot, Jira, GA4, etc.), use the data-source-specific action below — NOT \`db-query\`.** \`db-query\` only reaches the app's own internal database. If the user asks about tables not in the app schema, pick the matching action here.
+Other tools (\`web-request\`, \`db-query\`, \`save-memory\`, etc.) are available for tasks that fall outside these actions — use them freely for those cases.
 
 Parameter notation: \`name*\` = required, \`name?\` = optional. Always pass the tool's parameters as a JSON object to the tool_use call — never via shell or string-concatenated CLI flags.
 
@@ -2936,7 +2932,7 @@ export function createAgentChatPlugin(
       });
 
       // Hook into the run lifecycle to set/clear the send reference.
-      // Job management tools (create-job, list-jobs, update-job)
+      // Job management tool (manage-jobs)
       let jobTools: Record<string, ActionEntry> = {};
       try {
         const { createJobTools } = await import("../jobs/tools.js");
