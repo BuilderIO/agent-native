@@ -272,6 +272,11 @@ export function createObservabilityHandler() {
       return { id };
     }
 
+    // Experiments are platform-wide A/B test configurations — they assign
+    // variants across all users, so reads are NOT per-user scoped. Writes
+    // are gated by authentication above (only authenticated users or
+    // local-dev can reach this point).
+
     // GET /experiments — list experiments
     if (method === "GET" && parts.length === 1 && parts[0] === "experiments") {
       return listExperiments();

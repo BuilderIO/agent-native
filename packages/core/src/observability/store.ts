@@ -38,6 +38,7 @@ const USER_SCOPED_TABLES = [
   "agent_trace_summaries",
   "agent_satisfaction_scores",
   "agent_evals",
+  "agent_feedback",
 ] as const;
 
 /**
@@ -50,7 +51,7 @@ function withUserFilter(
   baseArgs: any[],
   userId: string | undefined,
 ): { where: string; args: any[] } {
-  if (!userId) return { where: baseWhere, args: baseArgs };
+  if (userId == null) return { where: baseWhere, args: baseArgs };
   return {
     where: `${baseWhere} AND user_id = ?`,
     args: [...baseArgs, userId],
@@ -202,9 +203,7 @@ export async function ensureObservabilityTables(): Promise<void> {
       // (from db/migrations.ts) recognizes both shapes.
       for (const table of USER_SCOPED_TABLES) {
         try {
-          await client.execute(
-            `ALTER TABLE ${table} ADD COLUMN user_id TEXT`,
-          );
+          await client.execute(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
         } catch (err) {
           if (isDuplicateColumnError(err)) continue;
           throw err;
@@ -320,12 +319,23 @@ export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
     });
   } else {
     await client.execute({
-      sql: `INSERT OR REPLACE INTO agent_trace_summaries
+      sql: `INSERT INTO agent_trace_summaries
         (run_id, thread_id, user_id, total_spans, llm_calls, tool_calls,
          successful_tools, failed_tools, total_duration_ms,
          total_cost_cents_x100, total_input_tokens, total_output_tokens,
          model, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (run_id) DO UPDATE SET
+          total_spans = EXCLUDED.total_spans,
+          llm_calls = EXCLUDED.llm_calls,
+          tool_calls = EXCLUDED.tool_calls,
+          successful_tools = EXCLUDED.successful_tools,
+          failed_tools = EXCLUDED.failed_tools,
+          total_duration_ms = EXCLUDED.total_duration_ms,
+          total_cost_cents_x100 = EXCLUDED.total_cost_cents_x100,
+          total_input_tokens = EXCLUDED.total_input_tokens,
+          total_output_tokens = EXCLUDED.total_output_tokens,
+          model = EXCLUDED.model`,
       args: [
         summary.runId,
         summary.threadId,
@@ -945,24 +955,24 @@ export async function getObservabilityOverview(
           COALESCE(SUM(successful_tools), 0) as success_tools,
           COALESCE(SUM(tool_calls), 0) as total_tools
           FROM agent_trace_summaries WHERE ${created.where}`,
-        args: [...created.args],
+        args: created.args,
       }),
       client.execute({
         sql: `SELECT COALESCE(AVG(frustration_score), 0) as avg_frustration
           FROM agent_satisfaction_scores WHERE ${computed.where}`,
-        args: [...computed.args],
+        args: computed.args,
       }),
       client.execute({
         sql: `SELECT
           COALESCE(SUM(CASE WHEN feedback_type = 'thumbs_up' THEN 1 ELSE 0 END), 0) as up,
           COALESCE(SUM(CASE WHEN feedback_type IN ('thumbs_up', 'thumbs_down') THEN 1 ELSE 0 END), 0) as total
           FROM agent_feedback WHERE ${created.where}`,
-        args: [...created.args],
+        args: created.args,
       }),
       client.execute({
         sql: `SELECT COALESCE(AVG(score), 0) as avg_score
           FROM agent_evals WHERE ${created.where}`,
-        args: [...created.args],
+        args: created.args,
       }),
     ]);
 

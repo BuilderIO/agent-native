@@ -206,7 +206,7 @@ describe("observability store: per-user isolation", () => {
         createdAt: 1,
       });
       const call = execCalls.find((c) =>
-        /INSERT (OR REPLACE )?INTO agent_trace_summaries/.test(c.sql),
+        /INSERT\s+(OR REPLACE\s+)?INTO agent_trace_summaries/.test(c.sql),
       );
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);
@@ -226,9 +226,7 @@ describe("observability store: per-user isolation", () => {
         metadata: null,
         createdAt: 1,
       });
-      const call = execCalls.find((c) =>
-        /INSERT INTO agent_evals/.test(c.sql),
-      );
+      const call = execCalls.find((c) => /INSERT INTO agent_evals/.test(c.sql));
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);
       expect(call!.args).toContain("alice");

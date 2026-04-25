@@ -44,7 +44,11 @@ function makeEvalResult(opts: MakeEvalResultOpts): EvalResult {
 
 /** Lift the (runId, threadId, userId) triple off a TraceSummary —
  *  every automated scorer pulls these together. */
-function fromSummary(summary: TraceSummary) {
+function fromSummary(summary: TraceSummary): {
+  runId: string;
+  threadId: string | null;
+  userId: string | null;
+} {
   return {
     runId: summary.runId,
     threadId: summary.threadId,
@@ -472,11 +476,11 @@ export async function evaluateRun(
   opts?: { sampleRate?: number },
 ): Promise<EvalResult[]> {
   const results = await runAutomatedEvals(runId);
-  // The automated scorers already stamped each result with the same
-  // userId pulled from the trace summary. Reusing it here avoids a
-  // redundant `getTraceSummary` lookup on every turn (the LLM-judge
-  // path is sample-gated; the lookup wasn't).
-  const userId = results[0]?.userId ?? null;
+  let userId = results[0]?.userId ?? null;
+  if (userId == null) {
+    const summary = await getTraceSummary(runId);
+    userId = summary?.userId ?? null;
+  }
 
   const sampleRate = opts?.sampleRate ?? 0;
   if (sampleRate > 0 && Math.random() < sampleRate) {

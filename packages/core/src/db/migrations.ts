@@ -43,7 +43,9 @@ function adaptSqlForSqlite(sql: string): string {
  */
 export function isDuplicateColumnError(err: unknown): boolean {
   const msg = (err as Error | undefined)?.message ?? "";
-  return /duplicate column name/i.test(msg) || /already exists/i.test(msg);
+  return (
+    /duplicate column name/i.test(msg) || /column .* already exists/i.test(msg)
+  );
 }
 
 /**
