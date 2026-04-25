@@ -486,6 +486,15 @@ export function MultiTabAssistantChat({
       return;
     initializedRef.current = true;
     const threadIds = new Set(threads.map((t) => t.id));
+    const threadMap = new Map(threads.map((t) => [t.id, t]));
+
+    // Auto-close tabs inactive for more than 4 hours
+    const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000;
+    const now = Date.now();
+    const isStale = (id: string) => {
+      const thread = threadMap.get(id);
+      return thread ? now - thread.updatedAt > STALE_THRESHOLD_MS : false;
+    };
 
     // If the active thread is a sub-agent, switch to its parent or the most recent main thread
     if (parentMap[activeThreadId]) {
@@ -500,15 +509,26 @@ export function MultiTabAssistantChat({
     }
 
     setOpenTabIds((prev) => {
-      // Filter out any saved tabs that no longer exist, and any sub-agent tabs
-      const valid = prev.filter((id) => threadIds.has(id) && !parentMap[id]);
-      // Ensure active thread is included (only if it's not a sub-agent)
-      if (!parentMap[activeThreadId] && !valid.includes(activeThreadId)) {
+      // Filter out tabs that no longer exist, sub-agent tabs, or stale tabs (>4h inactive)
+      const valid = prev.filter(
+        (id) => threadIds.has(id) && !parentMap[id] && !isStale(id),
+      );
+      // Ensure active thread is included (only if it's not a sub-agent and not stale)
+      if (
+        !parentMap[activeThreadId] &&
+        !valid.includes(activeThreadId) &&
+        !isStale(activeThreadId)
+      ) {
         valid.push(activeThreadId);
       }
-      return valid.length > 0 ? valid : [activeThreadId];
+      return valid;
     });
-  }, [activeThreadId, threads, parentMap, switchThread]);
+
+    // If active thread is stale, start fresh
+    if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
+      createThread();
+    }
+  }, [activeThreadId, threads, parentMap, switchThread, createThread]);
 
   // Ensure active thread is always in open tabs.
   // Use functional update to check inside the setter — avoids race with the

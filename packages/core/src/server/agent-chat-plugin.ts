@@ -562,7 +562,7 @@ async function createResourceScriptEntries(): Promise<
       resources: {
         tool: {
           description:
-            'Manage persistent resources (files/notes). Actions: "list" (browse), "read" (get contents), "write" (create/update), "delete" (remove).',
+            'Manage persistent user files and notes. Actions: "list" (browse), "read" (get contents), "write" (create/update), "delete" (remove).',
           parameters: {
             type: "object",
             properties: {
@@ -1149,7 +1149,7 @@ export interface AgentChatPluginOptions {
    * prompt includes essential behavioral rules and action signatures, but
    * defers verbose framework details, SQL schema, skills, learnings, and
    * memory behind tools (`get-framework-context`, `db-schema`,
-   * `resource-read`). The agent fetches these on-demand when needed.
+   * `resources` (action: read)). The agent fetches these on-demand when needed.
    *
    * This reduces the system prompt by ~60-70%, significantly improving
    * time-to-first-token and reducing "thinking" time. The agent retains
@@ -1206,7 +1206,7 @@ const FRAMEWORK_CORE_COMPACT = `
 
 ### Resources
 
-Use resource-list, resource-read, resource-write, and resource-delete for persistent notes and context files.
+Use resource-list, resource-read, resource-write, resource-delete for persistent notes and context files.
 Resources are NOT an agent scratchpad — never create executable scripts, task plans, or work-in-progress files.
 
 ### Navigation Rule
@@ -1365,7 +1365,7 @@ const FRAMEWORK_CORE = `
 ### Resources
 
 You have access to a Resources system for persistent notes and context files.
-Use resource-list, resource-read, resource-write, and resource-delete to manage resources.
+Use resource-list, resource-read, resource-write, resource-delete to manage resources.
 Resources can be personal (per-user) or shared (team-wide). By default, resources are personal.
 
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource.
@@ -1816,11 +1816,9 @@ ${lines.join("\n")}`;
 
   return `\n\n## Available Actions
 
-**ALWAYS use these actions as direct tool calls for any task they can accomplish.** These are your primary tools — they handle database access, validation, and business logic internally. Do NOT replicate their work with lower-level tools like \`web-request\`, \`db-query\`, \`db-schema\`, or \`shell\`. In particular, never call \`/_agent-native/actions/\` endpoints via \`web-request\` — the action IS a tool in your tool list; call it directly.
+**Use these actions directly as tool calls.** They are your primary tools — they handle database access, validation, and business logic internally. Prefer these over lower-level tools like \`web-request\` or \`db-query\`.
 
-Other tools (\`web-request\`, \`db-query\`, \`save-memory\`, etc.) are available for tasks that fall outside these actions — use them freely for those cases.
-
-Parameter notation: \`name*\` = required, \`name?\` = optional. Always pass the tool's parameters as a JSON object to the tool_use call — never via shell or string-concatenated CLI flags.
+Parameter notation: \`name*\` = required, \`name?\` = optional. Pass parameters as a JSON object.
 
 ${lines.join("\n")}`;
 }
@@ -2045,12 +2043,23 @@ export function createAgentChatPlugin(
         process.once("SIGINT", stop);
       }
 
-      // Resolve actions — prefer `actions`, fall back to deprecated `scripts`
+      // Resolve actions — prefer explicit `actions`, fall back to deprecated
+      // `scripts`. When neither is provided, auto-discover from the filesystem
+      // so templates that forget to pass `actions` still work in non-serverless
+      // deployments (serverless bundles need explicit imports).
       const rawActions = options?.actions ?? options?.scripts;
-      const templateScripts =
+      let templateScripts: Record<string, ActionEntry> =
         typeof rawActions === "function"
           ? await rawActions()
           : (rawActions ?? {});
+      if (!rawActions && Object.keys(templateScripts).length === 0) {
+        try {
+          const { autoDiscoverActions } = await import("./action-discovery.js");
+          templateScripts = await autoDiscoverActions(process.cwd());
+        } catch {
+          // Filesystem discovery unavailable (serverless bundle) — skip.
+        }
+      }
 
       // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
       const resourceScripts = await createResourceScriptEntries();
