@@ -17,7 +17,10 @@ describe("Builder callback CSRF state", () => {
   });
 
   afterEach(() => {
-    process.env = { ...originalEnv };
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
     vi.useRealTimers();
   });
 
@@ -133,6 +136,30 @@ describe("Builder callback CSRF state", () => {
       expect(verifyBuilderCallbackState(forged, "alice@example.com")).toBe(
         false,
       );
+    });
+
+    it("handles emails with special characters (plus addressing, subdomains)", () => {
+      const emails = [
+        "user+tag@example.com",
+        "bob@subdomain.example.co.uk",
+        "name@xn--e1afmapc.xn--p1ai",
+      ];
+      for (const email of emails) {
+        const token = signBuilderCallbackState(email);
+        expect(verifyBuilderCallbackState(token, email)).toBe(true);
+      }
+    });
+
+    it("rejects a token when session email differs only by case", () => {
+      const token = signBuilderCallbackState("Alice@Example.com");
+      expect(verifyBuilderCallbackState(token, "alice@example.com")).toBe(
+        false,
+      );
+    });
+
+    it("works with the AUTH_MODE=local bypass email", () => {
+      const token = signBuilderCallbackState("local@localhost");
+      expect(verifyBuilderCallbackState(token, "local@localhost")).toBe(true);
     });
   });
 

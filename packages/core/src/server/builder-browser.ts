@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
-import { resolveAuthSecret } from "./better-auth-instance.js";
+import { getAuthSecret } from "./better-auth-instance.js";
 import { getOrigin } from "./google-oauth.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
@@ -12,13 +12,13 @@ export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
 
 /**
  * Query-param name carrying the signed CSRF state on the connect→callback
- * round-trip. Builder's cli-auth flow doesn't echo a top-level `state`
- * parameter, but it preserves the path/query of `redirect_url` verbatim
- * when redirecting back. We embed `state=…` inside the redirect_url query
- * string at connect time, and the callback handler reads it back from its
- * own URL after Builder appends `p-key`, `api-key`, etc.
+ * round-trip. Prefixed with `_an_` to avoid collisions if Builder ever
+ * adds standard OAuth `state` support to cli-auth. Builder preserves
+ * the path/query of `redirect_url` verbatim when redirecting back, so
+ * we embed `_an_state=…` inside the redirect_url query string at
+ * connect time and read it back on the callback.
  */
-export const BUILDER_STATE_PARAM = "state";
+export const BUILDER_STATE_PARAM = "_an_state";
 
 const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -45,7 +45,7 @@ export interface BrowserConnectionArgs {
 }
 
 function macForParts(nonce: string, emailEncoded: string, ts: number): string {
-  return createHmac("sha256", resolveAuthSecret())
+  return createHmac("sha256", `builder-csrf:${getAuthSecret()}`)
     .update(`${nonce}.${emailEncoded}.${ts}`)
     .digest("base64url");
 }
