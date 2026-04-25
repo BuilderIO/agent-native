@@ -55,6 +55,7 @@ export default function MarkdownRenderer({ markdown }: Props) {
   // Highlight code blocks with Shiki after mount
   useEffect(() => {
     let cancelled = false;
+    setHighlightedHtml(null);
 
     async function highlightCodeBlocks(html: string) {
       // Find all <pre><code class="language-xxx">...</code></pre> blocks
