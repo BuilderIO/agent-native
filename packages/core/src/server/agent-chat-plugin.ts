@@ -110,7 +110,7 @@ function wrapCliScript(
         logs.push(a.map(String).join(" "));
       };
       // Intercept process.stdout.write so scripts that write directly
-      // (e.g. file-storage (action: read)) have their output captured
+      // (e.g. resource-read) have their output captured
       process.stdout.write = ((chunk: any, ...rest: any[]) => {
         if (typeof chunk === "string") {
           logs.push(chunk);
@@ -559,10 +559,10 @@ async function createResourceScriptEntries(): Promise<
     );
 
     return {
-      "file-storage": {
+      resources: {
         tool: {
           description:
-            'Manage persistent user files and notes (NOT for looking up app documentation). Actions: "list" (browse), "read" (get contents), "write" (create/update), "delete" (remove).',
+            'Manage persistent user files and notes. Actions: "list" (browse), "read" (get contents), "write" (create/update), "delete" (remove).',
           parameters: {
             type: "object",
             properties: {
@@ -1149,7 +1149,7 @@ export interface AgentChatPluginOptions {
    * prompt includes essential behavioral rules and action signatures, but
    * defers verbose framework details, SQL schema, skills, learnings, and
    * memory behind tools (`get-framework-context`, `db-schema`,
-   * `file-storage` (action: read)). The agent fetches these on-demand when needed.
+   * `resources` (action: read)). The agent fetches these on-demand when needed.
    *
    * This reduces the system prompt by ~60-70%, significantly improving
    * time-to-first-token and reducing "thinking" time. The agent retains
@@ -1206,7 +1206,7 @@ const FRAMEWORK_CORE_COMPACT = `
 
 ### Resources
 
-Use file-storage (action: list/read/write/delete) for persistent notes and context files.
+Use resource-list, resource-read, resource-write, resource-delete for persistent notes and context files.
 Resources are NOT an agent scratchpad — never create executable scripts, task plans, or work-in-progress files.
 
 ### Navigation Rule
@@ -1276,7 +1276,7 @@ You can create recurring jobs that run on a cron schedule. Jobs are resource fil
 - \`manage-jobs\` (action: "create") — Create a new recurring job with a cron schedule and instructions
 - \`manage-jobs\` (action: "list") — List all recurring jobs and their status
 - \`manage-jobs\` (action: "update") — Update a job's schedule, instructions, or toggle enabled/disabled
-- Delete a job with \`file-storage (action: delete) --path jobs/<name>.md\`
+- Delete a job with \`resource-delete --path jobs/<name>.md\`
 
 Convert natural language to 5-field cron format:
 - "every morning" / "daily at 9am" → \`0 9 * * *\`
@@ -1313,7 +1313,7 @@ Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every convers
 **Tools:**
 - \`save-memory\` — Create or update a memory (name, type, description, content)
 - \`delete-memory\` — Remove a memory and its index entry
-- \`file-storage (action: read) --path memory/<name>.md\` — Read the full content of a specific memory
+- \`resource-read --path memory/<name>.md\` — Read the full content of a specific memory
 
 **Memory types:** user, feedback, project, reference
 
@@ -1365,12 +1365,12 @@ const FRAMEWORK_CORE = `
 ### Resources
 
 You have access to a Resources system for persistent notes and context files.
-Use file-storage (action: list/read/write/delete) to manage resources.
+Use resource-list, resource-read, resource-write, resource-delete to manage resources.
 Resources can be personal (per-user) or shared (team-wide). By default, resources are personal.
 
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource.
 
-**Resources are NOT an agent scratchpad.** Never use \`file-storage (action: write)\` to store executable scripts, task plans, retry notes, or work-in-progress files you're writing to yourself. Specifically, do NOT create resources under \`scripts/\` or \`tasks/\` unless the user explicitly asked for a file at that path, or a tool (like \`manage-jobs\` or \`agent-teams\`) writes there as part of its contract. If you can't complete a task with the tools you have, say so — don't improvise by leaving behind \`FINAL-*.md\`, \`EXECUTE-NOW-*.js\`, or similar artifacts. Resources are visible to the user in the workspace sidebar; every file you write is something they'll see and have to clean up.
+**Resources are NOT an agent scratchpad.** Never use \`resource-write\` to store executable scripts, task plans, retry notes, or work-in-progress files you're writing to yourself. Specifically, do NOT create resources under \`scripts/\` or \`tasks/\` unless the user explicitly asked for a file at that path, or a tool (like \`manage-jobs\` or \`agent-teams\`) writes there as part of its contract. If you can't complete a task with the tools you have, say so — don't improvise by leaving behind \`FINAL-*.md\`, \`EXECUTE-NOW-*.js\`, or similar artifacts. Resources are visible to the user in the workspace sidebar; every file you write is something they'll see and have to clean up.
 
 ### Navigation Rule
 
@@ -1445,7 +1445,7 @@ You can create recurring jobs that run on a cron schedule. Jobs are resource fil
 - \`manage-jobs\` (action: "create") — Create a new recurring job with a cron schedule and instructions
 - \`manage-jobs\` (action: "list") — List all recurring jobs and their status (schedule, last run, next run, errors)
 - \`manage-jobs\` (action: "update") — Update a job's schedule, instructions, or toggle enabled/disabled
-- Delete a job with \`file-storage (action: delete) --path jobs/<name>.md\`
+- Delete a job with \`resource-delete --path jobs/<name>.md\`
 
 When the user asks for something recurring ("every morning", "daily at 9am", "weekly on Mondays"), create a job. Convert natural language to 5-field cron format:
 - "every morning" / "daily at 9am" → \`0 9 * * *\`
@@ -1490,7 +1490,7 @@ You have a structured memory system. Your memory index (\`memory/MEMORY.md\`) is
 **Tools:**
 - \`save-memory\` — Create or update a memory. Provide name, type, description, and content. Atomically updates both the memory file and the index.
 - \`delete-memory\` — Remove a memory and its index entry.
-- \`file-storage (action: read) --path memory/<name>.md\` — Read the full content of a specific memory when you need details beyond the index.
+- \`resource-read --path memory/<name>.md\` — Read the full content of a specific memory when you need details beyond the index.
 
 **Memory types:**
 - \`user\` — Preferences, role, personal context, contacts
@@ -1531,7 +1531,7 @@ When the user asks you to change the UI, modify code, add a feature, fix a bug i
 **Hard rules — do NOT break these:**
 - Do NOT read source files, list directories, or explore the codebase. You have no filesystem tools and don't need to look at code to recommend Builder.
 - Do NOT write an implementation plan. Do NOT write code in your response. Do NOT describe which files to create or modify. Builder will figure that out in its sandbox.
-- Do NOT save plans, specs, or code to \`file-storage (action: write)\`. Resources are for app data, not implementation plans the user didn't ask for.
+- Do NOT save plans, specs, or code to \`resource-write\`. Resources are for app data, not implementation plans the user didn't ask for.
 - Do NOT spawn sub-agents (\`agent-teams\`) to design, plan, or research the feature. The answer is always: call \`connect-builder\`, say one sentence, stop. Sub-agents inherit these same rules and have no code-editing tools either.
 - Do NOT say "I don't have a request-code-change tool" or list what tools you lack. Just call \`connect-builder\`.
 - Do NOT wait for the user to ask "how" — call \`connect-builder\` the moment a code change is requested.
@@ -1659,10 +1659,10 @@ async function loadResourcesForPrompt(
 
   if (compact) {
     // In compact mode, skip learnings and memory in the prompt.
-    // The agent can access them via file-storage (action: read) when needed.
+    // The agent can access them via resource-read when needed.
     // Add a brief pointer so the agent knows they exist.
     sections.push(
-      `<context-note>Shared learnings (LEARNINGS.md) and your personal memory (memory/MEMORY.md) are available via \`file-storage (action: read)\`. Check them when making decisions that might benefit from prior context.</context-note>`,
+      `<context-note>Shared learnings (LEARNINGS.md) and your personal memory (memory/MEMORY.md) are available via \`resource-read\`. Check them when making decisions that might benefit from prior context.</context-note>`,
     );
   } else {
     // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md above).
@@ -1816,17 +1816,9 @@ ${lines.join("\n")}`;
 
   return `\n\n## Available Actions
 
-**ALWAYS prefer these actions as direct tool calls.** They are your PRIMARY tools — call them by name as tool_use. They handle database access, validation, and business logic internally.
+**Use these actions directly as tool calls.** They are your primary tools — they handle database access, validation, and business logic internally. Prefer these over lower-level tools like \`web-request\` or \`db-query\`.
 
-**NEVER do any of these instead of calling the action directly:**
-- Do NOT call \`/_agent-native/actions/\` endpoints via \`web-request\` — the action IS already a tool; call it by name
-- Do NOT read AGENTS.md or documentation files via \`file-storage\` before acting — you already have the actions listed here
-- Do NOT use \`db-schema\` or \`db-query\` to replicate what an action already does
-- Do NOT explore the app's internals to figure out how to do something an action already handles
-
-Other tools (\`web-request\`, \`db-query\`, \`save-memory\`, etc.) are available for tasks that fall OUTSIDE these actions.
-
-Parameter notation: \`name*\` = required, \`name?\` = optional. Always pass the tool's parameters as a JSON object to the tool_use call — never via shell or string-concatenated CLI flags.
+Parameter notation: \`name*\` = required, \`name?\` = optional. Pass parameters as a JSON object.
 
 ${lines.join("\n")}`;
 }
@@ -2052,15 +2044,15 @@ export function createAgentChatPlugin(
       }
 
       // Resolve actions — prefer explicit `actions`, fall back to deprecated
-      // `scripts`, then auto-discover from the filesystem as a safety net.
-      // Templates that don't pass `actions` explicitly (e.g. mail, recruiting)
-      // would otherwise have zero template actions in production.
+      // `scripts`. When neither is provided, auto-discover from the filesystem
+      // so templates that forget to pass `actions` still work in non-serverless
+      // deployments (serverless bundles need explicit imports).
       const rawActions = options?.actions ?? options?.scripts;
       let templateScripts: Record<string, ActionEntry> =
         typeof rawActions === "function"
           ? await rawActions()
           : (rawActions ?? {});
-      if (Object.keys(templateScripts).length === 0) {
+      if (!rawActions && Object.keys(templateScripts).length === 0) {
         try {
           const { autoDiscoverActions } = await import("./action-discovery.js");
           templateScripts = await autoDiscoverActions(process.cwd());
