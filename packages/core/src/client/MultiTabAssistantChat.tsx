@@ -346,10 +346,10 @@ export function MultiTabAssistantChat({
 
   const refreshEngines = useCallback(() => {
     Promise.all([
-      fetch("/_agent-native/actions/list-agent-engines", {
+      fetch("/_agent-native/actions/manage-agent-engine", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ action: "list" }),
       }).then((r) => (r.ok ? r.json() : null)),
       fetch("/_agent-native/env-status")
         .then((r) => (r.ok ? r.json() : []))

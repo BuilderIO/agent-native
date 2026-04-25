@@ -408,6 +408,22 @@ export function InboxPage() {
     [threads],
   );
 
+  // Safety valve: if pendingThreadId points to a thread that was removed from
+  // the view (archived/trashed before the route caught up), clear it so the
+  // app doesn't get stuck rendering a ghost thread.
+  useEffect(() => {
+    if (
+      pendingThreadId &&
+      threads.length > 0 &&
+      !threads.some(
+        (t) =>
+          (t.latestMessage.threadId || t.latestMessage.id) === pendingThreadId,
+      )
+    ) {
+      setPendingThreadId(undefined);
+    }
+  }, [pendingThreadId, threads]);
+
   const handleCompose = useCallback(
     (email: EmailMessage, mode: "reply" | "forward") => {
       if (mode === "reply") {
@@ -539,6 +555,7 @@ export function InboxPage() {
             selectedIds={selectedIds}
             setSelectedIds={setSelectedIds}
             onContactSelect={setSidebarContactEmail}
+            onNavigateThread={setPendingThreadId}
           />
         ) : (
           <EmailList

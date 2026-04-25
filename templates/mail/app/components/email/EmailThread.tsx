@@ -65,6 +65,7 @@ export function EmailThread({
   selectedIds,
   setSelectedIds,
   onContactSelect,
+  onNavigateThread,
 }: {
   activeThreadId?: string;
   onArchived?: (id: string) => void;
@@ -83,6 +84,7 @@ export function EmailThread({
   selectedIds?: Set<string>;
   setSelectedIds?: React.Dispatch<React.SetStateAction<Set<string>>>;
   onContactSelect?: (email: string) => void;
+  onNavigateThread?: (threadId: string | undefined) => void;
 }) {
   const { view = "inbox", threadId: routeThreadId } = useParams<{
     view: string;
@@ -351,10 +353,10 @@ export function EmailThread({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, hasUnread]);
 
-  const goBack = useCallback(
-    () => navigate(`/${view}${labelSuffix}`),
-    [navigate, view, labelSuffix],
-  );
+  const goBack = useCallback(() => {
+    onNavigateThread?.(undefined);
+    navigate(`/${view}${labelSuffix}`);
+  }, [navigate, view, labelSuffix, onNavigateThread]);
 
   // Navigate between threads (j/k) — use ref to avoid stale closure
   const emailIdsRef = useRef(emailIds);
@@ -367,21 +369,18 @@ export function EmailThread({
       const idx = ids.indexOf(threadId);
       let nextIdx: number;
       if (idx === -1) {
-        // Current thread isn't in the list (e.g. opened from search or a direct link) —
-        // jump to the first (j) or last (k) email so navigation still works.
         nextIdx = delta > 0 ? 0 : ids.length - 1;
       } else {
         nextIdx = idx + delta;
         if (nextIdx < 0 || nextIdx >= ids.length) return;
       }
       const nextThreadId = ids[nextIdx];
-      // Plain j/k is a single-thread action — clear any in-progress
-      // multi-selection so the next shortcut (e/d/s/u) doesn't act on it.
       setSelectedIds?.(new Set());
       void ensureThread(nextThreadId);
+      onNavigateThread?.(nextThreadId);
       navigate(`/${view}/${nextThreadId}${labelSuffix}`);
     },
-    [threadId, view, navigate, labelSuffix, setSelectedIds],
+    [threadId, view, navigate, labelSuffix, setSelectedIds, onNavigateThread],
   );
 
   // Shift+j/k extends multi-selection across siblings and auto-previews the
@@ -400,17 +399,15 @@ export function EmailThread({
 
       setSelectedIds((prev) => {
         const updated = new Set(prev);
-        // Anchor the current thread on first shift-move.
         if (prev.size === 0) updated.add(threadId);
         updated.add(nextThreadKey);
         return updated;
       });
 
-      // Auto-preview the latest selected thread. Use replace so the history
-      // stack doesn't fill up with every shift+j/k press.
+      onNavigateThread?.(nextThreadKey);
       navigate(`/${view}/${nextThreadKey}${labelSuffix}`, { replace: true });
     },
-    [threadId, view, navigate, labelSuffix, setSelectedIds],
+    [threadId, view, navigate, labelSuffix, setSelectedIds, onNavigateThread],
   );
 
   // Prefetch a window of threads around the currently open one so j/k
@@ -438,17 +435,21 @@ export function EmailThread({
     }
     const idx = emailIds.indexOf(threadId);
     if (idx !== -1 && idx + 1 < emailIds.length) {
-      navigate(`/${view}/${emailIds[idx + 1]}${labelSuffix}`, {
+      const nextId = emailIds[idx + 1];
+      onNavigateThread?.(nextId);
+      navigate(`/${view}/${nextId}${labelSuffix}`, {
         replace: true,
       });
     } else if (idx !== -1 && idx - 1 >= 0) {
-      navigate(`/${view}/${emailIds[idx - 1]}${labelSuffix}`, {
+      const prevId = emailIds[idx - 1];
+      onNavigateThread?.(prevId);
+      navigate(`/${view}/${prevId}${labelSuffix}`, {
         replace: true,
       });
     } else {
       goBack();
     }
-  }, [threadId, emailIds, view, navigate, goBack]);
+  }, [threadId, emailIds, view, navigate, goBack, onNavigateThread]);
 
   // Advance to next thread when current email is dismissed (snoozed/spam/muted)
   useEffect(() => {
