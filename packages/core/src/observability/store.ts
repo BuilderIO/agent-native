@@ -539,10 +539,17 @@ export async function upsertSatisfactionScore(
     });
   } else {
     await client.execute({
-      sql: `INSERT OR REPLACE INTO agent_satisfaction_scores
+      sql: `INSERT INTO agent_satisfaction_scores
         (id, thread_id, user_id, frustration_score, rephrasing_score,
          abandonment_score, sentiment_score, length_trend_score, computed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO UPDATE SET
+          frustration_score = EXCLUDED.frustration_score,
+          rephrasing_score = EXCLUDED.rephrasing_score,
+          abandonment_score = EXCLUDED.abandonment_score,
+          sentiment_score = EXCLUDED.sentiment_score,
+          length_trend_score = EXCLUDED.length_trend_score,
+          computed_at = EXCLUDED.computed_at`,
       args: [
         score.id,
         score.threadId,

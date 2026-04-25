@@ -476,11 +476,7 @@ export async function evaluateRun(
   opts?: { sampleRate?: number },
 ): Promise<EvalResult[]> {
   const results = await runAutomatedEvals(runId);
-  let userId = results[0]?.userId ?? null;
-  if (userId == null) {
-    const summary = await getTraceSummary(runId);
-    userId = summary?.userId ?? null;
-  }
+  const userId = results[0]?.userId ?? null;
 
   const sampleRate = opts?.sampleRate ?? 0;
   if (sampleRate > 0 && Math.random() < sampleRate) {
