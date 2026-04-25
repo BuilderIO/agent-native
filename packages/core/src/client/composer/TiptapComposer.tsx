@@ -174,7 +174,7 @@ function friendlyModelName(model: string): string {
       .split("-")
       .map((s) => s[0].toUpperCase() + s.slice(1))
       .join(" ");
-    return `Gemini ${parts}${model.endsWith("-preview") ? " (preview)" : ""}`;
+    return `Gemini ${parts}`;
   }
   return model;
 }
@@ -251,9 +251,18 @@ function ModelSelector({
                     {group.label}
                   </span>
                   {!group.configured && (
-                    <span className="text-[10px] text-muted-foreground/60">
+                    <button
+                      type="button"
+                      className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer"
+                      onClick={() => {
+                        window.dispatchEvent(
+                          new CustomEvent("agent-panel:open-settings"),
+                        );
+                        setOpen(false);
+                      }}
+                    >
                       needs API key
-                    </span>
+                    </button>
                   )}
                 </div>
                 {models.map((m) => (
