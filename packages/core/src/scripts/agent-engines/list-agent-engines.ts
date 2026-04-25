@@ -14,7 +14,7 @@ import { getSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
   description:
-    "List all available AI agent engines (Anthropic, OpenAI, Gemini, Groq, etc.) and the currently selected engine. Use this to check what engines are available before calling set-agent-engine.",
+    'List all available AI agent engines (Anthropic, OpenAI, Gemini, Groq, etc.) and the currently selected engine. Use this to check what engines are available before calling manage-agent-engine with action="set".',
   parameters: {
     type: "object",
     properties: {},

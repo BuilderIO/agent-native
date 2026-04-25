@@ -453,8 +453,12 @@ function ToolCallDisplay({
     }
   }
 
-  // Render spawn-task as AgentTaskCard once the result is available
-  if (toolName === "spawn-task" && result) {
+  // Render agent-teams spawn as AgentTaskCard once the result is available
+  if (
+    toolName === "agent-teams" &&
+    (args as Record<string, string>)?.action === "spawn" &&
+    result
+  ) {
     try {
       const parsed = JSON.parse(result);
       if (parsed.taskId && parsed.threadId) {

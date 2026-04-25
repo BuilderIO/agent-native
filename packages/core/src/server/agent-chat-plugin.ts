@@ -69,10 +69,7 @@ import {
 } from "../resources/store.js";
 import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
-import {
-  getBuilderBrowserConnectUrl,
-  requestBuilderBrowserConnection,
-} from "./builder-browser.js";
+import { getBuilderBrowserConnectUrl } from "./builder-browser.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -686,7 +683,7 @@ async function createResourceScriptEntries(): Promise<
 }
 
 /**
- * Creates chat management ActionEntries (search-chats, open-chat).
+ * Creates a unified chat-history ActionEntry that dispatches to search or open.
  */
 async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
   try {
@@ -695,50 +692,91 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
       import("../scripts/chat/open-chat.js"),
     ]);
 
+    const searchEntry = wrapCliScript(
+      {
+        description: "Search or list past agent chat threads.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description:
+                "Search term to find chats by title, preview, or content",
+            },
+            limit: {
+              type: "string",
+              description: "Max number of results (default: 20)",
+            },
+            format: {
+              type: "string",
+              description: "Output format",
+              enum: ["json", "text"],
+            },
+          },
+        },
+      },
+      searchMod.default,
+    );
+
+    const openEntry = wrapCliScript(
+      {
+        description: "Open a chat thread in the UI.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "The chat thread ID to open",
+            },
+          },
+          required: ["id"],
+        },
+      },
+      openMod.default,
+    );
+
     return {
-      "search-chats": wrapCliScript(
-        {
+      "chat-history": {
+        tool: {
           description:
-            "Search or list past agent chat threads. Use this to find previous conversations by keyword.",
+            "Manage past agent chat threads. Use action 'search' to find previous conversations by keyword, or 'open' to open a thread in the UI.",
           parameters: {
             type: "object",
             properties: {
+              action: {
+                type: "string",
+                description: "The operation to perform",
+                enum: ["search", "open"],
+              },
               query: {
                 type: "string",
                 description:
-                  "Search term to find chats by title, preview, or content",
+                  "(search) Search term to find chats by title, preview, or content",
               },
               limit: {
                 type: "string",
-                description: "Max number of results (default: 20)",
+                description: "(search) Max number of results (default: 20)",
               },
               format: {
                 type: "string",
-                description: "Output format",
+                description: "(search) Output format",
                 enum: ["json", "text"],
               },
-            },
-          },
-        },
-        searchMod.default,
-      ),
-      "open-chat": wrapCliScript(
-        {
-          description:
-            "Open a chat thread in the UI as a new tab and focus it. Use search-chats first to find the thread ID.",
-          parameters: {
-            type: "object",
-            properties: {
               id: {
                 type: "string",
-                description: "The chat thread ID to open",
+                description: "(open) The chat thread ID to open",
               },
             },
-            required: ["id"],
+            required: ["action"],
           },
         },
-        openMod.default,
-      ),
+        run: async (args) => {
+          if (args?.action === "open") {
+            return openEntry.run(args);
+          }
+          return searchEntry.run(args);
+        },
+      },
     };
   } catch {
     return {};
@@ -746,23 +784,17 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
 }
 
 /**
- * Creates agent engine management tools (list-agent-engines, set-agent-engine,
- * test-agent-engine). Let the agent inspect and configure the active LLM engine.
+ * Creates the consolidated manage-agent-engine tool (list / set / test).
+ * Let the agent inspect and configure the active LLM engine.
  */
 async function createAgentEngineScriptEntries(): Promise<
   Record<string, ActionEntry>
 > {
   try {
-    const [listMod, setMod, testMod] = await Promise.all([
-      import("../scripts/agent-engines/list-agent-engines.js"),
-      import("../scripts/agent-engines/set-agent-engine.js"),
-      import("../scripts/agent-engines/test-agent-engine.js"),
-    ]);
+    const mod = await import("../scripts/agent-engines/manage-agent-engine.js");
 
     return {
-      "list-agent-engines": { tool: listMod.tool, run: listMod.run },
-      "set-agent-engine": { tool: setMod.tool, run: setMod.run },
-      "test-agent-engine": { tool: testMod.tool, run: testMod.run },
+      "manage-agent-engine": { tool: mod.tool, run: mod.run },
     };
   } catch {
     return {};
@@ -822,81 +854,12 @@ function createBuilderBrowserTool(deps: {
         });
       },
     },
-    "get-browser-connection": {
-      tool: {
-        description:
-          "Provision a Builder-backed browser session and return browser websocket connection details. If Builder browser access is not configured yet, this returns setup guidance instead.",
-        parameters: {
-          type: "object",
-          properties: {
-            sessionId: {
-              type: "string",
-              description:
-                "Stable browser session identifier. Reuse it to reconnect to the same browser session.",
-            },
-            projectId: {
-              type: "string",
-              description:
-                "Optional Builder project or space identifier to scope the session.",
-            },
-            branchName: {
-              type: "string",
-              description: "Optional branch name for Builder preview sessions.",
-            },
-            proxyOrigin: {
-              type: "string",
-              description:
-                "Optional source origin to proxy from when browsing a local app.",
-            },
-            proxyDefaultOrigin: {
-              type: "string",
-              description:
-                "Optional default origin that the browser should use for proxied requests.",
-            },
-            proxyDestination: {
-              type: "string",
-              description:
-                "Optional destination origin for proxying local development traffic.",
-            },
-          },
-          required: ["sessionId"],
-        },
-      },
-      run: async (args) => {
-        if (
-          !process.env.BUILDER_PRIVATE_KEY ||
-          !process.env.BUILDER_PUBLIC_KEY
-        ) {
-          return JSON.stringify({
-            configured: false,
-            message:
-              "Builder browser access is not configured. Connect Builder from the workspace Resources panel before requesting a browser session.",
-            connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
-          });
-        }
-
-        const connection = await requestBuilderBrowserConnection({
-          sessionId: args.sessionId,
-          projectId: args.projectId,
-          branchName: args.branchName,
-          proxyOrigin: args.proxyOrigin,
-          proxyDefaultOrigin: args.proxyDefaultOrigin,
-          proxyDestination: args.proxyDestination,
-        });
-
-        return JSON.stringify({
-          configured: true,
-          sessionId: args.sessionId,
-          ...connection,
-        });
-      },
-    },
   };
 }
 
 /**
- * Creates agent team orchestration tools (spawn-task, task-status, read-task-result).
- * These let the main agent spawn sub-agents and coordinate work.
+ * Creates the unified `agent-teams` tool that consolidates all sub-agent
+ * orchestration behind a single tool with an `action` parameter.
  */
 function createTeamTools(deps: {
   getOwner: () => string;
@@ -910,215 +873,183 @@ function createTeamTools(deps: {
     | null;
 }): Record<string, ActionEntry> {
   return {
-    "spawn-task": {
+    "agent-teams": {
       tool: {
         description:
-          "Spawn a sub-agent to handle a task in the background. The sub-agent runs independently with its own conversation thread. Use this to delegate work so the main chat stays free for new requests. A live preview card will appear in the chat showing the sub-agent's progress.",
+          "Manage sub-agent tasks. Use action 'spawn' to start a new sub-agent, 'status' to check progress, 'read-result' to get a finished task's output, 'send' to message a running sub-agent, or 'list' to see all tasks.",
         parameters: {
           type: "object",
           properties: {
+            action: {
+              type: "string",
+              enum: ["spawn", "status", "read-result", "send", "list"],
+              description: "The operation to perform",
+            },
             task: {
               type: "string",
               description:
-                "Clear description of what the sub-agent should accomplish",
+                "(spawn) Clear description of what the sub-agent should accomplish",
             },
             instructions: {
               type: "string",
               description:
-                "Optional additional instructions or context for the sub-agent",
+                "(spawn) Optional additional instructions or context for the sub-agent",
             },
             name: {
               type: "string",
               description:
-                "Short name for the sub-agent tab (e.g. 'Research', 'Draft email'). If omitted, derived from the task.",
+                "(spawn) Short name for the sub-agent tab (e.g. 'Research', 'Draft email'). If omitted, derived from the task.",
             },
             agent: {
               type: "string",
               description:
-                "Optional custom agent profile from agents/*.md to use for this task.",
+                "(spawn) Optional custom agent profile from agents/*.md to use for this task.",
             },
-          },
-          required: ["task"],
-        },
-      },
-      run: async (args: Record<string, string>) => {
-        // Capture the send function NOW (at spawn time) so that
-        // concurrent runs don't clobber each other's send reference.
-        const capturedSend = deps.getSend();
-        const { spawnTask } = await import("./agent-teams.js");
-        // Filter out team orchestration tools so sub-agents can't spawn sub-agents
-        const teamToolNames = new Set([
-          "spawn-task",
-          "task-status",
-          "read-task-result",
-          "send-to-task",
-          "list-tasks",
-        ]);
-        const subAgentActions = Object.fromEntries(
-          Object.entries(deps.getActions()).filter(
-            ([name]) => !teamToolNames.has(name),
-          ),
-        );
-        let instructions = args.instructions;
-        let selectedModel = deps.getModel();
-        let selectedName = args.name || "";
-        if (args.agent) {
-          const { findAccessibleCustomAgent } =
-            await import("../resources/agents.js");
-          const profile = await findAccessibleCustomAgent(
-            deps.getOwner(),
-            args.agent,
-          );
-          if (!profile) {
-            throw new Error(`Custom agent not found: ${args.agent}`);
-          }
-          const profileInstructions =
-            `## Custom Agent Profile: ${profile.name}\n\n` +
-            (profile.description ? `${profile.description}\n\n` : "") +
-            profile.instructions;
-          instructions = instructions
-            ? `${profileInstructions}\n\n## Extra Task Context\n\n${instructions}`
-            : profileInstructions;
-          selectedModel = profile.model ?? selectedModel;
-          selectedName = selectedName || profile.name;
-        }
-        const task = await spawnTask({
-          description: args.task,
-          instructions,
-          ownerEmail: deps.getOwner(),
-          systemPrompt: deps.getSystemPrompt(),
-          actions: subAgentActions,
-          engine: deps.getEngine(),
-          model: selectedModel,
-          parentThreadId: deps.getParentThreadId(),
-          parentSend: (event) => {
-            if (capturedSend) capturedSend(event);
-          },
-        });
-        return JSON.stringify({
-          taskId: task.taskId,
-          threadId: task.threadId,
-          status: task.status,
-          description: task.description,
-          name: selectedName,
-        });
-      },
-    },
-    "task-status": {
-      tool: {
-        description:
-          "Check the status of a sub-agent task. Returns current status, preview of output, and current step.",
-        parameters: {
-          type: "object",
-          properties: {
             taskId: {
               type: "string",
-              description: "The task ID returned by spawn-task",
-            },
-          },
-          required: ["taskId"],
-        },
-      },
-      run: async (args: Record<string, string>) => {
-        const { getTask } = await import("./agent-teams.js");
-        const task = await getTask(args.taskId);
-        if (!task) return JSON.stringify({ error: "Task not found" });
-        return JSON.stringify({
-          taskId: task.taskId,
-          threadId: task.threadId,
-          status: task.status,
-          description: task.description,
-          preview: task.preview,
-          currentStep: task.currentStep,
-          summary: task.summary,
-        });
-      },
-    },
-    "read-task-result": {
-      tool: {
-        description:
-          "Read the result of a completed sub-agent task. Returns the full output summary.",
-        parameters: {
-          type: "object",
-          properties: {
-            taskId: {
-              type: "string",
-              description: "The task ID returned by spawn-task",
-            },
-          },
-          required: ["taskId"],
-        },
-      },
-      run: async (args: Record<string, string>) => {
-        const { getTask } = await import("./agent-teams.js");
-        const task = await getTask(args.taskId);
-        if (!task) return JSON.stringify({ error: "Task not found" });
-        if (task.status === "running") {
-          return JSON.stringify({
-            status: "running",
-            preview: task.preview,
-            message: "Task is still running. Check back later.",
-          });
-        }
-        return JSON.stringify({
-          taskId: task.taskId,
-          status: task.status,
-          summary: task.summary,
-          preview: task.preview,
-        });
-      },
-    },
-    "send-to-task": {
-      tool: {
-        description:
-          "Send a message or update to a running sub-agent. Use this to redirect, add context, or give feedback to a sub-agent while it's working.",
-        parameters: {
-          type: "object",
-          properties: {
-            taskId: {
-              type: "string",
-              description: "The task ID returned by spawn-task",
+              description:
+                "(status, read-result, send) The task ID returned by a previous spawn",
             },
             message: {
               type: "string",
-              description: "Message to send to the sub-agent",
+              description: "(send) Message to send to the sub-agent",
             },
           },
-          required: ["taskId", "message"],
+          required: ["action"],
         },
       },
       run: async (args: Record<string, string>) => {
-        const { sendToTask } = await import("./agent-teams.js");
-        const result = await sendToTask(args.taskId, args.message);
-        return JSON.stringify(result);
-      },
-    },
-    "list-tasks": {
-      tool: {
-        description:
-          "List all sub-agent tasks and their current status. Use this to see what's running, completed, or failed.",
-        parameters: {
-          type: "object",
-          properties: {},
-        },
-      },
-      run: async () => {
-        const { listTasks } = await import("./agent-teams.js");
-        const tasks = await listTasks();
-        if (tasks.length === 0) {
-          return "No sub-agent tasks.";
+        const action = args.action;
+
+        // ── spawn ──────────────────────────────────────────────
+        if (action === "spawn") {
+          if (!args.task) throw new Error("'task' is required for spawn");
+          // Capture the send function NOW (at spawn time) so that
+          // concurrent runs don't clobber each other's send reference.
+          const capturedSend = deps.getSend();
+          const { spawnTask } = await import("./agent-teams.js");
+          // Filter out the team tool so sub-agents can't spawn sub-agents
+          const subAgentActions = Object.fromEntries(
+            Object.entries(deps.getActions()).filter(
+              ([name]) => name !== "agent-teams",
+            ),
+          );
+          let instructions = args.instructions;
+          let selectedModel = deps.getModel();
+          let selectedName = args.name || "";
+          if (args.agent) {
+            const { findAccessibleCustomAgent } =
+              await import("../resources/agents.js");
+            const profile = await findAccessibleCustomAgent(
+              deps.getOwner(),
+              args.agent,
+            );
+            if (!profile) {
+              throw new Error(`Custom agent not found: ${args.agent}`);
+            }
+            const profileInstructions =
+              `## Custom Agent Profile: ${profile.name}\n\n` +
+              (profile.description ? `${profile.description}\n\n` : "") +
+              profile.instructions;
+            instructions = instructions
+              ? `${profileInstructions}\n\n## Extra Task Context\n\n${instructions}`
+              : profileInstructions;
+            selectedModel = profile.model ?? selectedModel;
+            selectedName = selectedName || profile.name;
+          }
+          const task = await spawnTask({
+            description: args.task,
+            instructions,
+            ownerEmail: deps.getOwner(),
+            systemPrompt: deps.getSystemPrompt(),
+            actions: subAgentActions,
+            engine: deps.getEngine(),
+            model: selectedModel,
+            parentThreadId: deps.getParentThreadId(),
+            parentSend: (event) => {
+              if (capturedSend) capturedSend(event);
+            },
+          });
+          return JSON.stringify({
+            taskId: task.taskId,
+            threadId: task.threadId,
+            status: task.status,
+            description: task.description,
+            name: selectedName,
+          });
         }
-        return JSON.stringify(
-          tasks.map((t) => ({
-            taskId: t.taskId,
-            threadId: t.threadId,
-            description: t.description,
-            status: t.status,
-            currentStep: t.currentStep,
-            hasResult: t.summary.length > 0,
-          })),
-          null,
-          2,
+
+        // ── status ─────────────────────────────────────────────
+        if (action === "status") {
+          if (!args.taskId) throw new Error("'taskId' is required for status");
+          const { getTask } = await import("./agent-teams.js");
+          const task = await getTask(args.taskId);
+          if (!task) return JSON.stringify({ error: "Task not found" });
+          return JSON.stringify({
+            taskId: task.taskId,
+            threadId: task.threadId,
+            status: task.status,
+            description: task.description,
+            preview: task.preview,
+            currentStep: task.currentStep,
+            summary: task.summary,
+          });
+        }
+
+        // ── read-result ────────────────────────────────────────
+        if (action === "read-result") {
+          if (!args.taskId)
+            throw new Error("'taskId' is required for read-result");
+          const { getTask } = await import("./agent-teams.js");
+          const task = await getTask(args.taskId);
+          if (!task) return JSON.stringify({ error: "Task not found" });
+          if (task.status === "running") {
+            return JSON.stringify({
+              status: "running",
+              preview: task.preview,
+              message: "Task is still running. Check back later.",
+            });
+          }
+          return JSON.stringify({
+            taskId: task.taskId,
+            status: task.status,
+            summary: task.summary,
+            preview: task.preview,
+          });
+        }
+
+        // ── send ───────────────────────────────────────────────
+        if (action === "send") {
+          if (!args.taskId) throw new Error("'taskId' is required for send");
+          if (!args.message) throw new Error("'message' is required for send");
+          const { sendToTask } = await import("./agent-teams.js");
+          const result = await sendToTask(args.taskId, args.message);
+          return JSON.stringify(result);
+        }
+
+        // ── list ───────────────────────────────────────────────
+        if (action === "list") {
+          const { listTasks } = await import("./agent-teams.js");
+          const tasks = await listTasks();
+          if (tasks.length === 0) {
+            return "No sub-agent tasks.";
+          }
+          return JSON.stringify(
+            tasks.map((t) => ({
+              taskId: t.taskId,
+              threadId: t.threadId,
+              description: t.description,
+              status: t.status,
+              currentStep: t.currentStep,
+              hasResult: t.summary.length > 0,
+            })),
+            null,
+            2,
+          );
+        }
+
+        throw new Error(
+          `Unknown action '${action}'. Use one of: spawn, status, read-result, send, list`,
         );
       },
     },
@@ -1316,18 +1247,20 @@ Use for charts, visualizations, previews. Don't use for simple text/tables or ex
 
   "chat-history": `### Chat History
 
-You can search and restore previous chat conversations:
-- \`search-chats\` — Search or list past chat threads by keyword
-- \`open-chat\` — Open a chat thread in the UI as a new tab and focus it
+You can search and restore previous chat conversations using \`chat-history\`:
+- \`chat-history\` (action: "search") — Search or list past chat threads by keyword
+- \`chat-history\` (action: "open") — Open a chat thread in the UI as a new tab and focus it
 
-When the user asks to find a previous conversation, use \`search-chats\` first to find matching threads, then \`open-chat\` to restore the one they want.`,
+When the user asks to find a previous conversation, use \`chat-history\` with action "search" first to find matching threads, then action "open" to restore the one they want.`,
 
   "agent-teams": `### Agent Teams — Orchestration
 
-You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents:
-- \`spawn-task\` — Spawn a sub-agent for a task. It runs in its own thread while you stay available.
-- \`task-status\` — Check the progress of a running sub-agent.
-- \`read-task-result\` — Read the result when a sub-agent finishes.
+You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents using the \`agent-teams\` tool:
+- \`agent-teams\` (action: "spawn") — Spawn a sub-agent for a task. It runs in its own thread while you stay available.
+- \`agent-teams\` (action: "status") — Check the progress of a running sub-agent.
+- \`agent-teams\` (action: "read-result") — Read the result when a sub-agent finishes.
+- \`agent-teams\` (action: "send") — Send a message to a running sub-agent.
+- \`agent-teams\` (action: "list") — List all sub-agent tasks.
 
 **When to delegate vs do directly:**
 - **Delegate** when the task involves multiple tool calls, research, content generation, or anything that takes more than a few seconds.
@@ -1357,10 +1290,9 @@ When the user asks to connect Builder.io or you hit a "Builder not configured" e
 
   browser: `### Browser Access
 
-Use \`get-browser-connection\` when you need a real browser session backed by Builder. It returns websocket connection details for a provisioned browser session.
+Use \`connect-builder\` when you need browser access backed by Builder. It renders a Connect card that provisions a browser session.
 
-- If the tool says Builder is not configured, call \`connect-builder\`.
-- Reuse a stable \`sessionId\` when you want to reconnect to the same browser session.`,
+- If Builder is not configured, the card will guide the user through setup.`,
 
   "call-agent": `### call-agent — External Apps Only
 
@@ -1438,7 +1370,7 @@ Resources can be personal (per-user) or shared (team-wide). By default, resource
 
 When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource.
 
-**Resources are NOT an agent scratchpad.** Never use \`resource-write\` to store executable scripts, task plans, retry notes, or work-in-progress files you're writing to yourself. Specifically, do NOT create resources under \`scripts/\` or \`tasks/\` unless the user explicitly asked for a file at that path, or a tool (like \`manage-jobs\` or \`spawn-task\`) writes there as part of its contract. If you can't complete a task with the tools you have, say so — don't improvise by leaving behind \`FINAL-*.md\`, \`EXECUTE-NOW-*.js\`, or similar artifacts. Resources are visible to the user in the workspace sidebar; every file you write is something they'll see and have to clean up.
+**Resources are NOT an agent scratchpad.** Never use \`resource-write\` to store executable scripts, task plans, retry notes, or work-in-progress files you're writing to yourself. Specifically, do NOT create resources under \`scripts/\` or \`tasks/\` unless the user explicitly asked for a file at that path, or a tool (like \`manage-jobs\` or \`agent-teams\`) writes there as part of its contract. If you can't complete a task with the tools you have, say so — don't improvise by leaving behind \`FINAL-*.md\`, \`EXECUTE-NOW-*.js\`, or similar artifacts. Resources are visible to the user in the workspace sidebar; every file you write is something they'll see and have to clean up.
 
 ### Navigation Rule
 
@@ -1477,18 +1409,20 @@ Which routes are renderable as embeds is template-specific — the app's \`AGENT
 
 ### Chat History
 
-You can search and restore previous chat conversations:
-- \`search-chats\` — Search or list past chat threads by keyword
-- \`open-chat\` — Open a chat thread in the UI as a new tab and focus it
+You can search and restore previous chat conversations using \`chat-history\`:
+- \`chat-history\` (action: "search") — Search or list past chat threads by keyword
+- \`chat-history\` (action: "open") — Open a chat thread in the UI as a new tab and focus it
 
-When the user asks to find a previous conversation, use \`search-chats\` first to find matching threads, then \`open-chat\` to restore the one they want.
+When the user asks to find a previous conversation, use \`chat-history\` with action "search" first to find matching threads, then action "open" to restore the one they want.
 
 ### Agent Teams — Orchestration
 
-You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents:
-- \`spawn-task\` — Spawn a sub-agent for a task. It runs in its own thread while you stay available. A live preview card appears in the chat. You can optionally choose a custom agent profile from \`agents/*.md\`.
-- \`task-status\` — Check the progress of a running sub-agent.
-- \`read-task-result\` — Read the result when a sub-agent finishes.
+You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents using the \`agent-teams\` tool:
+- \`agent-teams\` (action: "spawn") — Spawn a sub-agent for a task. It runs in its own thread while you stay available. A live preview card appears in the chat. You can optionally choose a custom agent profile from \`agents/*.md\`.
+- \`agent-teams\` (action: "status") — Check the progress of a running sub-agent.
+- \`agent-teams\` (action: "read-result") — Read the result when a sub-agent finishes.
+- \`agent-teams\` (action: "send") — Send a message to a running sub-agent.
+- \`agent-teams\` (action: "list") — List all sub-agent tasks.
 
 **When to delegate vs do directly:**
 - **Delegate** when the task involves multiple tool calls, research, content generation, or anything that takes more than a few seconds. Examples: "create a deck about X", "analyze the data and write a report", "look up Y and draft an email about it".
@@ -1499,10 +1433,10 @@ You are an orchestrator. For complex or multi-step tasks, delegate to sub-agents
 1. When the user asks for something complex, spawn a sub-agent with a clear task description.
 2. Tell the user what you've started ("I'm having a sub-agent research that for you").
 3. You can keep chatting — sub-agents run independently.
-4. Use \`read-task-result\` to check results when needed, or the user can see live progress in the card.
+4. Use \`agent-teams\` (action: "read-result") to check results when needed, or the user can see live progress in the card.
 5. If the user's request has multiple steps, you can spawn one sub-agent per step, or chain them.
 
-Sub-agents have access to all template tools but **cannot spawn sub-agents themselves** — only you (the orchestrator) can do that. Give the sub-agent a specific, actionable task description — it will figure out which tools to use. If a matching custom agent profile exists, pass it via the \`agent\` parameter on \`spawn-task\`.
+Sub-agents have access to all template tools but **cannot spawn sub-agents themselves** — only you (the orchestrator) can do that. Give the sub-agent a specific, actionable task description — it will figure out which tools to use. If a matching custom agent profile exists, pass it via the \`agent\` parameter on \`agent-teams\` (action: "spawn").
 
 ### Recurring Jobs
 
@@ -1529,11 +1463,9 @@ When the user asks to connect Builder.io, needs Builder for LLM access / browser
 
 ### Browser Access
 
-Use \`get-browser-connection\` when you need a real browser session backed by Builder. It returns websocket connection details for a provisioned browser session.
+Use \`connect-builder\` when you need browser access backed by Builder. It renders a Connect card that provisions a browser session.
 
-- If the tool says Builder is not configured, call \`connect-builder\` to show the user a Connect card.
-- Reuse a stable \`sessionId\` when you want to reconnect to the same browser session.
-- Include proxy parameters when you need the browser to reach a local dev server through Builder's browser connection flow.
+- If Builder is not configured, the card will guide the user through setup.
 
 ### call-agent — External Apps Only
 
@@ -1600,7 +1532,7 @@ When the user asks you to change the UI, modify code, add a feature, fix a bug i
 - Do NOT read source files, list directories, or explore the codebase. You have no filesystem tools and don't need to look at code to recommend Builder.
 - Do NOT write an implementation plan. Do NOT write code in your response. Do NOT describe which files to create or modify. Builder will figure that out in its sandbox.
 - Do NOT save plans, specs, or code to \`resource-write\`. Resources are for app data, not implementation plans the user didn't ask for.
-- Do NOT spawn sub-agents (\`spawn-task\`) to design, plan, or research the feature. The answer is always: call \`connect-builder\`, say one sentence, stop. Sub-agents inherit these same rules and have no code-editing tools either.
+- Do NOT spawn sub-agents (\`agent-teams\`) to design, plan, or research the feature. The answer is always: call \`connect-builder\`, say one sentence, stop. Sub-agents inherit these same rules and have no code-editing tools either.
 - Do NOT say "I don't have a request-code-change tool" or list what tools you lack. Just call \`connect-builder\`.
 - Do NOT wait for the user to ask "how" — call \`connect-builder\` the moment a code change is requested.
 
@@ -2678,7 +2610,7 @@ export function createAgentChatPlugin(
       };
 
       // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
-      // Include engine management scripts so the UI can call list/set/test-agent-engine.
+      // Include engine management script so the UI can call manage-agent-engine.
       const httpActions: Record<string, ActionEntry> = {
         ...discoveredActions,
         ...templateScripts,
@@ -2916,7 +2848,7 @@ export function createAgentChatPlugin(
           createAnthropicEngine({
             // Sub-agents must inherit the parent run's resolved key so a
             // BYO-key user can't bypass the free-tier check on the parent
-            // run and then have spawn-task delegations bill the platform key.
+            // run and then have agent-teams spawn delegations bill the platform key.
             apiKey:
               _currentRunUserApiKey ??
               options?.apiKey ??
