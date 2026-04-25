@@ -387,9 +387,8 @@ describe("server/auth", () => {
     });
 
     it("encodes and decodes returnUrl through signed state", async () => {
-      const { encodeOAuthState, decodeOAuthState } = await import(
-        "./google-oauth.js"
-      );
+      const { encodeOAuthState, decodeOAuthState } =
+        await import("./google-oauth.js");
       const state = encodeOAuthState(
         "http://x/cb",
         undefined,
@@ -403,18 +402,16 @@ describe("server/auth", () => {
     });
 
     it("produces undefined returnUrl when none was encoded (backwards compat)", async () => {
-      const { encodeOAuthState, decodeOAuthState } = await import(
-        "./google-oauth.js"
-      );
+      const { encodeOAuthState, decodeOAuthState } =
+        await import("./google-oauth.js");
       const state = encodeOAuthState("http://x/cb");
       const decoded = decodeOAuthState(state, "http://x/cb");
       expect(decoded.returnUrl).toBeUndefined();
     });
 
     it("rejects tampered state — mutated payload fails HMAC", async () => {
-      const { encodeOAuthState, decodeOAuthState } = await import(
-        "./google-oauth.js"
-      );
+      const { encodeOAuthState, decodeOAuthState } =
+        await import("./google-oauth.js");
       const state = encodeOAuthState(
         "http://x/cb",
         undefined,
@@ -435,9 +432,8 @@ describe("server/auth", () => {
     });
 
     it("decodes returnUrl as raw string — same-origin validation runs at the consumer", async () => {
-      const { encodeOAuthState, decodeOAuthState } = await import(
-        "./google-oauth.js"
-      );
+      const { encodeOAuthState, decodeOAuthState } =
+        await import("./google-oauth.js");
       // If a malicious actor with a leaked signing key encoded a cross-
       // origin URL, decode would surface it — but the consumer
       // (oauthCallbackResponse) runs safeReturnPath, so the redirect still
