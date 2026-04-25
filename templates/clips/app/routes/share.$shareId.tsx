@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { IconExternalLink } from "@tabler/icons-react";
-import { PoweredByBadge } from "@agent-native/core/client";
+import { PoweredByBadge, useSession } from "@agent-native/core/client";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
@@ -11,6 +11,7 @@ import { TranscriptPanel } from "@/components/player/transcript-panel";
 import { CommentsPanel } from "@/components/player/comments-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
+import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,14 @@ export default function ShareRoute() {
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
   const [speed, setSpeed] = useState(1.2);
+  const { session } = useSession();
+  const [signInIntent, setSignInIntent] = useState<"comment" | "react" | null>(
+    null,
+  );
+  const requireSignIn = useCallback(
+    (intent: "comment" | "react") => setSignInIntent(intent),
+    [],
+  );
 
   const dataQ = useQuery({
     queryKey: ["public-recording", shareId, password],
@@ -207,6 +216,10 @@ export default function ShareRoute() {
             {recording.enableReactions ? (
               <ReactionsTray
                 onReact={(emoji) => {
+                  if (!session) {
+                    requireSignIn("react");
+                    return;
+                  }
                   tracking.reportReaction(emoji);
                   fetch("/_agent-native/actions/react-to-recording", {
                     method: "POST",
@@ -266,8 +279,10 @@ export default function ShareRoute() {
                     recordingId={recording.id}
                     comments={comments}
                     currentMs={currentMs}
+                    currentUserEmail={session?.email}
                     enableComments={recording.enableComments}
                     onSeek={(ms) => playerRef.current?.seek(ms)}
+                    onUnauthenticated={requireSignIn}
                   />
                 </div>
               </TabsContent>
@@ -279,6 +294,14 @@ export default function ShareRoute() {
       <div className="mx-auto max-w-6xl px-4 pb-6 flex justify-center">
         <PoweredByBadge />
       </div>
+
+      <SignInPromptDialog
+        open={signInIntent !== null}
+        onOpenChange={(open) => {
+          if (!open) setSignInIntent(null);
+        }}
+        intent={signInIntent ?? "comment"}
+      />
     </div>
   );
 }

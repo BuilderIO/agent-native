@@ -63,7 +63,7 @@ const VIS_META: Record<
   },
   public: {
     label: "Public",
-    description: "Anyone signed in with the link can view",
+    description: "Anyone with the link can view — sign in to comment or react",
     Icon: IconWorld,
   },
 };
@@ -157,7 +157,10 @@ export function ShareRecordingPopover({
           </TabsContent>
 
           <TabsContent value="embed" className="mt-3">
-            <ClipsEmbedConfigurator recordingId={recordingId} />
+            <ClipsEmbedConfigurator
+              recordingId={recordingId}
+              sharesQuery={sharesQuery}
+            />
           </TabsContent>
         </Tabs>
       </PopoverContent>
@@ -398,12 +401,35 @@ function InviteTab({
 // Embed tab — Clips-specific configurator
 // ---------------------------------------------------------------------------
 
-function ClipsEmbedConfigurator({ recordingId }: { recordingId: string }) {
+function ClipsEmbedConfigurator({
+  recordingId,
+  sharesQuery,
+}: {
+  recordingId: string;
+  sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>;
+}) {
   const [autoplay, setAutoplay] = useState(false);
   const [startMs, setStartMs] = useState(0);
   const [mode, setMode] = useState<"responsive" | "fixed">("responsive");
   const [width, setWidth] = useState(640);
   const [height, setHeight] = useState(360);
+
+  const data = sharesQuery.data;
+  const visibility: Visibility =
+    (data?.visibility as Visibility | null) ?? "private";
+  const isPublic = visibility === "public";
+  const canManage =
+    data?.role === "owner" || data?.role === "admin" || !data?.role;
+  const setVisibility = useActionMutation("set-resource-visibility");
+  const makePublic = () =>
+    setVisibility.mutate(
+      {
+        resourceType: "recording",
+        resourceId: recordingId,
+        visibility: "public",
+      } as any,
+      { onSuccess: () => sharesQuery.refetch() },
+    );
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const src = useMemo(() => {
@@ -421,6 +447,34 @@ function ClipsEmbedConfigurator({ recordingId }: { recordingId: string }) {
 
   return (
     <div className="space-y-3">
+      {!isPublic ? (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs">
+          <div className="font-medium text-foreground">
+            Embeds need a public clip
+          </div>
+          <p className="mt-0.5 text-muted-foreground">
+            This clip is currently{" "}
+            <span className="font-medium">{VIS_META[visibility].label}</span>.
+            Embedded iframes load anonymously, so the clip must be public for
+            viewers to watch.
+          </p>
+          {canManage ? (
+            <Button
+              size="sm"
+              className="mt-2 h-7"
+              onClick={makePublic}
+              disabled={setVisibility.isPending}
+            >
+              {setVisibility.isPending ? "Making public…" : "Make public"}
+            </Button>
+          ) : (
+            <p className="mt-1 text-muted-foreground">
+              Ask the owner to make it public.
+            </p>
+          )}
+        </div>
+      ) : null}
+
       <div className="flex gap-4 flex-wrap">
         <label className="flex items-center gap-2 text-sm">
           <input

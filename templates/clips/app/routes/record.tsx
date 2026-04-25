@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { IconVideo } from "@tabler/icons-react";
+import { IconArrowLeft, IconVideo } from "@tabler/icons-react";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -130,6 +130,10 @@ export default function RecordRoute() {
   const engineRef = useRef<RecorderEngine | null>(null);
   const pendingRef = useRef<PendingRecording | null>(null);
   const confettiRef = useRef<ConfettiHandle>(null);
+  // Tracks whether opening the stop-confirm dialog auto-paused a live
+  // recording — so closing the dialog without choosing an action resumes
+  // it, but doesn't unpause a recording the user had paused themselves.
+  const autoPausedForStopConfirmRef = useRef(false);
   const pendingStartOptsRef = useRef<{
     mode: RecordingMode;
     micDeviceId: string | null;
@@ -337,7 +341,29 @@ export default function RecordRoute() {
     }
   }, [navigate]);
 
-  const requestStop = useCallback(() => setShowStopConfirm(true), []);
+  const requestStop = useCallback(() => {
+    const engine = engineRef.current;
+    if (engine && engine.getState() === "recording") {
+      engine.pause();
+      setIsPaused(true);
+      autoPausedForStopConfirmRef.current = true;
+    } else {
+      autoPausedForStopConfirmRef.current = false;
+    }
+    setShowStopConfirm(true);
+  }, []);
+
+  const onStopConfirmOpenChange = useCallback((open: boolean) => {
+    setShowStopConfirm(open);
+    if (!open && autoPausedForStopConfirmRef.current) {
+      const engine = engineRef.current;
+      if (engine && engine.getState() === "paused") {
+        engine.resume();
+        setIsPaused(false);
+      }
+      autoPausedForStopConfirmRef.current = false;
+    }
+  }, []);
 
   const doCancel = useCallback(async () => {
     const engine = engineRef.current;
@@ -394,7 +420,7 @@ export default function RecordRoute() {
       if (e.key === "Escape") {
         if (uiState === "recording" || uiState === "countdown") {
           e.preventDefault();
-          setShowStopConfirm(true);
+          requestStop();
           return;
         }
       }
@@ -446,7 +472,7 @@ export default function RecordRoute() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [uiState, togglePause, doCancel, restart, fireConfetti]);
+  }, [uiState, togglePause, doCancel, restart, fireConfetti, requestStop]);
 
   // -------------------------------------------------------------------------
   // Listen for `record-intent` app-state requests from the agent.
@@ -479,8 +505,25 @@ export default function RecordRoute() {
   const showCameraBubble =
     cameraStream !== null && recordingMode !== "screen" && uiState !== "idle";
 
+  // `/record` is a fullscreen route outside the `_app` shell, so it has no
+  // sidebar back-affordance. Surface a back arrow whenever there's nothing in
+  // flight — during recording/countdown/uploading the toolbar's stop flow is
+  // the exit path.
+  const showBackButton = uiState === "idle" || uiState === "error";
+
   return (
     <div className="relative min-h-screen bg-background">
+      {showBackButton && (
+        <button
+          type="button"
+          aria-label="Back to library"
+          onClick={() => navigate("/library")}
+          className="fixed left-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconArrowLeft className="h-5 w-5" />
+        </button>
+      )}
+
       {/* Idle / pre-record panel. `/record` sits outside the `_app`
           layout, so its own <RequireActiveOrg> gate is needed — otherwise
           a direct visit (URL bar, bookmark, agent intent) would skip the
@@ -578,7 +621,7 @@ export default function RecordRoute() {
           onStop={requestStop}
           onToggleDrawing={() => setIsDrawing((v) => !v)}
           onConfetti={fireConfetti}
-          onCancel={() => setShowStopConfirm(true)}
+          onCancel={requestStop}
         />
       )}
 
@@ -657,7 +700,10 @@ export default function RecordRoute() {
       )}
 
       {/* Stop confirmation */}
-      <AlertDialog open={showStopConfirm} onOpenChange={setShowStopConfirm}>
+      <AlertDialog
+        open={showStopConfirm}
+        onOpenChange={onStopConfirmOpenChange}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Stop recording?</AlertDialogTitle>
@@ -670,6 +716,7 @@ export default function RecordRoute() {
             <Button
               variant="outline"
               onClick={() => {
+                autoPausedForStopConfirmRef.current = false;
                 setShowStopConfirm(false);
                 void doCancel();
               }}
@@ -679,6 +726,7 @@ export default function RecordRoute() {
             <Button
               variant="outline"
               onClick={() => {
+                autoPausedForStopConfirmRef.current = false;
                 setShowStopConfirm(false);
                 void restart();
               }}
@@ -687,6 +735,7 @@ export default function RecordRoute() {
             </Button>
             <AlertDialogAction
               onClick={() => {
+                autoPausedForStopConfirmRef.current = false;
                 setShowStopConfirm(false);
                 void doStop();
               }}
