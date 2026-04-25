@@ -207,6 +207,30 @@ function isDevEnvironment(): boolean {
   return env === "development" || env === "test";
 }
 
+/**
+ * Validate a `?return=` URL for the /_agent-native/sign-in entrypoint.
+ *
+ * Parses the candidate against a sentinel base origin; any input that
+ * resolves to a different origin (network-path references, absolute URLs,
+ * `data:` / `javascript:` schemes, backslash-bypass tricks WHATWG normalises
+ * to `//`) gets rejected and falls back to "/". Control characters are
+ * stripped up front to defend against header-injection. Returns the
+ * normalised path the parser produced — never the raw input.
+ *
+ * Exported for unit tests.
+ */
+export function safeReturnPath(raw: string | null | undefined): string {
+  if (!raw) return "/";
+  if (/[\x00-\x1f]/.test(raw)) return "/";
+  try {
+    const parsed = new URL(raw, "http://safe-base.invalid");
+    if (parsed.origin !== "http://safe-base.invalid") return "/";
+    return parsed.pathname + parsed.search + parsed.hash;
+  } catch {
+    return "/";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // ACCESS_TOKEN resolution
 // ---------------------------------------------------------------------------
@@ -488,6 +512,44 @@ function createAuthGuardFn(): (
     ) {
       return;
     }
+
+    // Force-sign-in entrypoint. Templates send viewers from public pages
+    // (share links, embeds) here with a `?return=<path>` query — anonymous
+    // visitors get the loginHtml, and once they sign in the loginHtml's
+    // post-login reload re-hits this same URL with a session cookie set,
+    // so we 302 them to the original page.
+    //
+    // `return` is validated by parsing it against a sentinel base origin
+    // and checking the resolved origin still matches. This rejects every
+    // open-redirect shape — `//evil.com/...` (network-path reference),
+    // `/\evil.com/...` (WHATWG URL parser normalises `\` to `/` in HTTP
+    // URLs, so a naive prefix check on `//` misses this), absolute URLs
+    // like `https://evil.com`, and `data:` / `javascript:` schemes. The
+    // reconstructed path comes from the parsed segments so any leftover
+    // quirks get normalised. Control chars (incl. CR/LF for header
+    // injection) are rejected up front.
+    //
+    // Note: Google OAuth sign-ins still redirect to "/" because the OAuth
+    // callback (google-oauth.ts) doesn't currently thread `return` through
+    // the OAuth state. Token / email+password flows return correctly.
+    if (p === "/_agent-native/sign-in") {
+      const queryStr = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
+      const safeReturn = safeReturnPath(
+        new URLSearchParams(queryStr).get("return"),
+      );
+      const session = await getSession(event);
+      if (session) {
+        return new Response("", {
+          status: 302,
+          headers: { Location: safeReturn },
+        });
+      }
+      return new Response(loginHtml, {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
     // Skip static assets (Vite chunks, fonts, images, etc.)
     if (
       p.startsWith("/assets/") ||
@@ -987,7 +1049,22 @@ async function mountBetterAuthRoutes(
           (getQuery(event).redirect_uri as string) ||
           `${getOrigin(event)}/_agent-native/google/callback`;
         const desktop = isElectronRequest(event);
-        const state = encodeOAuthState(redirectUri, undefined, desktop, false);
+        // Validate the caller's return param up front and only embed it
+        // into the OAuth state when it normalises to a non-root path —
+        // skip embedding "/" (the default fallback) so the state stays
+        // small for the common case.
+        const returnQuery = getQuery(event).return;
+        const validated =
+          typeof returnQuery === "string" ? safeReturnPath(returnQuery) : "/";
+        const returnUrl = validated !== "/" ? validated : undefined;
+        const state = encodeOAuthState(
+          redirectUri,
+          undefined,
+          desktop,
+          false,
+          undefined,
+          returnUrl,
+        );
         const params = new URLSearchParams({
           client_id: process.env.GOOGLE_CLIENT_ID!,
           redirect_uri: redirectUri,
@@ -1023,7 +1100,7 @@ async function mountBetterAuthRoutes(
             return { error: "Missing authorization code" };
           }
 
-          const { redirectUri, desktop } = decodeOAuthState(
+          const { redirectUri, desktop, returnUrl } = decodeOAuthState(
             query.state as string | undefined,
             `${getOrigin(event)}/_agent-native/google/callback`,
           );
@@ -1066,6 +1143,7 @@ async function mountBetterAuthRoutes(
           return oauthCallbackResponse(event, email, {
             sessionToken,
             desktop,
+            returnUrl,
           });
         } catch (error: any) {
           const msg = error.message || "Unknown error";

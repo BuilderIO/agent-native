@@ -416,9 +416,15 @@ export default function RecordRoute() {
       const ctrl = e.ctrlKey;
       const k = e.key.toLowerCase();
 
-      // Esc — stop-confirm when recording
+      // Esc — stop-confirm when recording. Skip when the dialog is already
+      // open: the AlertDialog handles its own Esc-to-close, and re-firing
+      // requestStop would clobber autoPausedForStopConfirmRef and prevent
+      // resume on close.
       if (e.key === "Escape") {
-        if (uiState === "recording" || uiState === "countdown") {
+        if (
+          !showStopConfirm &&
+          (uiState === "recording" || uiState === "countdown")
+        ) {
           e.preventDefault();
           requestStop();
           return;
@@ -472,7 +478,15 @@ export default function RecordRoute() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [uiState, togglePause, doCancel, restart, fireConfetti, requestStop]);
+  }, [
+    uiState,
+    showStopConfirm,
+    togglePause,
+    doCancel,
+    restart,
+    fireConfetti,
+    requestStop,
+  ]);
 
   // -------------------------------------------------------------------------
   // Listen for `record-intent` app-state requests from the agent.
@@ -517,7 +531,14 @@ export default function RecordRoute() {
         <button
           type="button"
           aria-label="Back to library"
-          onClick={() => navigate("/library")}
+          onClick={async () => {
+            // If we landed in `error` after partial media acquisition, the
+            // engine may still hold live screen/camera tracks. doCancel()
+            // tears them down before we navigate so they don't keep
+            // recording in the background.
+            await doCancel();
+            navigate("/library");
+          }}
           className="fixed left-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <IconArrowLeft className="h-5 w-5" />

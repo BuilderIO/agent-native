@@ -139,6 +139,57 @@ function MyComponent() {
 }
 ```
 
+## Sign-In with Return URL {#sign-in-return-url}
+
+Templates with **public pages** (share links, embeds, marketing pages) often need an in-page CTA that asks anonymous viewers to sign in and brings them back to the page they were on. The framework provides a single entry point for this:
+
+```
+/_agent-native/sign-in?return=<same-origin-path>
+```
+
+When an anonymous viewer hits this URL, the framework's login page is served. After a successful sign-in (any flow — token, email/password, or Google OAuth), the viewer is 302'd to `return`.
+
+The `return` parameter is validated as a **same-origin path**. Network-path references (`//evil.com/...`), absolute URLs, `data:` / `javascript:` schemes, and embedded control characters all fall back to `/`. The validated path is reconstructed from the URL parser, not echoed back from the input.
+
+**From a React component:**
+
+```tsx
+import { Button } from "@/components/ui/button";
+
+function SignInCta() {
+  const onClick = () => {
+    const ret = window.location.pathname + window.location.search;
+    window.location.href =
+      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+  };
+  return <Button onClick={onClick}>Sign in</Button>;
+}
+```
+
+### Bookmarked private paths
+
+When an anonymous user navigates directly to a private path like `/dashboard`, the framework already serves the login page at that URL — after successful sign-in, the page reloads and the user lands on `/dashboard`. No special handling needed; this works for token, email/password, **and** Google OAuth.
+
+### Behind the scenes: Google OAuth
+
+Both flows (the explicit `/_agent-native/sign-in` entrypoint and the bookmarked-path case) thread the return URL through the OAuth state. The state is HMAC-signed, so it can't be forged in transit. On the callback, the return URL is re-validated as same-origin before the redirect — so a leaked signing key still can't be turned into an open-redirect oracle.
+
+If your template wraps `/_agent-native/google/auth-url` directly (e.g. mail and calendar templates do, to widen scopes), accept a `?return=<path>` query and forward it as the sixth argument to `encodeOAuthState`:
+
+```typescript
+const returnUrl = getQuery(event).return;
+const state = encodeOAuthState(
+  redirectUri,
+  undefined,
+  desktop,
+  false,
+  undefined,
+  typeof returnUrl === "string" ? returnUrl : undefined,
+);
+```
+
+The default `/_agent-native/google/auth-url` route does this automatically — only override if your template needs custom OAuth handling.
+
 ## Environment Variables {#environment-variables}
 
 | Variable               | Purpose                                                          |

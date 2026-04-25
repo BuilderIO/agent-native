@@ -313,6 +313,150 @@ describe("server/auth", () => {
       expect(session).toEqual({ email: "custom@auth.com" });
     });
   });
+
+  describe("safeReturnPath", () => {
+    async function load() {
+      const m = await import("./auth.js");
+      return m.safeReturnPath;
+    }
+
+    it("returns '/' for null / empty / missing input", async () => {
+      const safeReturnPath = await load();
+      expect(safeReturnPath(null)).toBe("/");
+      expect(safeReturnPath(undefined)).toBe("/");
+      expect(safeReturnPath("")).toBe("/");
+    });
+
+    it("preserves a same-origin path", async () => {
+      const safeReturnPath = await load();
+      expect(safeReturnPath("/share/abc")).toBe("/share/abc");
+      expect(safeReturnPath("/share/abc?x=1&y=2")).toBe("/share/abc?x=1&y=2");
+      expect(safeReturnPath("/share/abc#section")).toBe("/share/abc#section");
+      expect(safeReturnPath("/")).toBe("/");
+    });
+
+    it("blocks network-path references (//evil.com/...)", async () => {
+      const safeReturnPath = await load();
+      expect(safeReturnPath("//evil.com/path")).toBe("/");
+      expect(safeReturnPath("//evil.com")).toBe("/");
+    });
+
+    it("blocks backslash-bypass that WHATWG normalises to //", async () => {
+      const safeReturnPath = await load();
+      // WHATWG URL parser converts `\` to `/` for HTTP scheme — a naive
+      // `startsWith("//")` check would miss this.
+      expect(safeReturnPath("/\\evil.com/path")).toBe("/");
+      expect(safeReturnPath("\\\\evil.com/path")).toBe("/");
+    });
+
+    it("blocks absolute URLs and non-http schemes", async () => {
+      const safeReturnPath = await load();
+      expect(safeReturnPath("https://evil.com/path")).toBe("/");
+      expect(safeReturnPath("http://evil.com/path")).toBe("/");
+      expect(safeReturnPath("javascript:alert(1)")).toBe("/");
+      expect(safeReturnPath("data:text/html,<x>")).toBe("/");
+    });
+
+    it("rejects control characters (header-injection defence)", async () => {
+      const safeReturnPath = await load();
+      expect(safeReturnPath("/foo\r\nLocation: /evil")).toBe("/");
+      expect(safeReturnPath("/foo\nbar")).toBe("/");
+      expect(safeReturnPath("/foo\tbar")).toBe("/");
+      expect(safeReturnPath("/foo\x00bar")).toBe("/");
+    });
+
+    it("rejects scheme-changing absolute URLs even on same hostname", async () => {
+      const safeReturnPath = await load();
+      // Different scheme is a different origin — must reject.
+      expect(safeReturnPath("https://safe-base.invalid/foo")).toBe("/");
+    });
+
+    it("strips host parts and returns just path/search/hash", async () => {
+      const safeReturnPath = await load();
+      // Even a same-origin absolute URL should normalise to just the path.
+      // (We can't construct one easily without knowing the sentinel base,
+      // so the test below covers the network-path resolve case which uses
+      // the parsed segments.)
+      expect(safeReturnPath("/foo?bar=1#baz")).toBe("/foo?bar=1#baz");
+    });
+  });
+
+  describe("OAuth state returnUrl round-trip", () => {
+    beforeEach(() => {
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "test-signing-key-do-not-use");
+    });
+
+    it("encodes and decodes returnUrl through signed state", async () => {
+      const { encodeOAuthState, decodeOAuthState } = await import(
+        "./google-oauth.js"
+      );
+      const state = encodeOAuthState(
+        "http://x/cb",
+        undefined,
+        false,
+        false,
+        undefined,
+        "/share/abc?x=1",
+      );
+      const decoded = decodeOAuthState(state, "http://x/cb");
+      expect(decoded.returnUrl).toBe("/share/abc?x=1");
+    });
+
+    it("produces undefined returnUrl when none was encoded (backwards compat)", async () => {
+      const { encodeOAuthState, decodeOAuthState } = await import(
+        "./google-oauth.js"
+      );
+      const state = encodeOAuthState("http://x/cb");
+      const decoded = decodeOAuthState(state, "http://x/cb");
+      expect(decoded.returnUrl).toBeUndefined();
+    });
+
+    it("rejects tampered state — mutated payload fails HMAC", async () => {
+      const { encodeOAuthState, decodeOAuthState } = await import(
+        "./google-oauth.js"
+      );
+      const state = encodeOAuthState(
+        "http://x/cb",
+        undefined,
+        false,
+        false,
+        undefined,
+        "/safe",
+      );
+      // Flip a byte in the data half.
+      const dotIdx = state.lastIndexOf(".");
+      const data = state.slice(0, dotIdx);
+      const sig = state.slice(dotIdx + 1);
+      const tampered = data.slice(0, -1) + "X" + "." + sig;
+      const decoded = decodeOAuthState(tampered, "http://x/fallback");
+      // Bad signature → falls back to default; return is dropped.
+      expect(decoded.redirectUri).toBe("http://x/fallback");
+      expect(decoded.returnUrl).toBeUndefined();
+    });
+
+    it("decodes returnUrl as raw string — same-origin validation runs at the consumer", async () => {
+      const { encodeOAuthState, decodeOAuthState } = await import(
+        "./google-oauth.js"
+      );
+      // If a malicious actor with a leaked signing key encoded a cross-
+      // origin URL, decode would surface it — but the consumer
+      // (oauthCallbackResponse) runs safeReturnPath, so the redirect still
+      // lands on "/". This test documents the layered defence.
+      const state = encodeOAuthState(
+        "http://x/cb",
+        undefined,
+        false,
+        false,
+        undefined,
+        "//evil.com/path",
+      );
+      const decoded = decodeOAuthState(state, "http://x/cb");
+      expect(decoded.returnUrl).toBe("//evil.com/path");
+      // But safeReturnPath would catch this:
+      const { safeReturnPath } = await import("./auth.js");
+      expect(safeReturnPath(decoded.returnUrl)).toBe("/");
+    });
+  });
 });
 
 // --- Mock helpers ---

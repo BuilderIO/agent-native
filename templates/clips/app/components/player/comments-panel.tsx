@@ -241,6 +241,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
                 <li key={root.threadId} className="p-3 space-y-2">
                   <CommentCard
                     comment={root}
+                    recordingId={recordingId}
                     currentUserEmail={currentUserEmail}
                     onSeek={onSeek}
                     onReply={() => {
@@ -262,6 +263,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
                         <li key={r.id}>
                           <CommentCard
                             comment={r}
+                            recordingId={recordingId}
                             currentUserEmail={currentUserEmail}
                             onSeek={onSeek}
                             onReply={() => {
@@ -359,6 +361,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
 function CommentCard({
   comment,
+  recordingId,
   currentUserEmail,
   onSeek,
   onReply,
@@ -368,6 +371,7 @@ function CommentCard({
   isReply,
 }: {
   comment: Comment;
+  recordingId: string;
   currentUserEmail?: string;
   onSeek: (ms: number) => void;
   onReply: () => void;
@@ -449,8 +453,7 @@ function CommentCard({
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
-                          recordingId:
-                            (comment as any).recordingId ?? undefined,
+                          recordingId,
                           emoji: e,
                           videoTimestampMs: comment.videoTimestampMs,
                         }),

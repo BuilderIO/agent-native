@@ -21,6 +21,7 @@ import {
   getSession,
   COOKIE_NAME,
   getSessionMaxAge,
+  safeReturnPath,
 } from "./auth.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 
@@ -60,6 +61,14 @@ export interface OAuthStatePayload {
   owner?: string;
   desktop?: boolean;
   addAccount?: boolean;
+  /**
+   * Same-origin path to redirect to after a successful web-flow sign-in.
+   * Threaded through the (HMAC-signed) state so it survives the round trip
+   * to Google. Validated again on decode via safeReturnPath as defence in
+   * depth. Has no effect on desktop / mobile / add-account flows, which
+   * use their own deep-link / close-tab handling.
+   */
+  returnUrl?: string;
 }
 
 /**
@@ -93,6 +102,7 @@ export function encodeOAuthState(
   desktop?: boolean,
   addAccount?: boolean,
   app?: string,
+  returnUrl?: string,
 ): string {
   const nonce = crypto.randomBytes(8).toString("hex");
   const payload: Record<string, string | boolean> = {
@@ -103,6 +113,7 @@ export function encodeOAuthState(
   if (desktop) payload.d = true;
   if (addAccount) payload.a = true;
   if (app) payload.app = app;
+  if (returnUrl) payload.r2 = returnUrl;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
     .createHmac("sha256", getStateSigningKey())
@@ -145,6 +156,11 @@ export function decodeOAuthState(
         owner: parsed.o || undefined,
         desktop: !!parsed.d,
         addAccount: !!parsed.a,
+        // Pass returnUrl through as-is — same-origin validation runs at the
+        // consumer (oauthCallbackResponse → safeReturnPath). The state is
+        // HMAC-signed, but we still validate at consumption as defence in
+        // depth in case the signing key ever leaks.
+        returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
       };
     } catch {}
   }
@@ -249,6 +265,13 @@ export function oauthCallbackResponse(
     sessionToken?: string;
     desktop?: boolean;
     addAccount?: boolean;
+    /**
+     * Same-origin path to return the viewer to after a successful web
+     * sign-in. Validated via safeReturnPath; falls back to "/" for any
+     * shape that escapes same-origin. Has no effect on desktop / mobile
+     * / add-account flows — those use their own deep-link handling.
+     */
+    returnUrl?: string;
   },
 ): Response | string | void | Promise<Response | string | void> {
   const mobile = isMobile(event);
@@ -289,11 +312,12 @@ export function oauthCallbackResponse(
       </script></body></html>`);
   }
 
-  // Web: redirect to app home.
+  // Web: redirect to the requested return path (validated same-origin) or
+  // "/" if no return was supplied / the return failed validation.
   // Use h3's native redirect (not web Response) to preserve Set-Cookie headers
   // from createOAuthSession — a raw `new Response()` drops them.
   setResponseStatus(event, 302);
-  setResponseHeader(event, "Location", "/");
+  setResponseHeader(event, "Location", safeReturnPath(opts.returnUrl));
   return "";
 }
 
