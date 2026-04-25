@@ -93,7 +93,7 @@ export function ThumbsFeedback({
         className={cn(
           "flex h-6 w-6 items-center justify-center rounded",
           selection === "up"
-            ? "text-emerald-500"
+            ? "text-foreground"
             : "text-muted-foreground/70 hover:text-muted-foreground hover:bg-accent/50",
         )}
       >
@@ -113,7 +113,7 @@ export function ThumbsFeedback({
             className={cn(
               "flex h-6 w-6 items-center justify-center rounded",
               selection === "down"
-                ? "text-red-500"
+                ? "text-foreground"
                 : "text-muted-foreground/70 hover:text-muted-foreground hover:bg-accent/50",
             )}
           >
