@@ -134,6 +134,11 @@ function appendEnvLocalSecret(envLocalPath: string, secret: string): void {
   }
 }
 
+/** Read-only accessor for the resolved auth secret. */
+export function getAuthSecret(): string {
+  return resolveAuthSecret();
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
