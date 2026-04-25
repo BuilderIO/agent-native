@@ -1888,9 +1888,9 @@ ${lines.join("\n")}`;
 
   return `\n\n## Available Actions
 
-**Use these actions directly as tool calls. Do NOT use \`web-request\`, \`db-schema\`, \`db-query\`, \`search-files\`, or \`shell\` — these actions already connect to the correct database and services. Never call action HTTP endpoints via \`web-request\`; use the action tool directly.**
+**ALWAYS use these actions as direct tool calls for any task they can accomplish.** These are your primary tools — they handle database access, validation, and business logic internally. Do NOT replicate their work with lower-level tools like \`web-request\`, \`db-query\`, \`db-schema\`, or \`shell\`. In particular, never call \`/_agent-native/actions/\` endpoints via \`web-request\` — the action IS a tool in your tool list; call it directly.
 
-**For external data sources (BigQuery, HubSpot, Jira, GA4, etc.), use the data-source-specific action below — NOT \`db-query\`.** \`db-query\` only reaches the app's own internal database. If the user asks about tables not in the app schema, pick the matching action here.
+Other tools (\`web-request\`, \`db-query\`, \`save-memory\`, etc.) are available for tasks that fall outside these actions — use them freely for those cases.
 
 Parameter notation: \`name*\` = required, \`name?\` = optional. Always pass the tool's parameters as a JSON object to the tool_use call — never via shell or string-concatenated CLI flags.
 
@@ -2943,28 +2943,7 @@ export function createAgentChatPlugin(
         jobTools = createJobTools();
       } catch {}
 
-      // Lean mode: only expose template actions + a minimal set of framework
-      // tools. Voice-first / minimal apps opted into `leanPrompt` precisely
-      // because they don't need the full framework surface. Exposing 30+
-      // undocumented framework tools (web-request, db-query, call-agent, etc.)
-      // alongside the 10-20 template actions confuses the model — it reaches
-      // for `web-request` to hit action HTTP endpoints instead of calling the
-      // native tool directly.
-      const leanActions = leanPrompt
-        ? {
-            ...templateScripts,
-            ...(resourceScripts["save-memory"]
-              ? { "save-memory": resourceScripts["save-memory"] }
-              : {}),
-            ...(resourceScripts["delete-memory"]
-              ? { "delete-memory": resourceScripts["delete-memory"] }
-              : {}),
-            ...notificationTools,
-            ...mcpActionEntries,
-          }
-        : null;
-
-      const prodActions = leanActions ?? {
+      const prodActions = {
         ...templateScripts,
         ...resourceScripts,
         ...docsScripts,
