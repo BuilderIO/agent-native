@@ -23,6 +23,7 @@ async function runGa4Panel(raw: string): Promise<{
     days?: unknown;
     startDate?: unknown;
     endDate?: unknown;
+    filter?: unknown;
   };
   try {
     parsed = JSON.parse(raw);
@@ -56,7 +57,17 @@ async function runGa4Panel(raw: string): Promise<{
       ? parsed.endDate
       : "today";
 
-  const report = await runReport(dimensions, metrics, { startDate, endDate });
+  const dimensionFilter =
+    parsed.filter && typeof parsed.filter === "object"
+      ? (parsed.filter as Record<string, unknown>)
+      : undefined;
+
+  const report = await runReport(
+    dimensions,
+    metrics,
+    { startDate, endDate },
+    dimensionFilter,
+  );
 
   // Flatten each GA4 row to { dimensionName: value, metricName: value } so
   // downstream chart renderers treat it identically to SQL rows. Metrics are
