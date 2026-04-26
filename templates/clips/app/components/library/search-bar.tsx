@@ -2,6 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { IconSearch, IconX } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { useRecordingSearch, type SearchHit } from "@/hooks/use-library";
 
 function highlight(
@@ -42,7 +47,6 @@ export function SearchBar({ className }: SearchBarProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
 
   const { data, isFetching } = useRecordingSearch(query);
   const results: SearchHit[] = data?.results ?? [];
@@ -65,55 +69,55 @@ export function SearchBar({ className }: SearchBarProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Close on outside click
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, []);
-
   function pickResult(hit: SearchHit) {
     setOpen(false);
     setQuery("");
     navigate(`/r/${hit.id}`);
   }
 
-  return (
-    <div ref={boxRef} className={cn("relative w-full max-w-xl", className)}>
-      <div className="relative">
-        <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => setOpen(true)}
-          placeholder="Search recordings and transcripts…"
-          className="w-full h-9 rounded-md border border-border bg-background pl-9 pr-16 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-        />
-        {query ? (
-          <button
-            onClick={() => {
-              setQuery("");
-              inputRef.current?.focus();
-            }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-accent"
-          >
-            <IconX className="h-3.5 w-3.5" />
-          </button>
-        ) : (
-          <span className="absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            ⌘K
-          </span>
-        )}
-      </div>
+  const showPopover = open && query.length >= 2;
 
-      {open && query.length >= 2 && (
-        <div className="absolute z-40 mt-1 w-full rounded-md border border-border bg-popover shadow-lg overflow-hidden">
+  return (
+    <Popover open={showPopover} onOpenChange={setOpen}>
+      <div className={cn("relative w-full max-w-xl", className)}>
+        <PopoverTrigger asChild>
+          <div className="relative">
+            <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setOpen(true);
+              }}
+              onFocus={() => setOpen(true)}
+              placeholder="Search recordings and transcripts…"
+              className="w-full h-9 rounded-md border border-border bg-background pl-9 pr-16 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            {query ? (
+              <button
+                onClick={() => {
+                  setQuery("");
+                  inputRef.current?.focus();
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-accent"
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                ⌘K
+              </span>
+            )}
+          </div>
+        </PopoverTrigger>
+
+        <PopoverContent
+          align="start"
+          sideOffset={4}
+          className="w-[var(--radix-popover-trigger-width)] p-0 overflow-hidden"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           {isFetching && results.length === 0 && (
             <div className="p-4 text-center text-xs text-muted-foreground">
               Searching…
@@ -167,8 +171,8 @@ export function SearchBar({ className }: SearchBarProps) {
               ))}
             </ul>
           )}
-        </div>
-      )}
-    </div>
+        </PopoverContent>
+      </div>
+    </Popover>
   );
 }

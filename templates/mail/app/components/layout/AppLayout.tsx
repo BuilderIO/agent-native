@@ -38,6 +38,11 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
   getCallbackOrigin,
   AgentSidebar,
   AgentToggleButton,
@@ -167,8 +172,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [activeAccounts]);
   const [tabSettingsOpen, setTabSettingsOpen] = useState(false);
   const [labelSearch, setLabelSearch] = useState("");
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const tabSettingsRef = useRef<HTMLDivElement>(null);
 
   const isGoogleConnected = (googleStatus.data?.accounts?.length ?? 0) > 0;
   const connectedEmails = useMemo(
@@ -371,29 +374,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     });
   }, [labels]);
 
-  // Close popovers on outside click
-  useEffect(() => {
-    if (!accountPopoverOpen && !tabSettingsOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (
-        accountPopoverOpen &&
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node)
-      ) {
-        setAccountPopoverOpen(false);
-      }
-      if (
-        tabSettingsOpen &&
-        tabSettingsRef.current &&
-        !tabSettingsRef.current.contains(e.target as Node)
-      ) {
-        setTabSettingsOpen(false);
-        setLabelSearch("");
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [accountPopoverOpen, tabSettingsOpen]);
+
 
   const handleCompose = useCallback(() => {
     compose.open({
@@ -799,38 +780,48 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   {/* Tab settings cog */}
                   <div
                     className={cn("relative", tabsLoading && "invisible")}
-                    ref={tabSettingsRef}
                   >
-                    <button
-                      onClick={() => setTabSettingsOpen(!tabSettingsOpen)}
-                      className={cn(
-                        "flex h-6 w-6 items-center justify-center rounded transition-colors",
-                        tabSettingsOpen
-                          ? "text-foreground bg-accent/50"
-                          : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
-                      )}
-                      title="Configure tabs"
+                    <Popover
+                      open={tabSettingsOpen}
+                      onOpenChange={(open) => {
+                        setTabSettingsOpen(open);
+                        if (!open) setLabelSearch("");
+                      }}
                     >
-                      <IconSettings className="h-3.5 w-3.5" />
-                    </button>
-
-                    {tabSettingsOpen && (
-                      <TabSettingsPopover
-                        systemViews={collapsibleViews}
-                        userLabels={userLabels}
-                        pinnedLabels={pinnedLabels}
-                        labelAliases={labelAliases}
-                        search={labelSearch}
-                        onSearchChange={setLabelSearch}
-                        onToggle={togglePinned}
-                        onRename={(id, alias) => {
-                          const next = { ...labelAliases };
-                          if (alias) next[id] = alias;
-                          else delete next[id];
-                          updateSettings.mutate({ labelAliases: next });
-                        }}
-                      />
-                    )}
+                      <PopoverTrigger asChild>
+                        <button
+                          className={cn(
+                            "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                            tabSettingsOpen
+                              ? "text-foreground bg-accent/50"
+                              : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
+                          )}
+                          title="Configure tabs"
+                        >
+                          <IconSettings className="h-3.5 w-3.5" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="start"
+                        className="w-60 max-w-[calc(100vw-2rem)] p-0"
+                      >
+                        <TabSettingsPopover
+                          systemViews={collapsibleViews}
+                          userLabels={userLabels}
+                          pinnedLabels={pinnedLabels}
+                          labelAliases={labelAliases}
+                          search={labelSearch}
+                          onSearchChange={setLabelSearch}
+                          onToggle={togglePinned}
+                          onRename={(id, alias) => {
+                            const next = { ...labelAliases };
+                            if (alias) next[id] = alias;
+                            else delete next[id];
+                            updateSettings.mutate({ labelAliases: next });
+                          }}
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </>
               )}
@@ -886,53 +877,59 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
               {/* Account avatars — overlapping stack like Figma */}
               {hasAccounts && (
-                <div className="relative ml-1" ref={popoverRef}>
-                  <button
-                    onClick={() => setAccountPopoverOpen(!accountPopoverOpen)}
-                    className="flex items-center hover:opacity-90 transition-opacity"
-                    title="Accounts"
-                  >
-                    <div
-                      className="flex items-center"
-                      style={{
-                        marginRight: accounts.length > 1 ? 0 : undefined,
-                      }}
+                <Popover
+                  open={accountPopoverOpen}
+                  onOpenChange={setAccountPopoverOpen}
+                >
+                  <PopoverTrigger asChild>
+                    <button
+                      className="flex items-center hover:opacity-90 transition-opacity ml-1"
+                      title="Accounts"
                     >
-                      {accounts.map((account, i) => {
-                        const isActive =
-                          activeAccounts.size === 0 ||
-                          activeAccounts.has(account.email);
-                        return (
-                          <div
-                            key={account.email}
-                            className={cn(
-                              "relative rounded-full ring-2 ring-card transition-opacity",
-                              !isActive && "opacity-30",
-                            )}
-                            style={{
-                              marginLeft: i === 0 ? 0 : -8,
-                              zIndex: accounts.length - i,
-                            }}
-                          >
-                            {account.photoUrl ? (
-                              <img
-                                src={account.photoUrl}
-                                alt=""
-                                className="h-7 w-7 rounded-full object-cover"
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : (
-                              <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
-                                {account.email[0]?.toUpperCase()}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </button>
-
-                  {accountPopoverOpen && (
+                      <div
+                        className="flex items-center"
+                        style={{
+                          marginRight: accounts.length > 1 ? 0 : undefined,
+                        }}
+                      >
+                        {accounts.map((account, i) => {
+                          const isActive =
+                            activeAccounts.size === 0 ||
+                            activeAccounts.has(account.email);
+                          return (
+                            <div
+                              key={account.email}
+                              className={cn(
+                                "relative rounded-full ring-2 ring-card transition-opacity",
+                                !isActive && "opacity-30",
+                              )}
+                              style={{
+                                marginLeft: i === 0 ? 0 : -8,
+                                zIndex: accounts.length - i,
+                              }}
+                            >
+                              {account.photoUrl ? (
+                                <img
+                                  src={account.photoUrl}
+                                  alt=""
+                                  className="h-7 w-7 rounded-full object-cover"
+                                  referrerPolicy="no-referrer"
+                                />
+                              ) : (
+                                <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-[11px] font-semibold text-primary">
+                                  {account.email[0]?.toUpperCase()}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    className="w-72 max-w-[calc(100vw-2rem)] p-0"
+                  >
                     <AccountPopover
                       accounts={accounts}
                       activeAccounts={activeAccounts}
@@ -963,10 +960,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           return next;
                         });
                       }}
-                      onClose={() => setAccountPopoverOpen(false)}
                     />
-                  )}
-                </div>
+                  </PopoverContent>
+                </Popover>
               )}
 
               <AgentToggleButton />
@@ -1400,7 +1396,7 @@ function TabSettingsPopover({
   const noResults = !showViews && !showCategories && !showLabels && search;
 
   return (
-    <div className="absolute left-0 top-full mt-1.5 z-50 w-60 max-w-[calc(100vw-2rem)] rounded-lg border border-border/50 bg-card shadow-xl">
+    <>
       {/* Search */}
       <div className="px-2 py-1.5 border-b border-border/30">
         <input
@@ -1533,7 +1529,7 @@ function TabSettingsPopover({
           Checked items show as tabs. Label emails split from inbox.
         </p>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -1544,13 +1540,11 @@ function AccountPopover({
   activeAccounts,
   onToggleAccount,
   onRemoveAccount,
-  onClose,
 }: {
   accounts: Array<{ email: string; photoUrl?: string }>;
   activeAccounts: Set<string>;
   onToggleAccount: (email: string) => void;
   onRemoveAccount: (email: string) => void;
-  onClose: () => void;
 }) {
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
@@ -1579,7 +1573,7 @@ function AccountPopover({
   const allSelected = activeAccounts.size === 0;
 
   return (
-    <div className="absolute right-0 top-full mt-1.5 z-50 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border/50 bg-card shadow-xl">
+    <>
       <div className="px-3 py-2 border-b border-border/30">
         <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
           Accounts
@@ -1651,6 +1645,6 @@ function AccountPopover({
           {authUrl.isFetching ? "Connecting..." : "Add account"}
         </button>
       </div>
-    </div>
+    </>
   );
 }

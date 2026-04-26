@@ -14,10 +14,11 @@
  * Both providers accept the same multipart form-data shape, so the only
  * differences are the endpoint URL and the `model` field.
  *
- * TODO: real-time transcription. A follow-up pass can stream audio from the
- * MediaRecorder into Deepgram / AssemblyAI via WebSocket during recording so
- * interim text is available before the user stops. That lets the agent
- * generate titles / summaries much sooner. See the `ai-video-tools` skill.
+ * Hybrid transcription: the browser's Web Speech API runs during recording
+ * and saves an instant transcript via `save-browser-transcript`. If this
+ * action finds a browser transcript and no API key is configured, it
+ * preserves the browser result instead of failing. When a key IS available,
+ * Whisper refines the browser draft with higher-quality output.
  *
  * Fetches the recording's videoUrl, POSTs to the provider with
  * response_format=verbose_json and timestamp_granularities[]=segment, and
@@ -137,21 +138,35 @@ export default defineAction({
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();
 
-    // Upsert a pending row first so the UI can show "Transcribing…".
-    await upsertTranscriptRow(db, {
-      recordingId: args.recordingId,
-      ownerEmail,
-      status: "pending",
-      failureReason: null,
-      now,
-    });
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    // Resolve the provider — Groq first (faster), then OpenAI as fallback.
+    // Resolve the provider BEFORE overwriting the transcript row — if no
+    // key is configured but a browser-generated transcript already exists
+    // (from Web Speech API during recording), preserve it instead of
+    // clobbering it with "pending" then "failed".
     const userEmail = getRequestUserEmail() ?? ownerEmail;
     const provider = await pickProvider(userEmail);
     if (!provider) {
+      const [existingRow] = await db
+        .select({
+          status: schema.recordingTranscripts.status,
+          fullText: schema.recordingTranscripts.fullText,
+        })
+        .from(schema.recordingTranscripts)
+        .where(
+          eq(schema.recordingTranscripts.recordingId, args.recordingId),
+        )
+        .limit(1);
+
+      if (existingRow?.status === "ready" && existingRow.fullText?.trim()) {
+        console.log(
+          `[clips] No API key configured but browser transcript exists for ${args.recordingId} — keeping it`,
+        );
+        return {
+          recordingId: args.recordingId,
+          status: "ready" as const,
+          provider: "browser",
+        };
+      }
+
       const reason =
         "No transcription key configured. Set GROQ_API_KEY (fast) or OPENAI_API_KEY.";
       await upsertTranscriptRow(db, {
@@ -169,6 +184,17 @@ export default defineAction({
         failureReason: reason,
       };
     }
+
+    // Upsert a pending row so the UI can show "Transcribing…".
+    await upsertTranscriptRow(db, {
+      recordingId: args.recordingId,
+      ownerEmail,
+      status: "pending",
+      failureReason: null,
+      now,
+    });
+
+    await writeAppState("refresh-signal", { ts: Date.now() });
 
     // Load the recording's videoUrl.
     const [rec] = await db

@@ -7,6 +7,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { useActionMutation } from "@agent-native/core/client";
 import type { SlideGenerateResponse } from "@shared/api";
 
@@ -107,17 +114,21 @@ export default function GenerateSlidesDialog({
               <label className="text-xs font-medium text-white/60 block mb-1.5">
                 Slides
               </label>
-              <select
-                value={slideCount}
-                onChange={(e) => setSlideCount(Number(e.target.value))}
-                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white/90 outline-none focus:border-[#609FF8]/50"
+              <Select
+                value={String(slideCount)}
+                onValueChange={(value) => setSlideCount(Number(value))}
               >
-                {[4, 6, 8, 10, 12, 15].map((n) => (
-                  <option key={n} value={n}>
-                    {n} slides
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full bg-white/[0.04] border-white/[0.08] rounded-lg text-sm text-white/90 focus:ring-0 focus:ring-offset-0 focus:border-[#609FF8]/50">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[4, 6, 8, 10, 12, 15].map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      {n} slides
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex-1">
               <label className="text-xs font-medium text-white/60 block mb-1.5">

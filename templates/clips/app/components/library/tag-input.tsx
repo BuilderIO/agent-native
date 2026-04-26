@@ -1,6 +1,11 @@
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { IconX } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 
 interface TagInputProps {
   value: string[];
@@ -57,61 +62,70 @@ export function TagInput({
   }
 
   return (
-    <div className={cn("relative", className)}>
-      <div
-        role="group"
-        className="flex flex-wrap items-center gap-1 min-h-[2.25rem] rounded-md border border-input bg-background px-2 py-1 focus-within:ring-1 focus-within:ring-ring"
-        onClick={() => inputRef.current?.focus()}
-      >
-        {value.map((tag) => (
-          <span
-            key={tag}
-            className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs pl-2 pr-1 py-0.5"
+    <Popover open={showDrop && filtered.length > 0} onOpenChange={setShowDrop}>
+      <div className={cn("relative", className)}>
+        <PopoverTrigger asChild>
+          <div
+            role="group"
+            className="flex flex-wrap items-center gap-1 min-h-[2.25rem] rounded-md border border-input bg-background px-2 py-1 focus-within:ring-1 focus-within:ring-ring"
+            onClick={() => inputRef.current?.focus()}
           >
-            {tag}
-            <button
-              type="button"
-              className="rounded-full hover:bg-primary/20 p-0.5"
-              onClick={(e) => {
-                e.stopPropagation();
-                removeTag(tag);
+            {value.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-xs pl-2 pr-1 py-0.5"
+              >
+                {tag}
+                <button
+                  type="button"
+                  className="rounded-full hover:bg-primary/20 p-0.5"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeTag(tag);
+                  }}
+                >
+                  <IconX className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            <input
+              ref={inputRef}
+              value={draft}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setShowDrop(true);
               }}
-            >
-              <IconX className="h-3 w-3" />
-            </button>
-          </span>
-        ))}
-        <input
-          ref={inputRef}
-          value={draft}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            setShowDrop(true);
-          }}
-          onFocus={() => setShowDrop(true)}
-          onBlur={() => setTimeout(() => setShowDrop(false), 100)}
-          onKeyDown={handleKeyDown}
-          placeholder={value.length === 0 ? placeholder : ""}
-          className="flex-1 min-w-[8rem] bg-transparent text-sm outline-none"
-        />
-      </div>
+              onFocus={() => setShowDrop(true)}
+              onBlur={() => setTimeout(() => setShowDrop(false), 100)}
+              onKeyDown={handleKeyDown}
+              placeholder={value.length === 0 ? placeholder : ""}
+              className="flex-1 min-w-[8rem] bg-transparent text-sm outline-none"
+            />
+          </div>
+        </PopoverTrigger>
 
-      {showDrop && filtered.length > 0 && (
-        <ul className="absolute z-30 mt-1 w-full rounded-md border border-border bg-popover shadow-md">
-          {filtered.map((s) => (
-            <li
-              key={s}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                addTag(s);
-              }}
-              className="cursor-pointer px-3 py-1.5 text-sm hover:bg-accent"
-            >
-              {s}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+        <PopoverContent
+          align="start"
+          sideOffset={4}
+          className="w-[var(--radix-popover-trigger-width)] p-0"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <ul>
+            {filtered.map((s) => (
+              <li
+                key={s}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  addTag(s);
+                }}
+                className="cursor-pointer px-3 py-1.5 text-sm hover:bg-accent"
+              >
+                {s}
+              </li>
+            ))}
+          </ul>
+        </PopoverContent>
+      </div>
+    </Popover>
   );
 }

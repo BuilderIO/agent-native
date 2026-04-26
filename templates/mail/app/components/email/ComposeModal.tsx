@@ -24,6 +24,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";

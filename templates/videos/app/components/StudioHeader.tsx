@@ -10,6 +10,7 @@ import { AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 type StudioHeaderProps = {
   sidebarOpen: boolean;
@@ -107,15 +108,15 @@ export function StudioHeader({
         </div>
       </header>
 
-      {showCloudUpgrade && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <Dialog open={showCloudUpgrade} onOpenChange={setShowCloudUpgrade}>
+        <DialogContent className="sm:max-w-lg p-0 border-none bg-transparent shadow-none [&>button]:hidden">
           <CloudUpgrade
             title="Share Videos"
             description="To share or export videos, connect a cloud database so your compositions can be accessed from anywhere."
             onClose={() => setShowCloudUpgrade(false)}
           />
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
