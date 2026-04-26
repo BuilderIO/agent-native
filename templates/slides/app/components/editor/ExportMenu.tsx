@@ -13,6 +13,7 @@ import {
   IconCopy,
   IconShare2,
 } from "@tabler/icons-react";
+import { toast } from "@/hooks/use-toast";
 
 interface ExportMenuProps {
   deckId: string;
@@ -39,11 +40,22 @@ export function ExportMenu({
         body: JSON.stringify({ deckId }),
       });
       const data = await res.json();
-      if (data.filePath) {
+      if (data.filename) {
         window.open(`/api/exports/${data.filename}`, "_blank");
+      } else {
+        toast({
+          title: "Export failed",
+          description: data.error || "Could not generate PPTX file.",
+          variant: "destructive",
+        });
       }
     } catch (err) {
       console.error("Export failed:", err);
+      toast({
+        title: "Export failed",
+        description: "Something went wrong exporting as PPTX.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -55,11 +67,22 @@ export function ExportMenu({
         body: JSON.stringify({ deckId }),
       });
       const data = await res.json();
-      if (data.filePath) {
+      if (data.filename) {
         window.open(`/api/exports/${data.filename}`, "_blank");
+      } else {
+        toast({
+          title: "Export failed",
+          description: data.error || "Could not generate HTML file.",
+          variant: "destructive",
+        });
       }
     } catch (err) {
       console.error("Export failed:", err);
+      toast({
+        title: "Export failed",
+        description: "Something went wrong exporting as HTML.",
+        variant: "destructive",
+      });
     }
   };
 

@@ -75,9 +75,11 @@ function collectTexts(
     }
   }
 
-  // Recurse into child elements
+  // Recurse into child elements (skip keys we already handled to avoid
+  // double-counting text runs that were extracted from a:r above)
   for (const key of Object.keys(obj)) {
     if (key.startsWith("@_")) continue;
+    if (key === "a:r" || key === "a:t") continue;
     const child = obj[key];
     if (child != null && typeof child === "object") {
       if (Array.isArray(child)) {
@@ -325,7 +327,13 @@ export async function parsePptx(
     const slideXml = await zip.file(slidePath)?.async("string");
     if (!slideXml) continue;
 
-    const slideObj = parser.parse(slideXml);
+    let slideObj: Record<string, unknown>;
+    try {
+      slideObj = parser.parse(slideXml);
+    } catch {
+      // Skip slides with malformed XML rather than crashing the whole import
+      continue;
+    }
     const texts = extractSlideTexts(slideObj);
 
     // Extract images via slide rels

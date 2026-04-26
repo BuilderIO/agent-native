@@ -10,6 +10,7 @@ export default defineAction({
     id: z.string().describe("Design system ID"),
   }),
   readOnly: true,
+  http: { method: "GET" },
   run: async ({ id }) => {
     const access = await resolveAccess("design-system", id);
     if (!access) {

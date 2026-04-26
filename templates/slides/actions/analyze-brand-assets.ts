@@ -26,6 +26,7 @@ export default defineAction({
       .describe("URL to fetch and extract brand signals from"),
   }),
   readOnly: true,
+  http: { method: "GET" },
   run: async ({ designSystemId, companyName, brandNotes, websiteUrl }) => {
     const result: Record<string, unknown> = {};
 

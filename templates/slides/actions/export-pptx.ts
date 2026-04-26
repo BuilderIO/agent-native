@@ -298,7 +298,16 @@ async function fetchImageAsBase64(url: string): Promise<string | null> {
       hostname.startsWith("172.17.") ||
       hostname.startsWith("172.18.") ||
       hostname.startsWith("172.19.") ||
-      hostname.startsWith("172.2") ||
+      hostname.startsWith("172.20.") ||
+      hostname.startsWith("172.21.") ||
+      hostname.startsWith("172.22.") ||
+      hostname.startsWith("172.23.") ||
+      hostname.startsWith("172.24.") ||
+      hostname.startsWith("172.25.") ||
+      hostname.startsWith("172.26.") ||
+      hostname.startsWith("172.27.") ||
+      hostname.startsWith("172.28.") ||
+      hostname.startsWith("172.29.") ||
       hostname.startsWith("172.30.") ||
       hostname.startsWith("172.31.") ||
       hostname.startsWith("192.168.") ||

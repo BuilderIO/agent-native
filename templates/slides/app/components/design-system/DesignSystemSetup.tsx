@@ -5,6 +5,7 @@ import {
   IconPalette,
   IconLoader2,
 } from "@tabler/icons-react";
+import { toast } from "@/hooks/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -110,11 +111,14 @@ export function DesignSystemSetup({
         payload.id = editingId;
       }
 
-      await fetch(endpoint, {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}`);
+      }
 
       // Reset form
       setCompanyName("");
@@ -122,8 +126,16 @@ export function DesignSystemSetup({
       setBrandNotes("");
       setFiles([]);
       onComplete();
+      toast({
+        title: editingId ? "Design system updated" : "Design system created",
+      });
     } catch (err) {
       console.error("Failed to save design system:", err);
+      toast({
+        title: "Failed to save design system",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setGenerating(false);
     }

@@ -15,6 +15,7 @@ export default defineAction({
       .describe("Set to 'true' for compact output (id, title, isDefault only)"),
   }),
   readOnly: true,
+  http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
     const rows = await db
