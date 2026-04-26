@@ -1,15 +1,9 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useState } from "react";
-import {
-  QueryClient,
-  QueryClientProvider,
-} from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useDbSync } from "@agent-native/core";
-import {
-  ClientOnly,
-  DefaultSpinner,
-} from "@agent-native/core/client";
+import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { LinksFunction } from "react-router";

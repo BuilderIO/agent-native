@@ -23,7 +23,7 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
 
 /// Build the global shortcut plugin with its handler. Called from `run()` to
 /// register the plugin before `.build()`.
-pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder {
+pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::Wry> {
     tauri_plugin_global_shortcut::Builder::new().with_handler(|app, shortcut, event| {
         if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
             return;

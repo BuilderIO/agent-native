@@ -4,10 +4,9 @@ use tauri::{
     WebviewWindowBuilder,
 };
 
-use crate::state::{PopoverShownAt, RecordingActive, TrayAnchor};
+use crate::state::{RecordingActive, TrayAnchor};
 use crate::util::{
-    build_overlay_url, is_recording_active, mark_popover_shown, primary_monitor_physical_size,
-    set_capture_excluded,
+    build_overlay_url, mark_popover_shown, primary_monitor_physical_size, set_capture_excluded,
 };
 
 /// Native overlay windows for the recording experience. These render the same
