@@ -137,14 +137,15 @@ templatePorts.forEach(({ name, port }, i) => {
   const prefix = delay > 0 ? `sleep ${delay} && ` : "";
 
   names.push(name);
-  // Pass APP_NAME so each app can resolve its own DATABASE_URL
-  // (e.g. MAIL_DATABASE_URL when APP_NAME=mail).
-  // Pass AGENT_NATIVE_DEV_PORT so each template binds its shared-app-config
-  // devPort. Vite 8 lets `server.port` from config win over the `--port` CLI
-  // flag, which made `--port` silently no-op; the framework's defineConfig
-  // reads this env var as a fallback so the port pin sticks.
+  // APP_NAME so each app resolves its own DATABASE_URL (e.g.
+  // MAIL_DATABASE_URL when APP_NAME=mail).
+  // PORT pins the dev server port. Nitro's Vite plugin (the SSR layer used
+  // by all templates) resolves the dev port as
+  // `process.env.PORT || userConfig.server.port || 3000` — passing PORT
+  // here is the only path that wins regardless of plugin ordering or
+  // Vite-CLI quirks.
   commands.push(
-    `${prefix}APP_NAME=${name} AGENT_NATIVE_DEV_PORT=${port} pnpm --dir templates/${name} exec vite`,
+    `${prefix}APP_NAME=${name} PORT=${port} pnpm --dir templates/${name} exec vite`,
   );
 });
 
