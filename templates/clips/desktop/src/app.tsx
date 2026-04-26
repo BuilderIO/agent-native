@@ -431,6 +431,9 @@ export function App() {
   }, [toolbarActive]);
 
   useEffect(() => {
+    invoke("js_log", {
+      msg: `bubbleActive=${bubbleActive} wantsCamera=${wantsCamera} popoverVisible=${popoverVisible} mode=${mode} cameraOn=${cameraOn}`,
+    }).catch(() => {});
     if (!bubbleActive) return;
 
     let cancelled = false;
@@ -503,6 +506,9 @@ export function App() {
       .catch((err) => {
         if (cancelled) return;
         console.error("[clips-popover] camera acquisition failed:", err);
+        invoke("js_log", {
+          msg: `CAMERA FAILED: ${err?.name} ${err?.message}`,
+        }).catch(() => {});
       });
 
     return () => {
