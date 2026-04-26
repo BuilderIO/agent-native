@@ -1,0 +1,123 @@
+{
+  "name": "Agent Native Templates",
+  "description": "Template engagement from the docs site — clicks, demo tries, and CLI copies tracked via Amplitude",
+  "filters": [
+    {
+      "id": "days",
+      "type": "select",
+      "label": "Period",
+      "default": "30",
+      "options": [
+        { "value": "7", "label": "Last 7 days" },
+        { "value": "30", "label": "Last 30 days" },
+        { "value": "90", "label": "Last 90 days" }
+      ]
+    }
+  ],
+  "panels": [
+    {
+      "id": "total-template-clicks",
+      "title": "Template Clicks",
+      "chartType": "metric",
+      "source": "amplitude",
+      "width": 1,
+      "sql": "{\"event\":\"click template\",\"days\":{{days}}}",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "Last {{days}} days"
+      }
+    },
+    {
+      "id": "total-demo-clicks",
+      "title": "Demo Clicks",
+      "chartType": "metric",
+      "source": "amplitude",
+      "width": 1,
+      "sql": "{\"event\":\"click try demo\",\"days\":{{days}}}",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "Last {{days}} days"
+      }
+    },
+    {
+      "id": "total-cli-copies",
+      "title": "CLI Copies",
+      "chartType": "metric",
+      "source": "amplitude",
+      "width": 1,
+      "sql": "{\"event\":\"copy cli command\",\"days\":{{days}}}",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "Last {{days}} days"
+      }
+    },
+    {
+      "id": "template-interest-over-time",
+      "title": "Template Interest Over Time",
+      "chartType": "area",
+      "source": "amplitude",
+      "width": 2,
+      "sql": "{\"event\":\"click template\",\"days\":{{days}}}",
+      "config": {
+        "xKey": "date",
+        "yKey": "count",
+        "color": "#6366f1"
+      }
+    },
+    {
+      "id": "clicks-by-template",
+      "title": "Clicks by Template",
+      "chartType": "bar",
+      "source": "amplitude",
+      "width": 1,
+      "sql": "{\"event\":\"click template\",\"groupBy\":\"template\",\"days\":{{days}}}",
+      "config": {
+        "xKey": "template",
+        "yKey": "count",
+        "color": "#6366f1"
+      }
+    },
+    {
+      "id": "demo-clicks-by-template",
+      "title": "Demo Clicks by Template",
+      "chartType": "bar",
+      "source": "amplitude",
+      "width": 1,
+      "sql": "{\"event\":\"click try demo\",\"groupBy\":\"template\",\"days\":{{days}}}",
+      "config": {
+        "xKey": "template",
+        "yKey": "count",
+        "color": "#8b5cf6"
+      }
+    },
+    {
+      "id": "cli-copies-by-template",
+      "title": "CLI Copies by Template",
+      "chartType": "bar",
+      "source": "amplitude",
+      "width": 1,
+      "sql": "{\"event\":\"copy cli command\",\"groupBy\":\"template\",\"days\":{{days}}}",
+      "config": {
+        "xKey": "template",
+        "yKey": "count",
+        "color": "#06b6d4"
+      }
+    },
+    {
+      "id": "cli-copies-over-time",
+      "title": "CLI Copies Over Time",
+      "chartType": "area",
+      "source": "amplitude",
+      "width": 2,
+      "sql": "{\"event\":\"copy cli command\",\"days\":{{days}}}",
+      "config": {
+        "xKey": "date",
+        "yKey": "count",
+        "color": "#06b6d4"
+      }
+    }
+  ]
+}

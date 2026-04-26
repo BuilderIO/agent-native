@@ -138,9 +138,17 @@ async function validatePanelSql(
     if (!raw.trim()) continue;
 
     if (p.source === "ga4") {
-      const err = validateGa4PanelShape(raw);
+      const err = validateGa4PanelShape(interpolate(raw, vars));
       if (err) {
         return `panel[${i}] "${p.title || p.id}" GA4 descriptor is invalid: ${err}`;
+      }
+      continue;
+    }
+
+    if (p.source === "amplitude") {
+      const err = validateAmplitudePanelShape(interpolate(raw, vars));
+      if (err) {
+        return `panel[${i}] "${p.title || p.id}" Amplitude descriptor is invalid: ${err}`;
       }
       continue;
     }
@@ -189,6 +197,36 @@ function validateGa4PanelShape(raw: string): string | null {
   return null;
 }
 
+function validateAmplitudePanelShape(raw: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err: any) {
+    return `sql must be a JSON object (${err?.message ?? err})`;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return "sql must be a JSON object";
+  }
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj.event !== "string" || !obj.event.trim()) {
+    return "requires an 'event' field (non-empty string)";
+  }
+  if (obj.groupBy !== undefined && typeof obj.groupBy !== "string") {
+    return "groupBy must be a string";
+  }
+  if (
+    obj.metric !== undefined &&
+    obj.metric !== "totals" &&
+    obj.metric !== "uniques"
+  ) {
+    return "metric must be 'totals' or 'uniques'";
+  }
+  if (obj.days !== undefined && typeof obj.days !== "number") {
+    return "days must be a number";
+  }
+  return null;
+}
+
 /**
  * Reject configs that would render as a blank sidebar row or crash the
  * dashboard page. Mirrors `actions/update-dashboard.ts` so both write
@@ -207,7 +245,7 @@ function validateDashboardConfig(
   }
   if (Array.isArray(panels)) {
     const requiredStrings = ["id", "title", "sql", "source", "chartType"];
-    const validSources = new Set(["bigquery", "app-db", "ga4"]);
+    const validSources = new Set(["bigquery", "app-db", "ga4", "amplitude"]);
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i] as Record<string, unknown> | null;
       if (!p || typeof p !== "object") return `panel[${i}] must be an object`;
@@ -218,7 +256,7 @@ function validateDashboardConfig(
         }
       }
       if (!validSources.has(p.source as string)) {
-        return `panel[${i}].source must be 'bigquery', 'app-db', or 'ga4' (got '${p.source}'). The table name belongs in the panel's sql, not in source — source selects the backend, not the table.`;
+        return `panel[${i}].source must be 'bigquery', 'app-db', 'ga4', or 'amplitude' (got '${p.source}'). The table name belongs in the panel's sql, not in source — source selects the backend, not the table.`;
       }
       if (p.width !== 1 && p.width !== 2) {
         return `panel[${i}].width must be 1 or 2`;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { IconVideo } from "@tabler/icons-react";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
+import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
 // and cannot be bundled for the browser).
@@ -126,6 +127,8 @@ export default function RecordRoute() {
       cancelled = true;
     };
   }, []);
+
+  const liveTranscription = useLiveTranscription();
 
   const engineRef = useRef<RecorderEngine | null>(null);
   const pendingRef = useRef<PendingRecording | null>(null);
@@ -291,6 +294,9 @@ export default function RecordRoute() {
     if (!engine) return;
     try {
       await engine.start();
+      if (liveTranscription.supported) {
+        liveTranscription.start();
+      }
       setUiState("recording");
       setIsPaused(false);
     } catch (err) {
@@ -300,7 +306,7 @@ export default function RecordRoute() {
       setUiState("error");
       toast.error(message);
     }
-  }, []);
+  }, [liveTranscription]);
 
   // -------------------------------------------------------------------------
   // Stop / upload / navigate.
@@ -315,6 +321,22 @@ export default function RecordRoute() {
       // still live — otherwise the library would show a blank card until the
       // owner opens the recording and triggers the player's backfill path.
       captureThumbnailFromPreview(previewVideoRef.current, pending.id);
+
+      // Stop live transcription and save the browser transcript before the
+      // engine finalizes. This gives the recording an instant transcript
+      // (from Web Speech API) with no API key required. If Groq/OpenAI is
+      // configured, request-transcript will refine it with Whisper later.
+      const browserTranscript = liveTranscription.stop();
+      if (browserTranscript.trim()) {
+        void fetch("/_agent-native/actions/save-browser-transcript", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recordingId: pending.id,
+            fullText: browserTranscript,
+          }),
+        }).catch(() => {});
+      }
 
       await engine.stop();
       setCameraStream(null);
@@ -335,12 +357,13 @@ export default function RecordRoute() {
       setUiState("error");
       toast.error(message);
     }
-  }, [navigate]);
+  }, [navigate, liveTranscription]);
 
   const requestStop = useCallback(() => setShowStopConfirm(true), []);
 
   const doCancel = useCallback(async () => {
     const engine = engineRef.current;
+    liveTranscription.stop();
     try {
       await engine?.cancel();
     } catch {
@@ -353,19 +376,21 @@ export default function RecordRoute() {
     setUiState("idle");
     pendingRef.current = null;
     engineRef.current = null;
-  }, []);
+  }, [liveTranscription]);
 
   const togglePause = useCallback(() => {
     const engine = engineRef.current;
     if (!engine) return;
     if (engine.getState() === "paused") {
       engine.resume();
+      liveTranscription.resume();
       setIsPaused(false);
     } else {
       engine.pause();
+      liveTranscription.pause();
       setIsPaused(true);
     }
-  }, []);
+  }, [liveTranscription]);
 
   const restart = useCallback(async () => {
     await doCancel();

@@ -12,6 +12,12 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import {
   useIntegration,
@@ -395,21 +401,9 @@ function IntegrationRow({
   onConfigure: () => void;
 }) {
   const { disconnect } = useIntegration(def.id);
-  const [showDisconnect, setShowDisconnect] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!showDisconnect) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setShowDisconnect(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showDisconnect]);
 
   return (
-    <div ref={ref} className="flex items-center gap-2.5 py-1.5 group relative">
+    <div className="flex items-center gap-2.5 py-1.5 group relative">
       <div className="h-7 w-7 rounded-md overflow-hidden shrink-0 bg-accent/30 p-0.5">
         {def.logo}
       </div>
@@ -424,13 +418,30 @@ function IntegrationRow({
           <div className="h-5 w-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
             <IconCheck className="h-3 w-3 text-emerald-400" />
           </div>
-          <button
-            onClick={() => setShowDisconnect(!showDisconnect)}
-            className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors"
-            title="Settings"
-          >
-            <IconSettings className="h-3.5 w-3.5" />
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+                title="Settings"
+              >
+                <IconSettings className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-36">
+              <DropdownMenuItem
+                onClick={() => onConfigure()}
+                className="text-[12px] text-foreground/70"
+              >
+                Update key
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => disconnect.mutate()}
+                className="text-[12px] text-red-400/80"
+              >
+                Disconnect
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       ) : (
         <button
@@ -439,29 +450,6 @@ function IntegrationRow({
         >
           Connect
         </button>
-      )}
-
-      {showDisconnect && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-36 rounded-lg border border-border/50 bg-card shadow-lg py-1">
-          <button
-            onClick={() => {
-              setShowDisconnect(false);
-              onConfigure();
-            }}
-            className="w-full text-left px-3 py-1.5 text-[12px] text-foreground/70 hover:bg-accent/50"
-          >
-            Update key
-          </button>
-          <button
-            onClick={() => {
-              disconnect.mutate();
-              setShowDisconnect(false);
-            }}
-            className="w-full text-left px-3 py-1.5 text-[12px] text-red-400/80 hover:bg-accent/50"
-          >
-            Disconnect
-          </button>
-        </div>
       )}
     </div>
   );

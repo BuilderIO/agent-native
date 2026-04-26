@@ -15,6 +15,13 @@ import {
   IconChevronLeft,
   IconChevronRight,
 } from "@tabler/icons-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -155,20 +162,24 @@ export function DataTable({
             <div className="flex items-center justify-between px-2 py-2 border-t border-border text-xs text-muted-foreground">
               <div className="flex items-center gap-2">
                 <span>Rows per page:</span>
-                <select
-                  className="bg-background border border-border rounded px-1 py-0.5 text-xs"
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
+                <Select
+                  value={String(pageSize)}
+                  onValueChange={(value) => {
+                    setPageSize(Number(value));
                     setPage(0);
                   }}
                 >
-                  {PAGE_SIZE_OPTIONS.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="h-6 w-16 px-2 py-0 text-xs border-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAGE_SIZE_OPTIONS.map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        {n}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex items-center gap-2">
                 <span>

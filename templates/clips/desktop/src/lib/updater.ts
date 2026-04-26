@@ -68,6 +68,8 @@ async function runCheck() {
 function startUpdateLoop() {
   if (started) return;
   started = true;
+  // Skip update checks in dev — there's no release endpoint to check.
+  if (import.meta.env.DEV) return;
   // Check 3s after launch (let the popover finish first paint), then every
   // 4 hours. Matches the cadence used by the Electron app.
   setTimeout(runCheck, 3000);

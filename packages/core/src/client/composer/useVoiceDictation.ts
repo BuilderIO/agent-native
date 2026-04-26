@@ -365,9 +365,11 @@ export function useVoiceDictation(
     const pref = await readProviderPrefs();
     setProvider(pref);
 
-    // "builder" is a placeholder; behave like browser for now.
+    // "builder" uses the same client-side flow as "openai" (MediaRecorder ->
+    // POST to /_agent-native/transcribe-voice). The server route handles
+    // routing to the right backend based on the user's preference.
     const resolvedProvider: VoiceProvider =
-      pref === "builder" ? "browser" : pref;
+      pref === "builder" ? "openai" : pref;
     activeProviderRef.current = resolvedProvider;
 
     try {
