@@ -55,6 +55,7 @@
     "./sharing/actions/set-resource-visibility": "./dist/sharing/actions/set-resource-visibility.js",
     "./client/sharing": "./dist/client/sharing/index.js",
     "./client/transcription/use-live-transcription": "./dist/client/transcription/use-live-transcription.js",
+    "./client/transcription/BuilderTranscriptionCta": "./dist/client/transcription/BuilderTranscriptionCta.js",
     "./transcription/builder": "./dist/transcription/builder-transcription.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
     "./router": "./dist/router/index.js",

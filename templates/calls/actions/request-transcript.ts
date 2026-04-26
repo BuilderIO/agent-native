@@ -109,9 +109,7 @@ export default defineAction({
             throw new Error("call-blob app-state missing for local media");
           audioBytes = new Uint8Array(Buffer.from(b64, "base64"));
           mimeType =
-            typeof stash?.mimeType === "string"
-              ? stash.mimeType
-              : "audio/webm";
+            typeof stash?.mimeType === "string" ? stash.mimeType : "audio/webm";
         } else if (call.mediaUrl.startsWith("/")) {
           const port = process.env.NITRO_PORT || process.env.PORT || "3000";
           const origin =
