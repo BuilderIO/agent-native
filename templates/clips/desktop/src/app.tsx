@@ -170,15 +170,15 @@ export function App() {
         crypto.randomUUID?.() ||
         Math.random().toString(36).slice(2) + Date.now().toString(36);
       const base = serverUrl.replace(/\/+$/, "");
-      const res = await fetch(
-        `${base}/_agent-native/google/auth-url?desktop=1&flow_id=${flowId}`,
-        { credentials: "include" },
+
+      // Open directly in the system browser — the server redirects (302)
+      // to Google's OAuth page, avoiding any cross-origin fetch from
+      // the Tauri WebView.
+      await openExternal(
+        `${base}/_agent-native/google/auth-url?desktop=1&flow_id=${flowId}&redirect=1`,
       );
-      const data = await res.json();
-      if (!data?.url) return;
 
-      await openExternal(data.url);
-
+      // Poll the exchange endpoint for the session token.
       const start = Date.now();
       const interval = setInterval(async () => {
         try {
@@ -190,9 +190,7 @@ export function App() {
             clearInterval(interval);
             await fetch(
               `${base}/_agent-native/auth/session?_session=${xd.token}`,
-              {
-                credentials: "include",
-              },
+              { credentials: "include" },
             );
             await checkAuth();
           } else if (Date.now() - start > 120_000) {

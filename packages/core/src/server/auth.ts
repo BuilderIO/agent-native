@@ -1019,7 +1019,7 @@ async function mountBetterAuthRoutes(
         });
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
         if (q.redirect === "1") {
-          return sendRedirect(event, authUrl);
+          return sendRedirect(event, authUrl, 302);
         }
         return { url: authUrl };
       }),
