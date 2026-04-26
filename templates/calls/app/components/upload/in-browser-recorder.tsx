@@ -264,6 +264,23 @@ export function InBrowserRecorder({
     const callId = callIdRef.current;
     if (!recorder || !callId) return;
     setState("uploading");
+
+    // Stop live transcription and save the browser transcript before the
+    // recorder finalizes. This gives the call an instant transcript
+    // (from Web Speech API) with no API key required. If Deepgram is
+    // configured, request-transcript will refine it with diarized output later.
+    const browserTranscript = liveTranscription.stop();
+    if (browserTranscript.trim()) {
+      void fetch("/_agent-native/actions/save-browser-transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          callId,
+          fullText: browserTranscript,
+        }),
+      }).catch(() => {});
+    }
+
     const finalBlob = await new Promise<Blob>((resolve) => {
       const onData = (e: BlobEvent) => {
         recorder.removeEventListener("dataavailable", onData);
@@ -299,6 +316,7 @@ export function InBrowserRecorder({
   }
 
   async function cancel() {
+    liveTranscription.stop();
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       try {
         recorderRef.current.stop();
