@@ -36,7 +36,12 @@ export default defineAction({
     const cwd = process.cwd();
     const uploadsDir = path.join(cwd, "data", "uploads");
     const resolved = path.resolve(absPath);
-    if (!resolved.startsWith(uploadsDir) && !resolved.startsWith(cwd)) {
+    if (
+      !(
+        resolved === uploadsDir || resolved.startsWith(uploadsDir + path.sep)
+      ) &&
+      !(resolved === cwd || resolved.startsWith(cwd + path.sep))
+    ) {
       throw new Error(
         `Access denied: file path must be within the project directory`,
       );

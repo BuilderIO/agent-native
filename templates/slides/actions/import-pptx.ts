@@ -7,6 +7,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
 import { notifyClients } from "../server/handlers/decks.js";
 import { parsePptx } from "../server/handlers/import/pptx-parser.js";
 import { convertToSlideHtml } from "../server/handlers/import/html-converter.js";
@@ -48,7 +49,12 @@ export default defineAction({
     const cwd = process.cwd();
     const uploadsDir = path.join(cwd, "data", "uploads");
     const resolved = path.resolve(absPath);
-    if (!resolved.startsWith(uploadsDir) && !resolved.startsWith(cwd)) {
+    if (
+      !(
+        resolved === uploadsDir || resolved.startsWith(uploadsDir + path.sep)
+      ) &&
+      !(resolved === cwd || resolved.startsWith(cwd + path.sep))
+    ) {
       throw new Error(
         `Access denied: file path must be within the project directory`,
       );
@@ -78,7 +84,8 @@ export default defineAction({
     const now = new Date().toISOString();
 
     if (deckId) {
-      // Update existing deck
+      await assertAccess("deck", deckId, "editor");
+
       const existing = await db
         .select()
         .from(schema.decks)

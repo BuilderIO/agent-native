@@ -2,7 +2,8 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { assertAccess, accessFilter } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 export default defineAction({
   description:
@@ -16,13 +17,13 @@ export default defineAction({
     const db = getDb();
     const now = new Date().toISOString();
 
-    // Unset all existing defaults for the current user's accessible design systems
-    const accessible = await db
+    const userEmail = getRequestUserEmail();
+    const owned = await db
       .select({ id: schema.designSystems.id })
       .from(schema.designSystems)
-      .where(accessFilter(schema.designSystems, schema.designSystemShares));
+      .where(eq(schema.designSystems.ownerEmail, userEmail ?? ""));
 
-    for (const row of accessible) {
+    for (const row of owned) {
       await db
         .update(schema.designSystems)
         .set({ isDefault: false, updatedAt: now })
