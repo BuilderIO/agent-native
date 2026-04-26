@@ -1091,6 +1091,7 @@ async function mountBetterAuthRoutes(
           return oauthCallbackResponse(event, email, {
             sessionToken,
             desktop,
+            flowId,
           });
         } catch (error: any) {
           const msg = error.message || "Unknown error";

@@ -771,6 +771,9 @@ export function App() {
     // flag + popover visibility) were already restored in the finally
     // block above. Now surface any non-cancel error to the UI.
     console.error("[clips-popover] startRecording failed:", startError);
+    invoke("js_log", {
+      msg: `RECORDING FAILED: ${(startError as any)?.name} ${(startError as any)?.message}`,
+    }).catch(() => {});
 
     // User cancelled the macOS screen-picker (or denied permission).
     // WebKit throws DOMException `NotAllowedError` for BOTH cancel and
