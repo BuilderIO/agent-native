@@ -198,7 +198,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 5. Obey `knownGotchas` from any entry you use — note them to the user if the data has limitations.
 6. The dashboard save endpoint now dry-runs every panel's SQL through BigQuery before persisting. If a panel fails validation you'll get a 400 with the BigQuery error text (e.g. `Unrecognized name: is_closed; Did you mean hs_is_closed?`) — fix the SQL and retry; never try to persist broken SQL.
 
-**Panel `source` is a backend, not a table.** The `source` field on every panel must be exactly `"bigquery"`, `"app-db"`, or `"ga4"` — it selects _which backend_ the query runs against. For `bigquery` / `app-db` the `sql` is literal SQL; for `ga4` the `sql` is a JSON descriptor of a GA4 Data API call (e.g. `{"metrics":["activeUsers"],"dimensions":["date"],"days":30}`). Table/dataset references (e.g. `dbt_intermediate.uf_pageviews`) go inside the `sql` string. Writing the table name into `source` produces `Invalid source` errors on every render.
+**Panel `source` is a backend, not a table.** The `source` field on every panel must be exactly `"bigquery"`, `"app-db"`, `"ga4"`, or `"amplitude"` — it selects _which backend_ the query runs against. For `bigquery` / `app-db` the `sql` is literal SQL; for `ga4` the `sql` is a JSON descriptor of a GA4 Data API call (e.g. `{"metrics":["activeUsers"],"dimensions":["date"],"days":30}`); for `amplitude` the `sql` is a JSON descriptor of an Amplitude query. Table/dataset references (e.g. `dbt_intermediate.uf_pageviews`) go inside the `sql` string. Writing the table name into `source` produces `Invalid source` errors on every render.
 
 **Populating the dictionary:** When the user has existing metric definitions elsewhere (team docs, Confluence, Notion, dbt descriptions, a Google Sheet, a wiki), fetch them with whatever tools you have — generic `WebFetch`, an MCP server the user has configured, a CSV import, or asking the user to paste — then upsert each via `save-data-dictionary-entry`. The dictionary itself is source-agnostic.
 
@@ -285,7 +285,7 @@ Two ways to show charts inline in chat:
    ```
    ````
 
-   The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "app-db" | "ga4"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (`1` or `2`). Optional `config` for axis keys, formatting, pivots.
+   The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "app-db" | "ga4" | "amplitude"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (`1` or `2`). Optional `config` for axis keys, formatting, pivots.
 
    Keep the JSON compact — URLs are capped around 4KB. If the SQL is long, consider persisting it as a saved dashboard panel instead and linking to that dashboard.
 

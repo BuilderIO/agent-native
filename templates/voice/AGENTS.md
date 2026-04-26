@@ -194,7 +194,7 @@ Custom prompts override preset behavior entirely. When set, the custom prompt is
 
 ## Transcription
 
-Voice uses Whisper for speech-to-text. Prefers **Groq** (`whisper-large-v3-turbo` -- 10x faster than OpenAI Whisper, ~$0.04/hr) via `GROQ_API_KEY`, falls back to **OpenAI** (`whisper-1`) via `OPENAI_API_KEY`. At least one key is required.
+Voice uses the framework's `/_agent-native/transcribe-voice` route for speech-to-text. Provider priority: **Builder** (via connected Builder.io account, no key needed) → **Groq** (`whisper-large-v3-turbo`, fast, ~$0.04/hr) via `GROQ_API_KEY` → **OpenAI** (`whisper-1`) via `OPENAI_API_KEY`. At least one provider must be available.
 
 All AI formatting (applying style presets, expanding snippets, polishing text) goes through the agent chat via `sendToAgentChat`. Do **not** import AI SDKs directly.
 
@@ -207,7 +207,7 @@ All AI formatting (applying style presets, expanding snippets, polishing text) g
 ## Rules
 
 1. **All AI goes through the agent chat.** Call `sendToAgentChat({ background: true, context, message })` from UI or actions. Do not import AI SDKs directly.
-2. **Transcription is the one exception.** Whisper runs directly because it takes an audio file, not a prompt.
+2. **Transcription is the one exception.** It runs directly because it takes an audio file, not a prompt. Uses the framework voice transcription route (Builder / Groq / OpenAI).
 3. **SQL must be dialect-agnostic.** No SQLite-specific or Postgres-specific functions. Use Drizzle operators only. Use `now()` from `@agent-native/core/db/schema`.
 4. **Screen context is auto-included.** Check `<current-screen>` before calling `view-screen`.
 5. **Trigger refresh after mutations.** Most actions do this automatically via `writeAppState("refresh-signal", { ts: Date.now() })`.
