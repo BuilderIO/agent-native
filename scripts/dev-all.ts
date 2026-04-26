@@ -139,11 +139,16 @@ templatePorts.forEach(({ name, port }, i) => {
   names.push(name);
   // APP_NAME so each app resolves its own DATABASE_URL (e.g.
   // MAIL_DATABASE_URL when APP_NAME=mail).
-  // PORT pins the dev server port. Nitro's Vite plugin (the SSR layer used
-  // by all templates) resolves the dev port as
-  // `process.env.PORT || userConfig.server.port || 3000` — passing PORT
-  // here is the only path that wins regardless of plugin ordering or
-  // Vite-CLI quirks.
+  //
+  // PORT pins the dev server port. Templates run on Nitro's Vite plugin,
+  // whose port resolution is:
+  //   process.env.PORT || userConfig.server.port || 3000
+  // We set PORT in the spawn env so it wins regardless of what the
+  // template's vite.config.ts says. dotenv (used to load each template's
+  // .env) does NOT override an already-set var, so a stray `PORT=` line
+  // in a template's .env can't silently steal the port. The CLI `--port`
+  // flag is unreliable here — Nitro reads `server.port` from config first
+  // and CLI overrides don't always merge in.
   commands.push(
     `${prefix}APP_NAME=${name} PORT=${port} pnpm --dir templates/${name} exec vite`,
   );
