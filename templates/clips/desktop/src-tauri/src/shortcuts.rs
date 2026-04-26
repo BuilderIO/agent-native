@@ -96,6 +96,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
     thread::spawn(move || {
         let active = active.clone();
         let app_for_tap = app.clone();
+        eprintln!("[clips-tray] installing macOS Fn event tap");
         let result = CGEventTap::with_enabled(
             CGEventTapLocation::HID,
             CGEventTapPlacement::HeadInsertEventTap,
@@ -108,9 +109,11 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                 if let Ok(mut was_down) = active.lock() {
                     if is_down && !*was_down {
                         *was_down = true;
+                        eprintln!("[clips-tray] Fn down — starting voice dictation");
                         let _ = app_for_tap.emit("voice:shortcut-start", ());
                     } else if !is_down && *was_down {
                         *was_down = false;
+                        eprintln!("[clips-tray] Fn up — stopping voice dictation");
                         let _ = app_for_tap.emit("voice:shortcut-stop", ());
                     }
                 }
