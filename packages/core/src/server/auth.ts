@@ -369,6 +369,20 @@ interface AuthGuardConfig {
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
 
+// Desktop OAuth exchange store — holds session tokens keyed by a unique flow
+// ID so native apps (Tauri, Electron) that open OAuth in the system browser
+// can retrieve the token after the callback completes on the server.
+const _desktopExchanges = new Map<
+  string,
+  { token: string; email: string; expiresAt: number }
+>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _desktopExchanges) {
+    if (v.expiresAt < now) _desktopExchanges.delete(k);
+  }
+}, 60_000).unref?.();
+
 /**
  * Module-level auth guard function. Set by autoMountAuth() when auth is active.
  * Called by the server middleware to enforce auth on ALL requests (not just
@@ -986,8 +1000,18 @@ async function mountBetterAuthRoutes(
         const redirectUri =
           (getQuery(event).redirect_uri as string) ||
           `${getOrigin(event)}/_agent-native/google/callback`;
-        const desktop = isElectronRequest(event);
-        const state = encodeOAuthState(redirectUri, undefined, desktop, false);
+        const q = getQuery(event);
+        const desktop =
+          isElectronRequest(event) || q.desktop === "1" || q.desktop === "true";
+        const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+        const state = encodeOAuthState(
+          redirectUri,
+          undefined,
+          desktop,
+          false,
+          undefined,
+          flowId,
+        );
         const params = new URLSearchParams({
           client_id: process.env.GOOGLE_CLIENT_ID!,
           redirect_uri: redirectUri,
@@ -1023,7 +1047,7 @@ async function mountBetterAuthRoutes(
             return { error: "Missing authorization code" };
           }
 
-          const { redirectUri, desktop } = decodeOAuthState(
+          const { redirectUri, desktop, flowId } = decodeOAuthState(
             query.state as string | undefined,
             `${getOrigin(event)}/_agent-native/google/callback`,
           );
@@ -1063,6 +1087,14 @@ async function mountBetterAuthRoutes(
             desktop,
           });
 
+          if (flowId && sessionToken) {
+            _desktopExchanges.set(flowId, {
+              token: sessionToken,
+              email,
+              expiresAt: Date.now() + 5 * 60 * 1000,
+            });
+          }
+
           return oauthCallbackResponse(event, email, {
             sessionToken,
             desktop,
@@ -1074,6 +1106,35 @@ async function mountBetterAuthRoutes(
       }),
     );
   }
+
+  // Desktop OAuth exchange — native apps (Tauri tray, Electron) open OAuth
+  // in the system browser but need a way to retrieve the session token
+  // afterwards since they don't share a cookie jar with the browser.
+  app.use(
+    "/_agent-native/auth/desktop-exchange",
+    defineEventHandler((event) => {
+      if (
+        event.context.matchedRoute &&
+        (event.context.matchedRoute as any).path !== "/**:page"
+      )
+        return undefined;
+      if (getMethod(event) !== "GET") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const flowId = getQuery(event).flow_id as string | undefined;
+      if (!flowId) {
+        setResponseStatus(event, 400);
+        return { error: "Missing flow_id" };
+      }
+      const entry = _desktopExchanges.get(flowId);
+      if (!entry || entry.expiresAt < Date.now()) {
+        return { pending: true };
+      }
+      _desktopExchanges.delete(flowId);
+      return { token: entry.token, email: entry.email };
+    }),
+  );
 
   const accessTokens = getAccessTokens();
 

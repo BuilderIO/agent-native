@@ -159,26 +159,52 @@ export function App() {
     checkAuth();
   }, [checkAuth]);
 
-  // Fallback for OAuth (Google / Apple) where a browser window is
-  // unavoidable. Email/password uses the inline <SignInForm /> below, which
-  // avoids the Tauri 2 separate-WebKit-data-store cookie issue entirely —
-  // the cookie is set in the same webview that will read it on the next
-  // session poll.
+  // OAuth (Google) opens in the system browser — the popover WebView can't
+  // share a cookie jar with a separate Tauri WebviewWindow, and the old
+  // approach of opening a WebView at the server root produced a blank window.
+  // Instead: fetch the Google auth URL, open it externally, then poll a
+  // server-side exchange endpoint for the session token.
   async function signInExternal() {
-    await invoke("show_signin", {
-      url: `${serverUrl.replace(/\/+$/, "")}/`,
-    }).catch(() => {});
-    const start = Date.now();
-    const interval = setInterval(async () => {
-      const ok = await checkAuth();
-      if (ok || Date.now() - start > 120_000) {
-        clearInterval(interval);
-        if (ok) {
-          invoke("close_signin").catch(() => {});
-          invoke("show_popover").catch(() => {});
+    try {
+      const flowId =
+        crypto.randomUUID?.() ||
+        Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const base = serverUrl.replace(/\/+$/, "");
+      const res = await fetch(
+        `${base}/_agent-native/google/auth-url?desktop=1&flow_id=${flowId}`,
+        { credentials: "include" },
+      );
+      const data = await res.json();
+      if (!data?.url) return;
+
+      await openExternal(data.url);
+
+      const start = Date.now();
+      const interval = setInterval(async () => {
+        try {
+          const xr = await fetch(
+            `${base}/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+          );
+          const xd = await xr.json();
+          if (xd?.token) {
+            clearInterval(interval);
+            await fetch(
+              `${base}/_agent-native/auth/session?_session=${xd.token}`,
+              {
+                credentials: "include",
+              },
+            );
+            await checkAuth();
+          } else if (Date.now() - start > 120_000) {
+            clearInterval(interval);
+          }
+        } catch {
+          if (Date.now() - start > 120_000) clearInterval(interval);
         }
-      }
-    }, 1500);
+      }, 1500);
+    } catch (err) {
+      console.error("[clips-tray] signInExternal failed:", err);
+    }
   }
 
   // Sign out via the framework's logout endpoint. The cookie clears in the

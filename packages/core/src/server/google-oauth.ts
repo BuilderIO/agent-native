@@ -60,6 +60,7 @@ export interface OAuthStatePayload {
   owner?: string;
   desktop?: boolean;
   addAccount?: boolean;
+  flowId?: string;
 }
 
 /**
@@ -93,6 +94,7 @@ export function encodeOAuthState(
   desktop?: boolean,
   addAccount?: boolean,
   app?: string,
+  flowId?: string,
 ): string {
   const nonce = crypto.randomBytes(8).toString("hex");
   const payload: Record<string, string | boolean> = {
@@ -103,6 +105,7 @@ export function encodeOAuthState(
   if (desktop) payload.d = true;
   if (addAccount) payload.a = true;
   if (app) payload.app = app;
+  if (flowId) payload.f = flowId;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
     .createHmac("sha256", getStateSigningKey())
@@ -145,6 +148,7 @@ export function decodeOAuthState(
         owner: parsed.o || undefined,
         desktop: !!parsed.d,
         addAccount: !!parsed.a,
+        flowId: parsed.f || undefined,
       };
     } catch {}
   }

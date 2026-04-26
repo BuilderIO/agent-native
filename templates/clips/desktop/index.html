@@ -11,29 +11,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <script>
-      // Temporary Tauri mock for browser-based visual testing
-      if (!window.__TAURI_INTERNALS__) {
-        window.__TAURI_INTERNALS__ = {
-          invoke: function (cmd, args) {
-            console.log("[mock-tauri] invoke:", cmd, args);
-            return Promise.resolve();
-          },
-          transformCallback: function (cb) {
-            var id = Math.random().toString(36).substr(2);
-            window["_" + id] = cb;
-            return Number(id) || 0;
-          },
-          metadata: {
-            currentWindow: { label: "main" },
-            currentWebview: { label: "main" },
-          },
-          convertFileSrc: function (path) {
-            return path;
-          },
-        };
-      }
-    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
