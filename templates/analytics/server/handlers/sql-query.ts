@@ -145,7 +145,10 @@ async function runAmplitudePanel(raw: string): Promise<{
 function flattenAmplitudeResponse(
   response: unknown,
   groupBy?: string,
-): { rows: Record<string, unknown>[]; schema: { name: string; type: string }[] } {
+): {
+  rows: Record<string, unknown>[];
+  schema: { name: string; type: string }[];
+} {
   const data = (response as any)?.data;
   if (!data) return { rows: [], schema: [] };
 
@@ -236,10 +239,7 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
     return { error: "Missing or invalid query" };
   }
 
-  if (
-    !source ||
-    !["bigquery", "app-db", "ga4", "amplitude"].includes(source)
-  ) {
+  if (!source || !["bigquery", "app-db", "ga4", "amplitude"].includes(source)) {
     setResponseStatus(event, 400);
     return {
       error:
