@@ -108,28 +108,34 @@ export async function runReport(
   dimensions: string[],
   metrics: string[],
   dateRange?: GA4DateRange,
+  dimensionFilter?: Record<string, unknown>,
 ): Promise<GA4ReportResponse> {
   const { propertyId } = await getConfig();
   const range = dateRange ?? { startDate: "7daysAgo", endDate: "today" };
 
-  const cacheKey = `report-${dimensions.join(",")}-${metrics.join(",")}-${range.startDate}-${range.endDate}`;
+  const filterKey = dimensionFilter ? JSON.stringify(dimensionFilter) : "";
+  const cacheKey = `report-${dimensions.join(",")}-${metrics.join(",")}-${range.startDate}-${range.endDate}-${filterKey}`;
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as GA4ReportResponse;
   }
 
   const token = await getCachedToken();
+  const body: Record<string, unknown> = {
+    dimensions: dimensions.map((name) => ({ name })),
+    metrics: metrics.map((name) => ({ name })),
+    dateRanges: [range],
+  };
+  if (dimensionFilter) {
+    body.dimensionFilter = dimensionFilter;
+  }
   const res = await fetch(`${API_BASE}/properties/${propertyId}:runReport`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      dimensions: dimensions.map((name) => ({ name })),
-      metrics: metrics.map((name) => ({ name })),
-      dateRanges: [range],
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
