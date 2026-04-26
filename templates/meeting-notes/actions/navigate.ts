@@ -28,10 +28,7 @@ export default defineAction({
     "Navigate the UI to a specific view or resource. Writes a one-shot navigate command to application state which the UI reads and auto-deletes. Prefer --view + ids; use --path only for arbitrary routes.",
   schema: z.object({
     view: z.enum(Views).optional().describe("Target view name"),
-    meetingId: z
-      .string()
-      .optional()
-      .describe("Meeting id -- for view=meeting"),
+    meetingId: z.string().optional().describe("Meeting id -- for view=meeting"),
     folderId: z
       .string()
       .optional()
@@ -61,9 +58,7 @@ export default defineAction({
     await writeAppState("navigate", nav);
     const target =
       args.path ||
-      [args.view, args.meetingId, args.folderId]
-        .filter(Boolean)
-        .join(":");
+      [args.view, args.meetingId, args.folderId].filter(Boolean).join(":");
     return `Navigating to ${target}`;
   },
 });

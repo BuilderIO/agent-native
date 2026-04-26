@@ -54,8 +54,7 @@ export default defineAction({
     if (args.path) nav.path = args.path;
     await writeAppState("navigate", nav);
     const target =
-      args.path ||
-      [args.view, args.dictationId].filter(Boolean).join(":");
+      args.path || [args.view, args.dictationId].filter(Boolean).join(":");
     return `Navigating to ${target}`;
   },
 });

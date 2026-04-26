@@ -30,9 +30,9 @@ export default defineAction({
     const ownerEmail = getCurrentOwnerEmail();
 
     // Get stats rows for the date range
-    const cutoff = new Date(
-      Date.now() - args.days * 24 * 60 * 60 * 1000,
-    ).toISOString().slice(0, 10);
+    const cutoff = new Date(Date.now() - args.days * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
 
     const rows = await db
       .select()

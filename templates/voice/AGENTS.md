@@ -72,13 +72,13 @@ All structured data lives in SQL via Drizzle ORM -- dialect-agnostic (Neon Postg
 
 Ephemeral UI state lives in `application_state`, accessed via `readAppState(key)` / `writeAppState(key, value)`.
 
-| State Key        | Purpose                                                             | Direction               |
-| ---------------- | ------------------------------------------------------------------- | ----------------------- |
-| `navigation`     | Current view + selected IDs                                         | UI -> Agent (read-only) |
-| `navigate`       | One-shot navigation command (auto-deleted after UI reads)           | Agent -> UI             |
-| `refresh-signal` | Bump timestamp -- invalidates lists (dictations, snippets, etc.)    | Agent -> UI             |
-| `dictation-state`| Current dictation session state (recording, paused, idle)           | UI -> Agent (read-only) |
-| `selection`      | User's current text selection                                       | UI -> Agent (read-only) |
+| State Key         | Purpose                                                          | Direction               |
+| ----------------- | ---------------------------------------------------------------- | ----------------------- |
+| `navigation`      | Current view + selected IDs                                      | UI -> Agent (read-only) |
+| `navigate`        | One-shot navigation command (auto-deleted after UI reads)        | Agent -> UI             |
+| `refresh-signal`  | Bump timestamp -- invalidates lists (dictations, snippets, etc.) | Agent -> UI             |
+| `dictation-state` | Current dictation session state (recording, paused, idle)        | UI -> Agent (read-only) |
+| `selection`       | User's current text selection                                    | UI -> Agent (read-only) |
 
 ### Navigation state shape
 
@@ -95,27 +95,27 @@ Views: `home`, `dictation`, `snippets`, `dictionary`, `styles`, `stats`, `settin
 
 ## Common Tasks
 
-| User request                                       | What to do                                                                                                      |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| "What am I looking at?"                            | `pnpm action view-screen`                                                                                       |
-| "Show my recent dictations"                        | `pnpm action list-dictations --sort=recent --limit=10`                                                          |
-| "Search my dictations for 'meeting'"               | `pnpm action list-dictations --search="meeting"`                                                                |
-| "Delete this dictation"                            | `pnpm action delete-dictation --id=<id>`                                                                        |
-| "Add a snippet for my email signature"             | `pnpm action create-snippet --trigger="@@sig" --expansion="Best regards,\nSteve Sewell\nCEO, Builder.io"`       |
-| "Show all my snippets"                             | `pnpm action list-snippets`                                                                                     |
-| "Update my signature snippet"                      | `pnpm action update-snippet --id=<id> --expansion="New signature text"`                                         |
-| "Delete the @@sig snippet"                         | Find id via `list-snippets`, then `pnpm action delete-snippet --id=<id>`                                        |
-| "Import these snippets"                            | `pnpm action import-snippets --snippets='[{"trigger":"@@ty","expansion":"Thank you!"}]'`                        |
-| "Add 'Kubernetes' to my dictionary"                | `pnpm action add-dictionary-term --term="Kubernetes"`                                                           |
-| "Whisper keeps hearing 'cubernettes'"              | `pnpm action add-dictionary-term --term="cubernettes" --correction="Kubernetes" --source=auto`                  |
-| "Show my dictionary"                               | `pnpm action list-dictionary`                                                                                   |
-| "Remove a dictionary term"                         | `pnpm action remove-dictionary-term --id=<id>`                                                                  |
-| "Make my work messages more formal"                | `pnpm action update-style-settings --category=work_messages --preset=formal`                                    |
-| "What are my style settings?"                      | `pnpm action get-style-settings`                                                                                |
-| "Add a custom prompt for emails"                   | `pnpm action update-style-settings --category=email --customPrompt="Use bullet points, keep under 200 words"`   |
-| "How many words did I dictate this month?"         | `pnpm action get-dictation-stats --days=30`                                                                     |
-| "Go to snippets page"                              | `pnpm action navigate --view=snippets`                                                                          |
-| "Go to settings"                                   | `pnpm action navigate --view=settings`                                                                          |
+| User request                               | What to do                                                                                                    |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| "What am I looking at?"                    | `pnpm action view-screen`                                                                                     |
+| "Show my recent dictations"                | `pnpm action list-dictations --sort=recent --limit=10`                                                        |
+| "Search my dictations for 'meeting'"       | `pnpm action list-dictations --search="meeting"`                                                              |
+| "Delete this dictation"                    | `pnpm action delete-dictation --id=<id>`                                                                      |
+| "Add a snippet for my email signature"     | `pnpm action create-snippet --trigger="@@sig" --expansion="Best regards,\nSteve Sewell\nCEO, Builder.io"`     |
+| "Show all my snippets"                     | `pnpm action list-snippets`                                                                                   |
+| "Update my signature snippet"              | `pnpm action update-snippet --id=<id> --expansion="New signature text"`                                       |
+| "Delete the @@sig snippet"                 | Find id via `list-snippets`, then `pnpm action delete-snippet --id=<id>`                                      |
+| "Import these snippets"                    | `pnpm action import-snippets --snippets='[{"trigger":"@@ty","expansion":"Thank you!"}]'`                      |
+| "Add 'Kubernetes' to my dictionary"        | `pnpm action add-dictionary-term --term="Kubernetes"`                                                         |
+| "Whisper keeps hearing 'cubernettes'"      | `pnpm action add-dictionary-term --term="cubernettes" --correction="Kubernetes" --source=auto`                |
+| "Show my dictionary"                       | `pnpm action list-dictionary`                                                                                 |
+| "Remove a dictionary term"                 | `pnpm action remove-dictionary-term --id=<id>`                                                                |
+| "Make my work messages more formal"        | `pnpm action update-style-settings --category=work_messages --preset=formal`                                  |
+| "What are my style settings?"              | `pnpm action get-style-settings`                                                                              |
+| "Add a custom prompt for emails"           | `pnpm action update-style-settings --category=email --customPrompt="Use bullet points, keep under 200 words"` |
+| "How many words did I dictate this month?" | `pnpm action get-dictation-stats --days=30`                                                                   |
+| "Go to snippets page"                      | `pnpm action navigate --view=snippets`                                                                        |
+| "Go to settings"                           | `pnpm action navigate --view=settings`                                                                        |
 
 After any mutation (create, update, delete) the actions trigger a UI refresh automatically via `refresh-signal`.
 
@@ -133,53 +133,53 @@ cd templates/voice && pnpm action <name> [args]
 
 ### Dictations
 
-| Action              | Args                                                                           | Purpose                                        |
-| ------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------- |
-| `list-dictations`   | `[--search] [--language] [--sort recent\|oldest\|longest] [--limit] [--offset]`| List dictations with optional filters          |
-| `create-dictation`  | `--text <polished> --rawText <raw> [--audioPath] [--appContext] [--style] [--language] [--durationMs]` | Store a new dictation result |
-| `delete-dictation`  | `--id <id>`                                                                    | Delete a dictation                             |
+| Action             | Args                                                                                                   | Purpose                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------ | ------------------------------------- |
+| `list-dictations`  | `[--search] [--language] [--sort recent\|oldest\|longest] [--limit] [--offset]`                        | List dictations with optional filters |
+| `create-dictation` | `--text <polished> --rawText <raw> [--audioPath] [--appContext] [--style] [--language] [--durationMs]` | Store a new dictation result          |
+| `delete-dictation` | `--id <id>`                                                                                            | Delete a dictation                    |
 
 ### Snippets
 
-| Action              | Args                                                         | Purpose                                       |
-| ------------------- | ------------------------------------------------------------ | --------------------------------------------- |
-| `list-snippets`     | `[--search] [--teamOnly] [--limit] [--offset]`              | List text expansion snippets                  |
-| `create-snippet`    | `--trigger <text> --expansion <text> [--isTeam] [--organizationId]` | Create a snippet                       |
-| `update-snippet`    | `--id <id> [--trigger] [--expansion] [--isTeam]`            | Update a snippet                              |
-| `delete-snippet`    | `--id <id>`                                                  | Delete a snippet                              |
-| `import-snippets`   | `--snippets '<json-array>' [--organizationId]`              | Bulk import snippets                          |
+| Action            | Args                                                                | Purpose                      |
+| ----------------- | ------------------------------------------------------------------- | ---------------------------- |
+| `list-snippets`   | `[--search] [--teamOnly] [--limit] [--offset]`                      | List text expansion snippets |
+| `create-snippet`  | `--trigger <text> --expansion <text> [--isTeam] [--organizationId]` | Create a snippet             |
+| `update-snippet`  | `--id <id> [--trigger] [--expansion] [--isTeam]`                    | Update a snippet             |
+| `delete-snippet`  | `--id <id>`                                                         | Delete a snippet             |
+| `import-snippets` | `--snippets '<json-array>' [--organizationId]`                      | Bulk import snippets         |
 
 ### Dictionary
 
-| Action                  | Args                                                     | Purpose                              |
-| ----------------------- | -------------------------------------------------------- | ------------------------------------ |
-| `list-dictionary`       | `[--search] [--source auto\|manual] [--limit] [--offset]`| List custom dictionary terms        |
-| `add-dictionary-term`   | `--term <word> [--correction] [--source auto\|manual]`   | Add a dictionary term               |
-| `remove-dictionary-term`| `--id <id>`                                              | Remove a dictionary term            |
+| Action                   | Args                                                      | Purpose                      |
+| ------------------------ | --------------------------------------------------------- | ---------------------------- |
+| `list-dictionary`        | `[--search] [--source auto\|manual] [--limit] [--offset]` | List custom dictionary terms |
+| `add-dictionary-term`    | `--term <word> [--correction] [--source auto\|manual]`    | Add a dictionary term        |
+| `remove-dictionary-term` | `--id <id>`                                               | Remove a dictionary term     |
 
 ### Style Settings
 
-| Action                  | Args                                                              | Purpose                               |
-| ----------------------- | ----------------------------------------------------------------- | ------------------------------------- |
-| `get-style-settings`    |                                                                   | Get style presets for all categories  |
-| `update-style-settings` | `--category <cat> [--preset formal\|casual\|very_casual\|excited] [--customPrompt]` | Update a style preset  |
+| Action                  | Args                                                                                | Purpose                              |
+| ----------------------- | ----------------------------------------------------------------------------------- | ------------------------------------ |
+| `get-style-settings`    |                                                                                     | Get style presets for all categories |
+| `update-style-settings` | `--category <cat> [--preset formal\|casual\|very_casual\|excited] [--customPrompt]` | Update a style preset                |
 
 Categories: `personal_messages`, `work_messages`, `email`, `other`.
 Presets: `formal`, `casual`, `very_casual`, `excited`.
 
 ### Stats
 
-| Action                | Args              | Purpose                    |
-| --------------------- | ----------------- | -------------------------- |
-| `get-dictation-stats` | `[--days <n>]`    | Get usage statistics       |
+| Action                | Args           | Purpose              |
+| --------------------- | -------------- | -------------------- |
+| `get-dictation-stats` | `[--days <n>]` | Get usage statistics |
 
 ### Navigation + Context
 
-| Action         | Args                                                    | Purpose                                     |
-| -------------- | ------------------------------------------------------- | ------------------------------------------- |
-| `view-screen`  |                                                         | Snapshot of what the user is looking at now |
-| `navigate`     | `--view <name> [--dictationId] [--path]`                | Navigate the UI                             |
-| `refresh-list` |                                                         | Bump the `refresh-signal` timestamp         |
+| Action         | Args                                     | Purpose                                     |
+| -------------- | ---------------------------------------- | ------------------------------------------- |
+| `view-screen`  |                                          | Snapshot of what the user is looking at now |
+| `navigate`     | `--view <name> [--dictationId] [--path]` | Navigate the UI                             |
+| `refresh-list` |                                          | Bump the `refresh-signal` timestamp         |
 
 ## Style Presets
 

@@ -21,9 +21,7 @@ export default defineAction({
     title: z.string().optional(),
     startTime: z.string().nullish(),
     endTime: z.string().nullish(),
-    status: z
-      .enum(["scheduled", "recording", "enhancing", "done"])
-      .optional(),
+    status: z.enum(["scheduled", "recording", "enhancing", "done"]).optional(),
     folderId: z.string().nullish(),
     calendarEventId: z.string().nullish(),
     calendarProvider: z.enum(["google", "microsoft"]).nullish(),
@@ -48,8 +46,7 @@ export default defineAction({
     };
 
     if (typeof args.title === "string") patch.title = args.title.trim();
-    if (args.startTime !== undefined)
-      patch.startTime = args.startTime ?? null;
+    if (args.startTime !== undefined) patch.startTime = args.startTime ?? null;
     if (args.endTime !== undefined) patch.endTime = args.endTime ?? null;
     if (args.status) patch.status = args.status;
     if (args.folderId !== undefined) patch.folderId = args.folderId ?? null;

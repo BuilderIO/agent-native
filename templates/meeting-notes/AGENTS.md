@@ -11,17 +11,20 @@ Meeting Notes is an agent-native meeting notes app inspired by Granola. The agen
 ## The Meeting Workflow
 
 ### Before the meeting
+
 1. Meeting is created (from calendar sync or manually via `create-meeting`)
 2. Status is `scheduled`
 3. Attendees are added (from calendar or manually)
 
 ### During the meeting
+
 1. User opens the meeting and starts taking notes in the editor
 2. Status changes to `recording` if audio transcription is active
 3. Raw notes are saved to `meeting_notes.raw_content` in real time
 4. Transcript streams into `meeting_transcripts` if audio is enabled
 
 ### After the meeting
+
 1. User (or agent) triggers `enhance-notes` to merge raw notes with the transcript
 2. Status changes to `enhancing` while the agent works
 3. Agent produces structured notes in `meeting_notes.enhanced_content`
@@ -71,29 +74,29 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 All structured data lives in SQL via Drizzle ORM -- **dialect-agnostic** (Neon Postgres in production, SQLite for local). See `server/db/schema.ts` for full column definitions.
 
-| Table                | Holds                                                                                           |
-| -------------------- | ----------------------------------------------------------------------------------------------- |
-| `meetings`           | The core resource. Title, start/end time, status, calendar sync info. FK: `organization_id`.   |
-| `meeting_shares`     | Per-user / per-org share grants via framework `sharing`.                                        |
-| `meeting_transcripts`| Audio-to-text output -- segments JSON + fullText + speaker labels + status.                     |
-| `meeting_notes`      | User's raw notes + AI-enhanced version. One row per meeting.                                    |
-| `meeting_templates`  | Reusable prompts for structuring enhanced notes (e.g. "Standup", "1:1", "Decision Log").       |
-| `meeting_attendees`  | Who was in each meeting (name, email, role).                                                    |
-| `meeting_folders`    | Organize meetings into groups (nest via `parent_id`).                                           |
-| `people`             | Contacts built from meeting attendees. Name, email, title, company, meeting count.              |
-| `companies`          | Companies extracted from attendee email domains.                                                |
-| `recipes`            | Reusable AI prompts that run over one or more meetings (e.g. "Extract all action items").       |
+| Table                 | Holds                                                                                        |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| `meetings`            | The core resource. Title, start/end time, status, calendar sync info. FK: `organization_id`. |
+| `meeting_shares`      | Per-user / per-org share grants via framework `sharing`.                                     |
+| `meeting_transcripts` | Audio-to-text output -- segments JSON + fullText + speaker labels + status.                  |
+| `meeting_notes`       | User's raw notes + AI-enhanced version. One row per meeting.                                 |
+| `meeting_templates`   | Reusable prompts for structuring enhanced notes (e.g. "Standup", "1:1", "Decision Log").     |
+| `meeting_attendees`   | Who was in each meeting (name, email, role).                                                 |
+| `meeting_folders`     | Organize meetings into groups (nest via `parent_id`).                                        |
+| `people`              | Contacts built from meeting attendees. Name, email, title, company, meeting count.           |
+| `companies`           | Companies extracted from attendee email domains.                                             |
+| `recipes`             | Reusable AI prompts that run over one or more meetings (e.g. "Extract all action items").    |
 
 ## Application State
 
 Ephemeral UI state lives in `application_state`, accessed via `readAppState(key)` / `writeAppState(key, value)` from `@agent-native/core/application-state`.
 
-| State Key        | Purpose                                                         | Direction               |
-| ---------------- | --------------------------------------------------------------- | ----------------------- |
-| `navigation`     | Current view + selected IDs (see shape below)                   | UI -> Agent (read-only) |
-| `navigate`       | One-shot navigation command (auto-deleted after UI reads)       | Agent -> UI             |
-| `refresh-signal` | Bump timestamp -- invalidates lists                             | Agent -> UI             |
-| `selection`      | User's current text selection inside the note editor            | UI -> Agent (read-only) |
+| State Key        | Purpose                                                   | Direction               |
+| ---------------- | --------------------------------------------------------- | ----------------------- |
+| `navigation`     | Current view + selected IDs (see shape below)             | UI -> Agent (read-only) |
+| `navigate`       | One-shot navigation command (auto-deleted after UI reads) | Agent -> UI             |
+| `refresh-signal` | Bump timestamp -- invalidates lists                       | Agent -> UI             |
+| `selection`      | User's current text selection inside the note editor      | UI -> Agent (read-only) |
 
 ### Navigation state shape
 
@@ -112,21 +115,21 @@ Views: `meetings`, `meeting`, `people`, `companies`, `templates`, `settings`.
 
 ## Common Tasks
 
-| User request                                    | What to do                                                                                                          |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| "What am I looking at?"                         | `pnpm action view-screen`                                                                                           |
-| "Create a meeting for my 1:1 with Alice"       | `pnpm action create-meeting --title="1:1 with Alice" --attendees='[{"name":"Alice","email":"alice@example.com"}]'` |
-| "Enhance my notes for this meeting"             | `pnpm action enhance-notes --meetingId=<id>`                                                                        |
-| "Enhance notes using the standup template"      | `pnpm action enhance-notes --meetingId=<id> --templateId=<tid>`                                                     |
-| "Rename this meeting"                           | `pnpm action update-meeting --id=<id> --title="New title"`                                                          |
-| "Show me today's meetings"                      | `pnpm action list-meetings --startAfter=<today-start> --startBefore=<today-end>`                                    |
-| "Find meetings about pricing"                   | `pnpm action list-meetings --search="pricing"`                                                                      |
-| "Who have I met with the most?"                 | `pnpm action list-people --sort=meetings --limit=10`                                                                |
-| "What companies have I met with?"               | `pnpm action list-companies`                                                                                        |
-| "Create a standup template"                     | `pnpm action create-template --name="Standup" --prompt="Structure as: Yesterday, Today, Blockers"`                 |
-| "List my templates"                             | `pnpm action list-templates`                                                                                        |
-| "Share this meeting with bob@example.com"       | `pnpm action share-resource --resourceType=meeting --resourceId=<id> --principalType=user --principalId=bob@...`   |
-| "Navigate to the meetings list"                 | `pnpm action navigate --view=meetings`                                                                              |
+| User request                               | What to do                                                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| "What am I looking at?"                    | `pnpm action view-screen`                                                                                          |
+| "Create a meeting for my 1:1 with Alice"   | `pnpm action create-meeting --title="1:1 with Alice" --attendees='[{"name":"Alice","email":"alice@example.com"}]'` |
+| "Enhance my notes for this meeting"        | `pnpm action enhance-notes --meetingId=<id>`                                                                       |
+| "Enhance notes using the standup template" | `pnpm action enhance-notes --meetingId=<id> --templateId=<tid>`                                                    |
+| "Rename this meeting"                      | `pnpm action update-meeting --id=<id> --title="New title"`                                                         |
+| "Show me today's meetings"                 | `pnpm action list-meetings --startAfter=<today-start> --startBefore=<today-end>`                                   |
+| "Find meetings about pricing"              | `pnpm action list-meetings --search="pricing"`                                                                     |
+| "Who have I met with the most?"            | `pnpm action list-people --sort=meetings --limit=10`                                                               |
+| "What companies have I met with?"          | `pnpm action list-companies`                                                                                       |
+| "Create a standup template"                | `pnpm action create-template --name="Standup" --prompt="Structure as: Yesterday, Today, Blockers"`                 |
+| "List my templates"                        | `pnpm action list-templates`                                                                                       |
+| "Share this meeting with bob@example.com"  | `pnpm action share-resource --resourceType=meeting --resourceId=<id> --principalType=user --principalId=bob@...`   |
+| "Navigate to the meetings list"            | `pnpm action navigate --view=meetings`                                                                             |
 
 After any meeting mutation (rename, enhance, status change, etc.) the actions trigger a UI refresh automatically via `refresh-signal`.
 
@@ -142,44 +145,44 @@ cd templates/meeting-notes && pnpm action <name> [args]
 
 ### Meeting lifecycle
 
-| Action            | Args                                                                                          | Purpose                                                   |
-| ----------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `create-meeting`  | `--title [--startTime] [--endTime] [--calendarEventId] [--calendarProvider] [--folderId] [--attendees]` | Create a new meeting                            |
-| `update-meeting`  | `--id <id> [--title] [--status] [--startTime] [--endTime] [--folderId]`                      | Update meeting metadata                                   |
-| `list-meetings`   | `[--status] [--folderId] [--startAfter] [--startBefore] [--search] [--sort] [--limit]`       | List meetings with filtering                              |
-| `get-meeting`     | `--meetingId <id>`                                                                            | Get a single meeting with transcript + notes + attendees  |
+| Action           | Args                                                                                                    | Purpose                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `create-meeting` | `--title [--startTime] [--endTime] [--calendarEventId] [--calendarProvider] [--folderId] [--attendees]` | Create a new meeting                                     |
+| `update-meeting` | `--id <id> [--title] [--status] [--startTime] [--endTime] [--folderId]`                                 | Update meeting metadata                                  |
+| `list-meetings`  | `[--status] [--folderId] [--startAfter] [--startBefore] [--search] [--sort] [--limit]`                  | List meetings with filtering                             |
+| `get-meeting`    | `--meetingId <id>`                                                                                      | Get a single meeting with transcript + notes + attendees |
 
 ### Notes + AI
 
-| Action            | Args                                    | Purpose                                                                |
-| ----------------- | --------------------------------------- | ---------------------------------------------------------------------- |
-| `enhance-notes`   | `--meetingId <id> [--templateId <tid>]` | Merge raw notes with transcript via AI (delegates to sendToAgentChat) |
-| `list-templates`  |                                         | List note enhancement templates                                        |
-| `create-template` | `--name <name> --prompt <text>`         | Create a custom note enhancement template                              |
+| Action            | Args                                    | Purpose                                                          |
+| ----------------- | --------------------------------------- | ---------------------------------------------------------------- |
+| `enhance-notes`   | `--meetingId <id> [--templateId <tid>]` | Merge raw notes with transcript via AI (delegates to agent chat) |
+| `list-templates`  |                                         | List note enhancement templates                                  |
+| `create-template` | `--name <name> --prompt <text>`         | Create a custom note enhancement template                        |
 
 ### People + Companies
 
-| Action            | Args                                          | Purpose                                     |
-| ----------------- | --------------------------------------------- | ------------------------------------------- |
-| `list-people`     | `[--search] [--sort name\|recent\|meetings]`  | List people from meeting attendees           |
-| `list-companies`  | `[--search]`                                  | List companies from email domains            |
+| Action           | Args                                         | Purpose                            |
+| ---------------- | -------------------------------------------- | ---------------------------------- |
+| `list-people`    | `[--search] [--sort name\|recent\|meetings]` | List people from meeting attendees |
+| `list-companies` | `[--search]`                                 | List companies from email domains  |
 
 ### Sharing (framework-wide, auto-mounted)
 
-| Action                    | Args                                                                                                         | Purpose                              |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------ |
-| `share-resource`          | `--resourceType meeting --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role ...` | Grant a user or org access          |
-| `unshare-resource`        | `--resourceType meeting --resourceId <id> --principalType user\|org --principalId <value>`                   | Revoke a share grant                 |
-| `list-resource-shares`    | `--resourceType meeting --resourceId <id>`                                                                    | Show current visibility + all grants |
-| `set-resource-visibility` | `--resourceType meeting --resourceId <id> --visibility private\|org\|public`                                 | Change coarse visibility             |
+| Action                    | Args                                                                                                           | Purpose                              |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `share-resource`          | `--resourceType meeting --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role ...` | Grant a user or org access           |
+| `unshare-resource`        | `--resourceType meeting --resourceId <id> --principalType user\|org --principalId <value>`                     | Revoke a share grant                 |
+| `list-resource-shares`    | `--resourceType meeting --resourceId <id>`                                                                     | Show current visibility + all grants |
+| `set-resource-visibility` | `--resourceType meeting --resourceId <id> --visibility private\|org\|public`                                   | Change coarse visibility             |
 
 ### Navigation + context
 
-| Action         | Args                                                            | Purpose                                     |
-| -------------- | --------------------------------------------------------------- | ------------------------------------------- |
-| `view-screen`  |                                                                 | Snapshot of what the user is looking at now |
-| `navigate`     | `--view <name> [--meetingId] [--folderId] [--search] [--path]`  | Navigate the UI                             |
-| `refresh-list` |                                                                 | Bump the `refresh-signal` timestamp         |
+| Action         | Args                                                           | Purpose                                     |
+| -------------- | -------------------------------------------------------------- | ------------------------------------------- |
+| `view-screen`  |                                                                | Snapshot of what the user is looking at now |
+| `navigate`     | `--view <name> [--meetingId] [--folderId] [--search] [--path]` | Navigate the UI                             |
+| `refresh-list` |                                                                | Bump the `refresh-signal` timestamp         |
 
 ## Calendar Integration
 
@@ -199,7 +202,7 @@ The enhance-notes action is the core AI feature:
    a. Reads the meeting metadata, raw notes, and transcript
    b. Optionally loads a template for structuring the output
    c. Sets meeting status to `enhancing`
-   d. Delegates to the agent chat via `sendToAgentChat`
+   d. Writes a delegation request to application_state
 4. The agent processes the notes + transcript and produces structured output
 5. The enhanced content is stored in `meeting_notes.enhanced_content`
 6. Meeting status is set to `done`
@@ -208,7 +211,7 @@ Templates control the output structure. Built-in templates include things like "
 
 ## Rules
 
-1. **All AI goes through the agent chat.** Call `sendToAgentChat({ background: true, context, message })` from actions. Do **not** `import OpenAI` / `@anthropic-ai/sdk` directly.
+1. **All AI goes through the agent chat.** Delegate to the agent by writing a structured request to `application_state` via `writeAppState`. Do **not** `import OpenAI` / `@anthropic-ai/sdk` directly.
 2. **Transcription is the one exception.** Audio-to-text runs directly via Deepgram or AssemblyAI because it takes raw audio, not a prompt.
 3. **SQL must be dialect-agnostic.** The target is Neon Postgres. Use Drizzle operators only. No SQLite-specific functions, no `json_extract`, no `ROWID`. Use `now()` from `@agent-native/core/db/schema`. See the `portability` skill.
 4. **Screen context is auto-included.** Check `<current-screen>` in the user's message before running `view-screen`.
@@ -234,12 +237,12 @@ Use `getSession(event)` server-side and `useSession()` client-side.
 
 Read the skill files in `.agents/skills/` for detailed patterns:
 
-| Skill                 | When to read                                                  |
-| --------------------- | ------------------------------------------------------------- |
-| `storing-data`        | Before adding a new table or application-state key            |
-| `real-time-sync`      | When wiring new query invalidations or debugging stale UI     |
-| `delegate-to-agent`   | Before adding any LLM call                                    |
-| `actions`             | Before creating a new action                                  |
-| `self-modifying-code` | Before editing components, routes, or styles                  |
-| `frontend-design`     | Before building or restyling any UI                           |
-| `sharing`             | Framework-wide sharing primitives (already wired for meetings)|
+| Skill                 | When to read                                                   |
+| --------------------- | -------------------------------------------------------------- |
+| `storing-data`        | Before adding a new table or application-state key             |
+| `real-time-sync`      | When wiring new query invalidations or debugging stale UI      |
+| `delegate-to-agent`   | Before adding any LLM call                                     |
+| `actions`             | Before creating a new action                                   |
+| `self-modifying-code` | Before editing components, routes, or styles                   |
+| `frontend-design`     | Before building or restyling any UI                            |
+| `sharing`             | Framework-wide sharing primitives (already wired for meetings) |

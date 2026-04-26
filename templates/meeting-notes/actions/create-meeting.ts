@@ -32,10 +32,7 @@ export default defineAction({
       .string()
       .optional()
       .describe("ISO date — when the meeting starts"),
-    endTime: z
-      .string()
-      .optional()
-      .describe("ISO date — when the meeting ends"),
+    endTime: z.string().optional().describe("ISO date — when the meeting ends"),
     calendarEventId: z
       .string()
       .optional()

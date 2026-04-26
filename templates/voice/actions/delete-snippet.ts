@@ -13,7 +13,8 @@ import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/helpers.js";
 
 export default defineAction({
-  description: "Delete a text expansion snippet by ID. Only the owner can delete.",
+  description:
+    "Delete a text expansion snippet by ID. Only the owner can delete.",
   schema: z.object({
     id: z.string().describe("Snippet ID"),
   }),

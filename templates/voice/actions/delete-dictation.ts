@@ -32,9 +32,7 @@ export default defineAction({
       );
     if (!existing) throw new Error(`Dictation not found: ${args.id}`);
 
-    await db
-      .delete(schema.dictations)
-      .where(eq(schema.dictations.id, args.id));
+    await db.delete(schema.dictations).where(eq(schema.dictations.id, args.id));
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     console.log(`Deleted dictation ${args.id}`);

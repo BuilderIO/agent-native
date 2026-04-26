@@ -16,14 +16,8 @@ export default defineAction({
   description:
     "List text expansion snippets. Returns both personal and team snippets visible to the current user.",
   schema: z.object({
-    search: z
-      .string()
-      .nullish()
-      .describe("Search trigger or expansion text"),
-    teamOnly: z
-      .boolean()
-      .optional()
-      .describe("Only show team snippets"),
+    search: z.string().nullish().describe("Search trigger or expansion text"),
+    teamOnly: z.boolean().optional().describe("Only show team snippets"),
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
   }),

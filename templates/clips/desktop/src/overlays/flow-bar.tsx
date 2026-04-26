@@ -110,7 +110,7 @@ export function FlowBar() {
       for (let i = 0; i < BAR_COUNT; i++) {
         // Each bar gets a slightly different phase so the waveform looks
         // organic rather than uniform. The level controls overall amplitude.
-        const phase = Math.sin((now / 200) + (i * 0.6)) * 0.5 + 0.5;
+        const phase = Math.sin(now / 200 + i * 0.6) * 0.5 + 0.5;
         const barLevel = Math.max(0.08, level * phase);
         const h = barLevel * logicalH;
         const x = i * (BAR_WIDTH + BAR_GAP);

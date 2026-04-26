@@ -16,10 +16,7 @@ export default defineAction({
   description:
     "List people (contacts) built from meeting attendees. Supports search and sorting by meeting count or name.",
   schema: z.object({
-    search: z
-      .string()
-      .optional()
-      .describe("Name or email substring match"),
+    search: z.string().optional().describe("Name or email substring match"),
     sort: z
       .enum(["name", "recent", "meetings"])
       .default("recent")

@@ -27,10 +27,7 @@ export default defineAction({
       .string()
       .nullish()
       .describe("Context of the app where dictation was used"),
-    style: z
-      .string()
-      .nullish()
-      .describe("Style preset used for formatting"),
+    style: z.string().nullish().describe("Style preset used for formatting"),
     language: z.string().default("en").describe("Language code"),
     durationMs: z.coerce
       .number()

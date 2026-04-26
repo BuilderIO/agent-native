@@ -35,10 +35,7 @@ export default defineAction({
       .string()
       .optional()
       .describe("ISO date — only meetings starting before this time"),
-    search: z
-      .string()
-      .optional()
-      .describe("Title substring match"),
+    search: z.string().optional().describe("Title substring match"),
     sort: z
       .enum(["recent", "oldest", "start-time"])
       .default("recent")
@@ -50,9 +47,7 @@ export default defineAction({
   run: async (args) => {
     const db = getDb();
 
-    const whereClauses = [
-      accessFilter(schema.meetings, schema.meetingShares),
-    ];
+    const whereClauses = [accessFilter(schema.meetings, schema.meetingShares)];
 
     if (args.status) {
       whereClauses.push(eq(schema.meetings.status, args.status));
@@ -63,9 +58,7 @@ export default defineAction({
     }
 
     if (args.startAfter) {
-      whereClauses.push(
-        sql`${schema.meetings.startTime} > ${args.startAfter}`,
-      );
+      whereClauses.push(sql`${schema.meetings.startTime} > ${args.startAfter}`);
     }
 
     if (args.startBefore) {

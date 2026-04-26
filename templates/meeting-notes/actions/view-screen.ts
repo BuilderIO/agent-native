@@ -105,9 +105,7 @@ async function fetchAttendees(meetingId: string) {
 
 async function fetchMeetingsList(folderId?: string) {
   const db = getDb();
-  const conditions = [
-    accessFilter(schema.meetings, schema.meetingShares),
-  ];
+  const conditions = [accessFilter(schema.meetings, schema.meetingShares)];
   if (folderId) {
     conditions.push(eq(schema.meetings.folderId, folderId));
   } else {

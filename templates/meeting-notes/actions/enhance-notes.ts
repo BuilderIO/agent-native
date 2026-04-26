@@ -1,9 +1,13 @@
 /**
- * Enhance meeting notes by merging the user's raw notes with the transcript.
+ * Delegate: enhance meeting notes by merging raw notes with the transcript.
  *
- * This delegates to the agent chat via sendToAgentChat — the agent reads
- * the raw notes + transcript, applies the selected template, and writes
- * the enhanced result back to meeting_notes.enhanced_content.
+ * DELEGATION PATTERN:
+ * This is a server-side action, so it cannot call `sendToAgentChat` (which is
+ * a browser-only postMessage API). Instead, we write a structured delegation
+ * request to application_state. The app's UI listens for these requests via
+ * polling and dispatches them to the agent chat. Alternatively the agent may
+ * call this action as a tool -- in which case it already has the context and
+ * will enhance the notes directly.
  *
  * Usage:
  *   pnpm action enhance-notes --meetingId=<id>
@@ -12,7 +16,6 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { sendToAgentChat } from "@agent-native/core/agent-chat";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -67,33 +70,36 @@ export default defineAction({
       .set({ status: "enhancing", updatedAt: new Date().toISOString() })
       .where(eq(schema.meetings.id, args.meetingId));
 
+    // Write delegation request to application state. The UI polls for these
+    // and dispatches them to the agent chat. When called as a tool, the agent
+    // sees the context directly and processes the request inline.
+    const request = {
+      kind: "enhance-notes" as const,
+      meetingId: args.meetingId,
+      templateId: args.templateId ?? null,
+      requestedAt: new Date().toISOString(),
+      meetingTitle: meeting.title,
+      startTime: meeting.startTime ?? null,
+      transcriptStatus: transcript?.status ?? "pending",
+      transcriptText: transcript?.fullText ?? "",
+      rawNotes: notes?.rawContent ?? "{}",
+      templatePrompt: templatePrompt || null,
+      message:
+        `Enhance the notes for meeting "${meeting.title}" (id: ${args.meetingId}). ` +
+        `Merge the user's raw notes with the transcript to create comprehensive, ` +
+        `well-structured meeting notes. Include key decisions, action items, and ` +
+        `important discussion points.${templatePrompt}\n\n` +
+        `After generating the enhanced notes, update the meeting by calling ` +
+        `update-meeting with --id=${args.meetingId} --status=done.`,
+    };
+
+    await writeAppState(`notes-ai-request-${args.meetingId}`, request as any);
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    // Build context for the agent
-    const context = [
-      `Meeting: "${meeting.title}"`,
-      meeting.startTime ? `Start: ${meeting.startTime}` : null,
-      transcript?.fullText
-        ? `Transcript:\n${transcript.fullText}`
-        : "No transcript available.",
-      notes?.rawContent
-        ? `User's raw notes:\n${notes.rawContent}`
-        : "No raw notes.",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-
-    const message = `Enhance the notes for meeting "${meeting.title}" (id: ${args.meetingId}). Merge the user's raw notes with the transcript to create comprehensive, well-structured meeting notes. Include key decisions, action items, and important discussion points.${templatePrompt}
-
-After generating the enhanced notes, update the meeting by calling update-meeting with --id=${args.meetingId} --status=done, and store the enhanced content in the meeting_notes table.`;
-
-    await sendToAgentChat({
-      background: true,
-      context,
-      message,
-    });
+    console.log(`Delegation queued: enhance-notes for ${args.meetingId}`);
 
     return {
+      queued: true,
       meetingId: args.meetingId,
       status: "enhancing",
       message: "Notes enhancement delegated to agent.",

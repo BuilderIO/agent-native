@@ -27,7 +27,10 @@ export function Onboarding() {
       });
       await invoke("show_popover");
     } catch (err) {
-      console.error("[onboarding] set_feature_config / show_popover failed", err);
+      console.error(
+        "[onboarding] set_feature_config / show_popover failed",
+        err,
+      );
       setSubmitting(false);
     }
   }

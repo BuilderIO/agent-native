@@ -156,9 +156,7 @@ export const recipes = table("recipes", {
   scope: text("scope", { enum: ["single", "multi"] })
     .notNull()
     .default("single"),
-  isPublic: integer("is_public", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
