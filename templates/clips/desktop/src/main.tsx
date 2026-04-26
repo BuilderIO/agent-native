@@ -5,6 +5,10 @@ import { Countdown } from "./overlays/countdown";
 import { Toolbar } from "./overlays/toolbar";
 import { Bubble } from "./overlays/bubble";
 import { Finalizing } from "./overlays/finalizing";
+import { Onboarding } from "./overlays/onboarding";
+import { MeetingNotification } from "./overlays/meeting-notification";
+import { MeetingNub } from "./overlays/meeting-nub";
+import { FlowBar } from "./overlays/flow-bar";
 import "./styles.css";
 
 /**
@@ -23,6 +27,14 @@ function pickRoute(): React.ReactElement {
       return <Bubble />;
     case "finalizing":
       return <Finalizing />;
+    case "onboarding":
+      return <Onboarding />;
+    case "meeting-notif":
+      return <MeetingNotification />;
+    case "meeting-nub":
+      return <MeetingNub />;
+    case "flow-bar":
+      return <FlowBar />;
     default:
       return <App />;
   }

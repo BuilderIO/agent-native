@@ -11,7 +11,7 @@
  * from second zero even without an API key.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getSpeechRecognitionCtor(): any {
@@ -157,6 +157,18 @@ export function useLiveTranscription(
     } catch {
       /* ignore */
     }
+  }, []);
+
+  // Clean up on unmount
+  const startRef = useRef(start);
+  const stopRef = useRef(stop);
+  startRef.current = start;
+  stopRef.current = stop;
+
+  useEffect(() => {
+    return () => {
+      stopRef.current();
+    };
   }, []);
 
   return {

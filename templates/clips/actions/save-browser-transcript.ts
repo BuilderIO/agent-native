@@ -43,6 +43,28 @@ export default defineAction({
       .limit(1);
 
     if (existing) {
+      const [current] = await db
+        .select({
+          status: schema.recordingTranscripts.status,
+          segmentsJson: schema.recordingTranscripts.segmentsJson,
+        })
+        .from(schema.recordingTranscripts)
+        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
+        .limit(1);
+
+      // Don't overwrite a completed Whisper transcript with lower-quality browser output
+      const hasWhisperSegments =
+        current?.status === "ready" &&
+        current?.segmentsJson &&
+        current.segmentsJson !== "[]";
+      if (hasWhisperSegments) {
+        return {
+          recordingId: args.recordingId,
+          status: "skipped" as const,
+          reason: "Whisper transcript already exists",
+        };
+      }
+
       await db
         .update(schema.recordingTranscripts)
         .set({
