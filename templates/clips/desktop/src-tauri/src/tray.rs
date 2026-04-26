@@ -5,6 +5,7 @@ use tauri::{
 };
 
 use crate::clips::toggle_popover;
+use crate::dlog;
 use crate::state::TrayAnchor;
 use crate::util::is_recording_active;
 use crate::TRAY_PNG;
@@ -83,7 +84,7 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             {
                 let app = tray.app_handle();
                 let active = is_recording_active(app);
-                eprintln!("[clips-tray] tray click — is_recording_active={}", active);
+                dlog!("[clips-tray] tray click — is_recording_active={}", active);
                 if active {
                     // Loom-style: tray click while recording stops it.
                     let _ = app.emit("clips:recorder-stop", ());

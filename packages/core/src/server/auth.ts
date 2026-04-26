@@ -1872,7 +1872,8 @@ export async function autoMountAuth(
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));
 
-    console.log("[agent-native] Auth enabled — custom getSession provider.");
+    if (process.env.DEBUG)
+      console.log("[agent-native] Auth enabled — custom getSession provider.");
     return true;
   }
 
@@ -1891,18 +1892,20 @@ export async function autoMountAuth(
   const tokens = getAccessTokens();
   if (tokens.length > 0) {
     mountTokenOnlyRoutes(app, tokens, publicPaths);
-    console.log(
-      `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
-    );
+    if (process.env.DEBUG)
+      console.log(
+        `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
+      );
     return true;
   }
 
   // Default: Better Auth (account-first)
   try {
     await mountBetterAuthRoutes(app, options);
-    console.log(
-      "[agent-native] Auth enabled — Better Auth (accounts + organizations).",
-    );
+    if (process.env.DEBUG)
+      console.log(
+        "[agent-native] Auth enabled — Better Auth (accounts + organizations).",
+      );
   } catch (err) {
     console.error("[agent-native] Failed to initialize Better Auth:", err);
     mountAuthFallbackRoutes(app);

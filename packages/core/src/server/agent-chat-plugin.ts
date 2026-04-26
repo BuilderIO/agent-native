@@ -1985,7 +1985,7 @@ export function createAgentChatPlugin(
           console.log(
             `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
           );
-        } else {
+        } else if (process.env.DEBUG) {
           console.log(
             "[mcp-client] no configured MCP servers — skipping MCP tools",
           );

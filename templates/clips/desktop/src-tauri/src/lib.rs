@@ -6,6 +6,7 @@
 
 mod clips;
 mod config;
+mod debug;
 mod shortcuts;
 mod state;
 mod tray;
@@ -114,7 +115,7 @@ pub fn run() {
                         // would also kill the RecordingRow UI the user
                         // is relying on to stop.
                         if is_recording_active(&app_handle) {
-                            eprintln!("[clips-tray] popover blur ignored — recording active");
+                            dlog!("[clips-tray] popover blur ignored — recording active");
                             return;
                         }
                         let shown_at = app_handle
@@ -123,7 +124,7 @@ pub fn run() {
                         let elapsed_ms = shown_at
                             .map(|t| t.elapsed().as_millis())
                             .unwrap_or(u128::MAX);
-                        eprintln!("[clips-tray] popover blur, elapsed_ms={}", elapsed_ms);
+                        dlog!("[clips-tray] popover blur, elapsed_ms={}", elapsed_ms);
                         if elapsed_ms >= 1500 {
                             let _ = handle.hide();
                             let _ = app_handle.emit("clips:popover-visible", false);

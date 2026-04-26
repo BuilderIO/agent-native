@@ -4,6 +4,7 @@ use tauri::{
     WebviewWindowBuilder,
 };
 
+use crate::dlog;
 use crate::state::{RecordingActive, TrayAnchor};
 use crate::util::{
     build_overlay_url, mark_popover_shown, primary_monitor_physical_size, set_capture_excluded,
@@ -146,13 +147,13 @@ fn load_bubble_position(app: &AppHandle) -> Option<(i32, i32)> {
 /// record, and closes itself when the countdown finishes.
 #[tauri::command]
 pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
-    eprintln!("[clips-tray] show_countdown invoked");
+    dlog!("[clips-tray] show_countdown invoked");
     mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(COUNTDOWN_LABEL) {
         let _ = existing.close();
     }
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    eprintln!("[clips-tray] countdown target size {}x{} physical", mw, mh);
+    dlog!("[clips-tray] countdown target size {}x{} physical", mw, mh);
     let win = WebviewWindowBuilder::new(&app, COUNTDOWN_LABEL, build_overlay_url("countdown"))
         .title("Countdown")
         .decorations(false)
@@ -176,7 +177,7 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
     let _ = win.show();
-    eprintln!("[clips-tray] countdown shown");
+    dlog!("[clips-tray] countdown shown");
     Ok(())
 }
 
@@ -189,12 +190,12 @@ pub async fn show_countdown(app: AppHandle) -> Result<(), String> {
 /// the recording has already ended by the time this appears.
 #[tauri::command]
 pub async fn show_finalizing(app: AppHandle) -> Result<(), String> {
-    eprintln!("[clips-tray] show_finalizing invoked");
+    dlog!("[clips-tray] show_finalizing invoked");
     if let Some(existing) = app.get_webview_window(FINALIZING_LABEL) {
         let _ = existing.close();
     }
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    eprintln!("[clips-tray] finalizing target size {}x{} physical", mw, mh);
+    dlog!("[clips-tray] finalizing target size {}x{} physical", mw, mh);
     let win = WebviewWindowBuilder::new(&app, FINALIZING_LABEL, build_overlay_url("finalizing"))
         .title("Finalizing")
         .decorations(false)
@@ -215,7 +216,7 @@ pub async fn show_finalizing(app: AppHandle) -> Result<(), String> {
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
     let _ = win.show();
-    eprintln!("[clips-tray] finalizing shown");
+    dlog!("[clips-tray] finalizing shown");
     Ok(())
 }
 
@@ -233,7 +234,7 @@ pub async fn hide_finalizing(app: AppHandle) -> Result<(), String> {
 /// matching Loom's left-rail placement. Draggable, always on top.
 #[tauri::command]
 pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
-    eprintln!("[clips-tray] show_toolbar invoked");
+    dlog!("[clips-tray] show_toolbar invoked");
     // Reset the blur guard — spawning an overlay can briefly steal focus
     // from the popover on some macOS versions even with .focused(false).
     mark_popover_shown(&app);
@@ -252,7 +253,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     // Flush-left with a small margin; vertically centered on the screen.
     let x: i32 = 48;
     let y: i32 = (mh as i32 - h as i32) / 2;
-    eprintln!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
+    dlog!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(&app, TOOLBAR_LABEL, build_overlay_url("toolbar"))
         .title("Clips Recorder")
@@ -287,7 +288,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     let _ = win.set_position(PhysicalPosition::new(x, y));
     set_capture_excluded(&win);
     let _ = win.show();
-    eprintln!("[clips-tray] toolbar shown");
+    dlog!("[clips-tray] toolbar shown");
     Ok(())
 }
 
@@ -295,13 +296,13 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
 /// its own getUserMedia stream and floats over everything the user captures.
 #[tauri::command]
 pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
-    eprintln!("[clips-tray] show_bubble invoked");
+    dlog!("[clips-tray] show_bubble invoked");
     // Reset the blur guard — getUserMedia for the camera can trigger a
     // macOS permission dialog that steals focus from the popover.
     mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(BUBBLE_LABEL) {
         let _ = existing.show();
-        eprintln!("[clips-tray] bubble reused");
+        dlog!("[clips-tray] bubble reused");
         return Ok(());
     }
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
@@ -328,7 +329,7 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
         Some((sx, sy)) => (sx.clamp(0, max_x), sy.clamp(0, max_y), "saved"),
         None => (default_x, default_y, "default"),
     };
-    eprintln!(
+    dlog!(
         "[clips-tray] bubble pos=({},{}) source={} size={}x{} monitor={}x{}",
         x, y, source, size, win_h, mw, mh
     );
@@ -360,7 +361,7 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     // `getDisplayMedia`, which matches the other Clips chrome (popover,
     // toolbar, countdown) but NOT what users want for the camera bubble.
     let _ = win.show();
-    eprintln!("[clips-tray] bubble shown at ({},{}) size {}", x, y, size);
+    dlog!("[clips-tray] bubble shown at ({},{}) size {}", x, y, size);
     Ok(())
 }
 
@@ -410,10 +411,10 @@ pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(BUBBLE_LABEL) {
-        eprintln!("[clips-tray] close_bubble — destroying bubble webview");
+        dlog!("[clips-tray] close_bubble — destroying bubble webview");
         let _ = w.close();
     } else {
-        eprintln!("[clips-tray] close_bubble — no bubble window to close");
+        dlog!("[clips-tray] close_bubble — no bubble window to close");
     }
     Ok(())
 }
@@ -481,7 +482,7 @@ pub async fn close_signin(app: AppHandle) -> Result<(), String> {
 /// user can stop a recording from anywhere with one click.
 #[tauri::command]
 pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), String> {
-    eprintln!("[clips-tray] set_recording_state active={}", active);
+    dlog!("[clips-tray] set_recording_state active={}", active);
     if let Some(state) = app.try_state::<RecordingActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = active;
