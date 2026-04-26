@@ -12,7 +12,7 @@ import { FlowBar } from "./overlays/flow-bar";
 import "./styles.css";
 
 /**
- * One bundle, one HTML, five views. We pick which component to mount based
+ * One bundle, one HTML, nine views. We pick which component to mount based
  * on the URL hash so each Tauri window (spawned from Rust with
  * `index.html#<name>`) renders only what it needs.
  */
