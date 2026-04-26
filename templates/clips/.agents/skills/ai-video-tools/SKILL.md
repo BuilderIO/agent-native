@@ -3,15 +3,15 @@ name: ai-video-tools
 description: >-
   All AI features in Clips — titles, summaries, chapters, tags, filler-word
   removal — delegate to the agent chat via sendToAgentChat. Transcription is
-  the one exception: it calls Whisper directly (Groq whisper-large-v3-turbo
-  preferred, OpenAI whisper-1 fallback). Use when adding any AI-powered feature.
+  the one exception: it calls the transcription API directly (Builder preferred,
+  Groq/OpenAI Whisper fallback). Use when adding any AI-powered feature.
 ---
 
 # AI Video Tools
 
 ## Rule
 
-Every AI feature in Clips goes through the agent chat. The UI and server never call an LLM directly. **One exception:** transcription. Whisper takes audio, not prompts — the `request-transcript` action calls a Whisper endpoint directly. It prefers **Groq** `whisper-large-v3-turbo` via `GROQ_API_KEY` (typically 10x faster than OpenAI, ~$0.04/hr) and falls back to OpenAI `whisper-1` via `OPENAI_API_KEY`. Either key unlocks transcription.
+Every AI feature in Clips goes through the agent chat. The UI and server never call an LLM directly. **One exception:** transcription. It takes audio, not prompts — the `request-transcript` action calls the transcription API directly. Provider priority: **Builder** (via `BUILDER_PRIVATE_KEY`, no extra key needed) → **Groq** `whisper-large-v3-turbo` via `GROQ_API_KEY` (fast, ~$0.04/hr) → **OpenAI** `whisper-1` via `OPENAI_API_KEY`. Additionally, `save-browser-transcript` captures a Web Speech API transcript instantly during recording with no key required — higher-quality backends refine it afterward.
 
 ## Why
 
@@ -27,7 +27,7 @@ The agent is already the user's primary interface — it has full project contex
 | Tags                      | On upload complete                                                                    | `generate-ai-metadata --id=<id> --kind=tags` → agent inserts `recording_tags` rows                    |
 | Filler-word removal       | User clicks "Remove ums and uhs"                                                      | `generate-filler-removal --id=<id>` → agent writes proposed cuts into `editor-draft` for user review  |
 | Comment auto-reply        | User types "reply with …" in the agent chat                                           | agent calls `add-comment` directly                                                                    |
-| **Transcription**         | On upload complete (automatic)                                                        | `request-transcript` → direct Whisper API call (Groq preferred, OpenAI fallback) — see "Transcription" section below |
+| **Transcription**         | On upload complete (automatic) + live during recording                                | `request-transcript` → Builder / Groq / OpenAI (priority order); `save-browser-transcript` for instant Web Speech result — see "Transcription" section below |
 
 ## The delegation pattern
 
@@ -88,44 +88,17 @@ const generate = useActionMutation("generate-ai-metadata");
 
 ## Transcription — the one exception
 
-Whisper takes an audio file and returns text + segments. That's not a prompt/response LLM interaction, so it doesn't belong in the agent chat. `actions/request-transcript.ts` calls a Whisper-compatible endpoint directly.
+Transcription takes an audio file and returns text + segments. That's not a prompt/response LLM interaction, so it doesn't belong in the agent chat. `actions/request-transcript.ts` calls the transcription API directly.
 
-**Provider priority** (either key works — both are registered via `registerRequiredSecret`):
+**Provider priority:**
 
-1. `GROQ_API_KEY` → `https://api.groq.com/openai/v1/audio/transcriptions`, model `whisper-large-v3-turbo`. **Preferred.** Typically 10-30x faster than OpenAI's hosted Whisper, ~$0.04/hour of audio, OpenAI-compatible multipart form-data shape.
-2. `OPENAI_API_KEY` → `https://api.openai.com/v1/audio/transcriptions`, model `whisper-1`. Fallback. Fine, just slower — can take as long as the video itself for anything beyond a minute or two.
+1. `BUILDER_PRIVATE_KEY` → Builder proxy (`transcribeWithBuilder()`). **Highest priority.** No separate API key needed — uses the Builder.io account connection. Returns segments with speaker labels and word-level timing.
+2. `GROQ_API_KEY` → `https://api.groq.com/openai/v1/audio/transcriptions`, model `whisper-large-v3-turbo`. Typically 10-30x faster than OpenAI's hosted Whisper, ~$0.04/hour of audio.
+3. `OPENAI_API_KEY` → `https://api.openai.com/v1/audio/transcriptions`, model `whisper-1`. Fallback. Fine, just slower.
 
-Both accept the same `file` / `model` / `response_format=verbose_json` / `timestamp_granularities[]=segment` form fields, so the action just swaps endpoint + model based on which key is available.
+**Hybrid browser transcription:** The browser's Web Speech API runs during recording via `useLiveTranscription` hook and saves results via `save-browser-transcript`. This gives an instant transcript with no API key. When `request-transcript` runs afterward, higher-quality backends refine it — but won't overwrite if no key is configured, preserving the browser result.
 
-```ts
-// actions/request-transcript.ts (excerpt)
-const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
-const GROQ_MODEL = "whisper-large-v3-turbo";
-const OPENAI_ENDPOINT = "https://api.openai.com/v1/audio/transcriptions";
-const OPENAI_MODEL = "whisper-1";
-
-async function pickProvider(userEmail: string | null) {
-  const groqKey = await resolveKey("GROQ_API_KEY", userEmail);
-  if (groqKey)
-    return {
-      name: "groq",
-      endpoint: GROQ_ENDPOINT,
-      model: GROQ_MODEL,
-      apiKey: groqKey,
-    };
-  const openaiKey = await resolveKey("OPENAI_API_KEY", userEmail);
-  if (openaiKey)
-    return {
-      name: "openai",
-      endpoint: OPENAI_ENDPOINT,
-      model: OPENAI_MODEL,
-      apiKey: openaiKey,
-    };
-  return null;
-}
-```
-
-If neither key is set, the action writes `status="failed"` with `failureReason="No transcription key configured. Set GROQ_API_KEY (fast) or OPENAI_API_KEY."` so the UI can show a friendly prompt and `refresh-signal` pulls it immediately.
+If no provider is available (no Builder connection, no Groq key, no OpenAI key) and no browser transcript exists, the action writes `status="failed"` so the UI can show a friendly prompt.
 
 ### Secret registration
 
@@ -156,15 +129,11 @@ registerRequiredSecret({
 
 Neither is marked `required: true` — videos still upload and play without transcription, they just won't have captions or AI-generated titles/summaries. The onboarding checklist surfaces both so the user can pick one.
 
-## Follow-up — real-time streaming transcription
+## Live transcription during recording
 
-Right now `request-transcript` only runs after the upload finalizes, so a title can't be generated until the full media is on disk. The MediaRecorder chunk pipeline already pushes audio+video to the server every few seconds; a future pass can tap the audio track in parallel and stream it to a real-time provider:
+The `useLiveTranscription` hook (from `@agent-native/core/client/transcription`) runs the browser's Web Speech API alongside any recording. It accumulates final transcript text in real time with no API key required. When the user stops, the client calls `save-browser-transcript` to persist the result. `request-transcript` can then refine it with a higher-quality backend — or leave the browser result as-is if no key is configured.
 
-- **Browser side:** `MediaStream.getAudioTracks()[0]` → `AudioWorkletNode` → downsample to 16kHz PCM → WebSocket.
-- **Server side:** proxy WebSocket frames to **Deepgram** streaming (Nova-3 supports real-time) or **AssemblyAI** Universal-Streaming. Both give interim and final transcripts as the user speaks.
-- **UX:** as `final` transcripts land, append to `recording_transcripts.segments_json` with `status="streaming"`. When the user stops, either accept the streamed transcript as-is or fire one `request-transcript` pass for a higher-quality final run.
-
-This unlocks agent-generated titles / summaries within seconds of pressing Stop rather than minutes. Out of scope for the initial Groq swap — don't build it without a separate design pass.
+A future pass could add server-side streaming transcription (Deepgram Nova-3 / AssemblyAI) via WebSocket for even higher quality real-time output — but the browser path already gives useful text from second zero.
 
 ## Don't
 

@@ -34,6 +34,7 @@ export default defineAction({
           title: row.title,
           slideCount: slides?.length ?? 0,
           visibility: row.visibility,
+          designSystemId: row.designSystemId ?? null,
         };
       }
       return {
@@ -41,6 +42,7 @@ export default defineAction({
         title: row.title,
         slideCount: slides?.length ?? 0,
         visibility: row.visibility,
+        designSystemId: row.designSystemId ?? null,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };

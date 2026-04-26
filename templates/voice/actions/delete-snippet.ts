@@ -31,7 +31,8 @@ export default defineAction({
           eq(schema.dictationSnippets.ownerEmail, ownerEmail),
         ),
       );
-    if (!existing) throw new Error(`Snippet not found: ${args.id}`);
+    if (!existing)
+      return { id: args.id, deleted: false, error: "Snippet not found" };
 
     await db
       .delete(schema.dictationSnippets)

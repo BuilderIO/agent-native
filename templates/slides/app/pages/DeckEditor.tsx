@@ -1,5 +1,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { useParams, Navigate, useSearchParams } from "react-router";
+import {
+  useParams,
+  Navigate,
+  useSearchParams,
+  useNavigate,
+} from "react-router";
 import {
   DndContext,
   closestCenter,
@@ -30,12 +35,17 @@ import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useSlideComments } from "@/hooks/use-slide-comments";
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
+import { TweaksPanel } from "@/components/editor/TweaksPanel";
+import { getPreset } from "@/lib/design-systems";
+import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 
 // Stable tab ID for jitter prevention (module-level = never recreated)
 const COLLAB_TAB_ID = `slides-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     getDeck,
@@ -69,6 +79,7 @@ export default function DeckEditor() {
   const historyButtonRef = useRef<HTMLButtonElement>(null);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [animationsOpen, setAnimationsOpen] = useState(false);
+  const [tweaksOpen, setTweaksOpen] = useState(false);
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
@@ -82,6 +93,7 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
+  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
 
   // If deck already has slides on mount, it's not a fresh new-deck creation
   useEffect(() => {
@@ -395,6 +407,31 @@ export default function DeckEditor() {
         currentUserEmail={session?.email}
         animationsOpen={animationsOpen}
         onToggleAnimations={() => setAnimationsOpen((o) => !o)}
+        tweaksOpen={tweaksOpen}
+        onToggleTweaks={() => setTweaksOpen((o) => !o)}
+        onDuplicateDeck={async () => {
+          try {
+            const res = await fetch("/_agent-native/actions/duplicate-deck", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ deckId: id }),
+            });
+            const data = await res.json();
+            if (data.id) {
+              navigate(`/deck/${data.id}`);
+            }
+          } catch (err) {
+            console.error("Duplicate failed:", err);
+          }
+        }}
+        onExportPdf={async () => {
+          const els = Array.from(
+            document.querySelectorAll(".slide-content"),
+          ) as HTMLElement[];
+          if (els.length > 0) {
+            await exportDeckAsPdf(deck.title, els);
+          }
+        }}
       />
 
       <div className="flex-1 flex overflow-hidden relative">
@@ -461,6 +498,9 @@ export default function DeckEditor() {
               setLogoSearchOpen(true);
             }}
             onToggleObjectFit={toggleObjectFit}
+            slideIndex={currentIndex >= 0 ? currentIndex : 0}
+            slideCount={deck.slides.length}
+            designSystem={designSystem}
             ydoc={ydoc}
             awareness={awareness}
             collabUser={
@@ -496,6 +536,19 @@ export default function DeckEditor() {
               updateSlide(id, currentSlide.id, updates)
             }
             onClose={() => setAnimationsOpen(false)}
+          />
+        )}
+
+        {tweaksOpen && (
+          <TweaksPanel
+            tweaks={getPreset(deck?.designSystemId || "default").tweaks}
+            values={deck?.tweaks || {}}
+            onChange={(tweakId, value) => {
+              updateDeck(id, {
+                tweaks: { ...(deck?.tweaks || {}), [tweakId]: value },
+              });
+            }}
+            onClose={() => setTweaksOpen(false)}
           />
         )}
       </div>

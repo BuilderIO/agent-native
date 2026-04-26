@@ -84,7 +84,11 @@ Subject to depict: ${prompt}${context?.slideContent ? `\n\n**Current slide conte
     contents.push({ text: prompt });
   }
 
-  const geminiModels = ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"];
+  const geminiModels = [
+    "gemini-3.1-flash-image-preview",
+    "gemini-3-pro-image-preview",
+    "gemini-2.5-flash-image",
+  ];
   let lastError: Error | null = null;
 
   const isOverloadError = (e: any) =>

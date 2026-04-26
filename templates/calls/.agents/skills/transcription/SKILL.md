@@ -57,6 +57,10 @@ interface TranscriptSegment {
 
 Segments are **ordered** by `startMs`. Word-level timing is preserved so the editor can highlight active words and the snippet tool can snap I/O marks to word boundaries.
 
+## Hybrid browser transcription
+
+The browser's Web Speech API runs during in-browser recording via `useLiveTranscription`. When the user stops, the client calls `save-browser-transcript --callId=<id> --fullText="..."` to persist an instant transcript with no API key. If `request-transcript` later runs with a Deepgram key, it refines the browser draft with higher-quality diarized output. If no key is configured, the browser transcript is preserved as the final result.
+
 ## Flow (synchronous path)
 
 `request-transcript` is the entry point. Flow:
@@ -115,9 +119,9 @@ Users relabel via the Participants panel; the update lands in `call_participants
 
 ## Retry and failure modes
 
-| Failure                              | Handling                                                                                          |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `DEEPGRAM_API_KEY` missing           | Transcript failed with `failureReason: "DEEPGRAM_API_KEY not configured"`. Prompt via onboarding. |
+| Failure                              | Handling                                                                                                                           |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `DEEPGRAM_API_KEY` missing           | If a browser transcript exists, preserve it and return early. Otherwise fail with `failureReason: "DEEPGRAM_API_KEY not configured"`. |
 | Media URL unreachable                | Transcript failed with the fetch error. Usually means `NITRO_PUBLIC_URL` misconfigured.           |
 | Deepgram 4xx (invalid audio)         | Transcript failed with Deepgram's reason. Suggest re-upload.                                      |
 | Deepgram 5xx / timeout               | Transcript failed. User can `retry-transcript`.                                                   |

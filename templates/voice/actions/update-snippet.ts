@@ -34,7 +34,7 @@ export default defineAction({
           eq(schema.dictationSnippets.ownerEmail, ownerEmail),
         ),
       );
-    if (!existing) throw new Error(`Snippet not found: ${args.id}`);
+    if (!existing) return { id: args.id, error: "Snippet not found" };
 
     const updates: Record<string, unknown> = {
       updatedAt: new Date().toISOString(),

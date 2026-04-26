@@ -46,10 +46,16 @@ export function useNavigationState() {
     queryFn: async () => {
       const res = await fetch("/_agent-native/application-state/navigate");
       if (!res.ok) return null;
-      const data = await res.json();
-      if (data) {
-        // Return with a timestamp to ensure uniqueness
-        return { ...data, _ts: Date.now() };
+      const text = await res.text();
+      if (!text) return null;
+      try {
+        const data = JSON.parse(text);
+        if (data) {
+          // Return with a timestamp to ensure uniqueness
+          return { ...data, _ts: Date.now() };
+        }
+      } catch {
+        // Empty or invalid JSON response — no navigate command
       }
       return null;
     },

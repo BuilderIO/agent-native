@@ -11,10 +11,10 @@ Images for slides are generated or sourced via three scripts. The agent delegate
 
 | Script | Purpose | Example |
 |--------|---------|---------|
-| `generate-image` | Generate images with Gemini + style references | `pnpm action generate-image --prompt "hero image" --count 3` |
+| `generate-image` | Generate images (Gemini/OpenAI/auto) | `pnpm action generate-image --prompt "hero image" --model auto --count 3` |
 | `image-search` | Search Google Images via Custom Search API | `pnpm action image-search --query "Acme logo transparent" --count 5` |
 | `logo-lookup` | Get company logo URL via Logo.dev API | `pnpm action logo-lookup --domain acme.com` |
-| `image-gen-status` | Check if Gemini API key is configured | `pnpm action image-gen-status` |
+| `image-gen-status` | Check configured image providers | `pnpm action image-gen-status` |
 
 ## Image Generation Flow
 
@@ -31,6 +31,7 @@ The standard workflow for generating slide images:
 
 ```
 --prompt              Image description (required)
+--model               Provider: gemini | openai | auto (default: auto — tries both)
 --slide-content       HTML content of the current slide
 --deck-id             Deck ID to load full deck text as context
 --slide-id            Slide ID within the deck

@@ -153,12 +153,37 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 ### Image Generation
 
-| Action             | Args                                                  | Purpose                     |
-| ------------------ | ----------------------------------------------------- | --------------------------- |
-| `generate-image`   | `--prompt "..." [--count 3] [--deck-id] [--slide-id]` | Generate images with Gemini |
-| `image-search`     | `--query "..." [--count 5]`                           | Search Google Images        |
-| `logo-lookup`      | `--domain acme.com`                                   | Get company logo URL        |
-| `image-gen-status` |                                                       | Check Gemini API key status |
+| Action             | Args                                                                                 | Purpose                    |
+| ------------------ | ------------------------------------------------------------------------------------ | -------------------------- |
+| `generate-image`   | `--prompt "..." [--model gemini\|openai\|auto] [--count 3] [--deck-id] [--slide-id]` | Generate images            |
+| `image-search`     | `--query "..." [--count 5]`                                                          | Search Google Images       |
+| `logo-lookup`      | `--domain acme.com`                                                                  | Get company logo URL       |
+| `image-gen-status` |                                                                                      | Check configured providers |
+
+### Design Systems
+
+| Action                      | Args                                                              | Purpose                            |
+| --------------------------- | ----------------------------------------------------------------- | ---------------------------------- |
+| `create-design-system`      | `--title "X" [--description "..."] --data '<json>'`               | Create a new design system         |
+| `update-design-system`      | `--id <id> [--title "X"] [--data '<json>']`                       | Update design system tokens        |
+| `get-design-system`         | `--id <id>`                                                       | Get design system with all tokens  |
+| `list-design-systems`       | `[--compact]`                                                     | List all accessible design systems |
+| `set-default-design-system` | `--id <id>`                                                       | Set one as the default             |
+| `apply-design-system`       | `--deckId <id> --designSystemId <id>`                             | Link a design system to a deck     |
+| `analyze-brand-assets`      | `[--websiteUrl "..."] [--companyName "..."] [--brandNotes "..."]` | Gather brand data for analysis     |
+
+When generating slides for a deck that has a design system, **always use the design system's colors, fonts, and styles** instead of the default values. Check the design system with `get-design-system --id <id>` first.
+
+### Import / Export
+
+| Action           | Args                                           | Purpose                           |
+| ---------------- | ---------------------------------------------- | --------------------------------- |
+| `import-file`    | `--filePath <path> [--format auto] [--deckId]` | Import PPTX/DOCX/PDF to deck      |
+| `import-pptx`    | `--filePath <path> [--deckId] [--title]`       | Direct PPTX import to deck        |
+| `import-docx`    | `--filePath <path>`                            | Extract DOCX content for slides   |
+| `export-pptx`    | `--deckId <id> [--includeNotes]`               | Export deck as PowerPoint         |
+| `export-html`    | `--deckId <id>`                                | Export as standalone HTML         |
+| `duplicate-deck` | `--deckId <id> [--title]`                      | Create a copy of an existing deck |
 
 ### Sharing
 
@@ -186,6 +211,10 @@ Read (`get-deck`, `list-decks`, `view-screen`) admits rows the current user owns
 | "Open deck abc123"                    | `pnpm action navigate --deckId=abc123`                                                                                    |
 | "Go to the deck list"                 | `pnpm action navigate --view=list`                                                                                        |
 | "Find the company logo for X"         | `pnpm action logo-lookup --domain x.com`                                                                                  |
+| "Import a PPTX file"                  | Upload file, then `import-pptx --filePath <path>`                                                                         |
+| "Export this deck as PowerPoint"      | `export-pptx --deckId <id>`                                                                                               |
+| "Set up brand identity"               | `analyze-brand-assets --websiteUrl "..."` then use results to `create-design-system`                                      |
+| "Generate an image with OpenAI"       | `generate-image --prompt "..." --model openai`                                                                            |
 
 ## Slide HTML Templates
 
@@ -457,6 +486,8 @@ DO NOT bundle all slides into step 1's --slides array. Adding them one-by-one vi
 - **Headings**: `font-size: 40px; font-weight: 900; color: #fff`
 - **Accent color**: `#00E5FF` (cyan)
 - **Image placeholders**: `.fmd-img-placeholder` divs
+
+**When a design system is active**, use its tokens instead of the defaults above. Call `get-design-system --id <id>` to get the current tokens: accent color, fonts, background color, etc. Replace `#00E5FF` with the design system's accent, `Poppins` with its heading/body font, `#000000` with its background.
 
 ## Agent Chat Integration
 

@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, Link } from "react-router";
 import {
   IconPlus,
   IconStack2,
   IconSettings,
   IconUsers,
+  IconPalette,
 } from "@tabler/icons-react";
 import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
@@ -83,6 +84,13 @@ export default function Index() {
             Slides
           </span>
           <div className="flex items-center gap-2">
+            <Link
+              to="/design-systems"
+              className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white"
+            >
+              <IconPalette className="w-4 h-4" />
+              Design Systems
+            </Link>
             <a
               href="/team"
               className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80"

@@ -18,9 +18,12 @@ import {
   IconTransform,
   IconMessage,
   IconWand,
+  IconAdjustments,
 } from "@tabler/icons-react";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
 import ShareDialog from "./ShareDialog";
+import { ExportMenu } from "./ExportMenu";
+import { ImportButton } from "./ImportButton";
 
 import {
   AgentToggleButton,
@@ -76,6 +79,14 @@ interface EditorToolbarProps {
   animationsOpen?: boolean;
   /** Toggle the animations panel */
   onToggleAnimations?: () => void;
+  /** Whether the tweaks panel is open */
+  tweaksOpen?: boolean;
+  /** Toggle the tweaks panel */
+  onToggleTweaks?: () => void;
+  /** Duplicate the current deck */
+  onDuplicateDeck?: () => void;
+  /** Export the deck as PDF */
+  onExportPdf?: () => void;
 }
 
 const slideLayoutOptions: { value: SlideLayout; label: string }[] = [
@@ -289,6 +300,10 @@ export default function EditorToolbar({
   currentUserEmail,
   animationsOpen,
   onToggleAnimations,
+  tweaksOpen,
+  onToggleTweaks,
+  onDuplicateDeck,
+  onExportPdf,
 }: EditorToolbarProps) {
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
@@ -562,7 +577,7 @@ graph TD
       {currentSlide && onToggleAnimations && (
         <button
           onClick={onToggleAnimations}
-          className={`p-2.5 sm:p-1.5 rounded-md transition-colors flex-shrink-0 ${
+          className={`p-2.5 sm:p-1.5 rounded-md cursor-pointer flex-shrink-0 ${
             animationsOpen
               ? "text-[#609FF8] bg-[#609FF8]/10"
               : "text-white/40 hover:text-white/70 hover:bg-white/[0.06]"
@@ -573,6 +588,24 @@ graph TD
           <IconWand className="w-3.5 h-3.5" />
         </button>
       )}
+
+      {/* Tweaks button */}
+      {onToggleTweaks && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onToggleTweaks}
+              className={`p-1.5 rounded cursor-pointer ${tweaksOpen ? "bg-white/10 text-white" : "text-white/40 hover:text-white/70 hover:bg-white/[0.06]"}`}
+            >
+              <IconAdjustments className="w-4 h-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Tweaks</TooltipContent>
+        </Tooltip>
+      )}
+
+      {/* Import button */}
+      <ImportButton deckId={deckId} />
 
       {/* Separator */}
       <div className="w-px h-5 bg-white/[0.08] flex-shrink-0 hidden sm:block" />
@@ -689,6 +722,14 @@ graph TD
         </button>
       )}
 
+      {/* Export / Share menu (export, duplicate, share) */}
+      <ExportMenu
+        deckId={deckId}
+        deckTitle={deckTitle}
+        onDuplicate={onDuplicateDeck ?? (() => {})}
+        onExportPdf={onExportPdf ?? (() => {})}
+      />
+
       {/* Framework share (ownership, per-user/org grants, visibility) */}
       <div className="flex-shrink-0">
         <ShareButton
@@ -698,17 +739,6 @@ graph TD
           variant="compact"
         />
       </div>
-
-      {/* Public link share (anonymous share-by-URL) */}
-      <ShareDialog deck={deck}>
-        <button
-          className="p-2.5 sm:p-1.5 rounded-md text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors flex-shrink-0"
-          title="Share link"
-          aria-label="Share link"
-        >
-          <IconShare2 className="w-3.5 h-3.5" />
-        </button>
-      </ShareDialog>
 
       {/* Present button */}
       <Link

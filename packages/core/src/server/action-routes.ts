@@ -170,7 +170,7 @@ export function mountActionRoutes(
               // Return 400 for validation errors, 500 for everything else
               setResponseStatus(
                 event,
-                msg.startsWith("Invalid action parameters:") ? 400 : 500,
+                msg.startsWith("Invalid action parameters") ? 400 : 500,
               );
               return { error: msg };
             }

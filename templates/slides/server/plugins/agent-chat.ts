@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/server";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { getOrgContext } from "@agent-native/core/org";
+import "../register-secrets.js";
 
 export default createAgentChatPlugin({
   appId: "slides",

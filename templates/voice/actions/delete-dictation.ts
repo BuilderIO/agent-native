@@ -30,7 +30,8 @@ export default defineAction({
           eq(schema.dictations.ownerEmail, ownerEmail),
         ),
       );
-    if (!existing) throw new Error(`Dictation not found: ${args.id}`);
+    if (!existing)
+      return { id: args.id, deleted: false, error: "Dictation not found" };
 
     await db.delete(schema.dictations).where(eq(schema.dictations.id, args.id));
 

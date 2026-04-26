@@ -42,7 +42,7 @@ export default defineAction({
     if (args.search) {
       const pat = `%${args.search}%`;
       whereClauses.push(
-        sql`(${schema.dictations.text} LIKE ${pat} OR ${schema.dictations.rawText} LIKE ${pat})`,
+        sql`(LOWER(${schema.dictations.text}) LIKE LOWER(${pat}) OR LOWER(${schema.dictations.rawText}) LIKE LOWER(${pat}))`,
       );
     }
 

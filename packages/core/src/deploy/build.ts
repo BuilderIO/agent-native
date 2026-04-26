@@ -89,7 +89,7 @@ function generateWorkerEntry(
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
-      return new Response(JSON.stringify({ error: err?.message || "Action failed" }), { status: err?.message?.startsWith("Invalid action parameters:") ? 400 : 500, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ error: err?.message || "Action failed" }), { status: err?.message?.startsWith("Invalid action parameters") ? 400 : 500, headers: { "Content-Type": "application/json" } });
     }
   }));`,
     );

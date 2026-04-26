@@ -14,6 +14,8 @@ import CodeEditor from "./CodeEditor";
 import ImageOverlay from "./ImageOverlay";
 import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
+import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
+import type { DesignSystemData } from "../../../shared/api";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 
@@ -153,6 +155,12 @@ interface SlideEditorProps {
   agentActive?: boolean;
   /** Called when the user selects text and clicks the comment button */
   onComment?: (quotedText: string) => void;
+  /** Zero-based index of the current slide */
+  slideIndex?: number;
+  /** Total number of slides in the deck */
+  slideCount?: number;
+  /** Design system to inject as CSS custom properties on the slide */
+  designSystem?: DesignSystemData;
 }
 
 /** Selection outline rendered over a selected image */
@@ -187,6 +195,9 @@ export default function SlideEditor({
   onLogoSearch,
   onToggleObjectFit,
   agentActive,
+  slideIndex = 0,
+  slideCount = 1,
+  designSystem,
 }: SlideEditorProps) {
   const [isHoveringText, setIsHoveringText] = useState(false);
   const [imageOverlay, setImageOverlay] = useState<{
@@ -502,6 +513,7 @@ export default function SlideEditor({
                   <SlideRenderer
                     slide={slide}
                     className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
+                    designSystem={designSystem}
                   />
                   {/* Double-click hint */}
                   {isHoveringText && !editingEl && (
@@ -523,6 +535,15 @@ export default function SlideEditor({
           <CodeEditor slide={slide} onUpdateSlide={onUpdateSlide} />
         )}
       </div>
+
+      {activeTab === "visual" && (
+        <SpeakerNotesPanel
+          notes={slide.notes}
+          onChange={(notes) => onUpdateSlide({ notes })}
+          slideIndex={slideIndex}
+          slideCount={slideCount}
+        />
+      )}
 
       {selectionRect && <ImageSelectionOutline rect={selectionRect} />}
 

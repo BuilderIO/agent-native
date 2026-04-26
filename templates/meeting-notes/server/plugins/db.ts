@@ -5,13 +5,14 @@ import { z } from "zod";
 // framework before any HTTP request runs.
 import "../db/index.js";
 
-const migrations = runMigrations([
-  // ---------------------------------------------------------------------------
-  // Meetings — the core resource
-  // ---------------------------------------------------------------------------
-  {
-    version: 1,
-    sql: `CREATE TABLE IF NOT EXISTS meetings (
+const migrations = runMigrations(
+  [
+    // ---------------------------------------------------------------------------
+    // Meetings — the core resource
+    // ---------------------------------------------------------------------------
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS meetings (
       id TEXT PRIMARY KEY,
       organization_id TEXT NOT NULL,
       title TEXT NOT NULL DEFAULT 'Untitled meeting',
@@ -27,10 +28,10 @@ const migrations = runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 2,
-    sql: `CREATE TABLE IF NOT EXISTS meeting_shares (
+    },
+    {
+      version: 2,
+      sql: `CREATE TABLE IF NOT EXISTS meeting_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -39,13 +40,13 @@ const migrations = runMigrations([
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Transcripts
-  // ---------------------------------------------------------------------------
-  {
-    version: 3,
-    sql: `CREATE TABLE IF NOT EXISTS meeting_transcripts (
+    },
+    // ---------------------------------------------------------------------------
+    // Transcripts
+    // ---------------------------------------------------------------------------
+    {
+      version: 3,
+      sql: `CREATE TABLE IF NOT EXISTS meeting_transcripts (
       id TEXT PRIMARY KEY,
       meeting_id TEXT NOT NULL,
       segments_json TEXT NOT NULL DEFAULT '[]',
@@ -56,13 +57,13 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Notes
-  // ---------------------------------------------------------------------------
-  {
-    version: 4,
-    sql: `CREATE TABLE IF NOT EXISTS meeting_notes (
+    },
+    // ---------------------------------------------------------------------------
+    // Notes
+    // ---------------------------------------------------------------------------
+    {
+      version: 4,
+      sql: `CREATE TABLE IF NOT EXISTS meeting_notes (
       id TEXT PRIMARY KEY,
       meeting_id TEXT NOT NULL,
       raw_content TEXT NOT NULL DEFAULT '{}',
@@ -71,13 +72,13 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Templates
-  // ---------------------------------------------------------------------------
-  {
-    version: 5,
-    sql: `CREATE TABLE IF NOT EXISTS meeting_templates (
+    },
+    // ---------------------------------------------------------------------------
+    // Templates
+    // ---------------------------------------------------------------------------
+    {
+      version: 5,
+      sql: `CREATE TABLE IF NOT EXISTS meeting_templates (
       id TEXT PRIMARY KEY,
       organization_id TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -89,13 +90,13 @@ const migrations = runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Attendees
-  // ---------------------------------------------------------------------------
-  {
-    version: 6,
-    sql: `CREATE TABLE IF NOT EXISTS meeting_attendees (
+    },
+    // ---------------------------------------------------------------------------
+    // Attendees
+    // ---------------------------------------------------------------------------
+    {
+      version: 6,
+      sql: `CREATE TABLE IF NOT EXISTS meeting_attendees (
       id TEXT PRIMARY KEY,
       meeting_id TEXT NOT NULL,
       person_id TEXT,
@@ -103,26 +104,26 @@ const migrations = runMigrations([
       email TEXT,
       role TEXT NOT NULL DEFAULT 'required'
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Folders
-  // ---------------------------------------------------------------------------
-  {
-    version: 7,
-    sql: `CREATE TABLE IF NOT EXISTS meeting_folders (
+    },
+    // ---------------------------------------------------------------------------
+    // Folders
+    // ---------------------------------------------------------------------------
+    {
+      version: 7,
+      sql: `CREATE TABLE IF NOT EXISTS meeting_folders (
       id TEXT PRIMARY KEY,
       organization_id TEXT NOT NULL,
       name TEXT NOT NULL,
       parent_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // People
-  // ---------------------------------------------------------------------------
-  {
-    version: 8,
-    sql: `CREATE TABLE IF NOT EXISTS people (
+    },
+    // ---------------------------------------------------------------------------
+    // People
+    // ---------------------------------------------------------------------------
+    {
+      version: 8,
+      sql: `CREATE TABLE IF NOT EXISTS people (
       id TEXT PRIMARY KEY,
       organization_id TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -135,13 +136,13 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Companies
-  // ---------------------------------------------------------------------------
-  {
-    version: 9,
-    sql: `CREATE TABLE IF NOT EXISTS companies (
+    },
+    // ---------------------------------------------------------------------------
+    // Companies
+    // ---------------------------------------------------------------------------
+    {
+      version: 9,
+      sql: `CREATE TABLE IF NOT EXISTS companies (
       id TEXT PRIMARY KEY,
       organization_id TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -150,13 +151,13 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Recipes
-  // ---------------------------------------------------------------------------
-  {
-    version: 10,
-    sql: `CREATE TABLE IF NOT EXISTS recipes (
+    },
+    // ---------------------------------------------------------------------------
+    // Recipes
+    // ---------------------------------------------------------------------------
+    {
+      version: 10,
+      sql: `CREATE TABLE IF NOT EXISTS recipes (
       id TEXT PRIMARY KEY,
       organization_id TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -169,8 +170,10 @@ const migrations = runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-]);
+    },
+  ],
+  { table: "_meeting_notes_migrations" },
+);
 
 export default async (nitroApp: any): Promise<void> => {
   await migrations(nitroApp);

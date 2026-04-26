@@ -31,10 +31,13 @@ function dataUrlToReferenceImage(dataUrl: string): ReferenceImage | null {
 
 export default defineAction({
   description:
-    "Generate an image using Gemini with optional reference images for style matching.",
+    "Generate an image using Gemini or OpenAI with optional reference images for style matching.",
   schema: z.object({
     prompt: z.string().optional().describe("Image description (required)"),
-    model: z.string().optional().describe("Model name (default: gemini)"),
+    model: z
+      .string()
+      .optional()
+      .describe("Provider: 'gemini', 'openai', or 'auto' (default: auto)"),
   }),
   run: async (args) => {
     const prompt = args.prompt;
@@ -42,15 +45,10 @@ export default defineAction({
       throw new Error("Prompt is required");
     }
 
-    if (!process.env.GEMINI_API_KEY) {
-      throw new Error(
-        "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
-      );
-    }
-
-    // Import generateWithGemini from the handlers
-    const { generateWithGemini } =
-      await import("../server/handlers/image-gen.js");
+    // Get the appropriate provider
+    const { getProvider } =
+      await import("../server/handlers/image-providers/index.js");
+    const provider = getProvider(args.model || "auto");
 
     const refImages: ReferenceImage[] = [];
 
@@ -65,13 +63,13 @@ export default defineAction({
       if (r) refImages.push(r);
     }
 
-    const result = await generateWithGemini(prompt, refImages);
+    const result = await provider.generate(prompt, refImages);
 
     const dataUrl = `data:${result.mimeType};base64,${result.imageData.toString("base64")}`;
 
     const response: ImageGenResponse = {
       url: dataUrl,
-      model: args.model || "gemini",
+      model: result.model,
       prompt,
     };
 

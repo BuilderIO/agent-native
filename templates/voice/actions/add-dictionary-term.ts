@@ -8,6 +8,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail, nanoid } from "../server/lib/helpers.js";
@@ -31,6 +32,27 @@ export default defineAction({
   run: async (args) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
+    const trimmedTerm = args.term.trim();
+
+    // Check for duplicate term (case-insensitive)
+    const [existing] = await db
+      .select({ id: schema.dictationDictionary.id })
+      .from(schema.dictationDictionary)
+      .where(
+        and(
+          sql`LOWER(${schema.dictationDictionary.term}) = LOWER(${trimmedTerm})`,
+          eq(schema.dictationDictionary.ownerEmail, ownerEmail),
+        ),
+      );
+    if (existing) {
+      return {
+        id: existing.id,
+        term: trimmedTerm,
+        correction: args.correction ?? null,
+        duplicate: true,
+      };
+    }
+
     const id = nanoid();
     const now = new Date().toISOString();
 

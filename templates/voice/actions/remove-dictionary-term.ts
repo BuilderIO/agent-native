@@ -30,7 +30,12 @@ export default defineAction({
           eq(schema.dictationDictionary.ownerEmail, ownerEmail),
         ),
       );
-    if (!existing) throw new Error(`Dictionary term not found: ${args.id}`);
+    if (!existing)
+      return {
+        id: args.id,
+        deleted: false,
+        error: "Dictionary term not found",
+      };
 
     await db
       .delete(schema.dictationDictionary)

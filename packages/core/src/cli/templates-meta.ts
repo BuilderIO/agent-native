@@ -203,6 +203,17 @@ export const TEMPLATES: TemplateMeta[] = [
     requiredPackages: ["scheduling"],
   },
   {
+    name: "voice",
+    label: "Voice",
+    hint: "Voice dictation — speak to type anywhere with context-aware formatting",
+    icon: "Microphone",
+    color: "#8B5CF6",
+    colorRgb: "139 92 246",
+    devPort: 8097,
+    prodUrl: "https://voice.agent-native.com",
+    defaultMode: "prod",
+  },
+  {
     name: "macros",
     label: "Macros",
     hint: "Internal template — not shown in pickers",
