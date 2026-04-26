@@ -138,7 +138,7 @@ async function validatePanelSql(
     if (!raw.trim()) continue;
 
     if (p.source === "ga4") {
-      const err = validateGa4PanelShape(raw);
+      const err = validateGa4PanelShape(interpolate(raw, vars));
       if (err) {
         return `panel[${i}] "${p.title || p.id}" GA4 descriptor is invalid: ${err}`;
       }
@@ -146,7 +146,7 @@ async function validatePanelSql(
     }
 
     if (p.source === "amplitude") {
-      const err = validateAmplitudePanelShape(raw);
+      const err = validateAmplitudePanelShape(interpolate(raw, vars));
       if (err) {
         return `panel[${i}] "${p.title || p.id}" Amplitude descriptor is invalid: ${err}`;
       }

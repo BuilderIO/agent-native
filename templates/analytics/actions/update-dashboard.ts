@@ -235,7 +235,7 @@ async function validatePanelSql(
       const raw = typeof p.sql === "string" ? p.sql : "";
       if (raw.trim()) {
         try {
-          const desc = JSON.parse(raw);
+          const desc = JSON.parse(interpolate(raw, vars));
           if (!desc?.event || typeof desc.event !== "string") {
             return `panel[${i}] "${p.title || p.id}" Amplitude descriptor requires an 'event' field`;
           }
