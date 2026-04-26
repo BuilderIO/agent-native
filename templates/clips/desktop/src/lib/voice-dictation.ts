@@ -116,7 +116,9 @@ async function transcribe(
     },
   );
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    const body = await res
+      .json()
+      .catch(() => ({ error: `HTTP ${res.status}` }));
     throw new Error(body?.error || `Transcription failed (${res.status})`);
   }
   const data = (await res.json()) as { text?: string };
