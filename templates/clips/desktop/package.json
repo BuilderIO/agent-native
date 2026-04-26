@@ -5,9 +5,10 @@
   "type": "module",
   "description": "Clips menu-bar tray app (Tauri 2). Quick-record + recent recordings from the OS tray.",
   "scripts": {
-    "dev": "tauri dev",
+    "check:prereqs": "node ./scripts/check-tauri-prereqs.mjs",
+    "dev": "pnpm run check:prereqs && tauri dev",
     "build": "vite build",
-    "build:tauri": "tauri build",
+    "build:tauri": "pnpm run check:prereqs && tauri build",
     "tauri": "tauri",
     "vite:dev": "vite",
     "vite:build": "vite build"
