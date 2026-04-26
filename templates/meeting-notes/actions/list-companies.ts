@@ -34,9 +34,9 @@ export default defineAction({
     }
 
     if (args.search) {
-      const pat = `%${args.search}%`;
+      const pat = `%${args.search.toLowerCase()}%`;
       conditions.push(
-        sql`(${schema.companies.name} LIKE ${pat} OR ${schema.companies.domain} LIKE ${pat})`,
+        sql`(LOWER(${schema.companies.name}) LIKE ${pat} OR LOWER(${schema.companies.domain}) LIKE ${pat})`,
       );
     }
 

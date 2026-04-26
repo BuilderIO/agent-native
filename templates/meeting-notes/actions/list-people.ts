@@ -35,9 +35,9 @@ export default defineAction({
     }
 
     if (args.search) {
-      const pat = `%${args.search}%`;
+      const pat = `%${args.search.toLowerCase()}%`;
       conditions.push(
-        sql`(${schema.people.name} LIKE ${pat} OR ${schema.people.email} LIKE ${pat})`,
+        sql`(LOWER(${schema.people.name}) LIKE ${pat} OR LOWER(${schema.people.email}) LIKE ${pat})`,
       );
     }
 

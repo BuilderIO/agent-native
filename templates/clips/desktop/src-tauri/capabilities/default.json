@@ -8,7 +8,11 @@
     "toolbar",
     "bubble",
     "signin",
-    "finalizing"
+    "finalizing",
+    "onboarding",
+    "meeting-notif",
+    "meeting-nub",
+    "flow-bar"
   ],
   "permissions": [
     "core:default",

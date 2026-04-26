@@ -265,6 +265,9 @@ export async function startNativeRecording(
       e?.message,
       err,
     );
+    invoke("js_log", {
+      msg: `RECORDER THREW: ${e?.name} ${e?.message}`,
+    }).catch(() => {});
     throw err;
   }
 }

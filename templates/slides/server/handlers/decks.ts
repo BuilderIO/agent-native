@@ -82,12 +82,16 @@ export const listDecks = defineEventHandler(async (_event) => {
     .orderBy(desc(schema.decks.updatedAt));
 
   return rows.map((row) => {
-    const deck = JSON.parse(row.data);
+    let deck: Record<string, unknown> = {};
+    try {
+      if (row.data) deck = JSON.parse(row.data);
+    } catch {}
     return {
       ...deck,
       id: row.id,
       title: row.title,
       visibility: row.visibility,
+      slides: deck.slides || [],
     };
   });
 });

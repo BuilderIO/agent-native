@@ -25,6 +25,11 @@ use util::{is_recording_active, set_capture_excluded};
 // should replace with their real icon.
 pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
 
+#[tauri::command]
+async fn js_log(msg: String) {
+    eprintln!("[clips-js] {}", msg);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -61,6 +66,8 @@ pub fn run() {
             // config commands
             config::get_feature_config,
             config::set_feature_config,
+            // diagnostic
+            js_log,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())

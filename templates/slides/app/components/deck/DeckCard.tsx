@@ -16,7 +16,7 @@ interface DeckCardProps {
 }
 
 export default function DeckCard({ deck, onDelete }: DeckCardProps) {
-  const firstSlide = deck.slides[0];
+  const firstSlide = deck.slides?.[0];
 
   return (
     <div className="group relative">

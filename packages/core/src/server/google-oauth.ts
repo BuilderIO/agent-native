@@ -60,6 +60,7 @@ export interface OAuthStatePayload {
   owner?: string;
   desktop?: boolean;
   addAccount?: boolean;
+  flowId?: string;
 }
 
 /**
@@ -93,6 +94,7 @@ export function encodeOAuthState(
   desktop?: boolean,
   addAccount?: boolean,
   app?: string,
+  flowId?: string,
 ): string {
   const nonce = crypto.randomBytes(8).toString("hex");
   const payload: Record<string, string | boolean> = {
@@ -103,6 +105,7 @@ export function encodeOAuthState(
   if (desktop) payload.d = true;
   if (addAccount) payload.a = true;
   if (app) payload.app = app;
+  if (flowId) payload.f = flowId;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
     .createHmac("sha256", getStateSigningKey())
@@ -145,6 +148,7 @@ export function decodeOAuthState(
         owner: parsed.o || undefined,
         desktop: !!parsed.d,
         addAccount: !!parsed.a,
+        flowId: parsed.f || undefined,
       };
     } catch {}
   }
@@ -249,6 +253,7 @@ export function oauthCallbackResponse(
     sessionToken?: string;
     desktop?: boolean;
     addAccount?: boolean;
+    flowId?: string;
   },
 ): Response | string | void | Promise<Response | string | void> {
   const mobile = isMobile(event);
@@ -269,6 +274,15 @@ export function oauthCallbackResponse(
     const msg = email ? `Connected ${email}!` : "Connected!";
     return htmlResponse(
       `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
+    );
+  }
+
+  // Desktop exchange flow (Tauri tray app): the tray app polls the
+  // desktop-exchange endpoint for the token — no deep link needed.
+  if (opts.desktop && opts.flowId) {
+    const msg = email ? `Signed in as ${email}!` : "Signed in!";
+    return htmlResponse(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Clips.</p></body></html>`,
     );
   }
 

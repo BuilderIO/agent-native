@@ -68,8 +68,8 @@ export default defineAction({
     }
 
     if (args.search) {
-      const pat = `%${args.search}%`;
-      whereClauses.push(sql`${schema.meetings.title} LIKE ${pat}`);
+      const pat = `%${args.search.toLowerCase()}%`;
+      whereClauses.push(sql`LOWER(${schema.meetings.title}) LIKE ${pat}`);
     }
 
     const orderBy =

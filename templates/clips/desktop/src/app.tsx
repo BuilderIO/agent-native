@@ -110,6 +110,7 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   // Latched true the moment the user clicks Start Recording and cleared
   // when the recorder fully stops/cancels. We use this to suppress the
   // popover auto-hide during the macOS screen-picker focus dance.
@@ -159,26 +160,50 @@ export function App() {
     checkAuth();
   }, [checkAuth]);
 
-  // Fallback for OAuth (Google / Apple) where a browser window is
-  // unavoidable. Email/password uses the inline <SignInForm /> below, which
-  // avoids the Tauri 2 separate-WebKit-data-store cookie issue entirely —
-  // the cookie is set in the same webview that will read it on the next
-  // session poll.
+  // OAuth (Google) opens in the system browser — the popover WebView can't
+  // share a cookie jar with a separate Tauri WebviewWindow, and the old
+  // approach of opening a WebView at the server root produced a blank window.
+  // Instead: fetch the Google auth URL, open it externally, then poll a
+  // server-side exchange endpoint for the session token.
   async function signInExternal() {
-    await invoke("show_signin", {
-      url: `${serverUrl.replace(/\/+$/, "")}/`,
-    }).catch(() => {});
-    const start = Date.now();
-    const interval = setInterval(async () => {
-      const ok = await checkAuth();
-      if (ok || Date.now() - start > 120_000) {
-        clearInterval(interval);
-        if (ok) {
-          invoke("close_signin").catch(() => {});
-          invoke("show_popover").catch(() => {});
+    try {
+      const flowId =
+        crypto.randomUUID?.() ||
+        Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const base = serverUrl.replace(/\/+$/, "");
+
+      // Open directly in the system browser — the server redirects (302)
+      // to Google's OAuth page, avoiding any cross-origin fetch from
+      // the Tauri WebView.
+      await openExternal(
+        `${base}/_agent-native/google/auth-url?desktop=1&flow_id=${flowId}&redirect=1`,
+      );
+
+      // Poll the exchange endpoint for the session token.
+      const start = Date.now();
+      const interval = setInterval(async () => {
+        try {
+          const xr = await fetch(
+            `${base}/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+          );
+          const xd = await xr.json();
+          if (xd?.token) {
+            clearInterval(interval);
+            await fetch(
+              `${base}/_agent-native/auth/session?_session=${xd.token}`,
+              { credentials: "include" },
+            );
+            await checkAuth();
+          } else if (Date.now() - start > 120_000) {
+            clearInterval(interval);
+          }
+        } catch {
+          if (Date.now() - start > 120_000) clearInterval(interval);
         }
-      }
-    }, 1500);
+      }, 1500);
+    } catch (err) {
+      console.error("[clips-tray] signInExternal failed:", err);
+    }
   }
 
   // Sign out via the framework's logout endpoint. The cookie clears in the
@@ -407,6 +432,9 @@ export function App() {
   }, [toolbarActive]);
 
   useEffect(() => {
+    invoke("js_log", {
+      msg: `bubbleActive=${bubbleActive} wantsCamera=${wantsCamera} popoverVisible=${popoverVisible} mode=${mode} cameraOn=${cameraOn}`,
+    }).catch(() => {});
     if (!bubbleActive) return;
 
     let cancelled = false;
@@ -479,6 +507,21 @@ export function App() {
       .catch((err) => {
         if (cancelled) return;
         console.error("[clips-popover] camera acquisition failed:", err);
+        invoke("js_log", {
+          msg: `CAMERA FAILED: ${err?.name} ${err?.message}`,
+        }).catch(() => {});
+        const msg = err?.message ?? "";
+        if (
+          msg.includes("AVVideoCaptureSource") ||
+          msg.includes("sandbox") ||
+          err?.name === "NotAllowedError"
+        ) {
+          setCameraError(
+            "Camera access blocked. Open System Settings → Privacy & Security → Camera and enable your terminal app, then restart Clips.",
+          );
+        } else {
+          setCameraError(`Camera unavailable: ${msg}`);
+        }
       });
 
     return () => {
@@ -741,6 +784,9 @@ export function App() {
     // flag + popover visibility) were already restored in the finally
     // block above. Now surface any non-cancel error to the UI.
     console.error("[clips-popover] startRecording failed:", startError);
+    invoke("js_log", {
+      msg: `RECORDING FAILED: ${(startError as any)?.name} ${(startError as any)?.message}`,
+    }).catch(() => {});
 
     // User cancelled the macOS screen-picker (or denied permission).
     // WebKit throws DOMException `NotAllowedError` for BOTH cancel and

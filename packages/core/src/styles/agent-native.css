@@ -113,6 +113,11 @@
     border-color: hsl(var(--border));
   }
 
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: gray transparent;
+  }
+
   button,
   [role="button"] {
     cursor: pointer;
