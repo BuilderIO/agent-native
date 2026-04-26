@@ -138,9 +138,13 @@ templatePorts.forEach(({ name, port }, i) => {
 
   names.push(name);
   // Pass APP_NAME so each app can resolve its own DATABASE_URL
-  // (e.g. MAIL_DATABASE_URL when APP_NAME=mail)
+  // (e.g. MAIL_DATABASE_URL when APP_NAME=mail).
+  // Pass AGENT_NATIVE_DEV_PORT so each template binds its shared-app-config
+  // devPort. Vite 8 lets `server.port` from config win over the `--port` CLI
+  // flag, which made `--port` silently no-op; the framework's defineConfig
+  // reads this env var as a fallback so the port pin sticks.
   commands.push(
-    `${prefix}APP_NAME=${name} pnpm --dir templates/${name} exec vite --port ${port}`,
+    `${prefix}APP_NAME=${name} AGENT_NATIVE_DEV_PORT=${port} pnpm --dir templates/${name} exec vite`,
   );
 });
 

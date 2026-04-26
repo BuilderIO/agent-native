@@ -630,12 +630,21 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "/";
   const base = appBasePath.endsWith("/") ? appBasePath : `${appBasePath}/`;
 
+  // AGENT_NATIVE_DEV_PORT lets dev orchestrators (scripts/dev-all.ts) pin
+  // each template to its shared-app-config devPort without relying on the
+  // Vite CLI `--port` flag, which loses to `server.port` set in config on
+  // Vite 8.x. Templates can still override programmatically via
+  // `defineConfig({ port })` — that takes precedence over the env var.
+  const envPort = Number(process.env.AGENT_NATIVE_DEV_PORT);
+  const resolvedPort =
+    options.port ?? (Number.isFinite(envPort) && envPort > 0 ? envPort : 8080);
+
   return {
     envDir,
     base,
     server: {
       host: "::",
-      port: options.port ?? 8080,
+      port: resolvedPort,
       fs: {
         allow: [".", ...(options.fsAllow ?? [])],
         deny: [
