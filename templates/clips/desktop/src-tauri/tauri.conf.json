@@ -41,10 +41,12 @@
     "icon": ["icons/icon.png", "icons/icon.ico"],
     "macOS": {
       "minimumSystemVersion": "11.0",
+      "entitlements": "Entitlements.plist",
       "dmg": {
         "appPosition": { "x": 180, "y": 170 },
         "applicationFolderPosition": { "x": 480, "y": 170 }
-      }
+      },
+      "infoPlist": "Info.plist"
     },
     "windows": {
       "wix": {
