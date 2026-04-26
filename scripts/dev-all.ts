@@ -12,6 +12,23 @@ const TEMPLATES_DIR = path.resolve("templates");
 const DOCS_PORT = 3000;
 const FALLBACK_BASE_PORT = 9001; // for templates not in the config
 
+// ── Args ──────────────────────────────────────────────────────
+// Lightweight mode for low-RAM machines / focused work:
+//   --apps clips,calendar  → only boot listed templates (default: all)
+//   --no-docs              → skip docs server
+//   --no-frame             → skip dev frame server
+const argv = process.argv.slice(2);
+function flagValue(name: string): string | null {
+  const i = argv.indexOf(name);
+  return i !== -1 && argv[i + 1] ? argv[i + 1] : null;
+}
+const appsFilter = flagValue("--apps")
+  ?.split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const skipDocs = argv.includes("--no-docs");
+const skipFrame = argv.includes("--no-frame");
+
 // Import the app config to get stable ports. Ports live in templates.ts
 // (the single source of truth for template metadata); shared-app-config/index.ts
 // derives AppConfig[] from it at runtime, so there are no literal id/port pairs
@@ -28,10 +45,27 @@ while ((m = re.exec(configSrc)) !== null) {
 }
 
 // Discover templates
-const templates = fs
+let templates = fs
   .readdirSync(TEMPLATES_DIR)
   .filter((d) => fs.existsSync(path.join(TEMPLATES_DIR, d, "package.json")))
   .sort();
+
+if (appsFilter && appsFilter.length > 0) {
+  const known = new Set(templates);
+  const unknown = appsFilter.filter((a) => !known.has(a));
+  if (unknown.length > 0) {
+    console.warn(
+      `\x1b[33m[dev-all]\x1b[0m Warning: unknown apps in --apps: ${unknown.join(", ")}`,
+    );
+  }
+  templates = templates.filter((t) => appsFilter.includes(t));
+  if (templates.length === 0) {
+    console.error(
+      `\x1b[31m[dev-all]\x1b[0m No templates matched --apps; nothing to start`,
+    );
+    process.exit(1);
+  }
+}
 
 // Assign ports: use shared-app-config if available, otherwise fallback
 let nextFallback = FALLBACK_BASE_PORT;
@@ -75,7 +109,9 @@ if (killPortProcesses()) {
 console.log(
   `\x1b[36m[dev-all]\x1b[0m Found templates: ${templates.join(", ")}`,
 );
-console.log(`\x1b[36m[dev-all]\x1b[0m Docs: http://localhost:${DOCS_PORT}`);
+if (!skipDocs) {
+  console.log(`\x1b[36m[dev-all]\x1b[0m Docs: http://localhost:${DOCS_PORT}`);
+}
 
 // Prebuild core once before templates boot. Templates import from
 // @agent-native/core/server; if tsc --watch is mid-rewrite of dist/ when a
@@ -115,13 +151,17 @@ commands.push(
 );
 
 // Local Dev Frame
-names.push("frame");
-commands.push("pnpm --filter @agent-native/frame dev");
-console.log(`\x1b[36m[dev-all]\x1b[0m frame: http://localhost:3334`);
+if (!skipFrame) {
+  names.push("frame");
+  commands.push("pnpm --filter @agent-native/frame dev");
+  console.log(`\x1b[36m[dev-all]\x1b[0m frame: http://localhost:3334`);
+}
 
 // Docs site
-names.push("docs");
-commands.push(`pnpm --filter @agent-native/docs dev`);
+if (!skipDocs) {
+  names.push("docs");
+  commands.push(`pnpm --filter @agent-native/docs dev`);
+}
 
 const proc = spawn(
   "npx",
