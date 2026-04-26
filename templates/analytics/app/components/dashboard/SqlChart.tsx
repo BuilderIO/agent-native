@@ -69,8 +69,12 @@ function formatYValue(
 
 function formatXLabel(value: string): string {
   try {
-    const d = new Date(value);
-    if (!isNaN(d.getTime()) && value.length >= 8) {
+    const s = String(value);
+    const normalized = /^\d{8}$/.test(s)
+      ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+      : s;
+    const d = new Date(normalized);
+    if (!isNaN(d.getTime()) && s.length >= 8) {
       return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     }
   } catch {}
