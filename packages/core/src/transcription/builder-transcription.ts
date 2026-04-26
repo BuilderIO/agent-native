@@ -56,13 +56,20 @@ export async function transcribeWithBuilder(
 
   const url = `${getBuilderProxyOrigin()}/agent-native/transcribe-audio?${params.toString()}`;
 
+  // Copy to a plain ArrayBuffer so TS6 accepts it as BodyInit (Uint8Array
+  // with ArrayBufferLike doesn't satisfy the strict BlobPart/BodyInit types).
+  const body = opts.audioBytes.buffer.slice(
+    opts.audioBytes.byteOffset,
+    opts.audioBytes.byteOffset + opts.audioBytes.byteLength,
+  ) as ArrayBuffer;
+
   const res = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: authHeader,
       "Content-Type": "application/octet-stream",
     },
-    body: opts.audioBytes,
+    body,
   });
 
   if (res.status === 402) {

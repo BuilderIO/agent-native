@@ -48,6 +48,8 @@ import {
 import { resolveCredential } from "@agent-native/core/credentials";
 import { readAppSecret } from "@agent-native/core/secrets";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { hasBuilderPrivateKey } from "@agent-native/core/server";
+import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { transcribeWithDeepgram } from "../server/lib/transcription/deepgram.js";
 import { labelSpeakers } from "../server/lib/transcription/diarize-speakers.js";
 import type { TranscriptSegment } from "../shared/api.js";

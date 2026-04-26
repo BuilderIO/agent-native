@@ -88,9 +88,10 @@ export function createTranscribeVoiceHandler() {
 
     // Resolve provider preference from application_state.
     const session = await getSession(event).catch(() => null);
-    const sessionId = session?.email === "local@localhost"
-      ? "local"
-      : session?.email ?? "local";
+    const sessionId =
+      session?.email === "local@localhost"
+        ? "local"
+        : (session?.email ?? "local");
     let providerPref: string | undefined;
     try {
       const prefs = await appStateGet(sessionId, "voice-transcription-prefs");

@@ -40,6 +40,8 @@ import {
 import { resolveCredential } from "@agent-native/core/credentials";
 import { readAppSecret } from "@agent-native/core/secrets";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { hasBuilderPrivateKey } from "@agent-native/core/server";
+import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import regenerateTitle from "./regenerate-title.js";
 
 /**
@@ -138,11 +140,158 @@ export default defineAction({
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();
 
+    const userEmail = getRequestUserEmail() ?? ownerEmail;
+
+    // ── Builder transcription (highest priority) ──────────────────────
+    // Builder proxy is available when BUILDER_PRIVATE_KEY is set. It
+    // provides high-quality transcription without requiring a separate
+    // Groq or OpenAI key.
+    if (hasBuilderPrivateKey()) {
+      await upsertTranscriptRow(db, {
+        recordingId: args.recordingId,
+        ownerEmail,
+        status: "pending",
+        failureReason: null,
+        now,
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+
+      const [rec] = await db
+        .select({
+          videoUrl: schema.recordings.videoUrl,
+          title: schema.recordings.title,
+        })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.recordingId))
+        .limit(1);
+      if (!rec || !rec.videoUrl) {
+        const reason = "Recording has no videoUrl";
+        await upsertTranscriptRow(db, {
+          recordingId: args.recordingId,
+          ownerEmail,
+          status: "failed",
+          failureReason: reason,
+          now,
+        });
+        await writeAppState("refresh-signal", { ts: Date.now() });
+        throw new Error(reason);
+      }
+
+      let videoBlob: Blob;
+      try {
+        const isLocalBlob =
+          rec.videoUrl.startsWith("/api/video/") ||
+          (rec.videoUrl.startsWith("/api/uploads/") &&
+            rec.videoUrl.endsWith("/blob"));
+        if (isLocalBlob) {
+          const stash = await readAppState(
+            `recording-blob-${args.recordingId}`,
+          );
+          const b64 = typeof stash?.data === "string" ? stash.data : null;
+          if (!b64) throw new Error("recording-blob app-state missing");
+          const bytes = Buffer.from(b64, "base64");
+          const mime =
+            typeof stash?.mimeType === "string" ? stash.mimeType : "video/webm";
+          videoBlob = new Blob([bytes], { type: mime });
+        } else {
+          let videoUrl = rec.videoUrl;
+          if (videoUrl.startsWith("/")) {
+            const port = process.env.NITRO_PORT || process.env.PORT || "3000";
+            const origin =
+              process.env.PUBLIC_URL ??
+              process.env.NITRO_PUBLIC_URL ??
+              `http://localhost:${port}`;
+            videoUrl = `${origin}${videoUrl}`;
+          }
+          const vidRes = await fetch(videoUrl);
+          if (!vidRes.ok) {
+            throw new Error(
+              `Failed to fetch videoUrl: HTTP ${vidRes.status} ${vidRes.statusText}`,
+            );
+          }
+          videoBlob = await vidRes.blob();
+        }
+      } catch (err) {
+        const reason = `Failed to fetch video: ${(err as Error).message}`;
+        await upsertTranscriptRow(db, {
+          recordingId: args.recordingId,
+          ownerEmail,
+          status: "failed",
+          failureReason: reason,
+          now,
+        });
+        await writeAppState("refresh-signal", { ts: Date.now() });
+        throw new Error(reason);
+      }
+
+      try {
+        const startedAt = Date.now();
+        const audioBytes = new Uint8Array(await videoBlob.arrayBuffer());
+        const mimeType = videoBlob.type || "video/webm";
+        const builderResult = await transcribeWithBuilder({
+          audioBytes,
+          mimeType,
+          diarize: false,
+        });
+
+        const segments = (builderResult.segments ?? []).map((s) => ({
+          startMs: s.startMs,
+          endMs: s.endMs,
+          text: s.text.trim(),
+        }));
+
+        await upsertTranscriptRow(db, {
+          recordingId: args.recordingId,
+          ownerEmail,
+          status: "ready",
+          failureReason: null,
+          language: builderResult.language ?? "en",
+          segmentsJson: JSON.stringify(segments),
+          fullText: builderResult.text ?? "",
+          now,
+        });
+        await writeAppState("refresh-signal", { ts: Date.now() });
+
+        if (isDefaultTitle(rec.title)) {
+          try {
+            await regenerateTitle.run({ recordingId: args.recordingId });
+          } catch (delegateErr) {
+            console.warn(
+              `[clips] auto-title delegation failed for ${args.recordingId}:`,
+              (delegateErr as Error).message,
+            );
+          }
+        }
+
+        const elapsedMs = Date.now() - startedAt;
+        console.log(
+          `Transcribed recording ${args.recordingId} via builder in ${elapsedMs}ms (${segments.length} segments)`,
+        );
+        return {
+          recordingId: args.recordingId,
+          status: "ready" as const,
+          segments: segments.length,
+          provider: "builder",
+        };
+      } catch (err) {
+        const reason = (err as Error).message;
+        await upsertTranscriptRow(db, {
+          recordingId: args.recordingId,
+          ownerEmail,
+          status: "failed",
+          failureReason: reason,
+          now,
+        });
+        await writeAppState("refresh-signal", { ts: Date.now() });
+        throw err;
+      }
+    }
+
+    // ── Groq / OpenAI fallback ────────────────────────────────────────
     // Resolve the provider BEFORE overwriting the transcript row — if no
     // key is configured but a browser-generated transcript already exists
     // (from Web Speech API during recording), preserve it instead of
     // clobbering it with "pending" then "failed".
-    const userEmail = getRequestUserEmail() ?? ownerEmail;
     const provider = await pickProvider(userEmail);
     if (!provider) {
       const [existingRow] = await db

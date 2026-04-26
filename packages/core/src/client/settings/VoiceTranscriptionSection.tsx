@@ -158,28 +158,39 @@ export function VoiceTranscriptionSection() {
 
       <ProviderOption
         id="builder"
-        selected={false}
-        onSelect={() => {}}
-        disabled
+        selected={provider === "builder"}
+        onSelect={() => choose("builder")}
+        disabled={!builderStatus?.configured}
         title="Builder"
         subtitle={
-          <>
-            Shared key across Builder workspaces. No setup needed.{" "}
-            <a
-              href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-foreground"
-              onClick={(e) => e.stopPropagation()}
-            >
-              Join the waitlist
-            </a>
-          </>
+          builderStatus?.configured
+            ? "High-quality transcription via Builder.io. No API key needed."
+            : "Connect your Builder.io account for high-quality transcription."
         }
         rightSlot={
-          <span className="rounded-full bg-accent/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Coming soon
-          </span>
+          builderStatus?.configured ? (
+            <span className="flex items-center gap-1 text-[10px] text-green-500">
+              <IconCheck size={10} />
+              Connected
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                const url = `${window.location.origin}/_agent-native/builder/connect`;
+                window.open(
+                  url,
+                  "_blank",
+                  "noopener,noreferrer,width=600,height=700",
+                );
+              }}
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
+            >
+              Connect Builder.io
+              <IconExternalLink size={10} />
+            </button>
+          )
         }
       />
 
