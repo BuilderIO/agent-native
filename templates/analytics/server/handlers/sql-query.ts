@@ -2,6 +2,7 @@ import { defineEventHandler, setResponseStatus } from "h3";
 import { requireCredential } from "../lib/credentials";
 import { runQuery } from "../lib/bigquery";
 import { runReport } from "../lib/google-analytics";
+import { getUserSegmentation, queryEvents } from "../lib/amplitude";
 import { getDbExec } from "@agent-native/core/db";
 import { readBody } from "@agent-native/core/server";
 

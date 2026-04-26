@@ -36,6 +36,7 @@ const SOURCES: { value: DataSourceType; label: string }[] = [
   { value: "bigquery", label: "BigQuery" },
   { value: "app-db", label: "App DB" },
   { value: "ga4", label: "Google Analytics" },
+  { value: "amplitude", label: "Amplitude" },
 ];
 
 function generatePanelId(title: string): string {
