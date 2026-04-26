@@ -20,14 +20,17 @@ pub struct PopoverShownAt(pub Mutex<Option<Instant>>);
 #[derive(Default)]
 pub struct RecordingActive(pub Mutex<bool>);
 
+#[allow(dead_code)]
 /// Whether a meeting recording is in progress.
 #[derive(Default)]
 pub struct MeetingActive(pub Mutex<bool>);
 
+#[allow(dead_code)]
 /// Whether dictation is toggled on.
 #[derive(Default)]
 pub struct DictationEnabled(pub Mutex<bool>);
 
+#[allow(dead_code)]
 /// Last dictation result for "paste last".
 #[derive(Default)]
 pub struct LastTranscript(pub Mutex<Option<String>>);

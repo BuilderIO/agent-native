@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FeatureConfig {
     pub clips_enabled: bool,
     pub meetings_enabled: bool,

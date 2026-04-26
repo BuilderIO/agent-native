@@ -960,7 +960,7 @@ export function App() {
         <BottomButton
           icon="recent"
           label="Recent"
-          badge={recordings.length > 0 ? String(recordings.length) : undefined}
+          badge={undefined}
           onClick={() => setShowRecent((v) => !v)}
         />
       </div>
