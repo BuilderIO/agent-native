@@ -54,4 +54,39 @@ export default runMigrations([
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   },
+  // v7: design systems table
+  {
+    version: 7,
+    sql: `CREATE TABLE IF NOT EXISTS design_systems (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    data TEXT NOT NULL,
+    assets TEXT,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  )`,
+  },
+  // v8: companion shares table for design systems
+  {
+    version: 8,
+    sql: `CREATE TABLE IF NOT EXISTS design_system_shares (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    principal_type TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  },
+  // v9: link decks to design systems
+  {
+    version: 9,
+    sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS design_system_id TEXT`,
+  },
 ]);

@@ -60,6 +60,10 @@ export interface Deck {
   shareToken?: string;
   /** Framework sharing visibility — private (default), org, or public. */
   visibility?: "private" | "org" | "public";
+  /** ID of the design system applied to this deck */
+  designSystemId?: string;
+  /** Per-deck tweak overrides (accent color, title case, etc.) */
+  tweaks?: Record<string, string | number | boolean>;
 }
 
 export interface HistoryEntry {

@@ -120,8 +120,16 @@ Options:
     throw new Error("Script failed");
   }
 
-  if (!process.env.GEMINI_API_KEY) {
-    console.error("Error: GEMINI_API_KEY environment variable not set");
+  // Validate that at least one provider is configured
+  const { getProvider } =
+    await import("../server/handlers/image-providers/index.js");
+  let provider: Awaited<ReturnType<typeof getProvider>>;
+  try {
+    provider = getProvider();
+  } catch {
+    console.error(
+      "Error: No image generation provider configured. Set GEMINI_API_KEY or OPENAI_API_KEY.",
+    );
     throw new Error("Script failed");
   }
 
@@ -152,10 +160,6 @@ Options:
     ...DEFAULT_STYLE_REFERENCE_URLS,
     ...extraReferenceUrls,
   ];
-
-  // Dynamically import the server generation function
-  const { generateWithGemini } =
-    await import("../server/handlers/image-gen.js");
 
   // Load reference images from URLs
   const refImages: Array<{ data: string; mimeType: string }> = [];
@@ -198,7 +202,7 @@ Options:
   for (let i = 0; i < count; i++) {
     try {
       console.log(`\nGenerating variation ${i + 1}/${count}...`);
-      const result = await generateWithGemini(prompt, refImages, context);
+      const result = await provider.generate(prompt, refImages, context);
 
       if (outputPrefix) {
         const filePath = `${outputPrefix}-v${i + 1}.png`;
