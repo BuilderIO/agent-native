@@ -1,11 +1,15 @@
+use std::io::Write;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
 };
 
 use crate::dlog;
-use crate::state::{RecordingActive, TrayAnchor};
+use crate::state::{LastTranscript, RecordingActive, TrayAnchor};
 use crate::util::{
     build_overlay_url, mark_popover_shown, primary_monitor_physical_size, set_capture_excluded,
 };
@@ -16,6 +20,7 @@ const COUNTDOWN_LABEL: &str = "countdown";
 const TOOLBAR_LABEL: &str = "toolbar";
 const BUBBLE_LABEL: &str = "bubble";
 const FINALIZING_LABEL: &str = "finalizing";
+const FLOW_BAR_LABEL: &str = "flow-bar";
 
 /// Physical-pixel bubble sizes. Logical px on retina = physical / 2, so these
 /// map to ~96 (small) and ~180 (medium) logical px — matching Loom's camera
@@ -331,7 +336,13 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     };
     dlog!(
         "[clips-tray] bubble pos=({},{}) source={} size={}x{} monitor={}x{}",
-        x, y, source, size, win_h, mw, mh
+        x,
+        y,
+        source,
+        size,
+        win_h,
+        mw,
+        mh
     );
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(&app, BUBBLE_LABEL, build_overlay_url("bubble"))
@@ -372,6 +383,7 @@ pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
         TOOLBAR_LABEL,
         BUBBLE_LABEL,
         FINALIZING_LABEL,
+        FLOW_BAR_LABEL,
     ] {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
@@ -476,6 +488,122 @@ pub async fn close_signin(app: AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Show the Wispr Flow-style dictation bar centered near the lower third of
+/// the primary display. The React overlay is driven by `voice:*` events.
+#[tauri::command]
+pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
+    dlog!("[clips-tray] show_flow_bar invoked");
+    if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {
+        let _ = existing.show();
+        return Ok(());
+    }
+
+    let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
+    let w: u32 = 820;
+    let h: u32 = 140;
+    let x: i32 = ((mw as i32 - w as i32) / 2).max(0);
+    let y: i32 = ((mh as f64 * 0.72) as i32 - h as i32 / 2).max(0);
+
+    let win = WebviewWindowBuilder::new(&app, FLOW_BAR_LABEL, build_overlay_url("flow-bar"))
+        .title("Voice")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(false)
+        .focused(false)
+        .build()
+        .map_err(|e| {
+            eprintln!("[clips-tray] flow bar build failed: {}", e);
+            e.to_string()
+        })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    let _ = win.set_ignore_cursor_events(true);
+    set_capture_excluded(&win);
+    let _ = win.show();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn hide_flow_bar(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(FLOW_BAR_LABEL) {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<(), String> {
+    let trimmed = text.trim().to_string();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    dlog!(
+        "[clips-tray] complete_voice_dictation chars={}",
+        trimmed.chars().count()
+    );
+    if let Some(last) = app.try_state::<LastTranscript>() {
+        if let Ok(mut g) = last.0.lock() {
+            *g = Some(trimmed.clone());
+        }
+    }
+    write_clipboard(&trimmed)?;
+    paste_clipboard();
+    Ok(())
+}
+
+fn write_clipboard(text: &str) -> Result<(), String> {
+    let mut child = Command::new("pbcopy")
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("pbcopy spawn: {e}"))?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin
+            .write_all(text.as_bytes())
+            .map_err(|e| format!("pbcopy write: {e}"))?;
+    }
+    let status = child.wait().map_err(|e| format!("pbcopy wait: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("pbcopy exited with {status}"))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn paste_clipboard() {
+    use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+    thread::spawn(|| {
+        thread::sleep(Duration::from_millis(80));
+        let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
+            eprintln!("[clips-tray] paste failed: no CGEventSource");
+            return;
+        };
+        // ANSI V on macOS.
+        let key_v: u16 = 9;
+        let Ok(down) = CGEvent::new_keyboard_event(source.clone(), key_v, true) else {
+            eprintln!("[clips-tray] paste failed: no keydown event");
+            return;
+        };
+        let Ok(up) = CGEvent::new_keyboard_event(source, key_v, false) else {
+            eprintln!("[clips-tray] paste failed: no keyup event");
+            return;
+        };
+        down.set_flags(CGEventFlags::CGEventFlagCommand);
+        up.set_flags(CGEventFlags::CGEventFlagCommand);
+        down.post(CGEventTapLocation::HID);
+        up.post(CGEventTapLocation::HID);
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn paste_clipboard() {}
 
 /// Record the popover's current recording state. When active, clicking the
 /// tray icon emits a stop event instead of toggling the popover — so the

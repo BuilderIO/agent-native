@@ -47,7 +47,25 @@ function isSameOriginRequest(event: H3Event): boolean {
   const origin = getRequestHeader(event, "origin");
   if (origin && host) {
     try {
-      return new URL(origin).host === host;
+      const parsed = new URL(origin);
+      if (parsed.host === host) return true;
+      // Tauri desktop dev serves the tray WebView from localhost:1420 while
+      // the app server lives on the template dev port. Production Tauri
+      // WebViews can also send a tauri://localhost origin. Treat only those
+      // desktop origins as trusted cross-origin callers; arbitrary websites
+      // still fail the CSRF check.
+      if (parsed.protocol === "tauri:" && parsed.hostname === "localhost") {
+        return true;
+      }
+      if (
+        parsed.protocol === "http:" &&
+        (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") &&
+        parsed.port === "1420" &&
+        (host.startsWith("localhost:") || host.startsWith("127.0.0.1:"))
+      ) {
+        return true;
+      }
+      return false;
     } catch {
       return false;
     }
@@ -108,7 +126,7 @@ export function createTranscribeVoiceHandler() {
     );
 
     // ── Builder proxy path ──────────────────────────────────────────────
-    if (providerPref === "builder" && hasBuilderPrivateKey()) {
+    if (providerPref !== "openai" && hasBuilderPrivateKey()) {
       try {
         const result = await transcribeWithBuilder({
           audioBytes,

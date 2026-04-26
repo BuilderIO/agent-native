@@ -9,7 +9,9 @@ import {
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
+import { installDesktopVoiceDictation } from "./lib/voice-dictation";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { useFeatureConfig } from "./shared/config";
 
 interface RecordingSummary {
   id: string;
@@ -85,6 +87,7 @@ function formatAgo(iso: string): string {
 }
 
 export function App() {
+  const featureConfig = useFeatureConfig();
   const [serverUrl, setServerUrl] = useState<string>(() =>
     loadString(STORAGE_KEY, DEFAULT_URL).replace(/\/+$/, ""),
   );
@@ -121,6 +124,13 @@ export function App() {
   );
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
   const isRecording = recorder !== null;
+
+  useEffect(() => {
+    return installDesktopVoiceDictation({
+      enabled: featureConfig?.voiceEnabled !== false,
+      serverUrl,
+    });
+  }, [featureConfig?.voiceEnabled, serverUrl]);
 
   // ---- auth status --------------------------------------------------------
   // The Tauri WebView has its own cookie jar (separate from the user's

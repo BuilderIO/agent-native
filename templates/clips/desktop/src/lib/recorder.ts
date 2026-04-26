@@ -117,7 +117,7 @@ async function createRecording(
       // requests without Allow-Credentials — and dev auth is bypassed, so
       // cookies aren't needed.
       credentials: "include",
-      body: JSON.stringify({ hasCamera, hasAudio }),
+      body: JSON.stringify({ hasCamera, hasAudio, visibility: "public" }),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -619,7 +619,7 @@ async function startNativeRecordingInner(
 
   const handle: RecorderHandle = {
     async stop() {
-      if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
+      if (stopped) return { recordingId: id, viewUrl: `/share/${id}` };
       stopped = true;
       console.log("[clips-recorder] stop requested");
       clearInterval(tickHandle);
@@ -743,7 +743,7 @@ async function startNativeRecordingInner(
       // and THEN close the finalizing spinner. Closing before the browser
       // opens would leave the user staring at an empty desktop for the
       // brief moment while the OS launches / focuses the default browser.
-      const viewUrl = `/r/${id}`;
+      const viewUrl = `/share/${id}`;
       try {
         await openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`);
       } catch (err) {

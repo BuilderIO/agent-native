@@ -157,6 +157,45 @@ export default function ShareRoute() {
     );
   }
 
+  if (recording.status !== "ready" || !recording.videoUrl) {
+    const progress = Number(recording.uploadProgress ?? 0);
+    const explicitFailure = recording.status === "failed";
+    const label = explicitFailure
+      ? "Something went wrong while saving this clip."
+      : "Finishing up this clip...";
+    const message = explicitFailure
+      ? ((recording as any).failureReason ?? "The creator may need to retry.")
+      : "Uploading and assembling the video. This page will update automatically.";
+
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#0a0a0a] text-white px-6">
+        {!explicitFailure ? (
+          <Spinner className="h-8 w-8 mb-4 text-white/70" />
+        ) : null}
+        <h1 className="text-lg font-semibold mb-1">{label}</h1>
+        <p className="text-sm text-white/60 mb-4 max-w-md text-center">
+          {message}
+        </p>
+        {!explicitFailure && progress > 0 ? (
+          <div className="w-64 h-1.5 rounded-full bg-white/10 overflow-hidden mb-4">
+            <div
+              className="h-full bg-white"
+              style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+            />
+          </div>
+        ) : null}
+        <Button
+          onClick={() => dataQ.refetch()}
+          variant="outline"
+          size="sm"
+          className="border-white/20 bg-white/5 hover:bg-white/10 text-white"
+        >
+          Check again
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
       <div className="mx-auto max-w-6xl px-4 py-4 flex items-center justify-between">
