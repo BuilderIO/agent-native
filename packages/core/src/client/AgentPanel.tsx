@@ -1668,9 +1668,6 @@ export function AgentSidebar({
           ? "translateX(0)"
           : `translateX(${isLeft ? "-" : ""}calc(100% + 1px))`
         : undefined,
-      transition: animateMobile
-        ? "transform 260ms cubic-bezier(0.32, 0.72, 0, 1)"
-        : undefined,
       pointerEvents: animateMobile && !open ? "none" : undefined,
       willChange: animateMobile ? "transform" : undefined,
     };
@@ -1714,9 +1711,10 @@ export function AgentSidebar({
           "agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased",
           animateMobile &&
             isMobile &&
-            "shadow-2xl motion-reduce:transition-none",
+            "shadow-2xl transition-transform duration-[260ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
         )}
         style={panelStyle}
+        inert={isMobile && !open ? true : undefined}
         aria-hidden={isMobile && !open ? true : undefined}
       >
         <AgentPanel

@@ -433,6 +433,7 @@ export function App() {
 
   useEffect(() => {
     if (!bubbleActive) return;
+    setCameraError(null);
 
     let cancelled = false;
     // Dual-transport bookkeeping. We try WebRTC first; if it fails or
