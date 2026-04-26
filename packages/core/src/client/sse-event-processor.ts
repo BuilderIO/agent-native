@@ -79,6 +79,13 @@ export function processEvent(
   if (ev.type === "tool_start") {
     const toolCallId = `tc_${++toolCallCounter.value}`;
     const args = (ev.input ?? {}) as Record<string, string>;
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-start", {
+          detail: { tool: ev.tool ?? "unknown", input: args },
+        }),
+      );
+    }
     content.push({
       type: "tool-call",
       toolCallId,
@@ -93,6 +100,13 @@ export function processEvent(
   }
 
   if (ev.type === "tool_done") {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: { tool: ev.tool ?? "unknown", result: ev.result },
+        }),
+      );
+    }
     for (let i = content.length - 1; i >= 0; i--) {
       const part = content[i];
       if (

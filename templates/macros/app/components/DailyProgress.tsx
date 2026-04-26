@@ -25,8 +25,6 @@ import {
   IconTrendingUp,
   IconActivity,
   IconChartBar,
-  IconChevronDown,
-  IconChevronUp,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 
@@ -53,7 +51,6 @@ export function DailyProgress({
         ? localStorage.getItem("hero_active_chart")
         : null) || "weight",
   );
-  const [showTrendsMobile, setShowTrendsMobile] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("hero_active_chart", activeChart);
@@ -94,7 +91,7 @@ export function DailyProgress({
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 sm:p-5 backdrop-blur-sm">
-      <div className="grid lg:grid-cols-[1fr,340px] gap-6 sm:gap-8">
+      <div className="grid xl:grid-cols-[1fr_340px] gap-6 xl:gap-8">
         {/* Left Side */}
         <div className="space-y-8 flex flex-col justify-center">
           <div className="flex items-center justify-between">
@@ -102,22 +99,6 @@ export function DailyProgress({
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">
                 Daily Summary
               </p>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="lg:hidden h-6 px-2 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-white/5 gap-1"
-                onClick={() => setShowTrendsMobile(!showTrendsMobile)}
-              >
-                {showTrendsMobile ? (
-                  <>
-                    Hide Trends <IconChevronUp className="h-3 w-3" />
-                  </>
-                ) : (
-                  <>
-                    Show Trends <IconChevronDown className="h-3 w-3" />
-                  </>
-                )}
-              </Button>
             </div>
             <div className="px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.05] flex items-center">
               <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest leading-none">
@@ -213,12 +194,7 @@ export function DailyProgress({
         </div>
 
         {/* Right Side: Charts */}
-        <div
-          className={cn(
-            "border-t lg:border-t-0 lg:border-l border-white/[0.08] pt-8 lg:pt-0 lg:pl-8 flex flex-col justify-center transition-all duration-300",
-            !showTrendsMobile && "hidden lg:flex",
-          )}
-        >
+        <div className="hidden xl:flex border-l border-white/[0.08] pl-8 flex-col justify-center transition-all duration-300">
           <Tabs
             value={activeChart}
             onValueChange={setActiveChart}
