@@ -432,10 +432,8 @@ export function App() {
   }, [toolbarActive]);
 
   useEffect(() => {
-    invoke("js_log", {
-      msg: `bubbleActive=${bubbleActive} wantsCamera=${wantsCamera} popoverVisible=${popoverVisible} mode=${mode} cameraOn=${cameraOn}`,
-    }).catch(() => {});
     if (!bubbleActive) return;
+    setCameraError(null);
 
     let cancelled = false;
     // Dual-transport bookkeeping. We try WebRTC first; if it fails or
@@ -507,9 +505,6 @@ export function App() {
       .catch((err) => {
         if (cancelled) return;
         console.error("[clips-popover] camera acquisition failed:", err);
-        invoke("js_log", {
-          msg: `CAMERA FAILED: ${err?.name} ${err?.message}`,
-        }).catch(() => {});
         const msg = err?.message ?? "";
         if (
           msg.includes("AVVideoCaptureSource") ||
@@ -784,9 +779,6 @@ export function App() {
     // flag + popover visibility) were already restored in the finally
     // block above. Now surface any non-cancel error to the UI.
     console.error("[clips-popover] startRecording failed:", startError);
-    invoke("js_log", {
-      msg: `RECORDING FAILED: ${(startError as any)?.name} ${(startError as any)?.message}`,
-    }).catch(() => {});
 
     // User cancelled the macOS screen-picker (or denied permission).
     // WebKit throws DOMException `NotAllowedError` for BOTH cancel and
@@ -991,6 +983,9 @@ export function App() {
         Start recording
       </button>
       {recError ? <div className="error-banner">{recError}</div> : null}
+      {cameraError && !recError ? (
+        <div className="error-banner">{cameraError}</div>
+      ) : null}
 
       <div className="bottom-row">
         <BottomButton

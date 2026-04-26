@@ -1428,6 +1428,8 @@ export interface AgentSidebarProps {
   position?: "left" | "right";
   /** Whether the sidebar starts open. Default: false */
   defaultOpen?: boolean;
+  /** Animate the mobile overlay in a sheet-style slide transition. */
+  animateMobile?: boolean;
 }
 
 /**
@@ -1441,6 +1443,7 @@ export function AgentSidebar({
   sidebarWidth = 380,
   position = "right",
   defaultOpen = false,
+  animateMobile = false,
 }: AgentSidebarProps) {
   const [open, setOpen] = useState(() => {
     // On mobile viewports the sidebar would cover most of the screen, so
@@ -1659,7 +1662,14 @@ export function AgentSidebar({
       background: "hsl(var(--background))",
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
-      display: open ? "flex" : "none",
+      display: animateMobile || open ? "flex" : "none",
+      transform: animateMobile
+        ? open
+          ? "translateX(0)"
+          : `translateX(${isLeft ? "-" : ""}calc(100% + 1px))`
+        : undefined,
+      pointerEvents: animateMobile && !open ? "none" : undefined,
+      willChange: animateMobile ? "transform" : undefined,
     };
   } else if (effectiveFullscreen) {
     panelStyle = {
@@ -1697,8 +1707,15 @@ export function AgentSidebar({
         <ResizeHandle position={position} onDrag={handleDrag} />
       )}
       <div
-        className="agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased"
+        className={cn(
+          "agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased",
+          animateMobile &&
+            isMobile &&
+            "shadow-2xl transition-transform duration-[260ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+        )}
         style={panelStyle}
+        inert={isMobile && !open ? true : undefined}
+        aria-hidden={isMobile && !open ? true : undefined}
       >
         <AgentPanel
           emptyStateText={emptyStateText}
@@ -1717,9 +1734,15 @@ export function AgentSidebar({
   return (
     <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
       {/* Mobile backdrop — tapping it closes the sidebar */}
-      {isMobile && open && !presentationMode && (
+      {isMobile && !presentationMode && (animateMobile || open) && (
         <div
-          className="fixed inset-0 z-40 bg-black/40"
+          className={cn(
+            "fixed inset-0 z-40 bg-black/40",
+            animateMobile &&
+              "transition-opacity duration-200 motion-reduce:transition-none",
+            animateMobile && !open && "pointer-events-none opacity-0",
+            animateMobile && open && "opacity-100",
+          )}
           onClick={() => setOpenPersisted(false)}
         />
       )}
