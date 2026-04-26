@@ -7,7 +7,8 @@ import { db, schema } from "../server/db/index.js";
 import { z } from "zod";
 
 export default defineAction({
-  description: "Log a meal with calories and optional macros",
+  description:
+    "Log/add/record a meal entry with calories and optional macros. Use this for every user request to add a meal; do not use web-request/fetch/raw HTTP to create meals.",
   schema: z.object({
     name: z.string().optional().describe("Meal name"),
     calories: z.coerce.number().optional().describe("Calories"),

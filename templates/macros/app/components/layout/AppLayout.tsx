@@ -65,6 +65,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     <AgentSidebar
       position="right"
       defaultOpen={false}
+      animateMobile
       emptyStateText="Just tell me what you ate — I'll estimate the macros"
       suggestions={[
         "Fried chicken dinner, 600 cal",

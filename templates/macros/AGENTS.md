@@ -75,6 +75,8 @@ cd templates/macros && pnpm action <name> [args]
 | `edit-item`      | `--type --id [field args]`                             | Edit an existing item        |
 | `get-analytics`  | `[--days]`                                             | Get calorie/weight analytics |
 
+Meal logging rule: for any request to add, log, record, or track a meal, use `log-meal` directly. Never use `web-request`, `fetch`, raw HTTP, or `/_agent-native/actions/log-meal` manually to create a meal entry. If nutrition numbers are not exact, make a reasonable estimate and still call `log-meal`.
+
 ## Common Tasks
 
 | User request                   | What to do                                             |
