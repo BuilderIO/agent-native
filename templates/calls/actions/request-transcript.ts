@@ -65,19 +65,10 @@ export default defineAction({
     const ownerEmail = getCurrentOwnerEmail();
     const nowIso = new Date().toISOString();
 
-    await upsertTranscriptRow(db, {
-      callId: args.callId,
-      ownerEmail,
-      status: "pending",
-      failureReason: null,
-      now: nowIso,
-    });
-    await db
-      .update(schema.calls)
-      .set({ status: "transcribing", updatedAt: nowIso })
-      .where(eq(schema.calls.id, args.callId));
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
+    // Resolve the API key BEFORE overwriting the transcript row — if no
+    // key is configured but a browser-generated transcript already exists
+    // (from Web Speech API during recording), preserve it instead of
+    // clobbering it with "pending" then "failed".
     let apiKey: string | undefined;
     const userEmail = getRequestUserEmail() ?? ownerEmail;
     if (userEmail) {
@@ -92,6 +83,26 @@ export default defineAction({
       apiKey = await resolveCredential("DEEPGRAM_API_KEY");
     }
     if (!apiKey) {
+      const [existingRow] = await db
+        .select({
+          status: schema.callTranscripts.status,
+          fullText: schema.callTranscripts.fullText,
+        })
+        .from(schema.callTranscripts)
+        .where(eq(schema.callTranscripts.callId, args.callId))
+        .limit(1);
+
+      if (existingRow?.status === "ready" && existingRow.fullText?.trim()) {
+        console.log(
+          `[calls] No DEEPGRAM_API_KEY configured but browser transcript exists for ${args.callId} — keeping it`,
+        );
+        return {
+          callId: args.callId,
+          status: "ready" as const,
+          provider: "browser",
+        };
+      }
+
       await failTranscript(
         db,
         args.callId,
@@ -105,6 +116,19 @@ export default defineAction({
         failureReason: "DEEPGRAM_API_KEY not configured",
       };
     }
+
+    await upsertTranscriptRow(db, {
+      callId: args.callId,
+      ownerEmail,
+      status: "pending",
+      failureReason: null,
+      now: nowIso,
+    });
+    await db
+      .update(schema.calls)
+      .set({ status: "transcribing", updatedAt: nowIso })
+      .where(eq(schema.calls.id, args.callId));
+    await writeAppState("refresh-signal", { ts: Date.now() });
 
     const call = await getCallOrThrow(args.callId);
     if (!call.mediaUrl) {
