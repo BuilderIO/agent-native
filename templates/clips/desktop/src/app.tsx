@@ -110,6 +110,7 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   // Latched true the moment the user clicks Start Recording and cleared
   // when the recorder fully stops/cancels. We use this to suppress the
   // popover auto-hide during the macOS screen-picker focus dance.
@@ -509,6 +510,18 @@ export function App() {
         invoke("js_log", {
           msg: `CAMERA FAILED: ${err?.name} ${err?.message}`,
         }).catch(() => {});
+        const msg = err?.message ?? "";
+        if (
+          msg.includes("AVVideoCaptureSource") ||
+          msg.includes("sandbox") ||
+          err?.name === "NotAllowedError"
+        ) {
+          setCameraError(
+            "Camera access blocked. Open System Settings → Privacy & Security → Camera and enable your terminal app, then restart Clips.",
+          );
+        } else {
+          setCameraError(`Camera unavailable: ${msg}`);
+        }
       });
 
     return () => {
