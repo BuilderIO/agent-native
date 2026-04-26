@@ -69,39 +69,39 @@
     },
     {
       "id": "clicks-by-template",
-      "title": "Clicks by Template",
+      "title": "Clicks by Page",
       "chartType": "bar",
       "source": "ga4",
       "width": 1,
-      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"customEvent:template\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"click_template\",\"matchType\":\"EXACT\"}}}}",
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"pagePath\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"click_template\",\"matchType\":\"EXACT\"}}}}",
       "config": {
-        "xKey": "customEvent:template",
+        "xKey": "pagePath",
         "yKey": "eventCount",
         "color": "#6366f1"
       }
     },
     {
       "id": "demo-clicks-by-template",
-      "title": "Demo Clicks by Template",
+      "title": "Demo Clicks by Page",
       "chartType": "bar",
       "source": "ga4",
       "width": 1,
-      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"customEvent:template\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"click_try_demo\",\"matchType\":\"EXACT\"}}}}",
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"pagePath\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"click_try_demo\",\"matchType\":\"EXACT\"}}}}",
       "config": {
-        "xKey": "customEvent:template",
+        "xKey": "pagePath",
         "yKey": "eventCount",
         "color": "#8b5cf6"
       }
     },
     {
       "id": "cli-copies-by-template",
-      "title": "CLI Copies by Template",
+      "title": "CLI Copies by Page",
       "chartType": "bar",
       "source": "ga4",
       "width": 1,
-      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"customEvent:template\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"copy_cli_command\",\"matchType\":\"EXACT\"}}}}",
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"pagePath\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"copy_cli_command\",\"matchType\":\"EXACT\"}}}}",
       "config": {
-        "xKey": "customEvent:template",
+        "xKey": "pagePath",
         "yKey": "eventCount",
         "color": "#06b6d4"
       }
