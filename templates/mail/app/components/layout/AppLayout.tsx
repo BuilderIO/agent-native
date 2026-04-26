@@ -374,8 +374,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     });
   }, [labels]);
 
-
-
   const handleCompose = useCallback(() => {
     compose.open({
       to: "",
@@ -778,9 +776,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   )}
 
                   {/* Tab settings cog */}
-                  <div
-                    className={cn("relative", tabsLoading && "invisible")}
-                  >
+                  <div className={cn("relative", tabsLoading && "invisible")}>
                     <Popover
                       open={tabSettingsOpen}
                       onOpenChange={(open) => {

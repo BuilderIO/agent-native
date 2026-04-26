@@ -151,9 +151,7 @@ export default defineAction({
           fullText: schema.recordingTranscripts.fullText,
         })
         .from(schema.recordingTranscripts)
-        .where(
-          eq(schema.recordingTranscripts.recordingId, args.recordingId),
-        )
+        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
         .limit(1);
 
       if (existingRow?.status === "ready" && existingRow.fullText?.trim()) {

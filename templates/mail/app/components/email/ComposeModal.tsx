@@ -95,21 +95,24 @@ function FromAccountSelector({
       <span className="w-8 shrink-0 text-xs font-medium text-muted-foreground">
         From
       </span>
-      <select
+      <Select
         value={resolvedValue}
-        onChange={(e) => {
-          const email = e.target.value;
+        onValueChange={(email) => {
           localStorage.setItem(LAST_SEND_ACCOUNT_KEY, email);
           onChange(email);
         }}
-        className="flex-1 bg-transparent py-2 text-sm outline-none text-foreground cursor-pointer"
       >
-        {accounts.map((acct) => (
-          <option key={acct.email} value={acct.email}>
-            {acct.email}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger className="flex-1 border-0 bg-transparent py-2 text-sm shadow-none focus:ring-0 h-auto px-0 cursor-pointer">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {accounts.map((acct) => (
+            <SelectItem key={acct.email} value={acct.email}>
+              {acct.email}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

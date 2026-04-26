@@ -13,9 +13,8 @@
 
 import { useCallback, useRef, useState } from "react";
 
-function getSpeechRecognitionCtor(): {
-  new (): SpeechRecognition;
-} | null {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getSpeechRecognitionCtor(): any {
   if (typeof window === "undefined") return null;
   return (
     (window as any).SpeechRecognition ||
@@ -52,7 +51,8 @@ export function useLiveTranscription(
   const [transcript, setTranscript] = useState("");
   const [interimText, setInterimText] = useState("");
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
   const stoppedManuallyRef = useRef(false);
 
@@ -81,7 +81,7 @@ export function useLiveTranscription(
     setTranscript("");
     setInterimText("");
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: any) => {
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
@@ -96,7 +96,7 @@ export function useLiveTranscription(
       setInterimText(interim);
     };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    recognition.onerror = (event: any) => {
       if (event.error === "no-speech" || event.error === "aborted") return;
       console.warn("[live-transcription] error:", event.error);
     };

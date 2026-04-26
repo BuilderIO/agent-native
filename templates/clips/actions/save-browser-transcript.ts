@@ -53,9 +53,7 @@ export default defineAction({
           failureReason: null,
           updatedAt: now,
         })
-        .where(
-          eq(schema.recordingTranscripts.recordingId, args.recordingId),
-        );
+        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
     } else {
       await db.insert(schema.recordingTranscripts).values({
         recordingId: args.recordingId,
