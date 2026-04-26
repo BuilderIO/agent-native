@@ -14,6 +14,7 @@ import {
   defineEventHandler,
   getMethod,
   getQuery,
+  sendRedirect,
   setResponseHeader,
   setResponseStatus,
   getCookie,
@@ -453,7 +454,7 @@ function applyCorsHeaders(event: H3Event): void {
     .filter(Boolean);
   const allowed =
     allowlist.length === 0
-      ? /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      ? /^(https?|tauri):\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
       : allowlist.includes(origin);
   if (!allowed) return;
   setResponseHeader(event, "Access-Control-Allow-Origin", origin);
@@ -1016,9 +1017,11 @@ async function mountBetterAuthRoutes(
           prompt: "select_account",
           state,
         });
-        return {
-          url: `https://accounts.google.com/o/oauth2/v2/auth?${params}`,
-        };
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+        if (q.redirect === "1") {
+          return sendRedirect(event, authUrl);
+        }
+        return { url: authUrl };
       }),
     );
 
