@@ -89,4 +89,46 @@ export default runMigrations([
     version: 9,
     sql: `ALTER TABLE decks ADD COLUMN IF NOT EXISTS design_system_id TEXT`,
   },
+  // v10-v15: fix boolean columns on Postgres only. The adaptSqlForPostgres
+  // rewriter turns INTEGER → BIGINT, so migrations v2 & v7 created the columns
+  // as bigint. Drizzle's integer({ mode: "boolean" }) maps to pg boolean, so
+  // inserts send a JS boolean that Postgres rejects ("column is of type bigint
+  // but expression is of type boolean"). Convert both columns to boolean.
+  // SQLite doesn't need this — its INTEGER works fine with boolean mode.
+  {
+    version: 10,
+    sql: {
+      postgres: `ALTER TABLE design_systems ALTER COLUMN is_default DROP DEFAULT`,
+    },
+  },
+  {
+    version: 11,
+    sql: {
+      postgres: `ALTER TABLE design_systems ALTER COLUMN is_default TYPE boolean USING is_default::int::boolean`,
+    },
+  },
+  {
+    version: 12,
+    sql: {
+      postgres: `ALTER TABLE design_systems ALTER COLUMN is_default SET DEFAULT false`,
+    },
+  },
+  {
+    version: 13,
+    sql: {
+      postgres: `ALTER TABLE slide_comments ALTER COLUMN resolved DROP DEFAULT`,
+    },
+  },
+  {
+    version: 14,
+    sql: {
+      postgres: `ALTER TABLE slide_comments ALTER COLUMN resolved TYPE boolean USING resolved::int::boolean`,
+    },
+  },
+  {
+    version: 15,
+    sql: {
+      postgres: `ALTER TABLE slide_comments ALTER COLUMN resolved SET DEFAULT false`,
+    },
+  },
 ]);

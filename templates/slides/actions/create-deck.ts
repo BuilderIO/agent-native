@@ -26,6 +26,7 @@ const SlideSchema = z.object({
     ])
     .optional()
     .describe("Layout type hint"),
+  notes: z.string().optional().describe("Speaker notes for this slide"),
 });
 
 // Accept either a parsed array (HTTP/agent) or a JSON string (CLI)

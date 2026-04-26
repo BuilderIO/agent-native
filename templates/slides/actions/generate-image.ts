@@ -12,6 +12,7 @@
  *   --slide-content       HTML content of the current slide (primary context)
  *   --deck-id             Deck ID to load full deck text as secondary context
  *   --slide-id            Slide ID within the deck (used with --deck-id to highlight current slide)
+ *   --model               Provider: 'gemini', 'openai', or 'auto' (default: auto)
  *   --reference-image-urls  Comma-separated URLs of extra reference images
  *   --count               Number of variations to generate (default: 1)
  *   --output              Output file path prefix (e.g. public/assets/generated/slide21)
@@ -107,6 +108,7 @@ Options:
   --slide-content         HTML content of the current slide (primary context)
   --deck-id               Deck ID to load full deck text as secondary context
   --slide-id              Slide ID within the deck (highlights current slide)
+  --model                 Provider: 'gemini', 'openai', or 'auto' (default: auto)
   --reference-image-urls  Comma-separated URLs of extra reference images
   --count                 Number of variations (default: 1)
   --output                Output file path prefix (files: {prefix}-v1.png, etc.)
@@ -123,9 +125,10 @@ Options:
   // Validate that at least one provider is configured
   const { getProvider } =
     await import("../server/handlers/image-providers/index.js");
+  const modelChoice = opts["model"] || "auto";
   let provider: Awaited<ReturnType<typeof getProvider>>;
   try {
-    provider = getProvider();
+    provider = getProvider(modelChoice);
   } catch {
     console.error(
       "Error: No image generation provider configured. Set GEMINI_API_KEY or OPENAI_API_KEY.",

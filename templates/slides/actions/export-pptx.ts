@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { resolveAccess } from "@agent-native/core/sharing";
+import "../server/db/index.js"; // ensure registerShareableResource runs
 
 /**
  * Extract inline style value for a given property from a style string.
@@ -300,9 +301,10 @@ export default defineAction({
   schema: z.object({
     deckId: z.string().describe("Deck ID to export"),
     includeNotes: z
-      .boolean()
-      .optional()
-      .default(true)
+      .preprocess(
+        (v) => (v === "true" ? true : v === "false" ? false : v),
+        z.boolean().optional().default(true),
+      )
       .describe("Include speaker notes"),
   }),
   run: async ({ deckId, includeNotes }) => {

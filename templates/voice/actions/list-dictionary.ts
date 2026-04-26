@@ -36,7 +36,7 @@ export default defineAction({
     if (args.search) {
       const pat = `%${args.search}%`;
       whereClauses.push(
-        sql`(${schema.dictationDictionary.term} LIKE ${pat} OR ${schema.dictationDictionary.correction} LIKE ${pat})`,
+        sql`(LOWER(${schema.dictationDictionary.term}) LIKE LOWER(${pat}) OR LOWER(${schema.dictationDictionary.correction}) LIKE LOWER(${pat}))`,
       );
     }
 

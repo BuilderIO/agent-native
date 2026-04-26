@@ -1,5 +1,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { useParams, Navigate, useSearchParams } from "react-router";
+import {
+  useParams,
+  Navigate,
+  useSearchParams,
+  useNavigate,
+} from "react-router";
 import {
   DndContext,
   closestCenter,
@@ -33,12 +38,14 @@ import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { getPreset } from "@/lib/design-systems";
+import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 
 // Stable tab ID for jitter prevention (module-level = never recreated)
 const COLLAB_TAB_ID = `slides-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     getDeck,
@@ -402,6 +409,29 @@ export default function DeckEditor() {
         onToggleAnimations={() => setAnimationsOpen((o) => !o)}
         tweaksOpen={tweaksOpen}
         onToggleTweaks={() => setTweaksOpen((o) => !o)}
+        onDuplicateDeck={async () => {
+          try {
+            const res = await fetch("/_agent-native/actions/duplicate-deck", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ deckId: id }),
+            });
+            const data = await res.json();
+            if (data.id) {
+              navigate(`/deck/${data.id}`);
+            }
+          } catch (err) {
+            console.error("Duplicate failed:", err);
+          }
+        }}
+        onExportPdf={async () => {
+          const els = Array.from(
+            document.querySelectorAll(".slide-content"),
+          ) as HTMLElement[];
+          if (els.length > 0) {
+            await exportDeckAsPdf(deck.title, els);
+          }
+        }}
       />
 
       <div className="flex-1 flex overflow-hidden relative">
@@ -511,7 +541,7 @@ export default function DeckEditor() {
 
         {tweaksOpen && (
           <TweaksPanel
-            tweaks={getPreset("default").tweaks}
+            tweaks={getPreset(deck?.designSystemId || "default").tweaks}
             values={deck?.tweaks || {}}
             onChange={(tweakId, value) => {
               updateDeck(id, {

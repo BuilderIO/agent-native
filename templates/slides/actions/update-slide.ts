@@ -4,6 +4,7 @@ import { hasCollabState } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { notifyClients } from "../server/handlers/decks.js";
+import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
   description:
