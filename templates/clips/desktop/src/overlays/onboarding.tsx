@@ -20,10 +20,12 @@ export function Onboarding() {
     setSubmitting(true);
     try {
       await invoke("set_feature_config", {
-        clipsEnabled: clips,
-        meetingsEnabled: meetings,
-        voiceEnabled: voice,
-        onboardingComplete: true,
+        config: {
+          clipsEnabled: clips,
+          meetingsEnabled: meetings,
+          voiceEnabled: voice,
+          onboardingComplete: true,
+        },
       });
       await invoke("show_popover");
     } catch (err) {

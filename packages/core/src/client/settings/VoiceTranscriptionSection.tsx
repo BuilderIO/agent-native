@@ -17,6 +17,7 @@ import {
   IconLoader2,
   IconMicrophone,
 } from "@tabler/icons-react";
+import { useBuilderStatus } from "./useBuilderStatus.js";
 
 type Provider = "openai" | "builder" | "browser";
 
@@ -40,6 +41,7 @@ export function VoiceTranscriptionSection() {
   );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const { status: builderStatus } = useBuilderStatus();
 
   useEffect(() => {
     let cancelled = false;
@@ -105,7 +107,6 @@ export function VoiceTranscriptionSection() {
 
   const choose = (next: Provider) => {
     if (next === provider) return;
-    if (next === "builder") return; // placeholder — disabled
     const previous = provider;
     setProvider(next);
     void persist(next, previous);
