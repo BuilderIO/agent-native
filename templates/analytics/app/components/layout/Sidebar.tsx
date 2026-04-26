@@ -20,6 +20,7 @@ import {
   IconDatabase,
   IconUsers,
   IconReportAnalytics,
+  IconSearch,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -1017,27 +1018,33 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </Link>
             );
           })}
+          <FeedbackButton />
         </nav>
       </div>
       <div className="p-4 border-t border-border space-y-2">
-        <FeedbackButton />
         <OrgSwitcher />
-        <button
-          onClick={() =>
-            document.dispatchEvent(
-              new KeyboardEvent("keydown", { key: "p", metaKey: true }),
-            )
-          }
-          className="flex items-center justify-between w-full rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground hover:bg-sidebar-accent/50 transition-colors"
-        >
-          <span>Search</span>
-          <kbd className="text-[10px] bg-sidebar-accent/50 px-1.5 py-0.5 rounded border border-border/50 font-mono">
-            {navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl+"}P
-          </kbd>
-        </button>
-
         <TooltipProvider delayDuration={200}>
           <div className="flex items-center justify-between">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() =>
+                    document.dispatchEvent(
+                      new KeyboardEvent("keydown", {
+                        key: "p",
+                        metaKey: true,
+                      }),
+                    )
+                  }
+                  className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
+                >
+                  <IconSearch className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <p>Search (\u2318P)</p>
+              </TooltipContent>
+            </Tooltip>
             <Popover open={logoutOpen} onOpenChange={setLogoutOpen}>
               <Tooltip>
                 <TooltipTrigger asChild>
