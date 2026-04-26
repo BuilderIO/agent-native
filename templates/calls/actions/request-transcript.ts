@@ -7,15 +7,22 @@
  * delegated to the agent chat via application-state requests.
  *
  * Flow:
- *   1. Upsert call_transcripts row with status="pending"
- *   2. Resolve DEEPGRAM_API_KEY (user-scoped secret first, then credentials)
- *   3. Fetch media bytes (dev-fallback via app-state for /api/call-media/ urls)
- *   4. Call Deepgram -> labelSpeakers -> compute talk stats
- *   5. Upsert call_transcripts with status="ready"
- *   6. Materialize call_participants
- *   7. Set calls.status="analyzing"
- *   8. Queue agent delegations (summary / topics / trackers / suggest-snippets)
- *   9. Run keyword trackers synchronously
+ *   1. Resolve DEEPGRAM_API_KEY (user-scoped secret first, then credentials)
+ *   2. If no key but a browser transcript exists, preserve it and return early
+ *   3. Upsert call_transcripts row with status="pending"
+ *   4. Fetch media bytes (dev-fallback via app-state for /api/call-media/ urls)
+ *   5. Call Deepgram -> labelSpeakers -> compute talk stats
+ *   6. Upsert call_transcripts with status="ready"
+ *   7. Materialize call_participants
+ *   8. Set calls.status="analyzing"
+ *   9. Queue agent delegations (summary / topics / trackers / suggest-snippets)
+ *  10. Run keyword trackers synchronously
+ *
+ * Hybrid transcription: the browser's Web Speech API runs during recording
+ * and saves an instant transcript via `save-browser-transcript`. If this
+ * action finds a browser transcript and no API key is configured, it
+ * preserves the browser result instead of failing. When a key IS available,
+ * Deepgram refines the browser draft with higher-quality, diarized output.
  *
  * Usage:
  *   pnpm action request-transcript --callId=<id>
