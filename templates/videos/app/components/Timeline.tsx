@@ -8,6 +8,16 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import type { AnimationTrack, EasingKey } from "@/types";
 import {
   frameToViewPct,
@@ -1845,13 +1855,14 @@ export function Timeline({
       </div>
 
       {/* ── Keyframe Conflict Resolution Modal ──────────────────────────── */}
-      {keyframeConflict && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-          onClick={() => {
-            // Clicking backdrop = undo
+      <AlertDialog
+        open={!!keyframeConflict}
+        onOpenChange={(open) => {
+          if (!open) {
+            // Closing = undo
             const conflictState = conflictUndoStateRef.current;
             if (
+              keyframeConflict &&
               conflictState &&
               conflictState.trackId === keyframeConflict.trackId
             ) {
@@ -1861,88 +1872,83 @@ export function Timeline({
               conflictUndoStateRef.current = null;
             }
             setKeyframeConflict(null);
-          }}
-        >
-          <div
-            className="bg-card border border-border rounded-lg p-6 max-w-md shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start gap-3 mb-4">
-              <IconAlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-sm font-semibold mb-1">Keyframe overlap</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Moving the keyframe(s) would create an overlap at frame{" "}
-                  <span className="font-mono font-medium text-foreground">
-                    {keyframeConflict.newFrame}
-                  </span>
-                  .
-                </p>
-              </div>
-            </div>
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-3 text-sm">
+              <IconAlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0" />
+              Keyframe overlap
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs leading-relaxed">
+              Moving the keyframe(s) would create an overlap at frame{" "}
+              <span className="font-mono font-medium text-foreground">
+                {keyframeConflict?.newFrame}
+              </span>
+              .
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-col space-y-2 sm:space-x-0">
+            <AlertDialogAction
+              onClick={() => {
+                if (!keyframeConflict) return;
+                // Replace existing keyframes using Map-based deduplication
+                const targetTrack = tracks.find(
+                  (t) => t.id === keyframeConflict.trackId,
+                );
+                if (targetTrack?.animatedProps) {
+                  const updatedProps = targetTrack.animatedProps.map((prop) => {
+                    if (!prop.keyframes) return prop;
 
-            <div className="space-y-2">
-              <button
-                onClick={() => {
-                  // Replace existing keyframes using Map-based deduplication
-                  const targetTrack = tracks.find(
-                    (t) => t.id === keyframeConflict.trackId,
-                  );
-                  if (targetTrack?.animatedProps) {
-                    const updatedProps = targetTrack.animatedProps.map(
-                      (prop) => {
-                        if (!prop.keyframes) return prop;
-
-                        // Group keyframes by frame number
-                        const frameMap = new Map<
-                          number,
-                          (typeof prop.keyframes)[0]
-                        >();
-                        prop.keyframes.forEach((kf) => {
-                          // Later keyframes overwrite earlier ones at the same frame
-                          frameMap.set(kf.frame, kf);
-                        });
-
-                        // Convert back to array
-                        const updatedKeyframes = Array.from(frameMap.values());
-                        return { ...prop, keyframes: updatedKeyframes };
-                      },
-                    );
-                    onUpdateTrack(keyframeConflict.trackId, {
-                      animatedProps: updatedProps,
+                    // Group keyframes by frame number
+                    const frameMap = new Map<
+                      number,
+                      (typeof prop.keyframes)[0]
+                    >();
+                    prop.keyframes.forEach((kf) => {
+                      // Later keyframes overwrite earlier ones at the same frame
+                      frameMap.set(kf.frame, kf);
                     });
-                  }
+
+                    // Convert back to array
+                    const updatedKeyframes = Array.from(frameMap.values());
+                    return { ...prop, keyframes: updatedKeyframes };
+                  });
+                  onUpdateTrack(keyframeConflict.trackId, {
+                    animatedProps: updatedProps,
+                  });
+                }
+                conflictUndoStateRef.current = null;
+                setKeyframeConflict(null);
+              }}
+              className="w-full"
+            >
+              Replace Existing Keyframes
+            </AlertDialogAction>
+            <AlertDialogCancel
+              onClick={() => {
+                // Undo - restore from saved state
+                const conflictState = conflictUndoStateRef.current;
+                if (
+                  keyframeConflict &&
+                  conflictState &&
+                  conflictState.trackId === keyframeConflict.trackId
+                ) {
+                  onUpdateTrack(conflictState.trackId, {
+                    animatedProps: conflictState.originalAnimatedProps,
+                  });
                   conflictUndoStateRef.current = null;
-                  setKeyframeConflict(null);
-                }}
-                className="w-full px-4 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:bg-primary/90 transition-colors"
-              >
-                Replace Existing Keyframes
-              </button>
-
-              <button
-                onClick={() => {
-                  // Undo - restore from saved state
-                  const conflictState = conflictUndoStateRef.current;
-                  if (
-                    conflictState &&
-                    conflictState.trackId === keyframeConflict.trackId
-                  ) {
-                    onUpdateTrack(conflictState.trackId, {
-                      animatedProps: conflictState.originalAnimatedProps,
-                    });
-                    conflictUndoStateRef.current = null;
-                  }
-                  setKeyframeConflict(null);
-                }}
-                className="w-full px-4 py-2 bg-secondary text-foreground rounded-lg text-xs font-medium hover:bg-secondary/80 transition-colors"
-              >
-                Undo Move
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                }
+                setKeyframeConflict(null);
+              }}
+              className="w-full"
+            >
+              Undo Move
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Context Menu for Track Management ──────────────────────────── */}
       {contextMenu &&

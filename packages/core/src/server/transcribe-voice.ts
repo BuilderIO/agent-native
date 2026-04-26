@@ -28,6 +28,9 @@ import {
 import { readAppSecret } from "../secrets/storage.js";
 import { resolveCredential } from "../credentials/index.js";
 import { getSession } from "./auth.js";
+import { appStateGet } from "../application-state/store.js";
+import { hasBuilderPrivateKey } from "./credential-provider.js";
+import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper hard limit.
@@ -83,9 +86,54 @@ export function createTranscribeVoiceHandler() {
       ? languagePart.data.toString("utf8").trim().slice(0, 8)
       : undefined;
 
-    // Resolve the key.
-    let apiKey: string | undefined;
+    // Resolve provider preference from application_state.
     const session = await getSession(event).catch(() => null);
+    const sessionId =
+      session?.email === "local@localhost"
+        ? "local"
+        : (session?.email ?? "local");
+    let providerPref: string | undefined;
+    try {
+      const prefs = await appStateGet(sessionId, "voice-transcription-prefs");
+      providerPref = (prefs as { provider?: string } | null)?.provider;
+    } catch {
+      /* fall through — default to openai path */
+    }
+
+    const mime = audio.type || "audio/webm";
+    const audioBytes = new Uint8Array(
+      audio.data.buffer,
+      audio.data.byteOffset,
+      audio.data.byteLength,
+    );
+
+    // ── Builder proxy path ──────────────────────────────────────────────
+    if (providerPref === "builder" && hasBuilderPrivateKey()) {
+      try {
+        const result = await transcribeWithBuilder({
+          audioBytes,
+          mimeType: mime,
+          language: language || undefined,
+        });
+        return { text: (result.text ?? "").trim() };
+      } catch (err) {
+        const message = (err as Error)?.message ?? String(err);
+        // Surface 402 (credits exhausted) as a 402 so the client can show
+        // a specific upgrade prompt.
+        if (message.includes("credits exhausted")) {
+          setResponseStatus(event, 402);
+          return { error: message };
+        }
+        setResponseStatus(event, 502);
+        return { error: message };
+      }
+    }
+
+    // If the user chose "builder" but the key isn't configured, fall through
+    // to the OpenAI path rather than hard-failing.
+
+    // ── OpenAI Whisper path ─────────────────────────────────────────────
+    let apiKey: string | undefined;
     if (session?.email) {
       const userSecret = await readAppSecret({
         key: "OPENAI_API_KEY",
@@ -105,17 +153,11 @@ export function createTranscribeVoiceHandler() {
       };
     }
 
-    const mime = audio.type || "audio/webm";
     const ext = pickExtension(mime);
     const filename = `composer-voice.${ext}`;
 
     const form = new FormData();
-    const bytes = new Uint8Array(
-      audio.data.buffer,
-      audio.data.byteOffset,
-      audio.data.byteLength,
-    );
-    form.append("file", new Blob([bytes], { type: mime }), filename);
+    form.append("file", new Blob([audioBytes], { type: mime }), filename);
     form.append("model", "whisper-1");
     form.append("response_format", "json");
     if (language) form.append("language", language);

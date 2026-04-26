@@ -187,7 +187,7 @@ function validateDashboardConfig(
   if (!Array.isArray(panels)) {
     return "config.panels must be an array (use [] for an empty dashboard)";
   }
-  const validSources = new Set(["bigquery", "app-db", "ga4"]);
+  const validSources = new Set(["bigquery", "app-db", "ga4", "amplitude"]);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown> | null;
     if (!p || typeof p !== "object") {
@@ -212,7 +212,7 @@ function validateDashboardConfig(
       }
     }
     if (!validSources.has(p.source as string)) {
-      return `panel[${i}].source must be 'bigquery', 'app-db', or 'ga4' (got '${p.source}'). source selects the backend — put the table name in sql, not here.`;
+      return `panel[${i}].source must be 'bigquery', 'app-db', 'ga4', or 'amplitude' (got '${p.source}'). source selects the backend — put the table name in sql, not here.`;
     }
   }
   return null;
@@ -231,6 +231,20 @@ async function validatePanelSql(
   const vars = buildDryRunVars(config);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown>;
+    if (p.source === "amplitude") {
+      const raw = typeof p.sql === "string" ? p.sql : "";
+      if (raw.trim()) {
+        try {
+          const desc = JSON.parse(interpolate(raw, vars));
+          if (!desc?.event || typeof desc.event !== "string") {
+            return `panel[${i}] "${p.title || p.id}" Amplitude descriptor requires an 'event' field`;
+          }
+        } catch (e: any) {
+          return `panel[${i}] "${p.title || p.id}" Amplitude descriptor is not valid JSON: ${e?.message}`;
+        }
+      }
+      continue;
+    }
     if (p.source !== "bigquery") continue;
     const raw = typeof p.sql === "string" ? p.sql : "";
     if (!raw.trim()) continue;

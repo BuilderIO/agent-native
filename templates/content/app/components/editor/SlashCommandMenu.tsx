@@ -20,6 +20,11 @@ import {
 } from "@tabler/icons-react";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 interface SlashCommandMenuProps {
   editor: Editor;
@@ -453,17 +458,24 @@ export function SlashCommandMenu({
       )}
 
       {/* Generate prompt popover */}
-      {generateOpen && generatePos && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setGenerateOpen(false)}
-          />
-          <div
-            className="absolute z-50 w-[calc(100vw-2rem)] max-w-80 rounded-xl border border-border bg-popover shadow-lg"
-            style={{
-              top: generatePos.top,
-              left: Math.min(generatePos.left, 16),
+      {generatePos && (
+        <Popover open={generateOpen} onOpenChange={setGenerateOpen}>
+          <PopoverTrigger asChild>
+            <span
+              className="absolute h-0 w-0 pointer-events-none"
+              style={{
+                top: generatePos.top,
+                left: Math.min(generatePos.left, 16),
+              }}
+            />
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            side="bottom"
+            className="w-[calc(100vw-2rem)] max-w-80 rounded-xl p-0"
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              generateTextareaRef.current?.focus();
             }}
           >
             <div className="p-4 pb-3">
@@ -498,8 +510,8 @@ export function SlashCommandMenu({
                 <IconArrowUp size={14} />
               </button>
             </div>
-          </div>
-        </>
+          </PopoverContent>
+        </Popover>
       )}
     </>
   );

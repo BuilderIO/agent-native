@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AgentSidebar,
   AgentToggleButton,
@@ -8,7 +8,7 @@ import {
 } from "@agent-native/core/client";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { IconFlame } from "@tabler/icons-react";
+import { IconFlame, IconLoader2 } from "@tabler/icons-react";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -117,7 +117,19 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto">{children}</main>
+        <SyncIndicator />
       </div>
     </AgentSidebar>
+  );
+}
+
+function SyncIndicator() {
+  const isFetching = useIsFetching({ queryKey: ["action"] });
+  if (!isFetching) return null;
+  return (
+    <div className="fixed bottom-4 left-4 z-50 flex items-center gap-2 rounded-full bg-muted/80 backdrop-blur-sm px-3 py-1.5 text-xs text-muted-foreground shadow-sm border border-white/[0.06]">
+      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+      Syncing…
+    </div>
   );
 }

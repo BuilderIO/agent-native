@@ -27,6 +27,13 @@ import type {
   SlideAnimation,
   AnimationType,
 } from "@/context/DeckContext";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 
 // ─── HTML parsing helpers ─────────────────────────────────────────────────────
 
@@ -125,17 +132,21 @@ function SortableAnimationItem({
       </span>
 
       {/* Type selector */}
-      <select
+      <Select
         value={anim.type}
-        onChange={(e) => onChangeType(anim.id, e.target.value as AnimationType)}
-        className="text-[10px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 py-0.5 outline-none focus:border-white/20 flex-shrink-0"
+        onValueChange={(value) => onChangeType(anim.id, value as AnimationType)}
       >
-        {ANIM_TYPES.map((t) => (
-          <option key={t.value} value={t.value}>
-            {t.label}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger className="h-auto text-[10px] bg-white/[0.06] border-white/[0.08] text-white/60 rounded px-1.5 py-0.5 flex-shrink-0 w-auto gap-1 min-w-[70px] focus:ring-0 focus:ring-offset-0">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {ANIM_TYPES.map((t) => (
+            <SelectItem key={t.value} value={t.value}>
+              {t.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       {/* Remove */}
       <button

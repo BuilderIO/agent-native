@@ -5,6 +5,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { useProjects } from "@/hooks/use-projects";
 import { useCreateIssue } from "@/hooks/use-issues";
 import { markdownToAdf } from "@/lib/adf-client";
@@ -72,18 +79,18 @@ export function CreateIssueDialog({
             <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               Project
             </label>
-            <select
-              value={projectKey}
-              onChange={(e) => setProjectKey(e.target.value)}
-              className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground"
-            >
-              <option value="">Select project...</option>
-              {projects.map((p: any) => (
-                <option key={p.key} value={p.key}>
-                  {p.key} — {p.name}
-                </option>
-              ))}
-            </select>
+            <Select value={projectKey} onValueChange={setProjectKey}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select project..." />
+              </SelectTrigger>
+              <SelectContent>
+                {projects.map((p: any) => (
+                  <SelectItem key={p.key} value={p.key}>
+                    {p.key} — {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Type + Priority */}
@@ -92,32 +99,34 @@ export function CreateIssueDialog({
               <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                 Type
               </label>
-              <select
-                value={issueType}
-                onChange={(e) => setIssueType(e.target.value)}
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground"
-              >
-                <option value="Task">Task</option>
-                <option value="Bug">Bug</option>
-                <option value="Story">Story</option>
-                <option value="Epic">Epic</option>
-              </select>
+              <Select value={issueType} onValueChange={setIssueType}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Task">Task</SelectItem>
+                  <SelectItem value="Bug">Bug</SelectItem>
+                  <SelectItem value="Story">Story</SelectItem>
+                  <SelectItem value="Epic">Epic</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex-1">
               <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                 Priority
               </label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground"
-              >
-                <option value="Highest">Highest</option>
-                <option value="High">High</option>
-                <option value="Medium">Medium</option>
-                <option value="Low">Low</option>
-                <option value="Lowest">Lowest</option>
-              </select>
+              <Select value={priority} onValueChange={setPriority}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Highest">Highest</SelectItem>
+                  <SelectItem value="High">High</SelectItem>
+                  <SelectItem value="Medium">Medium</SelectItem>
+                  <SelectItem value="Low">Low</SelectItem>
+                  <SelectItem value="Lowest">Lowest</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

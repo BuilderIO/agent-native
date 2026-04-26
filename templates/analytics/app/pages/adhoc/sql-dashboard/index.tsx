@@ -521,11 +521,7 @@ export default function SqlDashboardPage() {
                 <SqlChartCard
                   key={panel.id}
                   panel={panel}
-                  resolvedSql={
-                    panel.source === "ga4"
-                      ? panel.sql
-                      : interpolate(panel.sql, vars)
-                  }
+                  resolvedSql={interpolate(panel.sql, vars)}
                   onRemove={() => removePanel(panel.id)}
                   onToggleWidth={() => toggleWidth(panel.id)}
                   onEdit={() => openEditPanel(panel)}

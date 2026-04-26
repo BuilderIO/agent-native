@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useState } from "react";
 import {
   IconClock,
   IconPlus,
@@ -21,6 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -585,7 +591,7 @@ function AnimatedPropRow({
   );
 }
 
-// ─── Add-property custom dropdown (no Radix, avoids duplicate-React crash) ───
+// ─── Add-property dropdown ────────────────────────────────────────────────────
 
 function PropPicker({
   templates,
@@ -596,70 +602,47 @@ function PropPicker({
   accentColor: string;
   onSelect: (property: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Close when clicking outside
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
   return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between gap-1.5 text-[10px] border border-dashed rounded-lg px-2.5 py-1.5 transition-colors focus:outline-none"
-        style={{
-          borderColor: `${accentColor}35`,
-          color: `${accentColor}99`,
-          backgroundColor: `${accentColor}06`,
-        }}
-        onMouseEnter={(e) =>
-          (e.currentTarget.style.backgroundColor = `${accentColor}12`)
-        }
-        onMouseLeave={(e) =>
-          (e.currentTarget.style.backgroundColor = `${accentColor}06`)
-        }
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="w-full flex items-center justify-between gap-1.5 text-[10px] border border-dashed rounded-lg px-2.5 py-1.5 transition-colors focus:outline-none"
+          style={{
+            borderColor: `${accentColor}35`,
+            color: `${accentColor}99`,
+            backgroundColor: `${accentColor}06`,
+          }}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.backgroundColor = `${accentColor}12`)
+          }
+          onMouseLeave={(e) =>
+            (e.currentTarget.style.backgroundColor = `${accentColor}06`)
+          }
+        >
+          <span className="flex items-center gap-1">
+            <IconPlus size={9} />
+            Add property…
+          </span>
+          <IconChevronDown size={9} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        className="w-[var(--radix-dropdown-menu-trigger-width)]"
       >
-        <span className="flex items-center gap-1">
-          <IconPlus size={9} />
-          Add property…
-        </span>
-        <IconChevronDown
-          size={9}
-          className={cn(
-            "transition-transform duration-150",
-            open && "rotate-180",
-          )}
-        />
-      </button>
-
-      {open && (
-        <div className="absolute bottom-full mb-1 left-0 right-0 z-50 rounded-lg border border-border bg-card shadow-lg overflow-hidden py-0.5">
-          {templates.map((t) => (
-            <button
-              key={t.property}
-              type="button"
-              className="w-full text-left px-3 py-1.5 text-[11px] text-foreground/80 hover:bg-accent hover:text-accent-foreground transition-colors"
-              onClick={() => {
-                onSelect(t.property);
-                setOpen(false);
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+        {templates.map((t) => (
+          <DropdownMenuItem
+            key={t.property}
+            className="text-[11px] text-foreground/80"
+            onSelect={() => onSelect(t.property)}
+          >
+            {t.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

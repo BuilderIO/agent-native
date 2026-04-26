@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useActionMutation } from "@agent-native/core/client";
+import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import {
   IconMicrophone,
   IconPlayerStop,
@@ -97,6 +98,8 @@ export function InBrowserRecorder({
       mediaFormat: string;
     }
   >("create-call");
+
+  const liveTranscription = useLiveTranscription();
 
   const cleanupStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => {
@@ -225,6 +228,9 @@ export function InBrowserRecorder({
       pausedAccumRef.current = 0;
       pausedStartedRef.current = null;
       setState("recording");
+      if (liveTranscription.supported) {
+        liveTranscription.start();
+      }
     } catch (err) {
       cleanupStream();
       const m =
@@ -237,6 +243,7 @@ export function InBrowserRecorder({
     if (!recorderRef.current || recorderRef.current.state !== "recording")
       return;
     recorderRef.current.pause();
+    liveTranscription.pause();
     pausedStartedRef.current = performance.now();
     setState("paused");
   }
@@ -244,6 +251,7 @@ export function InBrowserRecorder({
   function resume() {
     if (!recorderRef.current || recorderRef.current.state !== "paused") return;
     recorderRef.current.resume();
+    liveTranscription.resume();
     if (pausedStartedRef.current != null) {
       pausedAccumRef.current += performance.now() - pausedStartedRef.current;
       pausedStartedRef.current = null;
@@ -256,6 +264,23 @@ export function InBrowserRecorder({
     const callId = callIdRef.current;
     if (!recorder || !callId) return;
     setState("uploading");
+
+    // Stop live transcription and save the browser transcript before the
+    // recorder finalizes. This gives the call an instant transcript
+    // (from Web Speech API) with no API key required. If Deepgram is
+    // configured, request-transcript will refine it with diarized output later.
+    const browserTranscript = liveTranscription.stop();
+    if (browserTranscript.trim()) {
+      void fetch("/_agent-native/actions/save-browser-transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          callId,
+          fullText: browserTranscript,
+        }),
+      }).catch(() => {});
+    }
+
     const finalBlob = await new Promise<Blob>((resolve) => {
       const onData = (e: BlobEvent) => {
         recorder.removeEventListener("dataavailable", onData);
@@ -291,6 +316,7 @@ export function InBrowserRecorder({
   }
 
   async function cancel() {
+    liveTranscription.stop();
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       try {
         recorderRef.current.stop();

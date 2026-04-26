@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Link } from "react-router";
 import {
   IconX,
@@ -15,6 +14,7 @@ import { IssueDescription } from "./IssueDescription";
 import { IssueComments } from "./IssueComments";
 import { IssueActivity } from "./IssueActivity";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import type { JiraIssue } from "@shared/types";
 
 interface IssueDetailProps {
@@ -24,9 +24,6 @@ interface IssueDetailProps {
 
 export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
   const { data: issue, isLoading } = useIssue(issueKey);
-  const [activeTab, setActiveTab] = useState<"comments" | "activity">(
-    "comments",
-  );
 
   if (isLoading) {
     return (
@@ -155,42 +152,24 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
             )}
 
           {/* Tabs: Comments / Activity */}
-          <div className="mt-5">
-            <div className="flex gap-4 border-b border-border">
-              <button
-                onClick={() => setActiveTab("comments")}
-                className={cn(
-                  "flex items-center gap-1.5 border-b-2 px-2 py-2 text-[13px] font-medium",
-                  activeTab === "comments"
-                    ? "border-foreground text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground",
-                )}
-              >
+          <Tabs defaultValue="comments" className="mt-5">
+            <TabsList>
+              <TabsTrigger value="comments" className="gap-1.5">
                 <IconMessage className="h-3.5 w-3.5" />
                 Comments
-              </button>
-              <button
-                onClick={() => setActiveTab("activity")}
-                className={cn(
-                  "flex items-center gap-1.5 border-b-2 px-2 py-2 text-[13px] font-medium",
-                  activeTab === "activity"
-                    ? "border-foreground text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground",
-                )}
-              >
+              </TabsTrigger>
+              <TabsTrigger value="activity" className="gap-1.5">
                 <IconHistory className="h-3.5 w-3.5" />
                 Activity
-              </button>
-            </div>
-
-            <div className="mt-4">
-              {activeTab === "comments" ? (
-                <IssueComments issueKey={issueKey} />
-              ) : (
-                <IssueActivity issue={jiraIssue} />
-              )}
-            </div>
-          </div>
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="comments" className="mt-4">
+              <IssueComments issueKey={issueKey} />
+            </TabsContent>
+            <TabsContent value="activity" className="mt-4">
+              <IssueActivity issue={jiraIssue} />
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </div>

@@ -35,6 +35,11 @@ import type { EmailMessage, MobileActionId } from "@shared/types";
 import type { ThreadSummary } from "@/lib/threads";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   IconArrowLeft,
   IconCheck,
   IconChevronUp,
@@ -1097,16 +1102,23 @@ export function EmailThread({
             {(githubPrUrl || unsubscribeInfo) && (
               <div className="mt-1.5 flex items-center gap-3">
                 {githubPrUrl && (
-                  <a
-                    href={githubPrUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group relative inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-                    title="View Pull Request (⌘O)"
-                  >
-                    <IconExternalLink className="h-3 w-3" />
-                    View Pull Request
-                    <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:flex items-center gap-1.5 rounded-md border border-border/50 bg-popover px-2.5 py-1.5 text-[12px] font-medium text-foreground shadow-lg whitespace-nowrap">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a
+                        href={githubPrUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                      >
+                        <IconExternalLink className="h-3 w-3" />
+                        View Pull Request
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="bottom"
+                      align="start"
+                      className="flex items-center gap-1.5 text-[12px] font-medium"
+                    >
                       View Pull Request
                       <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">
                         ⌘
@@ -1114,8 +1126,8 @@ export function EmailThread({
                       <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1.5 text-[10px] text-muted-foreground">
                         O
                       </kbd>
-                    </span>
-                  </a>
+                    </TooltipContent>
+                  </Tooltip>
                 )}
                 {unsubscribeInfo && (
                   <button

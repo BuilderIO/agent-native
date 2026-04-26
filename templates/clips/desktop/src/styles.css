@@ -1557,3 +1557,401 @@ button {
     transform: rotate(360deg);
   }
 }
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: onboarding                                                        */
+/* ------------------------------------------------------------------------- */
+
+.onboarding-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f1115;
+  color: #f1f5f9;
+}
+
+.onboarding-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 40px 36px;
+  max-width: 380px;
+  width: 100%;
+}
+
+.onboarding-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: white;
+  margin: 0;
+  letter-spacing: -0.3px;
+}
+
+.onboarding-subtitle {
+  font-size: 14px;
+  color: #94a3b8;
+  margin: -8px 0 0;
+}
+
+.onboarding-features {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.onboarding-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.onboarding-feature:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.onboarding-checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: #16a34a;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.onboarding-feature-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.onboarding-feature-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+}
+
+.onboarding-feature-desc {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.onboarding-cta {
+  width: 100%;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: #f4f4f5;
+  color: #0f1115;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.onboarding-cta:hover {
+  background: #e4e4e7;
+}
+
+.onboarding-cta:active {
+  transform: translateY(1px);
+}
+
+.onboarding-cta:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: meeting notification                                              */
+/* ------------------------------------------------------------------------- */
+
+.meeting-notification-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 8px;
+  background: transparent;
+  pointer-events: none;
+}
+
+.meeting-notification {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+  color: white;
+  pointer-events: auto;
+  min-width: 280px;
+  max-width: 320px;
+}
+
+.meeting-notification-bar {
+  width: 3px;
+  height: 40px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.meeting-notification-bar-calendar {
+  background: #16a34a;
+}
+
+.meeting-notification-bar-adhoc {
+  background: transparent;
+  border-left: 3px dashed #94a3b8;
+  width: 3px;
+}
+
+.meeting-notification-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.meeting-notification-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meeting-notification-subtitle {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.meeting-notification-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.meeting-notification-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.meeting-notification-btn:active {
+  transform: scale(0.96);
+}
+
+.meeting-notification-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.meeting-notification-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: meeting nub                                                       */
+/* ------------------------------------------------------------------------- */
+
+.meeting-nub-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.meeting-nub {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 10px;
+  border-radius: 22px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  color: white;
+}
+
+.meeting-nub-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #16a34a;
+  box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.55);
+  animation: rec-pulse 1.4s ease-out infinite;
+}
+
+.meeting-nub-initial {
+  font-size: 16px;
+  font-weight: 700;
+  color: white;
+  line-height: 1;
+}
+
+.meeting-nub-handle {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: center;
+  opacity: 0.4;
+  cursor: grab;
+}
+
+.meeting-nub-handle span {
+  display: block;
+  width: 16px;
+  height: 1.5px;
+  background: white;
+  border-radius: 1px;
+}
+
+.meeting-nub-handle:active {
+  cursor: grabbing;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Overlay: flow bar (voice dictation)                                        */
+/* ------------------------------------------------------------------------- */
+
+.flow-bar-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  pointer-events: none;
+}
+
+.flow-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 20px;
+  background: rgba(20, 22, 28, 0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+  color: white;
+  pointer-events: auto;
+}
+
+.flow-bar-idle {
+  padding: 8px 16px;
+  min-width: 320px;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flow-bar-lang {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flow-bar-recording {
+  padding: 8px 20px;
+  min-width: 380px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flow-bar-canvas {
+  display: block;
+}
+
+.flow-bar-processing {
+  padding: 8px 20px;
+  min-width: 380px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flow-bar-shimmer {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  animation: flow-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes flow-shimmer {
+  0% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}

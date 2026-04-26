@@ -1,0 +1,8 @@
+[build]
+  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter voice build"
+  publish = "templates/voice/dist"
+  functions = "templates/voice/.netlify/functions-internal"
+
+[build.environment]
+  NITRO_PRESET = "netlify"
+  NPM_CONFIG_PRODUCTION = "false"

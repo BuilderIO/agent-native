@@ -1,0 +1,123 @@
+{
+  "name": "Agent Native Templates (GA4)",
+  "description": "Template engagement from the docs site — clicks, demo tries, and CLI copies tracked via Google Analytics",
+  "filters": [
+    {
+      "id": "days",
+      "type": "select",
+      "label": "Period",
+      "default": "30",
+      "options": [
+        { "value": "7", "label": "Last 7 days" },
+        { "value": "30", "label": "Last 30 days" },
+        { "value": "90", "label": "Last 90 days" }
+      ]
+    }
+  ],
+  "panels": [
+    {
+      "id": "total-template-clicks",
+      "title": "Template Clicks",
+      "chartType": "metric",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"click_template\",\"matchType\":\"EXACT\"}}}}",
+      "config": {
+        "yKey": "eventCount",
+        "yFormatter": "number",
+        "description": "Last {{days}} days"
+      }
+    },
+    {
+      "id": "total-demo-clicks",
+      "title": "Demo Clicks",
+      "chartType": "metric",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"click_try_demo\",\"matchType\":\"EXACT\"}}}}",
+      "config": {
+        "yKey": "eventCount",
+        "yFormatter": "number",
+        "description": "Last {{days}} days"
+      }
+    },
+    {
+      "id": "total-cli-copies",
+      "title": "CLI Copies",
+      "chartType": "metric",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"copy_cli_command\",\"matchType\":\"EXACT\"}}}}",
+      "config": {
+        "yKey": "eventCount",
+        "yFormatter": "number",
+        "description": "Last {{days}} days"
+      }
+    },
+    {
+      "id": "template-clicks-over-time",
+      "title": "Template Clicks Over Time",
+      "chartType": "area",
+      "source": "ga4",
+      "width": 2,
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"date\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"click_template\",\"matchType\":\"EXACT\"}}}}",
+      "config": {
+        "xKey": "date",
+        "yKey": "eventCount",
+        "color": "#6366f1"
+      }
+    },
+    {
+      "id": "clicks-by-template",
+      "title": "Clicks by Page",
+      "chartType": "bar",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"pagePath\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"click_template\",\"matchType\":\"EXACT\"}}}}",
+      "config": {
+        "xKey": "pagePath",
+        "yKey": "eventCount",
+        "color": "#6366f1"
+      }
+    },
+    {
+      "id": "demo-clicks-by-template",
+      "title": "Demo Clicks by Page",
+      "chartType": "bar",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"pagePath\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"click_try_demo\",\"matchType\":\"EXACT\"}}}}",
+      "config": {
+        "xKey": "pagePath",
+        "yKey": "eventCount",
+        "color": "#8b5cf6"
+      }
+    },
+    {
+      "id": "cli-copies-by-template",
+      "title": "CLI Copies by Page",
+      "chartType": "bar",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"pagePath\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"copy_cli_command\",\"matchType\":\"EXACT\"}}}}",
+      "config": {
+        "xKey": "pagePath",
+        "yKey": "eventCount",
+        "color": "#06b6d4"
+      }
+    },
+    {
+      "id": "cli-copies-over-time",
+      "title": "CLI Copies Over Time",
+      "chartType": "area",
+      "source": "ga4",
+      "width": 2,
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"date\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"copy_cli_command\",\"matchType\":\"EXACT\"}}}}",
+      "config": {
+        "xKey": "date",
+        "yKey": "eventCount",
+        "color": "#06b6d4"
+      }
+    }
+  ]
+}
