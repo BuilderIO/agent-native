@@ -66,13 +66,174 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const nowIso = new Date().toISOString();
+    const userEmail = getRequestUserEmail() ?? ownerEmail;
 
+    // ── Builder transcription (highest priority) ──────────────────────
+    // Builder proxy is available when BUILDER_PRIVATE_KEY is set. It
+    // provides high-quality diarized transcription without requiring a
+    // separate Deepgram key.
+    if (hasBuilderPrivateKey()) {
+      await upsertTranscriptRow(db, {
+        callId: args.callId,
+        ownerEmail,
+        status: "pending",
+        failureReason: null,
+        now: nowIso,
+      });
+      await db
+        .update(schema.calls)
+        .set({ status: "transcribing", updatedAt: nowIso })
+        .where(eq(schema.calls.id, args.callId));
+      await writeAppState("refresh-signal", { ts: Date.now() });
+
+      const call = await getCallOrThrow(args.callId);
+      if (!call.mediaUrl) {
+        await failTranscript(
+          db,
+          args.callId,
+          ownerEmail,
+          "Call has no mediaUrl",
+          nowIso,
+        );
+        throw new Error("Call has no mediaUrl");
+      }
+
+      let audioBytes: Uint8Array;
+      let mimeType: string;
+      try {
+        const isLocalBlob = call.mediaUrl.startsWith("/api/call-media/");
+        if (isLocalBlob) {
+          const stash = await readAppState(`call-blob-${args.callId}`);
+          const b64 = typeof stash?.data === "string" ? stash.data : null;
+          if (!b64)
+            throw new Error("call-blob app-state missing for local media");
+          audioBytes = new Uint8Array(Buffer.from(b64, "base64"));
+          mimeType =
+            typeof stash?.mimeType === "string"
+              ? stash.mimeType
+              : "audio/webm";
+        } else if (call.mediaUrl.startsWith("/")) {
+          const port = process.env.NITRO_PORT || process.env.PORT || "3000";
+          const origin =
+            process.env.PUBLIC_URL ??
+            process.env.NITRO_PUBLIC_URL ??
+            `http://localhost:${port}`;
+          const absolute = `${origin}${call.mediaUrl}`;
+          const res = await fetch(absolute);
+          if (!res.ok) {
+            throw new Error(
+              `Failed to fetch mediaUrl: HTTP ${res.status} ${res.statusText}`,
+            );
+          }
+          audioBytes = new Uint8Array(await res.arrayBuffer());
+          mimeType = res.headers.get("content-type") ?? "audio/webm";
+        } else {
+          const res = await fetch(call.mediaUrl);
+          if (!res.ok) {
+            throw new Error(
+              `Failed to fetch mediaUrl: HTTP ${res.status} ${res.statusText}`,
+            );
+          }
+          audioBytes = new Uint8Array(await res.arrayBuffer());
+          mimeType = res.headers.get("content-type") ?? "audio/webm";
+        }
+      } catch (err) {
+        const reason = `Failed to resolve media: ${(err as Error).message}`;
+        await failTranscript(db, args.callId, ownerEmail, reason, nowIso);
+        throw new Error(reason);
+      }
+
+      try {
+        const builderResult = await transcribeWithBuilder({
+          audioBytes,
+          mimeType,
+          diarize: true,
+          minSpeakers: 2,
+          maxSpeakers: 6,
+        });
+
+        // Map Builder segments to the TranscriptSegment shape and
+        // normalize speaker labels through the existing labelSpeakers().
+        const rawSegments: TranscriptSegment[] = (
+          builderResult.segments ?? []
+        ).map((s) => ({
+          startMs: s.startMs,
+          endMs: s.endMs,
+          text: s.text.trim(),
+          speakerLabel: s.speakerLabel ?? "Speaker 0",
+          words: s.words,
+        }));
+        const segments = labelSpeakers(rawSegments);
+        const fullText = builderResult.text ?? "";
+
+        await upsertTranscriptRow(db, {
+          callId: args.callId,
+          ownerEmail,
+          status: "ready",
+          failureReason: null,
+          language: builderResult.language || "en",
+          provider: "deepgram", // Builder uses Deepgram under the hood
+          segmentsJson: JSON.stringify(segments),
+          fullText,
+          now: nowIso,
+        });
+
+        await materializeParticipants(db, args.callId, segments);
+
+        await db
+          .update(schema.calls)
+          .set({ status: "analyzing", updatedAt: nowIso })
+          .where(eq(schema.calls.id, args.callId));
+
+        const queueTasks = [
+          "summary",
+          "topics",
+          "trackers",
+          "suggest-snippets",
+        ];
+        await writeAppState(`call-ai-queue-${args.callId}`, {
+          callId: args.callId,
+          tasks: queueTasks,
+          queuedAt: nowIso,
+        });
+
+        try {
+          const { default: runTrackers } = await import("./run-trackers.js");
+          await runTrackers.run({
+            callId: args.callId,
+            kind: "keyword",
+          } as any);
+        } catch (err) {
+          console.error(
+            `[calls] run-trackers failed for ${args.callId}:`,
+            (err as Error).message,
+          );
+        }
+
+        await writeAppState("refresh-signal", { ts: Date.now() });
+
+        console.log(
+          `Transcribed call ${args.callId} via builder (${segments.length} segments, ${builderResult.language})`,
+        );
+        return {
+          callId: args.callId,
+          status: "ready" as const,
+          segments: segments.length,
+          language: builderResult.language,
+        };
+      } catch (err) {
+        const reason = (err as Error).message;
+        await failTranscript(db, args.callId, ownerEmail, reason, nowIso);
+        throw err;
+      }
+    }
+
+    // ── Deepgram fallback ─────────────────────────────────────────────
     // Resolve the API key BEFORE overwriting the transcript row — if no
     // key is configured but a browser-generated transcript already exists
     // (from Web Speech API during recording), preserve it instead of
     // clobbering it with "pending" then "failed".
     let apiKey: string | undefined;
-    const userEmail = getRequestUserEmail() ?? ownerEmail;
     if (userEmail) {
       const userSecret = await readAppSecret({
         key: "DEEPGRAM_API_KEY",
