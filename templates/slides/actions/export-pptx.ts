@@ -284,6 +284,32 @@ function parseSlideHtml(html: string): {
  */
 async function fetchImageAsBase64(url: string): Promise<string | null> {
   try {
+    // SSRF guard: only allow http/https and block internal/private IPs
+    const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol)) return null;
+    const hostname = parsed.hostname;
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "0.0.0.0" ||
+      hostname === "[::1]" ||
+      hostname.startsWith("10.") ||
+      hostname.startsWith("172.16.") ||
+      hostname.startsWith("172.17.") ||
+      hostname.startsWith("172.18.") ||
+      hostname.startsWith("172.19.") ||
+      hostname.startsWith("172.2") ||
+      hostname.startsWith("172.30.") ||
+      hostname.startsWith("172.31.") ||
+      hostname.startsWith("192.168.") ||
+      hostname.endsWith(".internal") ||
+      hostname.endsWith(".local") ||
+      hostname === "metadata.google.internal" ||
+      hostname === "169.254.169.254"
+    ) {
+      return null;
+    }
+
     const response = await fetch(url);
     if (!response.ok) return null;
     const buffer = await response.arrayBuffer();

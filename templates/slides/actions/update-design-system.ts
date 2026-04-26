@@ -22,6 +22,22 @@ export default defineAction({
       .describe("Updated JSON string of DesignSystemAsset[]"),
   }),
   run: async ({ id, title, description, data, assets }) => {
+    // Validate that data/assets are valid JSON when provided
+    if (data !== undefined) {
+      try {
+        JSON.parse(data);
+      } catch {
+        throw new Error("data must be a valid JSON string");
+      }
+    }
+    if (assets !== undefined) {
+      try {
+        JSON.parse(assets);
+      } catch {
+        throw new Error("assets must be a valid JSON string");
+      }
+    }
+
     await assertAccess("design-system", id, "editor");
 
     const db = getDb();

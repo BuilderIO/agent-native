@@ -43,6 +43,7 @@ export default defineAction({
         id: row.id,
         title: row.title || data?.title,
         visibility: row.visibility,
+        designSystemId: row.designSystemId ?? null,
         slideCount: slides.length,
         slides: slides.map((s: any, i: number) => ({
           index: i,
@@ -57,6 +58,7 @@ export default defineAction({
       id: row.id,
       title: row.title || data?.title,
       visibility: row.visibility,
+      designSystemId: row.designSystemId ?? null,
       slideCount: slides.length,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

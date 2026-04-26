@@ -43,6 +43,7 @@ export default defineAction({
       id: newId,
       title: newTitle,
       data: JSON.stringify(deckData),
+      designSystemId: source.designSystemId ?? null,
       createdAt: now,
       updatedAt: now,
       ownerEmail: getRequestUserEmail() || "local@localhost",

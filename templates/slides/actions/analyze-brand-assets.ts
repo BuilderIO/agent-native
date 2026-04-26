@@ -56,6 +56,35 @@ export default defineAction({
         const url = websiteUrl.startsWith("http")
           ? websiteUrl
           : `https://${websiteUrl}`;
+
+        // SSRF guard: only allow http/https and block internal/private IPs
+        const parsed = new URL(url);
+        if (!["http:", "https:"].includes(parsed.protocol)) {
+          throw new Error("Only http and https URLs are allowed");
+        }
+        const hostname = parsed.hostname;
+        if (
+          hostname === "localhost" ||
+          hostname === "127.0.0.1" ||
+          hostname === "0.0.0.0" ||
+          hostname === "[::1]" ||
+          hostname.startsWith("10.") ||
+          hostname.startsWith("172.16.") ||
+          hostname.startsWith("172.17.") ||
+          hostname.startsWith("172.18.") ||
+          hostname.startsWith("172.19.") ||
+          hostname.startsWith("172.2") ||
+          hostname.startsWith("172.30.") ||
+          hostname.startsWith("172.31.") ||
+          hostname.startsWith("192.168.") ||
+          hostname.endsWith(".internal") ||
+          hostname.endsWith(".local") ||
+          hostname === "metadata.google.internal" ||
+          hostname === "169.254.169.254"
+        ) {
+          throw new Error("Internal/private URLs are not allowed");
+        }
+
         const response = await fetch(url, {
           headers: {
             "User-Agent":

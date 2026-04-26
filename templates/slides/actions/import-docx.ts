@@ -31,6 +31,16 @@ export default defineAction({
       ? filePath
       : path.join(process.cwd(), filePath);
 
+    // Path traversal guard: only allow files under data/uploads or the cwd
+    const cwd = process.cwd();
+    const uploadsDir = path.join(cwd, "data", "uploads");
+    const resolved = path.resolve(absPath);
+    if (!resolved.startsWith(uploadsDir) && !resolved.startsWith(cwd)) {
+      throw new Error(
+        `Access denied: file path must be within the project directory`,
+      );
+    }
+
     if (!fs.existsSync(absPath)) {
       throw new Error(`File not found: ${filePath}`);
     }

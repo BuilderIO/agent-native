@@ -30,6 +30,20 @@ export default defineAction({
       .describe("JSON string of DesignSystemAsset[] (logos, fonts, images)"),
   }),
   run: async ({ title, description, data, assets }) => {
+    // Validate that data is valid JSON
+    try {
+      JSON.parse(data);
+    } catch {
+      throw new Error("data must be a valid JSON string");
+    }
+    if (assets) {
+      try {
+        JSON.parse(assets);
+      } catch {
+        throw new Error("assets must be a valid JSON string");
+      }
+    }
+
     const db = getDb();
     const id = nanoid();
     const now = new Date().toISOString();

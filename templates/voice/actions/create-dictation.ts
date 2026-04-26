@@ -20,8 +20,8 @@ export default defineAction({
       .string()
       .optional()
       .describe("Pre-generated dictation ID (for optimistic UI)"),
-    text: z.string().describe("Polished/formatted text"),
-    rawText: z.string().describe("Raw transcript from Whisper"),
+    text: z.string().min(1).describe("Polished/formatted text"),
+    rawText: z.string().min(1).describe("Raw transcript from Whisper"),
     audioPath: z.string().nullish().describe("Path to the audio file"),
     appContext: z
       .string()
