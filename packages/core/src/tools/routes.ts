@@ -8,6 +8,8 @@ import {
 import { readBody } from "../server/h3-helpers.js";
 import { getSession } from "../server/auth.js";
 import { recordChange } from "../server/poll.js";
+import { runWithRequestContext } from "../server/request-context.js";
+import { getOrgContext } from "../org/context.js";
 import {
   listTools,
   getTool,
@@ -18,8 +20,11 @@ import {
 } from "./store.js";
 import { buildToolHtml } from "./html-shell.js";
 import { getThemeVars } from "./theme.js";
-import { resolveKeyReferences } from "../secrets/substitution.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  resolveKeyReferences,
+  validateUrlAllowlist,
+  getKeyAllowlist,
+} from "../secrets/substitution.js";
 
 export function createToolsHandler() {
   return defineEventHandler(async (event: H3Event) => {
@@ -35,102 +40,139 @@ export function createToolsHandler() {
       return { error: "Authentication required" };
     }
 
-    // POST /proxy
-    if (method === "POST" && parts.length === 1 && parts[0] === "proxy") {
-      return handleProxy(event);
-    }
+    const orgCtx = await getOrgContext(event).catch(() => null);
+    const userEmail = session.email;
+    const orgId = orgCtx?.orgId ?? undefined;
 
-    // GET / — list
-    if (method === "GET" && parts.length === 0) {
-      return listTools();
-    }
-
-    // POST / — create
-    if (method === "POST" && parts.length === 0) {
-      const body = await readBody(event);
-      if (!body.name) {
-        setResponseStatus(event, 400);
-        return { error: "name is required" };
-      }
-      const tool = await createTool(body);
-      recordChange({ source: "action", type: "change" });
-      setResponseStatus(event, 201);
-      return tool;
-    }
-
-    // GET /:id/render
-    if (method === "GET" && parts.length === 2 && parts[1] === "render") {
-      const tool = await getTool(parts[0]);
-      if (!tool) {
-        setResponseStatus(event, 404);
-        return { error: "Tool not found" };
-      }
-      const themeVars = getThemeVars();
-      const isDark = (event.url?.search || "").includes("dark=1");
-      const html = buildToolHtml(tool.content, themeVars, isDark);
-      setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-      return html;
-    }
-
-    // GET /:id
-    if (method === "GET" && parts.length === 1) {
-      const tool = await getTool(parts[0]);
-      if (!tool) {
-        setResponseStatus(event, 404);
-        return { error: "Tool not found" };
-      }
-      return tool;
-    }
-
-    // PUT /:id
-    if (method === "PUT" && parts.length === 1) {
-      const body = await readBody(event);
-      const hasContentUpdate =
-        body.content !== undefined || body.patches !== undefined;
-      const hasMetaUpdate =
-        body.name !== undefined ||
-        body.description !== undefined ||
-        body.icon !== undefined ||
-        body.visibility !== undefined;
-
-      let result = null;
-      if (hasContentUpdate) {
-        result = await updateToolContent(parts[0], {
-          content: body.content,
-          patches: body.patches,
-        });
-      }
-      if (hasMetaUpdate) {
-        result = await updateTool(parts[0], body);
-      }
-      if (!hasContentUpdate && !hasMetaUpdate) {
-        result = await getTool(parts[0]);
-      }
-      if (!result) {
-        setResponseStatus(event, 404);
-        return { error: "Tool not found" };
-      }
-      recordChange({ source: "action", type: "change" });
-      return result;
-    }
-
-    // DELETE /:id
-    if (method === "DELETE" && parts.length === 1) {
-      const ok = await deleteTool(parts[0]);
-      if (!ok) {
-        setResponseStatus(event, 404);
-        return { error: "Tool not found" };
-      }
-      recordChange({ source: "action", type: "change" });
-      return { ok: true };
-    }
-
-    setResponseStatus(event, 404);
-    return { error: "Not found" };
+    return runWithRequestContext({ userEmail, orgId }, () =>
+      dispatch(event, method, parts, userEmail),
+    );
   });
 }
 
-async function handleProxy(event: H3Event): Promise<unknown> {
+async function dispatch(
+  event: H3Event,
+  method: string,
+  parts: string[],
+  userEmail: string,
+): Promise<unknown> {
+  // POST /proxy
+  if (method === "POST" && parts.length === 1 && parts[0] === "proxy") {
+    return handleProxy(event, userEmail);
+  }
+
+  // GET / — list
+  if (method === "GET" && parts.length === 0) {
+    return listTools();
+  }
+
+  // POST / — create
+  if (method === "POST" && parts.length === 0) {
+    const body = await readBody(event);
+    if (!body.name) {
+      setResponseStatus(event, 400);
+      return { error: "name is required" };
+    }
+    const tool = await createTool(body);
+    recordChange({ source: "action", type: "change" });
+    setResponseStatus(event, 201);
+    return tool;
+  }
+
+  // GET /:id/render
+  if (method === "GET" && parts.length === 2 && parts[1] === "render") {
+    const tool = await getTool(parts[0]);
+    if (!tool) {
+      setResponseStatus(event, 404);
+      return { error: "Tool not found" };
+    }
+    const themeVars = getThemeVars();
+    const isDark = (event.url?.search || "").includes("dark=1");
+    const html = buildToolHtml(tool.content, themeVars, isDark);
+    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    return html;
+  }
+
+  // GET /:id
+  if (method === "GET" && parts.length === 1) {
+    const tool = await getTool(parts[0]);
+    if (!tool) {
+      setResponseStatus(event, 404);
+      return { error: "Tool not found" };
+    }
+    return tool;
+  }
+
+  // PUT /:id
+  if (method === "PUT" && parts.length === 1) {
+    const body = await readBody(event);
+    const hasContentUpdate =
+      body.content !== undefined || body.patches !== undefined;
+    const hasMetaUpdate =
+      body.name !== undefined ||
+      body.description !== undefined ||
+      body.icon !== undefined ||
+      body.visibility !== undefined;
+
+    let result = null;
+    if (hasContentUpdate) {
+      result = await updateToolContent(parts[0], {
+        content: body.content,
+        patches: body.patches,
+      });
+    }
+    if (hasMetaUpdate) {
+      result = await updateTool(parts[0], body);
+    }
+    if (!hasContentUpdate && !hasMetaUpdate) {
+      result = await getTool(parts[0]);
+    }
+    if (!result) {
+      setResponseStatus(event, 404);
+      return { error: "Tool not found" };
+    }
+    recordChange({ source: "action", type: "change" });
+    return result;
+  }
+
+  // DELETE /:id
+  if (method === "DELETE" && parts.length === 1) {
+    const ok = await deleteTool(parts[0]);
+    if (!ok) {
+      setResponseStatus(event, 404);
+      return { error: "Tool not found" };
+    }
+    recordChange({ source: "action", type: "change" });
+    return { ok: true };
+  }
+
+  setResponseStatus(event, 404);
+  return { error: "Not found" };
+}
+
+const PRIVATE_IP_RE =
+  /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|0\.0\.0\.0|\[::1?\])/i;
+const METADATA_HOSTS = [
+  "metadata.google.internal",
+  "metadata.google.internal.",
+];
+
+function isBlockedUrl(url: string): boolean {
+  if (PRIVATE_IP_RE.test(url)) return true;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (METADATA_HOSTS.includes(host)) return true;
+    if (host === "169.254.169.254") return true;
+  } catch {
+    return true;
+  }
+  return false;
+}
+
+async function handleProxy(
+  event: H3Event,
+  userEmail: string,
+): Promise<unknown> {
   const body = await readBody(event);
   const rawUrl = body.url;
   if (!rawUrl || typeof rawUrl !== "string") {
@@ -142,15 +184,15 @@ async function handleProxy(event: H3Event): Promise<unknown> {
   const rawHeaders: Record<string, string> = body.headers || {};
   const rawBody = body.body;
 
-  const userEmail = getRequestUserEmail() || "local@localhost";
-
   let resolvedUrl = rawUrl;
   let resolvedHeaders = JSON.stringify(rawHeaders);
   let resolvedBody = rawBody;
+  const allUsedKeys: string[] = [];
 
   try {
     const urlResult = await resolveKeyReferences(rawUrl, "user", userEmail);
     resolvedUrl = urlResult.resolved;
+    allUsedKeys.push(...urlResult.usedKeys);
 
     const headerResult = await resolveKeyReferences(
       resolvedHeaders,
@@ -158,6 +200,7 @@ async function handleProxy(event: H3Event): Promise<unknown> {
       userEmail,
     );
     resolvedHeaders = headerResult.resolved;
+    allUsedKeys.push(...headerResult.usedKeys);
 
     if (rawBody) {
       const bodyResult = await resolveKeyReferences(
@@ -166,10 +209,26 @@ async function handleProxy(event: H3Event): Promise<unknown> {
         userEmail,
       );
       resolvedBody = bodyResult.resolved;
+      allUsedKeys.push(...bodyResult.usedKeys);
     }
   } catch (err: any) {
     setResponseStatus(event, 400);
     return { error: `Key resolution failed: ${err?.message ?? err}` };
+  }
+
+  if (isBlockedUrl(resolvedUrl)) {
+    setResponseStatus(event, 403);
+    return { error: "Requests to private/internal addresses are not allowed" };
+  }
+
+  for (const keyName of new Set(allUsedKeys)) {
+    const allowlist = await getKeyAllowlist(keyName, "user", userEmail);
+    if (!validateUrlAllowlist(resolvedUrl, allowlist)) {
+      setResponseStatus(event, 403);
+      return {
+        error: `Key "${keyName}" is not allowed for this URL origin`,
+      };
+    }
   }
 
   let headers: Record<string, string>;
