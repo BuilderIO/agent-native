@@ -139,14 +139,15 @@ export function useCompositionCollab(
   // Track whether we're currently pushing to avoid feedback loops
   const isPushingRef = useRef(false);
 
-  // Push local state to collab endpoint
+  // Push local state to collab endpoint, merging with existing state
   const pushToCollab = useCallback(
     (data: CompositionCollabData) => {
       if (!docId || isPushingRef.current) return;
       isPushingRef.current = true;
 
+      const merged = { ...compositionData, ...data };
       const dataStr = JSON.stringify({
-        ...data,
+        ...merged,
         updatedAt: new Date().toISOString(),
       });
 

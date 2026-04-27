@@ -108,15 +108,9 @@ function yTypeToJson(value: any): any {
  * Returns the plain JS object or array.
  */
 export function yDocToJson(doc: Y.Doc, fieldName: string): any {
-  // Try map first — check if it has content
-  const ymap = doc.getMap(fieldName);
-  if (ymap.size > 0) return yMapToJson(ymap);
-
-  // Try array
-  const yarray = doc.getArray(fieldName);
-  if (yarray.length > 0) return yArrayToJson(yarray);
-
-  // Empty — return empty object by default
+  const existing = doc.share.get(fieldName);
+  if (existing instanceof Y.Array) return yArrayToJson(existing);
+  if (existing instanceof Y.Map) return yMapToJson(existing);
   return {};
 }
 

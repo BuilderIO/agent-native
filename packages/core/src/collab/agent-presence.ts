@@ -19,6 +19,8 @@ const HEARTBEAT_INTERVAL = 10_000; // 10 seconds
 
 // docId → heartbeat interval handle
 const _heartbeats = new Map<string, NodeJS.Timeout>();
+// docId → reference count (how many concurrent operations are using this doc)
+const _refCounts = new Map<string, number>();
 
 /**
  * Mark the agent as present on a document.
@@ -49,6 +51,9 @@ export function agentEnterDocument(
   };
   map.set(AGENT_CLIENT_ID, entry);
 
+  // Increment reference count
+  _refCounts.set(docId, (_refCounts.get(docId) ?? 0) + 1);
+
   // Don't create another interval if one already exists
   if (_heartbeats.has(docId)) return;
 
@@ -74,6 +79,13 @@ export function agentEnterDocument(
  * Clears the awareness entry and stops the heartbeat.
  */
 export function agentLeaveDocument(docId: string): void {
+  const count = (_refCounts.get(docId) ?? 1) - 1;
+  if (count > 0) {
+    _refCounts.set(docId, count);
+    return;
+  }
+  _refCounts.delete(docId);
+
   const map = getDocAwareness(docId);
   map.delete(AGENT_CLIENT_ID);
 
@@ -190,7 +202,7 @@ export async function agentApplyPatchesIncrementally(
     }
 
     for (const patch of patches) {
-      await applyPatchOps(docId, fieldName, [patch], "agent");
+      await applyPatchOps(docId, [patch], fieldName, "agent");
       if (delayMs > 0) {
         await new Promise((r) => setTimeout(r, delayMs));
       }
