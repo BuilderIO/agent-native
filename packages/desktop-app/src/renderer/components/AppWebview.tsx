@@ -12,7 +12,10 @@ import {
   IconCheck,
   IconTerminal2,
   IconWorld,
-  IconPlugConnected,
+  IconPlugOff,
+  IconCircleCheck,
+  IconCircleX,
+  IconLoader2,
 } from "@tabler/icons-react";
 import type { AppDefinition, AppConfig } from "@shared/app-registry";
 import { getAppUrl, FRAME_PORT } from "@shared/app-registry";
@@ -323,6 +326,62 @@ function LoadingScreen({
   );
 }
 
+type PortStatus = "checking" | "up" | "down";
+
+function usePortCheck(port: number | undefined, enabled: boolean): PortStatus {
+  const [status, setStatus] = useState<PortStatus>("checking");
+
+  useEffect(() => {
+    if (!enabled || !port) {
+      setStatus("checking");
+      return;
+    }
+    let cancelled = false;
+    async function check() {
+      try {
+        await fetch(`http://localhost:${port}`, {
+          mode: "no-cors",
+          signal: AbortSignal.timeout(2000),
+        });
+        if (!cancelled) setStatus("up");
+      } catch {
+        if (!cancelled) setStatus("down");
+      }
+    }
+    check();
+    return () => {
+      cancelled = true;
+    };
+  }, [port, enabled]);
+
+  return status;
+}
+
+function StatusIcon({ status }: { status: PortStatus }) {
+  if (status === "checking") {
+    return (
+      <IconLoader2
+        size={14}
+        className="error-status-icon error-status-icon--checking"
+      />
+    );
+  }
+  if (status === "up") {
+    return (
+      <IconCircleCheck
+        size={14}
+        className="error-status-icon error-status-icon--up"
+      />
+    );
+  }
+  return (
+    <IconCircleX
+      size={14}
+      className="error-status-icon error-status-icon--down"
+    />
+  );
+}
+
 function ErrorScreen({
   app,
   appConfig,
@@ -340,6 +399,9 @@ function ErrorScreen({
 }) {
   const [copied, setCopied] = useState(false);
   const devCommand = appConfig?.devCommand?.trim();
+  const devPort = appConfig?.devPort ?? app.devPort;
+  const devServerStatus = usePortCheck(devPort, isDev);
+  const frameStatus = usePortCheck(FRAME_PORT, isDev);
 
   async function copyCommand(cmd: string) {
     try {
@@ -353,7 +415,7 @@ function ErrorScreen({
 
   return (
     <div className="error-overlay">
-      <IconPlugConnected size={36} className="error-icon" />
+      <IconPlugOff size={36} className="error-icon" />
       <p className="error-title">
         {isDev ? `Can't connect to ${app.name}` : `${app.name} isn't loading`}
       </p>
@@ -373,11 +435,14 @@ function ErrorScreen({
         <div className="error-commands">
           <p className="error-checklist-title">To fix this, make sure:</p>
           <ul className="error-checklist">
-            <li>
-              The {app.name} dev server is running
-              {appConfig?.devPort ? ` on port ${appConfig.devPort}` : ""}
+            <li className={`error-checklist-item--${devServerStatus}`}>
+              <StatusIcon status={devServerStatus} />
+              {app.name} dev server{devPort ? ` (port ${devPort})` : ""}
             </li>
-            <li>The frame is running on port {FRAME_PORT}</li>
+            <li className={`error-checklist-item--${frameStatus}`}>
+              <StatusIcon status={frameStatus} />
+              Frame (port {FRAME_PORT})
+            </li>
           </ul>
           {devCommand && (
             <CommandRow
