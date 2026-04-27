@@ -157,6 +157,8 @@ export default defineEventHandler(async (event) => {
       hasAudio: Boolean(rec.hasAudio),
       hasCamera: Boolean(rec.hasCamera),
       status: rec.status,
+      uploadProgress: rec.uploadProgress,
+      failureReason: rec.failureReason,
       // Don't leak the password to clients; just indicate whether one was set.
       hasPassword: !!rec.password,
       expiresAt: rec.expiresAt,
@@ -175,6 +177,7 @@ export default defineEventHandler(async (event) => {
           status: transcript.status,
           language: transcript.language,
           fullText: transcript.fullText,
+          failureReason: transcript.failureReason,
           segments: transcriptSegments,
         }
       : null,

@@ -1,5 +1,6 @@
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow};
 
+use crate::dlog;
 use crate::state::{PopoverShownAt, RecordingActive};
 
 // ---------------------------------------------------------------------------
@@ -66,7 +67,7 @@ pub fn set_capture_excluded(window: &WebviewWindow) {
             let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
             let _: () = objc2::msg_send![&*obj, setSharingType: 0usize];
         }
-        eprintln!("[clips-tray] set_capture_excluded({label}): NSWindowSharingNone applied");
+        dlog!("[clips-tray] set_capture_excluded({label}): NSWindowSharingNone applied");
     }) {
         eprintln!("[clips-tray] set_capture_excluded: run_on_main_thread failed: {err}");
     }
