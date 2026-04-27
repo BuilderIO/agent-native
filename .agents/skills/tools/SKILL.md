@@ -8,6 +8,33 @@ description: >-
 
 # Tools
 
+## CRITICAL: What Tools Are (and Are Not)
+
+A Tool is a **self-contained Alpine.js HTML snippet** stored in the `tools` SQL table.
+It runs inside a sandboxed iframe with its own Tailwind CSS and Alpine.js runtime.
+
+**Tools are NOT:**
+
+- React components
+- New source code files
+- Database schema changes
+- Action files in `actions/`
+- Routes
+
+**When a user asks to "make a tool" or "create a tool" or "build a ... tool":**
+
+1. Write the Alpine.js HTML
+2. Call `create-tool` with the HTML as `content`
+3. That's it — no files to create, no schema changes, no actions
+
+Tools have full access to app data via helpers injected into the iframe:
+
+- `appAction(name, params)` — call any app action
+- `appFetch(path, options)` — call any app endpoint
+- `dbQuery(sql, args)` — read from SQL
+- `dbExec(sql, args)` — write to SQL
+- `toolFetch(url, options)` — call external APIs via proxy
+
 ## What tools are
 
 Tools are mini Alpine.js apps that run inside sandboxed iframes. They can call external APIs via `toolFetch()`, which routes through a server-side proxy that injects secret values. Tools share the main app's Tailwind v4 theme automatically.
@@ -288,6 +315,68 @@ Fetches current weather for a city:
       </div>
     </template>
   </div>
+</div>
+```
+
+### Todo List (SQL-backed CRUD)
+
+Full CRUD app using `dbQuery`/`dbExec` for persistence — no source code changes, no schema files, no actions. The tool creates its own table at runtime:
+
+```html
+<div x-data="{
+  todos: [],
+  newTodo: '',
+  loading: true,
+  async init() {
+    await dbExec('CREATE TABLE IF NOT EXISTS tool_todos (id TEXT PRIMARY KEY, title TEXT NOT NULL, completed INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime(\'now\')))', []);
+    const result = await dbQuery('SELECT * FROM tool_todos ORDER BY created_at DESC');
+    this.todos = result.rows || [];
+    this.loading = false;
+  },
+  async addTodo() {
+    if (!this.newTodo.trim()) return;
+    const id = crypto.randomUUID();
+    await dbExec('INSERT INTO tool_todos (id, title) VALUES (?, ?)', [id, this.newTodo.trim()]);
+    this.todos.unshift({ id, title: this.newTodo.trim(), completed: 0 });
+    this.newTodo = '';
+  },
+  async toggle(todo) {
+    const newVal = todo.completed ? 0 : 1;
+    await dbExec('UPDATE tool_todos SET completed = ? WHERE id = ?', [newVal, todo.id]);
+    todo.completed = newVal;
+  },
+  async remove(id) {
+    await dbExec('DELETE FROM tool_todos WHERE id = ?', [id]);
+    this.todos = this.todos.filter(t => t.id !== id);
+  }
+}">
+  <h2 class="text-lg font-semibold mb-4">Todo List</h2>
+  <div class="flex gap-2 mb-4">
+    <input x-model="newTodo" type="text" placeholder="What needs to be done?"
+      class="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+      @keydown.enter="addTodo()">
+    <button @click="addTodo()"
+      class="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground cursor-pointer hover:bg-primary/90">
+      Add
+    </button>
+  </div>
+  <div x-show="loading" class="text-sm text-muted-foreground">Loading...</div>
+  <div class="space-y-2">
+    <template x-for="todo in todos" :key="todo.id">
+      <div class="flex items-center gap-3 rounded-md border p-3">
+        <button @click="toggle(todo)" class="cursor-pointer"
+          :class="todo.completed ? 'text-green-500' : 'text-muted-foreground'">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <template x-if="todo.completed"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3"/></template>
+            <template x-if="!todo.completed"><circle cx="12" cy="12" r="10"/></template>
+          </svg>
+        </button>
+        <span class="flex-1 text-sm" :class="todo.completed && 'line-through text-muted-foreground'" x-text="todo.title"></span>
+        <button @click="remove(todo.id)" class="text-muted-foreground hover:text-destructive cursor-pointer text-xs">Remove</button>
+      </div>
+    </template>
+  </div>
+  <p x-show="!loading && todos.length === 0" class="text-sm text-muted-foreground text-center py-8">No todos yet. Add one above!</p>
 </div>
 ```
 
