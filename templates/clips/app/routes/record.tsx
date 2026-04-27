@@ -556,12 +556,11 @@ export default function RecordRoute() {
           aria-label="Back to library"
           onClick={async () => {
             // If we landed in `error` after partial media acquisition, the
-            // engine may still hold live screen/camera tracks. Fire
-            // doCancel() to release them, but don't await — navigation
-            // shouldn't block on async cleanup (optimistic UI). The
-            // MediaStreamTrack.stop() calls inside cancel() are
-            // synchronous, so tracks are released before the next tick
-            // even though the surrounding Promise resolves later.
+            // engine may still hold live screen/camera tracks. doCancel()
+            // releases them synchronously (see RecorderEngine.cancel —
+            // hardware teardown runs before the server-abort fetch is
+            // awaited), so navigate() can fire immediately while the
+            // best-effort server abort settles in the background.
             void doCancel();
             navigate("/library");
           }}
