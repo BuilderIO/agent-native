@@ -2,6 +2,7 @@ export function buildToolHtml(
   content: string,
   themeVars: string,
   isDark: boolean,
+  toolId?: string,
 ): string {
   return `<!DOCTYPE html>
 <html lang="en"${isDark ? ' class="dark"' : ""}>
@@ -131,9 +132,44 @@ export function buildToolHtml(
         body: JSON.stringify(body),
       });
     }
+
+    var _toolId = document.body.getAttribute('data-tool-id');
+
+    var toolData = {
+      async list(collection, opts) {
+        var limit = (opts && opts.limit) || 100;
+        var res = await fetch('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection) + '?limit=' + limit, {
+          credentials: 'same-origin',
+        });
+        if (!res.ok) throw new Error('Failed to list tool data');
+        return res.json();
+      },
+      async get(collection, id) {
+        var items = await this.list(collection);
+        return (items || []).find(function(item) { return item.id === id; }) || null;
+      },
+      async set(collection, id, data) {
+        var res = await fetch('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id, data: typeof data === 'string' ? data : JSON.stringify(data) }),
+        });
+        if (!res.ok) throw new Error('Failed to save tool data');
+        return res.json();
+      },
+      async remove(collection, id) {
+        var res = await fetch('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection) + '/' + encodeURIComponent(id), {
+          method: 'DELETE',
+          credentials: 'same-origin',
+        });
+        if (!res.ok) throw new Error('Failed to delete tool data');
+        return res.json();
+      },
+    };
   </script>
 </head>
-<body class="bg-background text-foreground">
+<body${toolId ? ` data-tool-id="${toolId}"` : ""} class="bg-background text-foreground">
 ${content}
 </body>
 </html>`;

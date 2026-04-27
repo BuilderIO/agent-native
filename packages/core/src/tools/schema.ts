@@ -71,3 +71,33 @@ export const TOOL_SHARES_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_shares
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT now()
 )`;
+
+export const toolData = table("tool_data", {
+  id: text("id").primaryKey(),
+  toolId: text("tool_id").notNull(),
+  collection: text("collection").notNull(),
+  data: text("data").notNull(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const TOOL_DATA_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_data (
+  id TEXT PRIMARY KEY,
+  tool_id TEXT NOT NULL,
+  collection TEXT NOT NULL,
+  data TEXT NOT NULL,
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`;
+
+export const TOOL_DATA_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_data (
+  id TEXT PRIMARY KEY,
+  tool_id TEXT NOT NULL,
+  collection TEXT NOT NULL,
+  data TEXT NOT NULL,
+  owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  created_at TEXT NOT NULL DEFAULT now(),
+  updated_at TEXT NOT NULL DEFAULT now()
+)`;
