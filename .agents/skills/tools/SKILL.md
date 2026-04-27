@@ -118,12 +118,41 @@ const data = await appFetch('/api/custom-endpoint', {
 });
 ```
 
-### Three fetch helpers summary
+### `dbQuery(sql)` — Read from the app's database
+
+Run a read-only SELECT query against the app's SQL database. Results are auto-scoped to the current user/org.
+
+```html
+<div x-data="{ rows: [] }" x-init="
+  dbQuery('SELECT id, name FROM tools ORDER BY created_at DESC LIMIT 10')
+    .then(d => rows = d.rows || d)
+">
+  <template x-for="row in rows" :key="row.id">
+    <div class="border-b p-2 text-sm" x-text="row.name"></div>
+  </template>
+</div>
+```
+
+### `dbExec(sql)` — Write to the app's database
+
+Run an INSERT, UPDATE, or DELETE statement. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT.
+
+```javascript
+// Insert a new record
+await dbExec("INSERT INTO notes (id, title, body) VALUES ('abc', 'My Note', 'Hello world')");
+
+// Update an existing record
+await dbExec("UPDATE notes SET title = 'Updated Title' WHERE id = 'abc'");
+```
+
+### All helpers summary
 
 | Helper | Use for | Example |
 |--------|---------|---------|
 | `appAction(name, params)` | Call app actions (CRUD, queries) | `appAction('list-emails', { view: 'inbox' })` |
 | `appFetch(path, options)` | Call any app endpoint | `appFetch('/api/settings')` |
+| `dbQuery(sql)` | Read from the app's SQL database | `dbQuery('SELECT * FROM notes LIMIT 10')` |
+| `dbExec(sql)` | Write to the app's SQL database | `dbExec("INSERT INTO notes ...")` |
 | `toolFetch(url, options)` | Call external APIs via proxy | `toolFetch('https://api.github.com/user', { headers: { 'Authorization': 'Bearer ${keys.GITHUB_TOKEN}' } })` |
 
 ## Using `toolFetch()` for API calls
