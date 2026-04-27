@@ -313,7 +313,6 @@ export function Sidebar({
                 onDelete={onDelete}
               />
             ))}
-
           </TabsContent>
 
           <TabsContent

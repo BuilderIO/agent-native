@@ -1,13 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router";
-import {
-  IconPlus,
-  IconStack2,
-  IconSettings,
-  IconUsers,
-  IconPalette,
-  IconTool,
-} from "@tabler/icons-react";
+import { IconPlus, IconStack2 } from "@tabler/icons-react";
 import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
@@ -15,7 +8,7 @@ import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 
 import { Button } from "@/components/ui/button";
-import { AgentToggleButton } from "@agent-native/core/client";
+import { Sidebar } from "@/components/layout/Sidebar";
 
 export default function Index() {
   const { decks, createDeck, deleteDeck, loading } = useDecks();
@@ -42,9 +35,6 @@ export default function Index() {
     prompt: string,
     files: UploadedFile[],
   ) => {
-    // Create an empty deck and navigate to it immediately so the user sees
-    // slides appear one-by-one as the agent generates them (feels like the
-    // deck is being built live rather than popping in all at once).
     const deck = createDeck(undefined, { noDefaultSlides: true });
 
     const fileContext =
@@ -77,55 +67,9 @@ export default function Index() {
   };
 
   return (
-    <div className="min-h-screen bg-[hsl(240,6%,4%)]">
-      {/* Header */}
-      <header className="border-b border-white/[0.06]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-          <span className="text-base font-semibold text-white/90 tracking-tight">
-            Slides
-          </span>
-          <div className="flex items-center gap-2">
-            <Link
-              to="/tools"
-              className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white"
-            >
-              <IconTool className="w-4 h-4" />
-              Tools
-            </Link>
-            <Link
-              to="/design-systems"
-              className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white"
-            >
-              <IconPalette className="w-4 h-4" />
-              Design Systems
-            </Link>
-            <Link
-              to="/team"
-              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80"
-              title="Team"
-              aria-label="Team"
-            >
-              <IconUsers className="w-4 h-4" />
-            </Link>
-            <Link
-              to="/settings"
-              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80"
-              title="Settings"
-              aria-label="Settings"
-            >
-              <IconSettings className="w-4 h-4" />
-            </Link>
-            <Button onClick={openNewDeck} size="sm">
-              <IconPlus className="w-3.5 h-3.5" />
-              New Deck
-            </Button>
-            <AgentToggleButton />
-          </div>
-        </div>
-      </header>
-
-      {/* Content */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+    <div className="flex h-screen">
+      <Sidebar />
+      <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-10">
         {loading ? (
           <>
             <div className="flex items-center justify-between mb-6">
@@ -155,25 +99,29 @@ export default function Index() {
               <h1 className="text-lg font-semibold text-white/90">
                 Your Decks
               </h1>
-              <span className="text-xs text-white/30">
-                {decks.length} deck{decks.length !== 1 ? "s" : ""}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-white/30">
+                  {decks.length} deck{decks.length !== 1 ? "s" : ""}
+                </span>
+                <Button onClick={openNewDeck} size="sm">
+                  <IconPlus className="w-3.5 h-3.5" />
+                  New Deck
+                </Button>
+              </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {/* New deck card - matches DeckCard structure */}
+              {/* New deck card */}
               <button
                 onClick={openNewDeck}
-                className="group relative rounded-xl border border-dashed border-white/[0.08] bg-[hsl(240,5%,8%)] hover:border-white/[0.15] transition-all duration-200 overflow-hidden text-left"
+                className="group relative rounded-xl border border-dashed border-white/[0.08] bg-[hsl(240,5%,8%)] hover:border-white/[0.15] overflow-hidden text-left cursor-pointer"
               >
-                {/* Slide preview area - matches DeckCard aspect-video */}
                 <div className="aspect-video flex items-center justify-center bg-white/[0.02]">
-                  <div className="w-12 h-12 rounded-xl bg-white/[0.04] flex items-center justify-center group-hover:bg-white/[0.06] transition-colors">
-                    <IconPlus className="w-6 h-6 text-white/30 group-hover:text-white/50 transition-colors" />
+                  <div className="w-12 h-12 rounded-xl bg-white/[0.04] flex items-center justify-center group-hover:bg-white/[0.06]">
+                    <IconPlus className="w-6 h-6 text-white/30 group-hover:text-white/50" />
                   </div>
                 </div>
-                {/* Info area - matches DeckCard p-4 */}
                 <div className="p-4">
-                  <h3 className="font-medium text-sm text-white/50 group-hover:text-white/70 transition-colors">
+                  <h3 className="font-medium text-sm text-white/50 group-hover:text-white/70">
                     New Deck
                   </h3>
                   <div className="text-xs text-white/30 mt-1">
@@ -182,7 +130,6 @@ export default function Index() {
                 </div>
               </button>
 
-              {/* Deck cards */}
               {[...decks].reverse().map((deck) => (
                 <DeckCard
                   key={deck.id}
@@ -193,46 +140,46 @@ export default function Index() {
             </div>
           </>
         )}
-      </main>
 
-      {/* Delete Confirmation Dialog */}
-      {deckToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="fixed inset-0 bg-black/60"
-            onClick={() => setDeckToDelete(null)}
-          />
-          <div className="relative bg-[hsl(240,5%,8%)] border border-white/[0.08] rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl">
-            <h3 className="text-base font-semibold text-white/90 mb-2">
-              Delete Deck?
-            </h3>
-            <p className="text-sm text-white/50 mb-5">
-              This will permanently delete this deck and all its slides. This
-              action cannot be undone.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <Button variant="ghost" onClick={() => setDeckToDelete(null)}>
-                Cancel
-              </Button>
-              <Button variant="destructive" onClick={handleConfirmDelete}>
-                Delete
-              </Button>
+        {/* Delete Confirmation Dialog */}
+        {deckToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div
+              className="fixed inset-0 bg-black/60"
+              onClick={() => setDeckToDelete(null)}
+            />
+            <div className="relative bg-[hsl(240,5%,8%)] border border-white/[0.08] rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl">
+              <h3 className="text-base font-semibold text-white/90 mb-2">
+                Delete Deck?
+              </h3>
+              <p className="text-sm text-white/50 mb-5">
+                This will permanently delete this deck and all its slides. This
+                action cannot be undone.
+              </p>
+              <div className="flex gap-3 justify-end">
+                <Button variant="ghost" onClick={() => setDeckToDelete(null)}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" onClick={handleConfirmDelete}>
+                  Delete
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <PromptPopover
-        open={showNewDeckPrompt}
-        onOpenChange={setShowNewDeckPrompt}
-        title="New deck"
-        placeholder="Describe your deck..."
-        onSkip={handleCreateDeckBlank}
-        skipLabel="Skip prompt"
-        onSubmit={handleCreateDeckWithPrompt}
-        loading={generating}
-        anchorRef={anchorRef}
-      />
+        <PromptPopover
+          open={showNewDeckPrompt}
+          onOpenChange={setShowNewDeckPrompt}
+          title="New deck"
+          placeholder="Describe your deck..."
+          onSkip={handleCreateDeckBlank}
+          skipLabel="Skip prompt"
+          onSubmit={handleCreateDeckWithPrompt}
+          loading={generating}
+          anchorRef={anchorRef}
+        />
+      </main>
     </div>
   );
 }
