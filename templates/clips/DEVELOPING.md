@@ -155,3 +155,16 @@ By default, data is stored in SQLite at `data/app.db`. For production/cloud depl
 | --------------------- | ---------------- | ---------------------------------------------------------- |
 | `DATABASE_URL`        | No (has default) | Database connection string (default: `file:./data/app.db`) |
 | `DATABASE_AUTH_TOKEN` | For remote DBs   | Auth token for Turso or other remote databases             |
+
+
+## Tools (Framework Feature)
+
+The framework provides **Tools** — mini sandboxed Alpine.js apps that run inside iframes. Tools let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under a "Tools" section.
+
+- **Creating tools**: Via the sidebar "+" button, agent chat, or `POST /_agent-native/tools`
+- **API calls**: Tools use `toolFetch()` which proxies requests through the server with `${keys.NAME}` secret injection
+- **Styling**: Tools inherit the main app's Tailwind v4 theme automatically
+- **Sharing**: Private by default, shareable with org or specific users (same model as other ownable resources)
+- **Security**: Iframe sandbox + CSP + SSRF protection on the proxy
+
+See the `tools` skill in `.agents/skills/tools/SKILL.md` for full implementation details.

@@ -77,6 +77,39 @@ export function buildToolHtml(
         });
       });
     }
+
+    async function appAction(name, params) {
+      params = params || {};
+      var res = await fetch('/_agent-native/actions/' + encodeURIComponent(name), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(params),
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return { error: res.statusText }; });
+        throw new Error(err.error || 'Action failed: ' + res.status);
+      }
+      return res.json();
+    }
+
+    async function appFetch(path, options) {
+      options = options || {};
+      var res = await fetch(path, {
+        ...options,
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return { error: res.statusText }; });
+        throw new Error(err.error || 'Request failed: ' + res.status);
+      }
+      var text = await res.text();
+      try { return JSON.parse(text); } catch(e) { return text; }
+    }
   </script>
 </head>
 <body class="bg-background text-foreground">

@@ -79,6 +79,53 @@ Tool HTML uses Alpine.js directives for reactivity. No build step, no imports.
 
 Always wrap `x-if` and `x-for` in a `<template>` tag.
 
+## Accessing app data
+
+Tools can call the host app's actions and API endpoints directly. The iframe shares the session cookie, so authentication is automatic.
+
+### `appAction(name, params)` — Call app actions
+
+Call any action defined in the app's `actions/` directory. Actions are auto-mounted at `/_agent-native/actions/:name`.
+
+```html
+<div x-data="{ emails: [], loading: true }" x-init="
+  appAction('list-emails', { view: 'inbox', limit: 10 })
+    .then(d => { emails = d.emails || d; loading = false })
+    .catch(e => { console.error(e); loading = false })
+">
+  <h2 class='text-lg font-semibold mb-4'>My Inbox</h2>
+  <template x-for='email in emails' :key='email.id'>
+    <div class='rounded-lg border p-3 mb-2'>
+      <p class='font-medium text-sm' x-text='email.subject'></p>
+      <p class='text-xs text-muted-foreground' x-text='email.from?.name || email.from?.email'></p>
+    </div>
+  </template>
+</div>
+```
+
+### `appFetch(path, options)` — Call any app endpoint
+
+General-purpose fetch to any app endpoint (e.g. `/api/emails`, `/_agent-native/application-state/navigation`). Automatically adds credentials and JSON content type.
+
+```javascript
+// Read application state
+const nav = await appFetch('/_agent-native/application-state/navigation');
+
+// Call a custom API route
+const data = await appFetch('/api/custom-endpoint', {
+  method: 'POST',
+  body: JSON.stringify({ key: 'value' }),
+});
+```
+
+### Three fetch helpers summary
+
+| Helper | Use for | Example |
+|--------|---------|---------|
+| `appAction(name, params)` | Call app actions (CRUD, queries) | `appAction('list-emails', { view: 'inbox' })` |
+| `appFetch(path, options)` | Call any app endpoint | `appFetch('/api/settings')` |
+| `toolFetch(url, options)` | Call external APIs via proxy | `toolFetch('https://api.github.com/user', { headers: { 'Authorization': 'Bearer ${keys.GITHUB_TOKEN}' } })` |
+
 ## Using `toolFetch()` for API calls
 
 `toolFetch()` is a drop-in replacement for `fetch()` that proxies requests through the server. The server injects secret values before the request leaves.
@@ -261,7 +308,7 @@ Persistent notes using localStorage -- no API key needed:
 
 - **Keep tools focused.** One tool, one job. A "GitHub PR Dashboard" should show PRs, not also manage issues.
 - **Handle loading and error states.** Always show a loading indicator during fetch and handle failures gracefully.
-- **Use `toolFetch()` for all HTTP requests.** Never use raw `fetch()` -- secrets won't be injected and CORS will block most APIs.
+- **Use the right fetch helper.** `appAction()` for app actions, `appFetch()` for app endpoints, `toolFetch()` for external APIs. Never use raw `fetch()` -- secrets won't be injected and CORS will block external APIs.
 - **Single quotes around `${keys.*}`** to prevent browser-side template literal evaluation.
 - **Prefer patches over full rewrites** when editing existing tools. Smaller diffs are less error-prone.
 
