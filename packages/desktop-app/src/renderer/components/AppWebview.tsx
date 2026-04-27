@@ -302,7 +302,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               container.appendChild(wv);
               webviewRef.current = wv;
             }}
-            style={error ? { visibility: "hidden" } : undefined}
+            style={{
+              flex: "1 1 auto",
+              display: "flex",
+              flexDirection: "column",
+              ...(error ? { visibility: "hidden" as const } : {}),
+            }}
           />
         )}
       </div>

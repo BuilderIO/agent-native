@@ -630,48 +630,17 @@ function openOAuthWindow(
 }
 
 // ---------- Webview popup handling ----------
+// React 19 sets <webview allowpopups={true}> as a DOM property, not an HTML
+// attribute. Electron only reads the attribute, so popups are silently
+// blocked. The renderer now creates <webview> via document.createElement and
+// sets the attribute imperatively, but setWindowOpenHandler must also be
+// registered via did-attach-webview (the web-contents-created path alone
+// doesn't reliably catch webviews created this way).
 
 app.on("web-contents-created", (_event, contents) => {
-  const type = contents.getType();
-  console.log(`[main] web-contents-created type=${type} id=${contents.id}`);
-
-  // For the shell window, intercept webview attachment to force allowPopups
-  if (type !== "webview") {
-    contents.on(
-      "will-attach-webview" as any,
-      (_e: any, prefs: any, params: any) => {
-        console.log(
-          `[main] will-attach-webview src=${params?.src} currentAllowPopups=${prefs?.allowPopups}`,
-        );
-        prefs.allowPopups = true;
-      },
-    );
-
-    contents.on("did-attach-webview" as any, (_e: any, guestContents: any) => {
-      console.log(`[main] did-attach-webview guestId=${guestContents?.id}`);
-      // Test: after the first webview loads, try window.open from main process
-      guestContents.once("did-finish-load", () => {
-        console.log(
-          `[main] webview ${guestContents.id} loaded: ${guestContents.getURL()}`,
-        );
-        setTimeout(() => {
-          if (guestContents.id === 2) {
-            console.log("[main] injecting window.open test into webview 2...");
-            guestContents
-              .executeJavaScript(
-                `
-              console.log('[test] about to call window.open');
-              const w = window.open('https://example.com', '_blank');
-              console.log('[test] window.open returned:', w);
-            `,
-              )
-              .then((r: any) => console.log("[main] executeJS result:", r))
-              .catch((e: any) => console.error("[main] executeJS error:", e));
-          }
-        }, 3000);
-      });
-      guestContents.setWindowOpenHandler(({ url }: any) => {
-        console.log("[main] setWindowOpenHandler (from did-attach):", url);
+  if (contents.getType() !== "webview") {
+    contents.on("did-attach-webview" as any, (_e: any, wc: any) => {
+      wc.setWindowOpenHandler(({ url }: any) => {
         try {
           const parsed = new URL(url);
           if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
@@ -679,14 +648,12 @@ app.on("web-contents-created", (_event, contents) => {
           }
           const provider = matchOAuthProvider(url);
           if (provider) {
-            openOAuthWindow(url, guestContents.session, provider);
+            openOAuthWindow(url, wc.session, provider);
           } else {
-            shell.openExternal(url).catch((err: any) => {
-              console.error("[main] shell.openExternal failed:", err);
-            });
+            shell.openExternal(url).catch(() => {});
           }
-        } catch (err) {
-          console.error("[main] handler error:", err);
+        } catch {
+          // malformed URL — ignore
         }
         return { action: "deny" as const };
       });
@@ -695,25 +662,19 @@ app.on("web-contents-created", (_event, contents) => {
   }
 
   contents.setWindowOpenHandler(({ url }) => {
-    console.log("[main] setWindowOpenHandler:", url);
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-        console.log("[main] denied non-http(s) protocol:", parsed.protocol);
         return { action: "deny" };
       }
       const provider = matchOAuthProvider(url);
       if (provider) {
-        console.log("[main] opening OAuth window for:", provider.name);
         openOAuthWindow(url, contents.session, provider);
       } else {
-        console.log("[main] opening external:", url);
-        shell.openExternal(url).catch((err) => {
-          console.error("[main] shell.openExternal failed:", err);
-        });
+        shell.openExternal(url).catch(() => {});
       }
-    } catch (err) {
-      console.error("[main] setWindowOpenHandler error:", err);
+    } catch {
+      // malformed URL — ignore
     }
     return { action: "deny" };
   });
