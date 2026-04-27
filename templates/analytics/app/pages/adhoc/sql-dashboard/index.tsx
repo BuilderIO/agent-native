@@ -8,7 +8,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
-import { ShareButton } from "@agent-native/core/client";
+import {
+  ShareButton,
+  PresenceBar,
+  useCollaborativeDoc,
+  generateTabId,
+  emailToColor,
+  emailToName,
+  useSession,
+  type CollabUser,
+} from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
 import { SqlChartCard } from "./SqlChartCard";
 import {
@@ -42,6 +51,8 @@ import {
   sortableKeyboardCoordinates,
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
+
+const TAB_ID = generateTabId();
 
 async function fetchWithAuth(url: string, options?: RequestInit) {
   const token = await getIdToken();
@@ -106,6 +117,81 @@ export default function SqlDashboardPage() {
   // Panel editor dialog state
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingPanel, setEditingPanel] = useState<SqlPanel | null>(null);
+
+  // ── Collaborative editing ──────────────────────────────────────────
+  const { session } = useSession();
+  const currentUser: CollabUser | undefined = session?.email
+    ? {
+        name: emailToName(session.email),
+        email: session.email,
+        color: emailToColor(session.email),
+      }
+    : undefined;
+
+  const collabDocId = dashboardId ? `dash-${dashboardId}` : null;
+  const {
+    ydoc,
+    awareness,
+    isSynced: collabSynced,
+    activeUsers,
+    agentActive,
+    agentPresent,
+  } = useCollaborativeDoc({
+    docId: collabDocId,
+    requestSource: TAB_ID,
+    user: currentUser,
+  });
+
+  // Track which panels remote users are editing (from awareness)
+  const [remoteEditingPanels, setRemoteEditingPanels] = useState<
+    Map<string, { color: string; name: string }>
+  >(new Map());
+
+  useEffect(() => {
+    if (!awareness || !ydoc) return;
+    const update = () => {
+      const editing = new Map<string, { color: string; name: string }>();
+      awareness.getStates().forEach((state, clientId) => {
+        if (clientId === ydoc.clientID) return;
+        const panelId = state.editingPanelId;
+        const user = state.user as CollabUser | undefined;
+        if (panelId && typeof panelId === "string" && user) {
+          editing.set(panelId, {
+            color: user.color || emailToColor(user.email),
+            name: user.name || emailToName(user.email),
+          });
+        }
+      });
+      setRemoteEditingPanels(editing);
+    };
+    awareness.on("change", update);
+    return () => {
+      awareness.off("change", update);
+    };
+  }, [awareness, ydoc]);
+
+  // Listen for remote collab changes — when the Y.Text("content") changes
+  // from a remote update, parse it and update dashboard state.
+  useEffect(() => {
+    if (!ydoc || !collabSynced) return;
+    const ytext = ydoc.getText("content");
+    const handler = () => {
+      const raw = ytext.toString();
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw) as SqlDashboardConfig;
+        if (parsed && parsed.panels) {
+          setDashboard(parsed);
+        }
+      } catch {
+        // JSON parse failed — ignore partial updates
+      }
+    };
+    ytext.observe(handler);
+    return () => {
+      ytext.unobserve(handler);
+    };
+  }, [ydoc, collabSynced]);
 
   // Per-user saved filter state
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
@@ -202,6 +288,25 @@ export default function SqlDashboardPage() {
   }, [searchParams, loaded, dashboard?.filters, dashboardId, saveFilterPref]);
 
   /**
+   * Push a config update through the collab layer so other tabs/users
+   * receive the change in real time.
+   */
+  const pushToCollab = useCallback(
+    (updated: SqlDashboardConfig) => {
+      if (!collabDocId) return;
+      const body = JSON.stringify(updated);
+      fetch(`/_agent-native/collab/${collabDocId}/text`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: body, requestSource: TAB_ID }),
+      }).catch(() => {
+        // Best-effort — the HTTP save is the source of truth
+      });
+    },
+    [collabDocId],
+  );
+
+  /**
    * Persist without throwing — background save used for drag reorder, width
    * toggle, title/description edits, and panel delete. If the save fails
    * (e.g. a panel's SQL becomes invalid after an earlier edit), surface a
@@ -211,6 +316,7 @@ export default function SqlDashboardPage() {
     (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
       setDashboard(updated);
+      pushToCollab(updated);
       saveDashboard(dashboardId, updated)
         .then(() => {
           queryClient.invalidateQueries({
@@ -228,7 +334,7 @@ export default function SqlDashboardPage() {
           );
         });
     },
-    [dashboardId, queryClient],
+    [dashboardId, queryClient, pushToCollab],
   );
 
   /**
@@ -240,10 +346,11 @@ export default function SqlDashboardPage() {
       if (!dashboardId) return;
       await saveDashboard(dashboardId, updated);
       setDashboard(updated);
+      pushToCollab(updated);
       queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
       queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
     },
-    [dashboardId, queryClient],
+    [dashboardId, queryClient, pushToCollab],
   );
 
   const removePanel = useCallback(
@@ -286,12 +393,28 @@ export default function SqlDashboardPage() {
   const openAddPanel = useCallback(() => {
     setEditingPanel(null);
     setEditorOpen(true);
-  }, []);
+    awareness?.setLocalStateField("editingPanelId", null);
+  }, [awareness]);
 
-  const openEditPanel = useCallback((panel: SqlPanel) => {
-    setEditingPanel(panel);
-    setEditorOpen(true);
-  }, []);
+  const openEditPanel = useCallback(
+    (panel: SqlPanel) => {
+      setEditingPanel(panel);
+      setEditorOpen(true);
+      awareness?.setLocalStateField("editingPanelId", panel.id);
+    },
+    [awareness],
+  );
+
+  // Clear awareness when panel editor closes
+  const handleEditorOpenChange = useCallback(
+    (open: boolean) => {
+      setEditorOpen(open);
+      if (!open) {
+        awareness?.setLocalStateField("editingPanelId", null);
+      }
+    },
+    [awareness],
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -396,6 +519,12 @@ export default function SqlDashboardPage() {
   useSetHeaderActions(
     dashboard ? (
       <>
+        <PresenceBar
+          activeUsers={activeUsers}
+          agentPresent={agentPresent}
+          agentActive={agentActive}
+          currentUserEmail={session?.email}
+        />
         {dashboardId && <ViewsMenu dashboardId={dashboardId} />}
         {dashboardId ? (
           <ShareButton
@@ -530,15 +659,40 @@ export default function SqlDashboardPage() {
                       },
                     }
                   : panel;
+                const remoteEditor = remoteEditingPanels.get(panel.id);
                 return (
-                  <SqlChartCard
+                  <div
                     key={panel.id}
-                    panel={resolved}
-                    resolvedSql={interpolate(panel.sql, vars)}
-                    onRemove={() => removePanel(panel.id)}
-                    onToggleWidth={() => toggleWidth(panel.id)}
-                    onEdit={() => openEditPanel(panel)}
-                  />
+                    className="relative"
+                    style={
+                      remoteEditor
+                        ? {
+                            outline: `2px solid ${remoteEditor.color}`,
+                            outlineOffset: 2,
+                            borderRadius: 8,
+                          }
+                        : undefined
+                    }
+                  >
+                    {remoteEditor && (
+                      <span
+                        className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
+                        style={{
+                          backgroundColor: remoteEditor.color,
+                          color: "#fff",
+                        }}
+                      >
+                        {remoteEditor.name}
+                      </span>
+                    )}
+                    <SqlChartCard
+                      panel={resolved}
+                      resolvedSql={interpolate(panel.sql, vars)}
+                      onRemove={() => removePanel(panel.id)}
+                      onToggleWidth={() => toggleWidth(panel.id)}
+                      onEdit={() => openEditPanel(panel)}
+                    />
+                  </div>
                 );
               })}
             </div>
@@ -548,7 +702,7 @@ export default function SqlDashboardPage() {
 
       <PanelEditorDialog
         open={editorOpen}
-        onOpenChange={setEditorOpen}
+        onOpenChange={handleEditorOpenChange}
         panel={editingPanel}
         onSave={handleSavePanel}
         dashboardId={dashboardId ?? ""}

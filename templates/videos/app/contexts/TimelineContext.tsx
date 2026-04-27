@@ -9,6 +9,7 @@ import {
 import { useTimelineState } from "@/state";
 import type { AnimationTrack } from "@/types";
 import { useComposition } from "./CompositionContext";
+import type { CompositionCollabData } from "@/hooks/use-composition-collab";
 
 // ─── Persistence helpers ──────────────────────────────────────────────────────
 
@@ -207,9 +208,20 @@ const TimelineContext = createContext<TimelineContextType | null>(null);
 
 type TimelineProviderProps = {
   children: ReactNode;
+  /** Optional: push state to collab layer on changes. */
+  onCollabPush?: (data: CompositionCollabData) => void;
+  /** Optional: remote collab data to apply when it arrives. */
+  collabData?: CompositionCollabData | null;
+  /** Whether collab is synced (prevents overwriting remote data on first load). */
+  collabSynced?: boolean;
 };
 
-export function TimelineProvider({ children }: TimelineProviderProps) {
+export function TimelineProvider({
+  children,
+  onCollabPush,
+  collabData,
+  collabSynced,
+}: TimelineProviderProps) {
   // Safety check for HMR issues - if context is missing, show helpful error
   let compositionContext;
   try {
@@ -387,6 +399,65 @@ export function TimelineProvider({ children }: TimelineProviderProps) {
     // Update previous FPS for next comparison
     prevFpsRef.current[compositionId] = fps;
   }, [compositionId, fps, timeline]);
+
+  // ─── Collab: push local changes to the collab layer ─────────────────────────
+  const collabPushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!compositionId || !onCollabPush) return;
+    if (timeline.tracks === prevTracksRef.current) return;
+
+    // Skip the very first load (collab push happens after user edits)
+    if (tracksInitialLoadRef.current) return;
+
+    // Debounce collab pushes to avoid flooding the server
+    if (collabPushTimerRef.current) clearTimeout(collabPushTimerRef.current);
+    collabPushTimerRef.current = setTimeout(() => {
+      console.log("[Videos] Pushing tracks to collab layer");
+      onCollabPush({ tracks: timeline.tracks });
+    }, 500);
+
+    return () => {
+      if (collabPushTimerRef.current) clearTimeout(collabPushTimerRef.current);
+    };
+  }, [compositionId, timeline.tracks, onCollabPush]);
+
+  // ─── Collab: apply remote changes from the collab layer ─────────────────────
+  const prevCollabDataRef = useRef<CompositionCollabData | null>(null);
+
+  useEffect(() => {
+    if (!compositionId || !collabSynced || !collabData) return;
+    // Only apply if collabData actually changed (not from our own push)
+    if (collabData === prevCollabDataRef.current) return;
+    prevCollabDataRef.current = collabData;
+
+    // If remote data has tracks, apply them
+    if (collabData.tracks && Array.isArray(collabData.tracks)) {
+      // Only apply if tracks are materially different (avoid loops)
+      const remoteJson = JSON.stringify(collabData.tracks);
+      const localJson = JSON.stringify(timeline.tracks);
+      if (remoteJson !== localJson) {
+        console.log("[Videos] Applying remote tracks from collab layer");
+        // Merge with defaults to get proper metadata
+        const merged = loadTracks(
+          compositionId,
+          collabData.tracks as AnimationTrack[],
+          registryVersion,
+          durationInFrames,
+        );
+        timeline.setTracks(merged);
+        // Also update localStorage so it stays in sync
+        saveTracks(compositionId, merged, registryVersion);
+      }
+    }
+  }, [
+    compositionId,
+    collabData,
+    collabSynced,
+    durationInFrames,
+    registryVersion,
+    timeline,
+  ]);
 
   const value = useMemo(
     () => ({

@@ -3,6 +3,11 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  hasCollabState,
+  applyText,
+  seedFromText,
+} from "@agent-native/core/collab";
 
 export default defineAction({
   description:
@@ -54,6 +59,16 @@ export default defineAction({
       .update(schema.designFiles)
       .set(updates)
       .where(eq(schema.designFiles.id, id));
+
+    // Push content through the collab layer so live editors see the change
+    if (content !== undefined) {
+      const collabExists = await hasCollabState(id);
+      if (collabExists) {
+        await applyText(id, content, "content", "agent");
+      } else {
+        await seedFromText(id, content);
+      }
+    }
 
     // Update the parent design's updatedAt timestamp
     await db

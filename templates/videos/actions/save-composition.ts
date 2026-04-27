@@ -6,6 +6,11 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import {
+  hasCollabState,
+  applyText,
+  seedFromText,
+} from "@agent-native/core/collab";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
@@ -58,6 +63,20 @@ export default defineAction({
         ownerEmail: getRequestUserEmail() ?? "local@localhost",
         orgId: getRequestOrgId(),
       });
+    }
+
+    // Sync to collab layer for live editing
+    const docId = `comp-${args.id}`;
+    try {
+      const collabExists = await hasCollabState(docId);
+      if (collabExists) {
+        await applyText(docId, dataStr, "content", "agent");
+      } else {
+        await seedFromText(docId, dataStr);
+      }
+    } catch (err) {
+      // Collab sync is best-effort — SQL is the source of truth
+      console.warn("[save-composition] Collab sync failed:", err);
     }
 
     let parsedData = {};

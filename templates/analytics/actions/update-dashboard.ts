@@ -7,6 +7,11 @@ import { z } from "zod";
 import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
 import { dryRunQuery } from "../server/lib/bigquery";
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import {
+  hasCollabState,
+  applyText,
+  seedFromText,
+} from "@agent-native/core/collab";
 
 /**
  * Same shape as the server-side validator in `server/handlers/sql-dashboards.ts`.
@@ -269,6 +274,29 @@ function resolveScope() {
   return { orgId, email };
 }
 
+/**
+ * Push a config update through the collab layer so open dashboard editors
+ * receive the change in real time. Seeds the collab state if it doesn't
+ * exist yet (e.g. dashboard was created before the collab plugin was added).
+ */
+async function syncToCollab(
+  dashboardId: string,
+  config: Record<string, unknown>,
+): Promise<void> {
+  const docId = `dash-${dashboardId}`;
+  const configStr = JSON.stringify(config);
+  try {
+    const exists = await hasCollabState(docId);
+    if (exists) {
+      await applyText(docId, configStr, "content", "agent");
+    } else {
+      await seedFromText(docId, configStr);
+    }
+  } catch {
+    // Collab sync is best-effort — the SQL write is the source of truth
+  }
+}
+
 // Reads + writes now go through the SQL-backed dashboards store, which
 // lazy-migrates legacy settings keys on first access. See
 // `server/lib/dashboards-store.ts`.
@@ -335,6 +363,7 @@ export default defineAction({
       const sqlError = await validatePanelSql(args.config);
       if (sqlError) return `Error: ${sqlError}`;
       await upsertDashboard(args.dashboardId, "sql", args.config, ctx);
+      await syncToCollab(args.dashboardId, args.config);
       return `Dashboard "${args.dashboardId}" replaced.`;
     }
 
@@ -362,6 +391,7 @@ export default defineAction({
       root as Record<string, unknown>,
       ctx,
     );
+    await syncToCollab(args.dashboardId, root as Record<string, unknown>);
 
     return (
       `Dashboard "${args.dashboardId}" updated. ` +

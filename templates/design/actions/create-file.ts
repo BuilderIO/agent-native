@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getDb, schema } from "../server/db/index.js";
 import { assertAccess } from "@agent-native/core/sharing";
+import { seedFromText } from "@agent-native/core/collab";
 
 export default defineAction({
   description:
@@ -44,6 +45,9 @@ export default defineAction({
       createdAt: now,
       updatedAt: now,
     });
+
+    // Seed collab state for the new file
+    await seedFromText(id, content);
 
     // Update the design's updatedAt timestamp
     await db

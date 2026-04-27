@@ -11,6 +11,8 @@ import {
   IconCopy,
   IconCheck,
   IconTerminal2,
+  IconWorld,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import type { AppDefinition, AppConfig } from "@shared/app-registry";
 import { getAppUrl, FRAME_PORT } from "@shared/app-registry";
@@ -339,13 +341,6 @@ function ErrorScreen({
   const [copied, setCopied] = useState(false);
   const devCommand = appConfig?.devCommand?.trim();
 
-  const title = isDev
-    ? "Is your dev server running?"
-    : `Couldn't connect to ${app.name}`;
-  const subtitle = isDev
-    ? `${app.name} couldn't be reached at ${url}. Start the dev server and retry.`
-    : `Check that ${app.name} is running at ${url}.`;
-
   async function copyCommand(cmd: string) {
     try {
       await navigator.clipboard.writeText(cmd);
@@ -358,42 +353,55 @@ function ErrorScreen({
 
   return (
     <div className="error-overlay">
-      <IconAlertCircle size={40} className="error-icon" />
-      <p className="error-title">{title}</p>
-      <p className="error-hint">{subtitle}</p>
+      <IconPlugConnected size={36} className="error-icon" />
+      <p className="error-title">
+        {isDev ? `Can't connect to ${app.name}` : `${app.name} isn't loading`}
+      </p>
+      <p className="error-hint">
+        {isDev ? (
+          <>
+            Tried loading from <span className="error-url">{url}</span>
+          </>
+        ) : (
+          <>
+            Couldn't reach <span className="error-url">{url}</span>
+          </>
+        )}
+      </p>
 
       {isDev && (
         <div className="error-commands">
-          {devCommand ? (
+          <p className="error-checklist-title">To fix this, make sure:</p>
+          <ul className="error-checklist">
+            <li>
+              The {app.name} dev server is running
+              {appConfig?.devPort ? ` on port ${appConfig.devPort}` : ""}
+            </li>
+            <li>The frame is running on port {FRAME_PORT}</li>
+          </ul>
+          {devCommand && (
             <CommandRow
               label={`Start ${app.name}`}
               command={devCommand}
               copied={copied}
               onCopy={() => copyCommand(devCommand)}
             />
-          ) : (
-            <p className="error-hint error-hint--muted">
-              Tip: set a dev command for this app in Settings so it appears
-              here.
-            </p>
           )}
-          <p className="error-hint error-hint--muted">
-            The local frame also needs to be running on port {FRAME_PORT}.
-          </p>
         </div>
       )}
 
       <div className="error-actions">
         <button className="retry-button" onClick={onRetry}>
-          <IconRefresh size={11} style={{ marginRight: 5 }} />
+          <IconRefresh size={12} style={{ marginRight: 5 }} />
           Retry
         </button>
         {onSwitchToProd && (
           <button
-            className="retry-button retry-button--primary"
+            className="retry-button retry-button--prod"
             onClick={onSwitchToProd}
           >
-            Use Production
+            <IconWorld size={12} style={{ marginRight: 5 }} />
+            Switch to Production
           </button>
         )}
       </div>

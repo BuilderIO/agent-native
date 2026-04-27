@@ -10,7 +10,6 @@ import {
   IconFileText,
   IconPlus,
   IconHistory,
-  IconPencil,
   IconRefresh,
 } from "@tabler/icons-react";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";
@@ -22,10 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   AgentToggleButton,
-  useAvatarUrl,
-  uploadAvatar,
-  emailToColor,
-  emailToName,
+  PresenceBar,
   type CollabUser,
 } from "@agent-native/core/client";
 import { ShareButton } from "@agent-native/core/client";
@@ -62,90 +58,11 @@ function NotionIcon({ className }: { className?: string }) {
   );
 }
 
-function PresenceAvatar({ user }: { user: CollabUser }) {
-  const avatarUrl = useAvatarUrl(user.email);
-  const color = emailToColor(user.email);
-  const name = emailToName(user.email);
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div
-          className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-background overflow-hidden cursor-default flex-shrink-0"
-          style={{ backgroundColor: color }}
-        >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={name}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            name[0]?.toUpperCase()
-          )}
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{name}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-function CurrentUserAvatar({ email }: { email: string }) {
-  const avatarUrl = useAvatarUrl(email);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const color = emailToColor(email);
-  const name = emailToName(email);
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      await uploadAvatar(file, email);
-    } finally {
-      if (inputRef.current) inputRef.current.value = "";
-    }
-  };
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          onClick={() => inputRef.current?.click()}
-          className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-background overflow-hidden hover:opacity-80 flex-shrink-0"
-          style={{ backgroundColor: color }}
-          aria-label="Update your avatar"
-        >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt="You"
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            name[0]?.toUpperCase()
-          )}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">
-        <div className="flex flex-col items-center gap-1">
-          <span className="text-xs font-medium">{email}</span>
-          <span className="text-[10px] opacity-60">Click to update photo</span>
-        </div>
-      </TooltipContent>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleFileChange}
-      />
-    </Tooltip>
-  );
-}
-
 interface DocumentToolbarProps {
   documentId: string;
   documentTitle?: string;
   activeUsers?: CollabUser[];
+  agentPresent?: boolean;
   agentActive?: boolean;
   isSaving?: boolean;
   currentUserEmail?: string;
@@ -155,6 +72,7 @@ export function DocumentToolbar({
   documentId,
   documentTitle,
   activeUsers,
+  agentPresent,
   agentActive,
   isSaving,
   currentUserEmail,
@@ -322,42 +240,20 @@ export function DocumentToolbar({
     setOpen(false);
   };
 
-  const otherUsers = (activeUsers ?? []).filter(
-    (u) => u.email !== currentUserEmail,
-  );
-
   return (
     <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 sm:top-3 sm:right-4 sm:gap-1">
-      {/* Avatars — left of toolbar buttons */}
-      {agentActive && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium mr-1">
-              <IconPencil size={12} />
-              <span className="hidden sm:inline">AI editing</span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            The AI agent is making changes
-          </TooltipContent>
-        </Tooltip>
-      )}
+      {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
+      <PresenceBar
+        activeUsers={activeUsers ?? []}
+        agentPresent={agentPresent}
+        agentActive={agentActive}
+        currentUserEmail={currentUserEmail}
+        className="mr-1"
+      />
       {isSaving && (
         <div className="flex items-center gap-1 text-xs text-muted-foreground mr-1">
           <IconLoader2 size={12} className="animate-spin" />
           <span className="hidden sm:inline">Saving...</span>
-        </div>
-      )}
-      {otherUsers.length > 0 && (
-        <div className="flex -space-x-1.5 mr-0.5">
-          {otherUsers.map((u, i) => (
-            <PresenceAvatar key={`${u.email}-${i}`} user={u} />
-          ))}
-        </div>
-      )}
-      {currentUserEmail && (
-        <div className="mr-1">
-          <CurrentUserAvatar email={currentUserEmail} />
         </div>
       )}
       <ShareButton

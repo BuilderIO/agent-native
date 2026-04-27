@@ -462,26 +462,64 @@ body {
 }
 
 .error-icon {
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.3);
   margin-bottom: 4px;
 }
 
 .error-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .error-hint {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.45);
   text-align: center;
-  max-width: 320px;
+  max-width: 360px;
   line-height: 1.6;
 }
 
+.error-url {
+  color: rgba(255, 255, 255, 0.6);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.error-checklist-title {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 500;
+  margin: 0;
+  align-self: flex-start;
+}
+
+.error-checklist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: stretch;
+}
+
+.error-checklist li {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+}
+
+.error-checklist li::before {
+  content: "›";
+  margin-right: 8px;
+  color: rgba(255, 255, 255, 0.3);
+}
+
 .retry-button {
-  margin-top: 6px;
   padding: 7px 16px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -489,6 +527,8 @@ body {
   color: rgba(255, 255, 255, 0.6);
   font-size: 12px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
   transition:
     background var(--ease),
     color var(--ease);
@@ -500,20 +540,21 @@ body {
   color: rgba(255, 255, 255, 0.85);
 }
 
-.retry-button--primary {
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.75);
+.retry-button--prod {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.25);
+  color: rgba(165, 170, 255, 0.9);
 }
 
-.retry-button--primary:hover {
-  background: rgba(255, 255, 255, 0.18);
-  color: rgba(255, 255, 255, 0.9);
+.retry-button--prod:hover {
+  background: rgba(99, 102, 241, 0.25);
+  color: #c7caff;
 }
 
 .error-actions {
   display: flex;
   gap: 8px;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 .error-commands {
@@ -521,13 +562,8 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  margin-top: 6px;
-  width: min(420px, 80%);
-}
-
-.error-hint--muted {
-  color: rgba(255, 255, 255, 0.35);
-  font-size: 11px;
+  margin-top: 8px;
+  width: min(380px, 80%);
 }
 
 .command-row {

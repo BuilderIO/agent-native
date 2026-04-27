@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  lazy,
+  Suspense,
+} from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import {
   IconArrowLeft,
@@ -21,8 +28,19 @@ import {
   useActionQuery,
   sendToAgentChat,
   useSession,
+  useCollaborativeDoc,
+  generateTabId,
+  emailToColor,
+  emailToName,
+  PresenceBar,
+  type CollabUser,
 } from "@agent-native/core/client";
-import { Pinpoint } from "@agent-native/pinpoint/react";
+
+const Pinpoint = lazy(() =>
+  import("@agent-native/pinpoint/react").then((m) => ({
+    default: m.Pinpoint,
+  })),
+);
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -34,6 +52,8 @@ import type {
   DrawAnnotation,
 } from "@/components/design/types";
 import { ZOOM_PRESETS } from "@/components/design/types";
+
+const TAB_ID = generateTabId();
 
 type EditorMode = "comment" | "edit" | "draw";
 
@@ -77,6 +97,15 @@ export default function DesignEditor() {
 
   const { session } = useSession();
 
+  // Current user info for collaborative presence
+  const currentUser: CollabUser | undefined = session?.email
+    ? {
+        name: emailToName(session.email),
+        email: session.email,
+        color: emailToColor(session.email),
+      }
+    : undefined;
+
   // Data fetching
   const { data: design, isLoading: designLoading } = useActionQuery<DesignData>(
     "get-design",
@@ -93,6 +122,61 @@ export default function DesignEditor() {
   }, [files, activeFileId]);
 
   const activeFile = files.find((f) => f.id === activeFileId) ?? files[0];
+
+  // Collaborative editing for the active file
+  const { ydoc, awareness, isSynced, activeUsers, agentActive } =
+    useCollaborativeDoc({
+      docId: activeFileId,
+      requestSource: TAB_ID,
+      user: currentUser,
+    });
+
+  // Track collab-sourced content for the active file.
+  // When Y.Doc is synced and has content, use it as the source of truth
+  // instead of the DB-fetched content so live remote edits appear instantly.
+  const [collabContent, setCollabContent] = useState<string | null>(null);
+  const prevActiveFileIdRef = useRef<string | null>(null);
+
+  // Reset collab content when switching files
+  useEffect(() => {
+    if (activeFileId !== prevActiveFileIdRef.current) {
+      prevActiveFileIdRef.current = activeFileId;
+      setCollabContent(null);
+    }
+  }, [activeFileId]);
+
+  // Seed collab content from Y.Doc once synced
+  useEffect(() => {
+    if (!ydoc || !isSynced || !activeFileId) return;
+    const ytext = ydoc.getText("content");
+    const text = ytext.toString();
+    if (text.length > 0) {
+      setCollabContent(text);
+    }
+  }, [ydoc, isSynced, activeFileId]);
+
+  // Observe Y.Text changes for live updates from remote editors
+  useEffect(() => {
+    if (!ydoc || !isSynced) return;
+    const ytext = ydoc.getText("content");
+    const handler = () => {
+      setCollabContent(ytext.toString());
+    };
+    ytext.observe(handler);
+    return () => {
+      ytext.unobserve(handler);
+    };
+  }, [ydoc, isSynced]);
+
+  // Set awareness local state to include which file the user is viewing
+  useEffect(() => {
+    if (awareness && activeFileId) {
+      awareness.setLocalStateField("activeFileId", activeFileId);
+    }
+  }, [awareness, activeFileId]);
+
+  // Resolve the content to render: prefer collab content, fall back to DB
+  const activeContent = collabContent ?? activeFile?.content ?? "";
 
   // Expose selection state for agent context
   useEffect(() => {
@@ -307,6 +391,11 @@ export default function DesignEditor() {
               <IconPlayerPlay className="w-3.5 h-3.5" />
               Present
             </Button>
+            <PresenceBar
+              activeUsers={activeUsers}
+              agentActive={agentActive}
+              currentUserEmail={session?.email}
+            />
             <AgentToggleButton />
           </div>
         </header>
@@ -335,7 +424,7 @@ export default function DesignEditor() {
           {/* Canvas */}
           {activeFile ? (
             <DesignCanvas
-              content={activeFile.content}
+              content={activeContent}
               zoom={zoom}
               deviceFrame={deviceFrame}
               editMode={mode === "edit"}
@@ -464,11 +553,13 @@ export default function DesignEditor() {
             </div>
           )}
 
-          <Pinpoint
-            author={session?.email || "anonymous"}
-            colorScheme="dark"
-            compactPopup
-          />
+          <Suspense>
+            <Pinpoint
+              author={session?.email || "anonymous"}
+              colorScheme="dark"
+              compactPopup
+            />
+          </Suspense>
 
           {/* Draw overlay */}
           {mode === "draw" && (

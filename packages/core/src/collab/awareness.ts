@@ -12,7 +12,7 @@ import { readBody } from "../server/h3-helpers.js";
 
 const AWARENESS_TIMEOUT = 30_000; // 30 seconds
 
-interface AwarenessEntry {
+export interface AwarenessEntry {
   clientId: number;
   state: string; // base64-encoded awareness update
   lastSeen: number;
@@ -21,7 +21,7 @@ interface AwarenessEntry {
 // docId → Map<clientId, AwarenessEntry>
 const _awarenessMap = new Map<string, Map<number, AwarenessEntry>>();
 
-function getDocAwareness(docId: string): Map<number, AwarenessEntry> {
+export function getDocAwareness(docId: string): Map<number, AwarenessEntry> {
   let map = _awarenessMap.get(docId);
   if (!map) {
     map = new Map();
@@ -30,7 +30,7 @@ function getDocAwareness(docId: string): Map<number, AwarenessEntry> {
   return map;
 }
 
-function cleanExpired(map: Map<number, AwarenessEntry>): void {
+export function cleanExpired(map: Map<number, AwarenessEntry>): void {
   const now = Date.now();
   for (const [clientId, entry] of map) {
     if (now - entry.lastSeen > AWARENESS_TIMEOUT) {

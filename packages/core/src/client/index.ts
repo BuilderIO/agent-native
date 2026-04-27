@@ -156,3 +156,21 @@ export {
   ObservabilityDashboard,
   ThumbsFeedback,
 } from "./observability/index.js";
+// Presence UI components
+export {
+  PresenceBar,
+  type PresenceBarProps,
+} from "./components/PresenceBar.js";
+export {
+  AgentPresenceChip,
+  type AgentPresenceChipProps,
+} from "./components/AgentPresenceChip.js";
+// Structured data collaboration hooks
+export {
+  useCollaborativeMap,
+  useCollaborativeArray,
+  type UseCollaborativeMapOptions,
+  type UseCollaborativeMapResult,
+  type UseCollaborativeArrayOptions,
+  type UseCollaborativeArrayResult,
+} from "../collab/client-struct.js";

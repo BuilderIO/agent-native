@@ -1659,7 +1659,7 @@ export function AgentSidebar({
       width,
       maxWidth: "85vw",
       maxHeight: "100vh",
-      zIndex: 50,
+      zIndex: 40,
       background: "hsl(var(--background))",
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
@@ -1679,7 +1679,7 @@ export function AgentSidebar({
       inset: 0,
       width: "100%",
       maxHeight: "100vh",
-      zIndex: 60,
+      zIndex: 40,
       background: "hsl(var(--background))",
       display: open ? "flex" : "none",
     };

@@ -1,6 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
-import { hasCollabState } from "@agent-native/core/collab";
+import {
+  hasCollabState,
+  agentEnterDocument,
+  agentLeaveDocument,
+} from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 import { notifyClients } from "../server/handlers/decks.js";
@@ -96,73 +100,52 @@ export default defineAction({
     //    collab state exists, and only for find/replace — fullContent goes via SSE)
     const collabEnabled = find ? await hasCollabState(docId) : false;
     if (collabEnabled) {
-      const tryOrigins = [
-        process.env.ORIGIN,
-        process.env.PORT ? `http://localhost:${process.env.PORT}` : null,
-        "http://localhost:8080",
-        "http://localhost:8081",
-        "http://localhost:8082",
-        "http://localhost:8083",
-      ].filter(Boolean) as string[];
+      // Enter both slide-level and deck-level presence
+      agentEnterDocument(docId);
+      agentEnterDocument(`deck-${deckId}`);
+      try {
+        const tryOrigins = [
+          process.env.ORIGIN,
+          process.env.PORT ? `http://localhost:${process.env.PORT}` : null,
+          "http://localhost:8080",
+          "http://localhost:8081",
+          "http://localhost:8082",
+          "http://localhost:8083",
+        ].filter(Boolean) as string[];
 
-      let serverOrigin: string | null = null;
-      for (const origin of tryOrigins) {
-        try {
-          const res = await fetch(`${origin}/_agent-native/ping`, {
-            signal: AbortSignal.timeout(500),
-          });
-          if (res.ok) {
-            serverOrigin = origin;
-            break;
+        let serverOrigin: string | null = null;
+        for (const origin of tryOrigins) {
+          try {
+            const res = await fetch(`${origin}/_agent-native/ping`, {
+              signal: AbortSignal.timeout(500),
+            });
+            if (res.ok) {
+              serverOrigin = origin;
+              break;
+            }
+          } catch {
+            // Try next
           }
-        } catch {
-          // Try next
         }
-      }
 
-      if (serverOrigin) {
-        // Post agent awareness to slide doc (shows "AI editing" indicator + avatar)
-        await fetch(`${serverOrigin}/_agent-native/collab/${docId}/awareness`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            clientId: 2147483647, // Fixed agent clientId (max 32-bit signed int)
-            state: JSON.stringify({
-              user: { name: "AI", email: "agent@system", color: "#a78bfa" },
-              slide: slideId,
-            }),
-          }),
-        }).catch(() => {});
-
-        // Post agent awareness to deck doc (shows avatar in sidebar)
-        await fetch(
-          `${serverOrigin}/_agent-native/collab/deck-${deckId}/awareness`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              clientId: 2147483647,
-              state: JSON.stringify({
-                user: { name: "AI", email: "agent@system", color: "#a78bfa" },
-                slide: slideId,
+        if (serverOrigin) {
+          // Apply surgical search-replace to the Yjs doc
+          await fetch(
+            `${serverOrigin}/_agent-native/collab/${docId}/search-replace`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                find,
+                replace: replace ?? "",
+                requestSource: "agent",
               }),
-            }),
-          },
-        ).catch(() => {});
-
-        // Apply surgical search-replace to the Yjs doc
-        await fetch(
-          `${serverOrigin}/_agent-native/collab/${docId}/search-replace`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              find,
-              replace: replace ?? "",
-              requestSource: "agent",
-            }),
-          },
-        ).catch(() => {});
+            },
+          ).catch(() => {});
+        }
+      } finally {
+        agentLeaveDocument(docId);
+        agentLeaveDocument(`deck-${deckId}`);
       }
     }
 

@@ -14,11 +14,16 @@ import { TimelineProvider } from "@/contexts/TimelineContext";
 import { PlaybackProvider } from "@/contexts/PlaybackContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
+import { useCompositionCollab } from "@/hooks/use-composition-collab";
 import "@/utils/resetComposition"; // Make reset utility available in console
 
 // ─── Studio Container with Providers ──────────────────────────────────────────
 
-function StudioContent() {
+function StudioContent({
+  collab,
+}: {
+  collab: ReturnType<typeof useCompositionCollab>;
+}) {
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const initialSidebarSet = useRef(false);
@@ -92,6 +97,9 @@ function StudioContent() {
                 onCameraKeyframeClick={handleCameraKeyframeClick}
                 onCompSettingsClick={handleCompSettingsClick}
                 isGenerating={generatingComposition}
+                activeUsers={collab.activeUsers}
+                agentActive={collab.agentActive}
+                agentPresent={collab.agentPresent}
               />
             </div>
           </div>
@@ -105,6 +113,9 @@ function StudioContent() {
 
 export default function Studio() {
   const { compositionId } = useParams<{ compositionId: string }>();
+  const collab = useCompositionCollab(
+    compositionId && compositionId !== "new" ? compositionId : null,
+  );
 
   const isNew = compositionId === "new";
   const selected = compositions.find((c) => c.id === compositionId);
@@ -176,10 +187,19 @@ export default function Studio() {
 
   return (
     <CurrentElementProvider>
-      <CompositionProvider compositionId={compositionId!}>
-        <TimelineProvider>
+      <CompositionProvider
+        compositionId={compositionId!}
+        onCollabPush={collab.pushToCollab}
+        collabData={collab.compositionData}
+        collabSynced={collab.isSynced}
+      >
+        <TimelineProvider
+          onCollabPush={collab.pushToCollab}
+          collabData={collab.compositionData}
+          collabSynced={collab.isSynced}
+        >
           <PlaybackProvider>
-            <StudioContent />
+            <StudioContent collab={collab} />
           </PlaybackProvider>
         </TimelineProvider>
       </CompositionProvider>

@@ -1,4 +1,12 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+  lazy,
+  Suspense,
+} from "react";
 import {
   useParams,
   Navigate,
@@ -13,7 +21,7 @@ import {
   useSensors,
   DragEndEvent,
 } from "@dnd-kit/core";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDecks } from "@/context/DeckContext";
 import type { SlideLayout } from "@/context/DeckContext";
 import EditorSidebar from "@/components/editor/EditorSidebar";
@@ -43,7 +51,11 @@ import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
-import { Pinpoint } from "@agent-native/pinpoint/react";
+const Pinpoint = lazy(() =>
+  import("@agent-native/pinpoint/react").then((m) => ({
+    default: m.Pinpoint,
+  })),
+);
 
 // Stable tab ID for jitter prevention (module-level = never recreated)
 const COLLAB_TAB_ID = `slides-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -51,6 +63,7 @@ const COLLAB_TAB_ID = `slides-${Date.now()}-${Math.random().toString(36).slice(2
 export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     getDeck,
@@ -153,12 +166,13 @@ export default function DeckEditor() {
         submit: true,
       });
 
-      // Clear the question flow state
+      // Clear the question flow state — optimistically clear cache so overlay hides immediately
+      queryClient.setQueryData(["show-questions"], null);
       fetch("/_agent-native/application-state/show-questions", {
         method: "DELETE",
       }).catch(() => {});
     },
-    [id],
+    [id, queryClient],
   );
 
   const handleQuestionSkip = useCallback(() => {
@@ -169,11 +183,12 @@ export default function DeckEditor() {
       submit: true,
     });
 
-    // Clear the question flow state
+    // Clear the question flow state — optimistically clear cache so overlay hides immediately
+    queryClient.setQueryData(["show-questions"], null);
     fetch("/_agent-native/application-state/show-questions", {
       method: "DELETE",
     }).catch(() => {});
-  }, [id]);
+  }, [id, queryClient]);
 
   // If deck already has slides on mount, it's not a fresh new-deck creation
   useEffect(() => {
@@ -418,6 +433,7 @@ export default function DeckEditor() {
     awareness,
     activeUsers: slideActiveUsers,
     agentActive,
+    agentPresent,
   } = useCollaborativeDoc({
     docId: slideDocId,
     requestSource: COLLAB_TAB_ID,
@@ -480,6 +496,7 @@ export default function DeckEditor() {
           currentSlide && updateSlide(id, currentSlide.id, updates)
         }
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
+        agentPresent={agentPresent}
         agentActive={agentActive}
         commentsOpen={commentsOpen}
         onToggleComments={() => setCommentsOpen((o) => !o)}
@@ -640,11 +657,13 @@ export default function DeckEditor() {
           />
         )}
 
-        <Pinpoint
-          author={session?.email || "anonymous"}
-          colorScheme="dark"
-          compactPopup
-        />
+        <Suspense>
+          <Pinpoint
+            author={session?.email || "anonymous"}
+            colorScheme="dark"
+            compactPopup
+          />
+        </Suspense>
       </div>
 
       {/* Hidden upload input */}
