@@ -94,7 +94,13 @@ const llmStep: OnboardingStep = {
     },
   ],
   isComplete: async () => {
-    if (process.env.BUILDER_PRIVATE_KEY) return true;
+    try {
+      const { resolveHasBuilderPrivateKey } =
+        await import("../server/credential-provider.js");
+      if (await resolveHasBuilderPrivateKey()) return true;
+    } catch {
+      if (process.env.BUILDER_PRIVATE_KEY) return true;
+    }
     if (PROVIDER_ENV_VARS.some((k) => !!process.env[k])) return true;
     try {
       return isAgentEngineSettingConfigured(await getSetting("agent-engine"));

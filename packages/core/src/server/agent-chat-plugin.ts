@@ -51,6 +51,7 @@ import { getSession } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import {
   createThread,
+  forkThread,
   getThread,
   listThreads,
   searchThreads,
@@ -841,15 +842,16 @@ function createBuilderBrowserTool(deps: {
         },
       },
       run: async (args) => {
-        const configured = !!(
-          process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY
-        );
+        const { resolveBuilderCredentials } =
+          await import("./credential-provider.js");
+        const creds = await resolveBuilderCredentials();
+        const configured = !!(creds.privateKey && creds.publicKey);
         const prompt = typeof args?.prompt === "string" ? args.prompt : "";
         return JSON.stringify({
           kind: "connect-builder-card",
           configured,
           connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
-          orgName: process.env.BUILDER_ORG_NAME || null,
+          orgName: creds.orgName || null,
           prompt,
         });
       },
@@ -1203,6 +1205,7 @@ const FRAMEWORK_CORE_COMPACT = `
 5. **Screen refresh is automatic** — The framework auto-refreshes after mutating tool calls. Only call \`refresh-screen\` when you mutated data via a path the framework can't detect.
 6. **Memory** — Use \`save-memory\` proactively when you learn preferences, corrections, or project context.
 7. **Security** — Always use parameterized queries. Never \`dangerouslySetInnerHTML\`, \`innerHTML\`, or \`eval()\`.
+8. **\`db-*\` tools are internal only** — \`db-query\`, \`db-exec\`, \`db-patch\` ONLY access the app's own SQL database (settings, application_state, template tables). They CANNOT reach BigQuery, HubSpot, GA4, Jira, or any external data source. If the user asks about a table that is NOT in the app schema (e.g. \`dbt_analytics.*\`, \`dbt_mart.*\`, or any fully-qualified \`project.dataset.table\`), use the appropriate template action instead — \`bigquery\` for warehouse tables, \`ga4-report\` for Google Analytics, \`hubspot-deals\` for HubSpot, etc. **Never use \`db-query\` for external data — it will fail.**
 
 ### Resources
 
@@ -1361,6 +1364,7 @@ const FRAMEWORK_CORE = `
 5. **Screen refresh is automatic after action calls** — The framework auto-emits a refresh event after any successful mutating tool call (template actions like \`log-meal\`, \`update-form\`, \`edit-document\`, and the \`db-exec\` / \`db-patch\` tools). The UI re-fetches its queries without a full page reload. You do NOT need to call \`refresh-screen\` after an action — it's already handled. Only call \`refresh-screen\` explicitly when (a) you mutated data via a path the framework can't detect (e.g. writing directly to an external system whose results the app mirrors), or (b) you want to pass a \`scope\` hint so the UI narrows which queries to refetch. Do NOT tell the user to reload the page.
 6. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. Update shared AGENTS.md for instructions that should apply to all users.
 7. **Security** — Always use \`defineAction\` with a Zod \`schema:\` for input validation. Never construct SQL with string concatenation — use parameterized queries via db-query/db-exec. Never use \`dangerouslySetInnerHTML\`, \`innerHTML\`, or \`eval()\`. Never expose secrets in responses or source code. Every table with user data must have \`owner_email\`.
+8. **\`db-*\` tools are internal only** — \`db-query\`, \`db-exec\`, \`db-patch\` ONLY access the app's own SQL database (settings, application_state, template tables). They CANNOT reach BigQuery, HubSpot, GA4, Jira, or any external data source. If the user asks about a table that is NOT in the app schema (e.g. \`dbt_analytics.*\`, \`dbt_mart.*\`, or any fully-qualified \`project.dataset.table\`), use the appropriate template action instead — \`bigquery\` for warehouse tables, \`ga4-report\` for Google Analytics, \`hubspot-deals\` for HubSpot, etc. **Never use \`db-query\` for external data — it will fail.**
 
 ### Resources
 
@@ -2397,9 +2401,7 @@ export function createAgentChatPlugin(
             ? devPrompt + resources + schemaBlock
             : basePrompt + resources + schemaBlock;
 
-          const model =
-            options?.model ??
-            (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
+          const model = options?.model ?? "claude-sonnet-4-6";
 
           // Build tools — same as interactive handler but WITHOUT call-agent
           // to prevent infinite recursive A2A loops (agent calling itself).
@@ -2534,9 +2536,7 @@ export function createAgentChatPlugin(
             engineOption: options?.engine,
             apiKey: options?.apiKey,
           });
-          const model =
-            options?.model ??
-            (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
+          const model = options?.model ?? "claude-sonnet-4-6";
 
           // Same actions as A2A — without call-agent to prevent loops.
           // In dev mode, template actions go through shell, not native tools.
@@ -2725,6 +2725,15 @@ export function createAgentChatPlugin(
               repo.messages.push(assistantMsg);
             }
 
+            // Store debug metadata so we can inspect what the LLM actually
+            // received (system prompt, model, engine) when diagnosing issues.
+            repo._debug = {
+              systemPrompt: _currentRunSystemPrompt,
+              model: _currentRunModel ?? resolvedModel,
+              engine: _currentRunEngine?.name ?? "unknown",
+              timestamp: Date.now(),
+            };
+
             const meta = extractThreadMeta(repo);
             await updateThreadData(
               threadId,
@@ -2823,10 +2832,7 @@ export function createAgentChatPlugin(
       // instead of silently falling back to Anthropic + Claude.
       let _currentRunEngine: AgentEngine | undefined;
       let _currentRunModel: string | undefined;
-      // Default to Haiku in production mode to manage costs for hosted apps
-      const resolvedModel =
-        options?.model ??
-        (canToggle ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001");
+      const resolvedModel = options?.model ?? "claude-sonnet-4-6";
 
       const teamTools = createTeamTools({
         getOwner: () => _currentRunOwner,
@@ -2879,6 +2885,19 @@ export function createAgentChatPlugin(
         const { createJobTools } = await import("../jobs/tools.js");
         jobTools = createJobTools();
       } catch {}
+
+      // Lean mode: only template actions + essential framework tools. Drop
+      // web-request, browser tools, teams, jobs, automations, notifications,
+      // progress, call-agent, and MCP entries to keep the tool list tight and
+      // prevent the LLM from reaching for web-request instead of the
+      // template's native actions (e.g. log-meal).
+      const leanActions = {
+        ...templateScripts,
+        ...resourceScripts,
+        ...refreshScreenTool,
+        ...urlTools,
+        ...chatScripts,
+      };
 
       const prodActions = {
         ...templateScripts,
@@ -2951,7 +2970,7 @@ export function createAgentChatPlugin(
       };
 
       const prodHandler = createProductionAgentHandler({
-        actions: prodActions,
+        actions: leanPrompt ? leanActions : prodActions,
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
           if (leanPrompt) {
@@ -2968,9 +2987,7 @@ export function createAgentChatPlugin(
             basePrompt + resources + schemaBlock + extra;
           return _currentRunSystemPrompt;
         },
-        model:
-          options?.model ??
-          (isHostedProd ? "claude-haiku-4-5-20251001" : undefined),
+        model: options?.model ?? "claude-sonnet-4-6",
         apiKey: options?.apiKey,
         skipFilesContext: leanPrompt,
         onEngineResolved: (engine, model) => {
@@ -3009,28 +3026,30 @@ export function createAgentChatPlugin(
         // template's actions as native tools instead of routing through shell.
         // Templates with structured-arg actions (objects/arrays) need this to
         // avoid round-tripping JSON through the CLI parser.
-        const devActions = devNative
-          ? prodActions
-          : {
-              ...resourceScripts,
-              ...docsScripts,
-              ...(lazyContext ? frameworkContextTool : {}),
-              ...chatScripts,
-              ...callAgentScript,
-              ...teamTools,
-              ...jobTools,
-              ...automationTools,
-              ...notificationTools,
-              ...progressTools,
-              ...fetchTool,
-              ...browserTools,
-              ...mcpActionEntries,
-              ...(await createDevScriptRegistry()),
-            };
+        const devActions = leanPrompt
+          ? leanActions
+          : devNative
+            ? prodActions
+            : {
+                ...resourceScripts,
+                ...docsScripts,
+                ...(lazyContext ? frameworkContextTool : {}),
+                ...chatScripts,
+                ...callAgentScript,
+                ...teamTools,
+                ...jobTools,
+                ...automationTools,
+                ...notificationTools,
+                ...progressTools,
+                ...fetchTool,
+                ...browserTools,
+                ...mcpActionEntries,
+                ...(await createDevScriptRegistry()),
+              };
         // Keep dev action dict in sync with runtime MCP additions. When
         // native-actions mode is on (lean or `nativeActionsInDev`), devActions
         // === prodActions so the prod listener already covers it.
-        if (devActions !== prodActions) {
+        if (devActions !== prodActions && devActions !== leanActions) {
           mcpManager.onChange(() => {
             syncMcpActionEntries(mcpManager, devActions);
           });
@@ -3985,6 +4004,24 @@ export function createAgentChatPlugin(
                 : [];
               await setThreadQueuedMessages(threadId, queued);
               return { ok: true };
+            }
+
+            // POST /threads/:id/fork — duplicate a thread with all its messages
+            if (
+              method === "POST" &&
+              /\/threads\/[^/?]+\/fork/.test(
+                event.node?.req?.url || event.path || "",
+              )
+            ) {
+              const body = await readBody(event);
+              const forked = await forkThread(threadId, owner, {
+                id: body?.id,
+              });
+              if (!forked) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              return forked;
             }
 
             if (method === "DELETE") {

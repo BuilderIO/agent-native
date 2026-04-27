@@ -208,6 +208,39 @@ export function useChatThreads(
     [apiUrl],
   );
 
+  const forkThread = useCallback(
+    async (sourceId: string): Promise<string | null> => {
+      const id = crypto.randomUUID();
+      try {
+        const res = await fetch(
+          `${apiUrl}/threads/${encodeURIComponent(sourceId)}/fork`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id }),
+          },
+        );
+        if (!res.ok) return null;
+        const thread = await res.json();
+        setThreads((prev) => [
+          {
+            id: thread.id,
+            title: thread.title,
+            preview: thread.preview,
+            messageCount: thread.messageCount,
+            createdAt: thread.createdAt,
+            updatedAt: thread.updatedAt,
+          },
+          ...prev,
+        ]);
+        return thread.id;
+      } catch {
+        return null;
+      }
+    },
+    [apiUrl],
+  );
+
   const searchThreads = useCallback(
     async (query: string): Promise<ChatThreadSummary[]> => {
       try {
@@ -235,6 +268,7 @@ export function useChatThreads(
     createThread,
     switchThread,
     deleteThread: removeThread,
+    forkThread,
     saveThreadData,
     generateTitle,
     searchThreads,

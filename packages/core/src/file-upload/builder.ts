@@ -23,7 +23,9 @@ export const builderFileUploadProvider: FileUploadProvider = {
   name: "Builder.io",
   isConfigured: () => !!process.env.BUILDER_PRIVATE_KEY,
   upload: async ({ data, filename, mimeType }) => {
-    const privateKey = process.env.BUILDER_PRIVATE_KEY;
+    const { resolveBuilderPrivateKey } =
+      await import("../server/credential-provider.js");
+    const privateKey = await resolveBuilderPrivateKey();
     if (!privateKey) {
       throw new Error("BUILDER_PRIVATE_KEY is not set");
     }

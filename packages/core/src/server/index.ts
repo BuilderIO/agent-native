@@ -172,6 +172,13 @@ export {
   hasBuilderPrivateKey,
   getBuilderProxyOrigin,
   getBuilderAuthHeader,
+  resolveBuilderPrivateKey,
+  resolveBuilderAuthHeader,
+  resolveHasBuilderPrivateKey,
+  resolveBuilderCredentials,
+  resolveBuilderCredential,
+  writeBuilderCredentials,
+  deleteBuilderCredentials,
 } from "./credential-provider.js";
 
 export {

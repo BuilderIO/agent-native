@@ -133,6 +133,42 @@ export async function getThread(id: string): Promise<ChatThread | null> {
   };
 }
 
+export async function forkThread(
+  sourceId: string,
+  ownerEmail: string,
+  opts?: { id?: string },
+): Promise<ChatThread | null> {
+  const source = await getThread(sourceId);
+  if (!source || source.ownerEmail !== ownerEmail) return null;
+  const id = opts?.id ?? generateId();
+  const now = Date.now();
+  const title = source.title ? `${source.title} (fork)` : "";
+  const client = getDbExec();
+  await client.execute({
+    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      id,
+      ownerEmail,
+      title,
+      source.preview,
+      source.threadData,
+      source.messageCount,
+      now,
+      now,
+    ],
+  });
+  return {
+    id,
+    ownerEmail,
+    title,
+    preview: source.preview,
+    threadData: source.threadData,
+    messageCount: source.messageCount,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export async function listThreads(
   ownerEmail: string,
   limit = 50,

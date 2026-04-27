@@ -24,10 +24,10 @@ import {
   engineToolsToAnthropic,
 } from "./translate-anthropic.js";
 import {
-  getBuilderAuthHeader,
+  resolveBuilderAuthHeader,
+  resolveBuilderCredential,
   getBuilderGatewayBaseUrl,
 } from "../../server/credential-provider.js";
-import { getSetting } from "../../settings/store.js";
 
 export const BUILDER_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -54,6 +54,8 @@ export const BUILDER_SUPPORTED_MODELS = [
   "qwen3-coder",
   "kimi-k2-5",
   "deepseek-v3-1",
+  "z-ai-glm-4-5",
+  "z-ai-glm-5-1",
 ] as const;
 
 export const BUILDER_DEFAULT_MODEL = "claude-sonnet-4-6";
@@ -84,8 +86,8 @@ function mapReasoningEffort(budgetTokens: number): "low" | "medium" | "high" {
  * Deep-links to the connected org's billing page when BUILDER_ORG_NAME is
  * known, else falls back to the generic account billing page.
  */
-function buildUpgradeUrl(): string {
-  const orgName = process.env.BUILDER_ORG_NAME;
+async function buildUpgradeUrl(): Promise<string> {
+  const orgName = await resolveBuilderCredential("BUILDER_ORG_NAME");
   if (orgName) {
     return `https://builder.io/app/organizations/${encodeURIComponent(orgName)}/billing`;
   }
@@ -110,26 +112,7 @@ class BuilderEngine implements AgentEngine {
   readonly capabilities = BUILDER_CAPABILITIES;
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
-    // Honor the SQL disconnect flag even when BUILDER_PRIVATE_KEY is still
-    // in process.env (nitro dev env-runner can preserve it across reloads
-    // — see core-routes-plugin.ts plugin init).
-    try {
-      const disconnected = await getSetting("builder-disconnected");
-      if (disconnected) {
-        yield {
-          type: "stop",
-          reason: "error",
-          error:
-            "Builder is disconnected. Reconnect in Settings → LLM to use the Builder gateway.",
-          errorCode: "missing_credentials",
-        };
-        return;
-      }
-    } catch {
-      // DB not reachable — proceed with env-based check below.
-    }
-
-    const authHeader = getBuilderAuthHeader();
+    const authHeader = await resolveBuilderAuthHeader();
     if (!authHeader) {
       yield {
         type: "stop",
@@ -159,7 +142,8 @@ class BuilderEngine implements AgentEngine {
     };
 
     const gatewayBaseUrl = getBuilderGatewayBaseUrl();
-    const orgLabel = process.env.BUILDER_ORG_NAME || "unknown-org";
+    const orgLabel =
+      (await resolveBuilderCredential("BUILDER_ORG_NAME")) || "unknown-org";
     const tStart = Date.now();
     console.log(
       `[builder-engine] → POST ${gatewayBaseUrl}/messages model=${opts.model} tools=${tools.length} org=${orgLabel}`,
@@ -234,7 +218,7 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
       reason: "error",
       error: message,
       errorCode: code,
-      upgradeUrl: buildUpgradeUrl(),
+      upgradeUrl: await buildUpgradeUrl(),
     };
     return;
   }

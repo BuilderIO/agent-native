@@ -21,7 +21,7 @@ export function ExerciseCard({
   isDeleting,
 }: ExerciseCardProps) {
   return (
-    <div className="group relative flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] hover:bg-white/[0.04]">
+    <div className="group relative flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] hover:bg-white/[0.04] overflow-hidden">
       <div className="flex items-center justify-center w-9 h-9 shrink-0 rounded-lg bg-orange-500/10 border border-orange-500/20">
         <IconFlame className="h-4 w-4 text-orange-400" />
       </div>

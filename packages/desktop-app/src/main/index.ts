@@ -519,7 +519,7 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
   {
     name: "google",
     matches: (u) => u.hostname === "accounts.google.com",
-    callbackPathFragment: "/api/google/",
+    callbackPathFragment: "google/callback",
   },
   {
     name: "builder",
@@ -605,7 +605,14 @@ function openOAuthWindow(
   const onNavigate = (_event: Electron.Event, navUrl: string) => {
     try {
       const parsed = new URL(navUrl);
+      // Detect the OAuth callback (works for both /api/google/callback and
+      // /_agent-native/google/callback).
       if (parsed.pathname.includes(provider.callbackPathFragment)) {
+        scheduleClose();
+      }
+      // Detect agentnative:// deep link — handle it and close the popup.
+      if (parsed.protocol === `${DEEP_LINK_PROTOCOL}:`) {
+        handleDeepLink(navUrl);
         scheduleClose();
       }
     } catch {
@@ -616,11 +623,21 @@ function openOAuthWindow(
   oauthWin.webContents.on("did-navigate", onNavigate);
   oauthWin.webContents.on("did-redirect-navigation", onNavigate);
 
-  // Fallback: also detect did-fail-load (e.g. deep link navigation)
+  // Intercept deep link navigations that would fail to load — handle the
+  // deep link and close the popup instead of showing a blank error page.
+  oauthWin.webContents.on(
+    "will-navigate",
+    (event: Electron.Event, navUrl: string) => {
+      if (navUrl.startsWith(`${DEEP_LINK_PROTOCOL}:`)) {
+        event.preventDefault();
+        handleDeepLink(navUrl);
+        scheduleClose();
+      }
+    },
+  );
+
   oauthWin.webContents.on("did-fail-load", () => {
-    setTimeout(() => {
-      if (!oauthWin.isDestroyed()) oauthWin.close();
-    }, 300);
+    scheduleClose();
   });
 
   // Reload webviews when the OAuth window closes (whether auto or manual)
@@ -630,10 +647,36 @@ function openOAuthWindow(
 }
 
 // ---------- Webview popup handling ----------
+// React 19 sets <webview allowpopups={true}> as a DOM property, not an HTML
+// attribute. Electron only reads the attribute, so popups are silently
+// blocked. The renderer now creates <webview> via document.createElement and
+// sets the attribute imperatively, but setWindowOpenHandler must also be
+// registered via did-attach-webview (the web-contents-created path alone
+// doesn't reliably catch webviews created this way).
 
 app.on("web-contents-created", (_event, contents) => {
-  // Only intercept webview guest contents
-  if (contents.getType() !== "webview") return;
+  if (contents.getType() !== "webview") {
+    contents.on("did-attach-webview" as any, (_e: any, wc: any) => {
+      wc.setWindowOpenHandler(({ url }: any) => {
+        try {
+          const parsed = new URL(url);
+          if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+            return { action: "deny" as const };
+          }
+          const provider = matchOAuthProvider(url);
+          if (provider) {
+            openOAuthWindow(url, wc.session, provider);
+          } else {
+            shell.openExternal(url).catch(() => {});
+          }
+        } catch {
+          // malformed URL — ignore
+        }
+        return { action: "deny" as const };
+      });
+    });
+    return;
+  }
 
   contents.setWindowOpenHandler(({ url }) => {
     try {
@@ -643,11 +686,9 @@ app.on("web-contents-created", (_event, contents) => {
       }
       const provider = matchOAuthProvider(url);
       if (provider) {
-        // Pass the source webview's session so the popup carries its
-        // auth cookies into the OAuth callback (see openOAuthWindow).
         openOAuthWindow(url, contents.session, provider);
       } else {
-        shell.openExternal(url);
+        shell.openExternal(url).catch(() => {});
       }
     } catch {
       // malformed URL — ignore

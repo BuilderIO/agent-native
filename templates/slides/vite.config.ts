@@ -12,6 +12,7 @@ export default defineConfig({
     "mermaid",
     "@excalidraw/excalidraw",
     "@excalidraw/mermaid-to-excalidraw",
+    "@agent-native/pinpoint",
   ],
   optimizeDeps: {
     include: [

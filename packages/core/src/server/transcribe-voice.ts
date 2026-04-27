@@ -29,7 +29,7 @@ import { readAppSecret } from "../secrets/storage.js";
 import { resolveCredential } from "../credentials/index.js";
 import { getSession } from "./auth.js";
 import { appStateGet } from "../application-state/store.js";
-import { hasBuilderPrivateKey } from "./credential-provider.js";
+import { resolveHasBuilderPrivateKey } from "./credential-provider.js";
 import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
@@ -150,7 +150,7 @@ export function createTranscribeVoiceHandler() {
     let builderError: string | null = null;
 
     // ── Builder proxy path ──────────────────────────────────────────────
-    if (providerPref !== "openai" && hasBuilderPrivateKey()) {
+    if (providerPref !== "openai" && (await resolveHasBuilderPrivateKey())) {
       try {
         const result = await transcribeWithBuilder({
           audioBytes,

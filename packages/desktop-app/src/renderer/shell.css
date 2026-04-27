@@ -462,7 +462,8 @@ body {
 }
 
 .error-icon {
-  color: rgba(255, 255, 255, 0.3);
+  color: white;
+  opacity: 0.3;
   margin-bottom: 4px;
 }
 
@@ -511,12 +512,43 @@ body {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.error-checklist li::before {
-  content: "›";
-  margin-right: 8px;
+.error-status-icon {
+  flex-shrink: 0;
+}
+
+.error-status-icon--checking {
   color: rgba(255, 255, 255, 0.3);
+  animation: spin 1s linear infinite;
+}
+
+.error-status-icon--up {
+  color: #4ade80;
+}
+
+.error-status-icon--down {
+  color: #f87171;
+}
+
+.error-checklist-item--up {
+  border-color: rgba(74, 222, 128, 0.15);
+}
+
+.error-checklist-item--down {
+  border-color: rgba(248, 113, 113, 0.15);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .retry-button {

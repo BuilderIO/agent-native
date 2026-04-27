@@ -243,7 +243,13 @@ function MetricRenderer({
     panel.config?.yKey ||
     cols.find((c) => typeof row[c] === "number") ||
     cols[0];
-  const raw = row[valueCol];
+
+  let raw: unknown;
+  if (rows.length > 1 && typeof row[valueCol] === "number") {
+    raw = rows.reduce((sum, r) => sum + (Number(r[valueCol]) || 0), 0);
+  } else {
+    raw = row[valueCol];
+  }
   const value =
     typeof raw === "number"
       ? formatYValue(raw, panel.config?.yFormatter)

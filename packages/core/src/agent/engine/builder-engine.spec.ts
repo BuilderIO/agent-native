@@ -6,13 +6,23 @@ import {
 } from "./builder-engine.js";
 import type { EngineStreamOptions } from "./types.js";
 
-// The engine calls `getSetting("builder-disconnected")` before anything else.
-// Mock the settings store so tests don't depend on an uninitialized DB
-// throwing — if someone later adds an in-memory fallback, the missing-
-// credentials test would otherwise start hitting different code paths.
-vi.mock("../../settings/store.js", () => ({
-  getSetting: vi.fn().mockResolvedValue(null),
-}));
+// Mock the credential provider so tests resolve keys from process.env
+// without hitting the DB (app_secrets table).
+vi.mock("../../server/credential-provider.js", async (importOriginal) => {
+  const original =
+    (await importOriginal()) as typeof import("../../server/credential-provider.js");
+  return {
+    ...original,
+    resolveBuilderCredential: vi.fn(async (key: string) => {
+      return process.env[key] || null;
+    }),
+    resolveBuilderAuthHeader: vi.fn(async () => {
+      const key = process.env.BUILDER_PRIVATE_KEY;
+      return key ? `Bearer ${key}` : null;
+    }),
+    getBuilderGatewayBaseUrl: original.getBuilderGatewayBaseUrl,
+  };
+});
 
 async function collectEvents(iterable: AsyncIterable<any>) {
   const events: any[] = [];
@@ -69,7 +79,7 @@ describe("createBuilderEngine", () => {
     expect(engine.capabilities).toMatchObject(BUILDER_CAPABILITIES);
     expect(engine.supportedModels).toContain("claude-sonnet-4-6");
     expect(engine.supportedModels).toContain("gpt-5-4");
-    expect(engine.supportedModels).not.toContain("z-ai-glm-4-5");
+    expect(engine.supportedModels).toContain("z-ai-glm-4-5");
   });
 
   it("emits a missing-credentials stop-error when BUILDER_PRIVATE_KEY is unset", async () => {
@@ -82,14 +92,10 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("BUILDER_PRIVATE_KEY");
   });
 
-  it("short-circuits with a 'Builder disconnected' error when the SQL flag is set", async () => {
-    // Contract: the /builder/disconnect endpoint writes a `builder-disconnected`
-    // setting row; the engine must refuse to call the gateway while that row
-    // is present, even if BUILDER_PRIVATE_KEY is still in process.env (which
-    // it typically is — nitro's dev env-runner preserves process.env across
-    // .env reloads inside the same worker).
-    const { getSetting } = await import("../../settings/store.js");
-    vi.mocked(getSetting).mockResolvedValueOnce({ at: 1234 });
+  it("short-circuits with missing-credentials when resolveBuilderAuthHeader returns null", async () => {
+    const { resolveBuilderAuthHeader } =
+      await import("../../server/credential-provider.js");
+    vi.mocked(resolveBuilderAuthHeader).mockResolvedValueOnce(null);
 
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -100,32 +106,7 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("missing_credentials");
-    expect(stop?.error?.toLowerCase()).toContain("disconnected");
     expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("proceeds normally when getSetting throws (e.g. DB not initialized)", async () => {
-    // The SQL-flag check is wrapped in a try/catch so an uninitialized DB
-    // doesn't break the engine — it just falls through to the env-based
-    // credential check. Regression guard: this path is easy to break when
-    // reshuffling the engine's prelude.
-    const { getSetting } = await import("../../settings/store.js");
-    vi.mocked(getSetting).mockRejectedValueOnce(new Error("DB not ready"));
-
-    const fetchSpy = vi.fn().mockResolvedValue(
-      jsonlResponse([
-        { type: "text-delta", text: "ok" },
-        { type: "usage", inputTokens: 1, outputTokens: 1 },
-        { type: "stop", reason: "end_turn" },
-      ]),
-    );
-    vi.stubGlobal("fetch", fetchSpy);
-
-    const engine = createBuilderEngine();
-    const events = await collectEvents(engine.stream(BASE_OPTS));
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(events.some((e) => e.type === "text-delta")).toBe(true);
   });
 
   it("POSTs to the gateway /messages endpoint with bearer auth", async () => {

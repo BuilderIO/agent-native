@@ -141,6 +141,23 @@ async function hasPendingInvitation(
   }
 }
 
+async function hasDomainMatch(
+  exec: ReturnType<typeof getDbExec>,
+  email: string,
+): Promise<boolean> {
+  try {
+    const domain = email.split("@")[1]?.toLowerCase();
+    if (!domain) return false;
+    const { rows } = await exec.execute({
+      sql: `SELECT 1 FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+      args: [domain],
+    });
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Stale-claim threshold. A claim row this old is treated as abandoned
  *  (process crashed, DELETE failed, etc.) and a new caller may take it
  *  over. Long enough that two genuine concurrent first-loads don't
@@ -186,6 +203,11 @@ async function tryCreateDefaultOrg(
   // round-trip. (A still-narrower window would require a transaction
   // spanning org_invitations and settings — out of scope.)
   if (await hasPendingInvitation(exec, email)) {
+    await releaseClaim(exec, claimKey);
+    return null;
+  }
+
+  if (await hasDomainMatch(exec, email)) {
     await releaseClaim(exec, claimKey);
     return null;
   }

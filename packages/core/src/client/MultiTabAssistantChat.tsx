@@ -303,6 +303,7 @@ export function MultiTabAssistantChat({
     createThread,
     switchThread,
     deleteThread,
+    forkThread,
     saveThreadData,
     generateTitle,
     searchThreads,
@@ -1069,6 +1070,24 @@ export function MultiTabAssistantChat({
     [addTab],
   );
 
+  const handleForkChat = useCallback(
+    async (sourceThreadId: string) => {
+      const forkedId = await forkThread(sourceThreadId);
+      if (!forkedId) return;
+      setOpenTabIds((prev) => {
+        const idx = prev.indexOf(sourceThreadId);
+        if (idx !== -1) {
+          const next = [...prev];
+          next.splice(idx + 1, 0, forkedId);
+          return next;
+        }
+        return [...prev, forkedId];
+      });
+      switchThread(forkedId);
+    },
+    [forkThread, switchThread],
+  );
+
   // Build tabs from open thread IDs
   const threadMap = new Map(threads.map((t) => [t.id, t]));
   const tabs: ChatTab[] = openTabIds
@@ -1342,6 +1361,7 @@ export function MultiTabAssistantChat({
                 defaultModel={defaultModel}
                 availableModels={availableModels}
                 onModelChange={handleModelChange}
+                onForkChat={() => handleForkChat(tabId)}
               />
             </div>
           ))}

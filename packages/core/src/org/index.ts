@@ -28,6 +28,7 @@ export { organizations, orgMembers, orgInvitations } from "./schema.js";
 export {
   getMyOrgHandler,
   createOrgHandler,
+  updateOrgHandler,
   switchOrgHandler,
   listMembersHandler,
   removeMemberHandler,
