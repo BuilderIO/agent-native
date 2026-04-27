@@ -81,7 +81,8 @@ function markdownToHtml(markdown: string): string {
           .join("");
         return `<ol>${items}</ol>`;
       }
-      return `<p>${applyInlineMarkdown(escapeHtml(block)).replace(/\n/g, "<br />")}</p>`;
+      const cleanBlock = block.replace(/\\\n/g, "\n").replace(/\\$/gm, "");
+      return `<p>${applyInlineMarkdown(escapeHtml(cleanBlock)).replace(/\n/g, "<br />")}</p>`;
     })
     .join("");
 
@@ -91,6 +92,8 @@ function markdownToHtml(markdown: string): string {
 function markdownToPlainText(markdown: string): string {
   return markdown
     .replace(/\r\n/g, "\n")
+    .replace(/\\\n/g, "\n")
+    .replace(/\\$/gm, "")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 ($2)")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
