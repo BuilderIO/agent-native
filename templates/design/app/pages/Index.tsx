@@ -8,18 +8,16 @@ import {
   IconDots,
   IconTrash,
   IconCopy,
-  IconLayoutGrid,
   IconCode,
-  IconTool,
 } from "@tabler/icons-react";
 import {
   AgentSidebar,
-  AgentToggleButton,
   useActionQuery,
   useActionMutation,
   sendToAgentChat,
   openAgentSidebar,
 } from "@agent-native/core/client";
+import { Sidebar } from "@/components/layout/Sidebar";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -242,50 +240,9 @@ export default function Index() {
         "Build a dashboard with charts",
       ]}
     >
-      <div className="min-h-screen bg-[hsl(240,6%,4%)]">
-        {/* Header */}
-        <header className="border-b border-white/[0.06]">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-            <span className="text-base font-semibold text-white/90 tracking-tight">
-              Design
-            </span>
-            <div className="flex items-center gap-2">
-              <Link
-                to="/tools"
-                className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white"
-              >
-                <IconTool className="w-4 h-4" />
-                Tools
-              </Link>
-              <Link
-                to="/examples"
-                className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white"
-              >
-                <IconLayoutGrid className="w-4 h-4" />
-                Examples
-              </Link>
-              <Link
-                to="/design-systems"
-                className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white"
-              >
-                <IconPalette className="w-4 h-4" />
-                Design Systems
-              </Link>
-              <Button
-                size="sm"
-                onClick={() => setShowCreateDialog(true)}
-                className="cursor-pointer"
-              >
-                <IconPlus className="w-3.5 h-3.5" />
-                New Design
-              </Button>
-              <AgentToggleButton />
-            </div>
-          </div>
-        </header>
-
-        {/* Content */}
-        <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+      <div className="flex h-screen">
+        <Sidebar />
+        <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-10">
           {isLoading ? (
             <LoadingSkeleton />
           ) : designs.length === 0 ? (
@@ -310,6 +267,14 @@ export default function Index() {
                   <span className="text-xs text-white/30">
                     {filtered.length} design{filtered.length !== 1 ? "s" : ""}
                   </span>
+                  <Button
+                    size="sm"
+                    onClick={() => setShowCreateDialog(true)}
+                    className="cursor-pointer"
+                  >
+                    <IconPlus className="w-3.5 h-3.5" />
+                    New Design
+                  </Button>
                 </div>
               </div>
 
