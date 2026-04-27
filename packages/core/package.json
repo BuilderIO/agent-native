@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.7.12",
+  "version": "0.7.13",
   "type": "module",
   "description": "Framework for agent-native application development — where AI agents and UI share state via files",
   "license": "MIT",
@@ -54,6 +54,9 @@
     "./sharing/actions/list-resource-shares": "./dist/sharing/actions/list-resource-shares.js",
     "./sharing/actions/set-resource-visibility": "./dist/sharing/actions/set-resource-visibility.js",
     "./client/sharing": "./dist/client/sharing/index.js",
+    "./client/transcription/use-live-transcription": "./dist/client/transcription/use-live-transcription.js",
+    "./client/transcription/BuilderTranscriptionCta": "./dist/client/transcription/BuilderTranscriptionCta.js",
+    "./transcription/builder": "./dist/transcription/builder-transcription.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",
@@ -131,6 +134,7 @@
     "shiki": "^4.0.2",
     "tailwind-merge": "^3.5.0",
     "tiptap-markdown": "^0.9.0",
+    "tw-animate-css": "1.4.0",
     "y-protocols": "^1.0.7",
     "yjs": "^13.6.30",
     "zod": "^4.3.6"

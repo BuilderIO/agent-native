@@ -28,10 +28,11 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
 
-| State Key    | Purpose                                   | Direction                  |
-| ------------ | ----------------------------------------- | -------------------------- |
-| `navigation` | Current view, deck ID, slide index        | UI -> Agent (read-only)    |
-| `navigate`   | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
+| State Key        | Purpose                                   | Direction                  |
+| ---------------- | ----------------------------------------- | -------------------------- |
+| `navigation`     | Current view, deck ID, slide index        | UI -> Agent (read-only)    |
+| `navigate`       | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
+| `show-questions` | Trigger question flow overlay in the UI   | Agent -> UI                |
 
 ### Navigation state (read what the user sees)
 
@@ -55,6 +56,107 @@ Views: `"list"` (deck list), `"editor"` (editing a deck), `"present"` (presentat
 { "deckId": "abc123" }
 { "view": "list" }
 ```
+
+### Question Flow (structured questions before generating)
+
+Write to `show-questions` to trigger a full-panel question overlay in the deck editor. The UI polls this key every 2 seconds. When questions are present, the overlay appears instead of the slide editor. When the user submits answers or skips, the UI sends the answers to agent chat and deletes the key.
+
+#### When to Ask Questions
+
+| Scenario                                                      | Questions                              |
+| ------------------------------------------------------------- | -------------------------------------- |
+| Complex/ambiguous request ("make me a deck about X")          | Ask 4-8 structured questions           |
+| Specific request with clear direction ("10-slide sales deck") | Ask 2-4 clarifying questions           |
+| Simple tweaks/follow-ups ("add a slide about Y")              | Skip questions, just do it             |
+| "Decide for me" / "surprise me"                               | Zero questions — pick a bold direction |
+
+#### show-questions Format
+
+```json
+{
+  "questions": [
+    {
+      "id": "audience",
+      "type": "text-options",
+      "question": "Who is the primary audience?",
+      "options": [
+        { "label": "Investors / Board", "value": "investors" },
+        { "label": "Team / Internal", "value": "internal" },
+        { "label": "Customers / Prospects", "value": "customers" },
+        { "label": "Conference / Public", "value": "conference" }
+      ],
+      "required": true
+    },
+    {
+      "id": "tone",
+      "type": "text-options",
+      "question": "What tone should the deck have?",
+      "options": [
+        { "label": "Professional & Polished", "value": "professional" },
+        { "label": "Bold & Energetic", "value": "bold" },
+        { "label": "Minimal & Clean", "value": "minimal" },
+        { "label": "Narrative / Storytelling", "value": "narrative" }
+      ]
+    },
+    {
+      "id": "color-mood",
+      "type": "color-options",
+      "question": "Pick a color mood",
+      "options": [
+        { "label": "Ocean", "value": "#0EA5E9", "color": "#0EA5E9" },
+        { "label": "Forest", "value": "#22C55E", "color": "#22C55E" },
+        { "label": "Sunset", "value": "#F97316", "color": "#F97316" },
+        { "label": "Midnight", "value": "#6366F1", "color": "#6366F1" },
+        { "label": "Rose", "value": "#F43F5E", "color": "#F43F5E" },
+        { "label": "Neutral", "value": "#64748B", "color": "#64748B" }
+      ]
+    },
+    {
+      "id": "slide-count",
+      "type": "slider",
+      "question": "How many slides?",
+      "min": 3,
+      "max": 20
+    },
+    {
+      "id": "additional-context",
+      "type": "freeform",
+      "question": "Anything else the deck should include?",
+      "description": "Key points, data, specific sections, etc."
+    }
+  ]
+}
+```
+
+#### Question Types
+
+| Type            | UI             | Use for                                |
+| --------------- | -------------- | -------------------------------------- |
+| `text-options`  | Button group   | Audience, tone, style, purpose choices |
+| `color-options` | Color swatches | Color mood, theme selection            |
+| `slider`        | Range slider   | Slide count, density, intensity        |
+| `file`          | File upload    | Brand assets, reference images, docs   |
+| `freeform`      | Text area      | Additional context, specific needs     |
+
+Each question has: `id` (unique key), `type`, `question` (label shown to user), optional `description`, optional `required` flag.
+For `text-options` and `color-options`: provide `options` array with `label`/`value` (and `color` for color-options). Set `multiSelect: true` for multi-pick.
+For `slider`: provide `min`/`max`.
+
+The UI automatically appends "Explore a few options" and "Decide for me" choices to every `text-options` question.
+
+#### Writing show-questions from an action or script
+
+```typescript
+import { writeAppState } from "@agent-native/core/application-state";
+
+await writeAppState("show-questions", {
+  questions: [
+    /* ... */
+  ],
+});
+```
+
+The UI will pick it up on its next 2-second poll cycle and display the overlay.
 
 ## Data Model
 
@@ -153,12 +255,37 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 ### Image Generation
 
-| Action             | Args                                                  | Purpose                     |
-| ------------------ | ----------------------------------------------------- | --------------------------- |
-| `generate-image`   | `--prompt "..." [--count 3] [--deck-id] [--slide-id]` | Generate images with Gemini |
-| `image-search`     | `--query "..." [--count 5]`                           | Search Google Images        |
-| `logo-lookup`      | `--domain acme.com`                                   | Get company logo URL        |
-| `image-gen-status` |                                                       | Check Gemini API key status |
+| Action             | Args                                                                                 | Purpose                    |
+| ------------------ | ------------------------------------------------------------------------------------ | -------------------------- |
+| `generate-image`   | `--prompt "..." [--model gemini\|openai\|auto] [--count 3] [--deck-id] [--slide-id]` | Generate images            |
+| `image-search`     | `--query "..." [--count 5]`                                                          | Search Google Images       |
+| `logo-lookup`      | `--domain acme.com`                                                                  | Get company logo URL       |
+| `image-gen-status` |                                                                                      | Check configured providers |
+
+### Design Systems
+
+| Action                      | Args                                                              | Purpose                            |
+| --------------------------- | ----------------------------------------------------------------- | ---------------------------------- |
+| `create-design-system`      | `--title "X" [--description "..."] --data '<json>'`               | Create a new design system         |
+| `update-design-system`      | `--id <id> [--title "X"] [--data '<json>']`                       | Update design system tokens        |
+| `get-design-system`         | `--id <id>`                                                       | Get design system with all tokens  |
+| `list-design-systems`       | `[--compact]`                                                     | List all accessible design systems |
+| `set-default-design-system` | `--id <id>`                                                       | Set one as the default             |
+| `apply-design-system`       | `--deckId <id> --designSystemId <id>`                             | Link a design system to a deck     |
+| `analyze-brand-assets`      | `[--websiteUrl "..."] [--companyName "..."] [--brandNotes "..."]` | Gather brand data for analysis     |
+
+When generating slides for a deck that has a design system, **always use the design system's colors, fonts, and styles** instead of the default values. Check the design system with `get-design-system --id <id>` first.
+
+### Import / Export
+
+| Action           | Args                                           | Purpose                           |
+| ---------------- | ---------------------------------------------- | --------------------------------- |
+| `import-file`    | `--filePath <path> [--format auto] [--deckId]` | Import PPTX/DOCX/PDF to deck      |
+| `import-pptx`    | `--filePath <path> [--deckId] [--title]`       | Direct PPTX import to deck        |
+| `import-docx`    | `--filePath <path>`                            | Extract DOCX content for slides   |
+| `export-pptx`    | `--deckId <id> [--includeNotes]`               | Export deck as PowerPoint         |
+| `export-html`    | `--deckId <id>`                                | Export as standalone HTML         |
+| `duplicate-deck` | `--deckId <id> [--title]`                      | Create a copy of an existing deck |
 
 ### Sharing
 
@@ -186,6 +313,10 @@ Read (`get-deck`, `list-decks`, `view-screen`) admits rows the current user owns
 | "Open deck abc123"                    | `pnpm action navigate --deckId=abc123`                                                                                    |
 | "Go to the deck list"                 | `pnpm action navigate --view=list`                                                                                        |
 | "Find the company logo for X"         | `pnpm action logo-lookup --domain x.com`                                                                                  |
+| "Import a PPTX file"                  | Upload file, then `import-pptx --filePath <path>`                                                                         |
+| "Export this deck as PowerPoint"      | `export-pptx --deckId <id>`                                                                                               |
+| "Set up brand identity"               | `analyze-brand-assets --websiteUrl "..."` then use results to `create-design-system`                                      |
+| "Generate an image with OpenAI"       | `generate-image --prompt "..." --model openai`                                                                            |
 
 ## Slide HTML Templates
 
@@ -458,6 +589,8 @@ DO NOT bundle all slides into step 1's --slides array. Adding them one-by-one vi
 - **Accent color**: `#00E5FF` (cyan)
 - **Image placeholders**: `.fmd-img-placeholder` divs
 
+**When a design system is active**, use its tokens instead of the defaults above. Call `get-design-system --id <id>` to get the current tokens: accent color, fonts, background color, etc. Replace `#00E5FF` with the design system's accent, `Poppins` with its heading/body font, `#000000` with its background.
+
 ## Agent Chat Integration
 
 The app delegates complex operations to the agent chat via `sendToAgentChat()`. The image generation flow works through the agent chat for conversational follow-up.
@@ -529,6 +662,114 @@ title: Slide 2 — Key Metrics
 **Always use Tabler Icons** (`@tabler/icons-react`) for all icons. Never use other icon libraries.
 
 **Never use browser dialogs** (`window.confirm`, `window.alert`, `window.prompt`) — use shadcn AlertDialog instead.
+
+---
+
+## Visual Quality Standards — Anti-AI-Slop Rules
+
+### Blacklisted Patterns (NEVER use these)
+
+- Aggressive purple/blue gradients as primary backgrounds
+- Left-border accent cards (the colored left stripe pattern)
+- Emoji as icons — always use Tabler icons from `@tabler/icons-react`
+- Inline SVG illustrations or hand-drawn SVG imagery
+- Inter, Roboto, or Arial as primary fonts — use distinctive typography
+- Fake statistics ("87% of users", "3x faster") — only real data
+- Fake testimonials or quotes
+- Generic stock-photo-style imagery
+- Decorative sparkle/glow effects
+- Excessive drop shadows or glassmorphism
+
+### Required Quality Checks
+
+- Body text minimum 24px on 1920x1080 slides, 16px on web UI
+- "Earn its place" — every element must justify its existence
+- Empty space is solved with composition, not filler content
+- When you think "adding this would look better" — that is usually a sign of AI slop
+- Default to restraint: fewer elements, more whitespace, stronger hierarchy
+
+### Modern CSS Techniques to Use
+
+- `text-wrap: balance` for headings, `text-wrap: pretty` for body
+- `oklch()` color space for perceptually uniform color manipulation
+- CSS Grid with named areas for complex layouts
+- `color-mix()` for dynamic color variants
+- Container queries for component-responsive design
+- `:has()` selector for parent-based styling
+
+---
+
+## Design Philosophy Reference
+
+When the user's request is vague about visual direction, recommend from these schools:
+
+### Information Architecture School
+
+- **Pentagram**: Grid-first, black/white/red, structured information hierarchy
+- **Stamen Design**: Data-driven, cartographic precision, clear visual encoding
+
+### Motion Poetics School
+
+- **Locomotive**: Smooth scroll, parallax depth, cinematic pacing
+- **Active Theory**: WebGL experiments, particle systems, immersive 3D
+- **Field.io**: Generative art, algorithmic beauty, mathematical precision
+
+### Minimalism School
+
+- **Experimental Jetset**: Swiss typography, geometric forms, pure structure
+- **Muller-Brockmann**: Grid systems, objective communication, typographic hierarchy
+- **Build**: Reduction to essence, mono-font, pure whitespace
+
+### Eastern Philosophy School
+
+- **Kenya Hara**: Ma (negative space), simplicity as depth, emptiness as design
+- **Takram**: Craft meets technology, material honesty, subtle animation
+
+**Key insight**: Describe mood, not layout. Short emotional prompts outperform detailed layout specifications.
+
+---
+
+## Slide Design Patterns
+
+### Batch Production Strategy
+
+Always make 2 showcase slides first to lock the visual grammar before scaling:
+
+1. Generate 2 hero slides (title + key content)
+2. Get user approval on the visual language
+3. Then produce remaining slides following the established grammar
+
+### Slide Layout Types
+
+- **Title**: Large heading, minimal text, strong visual impact
+- **Data**: Charts, numbers, clear data visualization
+- **Comparison**: Side-by-side, before/after, pros/cons
+- **Timeline**: Sequential events, process flows
+- **Quote**: Large pull quote with attribution
+- **Gallery**: Image grid with captions
+- **Code**: Syntax-highlighted code with annotations
+
+### Typography on Slides
+
+- Heading: 48-72px (1920x1080 canvas)
+- Body: 24-32px minimum
+- Caption: 18-20px
+- Use `font-variation-settings` for weight morphing (if variable font available)
+- Two-tier shadow: 1px tight shadow + 8px ambient shadow (never single shadow)
+
+---
+
+## Brand Asset Protocol
+
+When using design system tokens in generated content, follow this hierarchy:
+
+1. Logo > Product Photo > UI Screenshot > Colors > Fonts
+2. Always verify brand colors from the design system — never approximate
+3. Use design system's `imageStyle.styleDescription` in image generation prompts
+4. Reference design system's `typography.headingFont` and `bodyFont`
+5. Apply design system's spacing and border tokens consistently
+
+---
 
 ## Development
 

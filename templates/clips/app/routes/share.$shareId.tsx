@@ -54,6 +54,7 @@ export default function ShareRoute() {
     (intent: "comment" | "react") => setSignInIntent(intent),
     [],
   );
+  const [downloading, setDownloading] = useState(false);
 
   const dataQ = useQuery({
     queryKey: ["public-recording", shareId, password],
@@ -76,6 +77,8 @@ export default function ShareRoute() {
   const chapters = dataQ.data?.data?.chapters ?? [];
   const transcriptSegments = dataQ.data?.data?.transcript?.segments ?? [];
   const transcriptStatus = dataQ.data?.data?.transcript?.status;
+  const transcriptFailureReason =
+    dataQ.data?.data?.transcript?.failureReason ?? null;
   const ctas = dataQ.data?.data?.ctas ?? [];
   const firstCta = ctas[0] ?? null;
 
@@ -121,6 +124,28 @@ export default function ShareRoute() {
     } catch {}
   }
 
+  async function downloadRecording() {
+    if (!recording?.videoUrl) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(recording.videoUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${sanitizeFilename(recording.title || "clip")}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(recording.videoUrl, "_blank", "noopener,noreferrer");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   if (dataQ.isLoading) {
     return (
       <div className="flex items-center justify-center h-screen w-full bg-black">
@@ -163,6 +188,45 @@ export default function ShareRoute() {
         title="Something went wrong"
         message={dataQ.data?.data?.error ?? "Please try again."}
       />
+    );
+  }
+
+  if (recording.status !== "ready" || !recording.videoUrl) {
+    const progress = Number(recording.uploadProgress ?? 0);
+    const explicitFailure = recording.status === "failed";
+    const label = explicitFailure
+      ? "Something went wrong while saving this clip."
+      : "Finishing up this clip...";
+    const message = explicitFailure
+      ? ((recording as any).failureReason ?? "The creator may need to retry.")
+      : "Uploading and assembling the video. This page will update automatically.";
+
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#0a0a0a] text-white px-6">
+        {!explicitFailure ? (
+          <Spinner className="h-8 w-8 mb-4 text-white/70" />
+        ) : null}
+        <h1 className="text-lg font-semibold mb-1">{label}</h1>
+        <p className="text-sm text-white/60 mb-4 max-w-md text-center">
+          {message}
+        </p>
+        {!explicitFailure && progress > 0 ? (
+          <div className="w-64 h-1.5 rounded-full bg-white/10 overflow-hidden mb-4">
+            <div
+              className="h-full bg-white"
+              style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+            />
+          </div>
+        ) : null}
+        <Button
+          onClick={() => dataQ.refetch()}
+          variant="outline"
+          size="sm"
+          className="border-white/20 bg-white/5 hover:bg-white/10 text-white"
+        >
+          Check again
+        </Button>
+      </div>
     );
   }
 
@@ -241,10 +305,11 @@ export default function ShareRoute() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.open(recording.videoUrl!, "_blank")}
+              onClick={downloadRecording}
+              disabled={downloading}
               className="border-white/20 bg-white/5 hover:bg-white/10 text-white"
             >
-              Download MP4
+              {downloading ? "Downloading..." : "Download MP4"}
             </Button>
           ) : null}
         </div>
@@ -268,6 +333,7 @@ export default function ShareRoute() {
                   currentMs={currentMs}
                   onSeek={(ms) => playerRef.current?.seek(ms)}
                   status={transcriptStatus}
+                  failureReason={transcriptFailureReason}
                   recordingTitle={recording.title}
                 />
               </div>
@@ -303,6 +369,16 @@ export default function ShareRoute() {
         intent={signInIntent ?? "comment"}
       />
     </div>
+  );
+}
+
+function sanitizeFilename(name: string): string {
+  return (
+    name
+      .trim()
+      .replace(/[^\w.-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "clip"
   );
 }
 

@@ -1,9 +1,14 @@
 import { Link } from "react-router";
 import { IconDots, IconTrash } from "@tabler/icons-react";
-import { useState } from "react";
 import type { Deck } from "@/context/DeckContext";
 import SlideRenderer from "./SlideRenderer";
 import { VisibilityBadge } from "@agent-native/core/client";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 
 interface DeckCardProps {
   deck: Deck;
@@ -11,8 +16,7 @@ interface DeckCardProps {
 }
 
 export default function DeckCard({ deck, onDelete }: DeckCardProps) {
-  const [showMenu, setShowMenu] = useState(false);
-  const firstSlide = deck.slides[0];
+  const firstSlide = deck.slides?.[0];
 
   return (
     <div className="group relative">
@@ -46,40 +50,33 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
 
       {/* Menu Button - always visible on touch devices */}
       <div className="absolute top-2 right-2 sm:opacity-0 sm:group-hover:opacity-100">
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setShowMenu(!showMenu);
-          }}
-          className="p-2 sm:p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
-          aria-label="Deck options"
-        >
-          <IconDots className="w-3.5 h-3.5 text-white/70" />
-        </button>
-
-        {showMenu && (
-          <>
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setShowMenu(false)}
-            />
-            <div className="absolute right-0 top-9 z-50 w-36 rounded-lg border border-white/[0.08] bg-[hsl(240,5%,10%)] shadow-xl py-1">
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onDelete(deck.id);
-                  setShowMenu(false);
-                }}
-                className="flex items-center gap-2 w-full px-3 py-2.5 text-sm text-red-400 hover:bg-white/5"
-              >
-                <IconTrash className="w-3.5 h-3.5" />
-                Delete
-              </button>
-            </div>
-          </>
-        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              className="p-2 sm:p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
+              aria-label="Deck options"
+            >
+              <IconDots className="w-3.5 h-3.5 text-white/70" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-36">
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDelete(deck.id);
+              }}
+              className="text-red-400 focus:text-red-400"
+            >
+              <IconTrash className="w-3.5 h-3.5 mr-2" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

@@ -4,13 +4,22 @@ import { VideoPlayer, type VideoPlayerHandle } from "@/components/VideoPlayer";
 import { Timeline } from "@/components/Timeline";
 import { CameraToolbar } from "@/components/CameraToolbar";
 import { CursorPositioningOverlay } from "@/components/CursorPositioningOverlay";
-import { IconDeviceFloppy, IconTrash } from "@tabler/icons-react";
-import { useDevMode, ShareButton } from "@agent-native/core/client";
+import {
+  IconDeviceFloppy,
+  IconTrash,
+  IconAdjustments,
+} from "@tabler/icons-react";
+import { useDevMode, ShareButton, useSession } from "@agent-native/core/client";
+import { Pinpoint } from "@agent-native/pinpoint/react";
 import { useComposition } from "@/contexts/CompositionContext";
 import { useTimeline } from "@/contexts/TimelineContext";
 import { usePlayback } from "@/contexts/PlaybackContext";
 import { useUnsavedChanges } from "@/hooks/useUnsavedChanges";
 import { cn } from "@/lib/utils";
+import {
+  TweaksPanel,
+  DEFAULT_COMPOSITION_TWEAKS,
+} from "@/components/TweaksPanel";
 import NewComposition from "@/pages/NewComposition";
 import {
   AlertDialog,
@@ -50,6 +59,7 @@ export default function CompositionView({
   }, [initialFrame, frameFromUrl]);
 
   const { isDevMode } = useDevMode();
+  const { session } = useSession();
 
   // Get state from contexts
   const {
@@ -72,6 +82,25 @@ export default function CompositionView({
 
   // Detect if there are unsaved changes in localStorage
   const hasUnsavedChanges = useUnsavedChanges();
+
+  // Tweaks panel
+  const [tweaksVisible, setTweaksVisible] = useState(false);
+  const [tweakValues, setTweakValues] = useState<
+    Record<string, string | number | boolean>
+  >(() => {
+    const defaults: Record<string, string | number | boolean> = {};
+    for (const t of DEFAULT_COMPOSITION_TWEAKS) {
+      defaults[t.id] = t.defaultValue;
+    }
+    return defaults;
+  });
+
+  const handleTweakChange = useCallback(
+    (id: string, value: string | number | boolean) => {
+      setTweakValues((prev) => ({ ...prev, [id]: value }));
+    },
+    [],
+  );
 
   // Dialog states for save confirmation and status alerts
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
@@ -379,6 +408,19 @@ export default function CompositionView({
               {(composition.durationInFrames / composition.fps).toFixed(1)}s
             </button>
             <button
+              onClick={() => setTweaksVisible((v) => !v)}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer",
+                tweaksVisible
+                  ? "bg-primary/10 text-primary border border-primary/30"
+                  : "bg-secondary/50 hover:bg-secondary text-muted-foreground border border-border/50",
+              )}
+              title="Toggle tweaks panel"
+            >
+              <IconAdjustments className="w-3.5 h-3.5" />
+              Tweaks
+            </button>
+            <button
               onClick={handleSaveAsDefault}
               disabled={!isDevMode}
               className={cn(
@@ -410,8 +452,14 @@ export default function CompositionView({
           </div>
         </div>
 
-        {/* Video player with cursor positioning overlay */}
+        {/* Video player with cursor positioning overlay + tweaks panel */}
         <div ref={videoContainerRef} style={{ position: "relative" }}>
+          <TweaksPanel
+            tweaks={DEFAULT_COMPOSITION_TWEAKS}
+            values={tweakValues}
+            onChange={handleTweakChange}
+            visible={tweaksVisible}
+          />
           <VideoPlayer
             ref={playerRef}
             key={composition.id}
@@ -512,6 +560,14 @@ export default function CompositionView({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* TODO: Fix Pinpoint React is not defined error
+      <Pinpoint
+        author={session?.email || "anonymous"}
+        colorScheme="dark"
+        compactPopup
+      />
+      */}
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>

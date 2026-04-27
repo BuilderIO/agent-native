@@ -5,12 +5,15 @@ import type { Slide } from "@/context/DeckContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MermaidRenderer } from "./MermaidRenderer";
 import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
+import type { DesignSystemData } from "../../../shared/api";
 
 interface SlideRendererProps {
   slide: Slide;
   className?: string;
   /** If true, renders at full 960x540 and scales down via CSS to fit the container */
   thumbnail?: boolean;
+  /** Design system to inject as CSS custom properties */
+  designSystem?: DesignSystemData;
 }
 
 export const layoutClasses: Record<string, string> = {
@@ -169,12 +172,31 @@ function MermaidHtmlContent({
 }
 
 /** Core slide rendering at fixed 960x540 - used by both thumbnails and presentation */
-export function SlideInner({ slide }: { slide: Slide }) {
+export function SlideInner({
+  slide,
+  designSystem,
+}: {
+  slide: Slide;
+  designSystem?: DesignSystemData;
+}) {
   const bg = slide.background || "bg-[#000000]";
   const isGradientClass = bg.startsWith("bg-");
   const bgStyle = !isGradientClass ? { background: bg } : undefined;
   const bgClass = isGradientClass ? bg : "";
   const isCentered = slide.layout === "title";
+
+  const dsStyle = designSystem
+    ? ({
+        "--ds-accent": designSystem.colors.accent,
+        "--ds-bg": designSystem.colors.background,
+        "--ds-text": designSystem.colors.text,
+        "--ds-text-muted": designSystem.colors.textMuted,
+        "--ds-heading-font": designSystem.typography.headingFont,
+        "--ds-body-font": designSystem.typography.bodyFont,
+        "--ds-primary": designSystem.colors.primary,
+        "--ds-radius": designSystem.borders.radius,
+      } as React.CSSProperties)
+    : {};
 
   // If slide has excalidraw data, render it as a static SVG thumbnail
   if (
@@ -184,7 +206,7 @@ export function SlideInner({ slide }: { slide: Slide }) {
     return (
       <div
         className={`w-[960px] h-[540px] relative ${bgClass}`}
-        style={bgStyle}
+        style={{ ...bgStyle, ...dsStyle }}
       >
         <ExcalidrawThumbnail data={slide.excalidrawData} />
       </div>
@@ -218,7 +240,7 @@ export function SlideInner({ slide }: { slide: Slide }) {
     return (
       <div
         className={`w-[960px] h-[540px] relative ${bgClass} ${layoutClasses[slide.layout]}`}
-        style={{ ...bgStyle, textAlign: "left" }}
+        style={{ ...bgStyle, ...dsStyle, textAlign: "left" }}
       >
         {imageLoadingOverlay}
         <div className="slide-content text-white/90">
@@ -245,7 +267,7 @@ export function SlideInner({ slide }: { slide: Slide }) {
     return (
       <div
         className={`w-[960px] h-[540px] ${bgClass} ${layoutClasses.blank}`}
-        style={bgStyle}
+        style={{ ...bgStyle, ...dsStyle }}
       >
         <BlankSlideContent content={content} />
       </div>
@@ -255,7 +277,11 @@ export function SlideInner({ slide }: { slide: Slide }) {
   return (
     <div
       className={`w-[960px] h-[540px] relative ${bgClass} ${layoutClasses[slide.layout] || layoutClasses.content}`}
-      style={{ ...bgStyle, textAlign: isCentered ? "center" : "left" }}
+      style={{
+        ...bgStyle,
+        ...dsStyle,
+        textAlign: isCentered ? "center" : "left",
+      }}
     >
       {imageLoadingOverlay}
       <div className="slide-content text-white/90 w-full">
@@ -274,6 +300,7 @@ export default function SlideRenderer({
   slide,
   className = "",
   thumbnail = true,
+  designSystem,
 }: SlideRendererProps) {
   if (!thumbnail) {
     // Full-size rendering (for presentation mode) - same 960x540 canvas scaled to fill
@@ -287,7 +314,7 @@ export default function SlideRenderer({
             transform: "scale(var(--slide-scale, 1))",
           }}
         >
-          <SlideInner slide={slide} />
+          <SlideInner slide={slide} designSystem={designSystem} />
         </div>
         <ScaleHelper targetWidth={960} targetHeight={540} mode="fill" />
       </div>
@@ -307,7 +334,7 @@ export default function SlideRenderer({
           transform: "scale(var(--slide-scale, 0.25))",
         }}
       >
-        <SlideInner slide={slide} />
+        <SlideInner slide={slide} designSystem={designSystem} />
       </div>
       <ScaleHelper targetWidth={960} />
     </div>

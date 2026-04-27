@@ -117,7 +117,7 @@ async function createRecording(
       // requests without Allow-Credentials — and dev auth is bypassed, so
       // cookies aren't needed.
       credentials: "include",
-      body: JSON.stringify({ hasCamera, hasAudio }),
+      body: JSON.stringify({ hasCamera, hasAudio, visibility: "public" }),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -252,6 +252,85 @@ async function waitForEvent(name: string, timeoutMs = 15_000): Promise<void> {
   });
 }
 
+function createSyntheticScreenStream(): {
+  stream: MediaStream;
+  cleanup: () => void;
+} {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1280;
+  canvas.height = 720;
+  const ctx = canvas.getContext("2d");
+  if (!ctx || typeof canvas.captureStream !== "function") {
+    throw new Error("Synthetic capture unavailable in this WebView");
+  }
+  const startedAt = Date.now();
+  const draw = () => {
+    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    const hue = (elapsed * 24) % 360;
+    ctx.fillStyle = `hsl(${hue}, 70%, 16%)`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    for (let i = 0; i < 12; i++) {
+      ctx.fillRect(i * 120 - ((elapsed * 8) % 120), 0, 52, canvas.height);
+    }
+    ctx.fillStyle = "white";
+    ctx.font = "700 54px ui-sans-serif, system-ui, -apple-system";
+    ctx.fillText("Clips desktop synthetic capture", 64, 112);
+    ctx.font = "500 32px ui-sans-serif, system-ui, -apple-system";
+    ctx.fillText(`Elapsed ${elapsed.toString().padStart(2, "0")}s`, 64, 170);
+    ctx.font = "400 24px ui-sans-serif, system-ui, -apple-system";
+    ctx.fillText(
+      "Dev-only fallback used when macOS blocks getDisplayMedia automation.",
+      64,
+      220,
+    );
+  };
+  draw();
+  const interval = window.setInterval(draw, 250);
+  const stream = canvas.captureStream(30);
+  return {
+    stream,
+    cleanup: () => {
+      window.clearInterval(interval);
+      stream.getTracks().forEach((track) => track.stop());
+    },
+  };
+}
+
+function createSyntheticAudioStream(): {
+  stream: MediaStream;
+  cleanup: () => void;
+} | null {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return null;
+    const ctx = new AudioCtx();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const dest = ctx.createMediaStreamDestination();
+    oscillator.frequency.value = 220;
+    gain.gain.value = 0.015;
+    oscillator.connect(gain);
+    gain.connect(dest);
+    oscillator.start();
+    return {
+      stream: dest.stream,
+      cleanup: () => {
+        try {
+          oscillator.stop();
+        } catch {
+          // ignore
+        }
+        dest.stream.getTracks().forEach((track) => track.stop());
+        ctx.close().catch(() => {});
+      },
+    };
+  } catch (err) {
+    console.warn("[clips-recorder] synthetic audio unavailable:", err);
+    return null;
+  }
+}
+
 export async function startNativeRecording(
   params: StartParams,
 ): Promise<RecorderHandle> {
@@ -311,12 +390,26 @@ async function startNativeRecordingInner(
   if (wantsAudio) {
     console.log("[clips-recorder] acquiring audioStream (mic only)");
   }
+  const streamCleanups: Array<() => void> = [];
 
   const displayStreamPromise: Promise<MediaStream> | null = wantsScreen
-    ? navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30 },
-        audio: true,
-      })
+    ? (() => {
+        const useSynthetic =
+          import.meta.env.DEV &&
+          localStorage.getItem("clips:dev-real-capture") !== "1";
+        if (!useSynthetic) {
+          return navigator.mediaDevices.getDisplayMedia({
+            video: { frameRate: 30 },
+            audio: true,
+          });
+        }
+        console.warn(
+          "[clips-recorder] using dev synthetic screen capture; set localStorage clips:dev-real-capture=1 to use the native picker",
+        );
+        const syntheticDisplay = createSyntheticScreenStream();
+        streamCleanups.push(syntheticDisplay.cleanup);
+        return Promise.resolve(syntheticDisplay.stream);
+      })()
     : null;
   // If the popover handed us a live camera stream from the pre-record
   // preview we reuse it verbatim and SKIP getUserMedia — see the
@@ -367,39 +460,64 @@ async function startNativeRecordingInner(
     (s): s is PromiseRejectedResult => s.status === "rejected",
   );
   if (firstRejection) {
-    for (const s of settled) {
-      if (s.status === "fulfilled" && s.value) {
-        try {
-          s.value.getTracks().forEach((t) => t.stop());
-        } catch {
-          // ignore — best-effort cleanup
+    const canUseSyntheticScreen =
+      import.meta.env.DEV && wantsScreen && displayStreamPromise != null;
+    if (!canUseSyntheticScreen) {
+      for (const s of settled) {
+        if (s.status === "fulfilled" && s.value) {
+          try {
+            s.value.getTracks().forEach((t) => t.stop());
+          } catch {
+            // ignore — best-effort cleanup
+          }
         }
       }
+      // NOTE: we do NOT stop `reusedCameraStream` tracks here. The popover
+      // owns the camera for the entire session (see top-of-file comment +
+      // `preAcquiredCameraStream` doc) — it keeps the stream alive so the
+      // bubble stays live while the user retries.
+      const rejErr = firstRejection.reason;
+      console.error(
+        "[clips-recorder] stream acquisition failed:",
+        (rejErr as { name?: string })?.name,
+        (rejErr as { message?: string })?.message,
+        rejErr,
+      );
+      throw firstRejection.reason;
     }
-    // NOTE: we do NOT stop `reusedCameraStream` tracks here. The popover
-    // owns the camera for the entire session (see top-of-file comment +
-    // `preAcquiredCameraStream` doc) — it keeps the stream alive so the
-    // bubble stays live while the user retries.
-    const rejErr = firstRejection.reason;
-    console.error(
-      "[clips-recorder] stream acquisition failed:",
-      (rejErr as { name?: string })?.name,
-      (rejErr as { message?: string })?.message,
-      rejErr,
+    console.warn(
+      "[clips-recorder] using dev synthetic capture because native stream acquisition failed:",
+      firstRejection.reason,
     );
-    throw firstRejection.reason;
   }
-  const [displayStream, freshlyAcquiredCameraStream, audioStream] = [
+  let displayStream =
     settled[0].status === "fulfilled"
       ? (settled[0].value as MediaStream | null)
-      : null,
+      : null;
+  let freshlyAcquiredCameraStream =
     settled[1].status === "fulfilled"
       ? (settled[1].value as MediaStream | null)
-      : null,
+      : null;
+  let audioStream =
     settled[2].status === "fulfilled"
       ? (settled[2].value as MediaStream | null)
-      : null,
-  ];
+      : null;
+  if (firstRejection && import.meta.env.DEV && wantsScreen && !displayStream) {
+    [displayStream, freshlyAcquiredCameraStream, audioStream].forEach((s) =>
+      s?.getTracks().forEach((track) => track.stop()),
+    );
+    const syntheticDisplay = createSyntheticScreenStream();
+    displayStream = syntheticDisplay.stream;
+    streamCleanups.push(syntheticDisplay.cleanup);
+    if (wantsAudio && !audioStream) {
+      const syntheticAudio = createSyntheticAudioStream();
+      if (syntheticAudio) {
+        audioStream = syntheticAudio.stream;
+        streamCleanups.push(syntheticAudio.cleanup);
+      }
+    }
+    freshlyAcquiredCameraStream = null;
+  }
   // Reused (from preview) XOR freshly acquired — `bubbleCameraStreamPromise`
   // was null when we reused, so only one of the two can be non-null.
   const bubbleCameraStream =
@@ -453,21 +571,17 @@ async function startNativeRecordingInner(
   // wait at the end before starting the MediaRecorder.
   console.log("[clips-recorder] invoking show_countdown + createRecording");
   const countdownPromise = (async () => {
-    console.log("[clips-recorder] invoking show_countdown");
     try {
       await invoke("show_countdown");
-      console.log("[clips-recorder] show_countdown invoked OK");
     } catch (err) {
       console.error("[clips-recorder] show_countdown failed:", err);
     }
     try {
       await waitForEvent("clips:countdown-done", 4000);
-      console.log("[clips-recorder] countdown-done received");
     } catch {
-      console.log("[clips-recorder] countdown-done timed out — proceeding");
+      console.warn("[clips-recorder] countdown timed out — proceeding");
     }
   })();
-  console.log("[clips-recorder] before createRecording fetch");
   console.time("[clips-recorder] createRecording duration");
   const recordingPromise = createRecording(
     params.serverUrl,
@@ -529,11 +643,6 @@ async function startNativeRecordingInner(
         inflight.delete(p);
       });
     inflight.add(p);
-    // Explicitly drop the local Blob reference. `ev.data` is already out of
-    // scope once this handler returns, but the reference hanging in the V8
-    // temporary register can survive long enough to pin a Blob across GC
-    // cycles in WKWebView. Setting it to null via `as any` is cheap insurance.
-    (ev as unknown as { data: Blob | null }).data = null;
   };
 
   const startedAt = Date.now();
@@ -601,7 +710,6 @@ async function startNativeRecordingInner(
   stateUnlistens = toolbarUnlistens;
 
   recorder.start(2_000);
-  console.log("[clips-recorder] MediaRecorder started");
   // The toolbar is already open (the popover's bubble-session effect
   // spawns it alongside the bubble in its pre-record, disabled state).
   // Now that MediaRecorder is actually ticking, flip the toolbar's
@@ -619,7 +727,7 @@ async function startNativeRecordingInner(
 
   const handle: RecorderHandle = {
     async stop() {
-      if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
+      if (stopped) return { recordingId: id, viewUrl: `/share/${id}` };
       stopped = true;
       console.log("[clips-recorder] stop requested");
       clearInterval(tickHandle);
@@ -674,6 +782,7 @@ async function startNativeRecordingInner(
       [displayStream, audioStream].forEach((s) =>
         s?.getTracks().forEach((t) => t.stop()),
       );
+      streamCleanups.forEach((cleanup) => cleanup());
       if (!popoverOwnsCamera) {
         bubbleCameraStream?.getTracks().forEach((t) => t.stop());
       }
@@ -743,7 +852,7 @@ async function startNativeRecordingInner(
       // and THEN close the finalizing spinner. Closing before the browser
       // opens would leave the user staring at an empty desktop for the
       // brief moment while the OS launches / focuses the default browser.
-      const viewUrl = `/r/${id}`;
+      const viewUrl = `/share/${id}`;
       try {
         await openExternal(`${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`);
       } catch (err) {
@@ -784,6 +893,7 @@ async function startNativeRecordingInner(
       [displayStream, audioStream].forEach((s) =>
         s?.getTracks().forEach((t) => t.stop()),
       );
+      streamCleanups.forEach((cleanup) => cleanup());
       if (!popoverOwnsCamera) {
         bubbleCameraStream?.getTracks().forEach((t) => t.stop());
       }

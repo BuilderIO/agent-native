@@ -45,6 +45,8 @@ url = "2"
 # 1Password, and CleanShot use. Tauri already pulls objc2 0.6 in transitively,
 # so requesting it here is a no-op in terms of the final dep graph.
 [target."cfg(target_os = \"macos\")".dependencies]
+core-foundation = "0.10"
+core-graphics = "0.25"
 objc2 = "0.6"
 
 [profile.release]

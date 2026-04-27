@@ -321,7 +321,7 @@ class AISDKEngine implements AgentEngine {
     const pkg = PROVIDER_PACKAGES[this.provider];
     let providerModule: any;
     try {
-      providerModule = await import(/* @vite-ignore */ pkg);
+      providerModule = await importProviderPackage(this.provider);
     } catch {
       throw new Error(
         `Provider package "${pkg}" is not installed. Run: pnpm add ai ${pkg}`,
@@ -364,6 +364,29 @@ export function createAISDKEngine(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// Static string-literal imports so bundlers (Nitro/Rollup/Vercel) can analyze
+// and include provider packages. A variable-based `import(pkg)` gets skipped.
+async function importProviderPackage(provider: AISDKProvider): Promise<any> {
+  switch (provider) {
+    case "anthropic":
+      return import("@ai-sdk/anthropic");
+    case "openai":
+      return import("@ai-sdk/openai");
+    case "openrouter":
+      return import("@openrouter/ai-sdk-provider");
+    case "google":
+      return import("@ai-sdk/google");
+    case "groq":
+      return import("@ai-sdk/groq");
+    case "mistral":
+      return import("@ai-sdk/mistral");
+    case "cohere":
+      return import("@ai-sdk/cohere");
+    case "ollama":
+      return import("ai-sdk-ollama");
+  }
+}
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);

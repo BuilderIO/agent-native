@@ -3,9 +3,9 @@ name: voice-transcription
 description: >-
   Framework-wide voice dictation in the agent sidebar composer. Use when
   changing composer microphone UX, the transcribe-voice route, or the
-  Voice Transcription settings section. Covers provider routing (OpenAI
-  Whisper / browser Web Speech API / Builder placeholder) and the
-  provider-preference application-state key.
+  Voice Transcription settings section. Covers provider routing (Builder /
+  OpenAI Whisper / browser Web Speech API) and the provider-preference
+  application-state key.
 ---
 
 # Voice Transcription
@@ -32,32 +32,37 @@ feature is available in every template that renders `TiptapComposer`.
 
 ## Providers
 
-| Provider  | Backend                                       | Quality | Needs key         |
-| --------- | --------------------------------------------- | ------- | ----------------- |
-| `openai`  | `POST /_agent-native/transcribe-voice` → Whisper | High    | `OPENAI_API_KEY`  |
-| `builder` | Reserved — shows as "Coming soon"             | —       | —                 |
-| `browser` | Web Speech API (`webkitSpeechRecognition`)    | Low     | No                |
+| Provider  | Backend                                              | Quality | Needs key                   |
+| --------- | ---------------------------------------------------- | ------- | --------------------------- |
+| `builder` | `POST /_agent-native/transcribe-voice` → Builder proxy | High    | Builder.io account connected |
+| `openai`  | `POST /_agent-native/transcribe-voice` → Whisper     | High    | `OPENAI_API_KEY`            |
+| `browser` | Web Speech API (`webkitSpeechRecognition`)           | Low     | No                          |
 
 Selection is persisted in `application_state["voice-transcription-prefs"]`
 as `{ provider: "openai" | "browser" | "builder" }`. Default is `"browser"`.
 
 ## Where the pieces live
 
-| File                                                                  | Purpose                                     |
-| --------------------------------------------------------------------- | ------------------------------------------- |
-| `packages/core/src/client/composer/useVoiceDictation.ts`              | Provider-routing hook (MediaRecorder / Web Speech) |
-| `packages/core/src/client/composer/VoiceButton.tsx`                   | Mic button + live amplitude + cancel overlay |
-| `packages/core/src/client/composer/TiptapComposer.tsx`                | Wires the hook, insertion, and keyboard shortcut |
-| `packages/core/src/client/settings/VoiceTranscriptionSection.tsx`     | Provider radio in sidebar settings          |
-| `packages/core/src/server/transcribe-voice.ts`                        | Whisper route handler                       |
-| `packages/core/src/secrets/register-framework-secrets.ts`             | Framework-level `OPENAI_API_KEY` registration |
+| File                                                                  | Purpose                                             |
+| --------------------------------------------------------------------- | --------------------------------------------------- |
+| `packages/core/src/client/composer/useVoiceDictation.ts`              | Provider-routing hook (MediaRecorder / Web Speech)  |
+| `packages/core/src/client/composer/VoiceButton.tsx`                   | Mic button + live amplitude + cancel overlay        |
+| `packages/core/src/client/composer/TiptapComposer.tsx`                | Wires the hook, insertion, and keyboard shortcut    |
+| `packages/core/src/client/settings/VoiceTranscriptionSection.tsx`     | Provider radio in sidebar settings                  |
+| `packages/core/src/client/transcription/BuilderTranscriptionCta.tsx`  | CTA shown when Builder account isn't connected      |
+| `packages/core/src/client/transcription/use-live-transcription.ts`    | Web Speech live-transcription hook for recordings   |
+| `packages/core/src/server/transcribe-voice.ts`                        | Route handler (routes to Builder or Whisper)        |
+| `packages/core/src/transcription/builder-transcription.ts`            | Builder proxy transcription client                  |
+| `packages/core/src/secrets/register-framework-secrets.ts`             | Framework-level `OPENAI_API_KEY` registration       |
 
 ## Key resolution (server)
 
-`transcribe-voice.ts` follows the same priority as Clips:
+`transcribe-voice.ts` routes based on the user's provider preference:
 
-1. `readAppSecret({ key: "OPENAI_API_KEY", scope: "user", scopeId: session.email })` — the user's own encrypted secret from the sidebar.
-2. `resolveCredential("OPENAI_API_KEY")` — env var + SQL settings fallback.
+1. If `builder` and `hasBuilderPrivateKey()` → calls `transcribeWithBuilder()` via Builder proxy. Falls through to OpenAI path if the key isn't configured.
+2. If `openai` (or `builder` fallthrough) → resolves `OPENAI_API_KEY`:
+   - `readAppSecret({ key: "OPENAI_API_KEY", scope: "user", scopeId: session.email })` — user's encrypted secret.
+   - `resolveCredential("OPENAI_API_KEY")` — env var + SQL settings fallback.
 
 Never hardcode a shared key. Never log the value. Never echo it back to the
 client.

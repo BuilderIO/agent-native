@@ -35,6 +35,7 @@ import type {
 } from "./types.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
+import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
 
 export interface TiptapComposerHandle {
   focus(): void;
@@ -156,7 +157,15 @@ function ModeSelector({
   );
 }
 
+const FRIENDLY_MODEL_NAMES: Record<string, string> = {
+  "grok-code-fast": "Grok Code Fast",
+  "qwen3-coder": "Qwen3 Coder",
+  "kimi-k2-5": "Kimi K2.5",
+  "deepseek-v3-1": "DeepSeek v3.1",
+};
+
 function friendlyModelName(model: string): string {
+  if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
   // Claude: claude-{tier}-{major}-{minor}[-dateYYYYMMDD] → Tier Major.Minor
   const claude = model.match(
     /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8,})?$/,
@@ -165,9 +174,35 @@ function friendlyModelName(model: string): string {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
     return `${tier} ${claude[2]}.${claude[3]}`;
   }
-  if (model.startsWith("gpt-")) return `GPT-${model.slice(4)}`;
+  // GPT: gpt-{major}-{minor}[-suffix] or gpt-{major}.{minor}[-suffix]
+  if (model.startsWith("gpt-")) {
+    const rest = model.slice(4);
+    const gpt = rest.match(/^(\d+)[.-](\d+)(?:[.-](.+))?$/);
+    if (gpt) {
+      const suffix = gpt[3]
+        ? " " +
+          gpt[3]
+            .split("-")
+            .map((s) => s[0].toUpperCase() + s.slice(1))
+            .join(" ")
+        : "";
+      return `GPT-${gpt[1]}.${gpt[2]}${suffix}`;
+    }
+    return `GPT-${rest}`;
+  }
   if (/^o\d/.test(model)) return model;
-  // Gemini: gemini-{version-parts}[-preview] → Gemini Version Parts
+  // Gemini: gemini-{major}-{minor}-{variant}[-preview] → Gemini Major.Minor Variant
+  const geminiVersioned = model.match(
+    /^gemini-(\d+)-(\d+)-(.+?)(?:-preview)?$/,
+  );
+  if (geminiVersioned) {
+    const variant = geminiVersioned[3]
+      .split("-")
+      .map((s) => s[0].toUpperCase() + s.slice(1))
+      .join(" ");
+    return `Gemini ${geminiVersioned[1]}.${geminiVersioned[2]} ${variant}`;
+  }
+  // Gemini: gemini-{version.parts}[-preview] → Gemini Version Parts
   const gemini = model.match(/^gemini-(.+?)(?:-preview)?$/);
   if (gemini) {
     const parts = gemini[1]
@@ -998,17 +1033,7 @@ export function TiptapComposer({
       </div>
       {voiceEnabled && <VoiceRecordingOverlay voice={voice} />}
       <div className="flex items-center gap-1 px-2 py-1.5">
-        {attachButton ?? (
-          <ComposerPrimitive.AddAttachment asChild>
-            <button
-              type="button"
-              className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Attach files"
-            >
-              <IconPlus className="h-4 w-4" />
-            </button>
-          </ComposerPrimitive.AddAttachment>
-        )}
+        {attachButton ?? <ComposerPlusMenu />}
         <div className="flex-1" />
         {actionButton ?? (
           <>

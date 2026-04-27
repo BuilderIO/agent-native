@@ -21,7 +21,7 @@ const VALID_CHART_TYPES = new Set([
 // table (which stores provider credentials). Saved dashboards still run
 // app-db panels via /api/sql-query; only the URL-driven embed path is
 // restricted to external data sources.
-const VALID_SOURCES = new Set(["bigquery", "ga4"]);
+const VALID_SOURCES = new Set(["bigquery", "ga4", "amplitude"]);
 
 function decodePanel(raw: string): SqlPanel | { error: string } {
   try {

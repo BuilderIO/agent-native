@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, Link } from "react-router";
 import {
   IconPlus,
   IconStack2,
   IconSettings,
   IconUsers,
+  IconPalette,
 } from "@tabler/icons-react";
 import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
@@ -83,22 +84,29 @@ export default function Index() {
             Slides
           </span>
           <div className="flex items-center gap-2">
-            <a
-              href="/team"
+            <Link
+              to="/design-systems"
+              className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white"
+            >
+              <IconPalette className="w-4 h-4" />
+              Design Systems
+            </Link>
+            <Link
+              to="/team"
               className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80"
               title="Team"
               aria-label="Team"
             >
               <IconUsers className="w-4 h-4" />
-            </a>
-            <a
-              href="/settings"
+            </Link>
+            <Link
+              to="/settings"
               className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80"
               title="Settings"
               aria-label="Settings"
             >
               <IconSettings className="w-4 h-4" />
-            </a>
+            </Link>
             <Button onClick={openNewDeck} size="sm">
               <IconPlus className="w-3.5 h-3.5" />
               New Deck

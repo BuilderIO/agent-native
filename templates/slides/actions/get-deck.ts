@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+import "../server/db/index.js"; // ensure registerShareableResource runs
 
 function stripHtml(html: string): string {
   return html
@@ -42,6 +43,7 @@ export default defineAction({
         id: row.id,
         title: row.title || data?.title,
         visibility: row.visibility,
+        designSystemId: row.designSystemId ?? null,
         slideCount: slides.length,
         slides: slides.map((s: any, i: number) => ({
           index: i,
@@ -56,6 +58,7 @@ export default defineAction({
       id: row.id,
       title: row.title || data?.title,
       visibility: row.visibility,
+      designSystemId: row.designSystemId ?? null,
       slideCount: slides.length,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -64,6 +67,7 @@ export default defineAction({
         id: s.id,
         layout: s.layout ?? null,
         content: s.content,
+        notes: s.notes ?? null,
       })),
     };
   },

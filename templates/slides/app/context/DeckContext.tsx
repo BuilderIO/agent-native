@@ -60,6 +60,10 @@ export interface Deck {
   shareToken?: string;
   /** Framework sharing visibility — private (default), org, or public. */
   visibility?: "private" | "org" | "public";
+  /** ID of the design system applied to this deck */
+  designSystemId?: string;
+  /** Per-deck tweak overrides (accent color, title case, etc.) */
+  tweaks?: Record<string, string | number | boolean>;
 }
 
 export interface HistoryEntry {
@@ -264,10 +268,15 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         if (added.length > 0 || removed.length > 0) {
           lastExternalUpdateRef.current = Date.now();
           setDecks((prev) => {
+            const prevIds = new Set(prev.map((d) => d.id));
             let next = prev.filter(
               (d) => freshIds.has(d.id) || pending.has(d.id),
             );
-            for (const a of added) next = [...next, a];
+            // Only add decks that aren't already in prev (prevents duplicates
+            // when the closure's `decks` is stale compared to `prev`)
+            for (const a of added) {
+              if (!prevIds.has(a.id)) next = [...next, a];
+            }
             return next;
           });
         }

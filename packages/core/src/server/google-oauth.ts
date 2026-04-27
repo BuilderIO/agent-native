@@ -69,6 +69,7 @@ export interface OAuthStatePayload {
    * use their own deep-link / close-tab handling.
    */
   returnUrl?: string;
+  flowId?: string;
 }
 
 /**
@@ -103,6 +104,7 @@ export function encodeOAuthState(
   addAccount?: boolean,
   app?: string,
   returnUrl?: string,
+  flowId?: string,
 ): string {
   const nonce = crypto.randomBytes(8).toString("hex");
   const payload: Record<string, string | boolean> = {
@@ -114,6 +116,7 @@ export function encodeOAuthState(
   if (addAccount) payload.a = true;
   if (app) payload.app = app;
   if (returnUrl) payload.r2 = returnUrl;
+  if (flowId) payload.f = flowId;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
     .createHmac("sha256", getStateSigningKey())
@@ -161,6 +164,7 @@ export function decodeOAuthState(
         // HMAC-signed, but we still validate at consumption as defence in
         // depth in case the signing key ever leaks.
         returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
+        flowId: parsed.f || undefined,
       };
     } catch {}
   }
@@ -272,6 +276,7 @@ export function oauthCallbackResponse(
      * / add-account flows — those use their own deep-link handling.
      */
     returnUrl?: string;
+    flowId?: string;
   },
 ): Response | string | void | Promise<Response | string | void> {
   const mobile = isMobile(event);
@@ -292,6 +297,15 @@ export function oauthCallbackResponse(
     const msg = email ? `Connected ${email}!` : "Connected!";
     return htmlResponse(
       `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
+    );
+  }
+
+  // Desktop exchange flow (Tauri tray app): the tray app polls the
+  // desktop-exchange endpoint for the token — no deep link needed.
+  if (opts.desktop && opts.flowId) {
+    const msg = email ? `Signed in as ${email}!` : "Signed in!";
+    return htmlResponse(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Clips.</p></body></html>`,
     );
   }
 

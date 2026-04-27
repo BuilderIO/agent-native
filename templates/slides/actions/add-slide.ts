@@ -50,6 +50,7 @@ export default defineAction({
       ])
       .optional()
       .describe("Layout type hint"),
+    notes: z.string().optional().describe("Speaker notes for this slide"),
     position: z
       .number()
       .int()
@@ -60,7 +61,7 @@ export default defineAction({
       ),
   }),
   http: false,
-  run: async ({ deckId, content, slideId, layout, position }) =>
+  run: async ({ deckId, content, slideId, layout, notes, position }) =>
     withDeckLock(deckId, async () => {
       await assertAccess("deck", deckId, "editor");
       const db = getDb();
@@ -86,6 +87,7 @@ export default defineAction({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const newSlide: any = { id: newSlideId, content };
       if (layout) newSlide.layout = layout;
+      if (notes) newSlide.notes = notes;
 
       const insertIndex =
         typeof position === "number"

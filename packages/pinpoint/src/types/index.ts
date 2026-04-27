@@ -3,6 +3,35 @@
 
 export type PinStatus = "open" | "acknowledged" | "resolved" | "dismissed";
 
+// Draw mode types
+export type DrawToolType = "freehand" | "arrow" | "circle" | "rect" | "text";
+
+export interface DrawStroke {
+  points: { x: number; y: number }[];
+  color: string;
+  lineWidth: number;
+  type: "freehand" | "arrow" | "circle" | "rect";
+}
+
+export interface TextNote {
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+}
+
+// Queue system types
+export interface QueuedAnnotation {
+  id: string;
+  pin?: Pin;
+  drawings?: DrawStroke[];
+  textNotes?: TextNote[];
+  timestamp: string;
+}
+
+// Toolbar mode
+export type ToolbarMode = "select" | "draw" | "queue";
+
 export interface Pin {
   id: string;
   pageUrl: string;

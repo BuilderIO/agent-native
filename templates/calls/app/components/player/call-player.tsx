@@ -4,6 +4,13 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   IconPlayerPlay,
   IconPlayerPause,
   IconPlayerSkipBack,
@@ -596,17 +603,21 @@ function TransportControls({
           <IconVolume className="h-4 w-4" />
         )}
       </Button>
-      <select
-        value={speed}
-        onChange={(e) => onSpeedChange(Number(e.target.value))}
-        className="text-xs rounded-md border border-border bg-background h-8 px-2"
+      <Select
+        value={String(speed)}
+        onValueChange={(v) => onSpeedChange(Number(v))}
       >
-        {SPEED_OPTIONS.map((s) => (
-          <option key={s} value={s}>
-            {s}x
-          </option>
-        ))}
-      </select>
+        <SelectTrigger className="text-xs h-8 w-[4.5rem]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {SPEED_OPTIONS.map((s) => (
+            <SelectItem key={s} value={String(s)}>
+              {s}x
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

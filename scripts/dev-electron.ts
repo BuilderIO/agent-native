@@ -4,30 +4,38 @@
  *
  * Usage:  node scripts/dev-electron.ts [--apps calendar,content]
  *
- * By default starts: calendar (port 8082) and content (port 8083).
+ * By default starts the core template set (mail, calendar, slides, etc.).
  * Pass --apps to override, e.g.: --apps calendar,slides
  */
 import { spawn, execSync } from "child_process";
+import fs from "fs";
 import path from "path";
 
-// ── App port assignments (must match shared/app-registry.ts) ──
-// Alphabetical sort of templates starting at 8081
-const PORT_MAP: Record<string, number> = {
-  analytics: 8081,
-  calendar: 8082,
-  content: 8083,
-  mail: 8084,
-  slides: 8085,
-  videos: 8086,
-  recruiting: 8090,
-};
+// ── App port assignments ───────────────────────────────────────
+// Parsed from packages/shared-app-config/templates.ts (same approach
+// as scripts/dev-all.ts) so this script can never drift from the
+// canonical port registry. We can't `import` the .ts file directly
+// from a node-run script without compiling, hence the regex.
+const configPath = path.resolve("packages/shared-app-config/templates.ts");
+const configSrc = fs.readFileSync(configPath, "utf8");
+const PORT_MAP: Record<string, number> = {};
+const CORE_APPS: string[] = [];
+const portRe = /name:\s*"([^"]+)"[\s\S]*?devPort:\s*(\d+)/g;
+let portMatch: RegExpExecArray | null;
+while ((portMatch = portRe.exec(configSrc)) !== null) {
+  PORT_MAP[portMatch[1]] = Number(portMatch[2]);
+}
+const coreRe = /name:\s*"([^"]+)"(?:(?!name:)[\s\S])*?core:\s*true/g;
+while ((portMatch = coreRe.exec(configSrc)) !== null) {
+  CORE_APPS.push(portMatch[1]);
+}
 
 // ── Parse --apps flag ──────────────────────────────────────────
 const argsIdx = process.argv.indexOf("--apps");
 const requestedApps =
   argsIdx !== -1 && process.argv[argsIdx + 1]
     ? process.argv[argsIdx + 1].split(",")
-    : ["calendar", "content"];
+    : CORE_APPS;
 
 // ── Kill stale processes on our ports ─────────────────────────
 const portsToUse = requestedApps
@@ -65,7 +73,9 @@ requestedApps.forEach((appName, i) => {
   // The templates' vite.config.ts uses @agent-native/core/vite which integrates
   // the Express API server as Vite middleware — so this single command starts
   // both the frontend and all /api/* routes on the one port.
-  commands.push(`pnpm --dir templates/${appName} exec vite --port ${port}`);
+  // PORT pins the dev server port (Nitro's vite plugin reads process.env.PORT
+  // first when resolving the dev server port).
+  commands.push(`PORT=${port} pnpm --dir templates/${appName} exec vite`);
   colors.push(appColors[i % appColors.length]);
 });
 

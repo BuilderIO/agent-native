@@ -724,10 +724,28 @@ async function sweepOrphanedRecordingChunks(): Promise<void> {
   }
 }
 
+async function backfillRecordingOrgId(): Promise<void> {
+  const exec = getDbExec();
+  const pg = isPostgres();
+  try {
+    await exec.execute(
+      pg
+        ? `UPDATE recordings SET org_id = workspace_id WHERE org_id IS NULL AND workspace_id IS NOT NULL`
+        : `UPDATE recordings SET org_id = workspace_id WHERE org_id IS NULL AND workspace_id IS NOT NULL`,
+    );
+  } catch (err) {
+    console.warn(
+      "[db] backfill recording org_id failed:",
+      (err as Error)?.message ?? err,
+    );
+  }
+}
+
 export default async (nitroApp: any): Promise<void> => {
   await migrations(nitroApp);
   await retypeBooleanColumnsOnPostgres();
   await syncWorkspacesToOrganizations();
+  await backfillRecordingOrgId();
   // Best-effort chunk sweep — don't block startup on failures.
   sweepOrphanedRecordingChunks().catch((err) => {
     console.warn("[db] chunk sweep failed:", (err as Error)?.message ?? err);

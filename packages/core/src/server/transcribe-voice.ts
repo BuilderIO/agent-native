@@ -28,8 +28,14 @@ import {
 import { readAppSecret } from "../secrets/storage.js";
 import { resolveCredential } from "../credentials/index.js";
 import { getSession } from "./auth.js";
+import { appStateGet } from "../application-state/store.js";
+import { hasBuilderPrivateKey } from "./credential-provider.js";
+import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
+const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
+const GROQ_MODEL = "whisper-large-v3-turbo";
+const OPENAI_MODEL = "whisper-1";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper hard limit.
 
 /**
@@ -44,7 +50,32 @@ function isSameOriginRequest(event: H3Event): boolean {
   const origin = getRequestHeader(event, "origin");
   if (origin && host) {
     try {
-      return new URL(origin).host === host;
+      const parsed = new URL(origin);
+      if (parsed.host === host) return true;
+      // Tauri desktop dev serves the tray WebView from localhost:1420 while
+      // the app server lives on the template dev port. Production Tauri
+      // WebViews can also send a tauri://localhost origin. Treat only those
+      // desktop origins as trusted cross-origin callers; arbitrary websites
+      // still fail the CSRF check.
+      if (parsed.protocol === "tauri:" && parsed.hostname === "localhost") {
+        return true;
+      }
+      if (
+        (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+        parsed.hostname === "tauri.localhost" &&
+        (host.startsWith("localhost:") || host.startsWith("127.0.0.1:"))
+      ) {
+        return true;
+      }
+      if (
+        parsed.protocol === "http:" &&
+        (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") &&
+        parsed.port === "1420" &&
+        (host.startsWith("localhost:") || host.startsWith("127.0.0.1:"))
+      ) {
+        return true;
+      }
+      return false;
     } catch {
       return false;
     }
@@ -83,48 +114,132 @@ export function createTranscribeVoiceHandler() {
       ? languagePart.data.toString("utf8").trim().slice(0, 8)
       : undefined;
 
-    // Resolve the key.
-    let apiKey: string | undefined;
+    // Resolve provider preference from application_state.
     const session = await getSession(event).catch(() => null);
-    if (session?.email) {
-      const userSecret = await readAppSecret({
-        key: "OPENAI_API_KEY",
-        scope: "user",
-        scopeId: session.email,
-      }).catch(() => null);
-      if (userSecret?.value) apiKey = userSecret.value;
+    const sessionId =
+      session?.email === "local@localhost"
+        ? "local"
+        : (session?.email ?? "local");
+    let providerPref: string | undefined;
+    try {
+      const prefs = await appStateGet(sessionId, "voice-transcription-prefs");
+      providerPref = (prefs as { provider?: string } | null)?.provider;
+    } catch {
+      /* fall through — default to openai path */
     }
-    if (!apiKey) {
-      apiKey = await resolveCredential("OPENAI_API_KEY");
-    }
-    if (!apiKey) {
+
+    // Respect explicit "browser" preference — user chose Web Speech API and
+    // does not want audio uploaded to any external provider. The client
+    // shouldn't hit this endpoint when "browser" is selected; this is a
+    // defense-in-depth refusal.
+    if (providerPref === "browser") {
       setResponseStatus(event, 400);
       return {
         error:
-          "OPENAI_API_KEY not configured. Add it in Settings → API Keys to enable Whisper transcription.",
+          'Voice provider is set to "browser" (Web Speech API only). Change the preference in Settings → Voice Transcription to use a server-side provider.',
       };
     }
 
     const mime = audio.type || "audio/webm";
-    const ext = pickExtension(mime);
-    const filename = `composer-voice.${ext}`;
-
-    const form = new FormData();
-    const bytes = new Uint8Array(
+    const audioBytes = new Uint8Array(
       audio.data.buffer,
       audio.data.byteOffset,
       audio.data.byteLength,
     );
-    form.append("file", new Blob([bytes], { type: mime }), filename);
-    form.append("model", "whisper-1");
+
+    let builderError: string | null = null;
+
+    // ── Builder proxy path ──────────────────────────────────────────────
+    if (providerPref !== "openai" && hasBuilderPrivateKey()) {
+      try {
+        const result = await transcribeWithBuilder({
+          audioBytes,
+          mimeType: mime,
+          language: language || undefined,
+        });
+        return { text: (result.text ?? "").trim() };
+      } catch (err) {
+        const message = (err as Error)?.message ?? String(err);
+        // Surface 402 (credits exhausted) as a 402 so the client can show
+        // a specific upgrade prompt.
+        if (message.includes("credits exhausted")) {
+          setResponseStatus(event, 402);
+          return { error: message };
+        }
+        builderError = message;
+      }
+    }
+
+    // If Builder is unavailable, fall through to BYOK providers rather than
+    // hard-failing. This mirrors Clips' batch transcription path.
+
+    // ── Groq / OpenAI Whisper-compatible path ──────────────────────────
+    async function resolveApiKey(key: string): Promise<string | undefined> {
+      if (!session?.email) return (await resolveCredential(key)) ?? undefined;
+      const userSecret = await readAppSecret({
+        key,
+        scope: "user",
+        scopeId: session.email,
+      }).catch(() => null);
+      return userSecret?.value || (await resolveCredential(key)) || undefined;
+    }
+
+    let provider: {
+      name: "groq" | "openai";
+      endpoint: string;
+      model: string;
+      apiKey: string;
+    } | null = null;
+
+    if (providerPref !== "openai") {
+      const groqKey = await resolveApiKey("GROQ_API_KEY");
+      if (groqKey) {
+        provider = {
+          name: "groq",
+          endpoint: GROQ_URL,
+          model: GROQ_MODEL,
+          apiKey: groqKey,
+        };
+      }
+    }
+    if (!provider) {
+      const openaiKey = await resolveApiKey("OPENAI_API_KEY");
+      if (openaiKey) {
+        provider = {
+          name: "openai",
+          endpoint: WHISPER_URL,
+          model: OPENAI_MODEL,
+          apiKey: openaiKey,
+        };
+      }
+    }
+
+    if (!provider) {
+      setResponseStatus(event, builderError ? 502 : 400);
+      return {
+        error: builderError
+          ? `Builder transcription failed: ${builderError}. Add GROQ_API_KEY or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
+          : "No voice transcription provider configured. Connect Builder.io or add GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
+      };
+    }
+
+    const ext = pickExtension(mime);
+    const filename = `composer-voice.${ext}`;
+
+    const form = new FormData();
+    form.append("file", new Blob([audioBytes], { type: mime }), filename);
+    form.append("model", provider.model);
     form.append("response_format", "json");
     if (language) form.append("language", language);
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45_000);
     try {
-      const res = await fetch(WHISPER_URL, {
+      const res = await fetch(provider.endpoint, {
         method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}` },
+        headers: { Authorization: `Bearer ${provider.apiKey}` },
         body: form,
+        signal: controller.signal,
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
@@ -132,8 +247,8 @@ export function createTranscribeVoiceHandler() {
         return {
           error:
             res.status === 401
-              ? "OpenAI rejected the API key. Update it in Settings → API Keys."
-              : `Whisper API error ${res.status}: ${text.slice(0, 300)}`,
+              ? `${provider.name} rejected the API key. Update it in Settings → API Keys.`
+              : `${provider.name} transcription error ${res.status}: ${text.slice(0, 300)}`,
         };
       }
       const data = (await res.json()) as { text?: string };
@@ -141,8 +256,13 @@ export function createTranscribeVoiceHandler() {
     } catch (err) {
       setResponseStatus(event, 502);
       return {
-        error: `Could not reach OpenAI: ${(err as Error)?.message ?? err}`,
+        error:
+          (err as Error)?.name === "AbortError"
+            ? `${provider.name} transcription timed out after 45 seconds.`
+            : `Could not reach ${provider.name}: ${(err as Error)?.message ?? err}`,
       };
+    } finally {
+      clearTimeout(timeout);
     }
   });
 }

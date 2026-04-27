@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { IconSearch, IconX, IconHistory } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 
 const RECENT_KEY = "calls:recent-searches";
 const MAX_RECENT = 6;
@@ -44,7 +49,6 @@ export function CallSearchBar({
   const [open, setOpen] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setRecent(loadRecent());
@@ -72,14 +76,6 @@ export function CallSearchBar({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, []);
-
   function submit(value: string) {
     const q = value.trim();
     if (!q) return;
@@ -95,50 +91,59 @@ export function CallSearchBar({
     saveRecent([]);
   }
 
-  return (
-    <div ref={boxRef} className={cn("relative w-full max-w-xl", className)}>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit(query);
-        }}
-      >
-        <div className="relative">
-          <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            ref={inputRef}
-            autoFocus={autoFocus}
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setOpen(true);
-            }}
-            onFocus={() => setOpen(true)}
-            placeholder={placeholder}
-            className="w-full h-9 rounded-md border border-border bg-background pl-9 pr-16 text-sm outline-none focus:ring-2 focus:ring-ring/30"
-          />
-          {query ? (
-            <button
-              type="button"
-              onClick={() => {
-                setQuery("");
-                inputRef.current?.focus();
-              }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-accent"
-              aria-label="Clear search"
-            >
-              <IconX className="h-3.5 w-3.5" />
-            </button>
-          ) : (
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-              /
-            </span>
-          )}
-        </div>
-      </form>
+  const showPopover = open && (query.length === 0 ? recent.length > 0 : true);
 
-      {open && (query.length === 0 ? recent.length > 0 : true) && (
-        <div className="absolute z-40 mt-1 w-full rounded-md border border-border bg-popover shadow-lg overflow-hidden">
+  return (
+    <Popover open={showPopover} onOpenChange={setOpen}>
+      <div className={cn("relative w-full max-w-xl", className)}>
+        <PopoverTrigger asChild>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              submit(query);
+            }}
+          >
+            <div className="relative">
+              <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                ref={inputRef}
+                autoFocus={autoFocus}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setOpen(true);
+                }}
+                onFocus={() => setOpen(true)}
+                placeholder={placeholder}
+                className="w-full h-9 rounded-md border border-border bg-background pl-9 pr-16 text-sm outline-none focus:ring-2 focus:ring-ring/30"
+              />
+              {query ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery("");
+                    inputRef.current?.focus();
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-accent"
+                  aria-label="Clear search"
+                >
+                  <IconX className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  /
+                </span>
+              )}
+            </div>
+          </form>
+        </PopoverTrigger>
+
+        <PopoverContent
+          align="start"
+          sideOffset={4}
+          className="w-[var(--radix-popover-trigger-width)] p-0 overflow-hidden"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           {query.length === 0 && recent.length > 0 && (
             <div>
               <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
@@ -181,8 +186,8 @@ export function CallSearchBar({
               </span>
             </button>
           )}
-        </div>
-      )}
-    </div>
+        </PopoverContent>
+      </div>
+    </Popover>
   );
 }

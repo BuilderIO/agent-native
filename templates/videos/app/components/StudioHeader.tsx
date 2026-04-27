@@ -4,12 +4,14 @@ import {
   IconLayoutSidebar,
   IconShare2,
   IconUsers,
+  IconPalette,
 } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 type StudioHeaderProps = {
   sidebarOpen: boolean;
@@ -22,6 +24,7 @@ export function StudioHeader({
 }: StudioHeaderProps) {
   const location = useLocation();
   const isComponentLibrary = location.pathname === "/components";
+  const isDesignSystems = location.pathname === "/design-systems";
   const isTeam = location.pathname === "/team";
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
@@ -55,7 +58,7 @@ export function StudioHeader({
               to="/"
               className={cn(
                 "px-2 sm:px-3 py-1.5 text-xs font-medium rounded-md",
-                !isComponentLibrary && !isTeam
+                !isComponentLibrary && !isDesignSystems && !isTeam
                   ? "bg-secondary text-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
               )}
@@ -72,6 +75,18 @@ export function StudioHeader({
               )}
             >
               Components
+            </Link>
+            <Link
+              to="/design-systems"
+              className={cn(
+                "px-2 sm:px-3 py-1.5 text-xs font-medium rounded-md flex items-center gap-1.5",
+                isDesignSystems
+                  ? "bg-secondary text-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
+              )}
+            >
+              <IconPalette size={14} />
+              <span className="hidden sm:inline">Design</span>
             </Link>
             <Link
               to="/team"
@@ -107,15 +122,15 @@ export function StudioHeader({
         </div>
       </header>
 
-      {showCloudUpgrade && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <Dialog open={showCloudUpgrade} onOpenChange={setShowCloudUpgrade}>
+        <DialogContent className="sm:max-w-lg p-0 border-none bg-transparent shadow-none [&>button]:hidden">
           <CloudUpgrade
             title="Share Videos"
             description="To share or export videos, connect a cloud database so your compositions can be accessed from anywhere."
             onClose={() => setShowCloudUpgrade(false)}
           />
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

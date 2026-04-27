@@ -14,6 +14,7 @@ import {
   defineEventHandler,
   getMethod,
   getQuery,
+  sendRedirect,
   setResponseHeader,
   setResponseStatus,
   getCookie,
@@ -393,6 +394,32 @@ interface AuthGuardConfig {
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
 
+// Desktop OAuth exchange store — holds session tokens keyed by a unique flow
+// ID so native apps (Tauri, Electron) that open OAuth in the system browser
+// can retrieve the token after the callback completes on the server.
+const _desktopExchanges = new Map<
+  string,
+  { token: string; email: string; expiresAt: number }
+>();
+
+export function setDesktopExchange(
+  flowId: string,
+  token: string,
+  email: string,
+) {
+  _desktopExchanges.set(flowId, {
+    token,
+    email,
+    expiresAt: Date.now() + 5 * 60 * 1000,
+  });
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _desktopExchanges) {
+    if (v.expiresAt < now) _desktopExchanges.delete(k);
+  }
+}, 60_000).unref?.();
+
 /**
  * Module-level auth guard function. Set by autoMountAuth() when auth is active.
  * Called by the server middleware to enforce auth on ALL requests (not just
@@ -463,7 +490,9 @@ function applyCorsHeaders(event: H3Event): void {
     .filter(Boolean);
   const allowed =
     allowlist.length === 0
-      ? /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      ? /^(https?|tauri):\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/.test(
+          origin,
+        )
       : allowlist.includes(origin);
   if (!allowed) return;
   setResponseHeader(event, "Access-Control-Allow-Origin", origin);
@@ -1033,11 +1062,6 @@ async function mountBetterAuthRoutes(
     app.use(
       "/_agent-native/google/auth-url",
       defineEventHandler((event) => {
-        if (
-          event.context.matchedRoute &&
-          (event.context.matchedRoute as any).path !== "/**:page"
-        )
-          return undefined;
         if (getMethod(event) !== "GET") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
@@ -1045,12 +1069,15 @@ async function mountBetterAuthRoutes(
         const redirectUri =
           (getQuery(event).redirect_uri as string) ||
           `${getOrigin(event)}/_agent-native/google/callback`;
-        const desktop = isElectronRequest(event);
+        const q = getQuery(event);
+        const desktop =
+          isElectronRequest(event) || q.desktop === "1" || q.desktop === "true";
+        const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
         // Validate the caller's return param up front and only embed it
         // into the OAuth state when it normalises to a non-root path —
         // skip embedding "/" (the default fallback) so the state stays
         // small for the common case.
-        const returnQuery = getQuery(event).return;
+        const returnQuery = q.return;
         const validated =
           typeof returnQuery === "string" ? safeReturnPath(returnQuery) : "/";
         const returnUrl = validated !== "/" ? validated : undefined;
@@ -1061,6 +1088,7 @@ async function mountBetterAuthRoutes(
           false,
           undefined,
           returnUrl,
+          flowId,
         );
         const params = new URLSearchParams({
           client_id: process.env.GOOGLE_CLIENT_ID!,
@@ -1071,20 +1099,17 @@ async function mountBetterAuthRoutes(
           prompt: "select_account",
           state,
         });
-        return {
-          url: `https://accounts.google.com/o/oauth2/v2/auth?${params}`,
-        };
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+        if (q.redirect === "1") {
+          return sendRedirect(event, authUrl, 302);
+        }
+        return { url: authUrl };
       }),
     );
 
     app.use(
       "/_agent-native/google/callback",
       defineEventHandler(async (event) => {
-        if (
-          event.context.matchedRoute &&
-          (event.context.matchedRoute as any).path !== "/**:page"
-        )
-          return undefined;
         if (getMethod(event) !== "GET") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
@@ -1097,7 +1122,7 @@ async function mountBetterAuthRoutes(
             return { error: "Missing authorization code" };
           }
 
-          const { redirectUri, desktop, returnUrl } = decodeOAuthState(
+          const { redirectUri, desktop, returnUrl, flowId } = decodeOAuthState(
             query.state as string | undefined,
             `${getOrigin(event)}/_agent-native/google/callback`,
           );
@@ -1137,10 +1162,19 @@ async function mountBetterAuthRoutes(
             desktop,
           });
 
+          if (flowId && sessionToken) {
+            _desktopExchanges.set(flowId, {
+              token: sessionToken,
+              email,
+              expiresAt: Date.now() + 5 * 60 * 1000,
+            });
+          }
+
           return oauthCallbackResponse(event, email, {
             sessionToken,
             desktop,
             returnUrl,
+            flowId,
           });
         } catch (error: any) {
           const msg = error.message || "Unknown error";
@@ -1149,6 +1183,30 @@ async function mountBetterAuthRoutes(
       }),
     );
   }
+
+  // Desktop OAuth exchange — native apps (Tauri tray, Electron) open OAuth
+  // in the system browser but need a way to retrieve the session token
+  // afterwards since they don't share a cookie jar with the browser.
+  app.use(
+    "/_agent-native/auth/desktop-exchange",
+    defineEventHandler((event) => {
+      if (getMethod(event) !== "GET") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const flowId = getQuery(event).flow_id as string | undefined;
+      if (!flowId) {
+        setResponseStatus(event, 400);
+        return { error: "Missing flow_id" };
+      }
+      const entry = _desktopExchanges.get(flowId);
+      if (!entry || entry.expiresAt < Date.now()) {
+        return { pending: true };
+      }
+      _desktopExchanges.delete(flowId);
+      return { token: entry.token, email: entry.email };
+    }),
+  );
 
   const accessTokens = getAccessTokens();
 
@@ -1897,7 +1955,8 @@ export async function autoMountAuth(
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));
 
-    console.log("[agent-native] Auth enabled — custom getSession provider.");
+    if (process.env.DEBUG)
+      console.log("[agent-native] Auth enabled — custom getSession provider.");
     return true;
   }
 
@@ -1916,18 +1975,20 @@ export async function autoMountAuth(
   const tokens = getAccessTokens();
   if (tokens.length > 0) {
     mountTokenOnlyRoutes(app, tokens, publicPaths);
-    console.log(
-      `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
-    );
+    if (process.env.DEBUG)
+      console.log(
+        `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
+      );
     return true;
   }
 
   // Default: Better Auth (account-first)
   try {
     await mountBetterAuthRoutes(app, options);
-    console.log(
-      "[agent-native] Auth enabled — Better Auth (accounts + organizations).",
-    );
+    if (process.env.DEBUG)
+      console.log(
+        "[agent-native] Auth enabled — Better Auth (accounts + organizations).",
+      );
   } catch (err) {
     console.error("[agent-native] Failed to initialize Better Auth:", err);
     mountAuthFallbackRoutes(app);

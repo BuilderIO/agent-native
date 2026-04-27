@@ -537,7 +537,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
                     <div className="text-[12px] font-medium text-foreground">
                       {item.label}
                     </div>
-                    <div className="text-[10px] text-muted-foreground/60">
+                    <div className="mt-0.5 text-[10px] text-muted-foreground/60">
                       {item.desc}
                     </div>
                   </div>

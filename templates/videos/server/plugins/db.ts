@@ -38,4 +38,58 @@ export default runMigrations([
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   },
+  // v6: design systems table
+  {
+    version: 6,
+    sql: `CREATE TABLE IF NOT EXISTS design_systems (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    data TEXT NOT NULL,
+    assets TEXT,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  )`,
+  },
+  // v7: companion shares table for design systems
+  {
+    version: 7,
+    sql: `CREATE TABLE IF NOT EXISTS design_system_shares (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    principal_type TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  },
+  // v8: link compositions to design systems
+  {
+    version: 8,
+    sql: `ALTER TABLE compositions ADD COLUMN IF NOT EXISTS design_system_id TEXT`,
+  },
+  // v9-v11: fix boolean columns on Postgres only.
+  {
+    version: 9,
+    sql: {
+      postgres: `ALTER TABLE design_systems ALTER COLUMN is_default DROP DEFAULT`,
+    },
+  },
+  {
+    version: 10,
+    sql: {
+      postgres: `ALTER TABLE design_systems ALTER COLUMN is_default TYPE boolean USING is_default::int::boolean`,
+    },
+  },
+  {
+    version: 11,
+    sql: {
+      postgres: `ALTER TABLE design_systems ALTER COLUMN is_default SET DEFAULT false`,
+    },
+  },
 ]);

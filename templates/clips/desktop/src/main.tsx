@@ -5,10 +5,14 @@ import { Countdown } from "./overlays/countdown";
 import { Toolbar } from "./overlays/toolbar";
 import { Bubble } from "./overlays/bubble";
 import { Finalizing } from "./overlays/finalizing";
+import { Onboarding } from "./overlays/onboarding";
+import { MeetingNotification } from "./overlays/meeting-notification";
+import { MeetingNub } from "./overlays/meeting-nub";
+import { FlowBar } from "./overlays/flow-bar";
 import "./styles.css";
 
 /**
- * One bundle, one HTML, five views. We pick which component to mount based
+ * One bundle, one HTML, nine views. We pick which component to mount based
  * on the URL hash so each Tauri window (spawned from Rust with
  * `index.html#<name>`) renders only what it needs.
  */
@@ -23,6 +27,14 @@ function pickRoute(): React.ReactElement {
       return <Bubble />;
     case "finalizing":
       return <Finalizing />;
+    case "onboarding":
+      return <Onboarding />;
+    case "meeting-notif":
+      return <MeetingNotification />;
+    case "meeting-nub":
+      return <MeetingNub />;
+    case "flow-bar":
+      return <FlowBar />;
     default:
       return <App />;
   }

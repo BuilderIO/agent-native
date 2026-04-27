@@ -517,20 +517,30 @@ export default function SqlDashboardPage() {
             strategy={rectSortingStrategy}
           >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {dashboard.panels.map((panel) => (
-                <SqlChartCard
-                  key={panel.id}
-                  panel={panel}
-                  resolvedSql={
-                    panel.source === "ga4"
-                      ? panel.sql
-                      : interpolate(panel.sql, vars)
-                  }
-                  onRemove={() => removePanel(panel.id)}
-                  onToggleWidth={() => toggleWidth(panel.id)}
-                  onEdit={() => openEditPanel(panel)}
-                />
-              ))}
+              {dashboard.panels.map((panel) => {
+                const resolved = panel.config?.description
+                  ? {
+                      ...panel,
+                      config: {
+                        ...panel.config,
+                        description: interpolate(
+                          panel.config.description,
+                          vars,
+                        ),
+                      },
+                    }
+                  : panel;
+                return (
+                  <SqlChartCard
+                    key={panel.id}
+                    panel={resolved}
+                    resolvedSql={interpolate(panel.sql, vars)}
+                    onRemove={() => removePanel(panel.id)}
+                    onToggleWidth={() => toggleWidth(panel.id)}
+                    onEdit={() => openEditPanel(panel)}
+                  />
+                );
+              })}
             </div>
           </SortableContext>
         </DndContext>

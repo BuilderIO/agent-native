@@ -56,7 +56,9 @@ async function fetchExplorerDashboards(): Promise<ExplorerDashboard[]> {
   });
   if (!res.ok) return [];
   const data = await res.json();
-  return (data.dashboards ?? []).map((d: any) => ({ id: d.id, name: d.name }));
+  return (data.dashboards ?? [])
+    .filter((d: any) => d.name)
+    .map((d: any) => ({ id: d.id, name: d.name }));
 }
 
 async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
@@ -66,7 +68,9 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
   });
   if (!res.ok) return [];
   const data = await res.json();
-  return (data.dashboards ?? []).map((d: any) => ({ id: d.id, name: d.name }));
+  return (data.dashboards ?? [])
+    .filter((d: any) => d.name)
+    .map((d: any) => ({ id: d.id, name: d.name }));
 }
 
 export function CommandPalette() {

@@ -1,5 +1,10 @@
-import { useState } from "react";
 import { StatusBadge } from "./StatusBadge";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { useTransitions, useTransitionIssue } from "@/hooks/use-transitions";
 import type { JiraIssue, JiraTransition } from "@shared/types";
 import { format } from "date-fns";
@@ -12,40 +17,37 @@ export function IssueProperties({ issue }: IssuePropertiesProps) {
   const { fields } = issue;
   const { data: transitionsData } = useTransitions(issue.key);
   const transitionMutation = useTransitionIssue();
-  const [showTransitions, setShowTransitions] = useState(false);
 
   const transitions: JiraTransition[] = transitionsData?.transitions || [];
 
   const handleTransition = (transitionId: string) => {
     transitionMutation.mutate({ issueKey: issue.key, transitionId });
-    setShowTransitions(false);
   };
 
   return (
     <div className="grid grid-cols-1 gap-x-6 gap-y-3 rounded-md border border-border/50 bg-muted/30 p-3 sm:grid-cols-2 sm:p-4">
       {/* Status */}
       <PropertyCell label="Status">
-        <div className="relative">
-          <button
-            onClick={() => setShowTransitions(!showTransitions)}
-            className="cursor-pointer"
-          >
-            <StatusBadge status={fields.status} />
-          </button>
-          {showTransitions && transitions.length > 0 && (
-            <div className="absolute left-0 top-full z-10 mt-1 w-48 rounded-md border border-border bg-popover py-1 shadow-md">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="cursor-pointer">
+              <StatusBadge status={fields.status} />
+            </button>
+          </DropdownMenuTrigger>
+          {transitions.length > 0 && (
+            <DropdownMenuContent align="start" className="w-48">
               {transitions.map((t) => (
-                <button
+                <DropdownMenuItem
                   key={t.id}
                   onClick={() => handleTransition(t.id)}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-foreground hover:bg-accent"
+                  className="text-[13px]"
                 >
                   {t.name}
-                </button>
+                </DropdownMenuItem>
               ))}
-            </div>
+            </DropdownMenuContent>
           )}
-        </div>
+        </DropdownMenu>
       </PropertyCell>
 
       {/* Assignee */}

@@ -370,35 +370,112 @@ export function MultiTabAssistantChat({
           enginesData.current?.engine;
         const currentModel: string | undefined = enginesData.current?.model;
 
-        // Prepend the active custom model string (OpenRouter/Ollama) so
-        // it shows up in the picker even when not in supportedModels.
-        const allowedEngines = new Set([
-          "anthropic",
-          "ai-sdk:openai",
-          "ai-sdk:google",
-        ]);
-        const groups: EngineModelGroup[] = enginesData.engines
-          .filter((e: any) => allowedEngines.has(e.name))
-          .map((e: any) => {
-            const models = [...e.supportedModels];
-            if (
-              e.name === currentEngineName &&
-              currentModel &&
-              !models.includes(currentModel)
-            ) {
-              models.unshift(currentModel);
-            }
-            return {
-              engine: e.name,
-              label: e.label,
-              models,
-              configured:
-                e.requiredEnvVars.length === 0 ||
-                e.requiredEnvVars.some((v: string) => configuredKeys.has(v)) ||
-                (e.name === "anthropic" && builderConnected) ||
-                e.name === currentEngineName,
-            };
-          });
+        let groups: EngineModelGroup[];
+
+        if (builderConnected) {
+          // When Builder.io is connected, show all Builder-supported
+          // models grouped by provider — all route through the builder
+          // engine so no individual API keys are needed.
+          const builderEngine = enginesData.engines.find(
+            (e: any) => e.name === "builder",
+          );
+          const builderModels: string[] = builderEngine?.supportedModels ?? [];
+          const claude = builderModels.filter((m: string) =>
+            m.startsWith("claude-"),
+          );
+          const openai = builderModels.filter((m: string) =>
+            m.startsWith("gpt-"),
+          );
+          const gemini = builderModels.filter((m: string) =>
+            m.startsWith("gemini-"),
+          );
+          const other = builderModels.filter(
+            (m: string) =>
+              !m.startsWith("claude-") &&
+              !m.startsWith("gpt-") &&
+              !m.startsWith("gemini-"),
+          );
+
+          groups = [
+            ...(claude.length
+              ? [
+                  {
+                    engine: "builder",
+                    label: "Claude",
+                    models: claude,
+                    configured: true,
+                  },
+                ]
+              : []),
+            ...(openai.length
+              ? [
+                  {
+                    engine: "builder",
+                    label: "OpenAI",
+                    models: openai,
+                    configured: true,
+                  },
+                ]
+              : []),
+            ...(gemini.length
+              ? [
+                  {
+                    engine: "builder",
+                    label: "Gemini",
+                    models: gemini,
+                    configured: true,
+                  },
+                ]
+              : []),
+            ...(other.length
+              ? [
+                  {
+                    engine: "builder",
+                    label: "More",
+                    models: other,
+                    configured: true,
+                  },
+                ]
+              : []),
+          ];
+
+          // Ensure the current model shows in the list even if it's not
+          // in BUILDER_SUPPORTED_MODELS (e.g. custom model string).
+          if (currentModel && !builderModels.includes(currentModel)) {
+            const firstGroup = groups[0];
+            if (firstGroup) firstGroup.models.unshift(currentModel);
+          }
+        } else {
+          // No Builder connection — show SDK engines that have API keys.
+          const allowedEngines = new Set([
+            "anthropic",
+            "ai-sdk:openai",
+            "ai-sdk:google",
+          ]);
+          groups = enginesData.engines
+            .filter((e: any) => allowedEngines.has(e.name))
+            .map((e: any) => {
+              const models = [...e.supportedModels];
+              if (
+                e.name === currentEngineName &&
+                currentModel &&
+                !models.includes(currentModel)
+              ) {
+                models.unshift(currentModel);
+              }
+              return {
+                engine: e.name,
+                label: e.label,
+                models,
+                configured:
+                  e.requiredEnvVars.length === 0 ||
+                  e.requiredEnvVars.some((v: string) =>
+                    configuredKeys.has(v),
+                  ) ||
+                  e.name === currentEngineName,
+              };
+            });
+        }
         setAvailableModels(groups);
         setDefaultModel(currentModel ?? "claude-sonnet-4-6");
       })
@@ -486,6 +563,15 @@ export function MultiTabAssistantChat({
       return;
     initializedRef.current = true;
     const threadIds = new Set(threads.map((t) => t.id));
+    const threadMap = new Map(threads.map((t) => [t.id, t]));
+
+    // Auto-close tabs inactive for more than 4 hours
+    const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000;
+    const now = Date.now();
+    const isStale = (id: string) => {
+      const thread = threadMap.get(id);
+      return thread ? now - thread.updatedAt > STALE_THRESHOLD_MS : false;
+    };
 
     // If the active thread is a sub-agent, switch to its parent or the most recent main thread
     if (parentMap[activeThreadId]) {
@@ -500,15 +586,26 @@ export function MultiTabAssistantChat({
     }
 
     setOpenTabIds((prev) => {
-      // Filter out any saved tabs that no longer exist, and any sub-agent tabs
-      const valid = prev.filter((id) => threadIds.has(id) && !parentMap[id]);
-      // Ensure active thread is included (only if it's not a sub-agent)
-      if (!parentMap[activeThreadId] && !valid.includes(activeThreadId)) {
+      // Filter out tabs that no longer exist, sub-agent tabs, or stale tabs (>4h inactive)
+      const valid = prev.filter(
+        (id) => threadIds.has(id) && !parentMap[id] && !isStale(id),
+      );
+      // Ensure active thread is included (only if it's not a sub-agent and not stale)
+      if (
+        !parentMap[activeThreadId] &&
+        !valid.includes(activeThreadId) &&
+        !isStale(activeThreadId)
+      ) {
         valid.push(activeThreadId);
       }
-      return valid.length > 0 ? valid : [activeThreadId];
+      return valid;
     });
-  }, [activeThreadId, threads, parentMap, switchThread]);
+
+    // If active thread is stale, start fresh
+    if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
+      createThread();
+    }
+  }, [activeThreadId, threads, parentMap, switchThread, createThread]);
 
   // Ensure active thread is always in open tabs.
   // Use functional update to check inside the setter — avoids race with the
@@ -637,6 +734,7 @@ export function MultiTabAssistantChat({
       }
 
       const isPlanMode = (() => {
+        if (!props.execMode) return false;
         try {
           return localStorage.getItem(execModeKey) === "plan";
         } catch {

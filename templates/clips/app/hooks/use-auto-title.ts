@@ -75,22 +75,27 @@ async function clearRequest(recordingId: string): Promise<void> {
 export function useAutoTitleBridge(): void {
   // Use the "all" view so we catch recordings regardless of where the user
   // is currently browsing (library root vs. a folder vs. a space).
+  // Polling is disabled by default; it only activates when untitled recordings
+  // exist (handled by useRecordings' conditional refetchInterval).
   const { data } = useRecordings({ view: "all", limit: 200 });
   const recordings: RecordingSummary[] = data?.recordings ?? [];
   const dispatched = useRef<Set<string>>(new Set());
   const inflight = useRef<boolean>(false);
 
+  const untitledRecordings = recordings.filter(
+    (r) => r.status === "ready" && isDefaultTitle(r.title),
+  );
+
   useEffect(() => {
+    if (untitledRecordings.length === 0) return;
     let cancelled = false;
 
     async function tick() {
       if (cancelled || inflight.current) return;
       inflight.current = true;
       try {
-        for (const rec of recordings) {
+        for (const rec of untitledRecordings) {
           if (cancelled) return;
-          if (rec.status !== "ready") continue;
-          if (!isDefaultTitle(rec.title)) continue;
           if (dispatched.current.has(rec.id)) continue;
 
           const request = await readRequest(rec.id);
@@ -101,10 +106,6 @@ export function useAutoTitleBridge(): void {
           dispatched.current.add(rec.id);
           dispatched.current.add(dispatchKey);
 
-          // Fire the delegation. The agent's system prompt already teaches
-          // it to call `update-recording --title=...`; we just hand it the
-          // transcript + recordingId so it doesn't need another round-trip
-          // to load the clip.
           sendToAgentChat({
             message:
               request.message ??
@@ -119,7 +120,6 @@ export function useAutoTitleBridge(): void {
             openSidebar: false,
           });
 
-          // Clear the queue entry so a reload doesn't dispatch again.
           void clearRequest(rec.id);
         }
       } finally {
@@ -127,8 +127,6 @@ export function useAutoTitleBridge(): void {
       }
     }
 
-    // Run immediately and on an interval. Polling is cheap (HEAD-style reads
-    // from application_state) and only scales with default-title recordings.
     tick();
     const handle = setInterval(tick, POLL_INTERVAL_MS);
     return () => {
@@ -136,8 +134,5 @@ export function useAutoTitleBridge(): void {
       clearInterval(handle);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    recordings.length,
-    recordings.map((r) => r.id + ":" + r.title).join(","),
-  ]);
+  }, [untitledRecordings.map((r) => r.id).join(",")]);
 }

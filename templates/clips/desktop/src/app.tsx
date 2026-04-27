@@ -9,7 +9,13 @@ import {
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
+import {
+  installDesktopVoiceDictation,
+  type VoiceMode,
+  type VoiceShortcutPreference,
+} from "./lib/voice-dictation";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { useFeatureConfig } from "./shared/config";
 
 interface RecordingSummary {
   id: string;
@@ -24,6 +30,9 @@ type CaptureSource = "full-screen" | "window" | "tab" | "custom";
 
 const STORAGE_KEY = "clips:server-url";
 const MODE_KEY = "clips:last-mode";
+const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
+const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
+const VOICE_MODE_KEY = "clips:voice-mode";
 const SOURCE_KEY = "clips:last-source";
 const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";
@@ -38,6 +47,9 @@ const MIC_ON_KEY = "clips:mic-on";
 const DEFAULT_URL = import.meta.env.DEV
   ? "http://localhost:8094"
   : "https://clips.agent-native.com";
+
+const MACOS_CAPTURE_PERMISSION_MESSAGE =
+  "Recording permission is blocked. Open System Settings → Privacy & Security and enable Camera, Microphone, and Screen & System Audio Recording for Clips. In Tauri dev, macOS may list the debug binary separately from Ghostty or node, so restart Clips after granting it.";
 
 function loadString(key: string, fallback: string): string {
   try {
@@ -85,6 +97,7 @@ function formatAgo(iso: string): string {
 }
 
 export function App() {
+  const featureConfig = useFeatureConfig();
   const [serverUrl, setServerUrl] = useState<string>(() =>
     loadString(STORAGE_KEY, DEFAULT_URL).replace(/\/+$/, ""),
   );
@@ -104,12 +117,29 @@ export function App() {
     loadBool(CAM_ON_KEY, true),
   );
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
+  const [voiceShortcut, setVoiceShortcut] = useState<VoiceShortcutPreference>(
+    () => {
+      if (!loadBool(VOICE_SHORTCUT_CONFIGURED_KEY, false)) return "both";
+      const saved = loadString(VOICE_SHORTCUT_KEY, "both");
+      return saved === "cmd-shift-space" ||
+        saved === "ctrl-shift-space" ||
+        saved === "both" ||
+        saved === "fn"
+        ? saved
+        : "fn";
+    },
+  );
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>(() => {
+    const saved = loadString(VOICE_MODE_KEY, "push-to-talk");
+    return saved === "toggle" ? "toggle" : "push-to-talk";
+  });
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [showRecent, setShowRecent] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   // Latched true the moment the user clicks Start Recording and cleared
   // when the recorder fully stops/cancels. We use this to suppress the
   // popover auto-hide during the macOS screen-picker focus dance.
@@ -120,6 +150,19 @@ export function App() {
   );
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
   const isRecording = recorder !== null;
+  const updateVoiceShortcut = useCallback((value: VoiceShortcutPreference) => {
+    saveBool(VOICE_SHORTCUT_CONFIGURED_KEY, true);
+    setVoiceShortcut(value);
+  }, []);
+
+  useEffect(() => {
+    return installDesktopVoiceDictation({
+      enabled: featureConfig?.voiceEnabled !== false,
+      serverUrl,
+      shortcut: voiceShortcut,
+      mode: voiceMode,
+    });
+  }, [featureConfig?.voiceEnabled, serverUrl, voiceShortcut, voiceMode]);
 
   // ---- auth status --------------------------------------------------------
   // The Tauri WebView has its own cookie jar (separate from the user's
@@ -159,26 +202,50 @@ export function App() {
     checkAuth();
   }, [checkAuth]);
 
-  // Fallback for OAuth (Google / Apple) where a browser window is
-  // unavoidable. Email/password uses the inline <SignInForm /> below, which
-  // avoids the Tauri 2 separate-WebKit-data-store cookie issue entirely —
-  // the cookie is set in the same webview that will read it on the next
-  // session poll.
+  // OAuth (Google) opens in the system browser — the popover WebView can't
+  // share a cookie jar with a separate Tauri WebviewWindow, and the old
+  // approach of opening a WebView at the server root produced a blank window.
+  // Instead: fetch the Google auth URL, open it externally, then poll a
+  // server-side exchange endpoint for the session token.
   async function signInExternal() {
-    await invoke("show_signin", {
-      url: `${serverUrl.replace(/\/+$/, "")}/`,
-    }).catch(() => {});
-    const start = Date.now();
-    const interval = setInterval(async () => {
-      const ok = await checkAuth();
-      if (ok || Date.now() - start > 120_000) {
-        clearInterval(interval);
-        if (ok) {
-          invoke("close_signin").catch(() => {});
-          invoke("show_popover").catch(() => {});
+    try {
+      const flowId =
+        crypto.randomUUID?.() ||
+        Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const base = serverUrl.replace(/\/+$/, "");
+
+      // Open directly in the system browser — the server redirects (302)
+      // to Google's OAuth page, avoiding any cross-origin fetch from
+      // the Tauri WebView.
+      await openExternal(
+        `${base}/_agent-native/google/auth-url?desktop=1&flow_id=${flowId}&redirect=1`,
+      );
+
+      // Poll the exchange endpoint for the session token.
+      const start = Date.now();
+      const interval = setInterval(async () => {
+        try {
+          const xr = await fetch(
+            `${base}/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+          );
+          const xd = await xr.json();
+          if (xd?.token) {
+            clearInterval(interval);
+            await fetch(
+              `${base}/_agent-native/auth/session?_session=${xd.token}`,
+              { credentials: "include" },
+            );
+            await checkAuth();
+          } else if (Date.now() - start > 120_000) {
+            clearInterval(interval);
+          }
+        } catch {
+          if (Date.now() - start > 120_000) clearInterval(interval);
         }
-      }
-    }, 1500);
+      }, 1500);
+    } catch (err) {
+      console.error("[clips-tray] signInExternal failed:", err);
+    }
   }
 
   // Sign out via the framework's logout endpoint. The cookie clears in the
@@ -374,10 +441,10 @@ export function App() {
   recordingFlowGateRef.current = isRecording || recordingFlowActive;
   const bubbleActive =
     wantsCamera && (popoverVisible || isRecording || recordingFlowActive);
-  // The toolbar is shown whenever the user is in the pre-record or
-  // recording phase, regardless of camera mode — screen-only recordings
-  // still need the Stop / Pause buttons on-screen.
-  const toolbarActive = popoverVisible || isRecording || recordingFlowActive;
+  // The toolbar is recording chrome, not pre-record chrome. Showing it while
+  // the popover is merely open leaves a disabled 0:00 Stop/Pause pill on the
+  // desktop, which reads as a stuck recorder and can trap accessibility clicks.
+  const toolbarActive = isRecording || recordingFlowActive;
 
   useEffect(() => {
     if (!toolbarActive) return;
@@ -408,6 +475,7 @@ export function App() {
 
   useEffect(() => {
     if (!bubbleActive) return;
+    setCameraError(null);
 
     let cancelled = false;
     // Dual-transport bookkeeping. We try WebRTC first; if it fails or
@@ -479,6 +547,16 @@ export function App() {
       .catch((err) => {
         if (cancelled) return;
         console.error("[clips-popover] camera acquisition failed:", err);
+        const msg = err?.message ?? "";
+        if (
+          msg.includes("AVVideoCaptureSource") ||
+          msg.includes("sandbox") ||
+          err?.name === "NotAllowedError"
+        ) {
+          setCameraError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+        } else {
+          setCameraError(`Camera unavailable: ${msg}`);
+        }
       });
 
     return () => {
@@ -584,6 +662,11 @@ export function App() {
   // ---- persist selections -------------------------------------------------
 
   useEffect(() => saveString(MODE_KEY, mode), [mode]);
+  useEffect(
+    () => saveString(VOICE_SHORTCUT_KEY, voiceShortcut),
+    [voiceShortcut],
+  );
+  useEffect(() => saveString(VOICE_MODE_KEY, voiceMode), [voiceMode]);
   useEffect(() => saveString(SOURCE_KEY, source), [source]);
   useEffect(() => saveString(CAM_KEY, cameraId), [cameraId]);
   useEffect(() => saveString(MIC_KEY, micId), [micId]);
@@ -753,13 +836,16 @@ export function App() {
         : "";
     const message =
       startError instanceof Error ? startError.message : String(startError);
+    if (errName === "AbortError" || /was cancelled|dismissed/i.test(message)) {
+      return;
+    }
     if (
       errName === "NotAllowedError" ||
-      errName === "AbortError" ||
-      /NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
+      /NotAllowedError|permission denied by system|not allowed by the user agent|denied permission/i.test(
         message,
       )
     ) {
+      setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
       return;
     }
     setRecError(message);
@@ -898,6 +984,10 @@ export function App() {
         {showSettings ? (
           <Setup
             initial={serverUrl}
+            voiceShortcut={voiceShortcut}
+            voiceMode={voiceMode}
+            onVoiceShortcutChange={updateVoiceShortcut}
+            onVoiceModeChange={setVoiceMode}
             onConnect={(url) => {
               saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
               setServerUrl(url.replace(/\/+$/, ""));
@@ -945,6 +1035,9 @@ export function App() {
         Start recording
       </button>
       {recError ? <div className="error-banner">{recError}</div> : null}
+      {cameraError && !recError ? (
+        <div className="error-banner">{cameraError}</div>
+      ) : null}
 
       <div className="bottom-row">
         <BottomButton
@@ -960,7 +1053,7 @@ export function App() {
         <BottomButton
           icon="recent"
           label="Recent"
-          badge={recordings.length > 0 ? String(recordings.length) : undefined}
+          badge={undefined}
           onClick={() => setShowRecent((v) => !v)}
         />
       </div>
@@ -999,6 +1092,10 @@ export function App() {
         <Setup
           initial={serverUrl}
           signedInAs={signedInAs}
+          voiceShortcut={voiceShortcut}
+          voiceMode={voiceMode}
+          onVoiceShortcutChange={updateVoiceShortcut}
+          onVoiceModeChange={setVoiceMode}
           onSignOut={signOut}
           onConnect={(url) => {
             saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
@@ -1690,12 +1787,20 @@ function ClockIcon() {
 function Setup({
   initial,
   signedInAs,
+  voiceShortcut,
+  voiceMode,
+  onVoiceShortcutChange,
+  onVoiceModeChange,
   onConnect,
   onCancel,
   onSignOut,
 }: {
   initial?: string | null;
   signedInAs?: string | null;
+  voiceShortcut: VoiceShortcutPreference;
+  voiceMode: VoiceMode;
+  onVoiceShortcutChange: (value: VoiceShortcutPreference) => void;
+  onVoiceModeChange: (value: VoiceMode) => void;
   onConnect: (url: string) => void;
   onCancel?: () => void;
   onSignOut?: () => void;
@@ -1727,6 +1832,40 @@ function Setup({
       <button className="primary" type="submit">
         Connect
       </button>
+      <div className="setup-section">
+        <label className="setup-label" htmlFor="voice-shortcut">
+          Voice shortcut
+        </label>
+        <select
+          id="voice-shortcut"
+          className="setup-select"
+          value={voiceShortcut}
+          onChange={(event) =>
+            onVoiceShortcutChange(event.target.value as VoiceShortcutPreference)
+          }
+        >
+          <option value="fn">Fn</option>
+          <option value="cmd-shift-space">Cmd+Shift+Space</option>
+          <option value="ctrl-shift-space">Ctrl+Shift+Space</option>
+          <option value="both">All shortcuts</option>
+        </select>
+      </div>
+      <div className="setup-section">
+        <label className="setup-label" htmlFor="voice-mode">
+          Voice mode
+        </label>
+        <select
+          id="voice-mode"
+          className="setup-select"
+          value={voiceMode}
+          onChange={(event) =>
+            onVoiceModeChange(event.target.value as VoiceMode)
+          }
+        >
+          <option value="push-to-talk">Hold to dictate</option>
+          <option value="toggle">Press to start, press to stop</option>
+        </select>
+      </div>
       {signedInAs && onSignOut ? (
         <div className="setup-account">
           <span className="setup-account-email">{signedInAs}</span>
