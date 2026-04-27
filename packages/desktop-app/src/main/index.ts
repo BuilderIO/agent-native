@@ -632,8 +632,46 @@ function openOAuthWindow(
 // ---------- Webview popup handling ----------
 
 app.on("web-contents-created", (_event, contents) => {
-  // Only intercept webview guest contents
-  if (contents.getType() !== "webview") return;
+  const type = contents.getType();
+  console.log(`[main] web-contents-created type=${type} id=${contents.id}`);
+
+  // For the shell window, intercept webview attachment to force allowPopups
+  if (type !== "webview") {
+    contents.on(
+      "will-attach-webview" as any,
+      (_e: any, prefs: any, params: any) => {
+        console.log(
+          `[main] will-attach-webview src=${params?.src} currentAllowPopups=${prefs?.allowPopups}`,
+        );
+        prefs.allowPopups = true;
+      },
+    );
+
+    contents.on("did-attach-webview" as any, (_e: any, guestContents: any) => {
+      console.log(`[main] did-attach-webview guestId=${guestContents?.id}`);
+      guestContents.setWindowOpenHandler(({ url }: any) => {
+        console.log("[main] setWindowOpenHandler (from did-attach):", url);
+        try {
+          const parsed = new URL(url);
+          if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+            return { action: "deny" as const };
+          }
+          const provider = matchOAuthProvider(url);
+          if (provider) {
+            openOAuthWindow(url, guestContents.session, provider);
+          } else {
+            shell.openExternal(url).catch((err: any) => {
+              console.error("[main] shell.openExternal failed:", err);
+            });
+          }
+        } catch (err) {
+          console.error("[main] handler error:", err);
+        }
+        return { action: "deny" as const };
+      });
+    });
+    return;
+  }
 
   contents.setWindowOpenHandler(({ url }) => {
     console.log("[main] setWindowOpenHandler:", url);
