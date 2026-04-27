@@ -53,7 +53,6 @@ pnpm action get-issue --key=PROJ-123
 pnpm action create-issue --project=PROJ --summary="Fix bug"
 ```
 
-
 ## Tools (Framework Feature)
 
 The framework provides **Tools** — mini sandboxed Alpine.js apps that run inside iframes. Tools let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under a "Tools" section.

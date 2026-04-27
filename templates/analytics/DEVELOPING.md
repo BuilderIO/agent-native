@@ -194,7 +194,6 @@ All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`,
 - Do not add unnecessary comments. Only comment complex logic that isn't self-evident.
 - Never delete existing comments. Update them if your change makes them inaccurate.
 
-
 ## Tools (Framework Feature)
 
 The framework provides **Tools** — mini sandboxed Alpine.js apps that run inside iframes. Tools let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under a "Tools" section.

@@ -130,7 +130,6 @@ export default async function main(args: string[]): Promise<void> {
 
 Run with `pnpm action my-script` (auto-discovered, no registration needed).
 
-
 ## Tools (Framework Feature)
 
 The framework provides **Tools** — mini sandboxed Alpine.js apps that run inside iframes. Tools let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under a "Tools" section.

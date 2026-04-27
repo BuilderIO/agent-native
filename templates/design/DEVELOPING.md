@@ -156,7 +156,6 @@ By default, data is stored in SQLite at `data/app.db`. For production/cloud depl
 | `DATABASE_URL`        | No (has default) | Database connection string (default: `file:./data/app.db`) |
 | `DATABASE_AUTH_TOKEN` | For remote DBs   | Auth token for Turso or other remote databases             |
 
-
 ## Tools (Framework Feature)
 
 The framework provides **Tools** — mini sandboxed Alpine.js apps that run inside iframes. Tools let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under a "Tools" section.

@@ -191,7 +191,6 @@ The first time a workspace is created, `server/lib/trackers/seed-defaults.ts` in
 
 Framework-wide skills (`actions`, `storing-data`, `real-time-sync`, `delegate-to-agent`, `sharing`, `portability`, `server-plugins`, `authentication`, `security`, `frontend-design`) are symlinked into `.agents/skills/` via `agent-native setup-agents`.
 
-
 ## Tools (Framework Feature)
 
 The framework provides **Tools** — mini sandboxed Alpine.js apps that run inside iframes. Tools let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under a "Tools" section.
