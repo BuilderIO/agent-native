@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  lazy,
+  Suspense,
+} from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import {
   IconArrowLeft,
