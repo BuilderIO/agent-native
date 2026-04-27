@@ -106,16 +106,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       });
     }
 
-    // React 19 sets custom element props as DOM properties, but Electron's
-    // <webview> requires `allowpopups` as an HTML attribute. Set it
-    // imperatively so setWindowOpenHandler fires on window.open / target=_blank.
-    useEffect(() => {
-      const wv = webviewRef.current;
-      if (wv && !wv.hasAttribute("allowpopups")) {
-        wv.setAttribute("allowpopups", "");
-      }
-    }, []);
-
     useEffect(() => {
       if (app.placeholder) return;
 
@@ -302,6 +292,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             src={url}
             className="app-webview"
             style={error ? { visibility: "hidden" } : undefined}
+            allowpopups={true}
             webpreferences="contextIsolation=false"
             partition={`persist:app-${app.id}`}
           />
