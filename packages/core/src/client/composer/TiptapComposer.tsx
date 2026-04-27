@@ -25,6 +25,11 @@ import {
   IconPlus,
   IconCheck,
   IconChevronDown,
+  IconBulb,
+  IconClock,
+  IconBolt,
+  IconTool,
+  IconX,
 } from "@tabler/icons-react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import type {
@@ -32,10 +37,12 @@ import type {
   SkillResult,
   Reference,
   SlashCommand,
+  ComposerMode,
 } from "./types.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
+import { sendToAgentChat } from "../agent-chat.js";
 
 export interface TiptapComposerHandle {
   focus(): void;
@@ -47,6 +54,115 @@ const BUILT_IN_COMMANDS: SlashCommand[] = [
   { name: "history", description: "Browse chat history", icon: "history" },
   { name: "help", description: "Show available commands", icon: "help" },
 ];
+
+const COMPOSER_MODE_CONFIGS: Record<
+  ComposerMode,
+  {
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    placeholder: string;
+    messagePrefix: string;
+    getContext: (prompt: string) => string;
+    beforeSend?: () => void;
+  }
+> = {
+  skill: {
+    label: "Create Skill",
+    icon: IconBulb,
+    placeholder: "Describe the skill you want to create...",
+    messagePrefix: "Create a skill: ",
+    getContext: (prompt) =>
+      `The user wants to create an agent skill. Their description: "${prompt}"
+
+Follow the create-skill pattern to build this. Before writing:
+
+1. **Determine the skill name** — derive a hyphen-case name from the description (e.g. "code review" → "code-review")
+2. **Determine the skill type** — Pattern (architectural rule), Workflow (step-by-step), or Generator (scaffolding)
+3. **Write the skill** as a personal resource at path "skills/<name>.md" using resource-write
+
+The skill file MUST have YAML frontmatter with name and description (under 40 words), then markdown with:
+- Clear rule/purpose statement
+- Why this skill exists
+- How to follow it (with code examples where helpful)
+- Common violations to avoid
+- Related skills
+
+After creating, update the shared AGENTS.md resource to reference the new skill in its skills table.
+
+Keep the skill concise (under 500 lines) and actionable.`,
+  },
+  job: {
+    label: "Scheduled Task",
+    icon: IconClock,
+    placeholder: "Describe what should happen and when...",
+    messagePrefix: "Create a recurring job: ",
+    getContext: (prompt) =>
+      `The user wants to create a recurring job. Their description: "${prompt}"
+
+Use the manage-jobs tool with action "create" to create this. You need to:
+1. Derive a hyphen-case name from the description
+2. Convert the schedule to a cron expression (e.g., "every weekday at 9am" → "0 9 * * 1-5")
+3. Write clear, self-contained instructions for what the agent should do each time the job runs
+4. Create it in personal scope
+
+The job will run automatically on the schedule. Make the instructions specific — include which actions to call and what to do with results.`,
+  },
+  automation: {
+    label: "Create Automation",
+    icon: IconBolt,
+    placeholder: "Describe what you want to automate...",
+    messagePrefix: "Create an automation: ",
+    beforeSend: () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:set-mode", {
+          detail: { mode: "chat" },
+        }),
+      );
+    },
+    getContext: (prompt) =>
+      `The user wants to create a new automation. Scope: personal. Their description: "${prompt}"
+
+Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
+  },
+  tool: {
+    label: "Create Tool",
+    icon: IconTool,
+    placeholder: "Describe the interactive tool you want to build...",
+    messagePrefix: "Create a tool: ",
+    getContext: (prompt) =>
+      `The user wants to create an interactive tool (mini app). Their description: "${prompt}"
+
+Use the create-tool action with Alpine.js HTML content. The tool runs as a sandboxed iframe with Tailwind CSS.
+
+After creating the tool, navigate the user to it using the navigate action with --view=tools --toolId=<id>.
+
+Make the tool functional and visually polished. Tools can use toolFetch() for API calls and dbQuery()/dbExec() for data storage.`,
+  },
+};
+
+function ComposerModeChip({
+  mode,
+  onRemove,
+}: {
+  mode: ComposerMode;
+  onRemove: () => void;
+}) {
+  const config = COMPOSER_MODE_CONFIGS[mode];
+  const Icon = config.icon;
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground">
+      <Icon className="h-3 w-3 text-muted-foreground" />
+      {config.label}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="ml-0.5 rounded-sm text-muted-foreground hover:text-foreground cursor-pointer"
+      >
+        <IconX className="h-3 w-3" />
+      </button>
+    </span>
+  );
+}
 
 type ExecMode = "build" | "plan";
 
@@ -367,6 +483,8 @@ export function TiptapComposer({
   const [editorHasText, setEditorHasText] = useState(false);
   const composerText = useComposer((state) => state.text);
   const canSend = editorHasText && !disabled;
+  const [composerMode, setComposerMode] = useState<ComposerMode | null>(null);
+  const composerModeRef = useRef<ComposerMode | null>(null);
   const isMac =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -433,8 +551,10 @@ export function TiptapComposer({
   // changes visible to Placeholder's function form.
   const placeholderRef = useRef(placeholder);
   useEffect(() => {
-    placeholderRef.current = placeholder;
-  }, [placeholder]);
+    placeholderRef.current = composerMode
+      ? COMPOSER_MODE_CONFIGS[composerMode].placeholder
+      : placeholder;
+  }, [placeholder, composerMode]);
 
   const editor = useEditor({
     extensions: [
@@ -573,6 +693,20 @@ export function TiptapComposer({
           }
         }
 
+        // Backspace removes composer mode chip when editor is empty
+        if (event.key === "Backspace" && composerModeRef.current) {
+          const { from, to } = view.state.selection;
+          if (
+            view.state.doc.textContent.trim() === "" &&
+            from === to &&
+            from <= 1
+          ) {
+            setComposerMode(null);
+            composerModeRef.current = null;
+            return true;
+          }
+        }
+
         // Shift+Tab toggles build/plan mode
         if (event.key === "Tab" && event.shiftKey) {
           event.preventDefault();
@@ -653,6 +787,15 @@ export function TiptapComposer({
       editor?.commands.focus("end");
     },
   }));
+
+  const handleSelectMode = useCallback(
+    (mode: ComposerMode) => {
+      setComposerMode(mode);
+      composerModeRef.current = mode;
+      setTimeout(() => editor?.commands.focus("end"), 50);
+    },
+    [editor],
+  );
 
   const insertTranscript = useCallback(
     (text: string) => {
@@ -806,6 +949,26 @@ export function TiptapComposer({
       }
     }
 
+    // Composer mode: send with context via agent chat bridge
+    if (composerMode) {
+      const config = COMPOSER_MODE_CONFIGS[composerMode];
+      config.beforeSend?.();
+      sendToAgentChat({
+        message: `${config.messagePrefix}${trimmed}`,
+        context: config.getContext(trimmed),
+        submit: true,
+      });
+      ed.commands.clearContent();
+      setEditorHasText(false);
+      setComposerMode(null);
+      composerModeRef.current = null;
+      try {
+        localStorage.removeItem(DRAFT_KEY);
+      } catch {}
+      closePopover();
+      return;
+    }
+
     if (onSubmit) {
       onSubmit(text, references);
     } else {
@@ -817,7 +980,14 @@ export function TiptapComposer({
       localStorage.removeItem(DRAFT_KEY);
     } catch {}
     closePopover();
-  }, [closePopover, composerRuntime, editor, onSubmit, syncComposerState]);
+  }, [
+    closePopover,
+    composerMode,
+    composerRuntime,
+    editor,
+    onSubmit,
+    syncComposerState,
+  ]);
 
   // Helper functions that operate on the editor view directly
   // These are called from handleKeyDown which can't use React state
@@ -1025,7 +1195,19 @@ export function TiptapComposer({
           pointer-events: none;
         }
       `}</style>
-      <div className="px-2 pt-2 pb-1">
+      {composerMode && (
+        <div className="px-2.5 pt-2 pb-0">
+          <ComposerModeChip
+            mode={composerMode}
+            onRemove={() => {
+              setComposerMode(null);
+              composerModeRef.current = null;
+              editor?.commands.focus("end");
+            }}
+          />
+        </div>
+      )}
+      <div className={composerMode ? "px-2 pt-1 pb-1" : "px-2 pt-2 pb-1"}>
         <EditorContent
           editor={editor}
           className="aui-composer flex-1 min-w-0 [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:m-0 px-0.5"
@@ -1033,7 +1215,7 @@ export function TiptapComposer({
       </div>
       {voiceEnabled && <VoiceRecordingOverlay voice={voice} />}
       <div className="flex items-center gap-1 px-2 py-1.5">
-        {attachButton ?? <ComposerPlusMenu />}
+        {attachButton ?? <ComposerPlusMenu onSelectMode={handleSelectMode} />}
         <div className="flex-1" />
         {actionButton ?? (
           <>
