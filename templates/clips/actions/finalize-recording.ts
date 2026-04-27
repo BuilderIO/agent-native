@@ -24,6 +24,7 @@ import {
 } from "@agent-native/core/file-upload";
 import { emit } from "@agent-native/core/event-bus";
 import { applyFaststart } from "../server/lib/faststart.js";
+import { debugLog } from "../server/lib/debug.js";
 import requestTranscript from "./request-transcript.js";
 
 /**
@@ -82,7 +83,7 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const id = args.id;
-    console.log("[finalize] starting", { id, ownerEmail });
+    debugLog("[finalize] starting", { id, ownerEmail });
 
     // Keys of chunks we need to delete regardless of how finalize exits.
     // Collected as soon as we list chunks and purged in a finally-block so
@@ -147,7 +148,7 @@ export default defineAction({
         const bi = Number(b.key.split("-").pop() || 0);
         return ai - bi;
       });
-      console.log("[finalize] chunks found", {
+      debugLog("[finalize] chunks found", {
         id,
         count: chunkEntries.length,
       });
@@ -204,7 +205,7 @@ export default defineAction({
         try {
           uploadData = applyFaststart(assembled);
           if (uploadData !== assembled) {
-            console.log("[finalize] faststart applied", { id });
+            debugLog("[finalize] faststart applied", { id });
           }
         } catch (err) {
           console.warn("[finalize] faststart failed, uploading as-is", {
@@ -334,7 +335,7 @@ export default defineAction({
         console.warn("[finalize] clip.created emit failed:", err);
       }
 
-      console.log("[finalize] done", {
+      debugLog("[finalize] done", {
         id,
         videoUrl,
         bytes: assembled.byteLength,
@@ -367,7 +368,7 @@ export default defineAction({
             });
           }
         }
-        console.log("[finalize] chunks purged", {
+        debugLog("[finalize] chunks purged", {
           id,
           purged,
           attempted: chunkKeysToPurge.length,

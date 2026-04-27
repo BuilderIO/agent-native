@@ -205,7 +205,9 @@ export function createCoreRoutesPlugin(
           allowlist.includes(origin) ||
           // Dev convenience: allow any localhost origin (tray windows,
           // frame, docs) without requiring an explicit allowlist.
-          /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+          /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/.test(
+            origin,
+          );
         if (!allowed) return;
         setResponseHeader(event, "Access-Control-Allow-Origin", origin);
         setResponseHeader(event, "Vary", "Origin");

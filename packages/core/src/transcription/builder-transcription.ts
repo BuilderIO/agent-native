@@ -63,14 +63,27 @@ export async function transcribeWithBuilder(
     opts.audioBytes.byteOffset + opts.audioBytes.byteLength,
   ) as ArrayBuffer;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: authHeader,
-      "Content-Type": "application/octet-stream",
-    },
-    body,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: authHeader,
+        "Content-Type": "application/octet-stream",
+      },
+      body,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") {
+      throw new Error("Builder transcription timed out after 45 seconds.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (res.status === 402) {
     throw new Error(

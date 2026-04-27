@@ -454,7 +454,9 @@ function applyCorsHeaders(event: H3Event): void {
     .filter(Boolean);
   const allowed =
     allowlist.length === 0
-      ? /^(https?|tauri):\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      ? /^(https?|tauri):\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/.test(
+          origin,
+        )
       : allowlist.includes(origin);
   if (!allowed) return;
   setResponseHeader(event, "Access-Control-Allow-Origin", origin);
@@ -1872,7 +1874,8 @@ export async function autoMountAuth(
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));
 
-    console.log("[agent-native] Auth enabled — custom getSession provider.");
+    if (process.env.DEBUG)
+      console.log("[agent-native] Auth enabled — custom getSession provider.");
     return true;
   }
 
@@ -1891,18 +1894,20 @@ export async function autoMountAuth(
   const tokens = getAccessTokens();
   if (tokens.length > 0) {
     mountTokenOnlyRoutes(app, tokens, publicPaths);
-    console.log(
-      `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
-    );
+    if (process.env.DEBUG)
+      console.log(
+        `[agent-native] Auth enabled — ${tokens.length} access token(s) configured.`,
+      );
     return true;
   }
 
   // Default: Better Auth (account-first)
   try {
     await mountBetterAuthRoutes(app, options);
-    console.log(
-      "[agent-native] Auth enabled — Better Auth (accounts + organizations).",
-    );
+    if (process.env.DEBUG)
+      console.log(
+        "[agent-native] Auth enabled — Better Auth (accounts + organizations).",
+      );
   } catch (err) {
     console.error("[agent-native] Failed to initialize Better Auth:", err);
     mountAuthFallbackRoutes(app);

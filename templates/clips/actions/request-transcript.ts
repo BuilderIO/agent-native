@@ -141,6 +141,7 @@ export default defineAction({
     const now = new Date().toISOString();
 
     const userEmail = getRequestUserEmail() ?? ownerEmail;
+    let builderError: string | null = null;
 
     // ── Builder transcription (highest priority) ──────────────────────
     // Builder proxy is available when BUILDER_PRIVATE_KEY is set. It
@@ -275,15 +276,22 @@ export default defineAction({
         };
       } catch (err) {
         const reason = (err as Error).message;
-        await upsertTranscriptRow(db, {
-          recordingId: args.recordingId,
-          ownerEmail,
-          status: "failed",
-          failureReason: reason,
-          now,
-        });
-        await writeAppState("refresh-signal", { ts: Date.now() });
-        throw err;
+        if (reason.includes("credits exhausted")) {
+          await upsertTranscriptRow(db, {
+            recordingId: args.recordingId,
+            ownerEmail,
+            status: "failed",
+            failureReason: reason,
+            now,
+          });
+          await writeAppState("refresh-signal", { ts: Date.now() });
+          throw err;
+        }
+        builderError = reason;
+        console.warn(
+          `[clips] Builder transcription failed for ${args.recordingId}; falling back to BYOK providers:`,
+          reason,
+        );
       }
     }
 
@@ -314,8 +322,9 @@ export default defineAction({
         };
       }
 
-      const reason =
-        "No transcription key configured. Set GROQ_API_KEY (fast) or OPENAI_API_KEY.";
+      const reason = builderError
+        ? `Builder transcription failed: ${builderError}. Add GROQ_API_KEY or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
+        : "No transcription key configured. Set GROQ_API_KEY (fast) or OPENAI_API_KEY.";
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,
@@ -429,17 +438,22 @@ export default defineAction({
     form.append("response_format", "verbose_json");
     form.append("timestamp_granularities[]", "segment");
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 45_000);
     try {
       const startedAt = Date.now();
       const res = await fetch(provider.endpoint, {
         method: "POST",
         headers: { Authorization: `Bearer ${provider.apiKey}` },
         body: form,
+        signal: controller.signal,
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(
-          `${provider.name} transcription error ${res.status}: ${text.slice(0, 300)}`,
+          res.status === 401
+            ? `${provider.name} rejected the API key. Update it in Settings → API Keys.`
+            : `${provider.name} transcription error ${res.status}: ${text.slice(0, 300)}`,
         );
       }
       const data = (await res.json()) as WhisperResponse;
@@ -494,7 +508,10 @@ export default defineAction({
         provider: provider.name,
       };
     } catch (err) {
-      const reason = (err as Error).message;
+      const reason =
+        (err as Error)?.name === "AbortError"
+          ? `${provider.name} transcription timed out after 45 seconds.`
+          : (err as Error).message;
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,
@@ -504,6 +521,8 @@ export default defineAction({
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
       throw err;
+    } finally {
+      clearTimeout(timeout);
     }
   },
 });

@@ -54,6 +54,10 @@ export default defineAction({
       .number()
       .optional()
       .describe("Height of the recording in pixels (may be 0 until finalized)"),
+    visibility: z
+      .enum(["private", "org", "public"])
+      .optional()
+      .describe("Initial share visibility for the recording"),
   }),
   run: async (args) => {
     const db = getDb();
@@ -73,6 +77,7 @@ export default defineAction({
       uploadProgress: 0,
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
+      visibility: args.visibility ?? "private",
       width: args.width ?? 0,
       height: args.height ?? 0,
       ownerEmail,

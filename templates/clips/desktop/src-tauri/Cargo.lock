@@ -475,6 +475,8 @@ dependencies = [
 name = "clips-tray"
 version = "0.1.1"
 dependencies = [
+ "core-foundation",
+ "core-graphics",
  "objc2",
  "serde",
  "serde_json",

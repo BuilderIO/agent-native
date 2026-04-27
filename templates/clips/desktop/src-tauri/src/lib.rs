@@ -6,6 +6,7 @@
 
 mod clips;
 mod config;
+mod debug;
 mod shortcuts;
 mod state;
 mod tray;
@@ -15,7 +16,8 @@ use tauri::{Emitter, Manager};
 
 use clips::{position_popover, toggle_popover};
 use state::{
-    DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt, RecordingActive, TrayAnchor,
+    DictationActive, DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt,
+    RecordingActive, TrayAnchor, VoiceWakePopover,
 };
 use util::{is_recording_active, set_capture_excluded};
 
@@ -53,6 +55,9 @@ pub fn run() {
             clips::resize_popover,
             clips::show_signin,
             clips::close_signin,
+            clips::show_flow_bar,
+            clips::hide_flow_bar,
+            clips::complete_voice_dictation,
             clips::set_recording_state,
             clips::reset_state,
             clips::save_bubble_position,
@@ -71,6 +76,8 @@ pub fn run() {
         .manage(RecordingActive::default())
         .manage(MeetingActive::default())
         .manage(DictationEnabled::default())
+        .manage(DictationActive::default())
+        .manage(VoiceWakePopover::default())
         .manage(LastTranscript::default())
         .setup(|app| {
             // NOTE: we intentionally do NOT call set_activation_policy(Accessory)
@@ -114,7 +121,7 @@ pub fn run() {
                         // would also kill the RecordingRow UI the user
                         // is relying on to stop.
                         if is_recording_active(&app_handle) {
-                            eprintln!("[clips-tray] popover blur ignored — recording active");
+                            dlog!("[clips-tray] popover blur ignored — recording active");
                             return;
                         }
                         let shown_at = app_handle
@@ -123,7 +130,7 @@ pub fn run() {
                         let elapsed_ms = shown_at
                             .map(|t| t.elapsed().as_millis())
                             .unwrap_or(u128::MAX);
-                        eprintln!("[clips-tray] popover blur, elapsed_ms={}", elapsed_ms);
+                        dlog!("[clips-tray] popover blur, elapsed_ms={}", elapsed_ms);
                         if elapsed_ms >= 1500 {
                             let _ = handle.hide();
                             let _ = app_handle.emit("clips:popover-visible", false);

@@ -52,6 +52,7 @@ describe("server/auth", () => {
 
     it("enables Better Auth in dev when AUTH_MODE=local is not set", async () => {
       vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("DEBUG", "1");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
       delete process.env.AUTH_DISABLED;
@@ -90,6 +91,7 @@ describe("server/auth", () => {
 
     it("enables Better Auth when no tokens in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("DEBUG", "1");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
       delete process.env.AUTH_DISABLED;
@@ -117,6 +119,7 @@ describe("server/auth", () => {
     it("mounts auth when ACCESS_TOKEN is set in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("DEBUG", "1");
       delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
@@ -134,6 +137,7 @@ describe("server/auth", () => {
     it("supports multiple ACCESS_TOKENS", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKENS", "token1, token2, token3");
+      vi.stubEnv("DEBUG", "1");
       delete process.env.ACCESS_TOKEN;
       delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
@@ -153,6 +157,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "shared");
       vi.stubEnv("ACCESS_TOKENS", "shared,unique1,unique2");
+      vi.stubEnv("DEBUG", "1");
       delete process.env.AUTH_MODE;
       const { autoMountAuth } = await import("./auth.js");
 
@@ -168,6 +173,7 @@ describe("server/auth", () => {
 
     it("returns true when custom getSession is provided in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("DEBUG", "1");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
       delete process.env.AUTH_MODE;

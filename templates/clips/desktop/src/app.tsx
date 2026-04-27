@@ -9,7 +9,13 @@ import {
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
+import {
+  installDesktopVoiceDictation,
+  type VoiceMode,
+  type VoiceShortcutPreference,
+} from "./lib/voice-dictation";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { useFeatureConfig } from "./shared/config";
 
 interface RecordingSummary {
   id: string;
@@ -24,6 +30,9 @@ type CaptureSource = "full-screen" | "window" | "tab" | "custom";
 
 const STORAGE_KEY = "clips:server-url";
 const MODE_KEY = "clips:last-mode";
+const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
+const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
+const VOICE_MODE_KEY = "clips:voice-mode";
 const SOURCE_KEY = "clips:last-source";
 const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";
@@ -38,6 +47,9 @@ const MIC_ON_KEY = "clips:mic-on";
 const DEFAULT_URL = import.meta.env.DEV
   ? "http://localhost:8094"
   : "https://clips.agent-native.com";
+
+const MACOS_CAPTURE_PERMISSION_MESSAGE =
+  "Recording permission is blocked. Open System Settings → Privacy & Security and enable Camera, Microphone, and Screen & System Audio Recording for Clips. In Tauri dev, macOS may list the debug binary separately from Ghostty or node, so restart Clips after granting it.";
 
 function loadString(key: string, fallback: string): string {
   try {
@@ -85,6 +97,7 @@ function formatAgo(iso: string): string {
 }
 
 export function App() {
+  const featureConfig = useFeatureConfig();
   const [serverUrl, setServerUrl] = useState<string>(() =>
     loadString(STORAGE_KEY, DEFAULT_URL).replace(/\/+$/, ""),
   );
@@ -104,6 +117,22 @@ export function App() {
     loadBool(CAM_ON_KEY, true),
   );
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
+  const [voiceShortcut, setVoiceShortcut] = useState<VoiceShortcutPreference>(
+    () => {
+      if (!loadBool(VOICE_SHORTCUT_CONFIGURED_KEY, false)) return "both";
+      const saved = loadString(VOICE_SHORTCUT_KEY, "both");
+      return saved === "cmd-shift-space" ||
+        saved === "ctrl-shift-space" ||
+        saved === "both" ||
+        saved === "fn"
+        ? saved
+        : "fn";
+    },
+  );
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>(() => {
+    const saved = loadString(VOICE_MODE_KEY, "push-to-talk");
+    return saved === "toggle" ? "toggle" : "push-to-talk";
+  });
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [showRecent, setShowRecent] = useState(false);
@@ -121,6 +150,19 @@ export function App() {
   );
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
   const isRecording = recorder !== null;
+  const updateVoiceShortcut = useCallback((value: VoiceShortcutPreference) => {
+    saveBool(VOICE_SHORTCUT_CONFIGURED_KEY, true);
+    setVoiceShortcut(value);
+  }, []);
+
+  useEffect(() => {
+    return installDesktopVoiceDictation({
+      enabled: featureConfig?.voiceEnabled !== false,
+      serverUrl,
+      shortcut: voiceShortcut,
+      mode: voiceMode,
+    });
+  }, [featureConfig?.voiceEnabled, serverUrl, voiceShortcut, voiceMode]);
 
   // ---- auth status --------------------------------------------------------
   // The Tauri WebView has its own cookie jar (separate from the user's
@@ -399,10 +441,10 @@ export function App() {
   recordingFlowGateRef.current = isRecording || recordingFlowActive;
   const bubbleActive =
     wantsCamera && (popoverVisible || isRecording || recordingFlowActive);
-  // The toolbar is shown whenever the user is in the pre-record or
-  // recording phase, regardless of camera mode — screen-only recordings
-  // still need the Stop / Pause buttons on-screen.
-  const toolbarActive = popoverVisible || isRecording || recordingFlowActive;
+  // The toolbar is recording chrome, not pre-record chrome. Showing it while
+  // the popover is merely open leaves a disabled 0:00 Stop/Pause pill on the
+  // desktop, which reads as a stuck recorder and can trap accessibility clicks.
+  const toolbarActive = isRecording || recordingFlowActive;
 
   useEffect(() => {
     if (!toolbarActive) return;
@@ -511,9 +553,7 @@ export function App() {
           msg.includes("sandbox") ||
           err?.name === "NotAllowedError"
         ) {
-          setCameraError(
-            "Camera access blocked. Open System Settings → Privacy & Security → Camera and enable your terminal app, then restart Clips.",
-          );
+          setCameraError(MACOS_CAPTURE_PERMISSION_MESSAGE);
         } else {
           setCameraError(`Camera unavailable: ${msg}`);
         }
@@ -622,6 +662,11 @@ export function App() {
   // ---- persist selections -------------------------------------------------
 
   useEffect(() => saveString(MODE_KEY, mode), [mode]);
+  useEffect(
+    () => saveString(VOICE_SHORTCUT_KEY, voiceShortcut),
+    [voiceShortcut],
+  );
+  useEffect(() => saveString(VOICE_MODE_KEY, voiceMode), [voiceMode]);
   useEffect(() => saveString(SOURCE_KEY, source), [source]);
   useEffect(() => saveString(CAM_KEY, cameraId), [cameraId]);
   useEffect(() => saveString(MIC_KEY, micId), [micId]);
@@ -791,13 +836,16 @@ export function App() {
         : "";
     const message =
       startError instanceof Error ? startError.message : String(startError);
+    if (errName === "AbortError" || /was cancelled|dismissed/i.test(message)) {
+      return;
+    }
     if (
       errName === "NotAllowedError" ||
-      errName === "AbortError" ||
-      /NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
+      /NotAllowedError|permission denied by system|not allowed by the user agent|denied permission/i.test(
         message,
       )
     ) {
+      setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
       return;
     }
     setRecError(message);
@@ -936,6 +984,10 @@ export function App() {
         {showSettings ? (
           <Setup
             initial={serverUrl}
+            voiceShortcut={voiceShortcut}
+            voiceMode={voiceMode}
+            onVoiceShortcutChange={updateVoiceShortcut}
+            onVoiceModeChange={setVoiceMode}
             onConnect={(url) => {
               saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
               setServerUrl(url.replace(/\/+$/, ""));
@@ -1040,6 +1092,10 @@ export function App() {
         <Setup
           initial={serverUrl}
           signedInAs={signedInAs}
+          voiceShortcut={voiceShortcut}
+          voiceMode={voiceMode}
+          onVoiceShortcutChange={updateVoiceShortcut}
+          onVoiceModeChange={setVoiceMode}
           onSignOut={signOut}
           onConnect={(url) => {
             saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
@@ -1731,12 +1787,20 @@ function ClockIcon() {
 function Setup({
   initial,
   signedInAs,
+  voiceShortcut,
+  voiceMode,
+  onVoiceShortcutChange,
+  onVoiceModeChange,
   onConnect,
   onCancel,
   onSignOut,
 }: {
   initial?: string | null;
   signedInAs?: string | null;
+  voiceShortcut: VoiceShortcutPreference;
+  voiceMode: VoiceMode;
+  onVoiceShortcutChange: (value: VoiceShortcutPreference) => void;
+  onVoiceModeChange: (value: VoiceMode) => void;
   onConnect: (url: string) => void;
   onCancel?: () => void;
   onSignOut?: () => void;
@@ -1768,6 +1832,40 @@ function Setup({
       <button className="primary" type="submit">
         Connect
       </button>
+      <div className="setup-section">
+        <label className="setup-label" htmlFor="voice-shortcut">
+          Voice shortcut
+        </label>
+        <select
+          id="voice-shortcut"
+          className="setup-select"
+          value={voiceShortcut}
+          onChange={(event) =>
+            onVoiceShortcutChange(event.target.value as VoiceShortcutPreference)
+          }
+        >
+          <option value="fn">Fn</option>
+          <option value="cmd-shift-space">Cmd+Shift+Space</option>
+          <option value="ctrl-shift-space">Ctrl+Shift+Space</option>
+          <option value="both">All shortcuts</option>
+        </select>
+      </div>
+      <div className="setup-section">
+        <label className="setup-label" htmlFor="voice-mode">
+          Voice mode
+        </label>
+        <select
+          id="voice-mode"
+          className="setup-select"
+          value={voiceMode}
+          onChange={(event) =>
+            onVoiceModeChange(event.target.value as VoiceMode)
+          }
+        >
+          <option value="push-to-talk">Hold to dictate</option>
+          <option value="toggle">Press to start, press to stop</option>
+        </select>
+      </div>
       {signedInAs && onSignOut ? (
         <div className="setup-account">
           <span className="setup-account-email">{signedInAs}</span>

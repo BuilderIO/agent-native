@@ -24,6 +24,7 @@ import {
 } from "h3";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../../../db/index.js";
+import { debugLog } from "../../../../lib/debug.js";
 import { getEventOwnerEmail } from "../../../../lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
@@ -60,7 +61,7 @@ export default defineEventHandler(async (event: H3Event) => {
   }
   const mimeType = query.mimeType;
 
-  console.log("[chunk] received", {
+  debugLog("[chunk] received", {
     recordingId,
     index,
     total,
@@ -79,7 +80,7 @@ export default defineEventHandler(async (event: H3Event) => {
     console.error("[chunk] getEventOwnerEmail threw:", err);
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
-  console.log("[chunk] resolved owner:", ownerEmail);
+  debugLog("[chunk] resolved owner:", ownerEmail);
   const db = getDb();
 
   // Verify the recording belongs to the current user.
@@ -107,7 +108,7 @@ export default defineEventHandler(async (event: H3Event) => {
 
   const raw = await readRawBody(event, false);
   const bodySize = raw ? raw.byteLength : 0;
-  console.log("[chunk] body size:", bodySize, "isFinal:", isFinal);
+  debugLog("[chunk] body size:", bodySize, "isFinal:", isFinal);
 
   // An empty body is only a problem for non-final chunks. The final sentinel
   // POST the client sends after MediaRecorder.stop() is intentionally empty
@@ -167,7 +168,7 @@ export default defineEventHandler(async (event: H3Event) => {
   // Final chunk — kick off finalize. We await so the client gets a single
   // "done" response with the final URL (instead of needing to poll).
   if (isFinal) {
-    console.log("[chunk] isFinal — invoking finalize", { recordingId });
+    debugLog("[chunk] isFinal — invoking finalize", { recordingId });
     try {
       const result = await finalizeRecording.run({
         id: recordingId,
@@ -184,7 +185,7 @@ export default defineEventHandler(async (event: H3Event) => {
             : query.hasCamera === "1" || query.hasCamera === "true",
         mimeType,
       });
-      console.log("[chunk] finalize ok", {
+      debugLog("[chunk] finalize ok", {
         recordingId,
         videoUrl: (result as any)?.videoUrl,
       });

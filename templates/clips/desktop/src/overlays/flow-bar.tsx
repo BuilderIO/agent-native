@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
-type FlowState = "idle" | "recording" | "processing" | "complete";
+type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
 
 /**
  * Wispr Flow-style dictation overlay — a slim dark floating panel,
@@ -13,7 +13,7 @@ type FlowState = "idle" | "recording" | "processing" | "complete";
  *   4. Complete: snaps back to idle
  *
  * Events:
- *   - `voice:state-change` { state: "idle"|"recording"|"processing"|"complete" }
+ *   - `voice:state-change` { state: "idle"|"recording"|"processing"|"complete"|"error" }
  *   - `voice:audio-level` { level: number } (0-1) for waveform visualization
  */
 export function FlowBar() {
@@ -151,6 +151,12 @@ export function FlowBar() {
         {state === "processing" ? (
           <div className="flow-bar-processing">
             <span className="flow-bar-shimmer">Polishing...</span>
+          </div>
+        ) : null}
+
+        {state === "error" ? (
+          <div className="flow-bar-processing">
+            <span className="flow-bar-error">Could not transcribe</span>
           </div>
         ) : null}
       </div>
