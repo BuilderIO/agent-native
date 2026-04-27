@@ -638,7 +638,8 @@ function openOAuthWindow(
 // Fix: intercept webview attachment and force allowPopups in webPreferences.
 app.on("web-contents-created", (_event, contents) => {
   contents.on("will-attach-webview", (_event, webPreferences, _params) => {
-    webPreferences.allowPopups = true;
+    console.log("[main] will-attach-webview fired, setting allowPopups=true");
+    (webPreferences as Record<string, unknown>).allowPopups = true;
   });
 });
 
