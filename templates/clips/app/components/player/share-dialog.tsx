@@ -200,7 +200,7 @@ function LinkTab({
         resourceType: "recording",
         resourceId: recordingId,
         visibility: next,
-      } as any,
+      },
       { onSuccess: () => sharesQuery.refetch() },
     );
   };
@@ -300,7 +300,7 @@ function InviteTab({
         principalType: "user",
         principalId: trimmed,
         role,
-      } as any,
+      },
       {
         onSuccess: () => {
           setEmail("");
@@ -317,7 +317,7 @@ function InviteTab({
         resourceId: recordingId,
         principalType: s.principalType,
         principalId: s.principalId,
-      } as any,
+      },
       { onSuccess: () => sharesQuery.refetch() },
     );
   };
@@ -427,7 +427,7 @@ function ClipsEmbedConfigurator({
         resourceType: "recording",
         resourceId: recordingId,
         visibility: "public",
-      } as any,
+      },
       { onSuccess: () => sharesQuery.refetch() },
     );
 

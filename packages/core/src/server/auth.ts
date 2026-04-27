@@ -529,9 +529,6 @@ function createAuthGuardFn(): (
     // quirks get normalised. Control chars (incl. CR/LF for header
     // injection) are rejected up front.
     //
-    // Note: Google OAuth sign-ins still redirect to "/" because the OAuth
-    // callback (google-oauth.ts) doesn't currently thread `return` through
-    // the OAuth state. Token / email+password flows return correctly.
     if (p === "/_agent-native/sign-in") {
       const queryStr = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
       const safeReturn = safeReturnPath(

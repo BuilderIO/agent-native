@@ -416,15 +416,13 @@ export default function RecordRoute() {
       const ctrl = e.ctrlKey;
       const k = e.key.toLowerCase();
 
-      // Esc — stop-confirm when recording. Skip when the dialog is already
-      // open: the AlertDialog handles its own Esc-to-close, and re-firing
-      // requestStop would clobber autoPausedForStopConfirmRef and prevent
-      // resume on close.
+      // Esc — stop-confirm when recording. Skip during countdown (engine hasn't
+      // started MediaRecorder yet; calling doStop would orphan the recording
+      // row) and when the dialog is already open (AlertDialog handles its own
+      // Esc-to-close; re-firing requestStop would clobber
+      // autoPausedForStopConfirmRef and prevent resume).
       if (e.key === "Escape") {
-        if (
-          !showStopConfirm &&
-          (uiState === "recording" || uiState === "countdown")
-        ) {
+        if (!showStopConfirm && uiState === "recording") {
           e.preventDefault();
           requestStop();
           return;
@@ -536,7 +534,7 @@ export default function RecordRoute() {
             // engine may still hold live screen/camera tracks. doCancel()
             // tears them down before we navigate so they don't keep
             // recording in the background.
-            await doCancel();
+            void doCancel();
             navigate("/library");
           }}
           className="fixed left-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
