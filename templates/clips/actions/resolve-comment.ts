@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 export default defineAction({
   description:
@@ -32,8 +33,11 @@ export default defineAction({
       .limit(1);
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
-    // Any viewer of the recording can resolve a comment (consistent with video-review apps).
+    // Any signed-in viewer of the recording can resolve a comment.
     await assertAccess("recording", existing.recordingId, "viewer");
+    if (!getRequestUserEmail()) {
+      throw new Error("Sign in required to resolve comments.");
+    }
 
     const next = args.resolved ?? !existing.resolved;
     const now = new Date().toISOString();

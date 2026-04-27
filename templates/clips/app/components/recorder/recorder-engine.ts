@@ -390,8 +390,13 @@ export class RecorderEngine {
     };
   }
 
-  /** Cancel: abort server-side, release tracks, reset state. */
+  /** Cancel: release tracks immediately, then abort server-side, reset state. */
   async cancel(): Promise<void> {
+    // Release local hardware FIRST — synchronously, before any await. This
+    // lets callers fire-and-forget cancel() (e.g. when navigating away) and
+    // know the camera/screen capture is fully torn down by the time the
+    // current task yields. The server-side abort is best-effort and must
+    // not gate hardware cleanup.
     try {
       if (this.recorder && this.recorder.state !== "inactive") {
         this.recorder.stop();
@@ -399,17 +404,18 @@ export class RecorderEngine {
     } catch {
       // ignore
     }
-    try {
-      await fetch(this.opts.abortUrl, { method: "POST" });
-    } catch {
-      // ignore — best effort
-    }
     this.cleanupTracks();
     this.chunkIndex = 0;
     this.startedAtMs = null;
     this.pausedAccumMs = 0;
     this.pausedStartedMs = null;
     this.transition("idle");
+
+    try {
+      await fetch(this.opts.abortUrl, { method: "POST" });
+    } catch {
+      // ignore — best effort
+    }
   }
 
   // -------------------------------------------------------------------------

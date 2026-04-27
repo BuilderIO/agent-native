@@ -35,8 +35,12 @@ export default defineAction({
 
     await assertAccess("recording", parent.recordingId, "viewer");
 
+    const authorEmail = getRequestUserEmail();
+    if (!authorEmail) {
+      throw new Error("Sign in required to reply to comments.");
+    }
+
     const id = nanoid();
-    const authorEmail = getRequestUserEmail() ?? "local@localhost";
     const now = new Date().toISOString();
 
     await db.insert(schema.recordingComments).values({

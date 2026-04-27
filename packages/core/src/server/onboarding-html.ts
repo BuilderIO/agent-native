@@ -829,13 +829,26 @@ ${
 ${
   showGoogle
     ? `
+  function __anGetReturnPath() {
+    // If we landed here via /_agent-native/sign-in?return=X (force-sign-in
+    // entrypoint from a public page), prefer the inner return URL.
+    // Otherwise the loginHtml is being served at the URL the user actually
+    // wanted to reach (a bookmarked / deep-linked private path), so use it.
+    try {
+      var inner = new URLSearchParams(window.location.search).get('return');
+      if (inner) return inner;
+    } catch(e) {}
+    return window.location.pathname + window.location.search;
+  }
   async function signInWithGoogle() {
     var btn = document.getElementById('google-btn');
     var err = document.getElementById('google-err');
     btn.disabled = true;
     err.classList.remove('show');
     try {
-      var res = await fetch('/_agent-native/google/auth-url');
+      var ret = __anGetReturnPath();
+      var authUrl = '/_agent-native/google/auth-url?return=' + encodeURIComponent(ret);
+      var res = await fetch(authUrl);
       var data = await res.json();
       if (data.url) {
         try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}

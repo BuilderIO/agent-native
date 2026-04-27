@@ -149,11 +149,31 @@ autoMountAuth(app, {
 
 ### Routes
 
-| Route                         | Method | Description                        |
-| ----------------------------- | ------ | ---------------------------------- |
-| `/_agent-native/auth/login`   | POST   | Validate token, set session cookie |
-| `/_agent-native/auth/logout`  | POST   | Clear session cookie               |
-| `/_agent-native/auth/session` | GET    | Get current session                |
+| Route                                       | Method | Description                                                                      |
+| ------------------------------------------- | ------ | -------------------------------------------------------------------------------- |
+| `/_agent-native/auth/login`                 | POST   | Validate token, set session cookie                                               |
+| `/_agent-native/auth/logout`                | POST   | Clear session cookie                                                             |
+| `/_agent-native/auth/session`               | GET    | Get current session                                                              |
+| `/_agent-native/sign-in?return=<path>`      | GET    | Force-sign-in entrypoint. Anonymous → login page; signed-in → 302 to `return`    |
+| `/_agent-native/google/auth-url?return=<p>` | GET    | Build a Google OAuth URL. Optional `return` is preserved through the OAuth state |
+
+## Sign-In with Return URL
+
+Templates with **public pages** (share links, embeds, marketing pages) can route an anonymous viewer through sign-in and bring them back to the page they were on:
+
+```
+window.location.href =
+  "/_agent-native/sign-in?return=" +
+  encodeURIComponent(window.location.pathname + window.location.search);
+```
+
+Works across all flows:
+
+- **Token / email-password:** the framework's login page is served at the sign-in URL. After login, the page reloads, the framework sees the session, and 302s to `return`.
+- **Google OAuth:** `return` is threaded through the (HMAC-signed) OAuth state and applied as the redirect target on callback.
+- **Bookmarked private paths** (e.g. an unauthenticated user opens `/dashboard` directly): same-page reload after login already returns to the bookmarked URL — no plumbing needed in the template.
+
+`return` is validated as a same-origin path on every consumer (URL parser + origin check). Network-path references (`//evil.com/...`), absolute URLs, `data:` / `javascript:` schemes, and embedded control characters all fall back to `/`.
 
 ## Security
 

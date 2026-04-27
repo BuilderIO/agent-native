@@ -45,11 +45,15 @@ export default defineAction({
     // Viewer access is required (public/org recordings allow viewers to comment).
     await assertAccess("recording", args.recordingId, "viewer");
 
+    const authorEmail = getRequestUserEmail();
+    if (!authorEmail) {
+      throw new Error("Sign in required to comment on recordings.");
+    }
+
     const db = getDb();
     const id = nanoid();
     const threadId = args.threadId ?? id;
     const parentId = args.parentId ?? null;
-    const authorEmail = getRequestUserEmail() ?? "local@localhost";
     const now = new Date().toISOString();
 
     // Look up recording's organization so the comment denormalizes it.

@@ -67,6 +67,20 @@ export default defineEventHandler(async (event) => {
 
 Never create unprotected routes that modify data.
 
+## Sign-In from a Public Page
+
+For public pages (share links, embeds, marketing pages) that need anonymous viewers to sign in and return to where they were, navigate them through the framework's sign-in entry point — never roll your own:
+
+```ts
+const ret = window.location.pathname + window.location.search;
+window.location.href =
+  "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+```
+
+After successful sign-in (token / email-password / Google OAuth), the framework 302s to `return`. The path is validated as same-origin via the URL parser — open-redirect / header-injection inputs fall back to `/`.
+
+Bookmarked private paths already work without any plumbing — the framework's login page is served at the requested URL, and post-login reload returns the user there.
+
 ## Related Skills
 
 - `security` — Data scoping, SQL injection, secrets
