@@ -51,6 +51,7 @@ import { getSession } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import {
   createThread,
+  forkThread,
   getThread,
   listThreads,
   searchThreads,
@@ -841,15 +842,16 @@ function createBuilderBrowserTool(deps: {
         },
       },
       run: async (args) => {
-        const configured = !!(
-          process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY
-        );
+        const { resolveBuilderCredentials } =
+          await import("./credential-provider.js");
+        const creds = await resolveBuilderCredentials();
+        const configured = !!(creds.privateKey && creds.publicKey);
         const prompt = typeof args?.prompt === "string" ? args.prompt : "";
         return JSON.stringify({
           kind: "connect-builder-card",
           configured,
           connectUrl: getBuilderBrowserConnectUrl(deps.getOrigin()),
-          orgName: process.env.BUILDER_ORG_NAME || null,
+          orgName: creds.orgName || null,
           prompt,
         });
       },
@@ -3985,6 +3987,24 @@ export function createAgentChatPlugin(
                 : [];
               await setThreadQueuedMessages(threadId, queued);
               return { ok: true };
+            }
+
+            // POST /threads/:id/fork — duplicate a thread with all its messages
+            if (
+              method === "POST" &&
+              /\/threads\/[^/?]+\/fork/.test(
+                event.node?.req?.url || event.path || "",
+              )
+            ) {
+              const body = await readBody(event);
+              const forked = await forkThread(threadId, owner, {
+                id: body?.id,
+              });
+              if (!forked) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
+              return forked;
             }
 
             if (method === "DELETE") {

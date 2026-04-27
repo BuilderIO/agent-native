@@ -18,7 +18,6 @@ import {
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackPage,
   getBuilderBrowserStatusForEvent,
-  getBuilderCallbackEnvVars,
   resolveSafePreviewUrl,
   runBuilderAgent,
   signBuilderCallbackState,
@@ -251,14 +250,32 @@ export function createCoreRoutesPlugin(
     getH3App(nitroApp).use(
       `${P}/builder/status`,
       defineEventHandler(async (event) => {
-        const status = getBuilderBrowserStatusForEvent(event);
-        // Honor the SQL disconnect flag even when process.env still has
-        // BUILDER_* (dev env-runner weirdness — see plugin init above).
+        const envStatus = getBuilderBrowserStatusForEvent(event);
+        // Check per-user credentials first (stored in app_secrets).
+        try {
+          const { resolveBuilderCredentials } =
+            await import("./credential-provider.js");
+          const creds = await resolveBuilderCredentials();
+          if (creds.privateKey) {
+            return {
+              ...envStatus,
+              configured: true,
+              privateKeyConfigured: true,
+              publicKeyConfigured: !!creds.publicKey,
+              userId: creds.userId || envStatus.userId,
+              orgName: creds.orgName || envStatus.orgName,
+              orgKind: creds.orgKind || envStatus.orgKind,
+            };
+          }
+        } catch {
+          // Secrets table not ready — fall through to env status
+        }
+        // Honor legacy disconnect flag for existing deployments.
         try {
           const disconnected = await getSetting("builder-disconnected");
           if (disconnected) {
             return {
-              ...status,
+              ...envStatus,
               configured: false,
               privateKeyConfigured: false,
               publicKeyConfigured: false,
@@ -270,7 +287,7 @@ export function createCoreRoutesPlugin(
         } catch {
           // DB not reachable — fall back to env-only status.
         }
-        return status;
+        return envStatus;
       }),
     );
 
@@ -334,7 +351,10 @@ export function createCoreRoutesPlugin(
           return { error: "A signed-in user is required to run Builder" };
         }
         const userEmail = session.email;
-        const builderUserId = process.env.BUILDER_USER_ID || undefined;
+        const { resolveBuilderCredential: resolveBuilderCred } =
+          await import("./credential-provider.js");
+        const builderUserId =
+          (await resolveBuilderCred("BUILDER_USER_ID")) || undefined;
         // Server-controlled projectId — don't let clients target arbitrary
         // Builder projects with our private key. When this feature graduates
         // past the hardcoded preview, the projectId will come from
@@ -399,53 +419,35 @@ export function createCoreRoutesPlugin(
           return { error: "Missing Builder credentials in callback" };
         }
 
-        const vars = getBuilderCallbackEnvVars({
-          privateKey,
-          publicKey,
-          userId: requestUrl.searchParams.get("user-id"),
-          orgName: requestUrl.searchParams.get("org-name"),
-          orgKind: requestUrl.searchParams.get("kind"),
-        });
+        const userId = requestUrl.searchParams.get("user-id");
+        const orgName = requestUrl.searchParams.get("org-name");
+        const orgKind = requestUrl.searchParams.get("kind");
 
-        // Clear the disconnect flag first — a prior disconnect would
-        // otherwise cause the plugin init to scrub these keys right back
-        // out on the next env-runner reload.
+        // Store per-user in app_secrets so each user's Builder connection
+        // is independent. No more shared env vars that the last connector
+        // overwrites.
+        try {
+          const { writeBuilderCredentials } =
+            await import("./credential-provider.js");
+          await writeBuilderCredentials(session.email, {
+            privateKey,
+            publicKey,
+            userId,
+            orgName,
+            orgKind,
+          });
+        } catch (err) {
+          console.warn(
+            "[builder] Failed to write per-user credentials:",
+            (err as Error)?.message ?? err,
+          );
+        }
+
+        // Clear any legacy disconnect flag.
         try {
           await deleteSetting("builder-disconnected");
         } catch {
-          // DB not ready — proceed; the worst case is a stale disconnect
-          // flag that gets cleared on the next reconnect attempt.
-        }
-
-        // Prefer the workspace root .env when in an enterprise workspace so
-        // Builder credentials are shared across every app automatically.
-        try {
-          const workspaceRoot = findWorkspaceRoot(process.cwd());
-          const envPath = workspaceRoot
-            ? path.join(workspaceRoot, ".env")
-            : path.join(process.cwd(), ".env");
-          await upsertEnvFile(envPath, vars);
-        } catch {
-          // Edge runtime — skip file write
-        }
-
-        for (const { key, value } of vars) {
-          process.env[key] = value;
-        }
-
-        // Persist to settings table so serverless cold starts can
-        // restore credentials (.env writes don't survive on Netlify).
-        try {
-          const envMap: Record<string, string> = {};
-          for (const { key, value } of vars) envMap[key] = value;
-          const existing =
-            ((await getSetting("persisted-env-vars")) as Record<
-              string,
-              string
-            > | null) ?? {};
-          await putSetting("persisted-env-vars", { ...existing, ...envMap });
-        } catch {
-          // DB not ready yet — skip
+          // DB not ready — proceed
         }
 
         const previewUrl = resolveSafePreviewUrl(
@@ -476,70 +478,22 @@ export function createCoreRoutesPlugin(
           return { error: "unauthorized" };
         }
 
-        // We intentionally do NOT rewrite the `.env` file on disconnect.
-        // A `.env` write triggers nitro's file watcher → env-runner
-        // restart, which tears down in-flight SSE / HMR connections and
-        // surfaces as `read ECONNRESET` in the vite overlay. The
-        // authoritative disconnect signal is the SQL `builder-disconnected`
-        // flag (checked in plugin init, the status endpoint, and the
-        // Builder engine before any gateway call). `.env` keys, if any
-        // survive, are neutered by the flag-driven scrub in plugin init.
-
-        // 1. Write the disconnect flag. This is load-bearing — every
-        // subsequent check (plugin init scrub, /builder/status override,
-        // BuilderEngine.stream short-circuit) reads this flag. If the
-        // write fails, we FAIL HARD: clearing process.env without
-        // persisting the flag means the next env-runner reload would
-        // silently restore BUILDER_* from whatever inherited env the
-        // worker was spawned with, and the user would see "Disconnected"
-        // in the UI that flips back to "Connected" moments later.
+        // Delete per-user Builder credentials from app_secrets.
         try {
-          await putSetting("builder-disconnected", { at: Date.now() });
+          const { deleteBuilderCredentials } =
+            await import("./credential-provider.js");
+          await deleteBuilderCredentials(session.email);
         } catch (err) {
           setResponseStatus(event, 500);
           return {
             ok: false,
             error:
-              "Could not persist disconnect flag — your Builder connection is unchanged. Please retry.",
+              "Could not remove Builder credentials — your connection is unchanged. Please retry.",
             cause: err instanceof Error ? err.message : String(err),
           };
         }
 
-        // 2. Scrub the persisted-env-vars row so serverless cold starts
-        // don't rehydrate BUILDER_* from SQL. Best-effort: the disconnect
-        // flag above already prevents Builder from being used; this is
-        // cleanup.
-        let warnPersisted: string | undefined;
-        try {
-          const existing =
-            ((await getSetting("persisted-env-vars")) as Record<
-              string,
-              string
-            > | null) ?? {};
-          const cleaned: Record<string, string> = {};
-          for (const [k, v] of Object.entries(existing)) {
-            if (!(BUILDER_ENV_KEYS as readonly string[]).includes(k))
-              cleaned[k] = v;
-          }
-          await putSetting("persisted-env-vars", cleaned);
-        } catch (err) {
-          warnPersisted = err instanceof Error ? err.message : String(err);
-        }
-
-        // 3. Clear in-process env vars so the current worker stops routing
-        // through Builder immediately. Nitro's env-runner may re-populate
-        // these across a module reload, but by then the `builder-disconnected`
-        // flag will be enforced at the plugin-init scrub.
-        for (const key of BUILDER_ENV_KEYS) {
-          delete process.env[key];
-        }
-
-        return {
-          ok: true,
-          ...(warnPersisted
-            ? { warnings: { persistedEnvVars: warnPersisted } }
-            : {}),
-        };
+        return { ok: true };
       }),
     );
 
@@ -551,9 +505,10 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const privateKey = process.env.BUILDER_PRIVATE_KEY;
-        const publicKey = process.env.BUILDER_PUBLIC_KEY;
-        if (!privateKey || !publicKey) {
+        const { resolveBuilderCredentials: resolveCreds } =
+          await import("./credential-provider.js");
+        const creds = await resolveCreds();
+        if (!creds.privateKey || !creds.publicKey) {
           setResponseStatus(event, 400);
           return {
             error:
@@ -573,12 +528,12 @@ export function createCoreRoutesPlugin(
           process.env.BUILDER_API_HOST || "https://ai-services.builder.io";
         try {
           const res = await fetch(
-            `${apiHost}/agents/run?apiKey=${encodeURIComponent(publicKey)}`,
+            `${apiHost}/agents/run?apiKey=${encodeURIComponent(creds.publicKey)}`,
             {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${privateKey}`,
+                Authorization: `Bearer ${creds.privateKey}`,
               },
               body: JSON.stringify({
                 userMessage: {
@@ -842,8 +797,16 @@ export function createCoreRoutesPlugin(
     // POST /_agent-native/file-upload        — upload a file, return { url }
     getH3App(nitroApp).use(
       `${P}/file-upload/status`,
-      defineEventHandler(() => {
+      defineEventHandler(async () => {
         const active = getActiveFileUploadProvider();
+        let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
+        try {
+          const { resolveBuilderPrivateKey } =
+            await import("./credential-provider.js");
+          builderConfigured = !!(await resolveBuilderPrivateKey());
+        } catch {
+          // fall back to env check above
+        }
         return {
           configured: !!active,
           activeProvider: active ? { id: active.id, name: active.name } : null,
@@ -852,7 +815,7 @@ export function createCoreRoutesPlugin(
             name: p.name,
             configured: p.isConfigured(),
           })),
-          builderConfigured: !!process.env.BUILDER_PRIVATE_KEY,
+          builderConfigured,
         };
       }),
     );

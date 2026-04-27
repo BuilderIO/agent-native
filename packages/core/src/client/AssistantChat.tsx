@@ -65,6 +65,9 @@ import {
   IconLock,
   IconArrowBackUp,
   IconExternalLink,
+  IconDots,
+  IconGitFork,
+  IconId,
 } from "@tabler/icons-react";
 
 const ThumbsFeedbackLazy = React.lazy(() =>
@@ -881,8 +884,112 @@ const CheckpointContext = React.createContext<{
   threadId?: string;
 } | null>(null);
 
+const MessageActionsContext = React.createContext<{
+  onForkChat?: () => void;
+} | null>(null);
+
+function MessageActionsMenu() {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const messageRuntime = useMessageRuntime();
+  const actionsCtx = React.useContext(MessageActionsContext);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const handleCopyMessage = useCallback(() => {
+    const m = messageRuntime.getState();
+    const text = m.content
+      .filter((p) => p.type === "text")
+      .map((p) => (p as { text: string }).text)
+      .join("\n");
+    navigator.clipboard.writeText(text);
+    setCopied("message");
+    setTimeout(() => {
+      setCopied(null);
+      setOpen(false);
+    }, 1000);
+  }, [messageRuntime]);
+
+  const handleCopyRequestId = useCallback(() => {
+    const m = messageRuntime.getState();
+    const runId = (m.metadata as any)?.runId || m.id || "";
+    navigator.clipboard.writeText(runId);
+    setCopied("id");
+    setTimeout(() => {
+      setCopied(null);
+      setOpen(false);
+    }, 1000);
+  }, [messageRuntime]);
+
+  const handleForkChat = useCallback(() => {
+    setOpen(false);
+    actionsCtx?.onForkChat?.();
+  }, [actionsCtx]);
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground",
+          open && "bg-accent text-foreground",
+        )}
+      >
+        <IconDots className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-50 mt-1 w-44 rounded-md border border-border bg-popover py-1 shadow-lg">
+            {actionsCtx?.onForkChat && (
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+                onClick={handleForkChat}
+              >
+                <IconGitFork className="h-3.5 w-3.5" />
+                Fork Chat
+              </button>
+            )}
+            <button
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+              onClick={handleCopyMessage}
+            >
+              {copied === "message" ? (
+                <IconCheck className="h-3.5 w-3.5" />
+              ) : (
+                <IconCopy className="h-3.5 w-3.5" />
+              )}
+              {copied === "message" ? "Copied!" : "Copy Message"}
+            </button>
+            <button
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+              onClick={handleCopyRequestId}
+            >
+              {copied === "id" ? (
+                <IconCheck className="h-3.5 w-3.5" />
+              ) : (
+                <IconId className="h-3.5 w-3.5" />
+              )}
+              {copied === "id" ? "Copied!" : "Copy Request ID"}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function AssistantMessage() {
-  const [copied, setCopied] = useState(false);
   const [restoreState, setRestoreState] = useState<
     "idle" | "confirming" | "restoring"
   >("idle");
@@ -894,17 +1001,6 @@ function AssistantMessage() {
     thread.messages[thread.messages.length - 1].id === msg.id;
   const isComplete = !isLast || !thread.isRunning;
   const cpCtx = React.useContext(CheckpointContext);
-
-  const handleCopy = useCallback(() => {
-    const m = messageRuntime.getState();
-    const text = m.content
-      .filter((p) => p.type === "text")
-      .map((p) => (p as { text: string }).text)
-      .join("\n");
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [messageRuntime]);
 
   const handleRestore = useCallback(async () => {
     if (restoreState === "idle") {
@@ -920,7 +1016,6 @@ function AssistantMessage() {
         setRestoreState("idle");
         return;
       }
-      // Look up checkpoint by runId
       const tid = cpCtx.threadId || "";
       const res = await fetch(
         `${cpCtx.apiUrl}/checkpoints?threadId=${encodeURIComponent(tid)}`,
@@ -967,19 +1062,9 @@ function AssistantMessage() {
           }}
         />
       </div>
-      {/* Action bar — only show after message is complete */}
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">
-          <button
-            onClick={handleCopy}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-          >
-            {copied ? (
-              <IconCheck className="h-3.5 w-3.5" />
-            ) : (
-              <IconCopy className="h-3.5 w-3.5" />
-            )}
-          </button>
+          <MessageActionsMenu />
           <React.Suspense fallback={null}>
             <ThumbsFeedbackLazy
               threadId={cpCtx?.threadId ?? ""}
@@ -1457,6 +1542,8 @@ export interface AssistantChatProps {
   }>;
   /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
+  /** Callback when user clicks "Fork Chat" in the message actions menu */
+  onForkChat?: () => void;
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -1520,6 +1607,7 @@ const AssistantChatInner = forwardRef<
     selectedEngine,
     availableModels,
     onModelChange,
+    onForkChat,
   },
   ref,
 ) {
@@ -2221,324 +2309,327 @@ const AssistantChatInner = forwardRef<
     () => ({ apiUrl, devMode: cpDevMode, threadId }),
     [apiUrl, cpDevMode, threadId],
   );
+  const messageActionsCtx = useMemo(() => ({ onForkChat }), [onForkChat]);
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
-      <ChatRunningContext.Provider value={isRunning}>
-        <div
-          className={cn(
-            "flex flex-1 flex-col h-full min-h-0 text-foreground",
-            className,
-          )}
-        >
-          {showHeader && (
-            <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
-              <span className="text-[13px] font-medium text-muted-foreground">
-                Agent
-              </span>
-              <div className="flex items-center gap-1">
-                {onSwitchToCli && (
-                  <button
-                    onClick={onSwitchToCli}
-                    className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
-                    title="Switch to CLI"
-                  >
-                    <IconTerminal className="h-3.5 w-3.5" />
-                    CLI
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Messages area */}
+      <MessageActionsContext.Provider value={messageActionsCtx}>
+        <ChatRunningContext.Provider value={isRunning}>
           <div
-            ref={scrollRef}
-            className="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
+            className={cn(
+              "flex flex-1 flex-col h-full min-h-0 text-foreground",
+              className,
+            )}
           >
-            {authError ? (
-              <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
-                  <IconLock className="h-5 w-5 text-destructive" />
-                </div>
-                <div className="text-center max-w-[280px]">
-                  <p className="text-sm font-medium text-foreground mb-1">
-                    {authError.sessionExpired
-                      ? "Session expired"
-                      : "Authentication required"}
-                  </p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {authError.sessionExpired ? (
-                      "Your session may have expired. Log out and log back in to reconnect."
-                    ) : (
-                      <>
-                        You need to log in to use the agent. If you&apos;re
-                        running locally, add{" "}
-                        <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
-                          AUTH_MODE=local
-                        </code>{" "}
-                        to your{" "}
-                        <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
-                          .env
-                        </code>{" "}
-                        file and restart the dev server.
-                      </>
-                    )}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  {authError.sessionExpired && (
+            {showHeader && (
+              <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
+                <span className="text-[13px] font-medium text-muted-foreground">
+                  Agent
+                </span>
+                <div className="flex items-center gap-1">
+                  {onSwitchToCli && (
                     <button
-                      onClick={async () => {
-                        try {
-                          await fetch("/_agent-native/auth/logout", {
-                            method: "POST",
-                          });
-                        } catch {}
+                      onClick={onSwitchToCli}
+                      className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
+                      title="Switch to CLI"
+                    >
+                      <IconTerminal className="h-3.5 w-3.5" />
+                      CLI
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Messages area */}
+            <div
+              ref={scrollRef}
+              className="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
+            >
+              {authError ? (
+                <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10">
+                    <IconLock className="h-5 w-5 text-destructive" />
+                  </div>
+                  <div className="text-center max-w-[280px]">
+                    <p className="text-sm font-medium text-foreground mb-1">
+                      {authError.sessionExpired
+                        ? "Session expired"
+                        : "Authentication required"}
+                    </p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      {authError.sessionExpired ? (
+                        "Your session may have expired. Log out and log back in to reconnect."
+                      ) : (
+                        <>
+                          You need to log in to use the agent. If you&apos;re
+                          running locally, add{" "}
+                          <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                            AUTH_MODE=local
+                          </code>{" "}
+                          to your{" "}
+                          <code className="bg-muted px-1 py-0.5 rounded text-[10px]">
+                            .env
+                          </code>{" "}
+                          file and restart the dev server.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    {authError.sessionExpired && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await fetch("/_agent-native/auth/logout", {
+                              method: "POST",
+                            });
+                          } catch {}
+                          window.location.reload();
+                        }}
+                        className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
+                      >
+                        Log out
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setAuthError(null);
                         window.location.reload();
                       }}
-                      className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
+                      className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
                     >
-                      Log out
+                      Retry
                     </button>
+                  </div>
+                </div>
+              ) : missingApiKey ? (
+                <div className="flex flex-col items-center justify-center h-full px-2">
+                  <ApiKeySetupCard apiUrl={apiUrl} />
+                </div>
+              ) : usageLimitReached ? (
+                <div className="flex flex-col items-center justify-center h-full px-2">
+                  <BuilderCtaCard
+                    reason="usage_limit"
+                    usageCents={usageLimitReached.usageCents}
+                    limitCents={usageLimitReached.limitCents}
+                    apiUrl={apiUrl}
+                  />
+                </div>
+              ) : isRestoring ? (
+                <div className="flex flex-col gap-3 p-4">
+                  <div className="flex justify-end">
+                    <div className="h-8 w-32 rounded-lg bg-muted animate-pulse" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="h-4 w-48 rounded bg-muted animate-pulse" />
+                    <div className="h-4 w-64 rounded bg-muted animate-pulse" />
+                    <div className="h-4 w-40 rounded bg-muted animate-pulse" />
+                  </div>
+                </div>
+              ) : messages.length === 0 && !isReconnecting ? (
+                <div className="flex flex-col items-center justify-center gap-4 py-16 px-4 h-full">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                    <IconMessage className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm text-muted-foreground text-center max-w-[240px]">
+                    {emptyStateText ?? "How can I help you?"}
+                  </p>
+                  {suggestions && suggestions.length > 0 && (
+                    <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
+                      {suggestions.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          onClick={() => {
+                            threadRuntime.append({
+                              role: "user",
+                              content: [{ type: "text", text: suggestion }],
+                            });
+                          }}
+                          className="w-full rounded-lg border border-border px-3 py-2 text-left text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
                   )}
-                  <button
-                    onClick={() => {
-                      setAuthError(null);
-                      window.location.reload();
+                </div>
+              ) : (
+                <div className="agent-thread-content flex flex-col gap-4 px-4 py-4">
+                  <ThreadPrimitive.Messages
+                    components={{
+                      UserMessage,
+                      AssistantMessage,
                     }}
-                    className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
-                  >
-                    Retry
-                  </button>
-                </div>
-              </div>
-            ) : missingApiKey ? (
-              <div className="flex flex-col items-center justify-center h-full px-2">
-                <ApiKeySetupCard apiUrl={apiUrl} />
-              </div>
-            ) : usageLimitReached ? (
-              <div className="flex flex-col items-center justify-center h-full px-2">
-                <BuilderCtaCard
-                  reason="usage_limit"
-                  usageCents={usageLimitReached.usageCents}
-                  limitCents={usageLimitReached.limitCents}
-                  apiUrl={apiUrl}
-                />
-              </div>
-            ) : isRestoring ? (
-              <div className="flex flex-col gap-3 p-4">
-                <div className="flex justify-end">
-                  <div className="h-8 w-32 rounded-lg bg-muted animate-pulse" />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <div className="h-4 w-48 rounded bg-muted animate-pulse" />
-                  <div className="h-4 w-64 rounded bg-muted animate-pulse" />
-                  <div className="h-4 w-40 rounded bg-muted animate-pulse" />
-                </div>
-              </div>
-            ) : messages.length === 0 && !isReconnecting ? (
-              <div className="flex flex-col items-center justify-center gap-4 py-16 px-4 h-full">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                  <IconMessage className="h-5 w-5 text-muted-foreground" />
-                </div>
-                <p className="text-sm text-muted-foreground text-center max-w-[240px]">
-                  {emptyStateText ?? "How can I help you?"}
-                </p>
-                {suggestions && suggestions.length > 0 && (
-                  <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
-                    {suggestions.map((suggestion) => (
+                  />
+                  {showContinue && !showRunningInUI && (
+                    <div className="flex justify-center py-2">
                       <button
-                        key={suggestion}
+                        type="button"
                         onClick={() => {
-                          threadRuntime.append({
-                            role: "user",
-                            content: [{ type: "text", text: suggestion }],
-                          });
+                          setShowContinue(false);
+                          addToQueue("Continue from where you left off.");
                         }}
-                        className="w-full rounded-lg border border-border px-3 py-2 text-left text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                        className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
                       >
-                        {suggestion}
+                        Continue
                       </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="agent-thread-content flex flex-col gap-4 px-4 py-4">
-                <ThreadPrimitive.Messages
-                  components={{
-                    UserMessage,
-                    AssistantMessage,
-                  }}
-                />
-                {showContinue && !showRunningInUI && (
-                  <div className="flex justify-center py-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowContinue(false);
-                        addToQueue("Continue from where you left off.");
-                      }}
-                      className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
-                    >
-                      Continue
-                    </button>
-                  </div>
-                )}
-                {(isReconnecting || reconnectFrozen) &&
-                  reconnectContent.length > 0 && (
-                    <ReconnectStreamMessage content={reconnectContent} />
+                    </div>
                   )}
-                {/* Always show the thinking indicator while the agent is working,
+                  {(isReconnecting || reconnectFrozen) &&
+                    reconnectContent.length > 0 && (
+                      <ReconnectStreamMessage content={reconnectContent} />
+                    )}
+                  {/* Always show the thinking indicator while the agent is working,
                 including during reconnect. The indicator sits BELOW any
                 already-streamed reconnect content so the user sees both
                 "what it did so far" and "it's still working". Swap the label
                 to "Reconnecting" during reconnect so the user knows the
                 system is actively recovering, not just stuck. */}
-                {showRunningInUI && (
-                  <ThinkingIndicator
-                    label={isReconnecting ? "Reconnecting" : "Thinking"}
-                  />
-                )}
-                {queuedMessages.map((msg) => {
-                  const displayText = msg.text
-                    .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
-                    .trim();
-                  return (
-                    <div key={msg.id} className="flex justify-end group">
-                      <div className="relative max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
-                        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
-                          <IconClock className="h-3 w-3" />
-                          Queued
-                        </div>
-                        {displayText}
-                        {msg.images && msg.images.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 mt-1.5">
-                            {msg.images.map((img, j) => (
-                              <img
-                                key={j}
-                                src={img}
-                                alt=""
-                                className="h-12 w-12 rounded object-cover border border-border/50"
-                              />
-                            ))}
+                  {showRunningInUI && (
+                    <ThinkingIndicator
+                      label={isReconnecting ? "Reconnecting" : "Thinking"}
+                    />
+                  )}
+                  {queuedMessages.map((msg) => {
+                    const displayText = msg.text
+                      .replace(/<context>[\s\S]*?<\/context>\n?/g, "")
+                      .trim();
+                    return (
+                      <div key={msg.id} className="flex justify-end group">
+                        <div className="relative max-w-[85%] rounded-lg bg-accent/50 text-foreground/60 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
+                          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">
+                            <IconClock className="h-3 w-3" />
+                            Queued
                           </div>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setQueuedMessages((prev) =>
-                              prev.filter((m) => m.id !== msg.id),
-                            )
-                          }
-                          aria-label="Remove from queue"
-                          className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground hover:bg-accent shadow-sm"
-                        >
-                          <IconX className="h-3 w-3" />
-                        </button>
+                          {displayText}
+                          {msg.images && msg.images.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-1.5">
+                              {msg.images.map((img, j) => (
+                                <img
+                                  key={j}
+                                  src={img}
+                                  alt=""
+                                  className="h-12 w-12 rounded object-cover border border-border/50"
+                                />
+                              ))}
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setQueuedMessages((prev) =>
+                                prev.filter((m) => m.id !== msg.id),
+                              )
+                            }
+                            aria-label="Remove from queue"
+                            className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground hover:bg-accent shadow-sm"
+                          >
+                            <IconX className="h-3 w-3" />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Scroll to bottom button */}
+            {showScrollToBottom && (
+              <div className="shrink-0 flex justify-center -mb-1">
+                <button
+                  type="button"
+                  onClick={scrollToBottom}
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background shadow-sm hover:bg-accent"
+                  aria-label="Scroll to bottom"
+                >
+                  <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
               </div>
             )}
-          </div>
 
-          {/* Scroll to bottom button */}
-          {showScrollToBottom && (
-            <div className="shrink-0 flex justify-center -mb-1">
-              <button
-                type="button"
-                onClick={scrollToBottom}
-                className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background shadow-sm hover:bg-accent"
-                aria-label="Scroll to bottom"
-              >
-                <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-              </button>
-            </div>
-          )}
-
-          {composerSlot}
-          {/* Input area */}
-          <div className="agent-composer-area shrink-0 px-3 py-2">
-            <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
-              <ComposerAttachmentPreviewStrip />
-              <TiptapComposer
-                focusRef={tiptapRef}
-                disabled={missingApiKey}
-                placeholder={
-                  missingApiKey
-                    ? "Connect an AI engine above to start chatting…"
-                    : isRunning
-                      ? queuedMessages.length > 0
-                        ? `${queuedMessages.length} queued — type another...`
-                        : "Queue a message..."
+            {composerSlot}
+            {/* Input area */}
+            <div className="agent-composer-area shrink-0 px-3 py-2">
+              <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
+                <ComposerAttachmentPreviewStrip />
+                <TiptapComposer
+                  focusRef={tiptapRef}
+                  disabled={missingApiKey}
+                  placeholder={
+                    missingApiKey
+                      ? "Connect an AI engine above to start chatting…"
+                      : isRunning
+                        ? queuedMessages.length > 0
+                          ? `${queuedMessages.length} queued — type another...`
+                          : "Queue a message..."
+                        : undefined
+                  }
+                  onSubmit={
+                    isRunning
+                      ? (text, references) =>
+                          addToQueue(
+                            text,
+                            undefined,
+                            references.length > 0 ? references : undefined,
+                          )
                       : undefined
-                }
-                onSubmit={
-                  isRunning
-                    ? (text, references) =>
-                        addToQueue(
-                          text,
-                          undefined,
-                          references.length > 0 ? references : undefined,
-                        )
-                    : undefined
-                }
-                onSlashCommand={onSlashCommand}
-                execMode={execMode}
-                onExecModeChange={onExecModeChange}
-                selectedModel={selectedModel ?? defaultModel}
-                availableModels={availableModels}
-                onModelChange={onModelChange}
-                extraActionButton={
-                  showRunningInUI ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        // Nuclear stop: flip forceStopped so isRunning is false
-                        // immediately. This unblocks submission even if the
-                        // runtime or reconnect state is stuck.
-                        setForceStopped(true);
+                  }
+                  onSlashCommand={onSlashCommand}
+                  execMode={execMode}
+                  onExecModeChange={onExecModeChange}
+                  selectedModel={selectedModel ?? defaultModel}
+                  availableModels={availableModels}
+                  onModelChange={onModelChange}
+                  extraActionButton={
+                    showRunningInUI ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Nuclear stop: flip forceStopped so isRunning is false
+                          // immediately. This unblocks submission even if the
+                          // runtime or reconnect state is stuck.
+                          setForceStopped(true);
 
-                        if (isReconnecting) {
-                          if (reconnectRunIdRef.current) {
-                            fetch(
-                              `${apiUrl}/runs/${encodeURIComponent(reconnectRunIdRef.current)}/abort`,
-                              { method: "POST" },
-                            );
+                          if (isReconnecting) {
+                            if (reconnectRunIdRef.current) {
+                              fetch(
+                                `${apiUrl}/runs/${encodeURIComponent(reconnectRunIdRef.current)}/abort`,
+                                { method: "POST" },
+                              );
+                            }
+                            reconnectAbortRef.current?.abort();
+                            reconnectAbortRef.current = null;
+                            reconnectRunIdRef.current = null;
+                            setIsReconnecting(false);
+                            setReconnectFrozen(reconnectContent.length > 0);
                           }
-                          reconnectAbortRef.current?.abort();
-                          reconnectAbortRef.current = null;
-                          reconnectRunIdRef.current = null;
-                          setIsReconnecting(false);
-                          setReconnectFrozen(reconnectContent.length > 0);
-                        }
 
-                        threadRuntime.cancelRun();
+                          threadRuntime.cancelRun();
 
-                        window.dispatchEvent(
-                          new CustomEvent("builder.chatRunning", {
-                            detail: {
-                              isRunning: false,
-                              tabId: tabId || threadId,
-                            },
-                          }),
-                        );
-                      }}
-                      className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
-                      title="Stop generating"
-                    >
-                      <IconPlayerStop className="h-3.5 w-3.5" />
-                    </button>
-                  ) : undefined
-                }
-              />
-            </ComposerPrimitive.Root>
+                          window.dispatchEvent(
+                            new CustomEvent("builder.chatRunning", {
+                              detail: {
+                                isRunning: false,
+                                tabId: tabId || threadId,
+                              },
+                            }),
+                          );
+                        }}
+                        className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
+                        title="Stop generating"
+                      >
+                        <IconPlayerStop className="h-3.5 w-3.5" />
+                      </button>
+                    ) : undefined
+                  }
+                />
+              </ComposerPrimitive.Root>
+            </div>
           </div>
-        </div>
-      </ChatRunningContext.Provider>
+        </ChatRunningContext.Provider>
+      </MessageActionsContext.Provider>
     </CheckpointContext.Provider>
   );
 });

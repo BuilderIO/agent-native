@@ -342,9 +342,10 @@ export interface RunBuilderAgentResult {
 export async function runBuilderAgent(
   args: RunBuilderAgentArgs,
 ): Promise<RunBuilderAgentResult> {
-  const privateKey = process.env.BUILDER_PRIVATE_KEY;
-  const publicKey = process.env.BUILDER_PUBLIC_KEY;
-  if (!privateKey || !publicKey) {
+  const { resolveBuilderCredentials } =
+    await import("./credential-provider.js");
+  const creds = await resolveBuilderCredentials();
+  if (!creds.privateKey || !creds.publicKey) {
     throw new Error("Builder keys are not configured");
   }
   if (!args.prompt || !args.prompt.trim()) {
@@ -355,7 +356,7 @@ export async function runBuilderAgent(
   }
 
   const url = new URL("/agents/run", getBuilderApiHost());
-  url.searchParams.set("apiKey", publicKey);
+  url.searchParams.set("apiKey", creds.publicKey);
 
   const body: Record<string, unknown> = {
     userMessage: { userPrompt: args.prompt },
@@ -368,7 +369,7 @@ export async function runBuilderAgent(
   const response = await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${privateKey}`,
+      Authorization: `Bearer ${creds.privateKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
@@ -397,9 +398,10 @@ export async function runBuilderAgent(
 export async function requestBuilderBrowserConnection(
   args: BrowserConnectionArgs,
 ): Promise<Record<string, unknown>> {
-  const privateKey = process.env.BUILDER_PRIVATE_KEY;
-  const publicKey = process.env.BUILDER_PUBLIC_KEY;
-  if (!privateKey || !publicKey) {
+  const { resolveBuilderCredentials } =
+    await import("./credential-provider.js");
+  const creds = await resolveBuilderCredentials();
+  if (!creds.privateKey || !creds.publicKey) {
     throw new Error("Builder browser access is not configured");
   }
 
@@ -409,15 +411,15 @@ export async function requestBuilderBrowserConnection(
   }
 
   const url = new URL("/codegen/get-browser-connection", getBuilderApiHost());
-  url.searchParams.set("apiKey", publicKey);
-  if (process.env.BUILDER_USER_ID) {
-    url.searchParams.set("userId", process.env.BUILDER_USER_ID);
+  url.searchParams.set("apiKey", creds.publicKey);
+  if (creds.userId) {
+    url.searchParams.set("userId", creds.userId);
   }
 
   const response = await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${privateKey}`,
+      Authorization: `Bearer ${creds.privateKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
