@@ -454,7 +454,9 @@ function applyCorsHeaders(event: H3Event): void {
     .filter(Boolean);
   const allowed =
     allowlist.length === 0
-      ? /^(https?|tauri):\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      ? /^(https?|tauri):\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/.test(
+          origin,
+        )
       : allowlist.includes(origin);
   if (!allowed) return;
   setResponseHeader(event, "Access-Control-Allow-Origin", origin);
