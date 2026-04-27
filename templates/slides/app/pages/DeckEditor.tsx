@@ -13,6 +13,7 @@ import {
   useSensors,
   DragEndEvent,
 } from "@dnd-kit/core";
+import { useQuery } from "@tanstack/react-query";
 import { useDecks } from "@/context/DeckContext";
 import type { SlideLayout } from "@/context/DeckContext";
 import EditorSidebar from "@/components/editor/EditorSidebar";
@@ -24,13 +25,16 @@ import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
 import ImageSearchPanel from "@/components/editor/ImageSearchPanel";
 import LogoSearchPanel from "@/components/editor/LogoSearchPanel";
 import HistoryPanel from "@/components/editor/HistoryPanel";
+import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import {
   useCollaborativeDoc,
   useSession,
   emailToColor,
   emailToName,
+  sendToAgentChat,
 } from "@agent-native/core/client";
+import type { QuestionFlowQuestion } from "@shared/api";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useSlideComments } from "@/hooks/use-slide-comments";
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
@@ -95,6 +99,81 @@ export default function DeckEditor() {
 
   const deck = getDeck(id || "");
   const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
+
+  // Poll for question flow from agent (show-questions application state)
+  const { data: questionFlowData } = useQuery<{
+    questions: QuestionFlowQuestion[];
+  } | null>({
+    queryKey: ["show-questions"],
+    queryFn: async () => {
+      const res = await fetch(
+        "/_agent-native/application-state/show-questions",
+      );
+      if (!res.ok) return null;
+      const text = await res.text();
+      if (!text) return null;
+      try {
+        return JSON.parse(text);
+      } catch {
+        return null;
+      }
+    },
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: true,
+  });
+
+  const showQuestionFlow =
+    questionFlowData?.questions && questionFlowData.questions.length > 0;
+
+  const handleQuestionSubmit = useCallback(
+    (answers: Record<string, any>) => {
+      // Format answers for the agent
+      const formatted = Object.entries(answers)
+        .map(([key, val]) => {
+          if (Array.isArray(val)) return `${key}: ${val.join(", ")}`;
+          return `${key}: ${val}`;
+        })
+        .join("\n");
+
+      const context = [
+        "The user answered the pre-generation questions.",
+        `Deck ID: ${id}`,
+        "",
+        "Answers:",
+        formatted,
+        "",
+        "Now generate the slides based on these preferences. Use add-slide with --deckId=" +
+          id +
+          " to add slides one at a time in parallel.",
+      ].join("\n");
+
+      sendToAgentChat({
+        message: "Here are my answers — go ahead and create the slides.",
+        context,
+        submit: true,
+      });
+
+      // Clear the question flow state
+      fetch("/_agent-native/application-state/show-questions", {
+        method: "DELETE",
+      }).catch(() => {});
+    },
+    [id],
+  );
+
+  const handleQuestionSkip = useCallback(() => {
+    sendToAgentChat({
+      message:
+        "Skip the questions — just go ahead and create the slides with your best judgment.",
+      context: `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults and generate slides using add-slide with --deckId=${id}.`,
+      submit: true,
+    });
+
+    // Clear the question flow state
+    fetch("/_agent-native/application-state/show-questions", {
+      method: "DELETE",
+    }).catch(() => {});
+  }, [id]);
 
   // If deck already has slides on mount, it's not a fresh new-deck creation
   useEffect(() => {
@@ -474,7 +553,15 @@ export default function DeckEditor() {
 
         {isNewDeckGenerating && <GeneratingOverlay />}
 
-        {!isNewDeckGenerating && currentSlide && (
+        {showQuestionFlow && !isNewDeckGenerating && (
+          <QuestionFlow
+            questions={questionFlowData!.questions}
+            onSubmit={handleQuestionSubmit}
+            onSkip={handleQuestionSkip}
+          />
+        )}
+
+        {!isNewDeckGenerating && !showQuestionFlow && currentSlide && (
           <SlideEditor
             slide={currentSlide}
             onUpdateSlide={(updates) =>

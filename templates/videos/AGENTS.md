@@ -32,10 +32,11 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
 
-| State Key    | Purpose                                   | Direction                  |
-| ------------ | ----------------------------------------- | -------------------------- |
-| `navigation` | Current view, composition ID              | UI -> Agent (read-only)    |
-| `navigate`   | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
+| State Key        | Purpose                                   | Direction                  |
+| ---------------- | ----------------------------------------- | -------------------------- |
+| `navigation`     | Current view, composition ID              | UI -> Agent (read-only)    |
+| `navigate`       | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
+| `show-questions` | Trigger question flow overlay in the UI   | Agent -> UI                |
 
 ### Navigation state
 
@@ -56,6 +57,95 @@ Views: `"home"` (studio home), `"composition"` (editing a composition), `"compon
 { "compositionId": "logo-reveal" }
 { "view": "home" }
 ```
+
+### Question Flow
+
+Write to `show-questions` to present structured questions before generating a complex composition. The UI renders a full-screen overlay; the user's answers are sent back to the agent chat automatically.
+
+#### When to Ask Questions
+
+| Scenario                                                            | Questions                              |
+| ------------------------------------------------------------------- | -------------------------------------- |
+| Complex/ambiguous request ("make me a video")                       | Ask 6-10 structured questions          |
+| Specific request with clear direction ("logo reveal for Acme Corp") | Ask 3-5 clarifying questions           |
+| Simple tweaks/follow-ups ("make the text bigger")                   | Skip questions, just do it             |
+| "Decide for me" / "surprise me"                                     | Zero questions — pick a bold direction |
+
+#### Sending Questions to the UI
+
+Use `writeAppState("show-questions", ...)` or the equivalent HTTP PUT:
+
+```json
+{
+  "questions": [
+    {
+      "id": "style",
+      "type": "text-options",
+      "question": "What animation style are you going for?",
+      "options": [
+        { "label": "Cinematic & Epic", "value": "cinematic" },
+        { "label": "Clean & Corporate", "value": "corporate" },
+        { "label": "Playful & Bouncy", "value": "playful" },
+        { "label": "Minimal & Elegant", "value": "minimal" },
+        { "label": "Retro & Glitchy", "value": "retro" }
+      ],
+      "required": true
+    },
+    {
+      "id": "duration",
+      "type": "slider",
+      "question": "How long should the video be?",
+      "description": "Duration in seconds",
+      "min": 3,
+      "max": 30,
+      "required": true
+    },
+    {
+      "id": "color-mood",
+      "type": "color-options",
+      "question": "Pick a color mood",
+      "options": [
+        { "label": "Ocean", "value": "#0EA5E9", "color": "#0EA5E9" },
+        { "label": "Forest", "value": "#22C55E", "color": "#22C55E" },
+        { "label": "Sunset", "value": "#F97316", "color": "#F97316" },
+        { "label": "Midnight", "value": "#6366F1", "color": "#6366F1" },
+        { "label": "Rose", "value": "#F43F5E", "color": "#F43F5E" },
+        { "label": "Neutral", "value": "#64748B", "color": "#64748B" }
+      ]
+    },
+    {
+      "id": "audience",
+      "type": "text-options",
+      "question": "Who is the target audience?",
+      "options": [
+        { "label": "Social media", "value": "social" },
+        { "label": "Product demo", "value": "demo" },
+        { "label": "Presentation", "value": "presentation" },
+        { "label": "Marketing ad", "value": "ad" },
+        { "label": "Internal/team", "value": "internal" }
+      ]
+    },
+    {
+      "id": "details",
+      "type": "freeform",
+      "question": "Any specific details or references?",
+      "description": "Brand names, URLs, specific text to include, mood references, etc."
+    }
+  ]
+}
+```
+
+#### Question Types
+
+| Type            | UI             | Use for                                     |
+| --------------- | -------------- | ------------------------------------------- |
+| `text-options`  | Button group   | Animation style, audience, format choices   |
+| `color-options` | Color swatches | Color mood, palette selection               |
+| `slider`        | Range slider   | Duration, speed, intensity, element count   |
+| `file`          | File upload    | Logo, brand assets, reference videos/images |
+| `freeform`      | Text input     | Brand details, specific requirements, notes |
+
+When the user clicks **Continue**, their answers are sent to the agent chat as a structured message. When they click **Skip**, a "decide for me" message is sent instead.
 
 ## Agent Operations
 
@@ -1414,14 +1504,14 @@ The tweaks panel (`app/components/TweaksPanel.tsx`) provides a floating, draggab
 
 The panel ships with `DEFAULT_COMPOSITION_TWEAKS` covering:
 
-| Tweak ID         | Type           | Controls                                       |
-| ---------------- | -------------- | ---------------------------------------------- |
-| `accentColor`    | color-swatches | Accent color (Cyan, Blue, Green, Pink, Gold)   |
+| Tweak ID         | Type           | Controls                                            |
+| ---------------- | -------------- | --------------------------------------------------- |
+| `accentColor`    | color-swatches | Accent color (Cyan, Blue, Green, Pink, Gold)        |
 | `bgColor`        | color-swatches | Background color (Black, Slate, Zinc, Stone, White) |
-| `fps`            | segment        | Frame rate (24, 30, 60)                        |
-| `easing`         | segment        | Default easing (Linear, Spring, Expo)          |
-| `animationSpeed` | slider         | Animation speed (0-100)                        |
-| `motionBlur`     | toggle         | Motion blur on/off                             |
+| `fps`            | segment        | Frame rate (24, 30, 60)                             |
+| `easing`         | segment        | Default easing (Linear, Spring, Expo)               |
+| `animationSpeed` | slider         | Animation speed (0-100)                             |
+| `motionBlur`     | toggle         | Motion blur on/off                                  |
 
 ### Tweak Definition Format
 
@@ -1432,10 +1522,10 @@ interface TweakDefinition {
   type: "color-swatches" | "segment" | "toggle" | "slider";
   options?: { value: string; label: string; color?: string }[];
   defaultValue: string | number | boolean;
-  cssVar?: string;    // CSS custom property to update
-  min?: number;       // Slider min
-  max?: number;       // Slider max
-  step?: number;      // Slider step
+  cssVar?: string; // CSS custom property to update
+  min?: number; // Slider min
+  max?: number; // Slider max
+  step?: number; // Slider step
 }
 ```
 

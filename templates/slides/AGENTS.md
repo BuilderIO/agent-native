@@ -28,10 +28,11 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
 
-| State Key    | Purpose                                   | Direction                  |
-| ------------ | ----------------------------------------- | -------------------------- |
-| `navigation` | Current view, deck ID, slide index        | UI -> Agent (read-only)    |
-| `navigate`   | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
+| State Key        | Purpose                                   | Direction                  |
+| ---------------- | ----------------------------------------- | -------------------------- |
+| `navigation`     | Current view, deck ID, slide index        | UI -> Agent (read-only)    |
+| `navigate`       | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
+| `show-questions` | Trigger question flow overlay in the UI   | Agent -> UI                |
 
 ### Navigation state (read what the user sees)
 
@@ -55,6 +56,107 @@ Views: `"list"` (deck list), `"editor"` (editing a deck), `"present"` (presentat
 { "deckId": "abc123" }
 { "view": "list" }
 ```
+
+### Question Flow (structured questions before generating)
+
+Write to `show-questions` to trigger a full-panel question overlay in the deck editor. The UI polls this key every 2 seconds. When questions are present, the overlay appears instead of the slide editor. When the user submits answers or skips, the UI sends the answers to agent chat and deletes the key.
+
+#### When to Ask Questions
+
+| Scenario                                                      | Questions                              |
+| ------------------------------------------------------------- | -------------------------------------- |
+| Complex/ambiguous request ("make me a deck about X")          | Ask 4-8 structured questions           |
+| Specific request with clear direction ("10-slide sales deck") | Ask 2-4 clarifying questions           |
+| Simple tweaks/follow-ups ("add a slide about Y")              | Skip questions, just do it             |
+| "Decide for me" / "surprise me"                               | Zero questions — pick a bold direction |
+
+#### show-questions Format
+
+```json
+{
+  "questions": [
+    {
+      "id": "audience",
+      "type": "text-options",
+      "question": "Who is the primary audience?",
+      "options": [
+        { "label": "Investors / Board", "value": "investors" },
+        { "label": "Team / Internal", "value": "internal" },
+        { "label": "Customers / Prospects", "value": "customers" },
+        { "label": "Conference / Public", "value": "conference" }
+      ],
+      "required": true
+    },
+    {
+      "id": "tone",
+      "type": "text-options",
+      "question": "What tone should the deck have?",
+      "options": [
+        { "label": "Professional & Polished", "value": "professional" },
+        { "label": "Bold & Energetic", "value": "bold" },
+        { "label": "Minimal & Clean", "value": "minimal" },
+        { "label": "Narrative / Storytelling", "value": "narrative" }
+      ]
+    },
+    {
+      "id": "color-mood",
+      "type": "color-options",
+      "question": "Pick a color mood",
+      "options": [
+        { "label": "Ocean", "value": "#0EA5E9", "color": "#0EA5E9" },
+        { "label": "Forest", "value": "#22C55E", "color": "#22C55E" },
+        { "label": "Sunset", "value": "#F97316", "color": "#F97316" },
+        { "label": "Midnight", "value": "#6366F1", "color": "#6366F1" },
+        { "label": "Rose", "value": "#F43F5E", "color": "#F43F5E" },
+        { "label": "Neutral", "value": "#64748B", "color": "#64748B" }
+      ]
+    },
+    {
+      "id": "slide-count",
+      "type": "slider",
+      "question": "How many slides?",
+      "min": 3,
+      "max": 20
+    },
+    {
+      "id": "additional-context",
+      "type": "freeform",
+      "question": "Anything else the deck should include?",
+      "description": "Key points, data, specific sections, etc."
+    }
+  ]
+}
+```
+
+#### Question Types
+
+| Type            | UI             | Use for                                |
+| --------------- | -------------- | -------------------------------------- |
+| `text-options`  | Button group   | Audience, tone, style, purpose choices |
+| `color-options` | Color swatches | Color mood, theme selection            |
+| `slider`        | Range slider   | Slide count, density, intensity        |
+| `file`          | File upload    | Brand assets, reference images, docs   |
+| `freeform`      | Text area      | Additional context, specific needs     |
+
+Each question has: `id` (unique key), `type`, `question` (label shown to user), optional `description`, optional `required` flag.
+For `text-options` and `color-options`: provide `options` array with `label`/`value` (and `color` for color-options). Set `multiSelect: true` for multi-pick.
+For `slider`: provide `min`/`max`.
+
+The UI automatically appends "Explore a few options" and "Decide for me" choices to every `text-options` question.
+
+#### Writing show-questions from an action or script
+
+```typescript
+import { writeAppState } from "@agent-native/core/application-state";
+
+await writeAppState("show-questions", {
+  questions: [
+    /* ... */
+  ],
+});
+```
+
+The UI will pick it up on its next 2-second poll cycle and display the overlay.
 
 ## Data Model
 
