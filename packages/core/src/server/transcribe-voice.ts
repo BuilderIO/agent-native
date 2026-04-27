@@ -58,6 +58,13 @@ function isSameOriginRequest(event: H3Event): boolean {
         return true;
       }
       if (
+        (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+        parsed.hostname === "tauri.localhost" &&
+        (host.startsWith("localhost:") || host.startsWith("127.0.0.1:"))
+      ) {
+        return true;
+      }
+      if (
         parsed.protocol === "http:" &&
         (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") &&
         parsed.port === "1420" &&
