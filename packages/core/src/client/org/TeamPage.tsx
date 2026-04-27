@@ -10,6 +10,8 @@ import {
   IconCheck,
   IconLogin,
   IconPencil,
+  IconAt,
+  IconX,
 } from "@tabler/icons-react";
 import {
   useOrg,
@@ -21,6 +23,7 @@ import {
   useAcceptInvitation,
   useRemoveMember,
   useSwitchOrg,
+  useSetOrgDomain,
 } from "./hooks.js";
 
 export interface TeamPageProps {
@@ -400,9 +403,119 @@ function MembersCard() {
         </div>
       )}
 
+      {isOwnerOrAdmin && <DomainSettingsSection domain={org.allowedDomain} />}
+
       <ErrorText error={removeMember.error} />
       <ErrorText error={switchOrg.error} />
     </section>
+  );
+}
+
+function DomainSettingsSection({ domain }: { domain: string | null }) {
+  const setOrgDomain = useSetOrgDomain();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(domain ?? "");
+
+  function save() {
+    const trimmed = draft.trim().toLowerCase();
+    if (trimmed === (domain ?? "")) {
+      setEditing(false);
+      return;
+    }
+    setOrgDomain.mutate(trimmed || null, {
+      onSuccess: () => setEditing(false),
+    });
+  }
+
+  return (
+    <div className="border-t border-border pt-3 space-y-2">
+      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        Email domain auto-join
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Anyone who signs up with an email from this domain can join your
+        organization without an invitation.
+      </p>
+      {!editing ? (
+        <div className="flex items-center gap-2">
+          {domain ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
+                <IconAt className="h-3.5 w-3.5 text-muted-foreground" />
+                {domain}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setDraft(domain);
+                  setEditing(true);
+                }}
+                className="text-muted-foreground hover:text-foreground"
+                title="Edit domain"
+              >
+                <IconPencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                disabled={setOrgDomain.isPending}
+                onClick={() => setOrgDomain.mutate(null)}
+                className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+                title="Remove domain"
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft("");
+                setEditing(true);
+              }}
+              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+            >
+              <IconAt className="h-3.5 w-3.5" />
+              Set allowed domain
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+              if (e.key === "Escape") setEditing(false);
+            }}
+            placeholder="example.com"
+            className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+            autoFocus
+          />
+          <button
+            type="button"
+            disabled={setOrgDomain.isPending}
+            onClick={save}
+            className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+          >
+            {setOrgDomain.isPending ? (
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              "Save"
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      <ErrorText error={setOrgDomain.error} />
+    </div>
   );
 }
 

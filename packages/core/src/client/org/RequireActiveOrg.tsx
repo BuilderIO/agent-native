@@ -163,7 +163,7 @@ function CreateOrgPane({
         <p className="mb-6 text-sm text-muted-foreground">{description}</p>
 
         {hasDomainMatches && (
-          <div className="mb-6">
+          <div className="mb-4">
             <div className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground">
               Join your team
             </div>
@@ -197,18 +197,11 @@ function CreateOrgPane({
                 </li>
               ))}
             </ul>
-            <div className="my-4 flex items-center gap-3">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                or
-              </span>
-              <div className="h-px flex-1 bg-border" />
-            </div>
           </div>
         )}
 
         {hasInvites && (
-          <div className="mb-6">
+          <div className="mb-4">
             <div className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground">
               Pending invitations
             </div>
@@ -242,25 +235,18 @@ function CreateOrgPane({
                 </li>
               ))}
             </ul>
-            {!hasDomainMatches && (
-              <div className="my-4 flex items-center gap-3">
-                <div className="h-px flex-1 bg-border" />
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  or
-                </span>
-                <div className="h-px flex-1 bg-border" />
-              </div>
-            )}
           </div>
         )}
 
-        {(hasDomainMatches || hasInvites) &&
-        !hasDomainMatches &&
-        !hasInvites ? null : hasDomainMatches || hasInvites ? (
-          <div className="my-4 flex items-center gap-3">
+        {(hasDomainMatches || hasInvites) && (
+          <div className="mb-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              or create your own
+            </span>
             <div className="h-px flex-1 bg-border" />
           </div>
-        ) : null}
+        )}
 
         <form
           onSubmit={async (e) => {
