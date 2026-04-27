@@ -75,6 +75,7 @@ Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant s
 | `voice-transcription` | Voice dictation in the agent composer (Whisper / browser)     |
 | `frontend-design`     | Building or styling any web UI, components, or pages          |
 | `create-skill`        | Adding new skills for the agent                               |
+| `tools`               | Creating, editing, and managing mini-app tools                |
 | `capture-learnings`   | Recording corrections and patterns                            |
 
 ## All-Agent Support

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/popover";
 import { useForms, useCreateForm } from "@/hooks/use-forms";
 import { useSendToAgentChat, FeedbackButton } from "@agent-native/core/client";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { Textarea } from "@/components/ui/textarea";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
@@ -216,6 +217,11 @@ export function Sidebar() {
           <IconUsers size={14} className="shrink-0" />
           <span>Team</span>
         </Link>
+      </div>
+
+      {/* Tools */}
+      <div className="px-3 pt-2">
+        <ToolsSidebarSection />
       </div>
 
       {/* Footer */}

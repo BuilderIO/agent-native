@@ -10,6 +10,7 @@ import {
   IconCopy,
   IconLayoutGrid,
   IconCode,
+  IconTool,
 } from "@tabler/icons-react";
 import {
   AgentSidebar,
@@ -249,6 +250,13 @@ export default function Index() {
               Design
             </span>
             <div className="flex items-center gap-2">
+              <Link
+                to="/tools"
+                className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white"
+              >
+                <IconTool className="w-4 h-4" />
+                Tools
+              </Link>
               <Link
                 to="/examples"
                 className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white"

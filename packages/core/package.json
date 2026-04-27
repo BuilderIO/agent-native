@@ -54,6 +54,7 @@
     "./sharing/actions/list-resource-shares": "./dist/sharing/actions/list-resource-shares.js",
     "./sharing/actions/set-resource-visibility": "./dist/sharing/actions/set-resource-visibility.js",
     "./client/sharing": "./dist/client/sharing/index.js",
+    "./client/tools": "./dist/client/tools/index.js",
     "./client/transcription/use-live-transcription": "./dist/client/transcription/use-live-transcription.js",
     "./client/transcription/BuilderTranscriptionCta": "./dist/client/transcription/BuilderTranscriptionCta.js",
     "./transcription/builder": "./dist/transcription/builder-transcription.js",

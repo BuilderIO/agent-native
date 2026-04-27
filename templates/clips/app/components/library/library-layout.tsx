@@ -34,6 +34,7 @@ import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { SearchBar } from "./search-bar";
 import { OrganizationSwitcher } from "./organization-switcher";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { toast } from "sonner";
 
 interface LibraryLayoutProps {
@@ -242,6 +243,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                     )}
                   </ul>
                 </div>
+              </div>
+
+              <div className="border-t border-border px-2 py-1">
+                <ToolsSidebarSection />
               </div>
             </aside>
 

@@ -2,13 +2,13 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   marketing: {
-    appName: "Design",
+    appName: "Agent-Native Design",
     tagline:
-      "An agent-native design and prototyping tool. The AI agent generates interactive HTML prototypes using Alpine.js + Tailwind CSS.",
+      "Design and prototype by describing what you want. The AI agent turns your ideas into interactive, fully responsive designs in seconds.",
     features: [
-      "Generate interactive prototypes through conversation",
-      "Design systems with consistent colors, typography, and styles",
-      "Export to HTML, PDF, or share with a link",
+      "Create polished prototypes just by describing them",
+      "Build and apply design systems to keep everything on-brand",
+      "Export your work or share it with a link",
     ],
   },
 });
