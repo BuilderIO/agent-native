@@ -4,6 +4,11 @@ import { Link } from "react-router";
 import { IconPlus, IconTool } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 
 interface Tool {
   id: string;
@@ -24,7 +29,7 @@ function CreateToolInput({
   const handleCreate = () => {
     if (!prompt.trim()) return;
     sendToAgentChat({
-      message: `Create a tool called "${prompt.trim()}"`,
+      message: `Create a tool: ${prompt.trim()}`,
       submit: true,
       openSidebar: true,
     });
@@ -32,30 +37,37 @@ function CreateToolInput({
   };
 
   return (
-    <div className={cn("flex gap-2", className)}>
-      <input
+    <div className={cn("flex flex-col gap-2", className)}>
+      <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
-        placeholder="e.g. a todo list, API dashboard, calculator..."
+        placeholder={
+          "Describe what you'd like to build...\ne.g. a todo list, API dashboard, calculator"
+        }
         className={cn(
-          "flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-ring",
+          "flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[100px] resize-y",
           inputClassName,
         )}
         onKeyDown={(e) => {
-          if (e.key === "Enter") handleCreate();
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            e.preventDefault();
+            handleCreate();
+          }
         }}
       />
-      <button
-        type="button"
-        onClick={handleCreate}
-        disabled={!prompt.trim()}
-        className={cn(
-          "rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer",
-          !prompt.trim() && "opacity-60",
-        )}
-      >
-        Create
-      </button>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={handleCreate}
+          disabled={!prompt.trim()}
+          className={cn(
+            "rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 cursor-pointer",
+            !prompt.trim() && "opacity-60",
+          )}
+        >
+          Create
+        </button>
+      </div>
     </div>
   );
 }
@@ -83,68 +95,63 @@ export function ToolsListPage() {
 
   const toolList = tools ?? [];
 
+  const handleCreate = () => {
+    if (!createPrompt.trim()) return;
+    sendToAgentChat({
+      message: `Create a tool: ${createPrompt.trim()}`,
+      submit: true,
+      openSidebar: true,
+    });
+    setCreatePrompt("");
+    setShowCreate(false);
+  };
+
   return (
     <div className="flex h-full flex-col">
-      <header className="relative flex items-center justify-between border-b px-6 py-4">
+      <header className="flex items-center justify-between border-b px-6 py-4">
         <h1 className="text-lg font-semibold">Tools</h1>
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          <IconPlus className="h-4 w-4" />
-          New Tool
-        </button>
-
-        {showCreate && (
-          <div className="absolute right-6 top-full z-50 mt-1 w-80 rounded-lg border bg-popover p-3 shadow-lg">
-            <input
-              autoFocus
-              value={createPrompt}
-              onChange={(e) => setCreatePrompt(e.target.value)}
-              placeholder="What would you like to build?"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && createPrompt.trim()) {
-                  sendToAgentChat({
-                    message: `Create a tool called "${createPrompt.trim()}"`,
-                    submit: true,
-                    openSidebar: true,
-                  });
-                  setCreatePrompt("");
-                  setShowCreate(false);
-                }
-                if (e.key === "Escape") setShowCreate(false);
+        <Popover open={showCreate} onOpenChange={setShowCreate}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              <IconPlus className="h-4 w-4" />
+              New Tool
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="end" sideOffset={6} className="w-80 p-4">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleCreate();
               }}
-            />
-            <div className="flex justify-end gap-2 mt-2">
-              <button
-                type="button"
-                onClick={() => setShowCreate(false)}
-                className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (createPrompt.trim()) {
-                    sendToAgentChat({
-                      message: `Create a tool called "${createPrompt.trim()}"`,
-                      submit: true,
-                      openSidebar: true,
-                    });
-                    setCreatePrompt("");
-                    setShowCreate(false);
+            >
+              <textarea
+                autoFocus
+                value={createPrompt}
+                onChange={(e) => setCreatePrompt(e.target.value)}
+                placeholder="Describe what you'd like to build..."
+                className="flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[140px] resize-y"
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    handleCreate();
                   }
                 }}
-                className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 cursor-pointer"
-              >
-                Create
-              </button>
-            </div>
-          </div>
-        )}
+              />
+              <div className="flex justify-end mt-3">
+                <button
+                  type="submit"
+                  disabled={!createPrompt.trim()}
+                  className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  Create
+                </button>
+              </div>
+            </form>
+          </PopoverContent>
+        </Popover>
       </header>
 
       <div className="flex-1 overflow-auto p-6">
