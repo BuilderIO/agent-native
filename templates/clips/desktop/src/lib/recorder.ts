@@ -571,21 +571,21 @@ async function startNativeRecordingInner(
   // wait at the end before starting the MediaRecorder.
   console.log("[clips-recorder] invoking show_countdown + createRecording");
   const countdownPromise = (async () => {
-    console.log("[clips-recorder] invoking show_countdown");
+    console.warn("[clips-recorder] trace: invoking show_countdown");
     try {
       await invoke("show_countdown");
-      console.log("[clips-recorder] show_countdown invoked OK");
+      console.warn("[clips-recorder] trace: show_countdown invoked OK");
     } catch (err) {
       console.error("[clips-recorder] show_countdown failed:", err);
     }
     try {
       await waitForEvent("clips:countdown-done", 4000);
-      console.log("[clips-recorder] countdown-done received");
+      console.warn("[clips-recorder] trace: countdown-done received");
     } catch {
-      console.log("[clips-recorder] countdown-done timed out — proceeding");
+      console.warn("[clips-recorder] trace: countdown timed out — proceeding");
     }
   })();
-  console.log("[clips-recorder] before createRecording fetch");
+  console.warn("[clips-recorder] trace: before createRecording fetch");
   console.time("[clips-recorder] createRecording duration");
   const recordingPromise = createRecording(
     params.serverUrl,
@@ -595,8 +595,12 @@ async function startNativeRecordingInner(
     console.timeEnd("[clips-recorder] createRecording duration");
   });
   console.log("[clips-recorder] awaiting countdown + createRecording");
+  console.warn("[clips-recorder] trace: awaiting countdown + createRecording");
   const [, createRes] = await Promise.all([countdownPromise, recordingPromise]);
   const { id } = createRes;
+  console.warn("[clips-recorder] trace: countdown + createRecording resolved", {
+    id,
+  });
   console.log(
     "[clips-recorder] countdown + createRecording both resolved, id=",
     id,
@@ -714,7 +718,7 @@ async function startNativeRecordingInner(
   stateUnlistens = toolbarUnlistens;
 
   recorder.start(2_000);
-  console.log("[clips-recorder] MediaRecorder started");
+  console.warn("[clips-recorder] trace: MediaRecorder started");
   // The toolbar is already open (the popover's bubble-session effect
   // spawns it alongside the bubble in its pre-record, disabled state).
   // Now that MediaRecorder is actually ticking, flip the toolbar's
@@ -929,5 +933,6 @@ async function startNativeRecordingInner(
     },
   };
 
+  console.warn("[clips-recorder] trace: returning recorder handle", { id });
   return handle;
 }
