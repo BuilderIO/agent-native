@@ -6,6 +6,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { agentChat } from "@agent-native/core";
+import { AgentPresenceChip } from "@agent-native/core/client";
 import { createPortal } from "react-dom";
 import { enterSelectionMode } from "@/root";
 import type { Slide } from "@/context/DeckContext";
@@ -522,9 +523,8 @@ export default function SlideEditor({
                     </div>
                   )}
                   {agentActive && (
-                    <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#a78bfa]/20 border border-[#a78bfa]/40 text-[#a78bfa] text-xs font-medium animate-pulse pointer-events-none">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[#a78bfa]" />
-                      AI editing
+                    <div className="absolute top-2 right-2 z-10 pointer-events-none">
+                      <AgentPresenceChip active={agentActive} />
                     </div>
                   )}
                 </div>

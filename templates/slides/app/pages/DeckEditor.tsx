@@ -433,6 +433,7 @@ export default function DeckEditor() {
     awareness,
     activeUsers: slideActiveUsers,
     agentActive,
+    agentPresent,
   } = useCollaborativeDoc({
     docId: slideDocId,
     requestSource: COLLAB_TAB_ID,
@@ -495,6 +496,7 @@ export default function DeckEditor() {
           currentSlide && updateSlide(id, currentSlide.id, updates)
         }
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
+        agentPresent={agentPresent}
         agentActive={agentActive}
         commentsOpen={commentsOpen}
         onToggleComments={() => setCommentsOpen((o) => !o)}

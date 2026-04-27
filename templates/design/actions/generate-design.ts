@@ -4,6 +4,11 @@ import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getDb, schema } from "../server/db/index.js";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  hasCollabState,
+  applyText,
+  seedFromText,
+} from "@agent-native/core/collab";
 
 export default defineAction({
   description:
@@ -85,6 +90,14 @@ export default defineAction({
           })
           .where(eq(schema.designFiles.id, existing.id));
 
+        // Push content through collab layer for live editors
+        const collabExists = await hasCollabState(existing.id);
+        if (collabExists) {
+          await applyText(existing.id, file.content, "content", "agent");
+        } else {
+          await seedFromText(existing.id, file.content);
+        }
+
         savedFiles.push({
           id: existing.id,
           filename: file.filename,
@@ -102,6 +115,9 @@ export default defineAction({
           createdAt: now,
           updatedAt: now,
         });
+
+        // Seed collab state for the new file
+        await seedFromText(fileId, file.content);
 
         savedFiles.push({
           id: fileId,

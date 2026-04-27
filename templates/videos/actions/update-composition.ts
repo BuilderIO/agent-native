@@ -2,6 +2,11 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  hasCollabState,
+  applyText,
+  seedFromText,
+} from "@agent-native/core/collab";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
@@ -30,11 +35,30 @@ export default defineAction({
     if (args.type !== undefined) updates.type = args.type;
     if (args.data !== undefined) updates.data = args.data;
 
+    // Update SQL (source of truth)
     const result = await db
       .update(schema.compositions)
       .set(updates)
       .where(eq(schema.compositions.id, args.id))
       .returning();
+
+    // Sync data to collab layer for live editing
+    if (args.data !== undefined) {
+      const docId = `comp-${args.id}`;
+      const dataStr =
+        typeof args.data === "string" ? args.data : JSON.stringify(args.data);
+      try {
+        const exists = await hasCollabState(docId);
+        if (exists) {
+          await applyText(docId, dataStr, "content", "agent");
+        } else {
+          await seedFromText(docId, dataStr);
+        }
+      } catch (err) {
+        // Collab sync is best-effort — SQL is the source of truth
+        console.warn("[update-composition] Collab sync failed:", err);
+      }
+    }
 
     if (result.length > 0) {
       const row = result[0];

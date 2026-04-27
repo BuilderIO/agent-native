@@ -65,6 +65,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     isLoading: collabLoading,
     activeUsers,
     agentActive,
+    agentPresent,
   } = useCollaborativeDoc({
     docId: documentId,
     requestSource: TAB_ID,
@@ -232,6 +233,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
           documentId={documentId}
           documentTitle={localTitle || document.title}
           activeUsers={activeUsers}
+          agentPresent={agentPresent}
           agentActive={agentActive}
           isSaving={isSaving}
           currentUserEmail={session?.email}
