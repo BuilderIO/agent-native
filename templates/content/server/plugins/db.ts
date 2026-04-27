@@ -121,38 +121,4 @@ export default runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
   },
-  // v16-v17: Todo lists and todos tables.
-  {
-    version: 16,
-    sql: `CREATE TABLE IF NOT EXISTS todo_lists (
-      id TEXT PRIMARY KEY,
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT,
-      visibility TEXT NOT NULL DEFAULT 'private',
-      title TEXT NOT NULL DEFAULT 'My Todo List',
-      description TEXT NOT NULL DEFAULT '',
-      color TEXT NOT NULL DEFAULT 'blue',
-      icon TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )`,
-  },
-  {
-    version: 17,
-    sql: `CREATE TABLE IF NOT EXISTS todos (
-      id TEXT PRIMARY KEY,
-      list_id TEXT NOT NULL,
-      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
-      org_id TEXT,
-      title TEXT NOT NULL,
-      notes TEXT NOT NULL DEFAULT '',
-      completed INTEGER NOT NULL DEFAULT 0,
-      priority TEXT NOT NULL DEFAULT 'none',
-      due_date TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )`,
-  },
 ]);
