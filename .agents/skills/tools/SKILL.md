@@ -36,6 +36,29 @@ Tools have full access to app data via helpers injected into the iframe:
 - `toolFetch(url, options)` — call external APIs via proxy
 - `toolData.set/list/get/remove(collection, ...)` — persist custom data per-tool
 
+## Data Persistence is Built In
+
+**Every tool has `toolData` — a per-tool, per-user key-value store. NO source code changes, NO Builder, NO new tables needed.**
+
+When a user asks to "add persistence", "save data", "remember state", or "store settings" in a tool, use `toolData`. It handles table creation, user scoping, and upserts automatically. Data is organized into collections per-tool:
+
+```javascript
+// Save an item
+await toolData.set('notes', 'note-1', { title: 'My Note', body: 'Hello' });
+
+// List all items in a collection
+const notes = await toolData.list('notes');
+const parsed = notes.map(n => ({ id: n.id, ...JSON.parse(n.data) }));
+
+// Get one item
+const note = await toolData.get('notes', 'note-1');
+
+// Delete an item
+await toolData.remove('notes', 'note-1');
+```
+
+**Prefer `toolData` over raw `dbExec` for tool-specific persistence** — it handles everything automatically. Only use `dbQuery`/`dbExec` when querying the app's existing tables.
+
 ## What tools are
 
 Tools are mini Alpine.js apps that run inside sandboxed iframes. They can call external APIs via `toolFetch()`, which routes through a server-side proxy that injects secret values. Tools share the main app's Tailwind v4 theme automatically.
