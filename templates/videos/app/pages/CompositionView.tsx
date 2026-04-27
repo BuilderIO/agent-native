@@ -10,6 +10,7 @@ import {
   IconAdjustments,
 } from "@tabler/icons-react";
 import { useDevMode, ShareButton, useSession } from "@agent-native/core/client";
+import type { CollabUser } from "@agent-native/core/client";
 import { Pinpoint } from "@agent-native/pinpoint/react";
 import { useComposition } from "@/contexts/CompositionContext";
 import { useTimeline } from "@/contexts/TimelineContext";
@@ -20,6 +21,7 @@ import {
   TweaksPanel,
   DEFAULT_COMPOSITION_TWEAKS,
 } from "@/components/TweaksPanel";
+import { CollabPresenceBar } from "@/components/CollabPresenceBar";
 import NewComposition from "@/pages/NewComposition";
 import {
   AlertDialog,
@@ -36,12 +38,18 @@ type CompositionViewProps = {
   onCameraKeyframeClick?: (trackType: "camera" | "cursor") => void;
   onCompSettingsClick?: () => void;
   isGenerating?: boolean;
+  activeUsers?: CollabUser[];
+  agentActive?: boolean;
+  agentPresent?: boolean;
 };
 
 export default function CompositionView({
   onCameraKeyframeClick,
   onCompSettingsClick,
   isGenerating = false,
+  activeUsers = [],
+  agentActive = false,
+  agentPresent = false,
 }: CompositionViewProps) {
   // Get frame from URL parameter (?frame=150)
   const [searchParams] = useSearchParams();
@@ -361,7 +369,12 @@ export default function CompositionView({
               {composition.description}
             </p>
           </div>
-          <div className="flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <CollabPresenceBar
+              activeUsers={activeUsers}
+              agentActive={agentActive}
+              agentPresent={agentPresent}
+            />
             <ShareButton
               resourceType="composition"
               resourceId={composition.id}

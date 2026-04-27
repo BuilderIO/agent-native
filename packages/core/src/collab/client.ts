@@ -45,6 +45,8 @@ export interface UseCollaborativeDocResult {
   activeUsers: CollabUser[];
   /** True briefly when the AI agent makes an edit (for presence indicator). */
   agentActive: boolean;
+  /** True when the AI agent has an active awareness entry (durable presence). */
+  agentPresent: boolean;
 }
 
 // Consistent color palette for user cursors
@@ -121,6 +123,7 @@ export function useCollaborativeDoc(
   const [isSynced, setIsSynced] = useState(false);
   const [activeUsers, setActiveUsers] = useState<CollabUser[]>([]);
   const [agentActive, setAgentActive] = useState(false);
+  const [agentPresent, setAgentPresent] = useState(false);
   const agentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollVersionRef = useRef(0);
 
@@ -140,13 +143,18 @@ export function useCollaborativeDoc(
 
     const updateUsers = () => {
       const users: CollabUser[] = [];
+      let hasAgent = false;
       awareness.getStates().forEach((state, clientId) => {
         if (clientId === ydoc?.clientID) return; // Skip self
         if (state.user) {
           users.push(state.user as CollabUser);
+          if ((state.user as CollabUser).email === "agent@system") {
+            hasAgent = true;
+          }
         }
       });
       setActiveUsers(users);
+      setAgentPresent(hasAgent);
     };
 
     awareness.on("change", updateUsers);
@@ -319,5 +327,13 @@ export function useCollaborativeDoc(
     };
   }, [ydoc, awareness, docId, pollInterval, requestSource, baseUrl]);
 
-  return { ydoc, awareness, isLoading, isSynced, activeUsers, agentActive };
+  return {
+    ydoc,
+    awareness,
+    isLoading,
+    isSynced,
+    activeUsers,
+    agentActive,
+    agentPresent,
+  };
 }

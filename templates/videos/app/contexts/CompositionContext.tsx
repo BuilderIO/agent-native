@@ -11,6 +11,7 @@ import {
 import { useNavigate } from "react-router";
 import { compositions, type CompositionEntry } from "@/remotion/registry";
 import type { CompSettings } from "@/components/CompSettingsEditor";
+import type { CompositionCollabData } from "@/hooks/use-composition-collab";
 
 // ─── Persistence helpers ──────────────────────────────────────────────────────
 
@@ -75,11 +76,20 @@ const CompositionContext = createContext<CompositionContextType | null>(null);
 type CompositionProviderProps = {
   children: ReactNode;
   compositionId: string;
+  /** Optional: push state to collab layer on changes. */
+  onCollabPush?: (data: CompositionCollabData) => void;
+  /** Optional: remote collab data to apply when it arrives. */
+  collabData?: CompositionCollabData | null;
+  /** Whether collab is synced. */
+  collabSynced?: boolean;
 };
 
 export function CompositionProvider({
   children,
   compositionId,
+  onCollabPush,
+  collabData,
+  collabSynced,
 }: CompositionProviderProps) {
   const navigate = useNavigate();
 
@@ -225,6 +235,75 @@ export function CompositionProvider({
     window.addEventListener("storage", handleStorageChange);
     return () => window.removeEventListener("storage", handleStorageChange);
   }, [selected]);
+
+  // ─── Collab: push props/settings changes ──────────────────────────────────
+  const collabPropsPushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!selected || !onCollabPush) return;
+
+    // Skip the very first load
+    if (propsInitialLoadRef.current) return;
+
+    if (collabPropsPushTimerRef.current)
+      clearTimeout(collabPropsPushTimerRef.current);
+    collabPropsPushTimerRef.current = setTimeout(() => {
+      const currentSettings = compSettingsOverrides[selected.id];
+      console.log("[Videos] Pushing props/settings to collab layer");
+      onCollabPush({
+        props: propsOverrides[selected.id],
+        settings: currentSettings,
+      });
+    }, 500);
+
+    return () => {
+      if (collabPropsPushTimerRef.current)
+        clearTimeout(collabPropsPushTimerRef.current);
+    };
+  }, [propsOverrides, compSettingsOverrides, selected, onCollabPush]);
+
+  // ─── Collab: apply remote props/settings ──────────────────────────────────
+  const prevCollabPropsRef = useRef<CompositionCollabData | null>(null);
+
+  useEffect(() => {
+    if (!selected || !collabSynced || !collabData) return;
+    if (collabData === prevCollabPropsRef.current) return;
+    prevCollabPropsRef.current = collabData;
+
+    // Apply remote props
+    if (collabData.props) {
+      const remoteJson = JSON.stringify(collabData.props);
+      const localJson = JSON.stringify(propsOverrides[selected.id]);
+      if (remoteJson !== localJson) {
+        console.log("[Videos] Applying remote props from collab layer");
+        setPropsOverrides((prev) => ({
+          ...prev,
+          [selected.id]: collabData.props!,
+        }));
+      }
+    }
+
+    // Apply remote settings
+    if (collabData.settings) {
+      const remoteJson = JSON.stringify(collabData.settings);
+      const localJson = JSON.stringify(compSettingsOverrides[selected.id]);
+      if (remoteJson !== localJson) {
+        console.log("[Videos] Applying remote settings from collab layer");
+        setCompSettingsOverrides((prev) => ({
+          ...prev,
+          [selected.id]: collabData.settings as CompSettings,
+        }));
+      }
+    }
+  }, [
+    collabData,
+    collabSynced,
+    selected,
+    propsOverrides,
+    compSettingsOverrides,
+  ]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handlePropsChange = useCallback(

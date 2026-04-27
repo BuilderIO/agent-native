@@ -23,8 +23,13 @@ import {
   postCollabText,
   postCollabSearchReplace,
 } from "../collab/routes.js";
+import {
+  postCollabJson,
+  getCollabJson,
+  postCollabPatch,
+} from "../collab/struct-routes.js";
 import { postAwareness, getActiveUsers } from "../collab/awareness.js";
-import { seedFromText } from "../collab/ydoc-manager.js";
+import { seedFromText, seedFromJson } from "../collab/ydoc-manager.js";
 import { hasCollabState } from "../collab/storage.js";
 import { getDbExec } from "../db/client.js";
 import { getCollabEmitter } from "../collab/emitter.js";
@@ -46,6 +51,10 @@ export interface CollabPluginOptions {
    * If not provided, the plugin auto-syncs using table/contentColumn/idColumn.
    */
   onContentSync?: (docId: string, text: string) => Promise<void>;
+  /** Content type: "text" for Y.Text (default) or "json" for Y.Map/Y.Array. */
+  contentType?: "text" | "json";
+  /** Column name for JSON content (used when contentType is "json"). */
+  jsonColumn?: string;
 }
 
 export function createCollabPlugin(
@@ -93,6 +102,11 @@ export function createCollabPlugin(
           return postCollabText(event);
         if (action === "search-replace" && method === "POST")
           return postCollabSearchReplace(event);
+        if (action === "json" && method === "POST")
+          return postCollabJson(event);
+        if (action === "json" && method === "GET") return getCollabJson(event);
+        if (action === "patch" && method === "POST")
+          return postCollabPatch(event);
         if (action === "awareness" && method === "POST")
           return postAwareness(event);
         if (action === "users" && method === "GET")
@@ -104,18 +118,36 @@ export function createCollabPlugin(
 
     // Auto-seed existing documents into collab state
     if (autoSeed) {
+      const isJson = options.contentType === "json";
+      const seedColumn = isJson
+        ? options.jsonColumn || contentColumn
+        : contentColumn;
+
       // Run in background so it doesn't block startup
       setTimeout(async () => {
         try {
           const client = getDbExec();
           const { rows } = await client.execute(
-            `SELECT ${idColumn}, ${contentColumn} FROM ${table}`,
+            `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
           );
           for (const row of rows) {
             const docId = row[idColumn] as string;
-            const content = (row[contentColumn] as string) ?? "";
             const exists = await hasCollabState(docId);
-            if (!exists) {
+            if (exists) continue;
+
+            if (isJson) {
+              const raw = (row[seedColumn] as string) ?? "{}";
+              try {
+                const parsed = JSON.parse(raw);
+                const inferredType: "map" | "array" = Array.isArray(parsed)
+                  ? "array"
+                  : "map";
+                await seedFromJson(docId, parsed, "data", inferredType);
+              } catch {
+                // Invalid JSON — skip
+              }
+            } else {
+              const content = (row[seedColumn] as string) ?? "";
               await seedFromText(docId, content);
             }
           }
