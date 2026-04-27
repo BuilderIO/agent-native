@@ -631,18 +631,6 @@ function openOAuthWindow(
 
 // ---------- Webview popup handling ----------
 
-// React 19 sets custom-element props as DOM properties instead of HTML
-// attributes. Electron's <webview> reads `allowpopups` as an attribute at
-// guest-creation time, so the React-set property is invisible to Electron
-// and popups (window.open / target=_blank) are silently blocked.
-// Fix: intercept webview attachment and force allowPopups in webPreferences.
-app.on("web-contents-created", (_event, contents) => {
-  contents.on("will-attach-webview", (_event, webPreferences, _params) => {
-    console.log("[main] will-attach-webview fired, setting allowPopups=true");
-    (webPreferences as Record<string, unknown>).allowPopups = true;
-  });
-});
-
 app.on("web-contents-created", (_event, contents) => {
   // Only intercept webview guest contents
   if (contents.getType() !== "webview") return;
