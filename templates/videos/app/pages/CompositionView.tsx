@@ -561,11 +561,13 @@ export default function CompositionView({
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* TODO: Fix Pinpoint React is not defined error
       <Pinpoint
         author={session?.email || "anonymous"}
         colorScheme="dark"
         compactPopup
       />
+      */}
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
