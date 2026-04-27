@@ -12,8 +12,7 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     let shortcut_cmd = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyL);
     let shortcut_ctrl = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyL);
     let voice_cmd_space = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space);
-    let voice_ctrl_space =
-        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
+    let voice_ctrl_space = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
     #[cfg(not(target_os = "macos"))]
     let shortcut_fn = Shortcut::new(None, Code::Fn);
     let gs = app.handle().global_shortcut();
@@ -45,8 +44,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
     tauri_plugin_global_shortcut::Builder::new().with_handler(|app, shortcut, event| {
         let is_cmd = shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::KeyL);
         let is_ctrl = shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyL);
-        let is_voice_cmd_space =
-            shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::Space);
+        let is_voice_cmd_space = shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::Space);
         let is_voice_ctrl_space =
             shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::Space);
         let is_fn = shortcut.matches(Modifiers::empty(), Code::Fn);
@@ -101,8 +99,10 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                         }
                     }
                     if !already_active {
-                        let _ = app
-                            .emit("voice:shortcut-start", serde_json::json!({ "source": "fn" }));
+                        let _ = app.emit(
+                            "voice:shortcut-start",
+                            serde_json::json!({ "source": "fn" }),
+                        );
                     }
                 }
                 tauri_plugin_global_shortcut::ShortcutState::Released => {
@@ -111,8 +111,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                             *g = false;
                         }
                     }
-                    let _ = app
-                        .emit("voice:shortcut-stop", serde_json::json!({ "source": "fn" }));
+                    let _ = app.emit("voice:shortcut-stop", serde_json::json!({ "source": "fn" }));
                 }
             }
             return;
@@ -142,8 +141,8 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
 
     use core_foundation::runloop::CFRunLoop;
     use core_graphics::event::{
-        CallbackResult, CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions,
-        CGEventTapPlacement, CGEventType,
+        CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
+        CGEventType, CallbackResult,
     };
 
     let active = Arc::new(Mutex::new(false));
@@ -164,8 +163,10 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     if is_down && !*was_down {
                         *was_down = true;
                         eprintln!("[clips-tray] Fn down — starting voice dictation");
-                        let _ = app_for_tap
-                            .emit("voice:shortcut-start", serde_json::json!({ "source": "fn" }));
+                        let _ = app_for_tap.emit(
+                            "voice:shortcut-start",
+                            serde_json::json!({ "source": "fn" }),
+                        );
                     } else if !is_down && *was_down {
                         *was_down = false;
                         eprintln!("[clips-tray] Fn up — stopping voice dictation");

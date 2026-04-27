@@ -11,7 +11,7 @@ use tauri::{
 };
 
 use crate::dlog;
-use crate::state::{LastTranscript, RecordingActive, TrayAnchor};
+use crate::state::{DictationActive, LastTranscript, RecordingActive, TrayAnchor};
 use crate::util::{
     build_overlay_url, mark_popover_shown, primary_monitor_physical_size, set_capture_excluded,
 };
@@ -527,6 +527,20 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
     let _ = win.show();
+    let app_for_timeout = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(70));
+        let dictating = app_for_timeout
+            .try_state::<DictationActive>()
+            .and_then(|state| state.0.lock().ok().map(|g| *g))
+            .unwrap_or(false);
+        if !dictating {
+            if let Some(w) = app_for_timeout.get_webview_window(FLOW_BAR_LABEL) {
+                eprintln!("[clips-tray] closing stale voice overlay after timeout");
+                let _ = w.close();
+            }
+        }
+    });
     Ok(())
 }
 
