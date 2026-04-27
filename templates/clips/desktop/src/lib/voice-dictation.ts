@@ -229,8 +229,12 @@ export function installDesktopVoiceDictation(
             if (!disposed) cleanup();
           }, 550);
         } catch (err) {
-          console.error("[voice-dictation] transcription failed", err);
-          cleanup();
+          const message = err instanceof Error ? err.message : String(err);
+          console.error("[voice-dictation] transcription failed:", message);
+          setFlowState("error");
+          window.setTimeout(() => {
+            if (!disposed) cleanup();
+          }, 800);
         }
       };
       startMeter(next);
