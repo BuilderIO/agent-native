@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useParams } from "react-router";
 import { ToolViewer } from "./ToolViewer.js";
-import { ToolEditor } from "./ToolEditor.js";
+import { ToolsListPage } from "./ToolsListPage.js";
 
 export function ToolViewerPage() {
   const { id } = useParams<{ id: string }>();
@@ -14,7 +14,10 @@ export function ToolViewerPage() {
     }).catch(() => {});
   }, [id]);
 
-  if (id === "new") return <ToolEditor />;
+  if (id === "new") {
+    // No manual editor — tools are created via the agent
+    return <ToolsListPage />;
+  }
   if (!id) return null;
   return <ToolViewer toolId={id} />;
 }
