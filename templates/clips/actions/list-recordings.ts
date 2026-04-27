@@ -12,6 +12,7 @@ import {
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { parseSpaceIds } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -52,6 +53,15 @@ export default defineAction({
     const whereClauses = [
       accessFilter(schema.recordings, schema.recordingShares),
     ];
+
+    // Library = "Your personal recordings" — scope to the current user's own
+    // clips so org-visible recordings from teammates don't bleed in.
+    if (args.view === "library") {
+      const email = getRequestUserEmail();
+      if (email) {
+        whereClauses.push(eq(schema.recordings.ownerEmail, email));
+      }
+    }
 
     // Lifecycle view filters
     if (args.view === "trash") {
