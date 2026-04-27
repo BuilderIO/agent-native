@@ -1425,6 +1425,119 @@ All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`,
 
 ### Agent Chat Integration
 
+---
+
+## Visual Quality Standards — Anti-AI-Slop Rules
+
+### Blacklisted Patterns (NEVER use these)
+
+- Aggressive purple/blue gradients as primary backgrounds
+- Left-border accent cards (the colored left stripe pattern)
+- Emoji as icons — always use Tabler icons from `@tabler/icons-react`
+- Inline SVG illustrations or hand-drawn SVG imagery
+- Inter, Roboto, or Arial as primary fonts — use distinctive typography
+- Fake statistics ("87% of users", "3x faster") — only real data
+- Fake testimonials or quotes
+- Generic stock-photo-style imagery
+- Decorative sparkle/glow effects
+- Excessive drop shadows or glassmorphism
+
+### Required Quality Checks
+
+- Body text minimum 24px on 1920x1080 compositions, 16px on web UI
+- "Earn its place" — every element must justify its existence
+- Empty space is solved with composition, not filler content
+- When you think "adding this would look better" — that is usually a sign of AI slop
+- Default to restraint: fewer elements, more whitespace, stronger hierarchy
+
+### Modern CSS Techniques to Use
+
+- `text-wrap: balance` for headings, `text-wrap: pretty` for body
+- `oklch()` color space for perceptually uniform color manipulation
+- CSS Grid with named areas for complex layouts
+- `color-mix()` for dynamic color variants
+- Container queries for component-responsive design
+- `:has()` selector for parent-based styling
+
+---
+
+## Design Philosophy Reference
+
+When the user's request is vague about visual direction, recommend from these schools:
+
+### Information Architecture School
+
+- **Pentagram**: Grid-first, black/white/red, structured information hierarchy
+- **Stamen Design**: Data-driven, cartographic precision, clear visual encoding
+
+### Motion Poetics School
+
+- **Locomotive**: Smooth scroll, parallax depth, cinematic pacing
+- **Active Theory**: WebGL experiments, particle systems, immersive 3D
+- **Field.io**: Generative art, algorithmic beauty, mathematical precision
+
+### Minimalism School
+
+- **Experimental Jetset**: Swiss typography, geometric forms, pure structure
+- **Muller-Brockmann**: Grid systems, objective communication, typographic hierarchy
+- **Build**: Reduction to essence, mono-font, pure whitespace
+
+### Eastern Philosophy School
+
+- **Kenya Hara**: Ma (negative space), simplicity as depth, emptiness as design
+- **Takram**: Craft meets technology, material honesty, subtle animation
+
+**Key insight**: Describe mood, not layout. Short emotional prompts outperform detailed layout specifications.
+
+---
+
+## Animation Best Practices
+
+### Narrative Structure: Slow-Fast-Boom-Stop
+
+Every animation should follow this 5-segment pacing:
+
+- S1 Trigger (~15%): Slow, deliberate setup
+- S2 Generate (~15%): Building momentum
+- S3 Process (~40%): Main action, dynamic motion
+- S4 Burst (~20%): Peak energy, climactic moment
+- S5 Settle (~10%): Quick resolution, satisfying end
+
+NEVER use uniform pacing across an entire animation.
+
+### Easing Philosophy
+
+- `expoOut` is the DEFAULT main easing (not easeOut or linear) — gives digital elements physical weight
+- `overshoot` for toggles, buttons, interactive elements
+- `spring` for physical settling and bouncing
+- `linear` ONLY for continuous motion (progress bars, loading)
+- Never use `ease` or `ease-in-out` — too generic
+
+### 8 Motion Language Principles
+
+1. No pure black (#000) or white (#FFF) backgrounds — use tinted neutrals
+2. Show process, not magic results — animate the work happening
+3. Hand-drawn mouse trajectories (Bezier curves + subtle noise), never robotic straight lines
+4. Logo morph-convergence (never simple fade-in for brand reveals)
+5. Serif + sans-serif dual typography for hierarchy
+6. Focus switching uses opacity + brightness + BLUR (blur is mandatory for depth)
+7. Every interactive element needs a hover state with scale + shadow shift
+8. Camera movements should feel like a human operator (slight drift, not perfectly smooth)
+
+---
+
+## Brand Asset Protocol
+
+When using design system tokens in generated content, follow this hierarchy:
+
+1. Logo > Product Photo > UI Screenshot > Colors > Fonts
+2. Always verify brand colors from the design system — never approximate
+3. Use design system's `imageStyle.styleDescription` in image generation prompts
+4. Reference design system's `typography.headingFont` and `bodyFont`
+5. Apply design system's spacing and border tokens consistently
+
+---
+
 To submit a prompt to the agent for code generation, use `@agent-native/core`:
 
 ```typescript

@@ -37,6 +37,28 @@ export const icons = {
   history: `<svg ${S}><path d="M12 8l0 4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/></svg>`,
 
   minus: `<svg ${S}><path d="M5 12l14 0"/></svg>`,
+
+  // Draw mode icons
+  pencil: `<svg ${S}><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg>`,
+  arrowUpRight: `<svg ${S}><path d="M17 7l-10 10"/><path d="M8 7l9 0l0 9"/></svg>`,
+  circle: `<svg ${S}><circle cx="12" cy="12" r="9"/></svg>`,
+  square: `<svg ${S}><rect x="4" y="4" width="16" height="16" rx="2"/></svg>`,
+  typography: `<svg ${S}><path d="M4 20l3 0"/><path d="M14 20l7 0"/><path d="M6.9 15l6.9 0"/><path d="M10.2 6.3l5.8 13.7"/><path d="M5 20l6 -16l2 0l7 16"/></svg>`,
+  undo: `<svg ${S}><path d="M9 14l-4 -4l4 -4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/></svg>`,
+  palette: `<svg ${S}><path d="M12 21a9 9 0 0 1 0 -18c4.97 0 9 3.582 9 8c0 1.06 -.474 2.078 -1.318 2.828c-.844 .75 -1.989 1.172 -3.182 1.172h-2.5a2 2 0 0 0 -1 3.75a1.3 1.3 0 0 1 -1 2.25"/><circle cx="8.5" cy="10.5" r="1"/><circle cx="12.5" cy="7.5" r="1"/><circle cx="16.5" cy="10.5" r="1"/></svg>`,
+  lineWeight: `<svg ${S}><path d="M4 6h16"/><path d="M4 12h16" stroke-width="3"/><path d="M4 18h16" stroke-width="5"/></svg>`,
+
+  // Voice icon
+  microphone: `<svg ${S}><path d="M9 2m0 3a3 3 0 0 1 3 -3h0a3 3 0 0 1 3 3v5a3 3 0 0 1 -3 3h0a3 3 0 0 1 -3 -3z"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M8 21l8 0"/><path d="M12 17l0 4"/></svg>`,
+  microphoneOff: `<svg ${S}><path d="M3 3l18 18"/><path d="M9 5a3 3 0 0 1 6 0v5a3 3 0 0 1 -.13 .874m-2 2a3 3 0 0 1 -3.87 -2.872v-1"/><path d="M5 10a7 7 0 0 0 10.846 5.85m2 -2a6.967 6.967 0 0 0 1.152 -3.85"/><path d="M8 21l8 0"/><path d="M12 17l0 4"/></svg>`,
+
+  // Queue & batch icons
+  plus: `<svg ${S}><path d="M12 5l0 14"/><path d="M5 12l14 0"/></svg>`,
+  stack: `<svg ${S}><path d="M12 2l-8 4l8 4l8 -4l-8 -4"/><path d="M4 10l8 4l8 -4"/><path d="M4 14l8 4l8 -4"/></svg>`,
+  checkSquare: `<svg ${S}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 12l2 2l4 -4"/></svg>`,
+  squareEmpty: `<svg ${S}><rect x="3" y="3" width="18" height="18" rx="2"/></svg>`,
+  bolt: `<svg ${S}><path d="M13 3l0 7l6 0l-8 11l0 -7l-6 0l8 -11"/></svg>`,
+  checkCircle: `<svg ${S}><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2l4 -4"/></svg>`,
 } as const;
 
 export type IconName = keyof typeof icons;

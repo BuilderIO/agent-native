@@ -561,6 +561,114 @@ title: Slide 2 — Key Metrics
 
 **Never use browser dialogs** (`window.confirm`, `window.alert`, `window.prompt`) — use shadcn AlertDialog instead.
 
+---
+
+## Visual Quality Standards — Anti-AI-Slop Rules
+
+### Blacklisted Patterns (NEVER use these)
+
+- Aggressive purple/blue gradients as primary backgrounds
+- Left-border accent cards (the colored left stripe pattern)
+- Emoji as icons — always use Tabler icons from `@tabler/icons-react`
+- Inline SVG illustrations or hand-drawn SVG imagery
+- Inter, Roboto, or Arial as primary fonts — use distinctive typography
+- Fake statistics ("87% of users", "3x faster") — only real data
+- Fake testimonials or quotes
+- Generic stock-photo-style imagery
+- Decorative sparkle/glow effects
+- Excessive drop shadows or glassmorphism
+
+### Required Quality Checks
+
+- Body text minimum 24px on 1920x1080 slides, 16px on web UI
+- "Earn its place" — every element must justify its existence
+- Empty space is solved with composition, not filler content
+- When you think "adding this would look better" — that is usually a sign of AI slop
+- Default to restraint: fewer elements, more whitespace, stronger hierarchy
+
+### Modern CSS Techniques to Use
+
+- `text-wrap: balance` for headings, `text-wrap: pretty` for body
+- `oklch()` color space for perceptually uniform color manipulation
+- CSS Grid with named areas for complex layouts
+- `color-mix()` for dynamic color variants
+- Container queries for component-responsive design
+- `:has()` selector for parent-based styling
+
+---
+
+## Design Philosophy Reference
+
+When the user's request is vague about visual direction, recommend from these schools:
+
+### Information Architecture School
+
+- **Pentagram**: Grid-first, black/white/red, structured information hierarchy
+- **Stamen Design**: Data-driven, cartographic precision, clear visual encoding
+
+### Motion Poetics School
+
+- **Locomotive**: Smooth scroll, parallax depth, cinematic pacing
+- **Active Theory**: WebGL experiments, particle systems, immersive 3D
+- **Field.io**: Generative art, algorithmic beauty, mathematical precision
+
+### Minimalism School
+
+- **Experimental Jetset**: Swiss typography, geometric forms, pure structure
+- **Muller-Brockmann**: Grid systems, objective communication, typographic hierarchy
+- **Build**: Reduction to essence, mono-font, pure whitespace
+
+### Eastern Philosophy School
+
+- **Kenya Hara**: Ma (negative space), simplicity as depth, emptiness as design
+- **Takram**: Craft meets technology, material honesty, subtle animation
+
+**Key insight**: Describe mood, not layout. Short emotional prompts outperform detailed layout specifications.
+
+---
+
+## Slide Design Patterns
+
+### Batch Production Strategy
+
+Always make 2 showcase slides first to lock the visual grammar before scaling:
+
+1. Generate 2 hero slides (title + key content)
+2. Get user approval on the visual language
+3. Then produce remaining slides following the established grammar
+
+### Slide Layout Types
+
+- **Title**: Large heading, minimal text, strong visual impact
+- **Data**: Charts, numbers, clear data visualization
+- **Comparison**: Side-by-side, before/after, pros/cons
+- **Timeline**: Sequential events, process flows
+- **Quote**: Large pull quote with attribution
+- **Gallery**: Image grid with captions
+- **Code**: Syntax-highlighted code with annotations
+
+### Typography on Slides
+
+- Heading: 48-72px (1920x1080 canvas)
+- Body: 24-32px minimum
+- Caption: 18-20px
+- Use `font-variation-settings` for weight morphing (if variable font available)
+- Two-tier shadow: 1px tight shadow + 8px ambient shadow (never single shadow)
+
+---
+
+## Brand Asset Protocol
+
+When using design system tokens in generated content, follow this hierarchy:
+
+1. Logo > Product Photo > UI Screenshot > Colors > Fonts
+2. Always verify brand colors from the design system — never approximate
+3. Use design system's `imageStyle.styleDescription` in image generation prompts
+4. Reference design system's `typography.headingFont` and `bodyFont`
+5. Apply design system's spacing and border tokens consistently
+
+---
+
 ## Development
 
 For code editing and development guidance, read `DEVELOPING.md`.
