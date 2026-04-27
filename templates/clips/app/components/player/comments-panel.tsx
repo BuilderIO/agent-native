@@ -222,7 +222,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     // the optimistic cache patch in onMutate puts the comment in the list.
     setDraft("");
     setReplyTo(null);
-    addComment.mutate(vars as any);
+    addComment.mutate(vars);
   }
 
   return (
@@ -252,9 +252,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
                       setReplyTo(root);
                     }}
                     onResolve={(id, resolved) =>
-                      resolve.mutate({ id, resolved } as any)
+                      resolve.mutate({ id, resolved })
                     }
-                    onDelete={(id) => remove.mutate({ id } as any)}
+                    onDelete={(id) => remove.mutate({ id })}
                     onUnauthenticated={onUnauthenticated}
                   />
                   {replies.length ? (
@@ -274,9 +274,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
                               setReplyTo(root);
                             }}
                             onResolve={(id, resolved) =>
-                              resolve.mutate({ id, resolved } as any)
+                              resolve.mutate({ id, resolved })
                             }
-                            onDelete={(id) => remove.mutate({ id } as any)}
+                            onDelete={(id) => remove.mutate({ id })}
                             onUnauthenticated={onUnauthenticated}
                             isReply
                           />
