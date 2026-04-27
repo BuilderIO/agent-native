@@ -68,6 +68,9 @@ export function buildToolHtml(
         }),
       }).then(function(res) {
         return res.json().then(function(data) {
+          if (data.error && data.status === undefined) {
+            throw new Error(data.error);
+          }
           return {
             ok: data.status >= 200 && data.status < 300,
             status: data.status,
