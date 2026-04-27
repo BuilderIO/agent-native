@@ -31,6 +31,7 @@ type CaptureSource = "full-screen" | "window" | "tab" | "custom";
 const STORAGE_KEY = "clips:server-url";
 const MODE_KEY = "clips:last-mode";
 const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
+const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
 const VOICE_MODE_KEY = "clips:voice-mode";
 const SOURCE_KEY = "clips:last-source";
 const CAM_KEY = "clips:last-camera-id";
@@ -115,6 +116,7 @@ export function App() {
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
   const [voiceShortcut, setVoiceShortcut] = useState<VoiceShortcutPreference>(
     () => {
+      if (!loadBool(VOICE_SHORTCUT_CONFIGURED_KEY, false)) return "both";
       const saved = loadString(VOICE_SHORTCUT_KEY, "both");
       return saved === "cmd-shift-space" ||
         saved === "ctrl-shift-space" ||
@@ -145,6 +147,10 @@ export function App() {
   );
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
   const isRecording = recorder !== null;
+  const updateVoiceShortcut = useCallback((value: VoiceShortcutPreference) => {
+    saveBool(VOICE_SHORTCUT_CONFIGURED_KEY, true);
+    setVoiceShortcut(value);
+  }, []);
 
   useEffect(() => {
     return installDesktopVoiceDictation({
@@ -976,7 +982,7 @@ export function App() {
             initial={serverUrl}
             voiceShortcut={voiceShortcut}
             voiceMode={voiceMode}
-            onVoiceShortcutChange={setVoiceShortcut}
+            onVoiceShortcutChange={updateVoiceShortcut}
             onVoiceModeChange={setVoiceMode}
             onConnect={(url) => {
               saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
@@ -1084,7 +1090,7 @@ export function App() {
           signedInAs={signedInAs}
           voiceShortcut={voiceShortcut}
           voiceMode={voiceMode}
-          onVoiceShortcutChange={setVoiceShortcut}
+          onVoiceShortcutChange={updateVoiceShortcut}
           onVoiceModeChange={setVoiceMode}
           onSignOut={signOut}
           onConnect={(url) => {

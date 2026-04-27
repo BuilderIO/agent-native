@@ -1,5 +1,7 @@
+#[cfg(target_os = "macos")]
 use std::io::Write;
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
@@ -556,6 +558,7 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<()
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 fn write_clipboard(text: &str) -> Result<(), String> {
     let mut child = Command::new("pbcopy")
         .stdin(Stdio::piped())
@@ -572,6 +575,14 @@ fn write_clipboard(text: &str) -> Result<(), String> {
     } else {
         Err(format!("pbcopy exited with {status}"))
     }
+}
+
+// Voice-dictation paste relies on macOS-specific `pbcopy` + CGEvent paste; the
+// non-mac path is an explicit error so the JS layer can surface a clear
+// message rather than the user seeing a silent failure.
+#[cfg(not(target_os = "macos"))]
+fn write_clipboard(_text: &str) -> Result<(), String> {
+    Err("voice dictation is currently macOS-only".to_string())
 }
 
 #[cfg(target_os = "macos")]
