@@ -5,6 +5,7 @@ import { InvitationBanner } from "@agent-native/core/client/org";
 import { compositions } from "@/remotion/registry";
 import { Sidebar } from "@/components/Sidebar";
 import { StudioHeader } from "@/components/StudioHeader";
+import { QuestionFlow } from "@/components/QuestionFlow";
 import CompositionView from "@/pages/CompositionView";
 import NewComposition from "@/pages/NewComposition";
 import { CurrentElementProvider } from "@/contexts/CurrentElementContext";
@@ -12,6 +13,7 @@ import { CompositionProvider } from "@/contexts/CompositionContext";
 import { TimelineProvider } from "@/contexts/TimelineContext";
 import { PlaybackProvider } from "@/contexts/PlaybackContext";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useQuestionFlow } from "@/hooks/use-question-flow";
 import "@/utils/resetComposition"; // Make reset utility available in console
 
 // ─── Studio Container with Providers ──────────────────────────────────────────
@@ -20,6 +22,7 @@ function StudioContent() {
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const initialSidebarSet = useRef(false);
+  const { questions, handleSubmit, handleSkip } = useQuestionFlow();
 
   useEffect(() => {
     if (!initialSidebarSet.current && isMobile) {
@@ -75,7 +78,16 @@ function StudioContent() {
               onGeneratingChange={setGeneratingComposition}
             />
 
-            <div className="flex-1 min-w-0 overflow-y-auto">
+            <div className="flex-1 min-w-0 overflow-y-auto relative">
+              {questions && questions.length > 0 ? (
+                <div className="absolute inset-0 z-30 bg-background">
+                  <QuestionFlow
+                    questions={questions}
+                    onSubmit={handleSubmit}
+                    onSkip={handleSkip}
+                  />
+                </div>
+              ) : null}
               <CompositionView
                 onCameraKeyframeClick={handleCameraKeyframeClick}
                 onCompSettingsClick={handleCompSettingsClick}

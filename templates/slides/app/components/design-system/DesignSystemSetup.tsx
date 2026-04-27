@@ -1,10 +1,11 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   IconUpload,
   IconWorld,
   IconPalette,
   IconLoader2,
 } from "@tabler/icons-react";
+import { useActionQuery } from "@agent-native/core/client";
 import { toast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -37,6 +38,29 @@ export function DesignSystemSetup({
   const [files, setFiles] = useState<File[]>([]);
   const [generating, setGenerating] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  const { data: existingDs } = useActionQuery<{
+    title?: string;
+    description?: string;
+    data?: string | null;
+  }>("get-design-system", editingId ? { id: editingId } : undefined, {
+    enabled: !!editingId && open,
+  });
+
+  useEffect(() => {
+    if (existingDs && editingId) {
+      setCompanyName(existingDs.title ?? "");
+      setBrandNotes(existingDs.description ?? "");
+      try {
+        const parsed = existingDs.data ? JSON.parse(existingDs.data) : null;
+        if (parsed?.notes) {
+          setBrandNotes(parsed.notes);
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+  }, [existingDs, editingId]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();

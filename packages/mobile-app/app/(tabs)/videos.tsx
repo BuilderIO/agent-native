@@ -3,12 +3,12 @@ import AppWebView from "@/components/AppWebView";
 import { DEFAULT_APPS } from "@agent-native/shared-app-config";
 import { getAppUrl } from "@/lib/get-app-url";
 
-const recruiting = DEFAULT_APPS.find((a) => a.id === "recruiting")!;
+const videos = DEFAULT_APPS.find((a) => a.id === "videos")!;
 
-export default function RecruitingTab() {
+export default function VideosTab() {
   return (
     <SafeAreaView style={styles.container}>
-      <AppWebView url={getAppUrl(recruiting)} />
+      <AppWebView url={getAppUrl(videos)} />
     </SafeAreaView>
   );
 }

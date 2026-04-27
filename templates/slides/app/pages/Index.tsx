@@ -91,22 +91,22 @@ export default function Index() {
               <IconPalette className="w-4 h-4" />
               Design Systems
             </Link>
-            <a
-              href="/team"
+            <Link
+              to="/team"
               className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80"
               title="Team"
               aria-label="Team"
             >
               <IconUsers className="w-4 h-4" />
-            </a>
-            <a
-              href="/settings"
+            </Link>
+            <Link
+              to="/settings"
               className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80"
               title="Settings"
               aria-label="Settings"
             >
               <IconSettings className="w-4 h-4" />
-            </a>
+            </Link>
             <Button onClick={openNewDeck} size="sm">
               <IconPlus className="w-3.5 h-3.5" />
               New Deck

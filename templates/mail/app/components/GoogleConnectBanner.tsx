@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   IconMail,
   IconX,
@@ -82,6 +82,57 @@ export function GoogleConnectBanner({
 
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
+
+  const isElectron = useMemo(() => /Electron/i.test(navigator.userAgent), []);
+  const desktopPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (desktopPollRef.current) clearInterval(desktopPollRef.current);
+    };
+  }, []);
+
+  function signInViaDesktopBrowser(addAccount = false) {
+    const flowId =
+      crypto.randomUUID?.() ||
+      Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const origin = window.location.origin;
+    const endpoint = addAccount
+      ? "/_agent-native/google/add-account/auth-url"
+      : "/_agent-native/google/auth-url";
+    const redirectUri = encodeURIComponent(
+      `${origin}/_agent-native/google/callback`,
+    );
+    window.open(
+      `${origin}${endpoint}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
+      "_blank",
+    );
+    const start = Date.now();
+    if (desktopPollRef.current) clearInterval(desktopPollRef.current);
+    desktopPollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(
+          `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+        );
+        const data = await res.json();
+        if (data?.token) {
+          clearInterval(desktopPollRef.current!);
+          desktopPollRef.current = null;
+          await fetch(`/_agent-native/auth/session?_session=${data.token}`, {
+            credentials: "include",
+          });
+          window.location.reload();
+        } else if (Date.now() - start > 120_000) {
+          clearInterval(desktopPollRef.current!);
+          desktopPollRef.current = null;
+        }
+      } catch {
+        if (Date.now() - start > 120_000) {
+          clearInterval(desktopPollRef.current!);
+          desktopPollRef.current = null;
+        }
+      }
+    }, 1500);
+  }
 
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -199,6 +250,10 @@ export function GoogleConnectBanner({
   }, [wantAddAccount, addAccountUrl.data, accounts.length]);
 
   function handleConnect() {
+    if (isElectron) {
+      signInViaDesktopBrowser();
+      return;
+    }
     if (showWizard && allConfigured) {
       setWantAuthUrl(true);
     } else {
@@ -207,6 +262,10 @@ export function GoogleConnectBanner({
   }
 
   function handleAddAccount() {
+    if (isElectron) {
+      signInViaDesktopBrowser(true);
+      return;
+    }
     setWantAddAccount(true);
   }
 

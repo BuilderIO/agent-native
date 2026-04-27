@@ -1,7 +1,8 @@
-import { TEMPLATES, visibleTemplates } from "./templates";
+import { coreTemplates } from "./templates";
 export {
   TEMPLATES,
   visibleTemplates,
+  coreTemplates,
   getTemplate,
   allTemplateNames,
 } from "./templates";
@@ -62,10 +63,10 @@ export interface FrameSettings {
 }
 
 /**
- * Default apps derived from the template registry. One entry per visible
- * template — hidden templates (like `macros`) are excluded.
+ * Default apps derived from the template registry. Only core templates are
+ * included — non-core apps can still be added manually via "Add app".
  */
-export const DEFAULT_APPS: AppConfig[] = visibleTemplates().map((t) => ({
+export const DEFAULT_APPS: AppConfig[] = coreTemplates().map((t) => ({
   id: t.name,
   name: t.label,
   icon: t.icon,

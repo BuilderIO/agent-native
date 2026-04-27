@@ -31,9 +31,7 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .tooltip("Clips")
         .menu(&menu)
         .icon(tray_icon)
-        // Colored rounded-square brand icon (not a template) —
-        // stays purple in both light and dark menu bars.
-        .icon_as_template(false)
+        .icon_as_template(true)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => toggle_popover(app),

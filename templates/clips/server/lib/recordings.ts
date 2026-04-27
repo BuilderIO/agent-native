@@ -2,7 +2,10 @@ import { and, desc, eq } from "drizzle-orm";
 import type { H3Event } from "h3";
 import { getDb, getDbExec, schema } from "../db/index.js";
 import { getSession } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
 import { readAppState } from "@agent-native/core/application-state";
 import { isPostgres } from "@agent-native/core/db";
 
@@ -40,6 +43,12 @@ export async function getActiveOrganizationId(
       // framework helper not available in this context — fall through
     }
   }
+
+  // Request-context ALS stores the orgId resolved by the framework middleware
+  // (e.g. from better-auth session). This covers action calls where the H3
+  // event isn't forwarded.
+  const ctxOrgId = getRequestOrgId();
+  if (ctxOrgId) return ctxOrgId;
 
   const email = getRequestUserEmail();
   const exec = getDbExec();

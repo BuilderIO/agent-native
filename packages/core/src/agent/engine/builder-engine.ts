@@ -54,7 +54,6 @@ export const BUILDER_SUPPORTED_MODELS = [
   "qwen3-coder",
   "kimi-k2-5",
   "deepseek-v3-1",
-  "z-ai-glm-4-5",
 ] as const;
 
 export const BUILDER_DEFAULT_MODEL = "claude-sonnet-4-6";

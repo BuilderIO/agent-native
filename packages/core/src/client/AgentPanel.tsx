@@ -38,6 +38,7 @@ import {
   IconTerminal2,
   IconSettings,
   IconLayoutSidebarRightCollapse,
+  IconLayoutSidebarRightExpand,
   IconLayoutGrid,
   IconCheck,
   IconPlus,
@@ -1798,7 +1799,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
       )}
       title="Toggle agent"
     >
-      <IconMessage size={16} />
+      <IconLayoutSidebarRightExpand size={16} />
     </button>
   );
 }

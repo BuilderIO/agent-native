@@ -20,6 +20,11 @@ export type {
   CopyContext,
   FrameworkAdapter,
   PinEvent,
+  DrawStroke,
+  DrawToolType,
+  TextNote,
+  QueuedAnnotation,
+  ToolbarMode,
 } from "./types/index.js";
 
 // Storage (browser-safe only — FileStore is in @agent-native/pinpoint/server)
@@ -53,7 +58,11 @@ export { genericAdapter } from "./frameworks/generic-adapter.js";
 
 // Output
 export { formatPins } from "./output/formatter.js";
-export { formatPinsForAgent } from "./output/agent-context.js";
+export {
+  formatPinsForAgent,
+  formatQueueForAgent,
+  formatRichPinContext,
+} from "./output/agent-context.js";
 
 // Plugins
 export {

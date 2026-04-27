@@ -12,6 +12,8 @@ import {
   IconCode,
   IconMessageCircle,
   IconSettings,
+  IconScreenShare,
+  IconBrush,
 } from "@tabler/icons-react";
 import type { AppDefinition } from "@shared/app-registry";
 import { UpdateIndicator } from "./UpdateIndicator.js";
@@ -29,6 +31,8 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   Users: IconUsers,
   Code: IconCode,
   MessageCircle: IconMessageCircle,
+  ScreenShare: IconScreenShare,
+  Brush: IconBrush,
 };
 
 interface SidebarProps {

@@ -15,6 +15,7 @@ export {
   removeSession,
   getSessionEmail,
   runAuthGuard,
+  setDesktopExchange,
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";

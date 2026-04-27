@@ -12,6 +12,8 @@ import {
   IconCode,
   IconX,
   IconPlus,
+  IconScreenShare,
+  IconBrush,
 } from "@tabler/icons-react";
 import type { Tab } from "../App.js";
 
@@ -26,6 +28,8 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   BrandJira: IconBrandJira,
   ClipboardList: IconClipboardList,
   Users: IconUsers,
+  ScreenShare: IconScreenShare,
+  Brush: IconBrush,
 };
 
 interface TabBarProps {

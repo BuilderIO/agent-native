@@ -1830,6 +1830,223 @@ importers:
         specifier: ^4.1.5
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@24.12.2)(happy-dom@20.8.9)(jsdom@29.0.2(@noble/hashes@2.0.1)(canvas@3.2.3))(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
+  templates/design:
+    dependencies:
+      '@agent-native/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@agent-native/pinpoint':
+        specifier: workspace:*
+        version: link:../../packages/pinpoint
+      '@libsql/client':
+        specifier: ^0.15.8
+        version: 0.15.15
+      '@tabler/icons-react':
+        specifier: ^3.40.0
+        version: 3.41.1(react@19.2.5)
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(better-sqlite3@12.8.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
+      h3:
+        specifier: ^2.0.1-rc.20
+        version: 2.0.1-rc.20(crossws@0.4.5(srvx@0.11.15))
+      html2canvas:
+        specifier: ^1.4.1
+        version: 1.4.1
+      isbot:
+        specifier: ^5
+        version: 5.1.37
+      jspdf:
+        specifier: ^4.2.1
+        version: 4.2.1
+      jszip:
+        specifier: ^3.10.1
+        version: 3.10.1
+      nanoid:
+        specifier: ^5.1.9
+        version: 5.1.9
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@radix-ui/react-accordion':
+        specifier: ^1.2.12
+        version: 1.2.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-alert-dialog':
+        specifier: ^1.1.15
+        version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-aspect-ratio':
+        specifier: ^1.1.8
+        version: 1.1.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-avatar':
+        specifier: ^1.1.11
+        version: 1.1.11(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-checkbox':
+        specifier: ^1.3.2
+        version: 1.3.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-collapsible':
+        specifier: ^1.1.12
+        version: 1.1.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-context-menu':
+        specifier: ^2.2.16
+        version: 2.2.16(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-dialog':
+        specifier: ^1.1.14
+        version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-dropdown-menu':
+        specifier: ^2.1.15
+        version: 2.1.16(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-hover-card':
+        specifier: ^1.1.15
+        version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-label':
+        specifier: ^2.1.7
+        version: 2.1.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-menubar':
+        specifier: ^1.1.16
+        version: 1.1.16(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-navigation-menu':
+        specifier: ^1.2.14
+        version: 1.2.14(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-popover':
+        specifier: ^1.1.14
+        version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-progress':
+        specifier: ^1.1.8
+        version: 1.1.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-radio-group':
+        specifier: ^1.3.7
+        version: 1.3.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-scroll-area':
+        specifier: ^1.2.9
+        version: 1.2.10(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-select':
+        specifier: ^2.2.5
+        version: 2.2.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-separator':
+        specifier: ^1.1.7
+        version: 1.1.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-slider':
+        specifier: ^1.3.5
+        version: 1.3.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-slot':
+        specifier: ^1.2.3
+        version: 1.2.4(@types/react@19.2.14)(react@19.2.5)
+      '@radix-ui/react-switch':
+        specifier: ^1.2.5
+        version: 1.2.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-tabs':
+        specifier: ^1.1.12
+        version: 1.1.13(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-toast':
+        specifier: ^1.2.15
+        version: 1.2.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-toggle':
+        specifier: ^1.1.10
+        version: 1.1.10(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-toggle-group':
+        specifier: ^1.1.11
+        version: 1.1.11(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@radix-ui/react-tooltip':
+        specifier: ^1.2.7
+        version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@react-router/dev':
+        specifier: ^7.13.1
+        version: 7.14.0(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))(wrangler@4.81.0)(yaml@2.8.3)
+      '@react-router/fs-routes':
+        specifier: ^7.13.1
+        version: 7.14.0(@react-router/dev@7.14.0(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(react-router@7.14.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.3)(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))(wrangler@4.81.0)(yaml@2.8.3))(typescript@6.0.3)
+      '@tailwindcss/vite':
+        specifier: 'catalog:'
+        version: 4.2.4(vite@8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+      '@tanstack/react-query':
+        specifier: ^5.99.2
+        version: 5.99.2(react@19.2.5)
+      '@types/node':
+        specifier: ^24.2.1
+        version: 24.12.2
+      '@types/react':
+        specifier: ^19.2.14
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.2.3
+        version: 19.2.3(@types/react@19.2.14)
+      '@xterm/addon-fit':
+        specifier: ^0.11.0
+        version: 0.11.0
+      '@xterm/addon-web-links':
+        specifier: ^0.12.0
+        version: 0.12.0
+      '@xterm/xterm':
+        specifier: ^6.0.0
+        version: 6.0.0
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      cmdk:
+        specifier: ^1.1.1
+        version: 1.1.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      embla-carousel-react:
+        specifier: ^8.6.0
+        version: 8.6.0(react@19.2.5)
+      input-otp:
+        specifier: ^1.4.2
+        version: 1.4.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      lucide-react:
+        specifier: ^1.8.0
+        version: 1.8.0(react@19.2.5)
+      next-themes:
+        specifier: ^0.4.6
+        version: 0.4.6(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      prettier:
+        specifier: ^3.6.2
+        version: 3.8.1
+      react:
+        specifier: ^19.2.5
+        version: 19.2.5
+      react-day-picker:
+        specifier: ^9.14.0
+        version: 9.14.0(react@19.2.5)
+      react-dom:
+        specifier: ^19.2.5
+        version: 19.2.5(react@19.2.5)
+      react-hook-form:
+        specifier: ^7.71.2
+        version: 7.72.1(react@19.2.5)
+      react-resizable-panels:
+        specifier: ^4.10.0
+        version: 4.10.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      react-router:
+        specifier: ^7.13.1
+        version: 7.14.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      recharts:
+        specifier: ^3.8.1
+        version: 3.8.1(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react-is@19.2.4)(react@19.2.5)(redux@5.0.1)
+      sonner:
+        specifier: ^2.0.7
+        version: 2.0.7(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      tailwind-merge:
+        specifier: ^3.5.0
+        version: 3.5.0
+      tailwindcss:
+        specifier: 'catalog:'
+        version: 4.2.4
+      tsx:
+        specifier: ^4.20.3
+        version: 4.21.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vaul:
+        specifier: ^1.1.2
+        version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      vite:
+        specifier: 'catalog:'
+        version: 8.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
+
   templates/dispatch:
     dependencies:
       '@agent-native/core':
@@ -3400,6 +3617,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/pinpoint':
+        specifier: workspace:*
+        version: link:../../packages/pinpoint
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -3927,6 +4147,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/pinpoint':
+        specifier: workspace:*
+        version: link:../../packages/pinpoint
       '@libsql/client':
         specifier: ^0.15.0
         version: 0.15.15
@@ -3948,6 +4171,9 @@ importers:
       isbot:
         specifier: ^5
         version: 5.1.37
+      nanoid:
+        specifier: ^5.1.9
+        version: 5.1.9
       remotion:
         specifier: ^4.0.434
         version: 4.0.443(react-dom@19.2.5(react@19.2.5))(react@19.2.5)

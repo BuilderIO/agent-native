@@ -32,10 +32,11 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
 
-| State Key    | Purpose                                   | Direction                  |
-| ------------ | ----------------------------------------- | -------------------------- |
-| `navigation` | Current view, composition ID              | UI -> Agent (read-only)    |
-| `navigate`   | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
+| State Key        | Purpose                                   | Direction                  |
+| ---------------- | ----------------------------------------- | -------------------------- |
+| `navigation`     | Current view, composition ID              | UI -> Agent (read-only)    |
+| `navigate`       | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
+| `show-questions` | Trigger question flow overlay in the UI   | Agent -> UI                |
 
 ### Navigation state
 
@@ -56,6 +57,95 @@ Views: `"home"` (studio home), `"composition"` (editing a composition), `"compon
 { "compositionId": "logo-reveal" }
 { "view": "home" }
 ```
+
+### Question Flow
+
+Write to `show-questions` to present structured questions before generating a complex composition. The UI renders a full-screen overlay; the user's answers are sent back to the agent chat automatically.
+
+#### When to Ask Questions
+
+| Scenario                                                            | Questions                              |
+| ------------------------------------------------------------------- | -------------------------------------- |
+| Complex/ambiguous request ("make me a video")                       | Ask 6-10 structured questions          |
+| Specific request with clear direction ("logo reveal for Acme Corp") | Ask 3-5 clarifying questions           |
+| Simple tweaks/follow-ups ("make the text bigger")                   | Skip questions, just do it             |
+| "Decide for me" / "surprise me"                                     | Zero questions — pick a bold direction |
+
+#### Sending Questions to the UI
+
+Use `writeAppState("show-questions", ...)` or the equivalent HTTP PUT:
+
+```json
+{
+  "questions": [
+    {
+      "id": "style",
+      "type": "text-options",
+      "question": "What animation style are you going for?",
+      "options": [
+        { "label": "Cinematic & Epic", "value": "cinematic" },
+        { "label": "Clean & Corporate", "value": "corporate" },
+        { "label": "Playful & Bouncy", "value": "playful" },
+        { "label": "Minimal & Elegant", "value": "minimal" },
+        { "label": "Retro & Glitchy", "value": "retro" }
+      ],
+      "required": true
+    },
+    {
+      "id": "duration",
+      "type": "slider",
+      "question": "How long should the video be?",
+      "description": "Duration in seconds",
+      "min": 3,
+      "max": 30,
+      "required": true
+    },
+    {
+      "id": "color-mood",
+      "type": "color-options",
+      "question": "Pick a color mood",
+      "options": [
+        { "label": "Ocean", "value": "#0EA5E9", "color": "#0EA5E9" },
+        { "label": "Forest", "value": "#22C55E", "color": "#22C55E" },
+        { "label": "Sunset", "value": "#F97316", "color": "#F97316" },
+        { "label": "Midnight", "value": "#6366F1", "color": "#6366F1" },
+        { "label": "Rose", "value": "#F43F5E", "color": "#F43F5E" },
+        { "label": "Neutral", "value": "#64748B", "color": "#64748B" }
+      ]
+    },
+    {
+      "id": "audience",
+      "type": "text-options",
+      "question": "Who is the target audience?",
+      "options": [
+        { "label": "Social media", "value": "social" },
+        { "label": "Product demo", "value": "demo" },
+        { "label": "Presentation", "value": "presentation" },
+        { "label": "Marketing ad", "value": "ad" },
+        { "label": "Internal/team", "value": "internal" }
+      ]
+    },
+    {
+      "id": "details",
+      "type": "freeform",
+      "question": "Any specific details or references?",
+      "description": "Brand names, URLs, specific text to include, mood references, etc."
+    }
+  ]
+}
+```
+
+#### Question Types
+
+| Type            | UI             | Use for                                     |
+| --------------- | -------------- | ------------------------------------------- |
+| `text-options`  | Button group   | Animation style, audience, format choices   |
+| `color-options` | Color swatches | Color mood, palette selection               |
+| `slider`        | Range slider   | Duration, speed, intensity, element count   |
+| `file`          | File upload    | Logo, brand assets, reference videos/images |
+| `freeform`      | Text input     | Brand details, specific requirements, notes |
+
+When the user clicks **Continue**, their answers are sent to the agent chat as a structured message. When they click **Skip**, a "decide for me" message is sent instead.
 
 ## Agent Operations
 
@@ -1399,6 +1489,81 @@ interface HoverAnimationResult {
 
 ---
 
+## Tweaks Panel
+
+The tweaks panel (`app/components/TweaksPanel.tsx`) provides a floating, draggable UI for adjusting composition parameters in real-time. It matches the pattern used in the slides and design templates.
+
+### Architecture
+
+- **Toggle**: `IconAdjustments` button in the composition toolbar (next to Save)
+- **Panel**: Fixed-position, draggable panel that floats over the video preview
+- **State**: Tweak values are stored in component state and can be propagated to composition props or CSS custom properties
+- **Types**: Uses `TweakDefinition` from `app/lib/design-systems.ts`
+
+### Default Tweaks
+
+The panel ships with `DEFAULT_COMPOSITION_TWEAKS` covering:
+
+| Tweak ID         | Type           | Controls                                            |
+| ---------------- | -------------- | --------------------------------------------------- |
+| `accentColor`    | color-swatches | Accent color (Cyan, Blue, Green, Pink, Gold)        |
+| `bgColor`        | color-swatches | Background color (Black, Slate, Zinc, Stone, White) |
+| `fps`            | segment        | Frame rate (24, 30, 60)                             |
+| `easing`         | segment        | Default easing (Linear, Spring, Expo)               |
+| `animationSpeed` | slider         | Animation speed (0-100)                             |
+| `motionBlur`     | toggle         | Motion blur on/off                                  |
+
+### Tweak Definition Format
+
+```typescript
+interface TweakDefinition {
+  id: string;
+  label: string;
+  type: "color-swatches" | "segment" | "toggle" | "slider";
+  options?: { value: string; label: string; color?: string }[];
+  defaultValue: string | number | boolean;
+  cssVar?: string; // CSS custom property to update
+  min?: number; // Slider min
+  max?: number; // Slider max
+  step?: number; // Slider step
+}
+```
+
+### Agent Integration
+
+When the agent generates a composition, it can include custom tweak definitions in the composition output. Tweaks allow users to fine-tune visual parameters without re-prompting. The agent should generate tweaks that expose the most impactful visual controls for the specific composition type.
+
+**Example: generating tweaks for a logo reveal composition:**
+
+```typescript
+const tweaks: TweakDefinition[] = [
+  {
+    id: "accentColor",
+    label: "Brand color",
+    type: "color-swatches",
+    options: [
+      { value: "#00E5FF", label: "Cyan", color: "#00E5FF" },
+      { value: "#FF6B35", label: "Orange", color: "#FF6B35" },
+    ],
+    defaultValue: "#00E5FF",
+    cssVar: "--ds-accent",
+  },
+  {
+    id: "revealSpeed",
+    label: "Reveal speed",
+    type: "slider",
+    defaultValue: 50,
+    min: 10,
+    max: 100,
+    step: 5,
+  },
+];
+```
+
+When a design system is active, the tweaks panel automatically includes the design system's accent color and font options from `DESIGN_SYSTEM_PRESETS` in `app/lib/design-systems.ts`.
+
+---
+
 ## Production Deployment
 
 - **Standard**: `pnpm build`
@@ -1424,6 +1589,119 @@ All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`,
 - **Never use the Sparkles icon** — it is reserved and must not be used anywhere in the UI.
 
 ### Agent Chat Integration
+
+---
+
+## Visual Quality Standards — Anti-AI-Slop Rules
+
+### Blacklisted Patterns (NEVER use these)
+
+- Aggressive purple/blue gradients as primary backgrounds
+- Left-border accent cards (the colored left stripe pattern)
+- Emoji as icons — always use Tabler icons from `@tabler/icons-react`
+- Inline SVG illustrations or hand-drawn SVG imagery
+- Inter, Roboto, or Arial as primary fonts — use distinctive typography
+- Fake statistics ("87% of users", "3x faster") — only real data
+- Fake testimonials or quotes
+- Generic stock-photo-style imagery
+- Decorative sparkle/glow effects
+- Excessive drop shadows or glassmorphism
+
+### Required Quality Checks
+
+- Body text minimum 24px on 1920x1080 compositions, 16px on web UI
+- "Earn its place" — every element must justify its existence
+- Empty space is solved with composition, not filler content
+- When you think "adding this would look better" — that is usually a sign of AI slop
+- Default to restraint: fewer elements, more whitespace, stronger hierarchy
+
+### Modern CSS Techniques to Use
+
+- `text-wrap: balance` for headings, `text-wrap: pretty` for body
+- `oklch()` color space for perceptually uniform color manipulation
+- CSS Grid with named areas for complex layouts
+- `color-mix()` for dynamic color variants
+- Container queries for component-responsive design
+- `:has()` selector for parent-based styling
+
+---
+
+## Design Philosophy Reference
+
+When the user's request is vague about visual direction, recommend from these schools:
+
+### Information Architecture School
+
+- **Pentagram**: Grid-first, black/white/red, structured information hierarchy
+- **Stamen Design**: Data-driven, cartographic precision, clear visual encoding
+
+### Motion Poetics School
+
+- **Locomotive**: Smooth scroll, parallax depth, cinematic pacing
+- **Active Theory**: WebGL experiments, particle systems, immersive 3D
+- **Field.io**: Generative art, algorithmic beauty, mathematical precision
+
+### Minimalism School
+
+- **Experimental Jetset**: Swiss typography, geometric forms, pure structure
+- **Muller-Brockmann**: Grid systems, objective communication, typographic hierarchy
+- **Build**: Reduction to essence, mono-font, pure whitespace
+
+### Eastern Philosophy School
+
+- **Kenya Hara**: Ma (negative space), simplicity as depth, emptiness as design
+- **Takram**: Craft meets technology, material honesty, subtle animation
+
+**Key insight**: Describe mood, not layout. Short emotional prompts outperform detailed layout specifications.
+
+---
+
+## Animation Best Practices
+
+### Narrative Structure: Slow-Fast-Boom-Stop
+
+Every animation should follow this 5-segment pacing:
+
+- S1 Trigger (~15%): Slow, deliberate setup
+- S2 Generate (~15%): Building momentum
+- S3 Process (~40%): Main action, dynamic motion
+- S4 Burst (~20%): Peak energy, climactic moment
+- S5 Settle (~10%): Quick resolution, satisfying end
+
+NEVER use uniform pacing across an entire animation.
+
+### Easing Philosophy
+
+- `expoOut` is the DEFAULT main easing (not easeOut or linear) — gives digital elements physical weight
+- `overshoot` for toggles, buttons, interactive elements
+- `spring` for physical settling and bouncing
+- `linear` ONLY for continuous motion (progress bars, loading)
+- Never use `ease` or `ease-in-out` — too generic
+
+### 8 Motion Language Principles
+
+1. No pure black (#000) or white (#FFF) backgrounds — use tinted neutrals
+2. Show process, not magic results — animate the work happening
+3. Hand-drawn mouse trajectories (Bezier curves + subtle noise), never robotic straight lines
+4. Logo morph-convergence (never simple fade-in for brand reveals)
+5. Serif + sans-serif dual typography for hierarchy
+6. Focus switching uses opacity + brightness + BLUR (blur is mandatory for depth)
+7. Every interactive element needs a hover state with scale + shadow shift
+8. Camera movements should feel like a human operator (slight drift, not perfectly smooth)
+
+---
+
+## Brand Asset Protocol
+
+When using design system tokens in generated content, follow this hierarchy:
+
+1. Logo > Product Photo > UI Screenshot > Colors > Fonts
+2. Always verify brand colors from the design system — never approximate
+3. Use design system's `imageStyle.styleDescription` in image generation prompts
+4. Reference design system's `typography.headingFont` and `bodyFont`
+5. Apply design system's spacing and border tokens consistently
+
+---
 
 To submit a prompt to the agent for code generation, use `@agent-native/core`:
 

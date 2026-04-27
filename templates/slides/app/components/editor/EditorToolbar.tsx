@@ -381,9 +381,9 @@ export default function EditorToolbar({
             width={220}
           >
             <div className="py-1.5">
-              {/* IconLayout section */}
+              {/* Layout section */}
               <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
-                IconLayout
+                Layout
               </div>
               {slideLayoutOptions.map((opt) => (
                 <button

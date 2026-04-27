@@ -1,16 +1,20 @@
 import { Tabs } from "expo-router";
-import { Feather, FontAwesome5 } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { useApps } from "../../lib/use-apps";
 
 /** Map tab file names to app IDs in the config */
 const TAB_TO_APP_ID: Record<string, string> = {
   index: "mail",
   calendar: "calendar",
+  slides: "slides",
   content: "content",
-  clips: "clips",
+  analytics: "analytics",
+  videos: "videos",
   forms: "forms",
-  issues: "issues",
-  recruiting: "recruiting",
+  clips: "clips",
+  design: "design",
+  dispatch: "dispatch",
+  starter: "starter",
 };
 
 export default function TabLayout() {
@@ -21,7 +25,6 @@ export default function TabLayout() {
   /** Returns `undefined` (show tab) or `null` (hide tab) */
   const hrefFor = (tabName: string) => {
     const appId = TAB_TO_APP_ID[tabName];
-    // Settings tab is always visible; unknown tabs default to visible
     if (!appId) return undefined;
     return enabledIds.has(appId) ? undefined : null;
   };
@@ -63,6 +66,17 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="slides"
+        options={{
+          title: "Slides",
+          headerShown: false,
+          href: hrefFor("slides"),
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="airplay" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="content"
         options={{
           title: "Content",
@@ -74,13 +88,24 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="clips"
+        name="analytics"
         options={{
-          title: "Clips",
+          title: "Analytics",
           headerShown: false,
-          href: hrefFor("clips"),
+          href: hrefFor("analytics"),
           tabBarIcon: ({ color, size }) => (
-            <Feather name="video" size={size} color={color} />
+            <Feather name="bar-chart-2" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="videos"
+        options={{
+          title: "Video",
+          headerShown: false,
+          href: hrefFor("videos"),
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="film" size={size} color={color} />
           ),
         }}
       />
@@ -96,24 +121,46 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="issues"
+        name="clips"
         options={{
-          title: "Issues",
+          title: "Clips",
           headerShown: false,
-          href: hrefFor("issues"),
+          href: hrefFor("clips"),
           tabBarIcon: ({ color, size }) => (
-            <FontAwesome5 name="jira" size={size} color={color} />
+            <Feather name="cast" size={size} color={color} />
           ),
         }}
       />
       <Tabs.Screen
-        name="recruiting"
+        name="design"
         options={{
-          title: "Recruiting",
+          title: "Design",
           headerShown: false,
-          href: hrefFor("recruiting"),
+          href: hrefFor("design"),
           tabBarIcon: ({ color, size }) => (
-            <Feather name="users" size={size} color={color} />
+            <Feather name="edit-2" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="dispatch"
+        options={{
+          title: "Dispatch",
+          headerShown: false,
+          href: hrefFor("dispatch"),
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="message-circle" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="starter"
+        options={{
+          title: "Starter",
+          headerShown: false,
+          href: hrefFor("starter"),
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="code" size={size} color={color} />
           ),
         }}
       />
