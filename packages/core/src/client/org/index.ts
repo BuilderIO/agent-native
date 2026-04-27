@@ -5,6 +5,7 @@ export {
   useOrgMembers,
   useOrgInvitations,
   useCreateOrg,
+  useUpdateOrg,
   useInviteMember,
   useAcceptInvitation,
   useRemoveMember,

@@ -9,12 +9,14 @@ import {
   IconMail,
   IconCheck,
   IconLogin,
+  IconPencil,
 } from "@tabler/icons-react";
 import {
   useOrg,
   useOrgMembers,
   useOrgInvitations,
   useCreateOrg,
+  useUpdateOrg,
   useInviteMember,
   useAcceptInvitation,
   useRemoveMember,
@@ -166,6 +168,57 @@ function CreateOrgCard({ description }: { description?: string }) {
   );
 }
 
+function OrgNameDisplay({ name, canEdit }: { name: string; canEdit: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const updateOrg = useUpdateOrg();
+
+  if (!canEdit) return <div className="text-sm font-medium">{name}</div>;
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(name);
+          setEditing(true);
+        }}
+        className="group flex items-center gap-1.5 text-sm font-medium hover:text-foreground/80"
+      >
+        {name}
+        <IconPencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100" />
+      </button>
+    );
+  }
+
+  function save() {
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === name) {
+      setEditing(false);
+      return;
+    }
+    updateOrg.mutate(trimmed, { onSuccess: () => setEditing(false) });
+  }
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") setEditing(false);
+        }}
+        onBlur={save}
+        className="rounded border border-border bg-background px-1.5 py-0.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-foreground"
+        autoFocus
+      />
+      <ErrorText error={updateOrg.error} />
+    </div>
+  );
+}
+
 function MembersCard() {
   const { data: org } = useOrg();
   const { data: membersData, isLoading: isLoadingMembers } = useOrgMembers();
@@ -192,7 +245,7 @@ function MembersCard() {
             <IconBuilding className="h-5 w-5 text-blue-600" />
           </div>
           <div>
-            <div className="text-sm font-medium">{org.orgName}</div>
+            <OrgNameDisplay name={org.orgName ?? ""} canEdit={isOwnerOrAdmin} />
             <div className="text-xs text-muted-foreground">
               {members.length} member{members.length !== 1 ? "s" : ""} · You are{" "}
               {org.role}

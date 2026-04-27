@@ -15,6 +15,7 @@ import { ORG_MIGRATIONS } from "./migrations.js";
 import {
   getMyOrgHandler,
   createOrgHandler,
+  updateOrgHandler,
   switchOrgHandler,
   listMembersHandler,
   removeMemberHandler,
@@ -34,6 +35,7 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  * Routes:
  *   GET    /_agent-native/org/me                          — current user's active org + invites
  *   POST   /_agent-native/org                             — create organization
+ *   PATCH  /_agent-native/org                             — rename organization (owner/admin)
  *   PUT    /_agent-native/org/switch                      — switch active org
  *   GET    /_agent-native/org/members                     — list members of active org
  *   DELETE /_agent-native/org/members/:email              — remove member (owner/admin only)
@@ -128,15 +130,15 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // POST / (create) — mounted last so the more specific routes match first
+    // POST / (create) + PATCH / (rename) — mounted last so the more specific routes match first
     app.use(
       ORG_PREFIX,
       defineEventHandler(async (event: H3Event) => {
-        if (getMethod(event) !== "POST") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-        return createOrgHandler(event);
+        const method = getMethod(event);
+        if (method === "POST") return createOrgHandler(event);
+        if (method === "PATCH") return updateOrgHandler(event);
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
       }),
     );
   };

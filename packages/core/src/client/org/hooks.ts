@@ -142,6 +142,20 @@ export function useRemoveMember() {
   });
 }
 
+export function useUpdateOrg() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch(ORG_BASE, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}
+
 export function useSwitchOrg() {
   const qc = useQueryClient();
   return useMutation({
