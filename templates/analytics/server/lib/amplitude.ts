@@ -120,12 +120,15 @@ export async function getUserSegmentation(
   end: string,
   groupBy?: string,
 ): Promise<AmplitudeSegmentationResponse> {
+  const eventObj: Record<string, unknown> = { event_type: eventType };
+  if (groupBy) {
+    eventObj.group_by = [{ type: "event", value: groupBy }];
+  }
   const params = new URLSearchParams({
-    e: JSON.stringify({ event_type: eventType }),
+    e: JSON.stringify(eventObj),
     start,
     end,
   });
-  if (groupBy) params.set("g", groupBy);
   return apiGet<AmplitudeSegmentationResponse>(
     `/events/segmentation?${params.toString()}`,
   );

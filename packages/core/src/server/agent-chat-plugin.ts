@@ -2401,9 +2401,7 @@ export function createAgentChatPlugin(
             ? devPrompt + resources + schemaBlock
             : basePrompt + resources + schemaBlock;
 
-          const model =
-            options?.model ??
-            "claude-sonnet-4-6";
+          const model = options?.model ?? "claude-sonnet-4-6";
 
           // Build tools — same as interactive handler but WITHOUT call-agent
           // to prevent infinite recursive A2A loops (agent calling itself).
@@ -2538,9 +2536,7 @@ export function createAgentChatPlugin(
             engineOption: options?.engine,
             apiKey: options?.apiKey,
           });
-          const model =
-            options?.model ??
-            "claude-sonnet-4-6";
+          const model = options?.model ?? "claude-sonnet-4-6";
 
           // Same actions as A2A — without call-agent to prevent loops.
           // In dev mode, template actions go through shell, not native tools.
@@ -2890,6 +2886,19 @@ export function createAgentChatPlugin(
         jobTools = createJobTools();
       } catch {}
 
+      // Lean mode: only template actions + essential framework tools. Drop
+      // web-request, browser tools, teams, jobs, automations, notifications,
+      // progress, call-agent, and MCP entries to keep the tool list tight and
+      // prevent the LLM from reaching for web-request instead of the
+      // template's native actions (e.g. log-meal).
+      const leanActions = {
+        ...templateScripts,
+        ...resourceScripts,
+        ...refreshScreenTool,
+        ...urlTools,
+        ...chatScripts,
+      };
+
       const prodActions = {
         ...templateScripts,
         ...resourceScripts,
@@ -2961,7 +2970,7 @@ export function createAgentChatPlugin(
       };
 
       const prodHandler = createProductionAgentHandler({
-        actions: prodActions,
+        actions: leanPrompt ? leanActions : prodActions,
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
           if (leanPrompt) {
@@ -2978,9 +2987,7 @@ export function createAgentChatPlugin(
             basePrompt + resources + schemaBlock + extra;
           return _currentRunSystemPrompt;
         },
-        model:
-          options?.model ??
-          "claude-sonnet-4-6",
+        model: options?.model ?? "claude-sonnet-4-6",
         apiKey: options?.apiKey,
         skipFilesContext: leanPrompt,
         onEngineResolved: (engine, model) => {
@@ -3019,28 +3026,30 @@ export function createAgentChatPlugin(
         // template's actions as native tools instead of routing through shell.
         // Templates with structured-arg actions (objects/arrays) need this to
         // avoid round-tripping JSON through the CLI parser.
-        const devActions = devNative
-          ? prodActions
-          : {
-              ...resourceScripts,
-              ...docsScripts,
-              ...(lazyContext ? frameworkContextTool : {}),
-              ...chatScripts,
-              ...callAgentScript,
-              ...teamTools,
-              ...jobTools,
-              ...automationTools,
-              ...notificationTools,
-              ...progressTools,
-              ...fetchTool,
-              ...browserTools,
-              ...mcpActionEntries,
-              ...(await createDevScriptRegistry()),
-            };
+        const devActions = leanPrompt
+          ? leanActions
+          : devNative
+            ? prodActions
+            : {
+                ...resourceScripts,
+                ...docsScripts,
+                ...(lazyContext ? frameworkContextTool : {}),
+                ...chatScripts,
+                ...callAgentScript,
+                ...teamTools,
+                ...jobTools,
+                ...automationTools,
+                ...notificationTools,
+                ...progressTools,
+                ...fetchTool,
+                ...browserTools,
+                ...mcpActionEntries,
+                ...(await createDevScriptRegistry()),
+              };
         // Keep dev action dict in sync with runtime MCP additions. When
         // native-actions mode is on (lean or `nativeActionsInDev`), devActions
         // === prodActions so the prod listener already covers it.
-        if (devActions !== prodActions) {
+        if (devActions !== prodActions && devActions !== leanActions) {
           mcpManager.onChange(() => {
             syncMcpActionEntries(mcpManager, devActions);
           });

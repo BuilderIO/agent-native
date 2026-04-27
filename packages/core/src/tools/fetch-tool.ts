@@ -30,7 +30,7 @@ export function createFetchToolEntry(
   return {
     "web-request": {
       tool: {
-        description: `Make an outbound HTTP request. Use this to call external APIs, webhooks, and services. Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field.`,
+        description: `Make an outbound HTTP request to EXTERNAL APIs, webhooks, and services only. Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered action tools directly (e.g. \`log-meal\`, \`bigquery\`, \`hubspot-deals\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
         parameters: {
           type: "object" as const,
           properties: {
