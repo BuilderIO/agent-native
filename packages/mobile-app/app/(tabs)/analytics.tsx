@@ -3,12 +3,12 @@ import AppWebView from "@/components/AppWebView";
 import { DEFAULT_APPS } from "@agent-native/shared-app-config";
 import { getAppUrl } from "@/lib/get-app-url";
 
-const issues = DEFAULT_APPS.find((a) => a.id === "issues")!;
+const analytics = DEFAULT_APPS.find((a) => a.id === "analytics")!;
 
-export default function IssuesTab() {
+export default function AnalyticsTab() {
   return (
     <SafeAreaView style={styles.container}>
-      <AppWebView url={getAppUrl(issues)} />
+      <AppWebView url={getAppUrl(analytics)} />
     </SafeAreaView>
   );
 }

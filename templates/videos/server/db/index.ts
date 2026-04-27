@@ -13,3 +13,12 @@ registerShareableResource({
   titleColumn: "title",
   getDb,
 });
+
+registerShareableResource({
+  type: "design-system",
+  resourceTable: schema.designSystems,
+  sharesTable: schema.designSystemShares,
+  displayName: "Design System",
+  titleColumn: "title",
+  getDb,
+});

@@ -370,35 +370,112 @@ export function MultiTabAssistantChat({
           enginesData.current?.engine;
         const currentModel: string | undefined = enginesData.current?.model;
 
-        // Prepend the active custom model string (OpenRouter/Ollama) so
-        // it shows up in the picker even when not in supportedModels.
-        const allowedEngines = new Set([
-          "anthropic",
-          "ai-sdk:openai",
-          "ai-sdk:google",
-        ]);
-        const groups: EngineModelGroup[] = enginesData.engines
-          .filter((e: any) => allowedEngines.has(e.name))
-          .map((e: any) => {
-            const models = [...e.supportedModels];
-            if (
-              e.name === currentEngineName &&
-              currentModel &&
-              !models.includes(currentModel)
-            ) {
-              models.unshift(currentModel);
-            }
-            return {
-              engine: e.name,
-              label: e.label,
-              models,
-              configured:
-                e.requiredEnvVars.length === 0 ||
-                e.requiredEnvVars.some((v: string) => configuredKeys.has(v)) ||
-                (e.name === "anthropic" && builderConnected) ||
-                e.name === currentEngineName,
-            };
-          });
+        let groups: EngineModelGroup[];
+
+        if (builderConnected) {
+          // When Builder.io is connected, show all Builder-supported
+          // models grouped by provider — all route through the builder
+          // engine so no individual API keys are needed.
+          const builderEngine = enginesData.engines.find(
+            (e: any) => e.name === "builder",
+          );
+          const builderModels: string[] = builderEngine?.supportedModels ?? [];
+          const claude = builderModels.filter((m: string) =>
+            m.startsWith("claude-"),
+          );
+          const openai = builderModels.filter((m: string) =>
+            m.startsWith("gpt-"),
+          );
+          const gemini = builderModels.filter((m: string) =>
+            m.startsWith("gemini-"),
+          );
+          const other = builderModels.filter(
+            (m: string) =>
+              !m.startsWith("claude-") &&
+              !m.startsWith("gpt-") &&
+              !m.startsWith("gemini-"),
+          );
+
+          groups = [
+            ...(claude.length
+              ? [
+                  {
+                    engine: "builder",
+                    label: "Claude",
+                    models: claude,
+                    configured: true,
+                  },
+                ]
+              : []),
+            ...(openai.length
+              ? [
+                  {
+                    engine: "builder",
+                    label: "OpenAI",
+                    models: openai,
+                    configured: true,
+                  },
+                ]
+              : []),
+            ...(gemini.length
+              ? [
+                  {
+                    engine: "builder",
+                    label: "Gemini",
+                    models: gemini,
+                    configured: true,
+                  },
+                ]
+              : []),
+            ...(other.length
+              ? [
+                  {
+                    engine: "builder",
+                    label: "More",
+                    models: other,
+                    configured: true,
+                  },
+                ]
+              : []),
+          ];
+
+          // Ensure the current model shows in the list even if it's not
+          // in BUILDER_SUPPORTED_MODELS (e.g. custom model string).
+          if (currentModel && !builderModels.includes(currentModel)) {
+            const firstGroup = groups[0];
+            if (firstGroup) firstGroup.models.unshift(currentModel);
+          }
+        } else {
+          // No Builder connection — show SDK engines that have API keys.
+          const allowedEngines = new Set([
+            "anthropic",
+            "ai-sdk:openai",
+            "ai-sdk:google",
+          ]);
+          groups = enginesData.engines
+            .filter((e: any) => allowedEngines.has(e.name))
+            .map((e: any) => {
+              const models = [...e.supportedModels];
+              if (
+                e.name === currentEngineName &&
+                currentModel &&
+                !models.includes(currentModel)
+              ) {
+                models.unshift(currentModel);
+              }
+              return {
+                engine: e.name,
+                label: e.label,
+                models,
+                configured:
+                  e.requiredEnvVars.length === 0 ||
+                  e.requiredEnvVars.some((v: string) =>
+                    configuredKeys.has(v),
+                  ) ||
+                  e.name === currentEngineName,
+              };
+            });
+        }
         setAvailableModels(groups);
         setDefaultModel(currentModel ?? "claude-sonnet-4-6");
       })

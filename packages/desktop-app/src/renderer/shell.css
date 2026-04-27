@@ -462,32 +462,32 @@ body {
 }
 
 .error-icon {
-  color: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.35);
   margin-bottom: 4px;
 }
 
 .error-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.4);
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .error-hint {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.2);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
   text-align: center;
-  max-width: 260px;
+  max-width: 320px;
   line-height: 1.6;
 }
 
 .retry-button {
   margin-top: 6px;
-  padding: 6px 14px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 7px 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 6px;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
   cursor: pointer;
   transition:
     background var(--ease),
@@ -496,8 +496,8 @@ body {
 }
 
 .retry-button:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .retry-button--primary {
@@ -526,7 +526,7 @@ body {
 }
 
 .error-hint--muted {
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.35);
   font-size: 11px;
 }
 
@@ -535,8 +535,8 @@ body {
   flex-direction: column;
   gap: 4px;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
 }
 

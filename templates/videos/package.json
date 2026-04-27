@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/pinpoint": "workspace:*",
     "@libsql/client": "^0.15.0",
     "@remotion/player": "^4.0.434",
     "@remotion/transitions": "^4.0.434",
@@ -30,6 +31,7 @@
     "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
+    "nanoid": "^5.1.9",
     "remotion": "^4.0.434",
     "zod": "^4.3.6"
   },

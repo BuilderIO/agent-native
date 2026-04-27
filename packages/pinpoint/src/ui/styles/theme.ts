@@ -554,6 +554,251 @@ export const overlayStyles = `
   line-height: 1;
 }
 
+/* Mode tabs */
+.pp-mode-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--pp-radius-sm);
+}
+
+.pp-mode-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--pp-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pp-mode-tab:hover {
+  color: var(--pp-text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pp-mode-tab--active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--pp-text);
+}
+
+.pp-mode-tab__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--pp-accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Draw tools bar */
+.pp-draw-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pp-draw-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--pp-radius-sm);
+  background: transparent;
+  color: var(--pp-text-muted);
+  cursor: pointer;
+}
+
+.pp-draw-tool:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--pp-text);
+}
+
+.pp-draw-tool--active {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--pp-accent);
+}
+
+.pp-draw-tool:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* Draw options row */
+.pp-draw-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pp-draw-colors {
+  display: flex;
+  gap: 4px;
+}
+
+.pp-color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pp-color-swatch:hover {
+  opacity: 0.85;
+}
+
+.pp-color-swatch--active {
+  border-color: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+}
+
+.pp-draw-widths {
+  display: flex;
+  gap: 4px;
+}
+
+.pp-width-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--pp-radius-sm);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pp-width-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.pp-width-btn--active {
+  background: rgba(255, 255, 255, 0.1);
+  outline: 1px solid var(--pp-border);
+}
+
+/* Queue badge in toolbar header */
+.pp-toolbar__queue-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--pp-warning);
+  color: #000;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* Popup input row with mic */
+.pp-popup__input-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.pp-popup__input-row .pp-popup__textarea {
+  flex: 1;
+}
+
+.pp-popup__mic {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  margin-top: 4px;
+}
+
+.pp-popup__mic--recording {
+  color: var(--pp-danger) !important;
+  background: rgba(239, 68, 68, 0.15) !important;
+  animation: pp-mic-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pp-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+
+/* Ghost button (Fix this) */
+.pp-btn--ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: none;
+  border-radius: var(--pp-radius-sm);
+  background: transparent;
+  color: var(--pp-warning);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.pp-btn--ghost:hover {
+  background: rgba(234, 179, 8, 0.1);
+}
+
+/* Text input popup for draw-mode text annotations */
+.pp-text-input-popup {
+  position: fixed;
+  z-index: 2147483647;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--pp-bg);
+  border: 1px solid var(--pp-border);
+  border-radius: var(--pp-radius-sm);
+  box-shadow: var(--pp-shadow);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+}
+
+.pp-text-input-popup__indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pp-text-input-popup__input {
+  border: none;
+  background: transparent;
+  color: var(--pp-text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  min-width: 200px;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 4px;

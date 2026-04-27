@@ -4,7 +4,7 @@
  *
  * Usage:  node scripts/dev-electron.ts [--apps calendar,content]
  *
- * By default starts: calendar (port 8082) and content (port 8083).
+ * By default starts the core template set (mail, calendar, slides, etc.).
  * Pass --apps to override, e.g.: --apps calendar,slides
  */
 import { spawn, execSync } from "child_process";
@@ -19,10 +19,15 @@ import path from "path";
 const configPath = path.resolve("packages/shared-app-config/templates.ts");
 const configSrc = fs.readFileSync(configPath, "utf8");
 const PORT_MAP: Record<string, number> = {};
+const CORE_APPS: string[] = [];
 const portRe = /name:\s*"([^"]+)"[\s\S]*?devPort:\s*(\d+)/g;
 let portMatch: RegExpExecArray | null;
 while ((portMatch = portRe.exec(configSrc)) !== null) {
   PORT_MAP[portMatch[1]] = Number(portMatch[2]);
+}
+const coreRe = /name:\s*"([^"]+)"(?:(?!name:)[\s\S])*?core:\s*true/g;
+while ((portMatch = coreRe.exec(configSrc)) !== null) {
+  CORE_APPS.push(portMatch[1]);
 }
 
 // ── Parse --apps flag ──────────────────────────────────────────
@@ -30,7 +35,7 @@ const argsIdx = process.argv.indexOf("--apps");
 const requestedApps =
   argsIdx !== -1 && process.argv[argsIdx + 1]
     ? process.argv[argsIdx + 1].split(",")
-    : ["calendar", "content"];
+    : CORE_APPS;
 
 // ── Kill stale processes on our ports ─────────────────────────
 const portsToUse = requestedApps

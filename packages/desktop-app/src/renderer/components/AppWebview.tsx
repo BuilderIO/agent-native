@@ -286,6 +286,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             ref={webviewRef}
             src={url}
             className="app-webview"
+            style={error ? { visibility: "hidden" } : undefined}
             allowpopups={true}
             webpreferences="contextIsolation=false"
             partition={`persist:app-${app.id}`}
@@ -339,10 +340,10 @@ function ErrorScreen({
   const devCommand = appConfig?.devCommand?.trim();
 
   const title = isDev
-    ? "Dev server not running"
+    ? "Is your dev server running?"
     : `Couldn't connect to ${app.name}`;
   const subtitle = isDev
-    ? `${app.name} couldn't be reached at ${url}.`
+    ? `${app.name} couldn't be reached at ${url}. Start the dev server and retry.`
     : `Check that ${app.name} is running at ${url}.`;
 
   async function copyCommand(cmd: string) {

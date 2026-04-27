@@ -1,0 +1,258 @@
+import { useRef, useEffect, useCallback, useMemo } from "react";
+import { cn } from "@/lib/utils";
+import { DeviceFrame } from "./DeviceFrame";
+import type { ElementInfo, DeviceFrameType } from "./types";
+
+/**
+ * Bridge script injected into the iframe srcdoc.
+ * Sends element info on click/hover to the parent, and accepts
+ * style-change / tweak-value messages from the parent.
+ */
+const BRIDGE_SCRIPT = `
+<script>
+(function() {
+  function getElementInfo(el) {
+    var cs = window.getComputedStyle(el);
+    var rect = el.getBoundingClientRect();
+    var parentDisplay = el.parentElement
+      ? window.getComputedStyle(el.parentElement).display
+      : undefined;
+    return {
+      tagName: el.tagName.toLowerCase(),
+      id: el.id || undefined,
+      classes: Array.from(el.classList),
+      computedStyles: {
+        color: cs.color,
+        backgroundColor: cs.backgroundColor,
+        fontSize: cs.fontSize,
+        fontFamily: cs.fontFamily,
+        fontWeight: cs.fontWeight,
+        lineHeight: cs.lineHeight,
+        letterSpacing: cs.letterSpacing,
+        textAlign: cs.textAlign,
+        display: cs.display,
+        flexDirection: cs.flexDirection,
+        justifyContent: cs.justifyContent,
+        alignItems: cs.alignItems,
+        gap: cs.gap,
+        width: cs.width,
+        height: cs.height,
+        opacity: cs.opacity,
+        paddingTop: cs.paddingTop,
+        paddingRight: cs.paddingRight,
+        paddingBottom: cs.paddingBottom,
+        paddingLeft: cs.paddingLeft,
+        marginTop: cs.marginTop,
+        marginRight: cs.marginRight,
+        marginBottom: cs.marginBottom,
+        marginLeft: cs.marginLeft,
+        borderWidth: cs.borderWidth,
+        borderColor: cs.borderColor,
+        borderRadius: cs.borderRadius,
+      },
+      boundingRect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
+      isFlexContainer: cs.display === 'flex' || cs.display === 'inline-flex',
+      isFlexChild: parentDisplay === 'flex' || parentDisplay === 'inline-flex',
+      parentDisplay: parentDisplay,
+    };
+  }
+
+  var highlightOverlay = document.createElement('div');
+  highlightOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99999;border:2px solid #609FF8;background:rgba(96,159,248,0.08);display:none;';
+  document.body.appendChild(highlightOverlay);
+
+  var selectionOverlay = document.createElement('div');
+  selectionOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99998;border:2px solid #609FF8;background:rgba(96,159,248,0.12);display:none;';
+  document.body.appendChild(selectionOverlay);
+
+  document.addEventListener('click', function(e) {
+    e.preventDefault();
+    var info = getElementInfo(e.target);
+    var rect = e.target.getBoundingClientRect();
+    selectionOverlay.style.display = 'block';
+    selectionOverlay.style.top = rect.top + 'px';
+    selectionOverlay.style.left = rect.left + 'px';
+    selectionOverlay.style.width = rect.width + 'px';
+    selectionOverlay.style.height = rect.height + 'px';
+    window.parent.postMessage({ type: 'element-select', payload: info }, '*');
+  });
+
+  document.addEventListener('mouseover', function(e) {
+    var rect = e.target.getBoundingClientRect();
+    highlightOverlay.style.display = 'block';
+    highlightOverlay.style.top = rect.top + 'px';
+    highlightOverlay.style.left = rect.left + 'px';
+    highlightOverlay.style.width = rect.width + 'px';
+    highlightOverlay.style.height = rect.height + 'px';
+    var info = getElementInfo(e.target);
+    window.parent.postMessage({ type: 'element-hover', payload: info }, '*');
+  });
+
+  document.addEventListener('mouseout', function() {
+    highlightOverlay.style.display = 'none';
+  });
+
+  window.addEventListener('message', function(e) {
+    if (!e.data || !e.data.type) return;
+    if (e.data.type === 'style-change') {
+      var sel = e.data.selector;
+      var prop = e.data.property;
+      var val = e.data.value;
+      var el = sel ? document.querySelector(sel) : null;
+      if (el) el.style[prop] = val;
+    }
+    if (e.data.type === 'tweak-values') {
+      var root = document.documentElement;
+      var vals = e.data.values || {};
+      Object.keys(vals).forEach(function(k) {
+        root.style.setProperty(k, vals[k]);
+      });
+    }
+  });
+})();
+</script>
+`;
+
+interface DesignCanvasProps {
+  content: string;
+  zoom: number;
+  deviceFrame: DeviceFrameType;
+  editMode: boolean;
+  onElementSelect: (info: ElementInfo) => void;
+  onElementHover: (info: ElementInfo) => void;
+  tweakValues: Record<string, string>;
+}
+
+export function DesignCanvas({
+  content,
+  zoom,
+  deviceFrame,
+  editMode,
+  onElementSelect,
+  onElementHover,
+  tweakValues,
+}: DesignCanvasProps) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Build the srcdoc with bridge script injected before </body>
+  const srcdoc = useMemo(() => {
+    const bridgeToInject = editMode ? BRIDGE_SCRIPT : "";
+    if (content.includes("</body>")) {
+      return content.replace("</body>", bridgeToInject + "</body>");
+    }
+    if (content.includes("</html>")) {
+      return content.replace("</html>", bridgeToInject + "</html>");
+    }
+    // No body/html tags — wrap it
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${content}${bridgeToInject}</body></html>`;
+  }, [content, editMode]);
+
+  // Listen for messages from the iframe
+  useEffect(() => {
+    function handleMessage(e: MessageEvent) {
+      if (!e.data || !e.data.type) return;
+      if (e.data.type === "element-select") {
+        onElementSelect(e.data.payload);
+      }
+      if (e.data.type === "element-hover") {
+        onElementHover(e.data.payload);
+      }
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [onElementSelect, onElementHover]);
+
+  // Send tweak values to the iframe whenever they change
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe?.contentWindow) return;
+    iframe.contentWindow.postMessage(
+      { type: "tweak-values", values: tweakValues },
+      "*",
+    );
+  }, [tweakValues]);
+
+  const sendStyleChange = useCallback(
+    (selector: string, property: string, value: string) => {
+      const iframe = iframeRef.current;
+      if (!iframe?.contentWindow) return;
+      iframe.contentWindow.postMessage(
+        { type: "style-change", selector, property, value },
+        "*",
+      );
+    },
+    [],
+  );
+
+  // Expose sendStyleChange for external use
+  useEffect(() => {
+    (window as any).__designCanvasSendStyle = sendStyleChange;
+    return () => {
+      delete (window as any).__designCanvasSendStyle;
+    };
+  }, [sendStyleChange]);
+
+  const deviceWidths: Record<DeviceFrameType, string> = {
+    none: "100%",
+    desktop: "1280px",
+    tablet: "768px",
+    mobile: "375px",
+  };
+
+  const iframeWidth = deviceWidths[deviceFrame];
+
+  const iframeElement = (
+    <iframe
+      ref={iframeRef}
+      srcDoc={srcdoc}
+      sandbox="allow-scripts allow-same-origin"
+      className="border-0 bg-white"
+      style={{
+        width: iframeWidth,
+        height: deviceFrame === "none" ? "100%" : "auto",
+        minHeight: deviceFrame === "none" ? undefined : "600px",
+        aspectRatio:
+          deviceFrame === "tablet"
+            ? "3/4"
+            : deviceFrame === "mobile"
+              ? "9/19.5"
+              : undefined,
+      }}
+      title="Design Preview"
+    />
+  );
+
+  const wrappedContent =
+    deviceFrame === "none" ? (
+      iframeElement
+    ) : (
+      <DeviceFrame type={deviceFrame}>{iframeElement}</DeviceFrame>
+    );
+
+  return (
+    <div className="relative flex-1 h-full overflow-auto">
+      {/* Dot grid background */}
+      <div
+        className="absolute inset-0"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle, hsl(var(--border)) 1px, transparent 1px)",
+          backgroundSize: "24px 24px",
+        }}
+      />
+
+      {/* Canvas area */}
+      <div className="relative flex items-center justify-center min-h-full p-8">
+        <div
+          style={{
+            transform: `scale(${zoom / 100})`,
+            transformOrigin: "center center",
+          }}
+        >
+          {wrappedContent}
+        </div>
+      </div>
+    </div>
+  );
+}

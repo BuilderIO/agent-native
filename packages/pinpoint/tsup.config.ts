@@ -2,17 +2,20 @@ import { defineConfig } from "tsup";
 import { solidPlugin } from "esbuild-plugin-solid";
 
 export default defineConfig([
-  // Browser bundle (includes SolidJS UI)
+  // Browser bundle (includes SolidJS UI — react entry needs solidPlugin too)
   {
-    entry: { "index.browser": "src/index.browser.ts" },
+    entry: {
+      "index.browser": "src/index.browser.ts",
+      react: "src/react.tsx",
+    },
     format: ["esm"],
     dts: true,
     sourcemap: true,
     clean: true,
     external: ["react", "react-dom", "express", "@modelcontextprotocol/sdk"],
+    noExternal: ["solid-js"],
     esbuildPlugins: [solidPlugin({ solid: { generate: "dom" } })],
     esbuildOptions(options) {
-      // Ensure solid-js resolves to browser/DOM version, not server
       options.conditions = ["browser", "solid", "import", "module"];
     },
     banner: { js: '"use client";' },
@@ -24,7 +27,6 @@ export default defineConfig([
       "server/index": "src/server/index.ts",
       "primitives/index": "src/primitives/index.ts",
       "types/index": "src/types/index.ts",
-      react: "src/react.tsx",
       cli: "src/cli.ts",
     },
     format: ["esm"],

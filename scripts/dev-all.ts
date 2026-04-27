@@ -36,34 +36,49 @@ const skipFrame = argv.includes("--no-frame");
 const configPath = path.resolve("packages/shared-app-config/templates.ts");
 const configSrc = fs.readFileSync(configPath, "utf8");
 
-// Quick parse: extract { name, devPort } pairs from TEMPLATES entries.
+// Quick parse: extract { name, devPort, core } from TEMPLATES entries.
 const portMap = new Map<string, number>();
+const coreSet = new Set<string>();
 const re = /name:\s*"([^"]+)"[\s\S]*?devPort:\s*(\d+)/g;
 let m: RegExpExecArray | null;
 while ((m = re.exec(configSrc)) !== null) {
   portMap.set(m[1], Number(m[2]));
 }
+// Second pass for core flags (negative lookahead prevents crossing entry boundaries)
+const coreRe = /name:\s*"([^"]+)"(?:(?!name:)[\s\S])*?core:\s*true/g;
+while ((m = coreRe.exec(configSrc)) !== null) {
+  coreSet.add(m[1]);
+}
 
 // Discover templates
-let templates = fs
+const allTemplates = fs
   .readdirSync(TEMPLATES_DIR)
   .filter((d) => fs.existsSync(path.join(TEMPLATES_DIR, d, "package.json")))
   .sort();
 
+let templates: string[];
+
 if (appsFilter && appsFilter.length > 0) {
-  const known = new Set(templates);
+  const known = new Set(allTemplates);
   const unknown = appsFilter.filter((a) => !known.has(a));
   if (unknown.length > 0) {
     console.warn(
       `\x1b[33m[dev-all]\x1b[0m Warning: unknown apps in --apps: ${unknown.join(", ")}`,
     );
   }
-  templates = templates.filter((t) => appsFilter.includes(t));
+  templates = allTemplates.filter((t) => appsFilter.includes(t));
   if (templates.length === 0) {
     console.error(
       `\x1b[31m[dev-all]\x1b[0m No templates matched --apps; nothing to start`,
     );
     process.exit(1);
+  }
+} else {
+  // Default to core templates only (pass --apps to override)
+  templates = allTemplates.filter((t) => coreSet.has(t));
+  if (templates.length === 0) {
+    // Fallback to all if no core flags found
+    templates = allTemplates;
   }
 }
 

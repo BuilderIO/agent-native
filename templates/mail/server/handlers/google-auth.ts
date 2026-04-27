@@ -1,6 +1,7 @@
 import {
   defineEventHandler,
   getQuery,
+  sendRedirect,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -15,6 +16,7 @@ import {
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
+  setDesktopExchange,
 } from "@agent-native/core/server";
 import {
   getAuthUrl,
@@ -38,17 +40,30 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     };
   }
   try {
+    const q = getQuery(event);
     const redirectUri =
-      (getQuery(event).redirect_uri as string) ||
+      (q.redirect_uri as string) ||
       `${getOrigin(event)}/_agent-native/google/callback`;
     const session = await getSession(event);
     const owner =
       session?.email && session.email !== "local@localhost"
         ? session.email
         : undefined;
-    const desktop = isElectron(event);
-    const state = encodeOAuthState(redirectUri, owner, desktop);
+    const desktop =
+      isElectron(event) || q.desktop === "1" || q.desktop === "true";
+    const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+    const state = encodeOAuthState(
+      redirectUri,
+      owner,
+      desktop,
+      false,
+      undefined,
+      flowId,
+    );
     const url = getAuthUrl(undefined, redirectUri, state);
+    if (q.redirect === "1") {
+      return sendRedirect(event, url, 302);
+    }
     return { url };
   } catch (error: any) {
     setResponseStatus(event, 500);
@@ -86,6 +101,7 @@ export const handleGoogleCallback = defineEventHandler(
         owner: stateOwner,
         desktop,
         addAccount,
+        flowId,
       } = decodeOAuthState(
         query.state as string | undefined,
         `${getOrigin(event)}/_agent-native/google/callback`,
@@ -146,11 +162,16 @@ export const handleGoogleCallback = defineEventHandler(
             desktop,
           });
 
+      if (flowId && sessionToken) {
+        setDesktopExchange(flowId, sessionToken, email);
+      }
+
       // 4. Return platform-appropriate response
       return oauthCallbackResponse(event, email, {
         sessionToken,
         desktop,
         addAccount: isAddAccount,
+        flowId,
       });
     } catch (error: any) {
       const msg = error.message || "Unknown error";
@@ -181,12 +202,25 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       };
     }
     try {
+      const q = getQuery(event);
       const redirectUri =
-        (getQuery(event).redirect_uri as string) ||
+        (q.redirect_uri as string) ||
         `${getOrigin(event)}/_agent-native/google/callback`;
-      const desktop = isElectron(event);
-      const state = encodeOAuthState(redirectUri, session.email, desktop, true);
+      const desktop =
+        isElectron(event) || q.desktop === "1" || q.desktop === "true";
+      const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+      const state = encodeOAuthState(
+        redirectUri,
+        session.email,
+        desktop,
+        true,
+        undefined,
+        flowId,
+      );
       const url = getAuthUrl(undefined, redirectUri, state);
+      if (q.redirect === "1") {
+        return sendRedirect(event, url, 302);
+      }
       return { url };
     } catch (error: any) {
       setResponseStatus(event, 500);
