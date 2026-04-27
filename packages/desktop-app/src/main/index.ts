@@ -636,21 +636,25 @@ app.on("web-contents-created", (_event, contents) => {
   if (contents.getType() !== "webview") return;
 
   contents.setWindowOpenHandler(({ url }) => {
+    console.log("[main] setWindowOpenHandler:", url);
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        console.log("[main] denied non-http(s) protocol:", parsed.protocol);
         return { action: "deny" };
       }
       const provider = matchOAuthProvider(url);
       if (provider) {
-        // Pass the source webview's session so the popup carries its
-        // auth cookies into the OAuth callback (see openOAuthWindow).
+        console.log("[main] opening OAuth window for:", provider.name);
         openOAuthWindow(url, contents.session, provider);
       } else {
-        shell.openExternal(url);
+        console.log("[main] opening external:", url);
+        shell.openExternal(url).catch((err) => {
+          console.error("[main] shell.openExternal failed:", err);
+        });
       }
-    } catch {
-      // malformed URL — ignore
+    } catch (err) {
+      console.error("[main] setWindowOpenHandler error:", err);
     }
     return { action: "deny" };
   });
