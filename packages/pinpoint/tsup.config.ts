@@ -13,6 +13,7 @@ export default defineConfig([
     sourcemap: true,
     clean: true,
     external: ["react", "react-dom", "express", "@modelcontextprotocol/sdk"],
+    noExternal: ["solid-js"],
     esbuildPlugins: [solidPlugin({ solid: { generate: "dom" } })],
     esbuildOptions(options) {
       options.conditions = ["browser", "solid", "import", "module"];
