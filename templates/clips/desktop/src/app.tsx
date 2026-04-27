@@ -441,10 +441,10 @@ export function App() {
   recordingFlowGateRef.current = isRecording || recordingFlowActive;
   const bubbleActive =
     wantsCamera && (popoverVisible || isRecording || recordingFlowActive);
-  // The toolbar is shown whenever the user is in the pre-record or
-  // recording phase, regardless of camera mode — screen-only recordings
-  // still need the Stop / Pause buttons on-screen.
-  const toolbarActive = popoverVisible || isRecording || recordingFlowActive;
+  // The toolbar is recording chrome, not pre-record chrome. Showing it while
+  // the popover is merely open leaves a disabled 0:00 Stop/Pause pill on the
+  // desktop, which reads as a stuck recorder and can trap accessibility clicks.
+  const toolbarActive = isRecording || recordingFlowActive;
 
   useEffect(() => {
     if (!toolbarActive) return;
