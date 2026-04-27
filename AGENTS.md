@@ -115,7 +115,27 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
 
 Tools are mini sandboxed Alpine.js apps that run inside iframes. The agent can create, edit, and manage them at runtime without modifying the app's source code. See the `tools` skill for full patterns.
 
-**IMPORTANT:** When a user asks to "create a tool" or "make a ... tool", use the `create-tool` action with Alpine.js HTML content. Do NOT create React components, actions, or schema changes. Tools can do full CRUD via `dbQuery()`/`dbExec()` — they can even create their own tables at runtime.
+**IMPORTANT:** When a user asks to "create a tool" or "make a ... tool", use the `create-tool` action with Alpine.js HTML content. Do NOT create React components, actions, or schema changes.
+
+### Tool Capabilities
+
+Tools are 100% self-contained. They have FULL access to app data, external APIs, and their own persistent storage — **without any source code changes, new files, Builder, or schema migrations.**
+
+| Helper                               | Purpose                | Example                                       |
+| ------------------------------------ | ---------------------- | --------------------------------------------- |
+| `toolData.set(collection, id, data)` | Persist data per-tool  | `toolData.set('notes', id, { text: '...' })`  |
+| `toolData.list(collection)`          | List persisted items   | `toolData.list('notes')`                      |
+| `toolData.get(collection, id)`       | Get a single item      | `toolData.get('notes', 'note-1')`             |
+| `toolData.remove(collection, id)`    | Delete persisted item  | `toolData.remove('notes', 'note-1')`          |
+| `appAction(name, params)`            | Call any app action    | `appAction('list-emails', { view: 'inbox' })` |
+| `dbQuery(sql, args)`                 | Read from SQL          | `dbQuery('SELECT * FROM tools')`              |
+| `dbExec(sql, args)`                  | Write to SQL           | `dbExec('INSERT INTO ...')`                   |
+| `appFetch(path, options)`            | Call any app endpoint  | `appFetch('/api/settings')`                   |
+| `toolFetch(url, options)`            | External API via proxy | `toolFetch('https://api.github.com/...')`     |
+
+**`toolData` is a built-in per-tool, per-user key-value store.** When a user asks to "add persistence", "save data", or "remember state" in a tool, use `toolData` — no SQL schema, no new tables, no source code, no Builder. Data is automatically scoped by tool ID and user.
+
+**NEVER suggest Builder, source code changes, or new files for tool modifications.** All tool changes go through `update-tool-content` (to edit the Alpine.js HTML) or `toolData` (to persist data).
 
 ### How it works
 
