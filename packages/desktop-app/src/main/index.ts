@@ -649,6 +649,27 @@ app.on("web-contents-created", (_event, contents) => {
 
     contents.on("did-attach-webview" as any, (_e: any, guestContents: any) => {
       console.log(`[main] did-attach-webview guestId=${guestContents?.id}`);
+      // Test: after the first webview loads, try window.open from main process
+      guestContents.once("did-finish-load", () => {
+        console.log(
+          `[main] webview ${guestContents.id} loaded: ${guestContents.getURL()}`,
+        );
+        setTimeout(() => {
+          if (guestContents.id === 2) {
+            console.log("[main] injecting window.open test into webview 2...");
+            guestContents
+              .executeJavaScript(
+                `
+              console.log('[test] about to call window.open');
+              const w = window.open('https://example.com', '_blank');
+              console.log('[test] window.open returned:', w);
+            `,
+              )
+              .then((r: any) => console.log("[main] executeJS result:", r))
+              .catch((e: any) => console.error("[main] executeJS error:", e));
+          }
+        }, 3000);
+      });
       guestContents.setWindowOpenHandler(({ url }: any) => {
         console.log("[main] setWindowOpenHandler (from did-attach):", url);
         try {
