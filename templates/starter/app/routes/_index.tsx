@@ -4,16 +4,14 @@ import {
   IconDatabase,
   IconBolt,
   IconRefresh,
-  IconTool,
 } from "@tabler/icons-react";
-import { Link } from "react-router";
 import { useTheme } from "next-themes";
 import {
   AgentSidebar,
-  AgentToggleButton,
   sendToAgentChat,
   openAgentSidebar,
 } from "@agent-native/core/client";
+import { Sidebar } from "@/components/layout/Sidebar";
 
 export function meta() {
   return [{ title: "Agent Native App" }];
@@ -112,7 +110,8 @@ export default function IndexPage() {
       ];
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex h-screen">
+      <Sidebar />
       <AgentSidebar
         position="right"
         defaultOpen
@@ -120,22 +119,6 @@ export default function IndexPage() {
         suggestions={sidebarSuggestions}
       >
         <div className="flex h-full flex-col">
-          <header className="flex items-center justify-between px-4 py-2 border-b border-border">
-            <h2 className="text-sm font-medium text-foreground">
-              Agent Native
-            </h2>
-            <div className="flex items-center gap-2">
-              <Link
-                to="/tools"
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <IconTool className="h-3.5 w-3.5" />
-                Tools
-              </Link>
-              <AgentToggleButton />
-            </div>
-          </header>
-
           <div className="flex flex-1 flex-col items-center justify-center px-6">
             <div className="w-full max-w-xl space-y-6">
               <h1 className="text-center text-3xl font-semibold tracking-tight text-foreground">
@@ -164,7 +147,7 @@ export default function IndexPage() {
                   <button
                     onClick={submit}
                     disabled={!prompt.trim()}
-                    className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background disabled:opacity-20"
+                    className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background disabled:opacity-20 cursor-pointer"
                   >
                     <IconArrowRight className="h-3.5 w-3.5" />
                   </button>
@@ -180,7 +163,7 @@ export default function IndexPage() {
                       markVisited();
                       sendToAgentChat({ message: suggestion });
                     }}
-                    className="rounded-full border border-border/60 px-3.5 py-1.5 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                    className="rounded-full border border-border/60 px-3.5 py-1.5 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground cursor-pointer"
                   >
                     {suggestion}
                   </button>
@@ -205,7 +188,7 @@ export default function IndexPage() {
                 </a>
                 <button
                   onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                  className="rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 text-left"
+                  className="rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 text-left cursor-pointer"
                 >
                   <p className="text-[13px] font-medium text-foreground">
                     Theme
@@ -225,7 +208,7 @@ export default function IndexPage() {
                       openAgentSidebar();
                       sendToAgentChat({ message, submit: true });
                     }}
-                    className="flex items-center gap-1.5 rounded-full border border-border/40 px-3 py-1.5 text-xs text-muted-foreground/50 hover:bg-accent/50 hover:text-foreground hover:border-border transition-colors"
+                    className="flex items-center gap-1.5 rounded-full border border-border/40 px-3 py-1.5 text-xs text-muted-foreground/50 hover:bg-accent/50 hover:text-foreground hover:border-border cursor-pointer"
                   >
                     <Icon className="h-3.5 w-3.5" />
                     {label}
