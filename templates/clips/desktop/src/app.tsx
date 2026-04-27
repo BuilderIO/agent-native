@@ -48,6 +48,9 @@ const DEFAULT_URL = import.meta.env.DEV
   ? "http://localhost:8094"
   : "https://clips.agent-native.com";
 
+const MACOS_CAPTURE_PERMISSION_MESSAGE =
+  "Recording permission is blocked. Open System Settings → Privacy & Security and enable Camera, Microphone, and Screen & System Audio Recording for Clips. In Tauri dev, macOS may list the debug binary separately from Ghostty or node, so restart Clips after granting it.";
+
 function loadString(key: string, fallback: string): string {
   try {
     const v = localStorage.getItem(key);
@@ -550,9 +553,7 @@ export function App() {
           msg.includes("sandbox") ||
           err?.name === "NotAllowedError"
         ) {
-          setCameraError(
-            "Camera access blocked. Open System Settings → Privacy & Security → Camera and enable your terminal app, then restart Clips.",
-          );
+          setCameraError(MACOS_CAPTURE_PERMISSION_MESSAGE);
         } else {
           setCameraError(`Camera unavailable: ${msg}`);
         }
@@ -835,13 +836,16 @@ export function App() {
         : "";
     const message =
       startError instanceof Error ? startError.message : String(startError);
+    if (errName === "AbortError" || /was cancelled|dismissed/i.test(message)) {
+      return;
+    }
     if (
       errName === "NotAllowedError" ||
-      errName === "AbortError" ||
-      /NotAllowedError|permission denied by system|was cancelled|dismissed/i.test(
+      /NotAllowedError|permission denied by system|not allowed by the user agent|denied permission/i.test(
         message,
       )
     ) {
+      setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
       return;
     }
     setRecError(message);
