@@ -113,8 +113,8 @@ export function App() {
     loadBool(CAM_ON_KEY, true),
   );
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
-  const [voiceShortcut, setVoiceShortcut] =
-    useState<VoiceShortcutPreference>(() => {
+  const [voiceShortcut, setVoiceShortcut] = useState<VoiceShortcutPreference>(
+    () => {
       const saved = loadString(VOICE_SHORTCUT_KEY, "fn");
       return saved === "cmd-shift-space" ||
         saved === "ctrl-shift-space" ||
@@ -122,7 +122,8 @@ export function App() {
         saved === "fn"
         ? saved
         : "fn";
-    });
+    },
+  );
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(() => {
     const saved = loadString(VOICE_MODE_KEY, "push-to-talk");
     return saved === "toggle" ? "toggle" : "push-to-talk";
@@ -972,12 +973,12 @@ export function App() {
         </div>
         {showSettings ? (
           <Setup
-          initial={serverUrl}
-          voiceShortcut={voiceShortcut}
-          voiceMode={voiceMode}
-          onVoiceShortcutChange={setVoiceShortcut}
-          onVoiceModeChange={setVoiceMode}
-          onConnect={(url) => {
+            initial={serverUrl}
+            voiceShortcut={voiceShortcut}
+            voiceMode={voiceMode}
+            onVoiceShortcutChange={setVoiceShortcut}
+            onVoiceModeChange={setVoiceMode}
+            onConnect={(url) => {
               saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
               setServerUrl(url.replace(/\/+$/, ""));
               setShowSettings(false);
@@ -1830,9 +1831,7 @@ function Setup({
           className="setup-select"
           value={voiceShortcut}
           onChange={(event) =>
-            onVoiceShortcutChange(
-              event.target.value as VoiceShortcutPreference,
-            )
+            onVoiceShortcutChange(event.target.value as VoiceShortcutPreference)
           }
         >
           <option value="fn">Fn</option>
@@ -1849,7 +1848,9 @@ function Setup({
           id="voice-mode"
           className="setup-select"
           value={voiceMode}
-          onChange={(event) => onVoiceModeChange(event.target.value as VoiceMode)}
+          onChange={(event) =>
+            onVoiceModeChange(event.target.value as VoiceMode)
+          }
         >
           <option value="push-to-talk">Hold to dictate</option>
           <option value="toggle">Press to start, press to stop</option>

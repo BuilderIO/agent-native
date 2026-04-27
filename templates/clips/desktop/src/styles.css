@@ -1971,6 +1971,12 @@ button {
   animation: flow-shimmer 1.2s ease-in-out infinite;
 }
 
+.flow-bar-error {
+  font-size: 13px;
+  font-weight: 500;
+  color: #fecaca;
+}
+
 @keyframes flow-shimmer {
   0% {
     opacity: 0.6;

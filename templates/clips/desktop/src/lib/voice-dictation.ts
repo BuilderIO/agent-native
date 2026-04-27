@@ -263,12 +263,12 @@ export function installDesktopVoiceDictation(
       current.recorder.stop();
     } catch (err) {
       console.error("[voice-dictation] stop failed", err);
-          setFlowState("error");
-          window.setTimeout(() => {
-            if (!disposed) cleanup();
-          }, 800);
-        }
-      };
+      setFlowState("error");
+      window.setTimeout(() => {
+        if (!disposed) cleanup();
+      }, 800);
+    }
+  };
 
   listen<VoiceShortcutEvent>("voice:shortcut-start", (event) => {
     if (!acceptsShortcut(event.payload?.source)) return;
