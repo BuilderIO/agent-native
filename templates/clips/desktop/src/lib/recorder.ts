@@ -393,10 +393,23 @@ async function startNativeRecordingInner(
   const streamCleanups: Array<() => void> = [];
 
   const displayStreamPromise: Promise<MediaStream> | null = wantsScreen
-    ? navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30 },
-        audio: true,
-      })
+    ? (() => {
+        const useSynthetic =
+          import.meta.env.DEV &&
+          localStorage.getItem("clips:dev-real-capture") !== "1";
+        if (!useSynthetic) {
+          return navigator.mediaDevices.getDisplayMedia({
+            video: { frameRate: 30 },
+            audio: true,
+          });
+        }
+        console.warn(
+          "[clips-recorder] using dev synthetic screen capture; set localStorage clips:dev-real-capture=1 to use the native picker",
+        );
+        const syntheticDisplay = createSyntheticScreenStream();
+        streamCleanups.push(syntheticDisplay.cleanup);
+        return Promise.resolve(syntheticDisplay.stream);
+      })()
     : null;
   // If the popover handed us a live camera stream from the pre-record
   // preview we reuse it verbatim and SKIP getUserMedia — see the
@@ -634,11 +647,6 @@ async function startNativeRecordingInner(
         inflight.delete(p);
       });
     inflight.add(p);
-    // Explicitly drop the local Blob reference. `ev.data` is already out of
-    // scope once this handler returns, but the reference hanging in the V8
-    // temporary register can survive long enough to pin a Blob across GC
-    // cycles in WKWebView. Setting it to null via `as any` is cheap insurance.
-    (ev as unknown as { data: Blob | null }).data = null;
   };
 
   const startedAt = Date.now();
