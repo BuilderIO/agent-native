@@ -1,6 +1,7 @@
 import {
   defineEventHandler,
   getQuery,
+  sendRedirect,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -15,6 +16,7 @@ import {
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
+  setDesktopExchange,
 } from "@agent-native/core/server";
 import {
   getAuthUrl,

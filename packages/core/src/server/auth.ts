@@ -377,6 +377,18 @@ const _desktopExchanges = new Map<
   string,
   { token: string; email: string; expiresAt: number }
 >();
+
+export function setDesktopExchange(
+  flowId: string,
+  token: string,
+  email: string,
+) {
+  _desktopExchanges.set(flowId, {
+    token,
+    email,
+    expiresAt: Date.now() + 5 * 60 * 1000,
+  });
+}
 setInterval(() => {
   const now = Date.now();
   for (const [k, v] of _desktopExchanges) {
