@@ -110,6 +110,24 @@ export function buildToolHtml(
       var text = await res.text();
       try { return JSON.parse(text); } catch(e) { return text; }
     }
+
+    async function dbQuery(sql, args) {
+      var body = { sql: sql };
+      if (args) body.args = args;
+      return appFetch('/_agent-native/tools/sql/query', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    }
+
+    async function dbExec(sql, args) {
+      var body = { sql: sql };
+      if (args) body.args = args;
+      return appFetch('/_agent-native/tools/sql/exec', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    }
   </script>
 </head>
 <body class="bg-background text-foreground">

@@ -56,6 +56,26 @@ async function dispatch(
   parts: string[],
   userEmail: string,
 ): Promise<unknown> {
+  // POST /sql/query — read-only SQL for tool iframes
+  if (
+    method === "POST" &&
+    parts.length === 2 &&
+    parts[0] === "sql" &&
+    parts[1] === "query"
+  ) {
+    return handleSqlQuery(event);
+  }
+
+  // POST /sql/exec — write SQL for tool iframes
+  if (
+    method === "POST" &&
+    parts.length === 2 &&
+    parts[0] === "sql" &&
+    parts[1] === "exec"
+  ) {
+    return handleSqlExec(event);
+  }
+
   // POST /proxy
   if (method === "POST" && parts.length === 1 && parts[0] === "proxy") {
     return handleProxy(event, userEmail);
@@ -276,5 +296,87 @@ async function handleProxy(
     return { error: `Proxy request failed: ${err?.message ?? err}` };
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+/**
+ * Capture console output from a CLI script that uses console.log for results.
+ * Same technique as wrapCliScript in agent-chat-plugin.ts.
+ */
+async function captureCliOutput(
+  fn: (args: string[]) => Promise<void>,
+  args: string[],
+): Promise<string> {
+  const logs: string[] = [];
+  const origLog = console.log;
+  const origError = console.error;
+  const origStdoutWrite = process.stdout.write;
+  console.log = (...a: unknown[]) => {
+    logs.push(a.map(String).join(" "));
+  };
+  console.error = (...a: unknown[]) => {
+    logs.push(a.map(String).join(" "));
+  };
+  process.stdout.write = ((chunk: any) => {
+    if (typeof chunk === "string") logs.push(chunk);
+    else if (Buffer.isBuffer(chunk)) logs.push(chunk.toString());
+    return true;
+  }) as any;
+  try {
+    await fn(args);
+  } catch (err: any) {
+    logs.push(`Error: ${err?.message ?? String(err)}`);
+  } finally {
+    console.log = origLog;
+    console.error = origError;
+    process.stdout.write = origStdoutWrite;
+  }
+  return logs.join("\n") || "(no output)";
+}
+
+async function handleSqlQuery(event: H3Event): Promise<unknown> {
+  const body = await readBody(event);
+  const sql = body.sql;
+  if (!sql || typeof sql !== "string") {
+    setResponseStatus(event, 400);
+    return { error: "sql is required" };
+  }
+
+  try {
+    const mod = await import("../scripts/db/query.js");
+    const args = ["--sql", sql, "--format", "json"];
+    if (body.limit) args.push("--limit", String(body.limit));
+    const output = await captureCliOutput(mod.default, args);
+    try {
+      return JSON.parse(output);
+    } catch {
+      return { output };
+    }
+  } catch (err: any) {
+    setResponseStatus(event, 500);
+    return { error: err?.message ?? "Query failed" };
+  }
+}
+
+async function handleSqlExec(event: H3Event): Promise<unknown> {
+  const body = await readBody(event);
+  const sql = body.sql;
+  if (!sql || typeof sql !== "string") {
+    setResponseStatus(event, 400);
+    return { error: "sql is required" };
+  }
+
+  try {
+    const mod = await import("../scripts/db/exec.js");
+    const args = ["--sql", sql, "--format", "json"];
+    const output = await captureCliOutput(mod.default, args);
+    try {
+      return JSON.parse(output);
+    } catch {
+      return { output };
+    }
+  } catch (err: any) {
+    setResponseStatus(event, 500);
+    return { error: err?.message ?? "Exec failed" };
   }
 }
