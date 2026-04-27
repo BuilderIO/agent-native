@@ -170,3 +170,31 @@ export function useSwitchOrg() {
     },
   });
 }
+
+export function useJoinByDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orgId: string) =>
+      apiFetch(`${ORG_BASE}/join-by-domain`, {
+        method: "POST",
+        body: JSON.stringify({ orgId }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries();
+    },
+  });
+}
+
+export function useSetOrgDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (domain: string | null) =>
+      apiFetch(`${ORG_BASE}/domain`, {
+        method: "PUT",
+        body: JSON.stringify({ domain }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}

@@ -22,6 +22,8 @@ import {
   listInvitationsHandler,
   createInvitationHandler,
   acceptInvitationHandler,
+  joinByDomainHandler,
+  setDomainHandler,
 } from "./handlers.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
@@ -42,6 +44,8 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  *   GET    /_agent-native/org/invitations                 — list pending invites
  *   POST   /_agent-native/org/invitations                 — invite by email
  *   POST   /_agent-native/org/invitations/:id/accept      — accept an invitation
+ *   POST   /_agent-native/org/join-by-domain              — join org via email domain match
+ *   PUT    /_agent-native/org/domain                      — set/clear allowed email domain (owner/admin)
  */
 export function createOrgPlugin(): NitroPluginDef {
   const migrate = runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" });
@@ -115,6 +119,30 @@ export function createOrgPlugin(): NitroPluginDef {
         }
         setResponseStatus(event, 404);
         return { error: "Not found" };
+      }),
+    );
+
+    // POST /join-by-domain
+    app.use(
+      `${ORG_PREFIX}/join-by-domain`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return joinByDomainHandler(event);
+      }),
+    );
+
+    // PUT /domain
+    app.use(
+      `${ORG_PREFIX}/domain`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setDomainHandler(event);
       }),
     );
 

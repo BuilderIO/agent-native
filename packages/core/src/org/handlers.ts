@@ -511,3 +511,108 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
     role: String(row.role) as OrgRole,
   };
 });
+
+/** POST /_agent-native/org/join-by-domain — join an org whose allowed_domain matches your email */
+export const joinByDomainHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const session = await getSession(event);
+    const email = requireAuthEmail(session);
+
+    const body = await readBody(event);
+    const orgId = body?.orgId;
+    if (!orgId) {
+      throw createError({ statusCode: 400, message: "orgId is required" });
+    }
+
+    const e = await exec();
+
+    const orgRes = await e.execute({
+      sql: `SELECT id, name, allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+      args: [orgId],
+    });
+    if (orgRes.rows.length === 0) {
+      throw createError({ statusCode: 404, message: "Organization not found" });
+    }
+    const org = orgRes.rows[0] as any;
+    const allowedDomain = String(org.allowed_domain || "").toLowerCase();
+    const userDomain = email.split("@")[1]?.toLowerCase();
+
+    if (!allowedDomain || allowedDomain !== userDomain) {
+      throw createError({
+        statusCode: 403,
+        message:
+          "Your email domain does not match this organization's allowed domain",
+      });
+    }
+
+    const existing = await e.execute({
+      sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [orgId, email.toLowerCase()],
+    });
+    if (existing.rows.length > 0) {
+      throw createError({
+        statusCode: 409,
+        message: "Already a member of this organization",
+      });
+    }
+
+    await e.execute({
+      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
+      args: [nanoid(), orgId, email, Date.now()],
+    });
+
+    await putUserSetting(email, "active-org-id", { orgId });
+
+    return {
+      orgId,
+      orgName: String(org.name),
+      role: "member" as OrgRole,
+    };
+  },
+);
+
+/** PUT /_agent-native/org/domain — set or clear the allowed email domain (owner/admin only) */
+export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
+  const ctx = await getOrgContext(event);
+  if (!ctx.orgId) {
+    throw createError({ statusCode: 400, message: "No active organization" });
+  }
+  if (ctx.role !== "owner" && ctx.role !== "admin") {
+    throw createError({
+      statusCode: 403,
+      message: "Only owners and admins can set the allowed domain",
+    });
+  }
+
+  const body = await readBody(event);
+  const raw = body?.domain?.trim()?.toLowerCase() || null;
+
+  if (raw && !/^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(raw)) {
+    throw createError({
+      statusCode: 400,
+      message: "Invalid domain format",
+    });
+  }
+
+  const e = await exec();
+
+  if (raw) {
+    const existing = await e.execute({
+      sql: `SELECT id FROM organizations WHERE LOWER(allowed_domain) = ? AND id != ? LIMIT 1`,
+      args: [raw, ctx.orgId],
+    });
+    if (existing.rows.length > 0) {
+      throw createError({
+        statusCode: 409,
+        message: "Another organization already uses this domain",
+      });
+    }
+  }
+
+  await e.execute({
+    sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
+    args: [raw, ctx.orgId],
+  });
+
+  return { domain: raw };
+});

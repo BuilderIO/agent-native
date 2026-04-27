@@ -10,6 +10,8 @@ export {
   useAcceptInvitation,
   useRemoveMember,
   useSwitchOrg,
+  useJoinByDomain,
+  useSetOrgDomain,
 } from "./hooks.js";
 
 export { OrgSwitcher, type OrgSwitcherProps } from "./OrgSwitcher.js";
@@ -31,4 +33,5 @@ export type {
   OrgPendingInvitation,
   OrgSummary,
   OrgInvitationSummary,
+  DomainMatchOrg,
 } from "../../org/types.js";

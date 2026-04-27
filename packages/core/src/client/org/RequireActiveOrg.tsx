@@ -4,8 +4,14 @@ import {
   IconBuilding,
   IconLoader2,
   IconUserPlus,
+  IconAt,
 } from "@tabler/icons-react";
-import { useAcceptInvitation, useCreateOrg, useOrg } from "./hooks.js";
+import {
+  useAcceptInvitation,
+  useCreateOrg,
+  useJoinByDomain,
+  useOrg,
+} from "./hooks.js";
 
 export interface RequireActiveOrgProps {
   children: ReactNode;
