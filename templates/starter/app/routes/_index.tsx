@@ -4,7 +4,9 @@ import {
   IconDatabase,
   IconBolt,
   IconRefresh,
+  IconTool,
 } from "@tabler/icons-react";
+import { Link } from "react-router";
 import { useTheme } from "next-themes";
 import {
   AgentSidebar,
@@ -122,7 +124,16 @@ export default function IndexPage() {
             <h2 className="text-sm font-medium text-foreground">
               Agent Native
             </h2>
-            <AgentToggleButton />
+            <div className="flex items-center gap-2">
+              <Link
+                to="/tools"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <IconTool className="h-3.5 w-3.5" />
+                Tools
+              </Link>
+              <AgentToggleButton />
+            </div>
           </header>
 
           <div className="flex flex-1 flex-col items-center justify-center px-6">

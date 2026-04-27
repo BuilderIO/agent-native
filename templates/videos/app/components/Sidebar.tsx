@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { useComposition } from "@/contexts/CompositionContext";
 import { useTimeline } from "@/contexts/TimelineContext";
 import { usePlayback } from "@/contexts/PlaybackContext";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 
 type SidebarProps = {
   open: boolean;
@@ -245,6 +246,10 @@ export function Sidebar({
                 onDelete={onDelete}
               />
             ))}
+
+            <div className="border-t border-border mt-2 pt-1">
+              <ToolsSidebarSection />
+            </div>
           </TabsContent>
 
           <TabsContent

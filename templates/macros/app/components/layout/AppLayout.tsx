@@ -11,6 +11,7 @@ import {
   AgentToggleButton,
   getCallbackOrigin,
 } from "@agent-native/core/client";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { IconFlame, IconLoader2 } from "@tabler/icons-react";
@@ -115,6 +116,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </button>
               </Link>
             </nav>
+
+            <ToolsSidebarSection />
 
             {/* Agent toggle */}
             <AgentToggleButton />

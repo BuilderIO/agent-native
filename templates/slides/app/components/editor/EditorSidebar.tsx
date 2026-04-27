@@ -22,6 +22,7 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useCallback } from "react";
 import { type CollabUser, useAvatarUrl } from "@agent-native/core/client";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import {
   Tooltip,
   TooltipContent,
@@ -555,6 +556,10 @@ export default function EditorSidebar({
             />
           ))}
         </SortableContext>
+
+        <div className="border-t border-white/[0.06] mt-2 pt-1">
+          <ToolsSidebarSection />
+        </div>
       </div>
 
       <AddSlidePopover

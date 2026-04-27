@@ -23,6 +23,7 @@ import {
   IconUsersGroup,
   IconX,
 } from "@tabler/icons-react";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -221,6 +222,10 @@ export function AppLayout({ children }: AppLayoutProps) {
               Team
             </Link>
           </nav>
+
+          <div className="border-t border-border mx-2">
+            <ToolsSidebarSection />
+          </div>
 
           <div className="px-2">
             <FeedbackButton />

@@ -49,6 +49,7 @@ import {
   FeedbackButton,
 } from "@agent-native/core/client";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import type { Label } from "@shared/types";
 import { toast } from "sonner";
 
@@ -1077,6 +1078,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         >
                           Settings
                         </Link>
+                        <div className="mt-1">
+                          <ToolsSidebarSection />
+                        </div>
                         <div className="mt-1">
                           <FeedbackButton />
                         </div>

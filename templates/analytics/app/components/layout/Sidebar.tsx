@@ -53,6 +53,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 import { NewAnalysisDialog } from "./NewAnalysisDialog";
 import { useUserPref } from "@/hooks/use-user-pref";
@@ -998,6 +999,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </SortableContext>
             </DndContext>
           )}
+
+          <div className="border-t border-border mt-2 pt-2">
+            <ToolsSidebarSection />
+          </div>
 
           {bottomItems.map((item) => {
             const Icon = item.icon;

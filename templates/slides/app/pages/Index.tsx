@@ -6,6 +6,7 @@ import {
   IconSettings,
   IconUsers,
   IconPalette,
+  IconTool,
 } from "@tabler/icons-react";
 import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
@@ -84,6 +85,13 @@ export default function Index() {
             Slides
           </span>
           <div className="flex items-center gap-2">
+            <Link
+              to="/tools"
+              className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white"
+            >
+              <IconTool className="w-4 h-4" />
+              Tools
+            </Link>
             <Link
               to="/design-systems"
               className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white"
