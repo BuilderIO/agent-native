@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import {
   IconArrowLeft,
@@ -22,7 +22,12 @@ import {
   sendToAgentChat,
   useSession,
 } from "@agent-native/core/client";
-import { Pinpoint } from "@agent-native/pinpoint/react";
+
+const Pinpoint = lazy(() =>
+  import("@agent-native/pinpoint/react").then((m) => ({
+    default: m.Pinpoint,
+  })),
+);
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -464,11 +469,13 @@ export default function DesignEditor() {
             </div>
           )}
 
-          <Pinpoint
-            author={session?.email || "anonymous"}
-            colorScheme="dark"
-            compactPopup
-          />
+          <Suspense>
+            <Pinpoint
+              author={session?.email || "anonymous"}
+              colorScheme="dark"
+              compactPopup
+            />
+          </Suspense>
 
           {/* Draw overlay */}
           {mode === "draw" && (
