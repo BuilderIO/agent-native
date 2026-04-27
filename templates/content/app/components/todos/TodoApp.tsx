@@ -35,7 +35,11 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -65,21 +69,59 @@ interface Todo {
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
 
-const LIST_COLORS: Record<string, { bg: string; text: string; ring: string; dot: string }> = {
-  blue:   { bg: "bg-blue-500/10",   text: "text-blue-600 dark:text-blue-400",   ring: "ring-blue-500/30",   dot: "bg-blue-500" },
-  green:  { bg: "bg-green-500/10",  text: "text-green-600 dark:text-green-400", ring: "ring-green-500/30",  dot: "bg-green-500" },
-  red:    { bg: "bg-red-500/10",    text: "text-red-600 dark:text-red-400",     ring: "ring-red-500/30",    dot: "bg-red-500" },
-  purple: { bg: "bg-purple-500/10", text: "text-purple-600 dark:text-purple-400",ring: "ring-purple-500/30",dot: "bg-purple-500" },
-  orange: { bg: "bg-orange-500/10", text: "text-orange-600 dark:text-orange-400",ring: "ring-orange-500/30",dot: "bg-orange-500" },
-  pink:   { bg: "bg-pink-500/10",   text: "text-pink-600 dark:text-pink-400",   ring: "ring-pink-500/30",   dot: "bg-pink-500" },
-  teal:   { bg: "bg-teal-500/10",   text: "text-teal-600 dark:text-teal-400",   ring: "ring-teal-500/30",   dot: "bg-teal-500" },
+const LIST_COLORS: Record<
+  string,
+  { bg: string; text: string; ring: string; dot: string }
+> = {
+  blue: {
+    bg: "bg-blue-500/10",
+    text: "text-blue-600 dark:text-blue-400",
+    ring: "ring-blue-500/30",
+    dot: "bg-blue-500",
+  },
+  green: {
+    bg: "bg-green-500/10",
+    text: "text-green-600 dark:text-green-400",
+    ring: "ring-green-500/30",
+    dot: "bg-green-500",
+  },
+  red: {
+    bg: "bg-red-500/10",
+    text: "text-red-600 dark:text-red-400",
+    ring: "ring-red-500/30",
+    dot: "bg-red-500",
+  },
+  purple: {
+    bg: "bg-purple-500/10",
+    text: "text-purple-600 dark:text-purple-400",
+    ring: "ring-purple-500/30",
+    dot: "bg-purple-500",
+  },
+  orange: {
+    bg: "bg-orange-500/10",
+    text: "text-orange-600 dark:text-orange-400",
+    ring: "ring-orange-500/30",
+    dot: "bg-orange-500",
+  },
+  pink: {
+    bg: "bg-pink-500/10",
+    text: "text-pink-600 dark:text-pink-400",
+    ring: "ring-pink-500/30",
+    dot: "bg-pink-500",
+  },
+  teal: {
+    bg: "bg-teal-500/10",
+    text: "text-teal-600 dark:text-teal-400",
+    ring: "ring-teal-500/30",
+    dot: "bg-teal-500",
+  },
 };
 
 const PRIORITY_CONFIG = {
-  none:   { label: "No priority", icon: null,              color: "text-muted-foreground" },
-  low:    { label: "Low",         icon: IconFlag,          color: "text-blue-500" },
-  medium: { label: "Medium",      icon: IconFlag,          color: "text-amber-500" },
-  high:   { label: "High",        icon: IconAlertCircle,   color: "text-red-500" },
+  none: { label: "No priority", icon: null, color: "text-muted-foreground" },
+  low: { label: "Low", icon: IconFlag, color: "text-blue-500" },
+  medium: { label: "Medium", icon: IconFlag, color: "text-amber-500" },
+  high: { label: "High", icon: IconAlertCircle, color: "text-red-500" },
 };
 
 // ── TodoItem ──────────────────────────────────────────────────────────────────
@@ -175,7 +217,12 @@ function TodoItem({
           {/* Meta row */}
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             {PriorityIcon && (
-              <span className={cn("flex items-center gap-0.5 text-xs", priorityCfg.color)}>
+              <span
+                className={cn(
+                  "flex items-center gap-0.5 text-xs",
+                  priorityCfg.color,
+                )}
+              >
                 <PriorityIcon size={11} />
                 {priorityCfg.label}
               </span>
@@ -188,10 +235,13 @@ function TodoItem({
                 )}
               >
                 <IconCalendar size={11} />
-                {new Date(todo.dueDate + "T12:00:00").toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                })}
+                {new Date(todo.dueDate + "T12:00:00").toLocaleDateString(
+                  undefined,
+                  {
+                    month: "short",
+                    day: "numeric",
+                  },
+                )}
               </span>
             )}
             {todo.notes && (
@@ -201,7 +251,10 @@ function TodoItem({
               >
                 <IconChevronDown
                   size={11}
-                  className={cn("transition-transform", expanded && "rotate-180")}
+                  className={cn(
+                    "transition-transform",
+                    expanded && "rotate-180",
+                  )}
                 />
                 Notes
               </button>
@@ -240,7 +293,10 @@ function TodoItem({
                 >
                   <span className={cn("mr-2", PRIORITY_CONFIG[p].color)}>
                     {PRIORITY_CONFIG[p].icon ? (
-                      <PRIORITY_CONFIG[p].icon size={13} />
+                      (() => {
+                        const Icon = PRIORITY_CONFIG[p].icon!;
+                        return <Icon size={13} />;
+                      })()
                     ) : (
                       <span className="w-[13px] block" />
                     )}
@@ -266,7 +322,13 @@ function TodoItem({
 
 // ── NewTodoInput ──────────────────────────────────────────────────────────────
 
-function NewTodoInput({ listId, onAdd }: { listId: string; onAdd: (title: string) => void }) {
+function NewTodoInput({
+  listId,
+  onAdd,
+}: {
+  listId: string;
+  onAdd: (title: string) => void;
+}) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -376,7 +438,9 @@ function ListPanel({
       <div className={cn("px-6 pt-6 pb-4 rounded-t-2xl", colors.bg)}>
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            {list.icon && <span className="text-2xl shrink-0">{list.icon}</span>}
+            {list.icon && (
+              <span className="text-2xl shrink-0">{list.icon}</span>
+            )}
             {editingList ? (
               <input
                 autoFocus
@@ -394,7 +458,10 @@ function ListPanel({
               />
             ) : (
               <h2
-                className={cn("text-2xl font-bold truncate cursor-pointer", colors.text)}
+                className={cn(
+                  "text-2xl font-bold truncate cursor-pointer",
+                  colors.text,
+                )}
                 onDoubleClick={() => setEditingList(true)}
               >
                 {list.title}
@@ -447,7 +514,10 @@ function ListPanel({
         {todos.length > 0 && (
           <div className="mt-3 h-1.5 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
             <div
-              className={cn("h-full rounded-full transition-all duration-500", colors.dot)}
+              className={cn(
+                "h-full rounded-full transition-all duration-500",
+                colors.dot,
+              )}
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -477,13 +547,16 @@ function ListPanel({
         <div className="space-y-2">
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
-              <IconListCheck size={32} className="text-muted-foreground/30 mb-3" />
+              <IconListCheck
+                size={32}
+                className="text-muted-foreground/30 mb-3"
+              />
               <p className="text-sm text-muted-foreground">
                 {filter === "completed"
                   ? "No completed todos yet"
                   : filter === "active"
-                  ? "All caught up! 🎉"
-                  : "No todos yet. Add one below!"}
+                    ? "All caught up! 🎉"
+                    : "No todos yet. Add one below!"}
               </p>
             </div>
           ) : (
@@ -568,7 +641,9 @@ function NewListDialog({
                   className={cn(
                     "w-7 h-7 rounded-full transition-all",
                     val.dot,
-                    color === key ? "ring-2 ring-offset-2 ring-current scale-110" : "hover:scale-110",
+                    color === key
+                      ? "ring-2 ring-offset-2 ring-current scale-110"
+                      : "hover:scale-110",
                   )}
                 />
               ))}
@@ -610,8 +685,16 @@ export function TodoApp() {
 
   const selectedList = lists.find((l) => l.id === selectedListId);
 
-  const handleCreateList = async (title: string, color: string, icon?: string) => {
-    const result = await createList.mutateAsync({ title, color: color as any, icon });
+  const handleCreateList = async (
+    title: string,
+    color: string,
+    icon?: string,
+  ) => {
+    const result = await createList.mutateAsync({
+      title,
+      color: color as any,
+      icon,
+    });
     await refetch();
     setSelectedListId(result.id);
   };
@@ -682,7 +765,12 @@ export function TodoApp() {
                         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                     )}
                   >
-                    <span className={cn("w-2.5 h-2.5 rounded-full shrink-0", colors.dot)} />
+                    <span
+                      className={cn(
+                        "w-2.5 h-2.5 rounded-full shrink-0",
+                        colors.dot,
+                      )}
+                    />
                     <span className="flex-1 truncate font-medium">
                       {list.icon && <span className="mr-1">{list.icon}</span>}
                       {list.title}
@@ -691,7 +779,9 @@ export function TodoApp() {
                       <span
                         className={cn(
                           "text-xs tabular-nums shrink-0 font-medium",
-                          isSelected ? "text-accent-foreground/70" : "text-muted-foreground/60",
+                          isSelected
+                            ? "text-accent-foreground/70"
+                            : "text-muted-foreground/60",
                         )}
                       >
                         {list.totalCount - list.completedCount > 0
