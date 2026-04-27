@@ -84,7 +84,7 @@ const llmStep: OnboardingStep = {
       kind: "builder-cli-auth",
       label: "Connect Builder",
       description:
-        "One click, no API key needed. Claude, GPT, Gemini, GLM, and more via Builder's managed gateway. Free during beta.",
+        "One click, no API key needed. Claude, GPT, Gemini, and more via Builder's managed gateway. Free during beta.",
       badge: "free",
       primary: true,
       payload: {

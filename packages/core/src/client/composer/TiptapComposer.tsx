@@ -162,8 +162,6 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
-  "z-ai-glm-4-5": "GLM 4.5",
-  "z-ai-glm-5-1": "GLM 5.1",
 };
 
 function friendlyModelName(model: string): string {
