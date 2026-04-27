@@ -36,6 +36,7 @@ import {
   IconPencil,
   IconCheck,
   IconPlus,
+  IconTool,
 } from "@tabler/icons-react";
 import {
   Popover,
@@ -961,6 +962,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </PopoverContent>
                 </Popover>
               )}
+
+              <Link
+                to="/tools"
+                className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                title="Tools"
+              >
+                <IconTool className="h-4 w-4" />
+              </Link>
 
               <AgentToggleButton />
             </header>
