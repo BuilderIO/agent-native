@@ -140,6 +140,7 @@ export default function Index() {
     // Fire mutation in background
     createMutation.mutate(
       {
+        id,
         title,
         projectType,
         designSystemId: designSystemId || undefined,

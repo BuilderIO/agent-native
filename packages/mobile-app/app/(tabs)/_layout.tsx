@@ -127,7 +127,7 @@ export default function TabLayout() {
           headerShown: false,
           href: hrefFor("clips"),
           tabBarIcon: ({ color, size }) => (
-            <Feather name="video" size={size} color={color} />
+            <Feather name="cast" size={size} color={color} />
           ),
         }}
       />
@@ -138,7 +138,7 @@ export default function TabLayout() {
           headerShown: false,
           href: hrefFor("design"),
           tabBarIcon: ({ color, size }) => (
-            <Feather name="pen-tool" size={size} color={color} />
+            <Feather name="edit-2" size={size} color={color} />
           ),
         }}
       />
