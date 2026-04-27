@@ -87,6 +87,40 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     orgName: String(r.orgName ?? r.org_name),
   }));
 
+  let domainMatches: Array<{ orgId: string; orgName: string }> = [];
+  if (!ctx.orgId) {
+    const domain = ctx.email.split("@")[1]?.toLowerCase();
+    if (domain) {
+      try {
+        const dmRes = await e.execute({
+          sql: `SELECT id, name FROM organizations WHERE LOWER(allowed_domain) = ?`,
+          args: [domain],
+        });
+        domainMatches = dmRes.rows.map((r: any) => ({
+          orgId: String(r.id),
+          orgName: String(r.name),
+        }));
+      } catch {
+        // allowed_domain column may not exist yet if migration hasn't run
+      }
+    }
+  }
+
+  let allowedDomain: string | null = null;
+  if (ctx.orgId) {
+    try {
+      const adRes = await e.execute({
+        sql: `SELECT allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+        args: [ctx.orgId],
+      });
+      allowedDomain = adRes.rows[0]
+        ? String((adRes.rows[0] as any).allowed_domain ?? "") || null
+        : null;
+    } catch {
+      // Column may not exist yet
+    }
+  }
+
   const invitesRes = await e.execute({
     // Case-insensitive match: invitations are stored with whatever case
     // the inviter typed, but the session email may be normalized
@@ -112,6 +146,8 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     role: ctx.role,
     orgs,
     pendingInvitations,
+    domainMatches,
+    allowedDomain,
   };
 });
 
