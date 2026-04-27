@@ -1,7 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { writeAppState } from "@agent-native/core/application-state";
-import { hasCollabState } from "@agent-native/core/collab";
+import {
+  hasCollabState,
+  agentEnterDocument,
+  agentLeaveDocument,
+} from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -101,45 +105,54 @@ export default defineAction({
     // Push edits through Yjs for live collaborative sync.
     const collabEnabled = await hasCollabState(id);
     if (collabEnabled) {
-      const tryOrigins = [
-        process.env.ORIGIN,
-        process.env.PORT ? `http://localhost:${process.env.PORT}` : null,
-        "http://localhost:8080",
-        "http://localhost:8081",
-        "http://localhost:8082",
-        "http://localhost:8083",
-      ].filter(Boolean) as string[];
+      agentEnterDocument(id);
+      try {
+        const tryOrigins = [
+          process.env.ORIGIN,
+          process.env.PORT ? `http://localhost:${process.env.PORT}` : null,
+          "http://localhost:8080",
+          "http://localhost:8081",
+          "http://localhost:8082",
+          "http://localhost:8083",
+        ].filter(Boolean) as string[];
 
-      let serverOrigin: string | null = null;
-      for (const origin of tryOrigins) {
-        try {
-          const res = await fetch(`${origin}/_agent-native/ping`, {
-            signal: AbortSignal.timeout(500),
-          });
-          if (res.ok) {
-            serverOrigin = origin;
-            break;
+        let serverOrigin: string | null = null;
+        for (const origin of tryOrigins) {
+          try {
+            const res = await fetch(`${origin}/_agent-native/ping`, {
+              signal: AbortSignal.timeout(500),
+            });
+            if (res.ok) {
+              serverOrigin = origin;
+              break;
+            }
+          } catch {
+            // Try next
           }
-        } catch {
-          // Try next
         }
-      }
 
-      if (serverOrigin) {
-        for (const edit of edits) {
-          await fetch(
-            `${serverOrigin}/_agent-native/collab/${id}/search-replace`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                find: edit.find,
-                replace: edit.replace,
-                requestSource: "agent",
-              }),
-            },
-          ).catch(() => {});
+        if (serverOrigin) {
+          for (const edit of edits) {
+            await fetch(
+              `${serverOrigin}/_agent-native/collab/${id}/search-replace`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  find: edit.find,
+                  replace: edit.replace,
+                  requestSource: "agent",
+                }),
+              },
+            ).catch(() => {});
+            // Small delay between edits for incremental typing effect
+            if (edits.length > 1) {
+              await new Promise((r) => setTimeout(r, 150));
+            }
+          }
         }
+      } finally {
+        agentLeaveDocument(id);
       }
     }
 

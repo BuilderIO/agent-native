@@ -6,6 +6,13 @@ import * as Y from "yjs";
 import { loadYDocState, saveYDocState } from "./storage.js";
 import { applyTextToYDoc, initYDocWithText } from "./text-to-yjs.js";
 import { searchAndReplaceInYXml, extractTextFromYXml } from "./xml-ops.js";
+import {
+  applyJsonDiff,
+  applyJsonPatch,
+  yDocToJson,
+  initYDocWithJson,
+  type PatchOp,
+} from "./json-to-yjs.js";
 import { emitCollabUpdate } from "./emitter.js";
 import { uint8ArrayToBase64 } from "./storage.js";
 
@@ -190,6 +197,83 @@ export async function seedFromText(
 
   const { doc, state } = initYDocWithText(fieldName, text);
   await saveYDocState(docId, state, text);
+
+  // Cache the doc
+  evictIfNeeded();
+  _cache.set(docId, { doc, lastAccess: Date.now() });
+}
+
+// ─── Structured JSON Operations ─────────────────────────────────────
+
+/**
+ * Apply a full JSON update to a document. Computes the minimal diff
+ * and converts it to Yjs operations on Y.Map/Y.Array.
+ */
+export async function applyJson(
+  docId: string,
+  newJson: any,
+  fieldName: string = "data",
+  type: "map" | "array" = "map",
+  requestSource?: string,
+): Promise<void> {
+  const doc = await getDoc(docId);
+  const update = applyJsonDiff(doc, fieldName, newJson, "server");
+
+  if (update.length === 0) return;
+
+  const state = Y.encodeStateAsUpdate(doc);
+  await saveYDocState(docId, state, JSON.stringify(newJson));
+
+  emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+}
+
+/**
+ * Apply surgical JSON patch operations to a document.
+ */
+export async function applyPatchOps(
+  docId: string,
+  ops: PatchOp[],
+  fieldName: string = "data",
+  requestSource?: string,
+): Promise<void> {
+  const doc = await getDoc(docId);
+  const update = applyJsonPatch(doc, fieldName, ops, "server");
+
+  if (update.length === 0) return;
+
+  const state = Y.encodeStateAsUpdate(doc);
+  const json = yDocToJson(doc, fieldName);
+  await saveYDocState(docId, state, JSON.stringify(json));
+
+  emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+}
+
+/**
+ * Get the current JSON state of a document field.
+ */
+export async function getJson(
+  docId: string,
+  fieldName: string = "data",
+): Promise<any> {
+  const doc = await getDoc(docId);
+  return yDocToJson(doc, fieldName);
+}
+
+/**
+ * Seed a document from existing JSON content (for migration).
+ * Only seeds if no collab state exists yet.
+ */
+export async function seedFromJson(
+  docId: string,
+  json: any,
+  fieldName: string = "data",
+  type: "map" | "array" = "map",
+): Promise<void> {
+  const existing = await loadYDocState(docId);
+  if (existing && existing.length > 0) return; // Already seeded
+
+  const { doc, state } = initYDocWithJson(fieldName, json, type);
+  await saveYDocState(docId, state, JSON.stringify(json));
 
   // Cache the doc
   evictIfNeeded();

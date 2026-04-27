@@ -21,6 +21,15 @@ import {
   IconPencil,
   IconExternalLink,
 } from "@tabler/icons-react";
+import {
+  PresenceBar,
+  useCollaborativeDoc,
+  generateTabId,
+  emailToColor,
+  emailToName,
+  useSession,
+  type CollabUser,
+} from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
 import { DashboardChartCard } from "./ChartCard";
 import {
@@ -54,6 +63,8 @@ interface SavedConfig {
   id: string;
   name: string;
 }
+
+const TAB_ID = generateTabId();
 
 async function fetchWithAuth(url: string, options?: RequestInit) {
   const token = await getIdToken();
@@ -106,6 +117,68 @@ export default function ExplorerDashboardPage() {
   const [addChartOpen, setAddChartOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
+  // ── Collaborative editing ──────────────────────────────────────────
+  const { session } = useSession();
+  const currentUser: CollabUser | undefined = session?.email
+    ? {
+        name: emailToName(session.email),
+        email: session.email,
+        color: emailToColor(session.email),
+      }
+    : undefined;
+
+  const collabDocId = dashboardId ? `dash-${dashboardId}` : null;
+  const {
+    ydoc,
+    isSynced: collabSynced,
+    activeUsers,
+    agentActive,
+    agentPresent,
+  } = useCollaborativeDoc({
+    docId: collabDocId,
+    requestSource: TAB_ID,
+    user: currentUser,
+  });
+
+  // Listen for remote collab changes
+  useEffect(() => {
+    if (!ydoc || !collabSynced) return;
+    const ytext = ydoc.getText("content");
+    const handler = () => {
+      const raw = ytext.toString();
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw) as ExplorerDashboardData;
+        if (parsed && parsed.charts) {
+          setDashboard(parsed);
+        }
+      } catch {
+        // JSON parse failed — ignore partial updates
+      }
+    };
+    ytext.observe(handler);
+    return () => {
+      ytext.unobserve(handler);
+    };
+  }, [ydoc, collabSynced]);
+
+  /**
+   * Push a config update through the collab layer so other tabs/users
+   * receive the change in real time.
+   */
+  const pushToCollab = useCallback(
+    (updated: ExplorerDashboardData) => {
+      if (!collabDocId) return;
+      const body = JSON.stringify(updated);
+      fetch(`/_agent-native/collab/${collabDocId}/text`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: body, requestSource: TAB_ID }),
+      }).catch(() => {});
+    },
+    [collabDocId],
+  );
+
   const { data: savedConfigs = [] } = useQuery({
     queryKey: ["explorer-configs"],
     queryFn: fetchSavedConfigs,
@@ -128,6 +201,7 @@ export default function ExplorerDashboardPage() {
     (updated: ExplorerDashboardData) => {
       if (!dashboardId) return;
       setDashboard(updated);
+      pushToCollab(updated);
       saveDashboard(dashboardId, updated).then(() => {
         queryClient.invalidateQueries({
           queryKey: ["explorer-dashboards-palette"],
@@ -137,7 +211,7 @@ export default function ExplorerDashboardPage() {
         });
       });
     },
-    [dashboardId, queryClient],
+    [dashboardId, queryClient, pushToCollab],
   );
 
   const addChart = useCallback(
@@ -261,6 +335,12 @@ export default function ExplorerDashboardPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <PresenceBar
+            activeUsers={activeUsers}
+            agentPresent={agentPresent}
+            agentActive={agentActive}
+            currentUserEmail={session?.email}
+          />
           <Button size="sm" onClick={() => setAddChartOpen(true)}>
             <IconPlus className="h-4 w-4 mr-1" />
             Add Chart
