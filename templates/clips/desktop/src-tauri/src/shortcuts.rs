@@ -11,6 +11,9 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     // because on macOS Ctrl isn't the primary modifier and vice versa.
     let shortcut_cmd = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyL);
     let shortcut_ctrl = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyL);
+    let voice_cmd_space = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space);
+    let voice_ctrl_space =
+        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
     #[cfg(not(target_os = "macos"))]
     let shortcut_fn = Shortcut::new(None, Code::Fn);
     let gs = app.handle().global_shortcut();
@@ -19,6 +22,12 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     }
     if let Err(err) = gs.register(shortcut_ctrl) {
         eprintln!("[clips-tray] failed to register Ctrl+Shift+L: {err}");
+    }
+    if let Err(err) = gs.register(voice_cmd_space) {
+        eprintln!("[clips-tray] failed to register Cmd+Shift+Space voice shortcut: {err}");
+    }
+    if let Err(err) = gs.register(voice_ctrl_space) {
+        eprintln!("[clips-tray] failed to register Ctrl+Shift+Space voice shortcut: {err}");
     }
     #[cfg(not(target_os = "macos"))]
     if let Err(err) = gs.register(shortcut_fn) {
@@ -36,7 +45,48 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
     tauri_plugin_global_shortcut::Builder::new().with_handler(|app, shortcut, event| {
         let is_cmd = shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::KeyL);
         let is_ctrl = shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyL);
+        let is_voice_cmd_space =
+            shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::Space);
+        let is_voice_ctrl_space =
+            shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::Space);
         let is_fn = shortcut.matches(Modifiers::empty(), Code::Fn);
+        if is_voice_cmd_space || is_voice_ctrl_space {
+            let source = if is_voice_cmd_space {
+                "cmd-shift-space"
+            } else {
+                "ctrl-shift-space"
+            };
+            let active_state = app.try_state::<DictationActive>();
+            match event.state() {
+                tauri_plugin_global_shortcut::ShortcutState::Pressed => {
+                    let mut already_active = false;
+                    if let Some(state) = active_state.as_ref() {
+                        if let Ok(mut g) = state.0.lock() {
+                            already_active = *g;
+                            *g = true;
+                        }
+                    }
+                    if !already_active {
+                        let _ = app.emit(
+                            "voice:shortcut-start",
+                            serde_json::json!({ "source": source }),
+                        );
+                    }
+                }
+                tauri_plugin_global_shortcut::ShortcutState::Released => {
+                    if let Some(state) = active_state.as_ref() {
+                        if let Ok(mut g) = state.0.lock() {
+                            *g = false;
+                        }
+                    }
+                    let _ = app.emit(
+                        "voice:shortcut-stop",
+                        serde_json::json!({ "source": source }),
+                    );
+                }
+            }
+            return;
+        }
         if is_fn {
             let active_state = app.try_state::<DictationActive>();
             match event.state() {
@@ -49,7 +99,8 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                         }
                     }
                     if !already_active {
-                        let _ = app.emit("voice:shortcut-start", ());
+                        let _ = app
+                            .emit("voice:shortcut-start", serde_json::json!({ "source": "fn" }));
                     }
                 }
                 tauri_plugin_global_shortcut::ShortcutState::Released => {
@@ -58,7 +109,8 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                             *g = false;
                         }
                     }
-                    let _ = app.emit("voice:shortcut-stop", ());
+                    let _ = app
+                        .emit("voice:shortcut-stop", serde_json::json!({ "source": "fn" }));
                 }
             }
             return;
@@ -110,11 +162,13 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     if is_down && !*was_down {
                         *was_down = true;
                         eprintln!("[clips-tray] Fn down — starting voice dictation");
-                        let _ = app_for_tap.emit("voice:shortcut-start", ());
+                        let _ = app_for_tap
+                            .emit("voice:shortcut-start", serde_json::json!({ "source": "fn" }));
                     } else if !is_down && *was_down {
                         *was_down = false;
                         eprintln!("[clips-tray] Fn up — stopping voice dictation");
-                        let _ = app_for_tap.emit("voice:shortcut-stop", ());
+                        let _ = app_for_tap
+                            .emit("voice:shortcut-stop", serde_json::json!({ "source": "fn" }));
                     }
                 }
                 CallbackResult::Keep

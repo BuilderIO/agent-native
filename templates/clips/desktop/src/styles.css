@@ -746,7 +746,8 @@ button {
   color: var(--fg-muted);
 }
 
-.setup input {
+.setup input,
+.setup-select {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border-strong);
@@ -758,9 +759,35 @@ button {
   transition: border-color 120ms;
 }
 
-.setup input:focus {
+.setup input:focus,
+.setup-select:focus {
   border-color: var(--brand);
   box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.setup-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setup-label {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.setup-select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%),
+    linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 50%,
+    calc(100% - 11px) 50%;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
 }
 
 .setup-account {

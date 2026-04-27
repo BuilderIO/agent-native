@@ -1,11 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 
-type FlowState = "idle" | "recording" | "processing" | "complete";
+export type VoiceShortcutPreference =
+  | "fn"
+  | "cmd-shift-space"
+  | "ctrl-shift-space"
+  | "both";
+export type VoiceMode = "push-to-talk" | "toggle";
+
+type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
+type VoiceShortcutSource = "fn" | "cmd-shift-space" | "ctrl-shift-space";
 
 interface DesktopVoiceDictationOptions {
   enabled: boolean;
   serverUrl: string;
+  shortcut: VoiceShortcutPreference;
+  mode: VoiceMode;
+}
+
+interface VoiceShortcutEvent {
+  source?: VoiceShortcutSource;
 }
 
 interface VoiceSession {
@@ -132,9 +146,21 @@ export function installDesktopVoiceDictation(
   let session: VoiceSession | null = null;
   let serverUrl = options.serverUrl;
   let enabled = options.enabled;
+  let shortcut = options.shortcut;
+  let mode = options.mode;
+  let startInFlight = false;
+  let stopRequestedBeforeReady = false;
   const unlistens: Array<() => void> = [];
 
+  const acceptsShortcut = (source: VoiceShortcutSource | undefined) => {
+    if (!source) return shortcut === "both";
+    if (shortcut === "both") return true;
+    return source === shortcut;
+  };
+
   const cleanup = (hide = true) => {
+    startInFlight = false;
+    stopRequestedBeforeReady = false;
     const current = session;
     session = null;
     if (current) {
@@ -146,7 +172,7 @@ export function installDesktopVoiceDictation(
   };
 
   const start = async () => {
-    if (disposed || !enabled || session) return;
+    if (disposed || !enabled || session || startInFlight) return;
     if (
       !navigator.mediaDevices?.getUserMedia ||
       typeof MediaRecorder === "undefined"
@@ -156,11 +182,14 @@ export function installDesktopVoiceDictation(
     }
 
     try {
+      startInFlight = true;
+      stopRequestedBeforeReady = false;
       await invoke("show_flow_bar");
       setFlowState("recording");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (disposed) {
+      if (disposed || stopRequestedBeforeReady) {
         stream.getTracks().forEach((track) => track.stop());
+        cleanup();
         return;
       }
       const mimeType = pickMimeType();
@@ -177,6 +206,7 @@ export function installDesktopVoiceDictation(
         stopping: false,
       };
       session = next;
+      startInFlight = false;
       recorder.ondataavailable = (event) => {
         if (event.data?.size) next.chunks.push(event.data);
       };
@@ -205,15 +235,25 @@ export function installDesktopVoiceDictation(
       };
       startMeter(next);
       recorder.start();
+      if (stopRequestedBeforeReady) {
+        stop();
+      }
     } catch (err) {
       console.error("[voice-dictation] start failed", err);
-      cleanup();
+      setFlowState("error");
+      window.setTimeout(() => {
+        if (!disposed) cleanup();
+      }, 800);
     }
   };
 
   const stop = () => {
     const current = session;
-    if (!current || current.stopping) return;
+    if (!current) {
+      if (startInFlight) stopRequestedBeforeReady = true;
+      return;
+    }
+    if (current.stopping) return;
     current.stopping = true;
     if (Date.now() - current.startedAt < 250) {
       cleanup();
@@ -223,16 +263,26 @@ export function installDesktopVoiceDictation(
       current.recorder.stop();
     } catch (err) {
       console.error("[voice-dictation] stop failed", err);
-      cleanup();
-    }
-  };
+          setFlowState("error");
+          window.setTimeout(() => {
+            if (!disposed) cleanup();
+          }, 800);
+        }
+      };
 
-  listen("voice:shortcut-start", () => {
+  listen<VoiceShortcutEvent>("voice:shortcut-start", (event) => {
+    if (!acceptsShortcut(event.payload?.source)) return;
+    if (mode === "toggle" && (session || startInFlight)) {
+      stop();
+      return;
+    }
     start();
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
-  listen("voice:shortcut-stop", () => {
+  listen<VoiceShortcutEvent>("voice:shortcut-stop", (event) => {
+    if (!acceptsShortcut(event.payload?.source)) return;
+    if (mode === "toggle") return;
     stop();
   })
     .then((u) => unlistens.push(u))
@@ -242,6 +292,8 @@ export function installDesktopVoiceDictation(
     disposed = true;
     enabled = false;
     serverUrl = "";
+    shortcut = "both";
+    mode = "push-to-talk";
     unlistens.forEach((u) => {
       try {
         u();
