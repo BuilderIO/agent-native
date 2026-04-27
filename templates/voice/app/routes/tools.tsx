@@ -1,5 +1,5 @@
-import { ToolsListPage } from "@agent-native/core/client/tools";
+import { Outlet } from "react-router";
 
-export default function ToolsRoute() {
-  return <ToolsListPage />;
+export default function ToolsLayout() {
+  return <Outlet />;
 }
