@@ -519,7 +519,7 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
   {
     name: "google",
     matches: (u) => u.hostname === "accounts.google.com",
-    callbackPathFragment: "/api/google/",
+    callbackPathFragment: "google/callback",
   },
   {
     name: "builder",
