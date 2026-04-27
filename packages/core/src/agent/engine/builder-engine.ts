@@ -55,6 +55,7 @@ export const BUILDER_SUPPORTED_MODELS = [
   "kimi-k2-5",
   "deepseek-v3-1",
   "z-ai-glm-4-5",
+  "z-ai-glm-5-1",
 ] as const;
 
 export const BUILDER_DEFAULT_MODEL = "claude-sonnet-4-6";

@@ -70,6 +70,7 @@ describe("createBuilderEngine", () => {
     expect(engine.supportedModels).toContain("claude-sonnet-4-6");
     expect(engine.supportedModels).toContain("gpt-5-4");
     expect(engine.supportedModels).toContain("z-ai-glm-4-5");
+    expect(engine.supportedModels).toContain("z-ai-glm-5-1");
   });
 
   it("emits a missing-credentials stop-error when BUILDER_PRIVATE_KEY is unset", async () => {
