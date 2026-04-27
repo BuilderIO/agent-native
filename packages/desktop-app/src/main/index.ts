@@ -605,7 +605,14 @@ function openOAuthWindow(
   const onNavigate = (_event: Electron.Event, navUrl: string) => {
     try {
       const parsed = new URL(navUrl);
+      // Detect the OAuth callback (works for both /api/google/callback and
+      // /_agent-native/google/callback).
       if (parsed.pathname.includes(provider.callbackPathFragment)) {
+        scheduleClose();
+      }
+      // Detect agentnative:// deep link — handle it and close the popup.
+      if (parsed.protocol === `${DEEP_LINK_PROTOCOL}:`) {
+        handleDeepLink(navUrl);
         scheduleClose();
       }
     } catch {
@@ -616,11 +623,21 @@ function openOAuthWindow(
   oauthWin.webContents.on("did-navigate", onNavigate);
   oauthWin.webContents.on("did-redirect-navigation", onNavigate);
 
-  // Fallback: also detect did-fail-load (e.g. deep link navigation)
+  // Intercept deep link navigations that would fail to load — handle the
+  // deep link and close the popup instead of showing a blank error page.
+  oauthWin.webContents.on(
+    "will-navigate",
+    (event: Electron.Event, navUrl: string) => {
+      if (navUrl.startsWith(`${DEEP_LINK_PROTOCOL}:`)) {
+        event.preventDefault();
+        handleDeepLink(navUrl);
+        scheduleClose();
+      }
+    },
+  );
+
   oauthWin.webContents.on("did-fail-load", () => {
-    setTimeout(() => {
-      if (!oauthWin.isDestroyed()) oauthWin.close();
-    }, 300);
+    scheduleClose();
   });
 
   // Reload webviews when the OAuth window closes (whether auto or manual)
