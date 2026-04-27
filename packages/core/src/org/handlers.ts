@@ -406,6 +406,37 @@ export const removeMemberHandler = defineEventHandler(
   },
 );
 
+/** PATCH /_agent-native/org — rename the current organization (owner/admin only) */
+export const updateOrgHandler = defineEventHandler(async (event: H3Event) => {
+  const ctx = await getOrgContext(event);
+  if (!ctx.orgId) {
+    throw createError({ statusCode: 400, message: "No organization found" });
+  }
+  if (ctx.role !== "owner" && ctx.role !== "admin") {
+    throw createError({
+      statusCode: 403,
+      message: "Only owners and admins can update the organization",
+    });
+  }
+
+  const body = await readBody(event);
+  const name = body?.name?.trim();
+  if (!name) {
+    throw createError({
+      statusCode: 400,
+      message: "Organization name is required",
+    });
+  }
+
+  const e = await exec();
+  await e.execute({
+    sql: `UPDATE organizations SET name = ? WHERE id = ?`,
+    args: [name, ctx.orgId],
+  });
+
+  return { orgId: ctx.orgId, name };
+});
+
 /** PUT /_agent-native/org/switch — switch the user's active organization */
 export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
   const session = await getSession(event);
