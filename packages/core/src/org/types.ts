@@ -24,6 +24,11 @@ export interface OrgInvitationSummary {
   invitedBy: string;
 }
 
+export interface DomainMatchOrg {
+  orgId: string;
+  orgName: string;
+}
+
 export interface OrgInfo {
   email: string;
   orgId: string | null;
@@ -31,6 +36,8 @@ export interface OrgInfo {
   role: OrgRole | null;
   orgs: OrgSummary[];
   pendingInvitations: OrgInvitationSummary[];
+  domainMatches: DomainMatchOrg[];
+  allowedDomain: string | null;
 }
 
 export interface OrgMember {

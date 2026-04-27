@@ -370,6 +370,55 @@ export async function autoDiscoverActions(
     );
   }
 
+  // 1b. Fallback: if filesystem discovery found no template actions (common
+  //     in bundled serverless environments like Netlify/Vercel where the
+  //     actions/ directory doesn't exist on disk), try importing the
+  //     generated static registry at .generated/actions-registry.
+  //
+  //     This prevents the silent-empty-tools footgun where the agent has no
+  //     template actions and falls back to generic tools like web-request.
+  //     Prefer `loadActionsFromStaticRegistry` over `autoDiscoverActions` for
+  //     production reliability — this fallback is a safety net, not the
+  //     primary path.
+  if (Object.keys(registry).length === 0 && from) {
+    try {
+      let registryPath: string;
+      if (from.startsWith("file://") || from.startsWith("file:///")) {
+        const callerDir = nodePath.dirname(fileURLToPath(from));
+        registryPath = nodePath.resolve(
+          callerDir,
+          "../../.generated/actions-registry.js",
+        );
+      } else {
+        registryPath = nodePath.resolve(
+          from,
+          "../.generated/actions-registry.js",
+        );
+      }
+      const mod = await import(/* @vite-ignore */ registryPath);
+      const staticEntries = loadActionsFromStaticRegistry(mod.default || mod);
+      Object.assign(registry, staticEntries);
+      if (Object.keys(staticEntries).length > 0) {
+        console.log(
+          `[autoDiscoverActions] Filesystem scan found 0 actions — loaded ${Object.keys(staticEntries).length} from .generated/actions-registry.ts instead. ` +
+            `Consider switching to loadActionsFromStaticRegistry(actionsRegistry) for production reliability.`,
+        );
+      }
+    } catch {
+      // No generated registry available — registry stays empty.
+    }
+  }
+
+  // If still empty after all fallbacks, warn loudly.
+  if (Object.keys(registry).length === 0) {
+    console.warn(
+      `[autoDiscoverActions] WARNING: No template actions found! ` +
+        `The agent will have no template-specific tools. ` +
+        `If in production, switch from autoDiscoverActions to loadActionsFromStaticRegistry. ` +
+        `See: https://docs.agent-native.com/actions#static-registry`,
+    );
+  }
+
   // 2. Workspace-core actions — merged in with skipExisting so they can't
   //    overwrite template entries.
   try {

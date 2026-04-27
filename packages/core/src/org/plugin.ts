@@ -15,12 +15,15 @@ import { ORG_MIGRATIONS } from "./migrations.js";
 import {
   getMyOrgHandler,
   createOrgHandler,
+  updateOrgHandler,
   switchOrgHandler,
   listMembersHandler,
   removeMemberHandler,
   listInvitationsHandler,
   createInvitationHandler,
   acceptInvitationHandler,
+  joinByDomainHandler,
+  setDomainHandler,
 } from "./handlers.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
@@ -34,12 +37,15 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  * Routes:
  *   GET    /_agent-native/org/me                          — current user's active org + invites
  *   POST   /_agent-native/org                             — create organization
+ *   PATCH  /_agent-native/org                             — rename organization (owner/admin)
  *   PUT    /_agent-native/org/switch                      — switch active org
  *   GET    /_agent-native/org/members                     — list members of active org
  *   DELETE /_agent-native/org/members/:email              — remove member (owner/admin only)
  *   GET    /_agent-native/org/invitations                 — list pending invites
  *   POST   /_agent-native/org/invitations                 — invite by email
  *   POST   /_agent-native/org/invitations/:id/accept      — accept an invitation
+ *   POST   /_agent-native/org/join-by-domain              — join org via email domain match
+ *   PUT    /_agent-native/org/domain                      — set/clear allowed email domain (owner/admin)
  */
 export function createOrgPlugin(): NitroPluginDef {
   const migrate = runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" });
@@ -116,6 +122,30 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
+    // POST /join-by-domain
+    app.use(
+      `${ORG_PREFIX}/join-by-domain`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return joinByDomainHandler(event);
+      }),
+    );
+
+    // PUT /domain
+    app.use(
+      `${ORG_PREFIX}/domain`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setDomainHandler(event);
+      }),
+    );
+
     // PUT /switch
     app.use(
       `${ORG_PREFIX}/switch`,
@@ -128,15 +158,15 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // POST / (create) — mounted last so the more specific routes match first
+    // POST / (create) + PATCH / (rename) — mounted last so the more specific routes match first
     app.use(
       ORG_PREFIX,
       defineEventHandler(async (event: H3Event) => {
-        if (getMethod(event) !== "POST") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-        return createOrgHandler(event);
+        const method = getMethod(event);
+        if (method === "POST") return createOrgHandler(event);
+        if (method === "PATCH") return updateOrgHandler(event);
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
       }),
     );
   };

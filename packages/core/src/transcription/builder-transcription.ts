@@ -1,7 +1,6 @@
 import {
-  hasBuilderPrivateKey,
+  resolveBuilderAuthHeader,
   getBuilderProxyOrigin,
-  getBuilderAuthHeader,
 } from "../server/credential-provider.js";
 
 export interface BuilderTranscribeOptions {
@@ -34,15 +33,11 @@ export interface BuilderTranscribeResult {
 export async function transcribeWithBuilder(
   opts: BuilderTranscribeOptions,
 ): Promise<BuilderTranscribeResult> {
-  if (!hasBuilderPrivateKey()) {
+  const authHeader = await resolveBuilderAuthHeader();
+  if (!authHeader) {
     throw new Error(
       "Builder private key not configured. Connect your Builder.io account in Settings.",
     );
-  }
-
-  const authHeader = getBuilderAuthHeader();
-  if (!authHeader) {
-    throw new Error("Could not generate Builder auth header.");
   }
 
   const params = new URLSearchParams();

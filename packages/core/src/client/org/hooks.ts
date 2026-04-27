@@ -142,6 +142,20 @@ export function useRemoveMember() {
   });
 }
 
+export function useUpdateOrg() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch(ORG_BASE, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}
+
 export function useSwitchOrg() {
   const qc = useQueryClient();
   return useMutation({
@@ -153,6 +167,34 @@ export function useSwitchOrg() {
     onSuccess: async () => {
       // Switching org changes everything scoped to AGENT_ORG_ID.
       await qc.invalidateQueries();
+    },
+  });
+}
+
+export function useJoinByDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orgId: string) =>
+      apiFetch(`${ORG_BASE}/join-by-domain`, {
+        method: "POST",
+        body: JSON.stringify({ orgId }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries();
+    },
+  });
+}
+
+export function useSetOrgDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (domain: string | null) =>
+      apiFetch(`${ORG_BASE}/domain`, {
+        method: "PUT",
+        body: JSON.stringify({ domain }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
     },
   });
 }

@@ -5,6 +5,7 @@ export const organizations = table("organizations", {
   name: text("name").notNull(),
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at").notNull(),
+  allowedDomain: text("allowed_domain"),
 });
 
 export const orgMembers = table("org_members", {
