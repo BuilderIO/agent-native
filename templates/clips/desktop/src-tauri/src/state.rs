@@ -34,6 +34,11 @@ pub struct DictationEnabled(pub Mutex<bool>);
 #[derive(Default)]
 pub struct DictationActive(pub Mutex<bool>);
 
+/// Whether the hidden popover was temporarily shown as a tiny controller
+/// window so background voice dictation could run its WebView-side mic code.
+#[derive(Default)]
+pub struct VoiceWakePopover(pub Mutex<bool>);
+
 #[allow(dead_code)]
 /// Last dictation result for "paste last".
 #[derive(Default)]

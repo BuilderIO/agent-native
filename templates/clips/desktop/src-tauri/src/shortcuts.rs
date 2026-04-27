@@ -1,8 +1,10 @@
-use tauri::{Emitter, Manager};
+use std::thread;
+use std::time::Duration;
+use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
 use crate::clips::toggle_popover;
-use crate::state::DictationActive;
+use crate::state::{DictationActive, VoiceWakePopover};
 use crate::util::is_recording_active;
 
 pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -66,10 +68,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                     }
                     if !already_active {
                         eprintln!("[clips-tray] {source} down — starting voice dictation");
-                        let _ = app.emit(
-                            "voice:shortcut-start",
-                            serde_json::json!({ "source": source }),
-                        );
+                        emit_voice_shortcut(app, "voice:shortcut-start", source, true);
                     }
                 }
                 tauri_plugin_global_shortcut::ShortcutState::Released => {
@@ -79,10 +78,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                         }
                     }
                     eprintln!("[clips-tray] {source} up — stopping voice dictation");
-                    let _ = app.emit(
-                        "voice:shortcut-stop",
-                        serde_json::json!({ "source": source }),
-                    );
+                    emit_voice_shortcut(app, "voice:shortcut-stop", source, false);
                 }
             }
             return;
@@ -99,10 +95,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                         }
                     }
                     if !already_active {
-                        let _ = app.emit(
-                            "voice:shortcut-start",
-                            serde_json::json!({ "source": "fn" }),
-                        );
+                        emit_voice_shortcut(app, "voice:shortcut-start", "fn", true);
                     }
                 }
                 tauri_plugin_global_shortcut::ShortcutState::Released => {
@@ -111,7 +104,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                             *g = false;
                         }
                     }
-                    let _ = app.emit("voice:shortcut-stop", serde_json::json!({ "source": "fn" }));
+                    emit_voice_shortcut(app, "voice:shortcut-stop", "fn", false);
                 }
             }
             return;
@@ -132,6 +125,42 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             }
         }
     })
+}
+
+fn emit_voice_shortcut(
+    app: &tauri::AppHandle,
+    event: &'static str,
+    source: &'static str,
+    wake: bool,
+) {
+    if wake {
+        wake_popover_for_voice(app);
+        let app = app.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(80));
+            let _ = app.emit(event, serde_json::json!({ "source": source }));
+        });
+        return;
+    }
+    let _ = app.emit(event, serde_json::json!({ "source": source }));
+}
+
+fn wake_popover_for_voice(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("popover") else {
+        return;
+    };
+    if window.is_visible().unwrap_or(false) {
+        return;
+    }
+    if let Some(state) = app.try_state::<VoiceWakePopover>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = true;
+        }
+    }
+    let _ = window.set_position(PhysicalPosition::new(2_i32, 2_i32));
+    let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(2_u32, 2_u32)));
+    let _ = window.show();
+    let _ = app.emit("clips:popover-visible", false);
 }
 
 #[cfg(target_os = "macos")]

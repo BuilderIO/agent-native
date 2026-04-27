@@ -17,7 +17,7 @@ use tauri::{Emitter, Manager};
 use clips::{position_popover, toggle_popover};
 use state::{
     DictationActive, DictationEnabled, LastTranscript, MeetingActive, PopoverShownAt,
-    RecordingActive, TrayAnchor,
+    RecordingActive, TrayAnchor, VoiceWakePopover,
 };
 use util::{is_recording_active, set_capture_excluded};
 
@@ -77,6 +77,7 @@ pub fn run() {
         .manage(MeetingActive::default())
         .manage(DictationEnabled::default())
         .manage(DictationActive::default())
+        .manage(VoiceWakePopover::default())
         .manage(LastTranscript::default())
         .setup(|app| {
             // NOTE: we intentionally do NOT call set_activation_policy(Accessory)

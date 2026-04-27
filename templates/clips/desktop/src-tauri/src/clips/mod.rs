@@ -11,7 +11,9 @@ use tauri::{
 };
 
 use crate::dlog;
-use crate::state::{DictationActive, LastTranscript, RecordingActive, TrayAnchor};
+use crate::state::{
+    DictationActive, LastTranscript, RecordingActive, TrayAnchor, VoiceWakePopover,
+};
 use crate::util::{
     build_overlay_url, mark_popover_shown, primary_monitor_physical_size, set_capture_excluded,
 };
@@ -548,6 +550,22 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
 pub async fn hide_flow_bar(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(FLOW_BAR_LABEL) {
         let _ = w.close();
+    }
+    let should_hide_wake_popover = app
+        .try_state::<VoiceWakePopover>()
+        .and_then(|state| {
+            state.0.lock().ok().map(|mut g| {
+                let was_woken = *g;
+                *g = false;
+                was_woken
+            })
+        })
+        .unwrap_or(false);
+    if should_hide_wake_popover {
+        if let Some(w) = app.get_webview_window("popover") {
+            let _ = w.hide();
+            let _ = app.emit("clips:popover-visible", false);
+        }
     }
     Ok(())
 }
