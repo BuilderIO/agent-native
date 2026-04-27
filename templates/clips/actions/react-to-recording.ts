@@ -1,8 +1,6 @@
 /**
  * Add an emoji reaction to a recording at a specific video timestamp.
  *
- * Anonymous viewers are allowed — viewerEmail is nullable.
- *
  * Usage:
  *   pnpm action react-to-recording --recordingId=<id> --emoji="🔥" --videoTimestampMs=12000
  */
@@ -13,10 +11,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { nanoid } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:
-    "Add an emoji reaction to a recording at a specific video timestamp. Anonymous viewers are allowed.",
+    "Add an emoji reaction to a recording at a specific video timestamp.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     emoji: z.string().min(1).describe("Emoji character (e.g. 👍, ❤️, 🔥)"),
@@ -29,9 +28,15 @@ export default defineAction({
     viewerName: z.string().optional(),
   }),
   run: async (args) => {
+    await assertAccess("recording", args.recordingId, "viewer");
+
+    const viewerEmail = getRequestUserEmail();
+    if (!viewerEmail) {
+      throw new Error("Sign in required to react to recordings.");
+    }
+
     const db = getDb();
     const id = nanoid();
-    const viewerEmail = getRequestUserEmail() ?? null;
     const now = new Date().toISOString();
 
     await db.insert(schema.recordingReactions).values({

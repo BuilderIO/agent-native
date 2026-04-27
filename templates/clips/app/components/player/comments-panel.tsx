@@ -60,6 +60,12 @@ export interface CommentsPanelProps {
   currentUserEmail?: string;
   enableComments: boolean;
   onSeek: (ms: number) => void;
+  /**
+   * If provided, this callback is invoked instead of firing the comment /
+   * reaction mutation when the viewer is not signed in. Use it to surface a
+   * sign-in prompt on the public share page.
+   */
+  onUnauthenticated?: (intent: "comment" | "react") => void;
 }
 
 export function CommentsPanel(props: CommentsPanelProps) {
@@ -70,7 +76,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
     currentUserEmail,
     enableComments,
     onSeek,
+    onUnauthenticated,
   } = props;
+  const isSignedIn = !!currentUserEmail;
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
 
@@ -197,6 +205,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
   function submit() {
     const text = draft.trim();
     if (!text) return;
+    if (!isSignedIn && onUnauthenticated) {
+      onUnauthenticated("comment");
+      return;
+    }
     const vars = replyTo
       ? {
           recordingId,
@@ -210,7 +222,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     // the optimistic cache patch in onMutate puts the comment in the list.
     setDraft("");
     setReplyTo(null);
-    addComment.mutate(vars as any);
+    addComment.mutate(vars);
   }
 
   return (
@@ -229,13 +241,21 @@ export function CommentsPanel(props: CommentsPanelProps) {
                 <li key={root.threadId} className="p-3 space-y-2">
                   <CommentCard
                     comment={root}
+                    recordingId={recordingId}
                     currentUserEmail={currentUserEmail}
                     onSeek={onSeek}
-                    onReply={() => setReplyTo(root)}
+                    onReply={() => {
+                      if (!isSignedIn && onUnauthenticated) {
+                        onUnauthenticated("comment");
+                        return;
+                      }
+                      setReplyTo(root);
+                    }}
                     onResolve={(id, resolved) =>
-                      resolve.mutate({ id, resolved } as any)
+                      resolve.mutate({ id, resolved })
                     }
-                    onDelete={(id) => remove.mutate({ id } as any)}
+                    onDelete={(id) => remove.mutate({ id })}
+                    onUnauthenticated={onUnauthenticated}
                   />
                   {replies.length ? (
                     <ul className="pl-8 space-y-2 border-l-2 border-border ml-3">
@@ -243,13 +263,21 @@ export function CommentsPanel(props: CommentsPanelProps) {
                         <li key={r.id}>
                           <CommentCard
                             comment={r}
+                            recordingId={recordingId}
                             currentUserEmail={currentUserEmail}
                             onSeek={onSeek}
-                            onReply={() => setReplyTo(root)}
+                            onReply={() => {
+                              if (!isSignedIn && onUnauthenticated) {
+                                onUnauthenticated("comment");
+                                return;
+                              }
+                              setReplyTo(root);
+                            }}
                             onResolve={(id, resolved) =>
-                              resolve.mutate({ id, resolved } as any)
+                              resolve.mutate({ id, resolved })
                             }
-                            onDelete={(id) => remove.mutate({ id } as any)}
+                            onDelete={(id) => remove.mutate({ id })}
+                            onUnauthenticated={onUnauthenticated}
                             isReply
                           />
                         </li>
@@ -263,7 +291,24 @@ export function CommentsPanel(props: CommentsPanelProps) {
         )}
       </div>
 
-      {enableComments ? (
+      {!enableComments ? (
+        <div className="border-t border-border p-3 text-xs text-muted-foreground">
+          Comments are disabled for this recording.
+        </div>
+      ) : !isSignedIn && onUnauthenticated ? (
+        <div className="border-t border-border p-3 flex items-center justify-between gap-3 bg-background">
+          <span className="text-xs text-muted-foreground">
+            Sign in to leave a comment.
+          </span>
+          <Button
+            size="sm"
+            onClick={() => onUnauthenticated("comment")}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground shrink-0"
+          >
+            Sign in
+          </Button>
+        </div>
+      ) : (
         <div className="border-t border-border p-3 space-y-2 bg-background">
           {replyTo ? (
             <div className="flex items-center justify-between text-xs text-muted-foreground rounded bg-accent/50 px-2 py-1">
@@ -309,10 +354,6 @@ export function CommentsPanel(props: CommentsPanelProps) {
             </Button>
           </div>
         </div>
-      ) : (
-        <div className="border-t border-border p-3 text-xs text-muted-foreground">
-          Comments are disabled for this recording.
-        </div>
       )}
     </div>
   );
@@ -320,19 +361,23 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
 function CommentCard({
   comment,
+  recordingId,
   currentUserEmail,
   onSeek,
   onReply,
   onResolve,
   onDelete,
+  onUnauthenticated,
   isReply,
 }: {
   comment: Comment;
+  recordingId: string;
   currentUserEmail?: string;
   onSeek: (ms: number) => void;
   onReply: () => void;
   onResolve: (id: string, resolved: boolean) => void;
   onDelete: (id: string) => void;
+  onUnauthenticated?: (intent: "comment" | "react") => void;
   isReply?: boolean;
 }) {
   const reactions = parseReactions(comment.emojiReactionsJson);
@@ -392,26 +437,23 @@ function CommentCard({
                   <button
                     key={e}
                     onClick={() => {
+                      if (!currentUserEmail) {
+                        onUnauthenticated?.("react");
+                        return;
+                      }
                       // Add to comment's emoji reactions
                       const next = { ...reactions };
                       const bucket = next[e] ?? [];
-                      if (
-                        currentUserEmail &&
-                        !bucket.includes(currentUserEmail)
-                      ) {
+                      if (!bucket.includes(currentUserEmail)) {
                         next[e] = [...bucket, currentUserEmail];
                       }
                       // Patch via delete+re-add isn't ideal; a dedicated action could be added.
                       // For now, store via react-to-recording at comment timestamp as a proxy.
-                      // (The comments emoji reactions JSON column is updated server-side in
-                      // resolve/delete. This UI shows them; adding per-comment emojis would
-                      // require a new action — handled via react-to-recording for MVP.)
                       fetch(`/_agent-native/actions/react-to-recording`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
-                          recordingId:
-                            (comment as any).recordingId ?? undefined,
+                          recordingId,
                           emoji: e,
                           videoTimestampMs: comment.videoTimestampMs,
                         }),
@@ -427,12 +469,14 @@ function CommentCard({
             </PopoverContent>
           </Popover>
 
-          <button
-            onClick={() => onResolve(comment.id, !comment.resolved)}
-            className="hover:text-foreground"
-          >
-            {comment.resolved ? "Unresolve" : "Resolve"}
-          </button>
+          {currentUserEmail ? (
+            <button
+              onClick={() => onResolve(comment.id, !comment.resolved)}
+              className="hover:text-foreground"
+            >
+              {comment.resolved ? "Unresolve" : "Resolve"}
+            </button>
+          ) : null}
 
           {isOwner ? (
             <DropdownMenu>
