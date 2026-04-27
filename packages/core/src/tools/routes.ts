@@ -106,8 +106,9 @@ async function dispatch(
       setResponseStatus(event, 404);
       return { error: "Tool not found" };
     }
-    const themeVars = getThemeVars();
-    const isDark = (event.url?.search || "").includes("dark=1");
+    const search = event.url?.search || "";
+    const isDark = search.includes("dark=1") || search.includes("dark=true");
+    const themeVars = getThemeVars(isDark);
     const html = buildToolHtml(tool.content, themeVars, isDark);
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
     return html;

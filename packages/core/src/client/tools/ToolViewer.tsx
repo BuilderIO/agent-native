@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import {
   IconArrowLeft,
@@ -22,6 +22,7 @@ export interface ToolViewerProps {
 }
 
 export function ToolViewer({ toolId }: ToolViewerProps) {
+  const queryClient = useQueryClient();
   const [isDark, setIsDark] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
@@ -54,6 +55,8 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
         body: JSON.stringify({ content: editContent }),
       });
       if (!res.ok) throw new Error("Save failed");
+      queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
+      queryClient.invalidateQueries({ queryKey: ["tools"] });
       setEditing(false);
     } finally {
       setSaving(false);
