@@ -64,3 +64,32 @@ export const documentSyncLinks = table("document_sync_links", {
 });
 
 export const documentShares = createSharesTable("document_shares");
+
+// ── Todo Lists ────────────────────────────────────────────────────────────────
+
+export const todoLists = table("todo_lists", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull().default("My Todo List"),
+  description: text("description").notNull().default(""),
+  color: text("color").notNull().default("blue"),
+  icon: text("icon"),
+  position: integer("position").notNull().default(0),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const todos = table("todos", {
+  id: text("id").primaryKey(),
+  listId: text("list_id").notNull(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+  title: text("title").notNull(),
+  notes: text("notes").notNull().default(""),
+  completed: integer("completed").notNull().default(0),
+  priority: text("priority").notNull().default("none"), // none | low | medium | high
+  dueDate: text("due_date"),
+  position: integer("position").notNull().default(0),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
