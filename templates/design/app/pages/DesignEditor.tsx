@@ -20,7 +20,9 @@ import {
   AgentToggleButton,
   useActionQuery,
   sendToAgentChat,
+  useSession,
 } from "@agent-native/core/client";
+import { Pinpoint } from "@agent-native/pinpoint/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -72,6 +74,8 @@ export default function DesignEditor() {
   const [tweaksVisible, setTweaksVisible] = useState(false);
   const [tweakValues, setTweakValues] = useState<Record<string, string>>({});
   const [drawAnnotations, setDrawAnnotations] = useState<DrawAnnotation[]>([]);
+
+  const { session } = useSession();
 
   // Data fetching
   const { data: design, isLoading: designLoading } = useActionQuery<DesignData>(
@@ -459,6 +463,12 @@ export default function DesignEditor() {
               </p>
             </div>
           )}
+
+          <Pinpoint
+            author={session?.email || "anonymous"}
+            colorScheme="dark"
+            compactPopup
+          />
 
           {/* Draw overlay */}
           {mode === "draw" && (

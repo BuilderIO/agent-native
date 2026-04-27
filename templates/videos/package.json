@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/pinpoint": "workspace:*",
     "@libsql/client": "^0.15.0",
     "@remotion/player": "^4.0.434",
     "@remotion/transitions": "^4.0.434",

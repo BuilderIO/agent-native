@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { assertAccess } from "@agent-native/core/sharing";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";

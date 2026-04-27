@@ -5,6 +5,9 @@ export interface TweakDefinition {
   options?: { value: string; label: string; color?: string }[];
   defaultValue: string | number | boolean;
   cssVar?: string;
+  min?: number;
+  max?: number;
+  step?: number;
 }
 
 export interface DesignSystemPreset {

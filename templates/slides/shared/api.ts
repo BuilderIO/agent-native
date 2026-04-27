@@ -140,3 +140,22 @@ export interface DesignSystemAsset {
   url: string;
   mimeType: string;
 }
+
+// --- Question Flow ---
+
+export interface QuestionFlowQuestion {
+  id: string;
+  type: "text-options" | "color-options" | "slider" | "file" | "freeform";
+  question: string;
+  description?: string;
+  options?: {
+    label: string;
+    value: string;
+    color?: string;
+    icon?: string;
+  }[];
+  multiSelect?: boolean;
+  min?: number;
+  max?: number;
+  required?: boolean;
+}

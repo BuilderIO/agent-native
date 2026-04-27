@@ -1835,6 +1835,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/pinpoint':
+        specifier: workspace:*
+        version: link:../../packages/pinpoint
       '@libsql/client':
         specifier: ^0.15.8
         version: 0.15.15
@@ -3614,6 +3617,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/pinpoint':
+        specifier: workspace:*
+        version: link:../../packages/pinpoint
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -4141,6 +4147,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/pinpoint':
+        specifier: workspace:*
+        version: link:../../packages/pinpoint
       '@libsql/client':
         specifier: ^0.15.0
         version: 0.15.15

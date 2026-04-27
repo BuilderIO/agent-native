@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/pinpoint": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "@libsql/client": "^0.15.8",
     "@tabler/icons-react": "^3.40.0",

@@ -39,6 +39,7 @@ import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
+import { Pinpoint } from "@agent-native/pinpoint/react";
 
 // Stable tab ID for jitter prevention (module-level = never recreated)
 const COLLAB_TAB_ID = `slides-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -551,6 +552,12 @@ export default function DeckEditor() {
             onClose={() => setTweaksOpen(false)}
           />
         )}
+
+        <Pinpoint
+          author={session?.email || "anonymous"}
+          colorScheme="dark"
+          compactPopup
+        />
       </div>
 
       {/* Hidden upload input */}

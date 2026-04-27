@@ -1399,6 +1399,81 @@ interface HoverAnimationResult {
 
 ---
 
+## Tweaks Panel
+
+The tweaks panel (`app/components/TweaksPanel.tsx`) provides a floating, draggable UI for adjusting composition parameters in real-time. It matches the pattern used in the slides and design templates.
+
+### Architecture
+
+- **Toggle**: `IconAdjustments` button in the composition toolbar (next to Save)
+- **Panel**: Fixed-position, draggable panel that floats over the video preview
+- **State**: Tweak values are stored in component state and can be propagated to composition props or CSS custom properties
+- **Types**: Uses `TweakDefinition` from `app/lib/design-systems.ts`
+
+### Default Tweaks
+
+The panel ships with `DEFAULT_COMPOSITION_TWEAKS` covering:
+
+| Tweak ID         | Type           | Controls                                       |
+| ---------------- | -------------- | ---------------------------------------------- |
+| `accentColor`    | color-swatches | Accent color (Cyan, Blue, Green, Pink, Gold)   |
+| `bgColor`        | color-swatches | Background color (Black, Slate, Zinc, Stone, White) |
+| `fps`            | segment        | Frame rate (24, 30, 60)                        |
+| `easing`         | segment        | Default easing (Linear, Spring, Expo)          |
+| `animationSpeed` | slider         | Animation speed (0-100)                        |
+| `motionBlur`     | toggle         | Motion blur on/off                             |
+
+### Tweak Definition Format
+
+```typescript
+interface TweakDefinition {
+  id: string;
+  label: string;
+  type: "color-swatches" | "segment" | "toggle" | "slider";
+  options?: { value: string; label: string; color?: string }[];
+  defaultValue: string | number | boolean;
+  cssVar?: string;    // CSS custom property to update
+  min?: number;       // Slider min
+  max?: number;       // Slider max
+  step?: number;      // Slider step
+}
+```
+
+### Agent Integration
+
+When the agent generates a composition, it can include custom tweak definitions in the composition output. Tweaks allow users to fine-tune visual parameters without re-prompting. The agent should generate tweaks that expose the most impactful visual controls for the specific composition type.
+
+**Example: generating tweaks for a logo reveal composition:**
+
+```typescript
+const tweaks: TweakDefinition[] = [
+  {
+    id: "accentColor",
+    label: "Brand color",
+    type: "color-swatches",
+    options: [
+      { value: "#00E5FF", label: "Cyan", color: "#00E5FF" },
+      { value: "#FF6B35", label: "Orange", color: "#FF6B35" },
+    ],
+    defaultValue: "#00E5FF",
+    cssVar: "--ds-accent",
+  },
+  {
+    id: "revealSpeed",
+    label: "Reveal speed",
+    type: "slider",
+    defaultValue: 50,
+    min: 10,
+    max: 100,
+    step: 5,
+  },
+];
+```
+
+When a design system is active, the tweaks panel automatically includes the design system's accent color and font options from `DESIGN_SYSTEM_PRESETS` in `app/lib/design-systems.ts`.
+
+---
+
 ## Production Deployment
 
 - **Standard**: `pnpm build`

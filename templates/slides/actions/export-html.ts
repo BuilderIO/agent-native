@@ -236,6 +236,10 @@ export default defineAction({
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
 
+    if (slides.length === 0) {
+      return { error: "Cannot export empty deck" };
+    }
+
     const html = buildStandaloneHtml(row.title, slides);
 
     // Save to exports directory
