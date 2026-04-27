@@ -13,7 +13,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { parseSpaceIds } from "../server/lib/recordings.js";
+import {
+  getActiveOrganizationId,
+  parseSpaceIds,
+} from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -54,8 +57,15 @@ export default defineAction({
       accessFilter(schema.recordings, schema.recordingShares),
     ];
 
-    // Library = "Your personal recordings" — scope to the current user's own
-    // clips so org-visible recordings from teammates don't bleed in.
+    // Org isolation — all list views are scoped to the user's active org so
+    // public recordings from other orgs don't leak across tenants.
+    const orgId = await getActiveOrganizationId();
+    if (orgId) {
+      whereClauses.push(eq(schema.recordings.organizationId, orgId));
+    }
+
+    // Library = "Your personal recordings" — further scope to the current
+    // user's own clips so org-visible recordings from teammates don't appear.
     if (args.view === "library") {
       const email = getRequestUserEmail();
       if (email) {

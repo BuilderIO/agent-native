@@ -71,6 +71,7 @@ export default defineAction({
     await db.insert(schema.recordings).values({
       id,
       organizationId,
+      orgId: organizationId,
       folderId: args.folderId ?? null,
       title: args.title?.trim() || "Untitled recording",
       status: "uploading",
