@@ -73,6 +73,8 @@ export function RequireActiveOrg({
   return (
     <CreateOrgPane
       pendingInvitations={org?.pendingInvitations ?? []}
+      domainMatches={org?.domainMatches ?? []}
+      email={org?.email ?? ""}
       title={title}
       description={description}
       className={className}
@@ -116,6 +118,8 @@ function ErrorPane({
 
 function CreateOrgPane({
   pendingInvitations,
+  domainMatches,
+  email,
   title,
   description,
   className,
@@ -126,20 +130,23 @@ function CreateOrgPane({
     orgName: string;
     invitedBy: string;
   }>;
+  domainMatches: Array<{ orgId: string; orgName: string }>;
+  email: string;
   title: string;
   description: string;
   className?: string;
 }) {
   const createOrg = useCreateOrg();
   const acceptInvitation = useAcceptInvitation();
+  const joinByDomain = useJoinByDomain();
   const [name, setName] = useState("");
 
   const hasInvites = pendingInvitations.length > 0;
+  const hasDomainMatches = domainMatches.length > 0;
+  const userDomain = email.split("@")[1] ?? "";
 
-  // Block both mutations when either is in flight — prevents a user from
-  // firing `create` and `accept` concurrently and landing in whichever
-  // `active-org-id` setting happens to settle last.
-  const busy = createOrg.isPending || acceptInvitation.isPending;
+  const busy =
+    createOrg.isPending || acceptInvitation.isPending || joinByDomain.isPending;
 
   return (
     <div
@@ -154,6 +161,51 @@ function CreateOrgPane({
           <h1 className="text-lg font-semibold">{title}</h1>
         </div>
         <p className="mb-6 text-sm text-muted-foreground">{description}</p>
+
+        {hasDomainMatches && (
+          <div className="mb-6">
+            <div className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+              Join your team
+            </div>
+            <ul className="space-y-2">
+              {domainMatches.map((match) => (
+                <li
+                  key={match.orgId}
+                  className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2"
+                >
+                  <IconAt className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">
+                      {match.orgName}
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      Open to @{userDomain} emails
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => joinByDomain.mutate(match.orgId)}
+                    className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {joinByDomain.isPending ? (
+                      <IconLoader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      "Join"
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="my-4 flex items-center gap-3">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                or
+              </span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+          </div>
+        )}
 
         {hasInvites && (
           <div className="mb-6">
@@ -190,15 +242,25 @@ function CreateOrgPane({
                 </li>
               ))}
             </ul>
-            <div className="my-4 flex items-center gap-3">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                or
-              </span>
-              <div className="h-px flex-1 bg-border" />
-            </div>
+            {!hasDomainMatches && (
+              <div className="my-4 flex items-center gap-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  or
+                </span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+            )}
           </div>
         )}
+
+        {(hasDomainMatches || hasInvites) &&
+        !hasDomainMatches &&
+        !hasInvites ? null : hasDomainMatches || hasInvites ? (
+          <div className="my-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+          </div>
+        ) : null}
 
         <form
           onSubmit={async (e) => {
@@ -218,7 +280,7 @@ function CreateOrgPane({
               Organization name
             </span>
             <input
-              autoFocus
+              autoFocus={!hasDomainMatches && !hasInvites}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Acme Inc."
@@ -234,6 +296,11 @@ function CreateOrgPane({
           {acceptInvitation.error && (
             <div className="text-xs text-red-600">
               {(acceptInvitation.error as Error).message}
+            </div>
+          )}
+          {joinByDomain.error && (
+            <div className="text-xs text-red-600">
+              {(joinByDomain.error as Error).message}
             </div>
           )}
           <button
