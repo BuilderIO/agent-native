@@ -121,14 +121,22 @@ async function transcribe(
       ? "ogg"
       : "webm";
   form.append("audio", audioBlob, `voice.${ext}`);
-  const res = await fetch(
-    `${serverUrl.replace(/\/+$/, "")}/_agent-native/transcribe-voice`,
-    {
-      method: "POST",
-      body: form,
-      credentials: "include",
-    },
-  );
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 45_000);
+  let res: Response;
+  try {
+    res = await fetch(
+      `${serverUrl.replace(/\/+$/, "")}/_agent-native/transcribe-voice`,
+      {
+        method: "POST",
+        body: form,
+        credentials: "include",
+        signal: controller.signal,
+      },
+    );
+  } finally {
+    window.clearTimeout(timeout);
+  }
   if (!res.ok) {
     const body = await res
       .json()
