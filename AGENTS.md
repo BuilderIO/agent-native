@@ -115,6 +115,8 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
 
 Tools are mini sandboxed Alpine.js apps that run inside iframes. The agent can create, edit, and manage them at runtime without modifying the app's source code. See the `tools` skill for full patterns.
 
+**IMPORTANT:** When a user asks to "create a tool" or "make a ... tool", use the `create-tool` action with Alpine.js HTML content. Do NOT create React components, actions, or schema changes. Tools can do full CRUD via `dbQuery()`/`dbExec()` — they can even create their own tables at runtime.
+
 ### How it works
 
 - Tools are stored in the `tools` SQL table and rendered via `GET /_agent-native/tools/:id/render` inside a sandboxed iframe.
