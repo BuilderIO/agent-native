@@ -45,6 +45,7 @@ export default function ShareRoute() {
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
   const [speed, setSpeed] = useState(1.2);
+  const [downloading, setDownloading] = useState(false);
 
   const dataQ = useQuery({
     queryKey: ["public-recording", shareId, password],
@@ -112,6 +113,28 @@ export default function ShareRoute() {
     try {
       sessionStorage.setItem(STORAGE_KEY_PREFIX + (shareId ?? ""), pw);
     } catch {}
+  }
+
+  async function downloadRecording() {
+    if (!recording?.videoUrl) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(recording.videoUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${sanitizeFilename(recording.title || "clip")}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(recording.videoUrl, "_blank", "noopener,noreferrer");
+    } finally {
+      setDownloading(false);
+    }
   }
 
   if (dataQ.isLoading) {
@@ -269,10 +292,11 @@ export default function ShareRoute() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.open(recording.videoUrl!, "_blank")}
+              onClick={downloadRecording}
+              disabled={downloading}
               className="border-white/20 bg-white/5 hover:bg-white/10 text-white"
             >
-              Download MP4
+              {downloading ? "Downloading..." : "Download MP4"}
             </Button>
           ) : null}
         </div>
@@ -322,6 +346,16 @@ export default function ShareRoute() {
         <PoweredByBadge />
       </div>
     </div>
+  );
+}
+
+function sanitizeFilename(name: string): string {
+  return (
+    name
+      .trim()
+      .replace(/[^\w.-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "clip"
   );
 }
 
