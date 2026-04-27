@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -45,7 +44,7 @@ export default defineAction({
     }
 
     const db = getDb();
-    const id = nanoid();
+    const id = crypto.randomUUID();
     const now = new Date().toISOString();
     const ownerEmail = getRequestUserEmail() ?? "local@localhost";
     const orgId = getRequestOrgId();
