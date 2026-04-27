@@ -128,6 +128,18 @@ export function createTranscribeVoiceHandler() {
       /* fall through — default to openai path */
     }
 
+    // Respect explicit "browser" preference — user chose Web Speech API and
+    // does not want audio uploaded to any external provider. The client
+    // shouldn't hit this endpoint when "browser" is selected; this is a
+    // defense-in-depth refusal.
+    if (providerPref === "browser") {
+      setResponseStatus(event, 400);
+      return {
+        error:
+          'Voice provider is set to "browser" (Web Speech API only). Change the preference in Settings → Voice Transcription to use a server-side provider.',
+      };
+    }
+
     const mime = audio.type || "audio/webm";
     const audioBytes = new Uint8Array(
       audio.data.buffer,

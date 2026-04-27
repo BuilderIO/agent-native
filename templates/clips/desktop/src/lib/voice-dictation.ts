@@ -123,9 +123,8 @@ async function transcribe(
   form.append("audio", audioBlob, `voice.${ext}`);
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 45_000);
-  let res: Response;
   try {
-    res = await fetch(
+    const res = await fetch(
       `${serverUrl.replace(/\/+$/, "")}/_agent-native/transcribe-voice`,
       {
         method: "POST",
@@ -134,17 +133,21 @@ async function transcribe(
         signal: controller.signal,
       },
     );
+    // The timeout has to stay armed across the body read — `fetch()` resolves
+    // as soon as headers arrive, so a stalled body would hang `res.json()`
+    // indefinitely if we cleared the timer here. AbortController also aborts
+    // an in-flight body stream, so this keeps the 45s ceiling end-to-end.
+    if (!res.ok) {
+      const body = await res
+        .json()
+        .catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(body?.error || `Transcription failed (${res.status})`);
+    }
+    const data = (await res.json()) as { text?: string };
+    return (data.text ?? "").trim();
   } finally {
     window.clearTimeout(timeout);
   }
-  if (!res.ok) {
-    const body = await res
-      .json()
-      .catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(body?.error || `Transcription failed (${res.status})`);
-  }
-  const data = (await res.json()) as { text?: string };
-  return (data.text ?? "").trim();
 }
 
 export function installDesktopVoiceDictation(
