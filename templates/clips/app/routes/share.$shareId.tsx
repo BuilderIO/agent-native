@@ -67,6 +67,8 @@ export default function ShareRoute() {
   const chapters = dataQ.data?.data?.chapters ?? [];
   const transcriptSegments = dataQ.data?.data?.transcript?.segments ?? [];
   const transcriptStatus = dataQ.data?.data?.transcript?.status;
+  const transcriptFailureReason =
+    dataQ.data?.data?.transcript?.failureReason ?? null;
   const ctas = dataQ.data?.data?.ctas ?? [];
   const firstCta = ctas[0] ?? null;
 
@@ -294,6 +296,7 @@ export default function ShareRoute() {
                   currentMs={currentMs}
                   onSeek={(ms) => playerRef.current?.seek(ms)}
                   status={transcriptStatus}
+                  failureReason={transcriptFailureReason}
                   recordingTitle={recording.title}
                 />
               </div>
