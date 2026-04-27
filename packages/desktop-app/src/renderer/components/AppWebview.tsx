@@ -287,14 +287,22 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         )}
 
         {!app.placeholder && (
-          <webview
-            ref={webviewRef}
-            src={url}
-            className="app-webview"
+          <div
+            ref={(container) => {
+              if (!container) return;
+              if (container.querySelector("webview")) return;
+              const wv = document.createElement(
+                "webview",
+              ) as ElectronWebviewElement;
+              wv.className = "app-webview";
+              wv.setAttribute("allowpopups", "");
+              wv.setAttribute("webpreferences", "contextIsolation=false");
+              wv.setAttribute("partition", `persist:app-${app.id}`);
+              wv.setAttribute("src", url);
+              container.appendChild(wv);
+              webviewRef.current = wv;
+            }}
             style={error ? { visibility: "hidden" } : undefined}
-            allowpopups={true}
-            webpreferences="contextIsolation=false"
-            partition={`persist:app-${app.id}`}
           />
         )}
       </div>
