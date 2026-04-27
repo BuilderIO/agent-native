@@ -36,47 +36,53 @@ Every `index.html` must include these in `<head>`:
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>
+<script
+  defer
+  src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
+></script>
 ```
 
 For Google Fonts (always use distinctive fonts — never Inter, Roboto, or Arial):
 
 ```html
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap"
+  rel="stylesheet"
+/>
 ```
 
 ### Alpine.js Directives Reference
 
 Use these Alpine.js directives for interactivity — never raw JavaScript event handlers:
 
-| Directive | Purpose | Example |
-| --- | --- | --- |
-| `x-data` | Component state initialization | `x-data="{ open: false, count: 0 }"` |
-| `x-show` | Conditional display (with transitions) | `x-show="open" x-transition` |
-| `x-bind:class` | Dynamic class binding | `:class="{ 'bg-blue-500': active }"` |
-| `x-on:click` | Event handling | `@click="open = !open"` |
-| `x-for` | List rendering | `<template x-for="item in items">` |
-| `x-text` | Text interpolation | `x-text="message"` |
-| `x-html` | HTML interpolation | `x-html="richContent"` |
-| `x-model` | Two-way binding for inputs | `x-model="searchQuery"` |
-| `x-ref` | Element references | `x-ref="modal"` |
-| `x-init` | Initialization logic | `x-init="fetchData()"` |
-| `x-effect` | Reactive side effects | `x-effect="updateChart(data)"` |
-| `x-cloak` | Hide until Alpine initializes | `[x-cloak] { display: none !important; }` |
+| Directive      | Purpose                                | Example                                   |
+| -------------- | -------------------------------------- | ----------------------------------------- |
+| `x-data`       | Component state initialization         | `x-data="{ open: false, count: 0 }"`      |
+| `x-show`       | Conditional display (with transitions) | `x-show="open" x-transition`              |
+| `x-bind:class` | Dynamic class binding                  | `:class="{ 'bg-blue-500': active }"`      |
+| `x-on:click`   | Event handling                         | `@click="open = !open"`                   |
+| `x-for`        | List rendering                         | `<template x-for="item in items">`        |
+| `x-text`       | Text interpolation                     | `x-text="message"`                        |
+| `x-html`       | HTML interpolation                     | `x-html="richContent"`                    |
+| `x-model`      | Two-way binding for inputs             | `x-model="searchQuery"`                   |
+| `x-ref`        | Element references                     | `x-ref="modal"`                           |
+| `x-init`       | Initialization logic                   | `x-init="fetchData()"`                    |
+| `x-effect`     | Reactive side effects                  | `x-effect="updateChart(data)"`            |
+| `x-cloak`      | Hide until Alpine initializes          | `[x-cloak] { display: none !important; }` |
 
 ### File Structure
 
 Each design is stored as one or more files in the `design_files` table:
 
-| File | Purpose | Required |
-| --- | --- | --- |
-| `index.html` | Main entry point — the iframe loads this | Always |
-| `styles.css` | Custom CSS beyond Tailwind (CSS custom properties, animations) | When needed |
-| `components.html` | Reusable component library (shared header, footer, etc.) | Multi-page |
-| `mobile.html` | Mobile-specific layout variant | When requested |
-| `page-*.html` | Additional pages in multi-page prototypes | Multi-page |
+| File              | Purpose                                                        | Required       |
+| ----------------- | -------------------------------------------------------------- | -------------- |
+| `index.html`      | Main entry point — the iframe loads this                       | Always         |
+| `styles.css`      | Custom CSS beyond Tailwind (CSS custom properties, animations) | When needed    |
+| `components.html` | Reusable component library (shared header, footer, etc.)       | Multi-page     |
+| `mobile.html`     | Mobile-specific layout variant                                 | When requested |
+| `page-*.html`     | Additional pages in multi-page prototypes                      | Multi-page     |
 
 ### Output Rules
 
@@ -97,35 +103,45 @@ Every design starts from this skeleton:
 ```html
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Design Title</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&display=swap" rel="stylesheet">
-  <style>
-    [x-cloak] { display: none !important; }
-    :root {
-      --color-primary: #0F172A;
-      --color-accent: #0EA5E9;
-      --color-surface: #1E293B;
-      --color-text: #F8FAFC;
-      --color-text-muted: #94A3B8;
-      --font-heading: 'Space Grotesk', sans-serif;
-      --font-body: 'DM Sans', sans-serif;
-      --radius: 0.75rem;
-      --spacing: 1.5rem;
-    }
-  </style>
-</head>
-<body class="bg-[var(--color-primary)] text-[var(--color-text)] font-[family-name:var(--font-body)]">
-  <div x-data="{ mobileMenu: false }">
-    <!-- Design content here -->
-  </div>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Design Title</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
+    ></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      [x-cloak] {
+        display: none !important;
+      }
+      :root {
+        --color-primary: #0f172a;
+        --color-accent: #0ea5e9;
+        --color-surface: #1e293b;
+        --color-text: #f8fafc;
+        --color-text-muted: #94a3b8;
+        --font-heading: "Space Grotesk", sans-serif;
+        --font-body: "DM Sans", sans-serif;
+        --radius: 0.75rem;
+        --spacing: 1.5rem;
+      }
+    </style>
+  </head>
+  <body
+    class="bg-[var(--color-primary)] text-[var(--color-text)] font-[family-name:var(--font-body)]"
+  >
+    <div x-data="{ mobileMenu: false }">
+      <!-- Design content here -->
+    </div>
+  </body>
 </html>
 ```
 
@@ -135,11 +151,11 @@ Every design starts from this skeleton:
 
 Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
 
-| State Key | Purpose | Direction |
-| --- | --- | --- |
-| `navigation` | Current view, design ID | UI -> Agent (read-only) |
-| `navigate` | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
-| `show-questions` | Trigger question flow overlay in the UI | Agent -> UI |
+| State Key        | Purpose                                   | Direction                  |
+| ---------------- | ----------------------------------------- | -------------------------- |
+| `navigation`     | Current view, design ID                   | UI -> Agent (read-only)    |
+| `navigate`       | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
+| `show-questions` | Trigger question flow overlay in the UI   | Agent -> UI                |
 
 ### Navigation state (read what the user sees)
 
@@ -267,81 +283,81 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 ### Reading & Navigation
 
-| Action | Args | Purpose |
-| --- | --- | --- |
-| `view-screen` | | See current UI state + context |
-| `navigate` | `--view <name>` or `--path <url>` | Navigate the UI |
-| `list-designs` | `[--compact true]` | List all design projects |
-| `get-design` | `--id <designId>` | Get design with all files |
+| Action         | Args                              | Purpose                        |
+| -------------- | --------------------------------- | ------------------------------ |
+| `view-screen`  |                                   | See current UI state + context |
+| `navigate`     | `--view <name>` or `--path <url>` | Navigate the UI                |
+| `list-designs` | `[--compact true]`                | List all design projects       |
+| `get-design`   | `--id <designId>`                 | Get design with all files      |
 
 ### Navigation
 
-| Action | Args | Purpose |
-| --- | --- | --- |
-| `navigate` | `--view list` | Navigate to design list |
-| `navigate` | `--view editor --designId <id>` | Navigate to design editor |
-| `navigate` | `--view design-systems` | Navigate to design systems |
-| `navigate` | `--view present --designId <id>` | Navigate to presentation |
-| `navigate` | `--view examples` | Navigate to examples |
+| Action     | Args                             | Purpose                    |
+| ---------- | -------------------------------- | -------------------------- |
+| `navigate` | `--view list`                    | Navigate to design list    |
+| `navigate` | `--view editor --designId <id>`  | Navigate to design editor  |
+| `navigate` | `--view design-systems`          | Navigate to design systems |
+| `navigate` | `--view present --designId <id>` | Navigate to presentation   |
+| `navigate` | `--view examples`                | Navigate to examples       |
 
 ### Creating & Editing Designs
 
-| Action | Args | Purpose |
-| --- | --- | --- |
-| `create-design` | `--title "X" [--description "..."] [--projectType prototype\|deck\|other] [--designSystemId <id>]` | Create a new empty design project |
-| `update-design` | `--id <id> [--title] [--description] [--data] [--projectType] [--designSystemId]` | Update design metadata |
-| `delete-design` | `--id <id>` | Delete design + all files/versions |
-| `duplicate-design` | `--id <id> [--title "Copy of..."]` | Deep copy design + all files |
+| Action             | Args                                                                                               | Purpose                            |
+| ------------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `create-design`    | `--title "X" [--description "..."] [--projectType prototype\|deck\|other] [--designSystemId <id>]` | Create a new empty design project  |
+| `update-design`    | `--id <id> [--title] [--description] [--data] [--projectType] [--designSystemId]`                  | Update design metadata             |
+| `delete-design`    | `--id <id>`                                                                                        | Delete design + all files/versions |
+| `duplicate-design` | `--id <id> [--title "Copy of..."]`                                                                 | Deep copy design + all files       |
 
 ### File Operations
 
-| Action | Args | Purpose |
-| --- | --- | --- |
-| `create-file` | `--designId <id> --filename "index.html" --content "<html>..." [--fileType html\|css\|jsx\|asset]` | Add a file to a design |
-| `update-file` | `--id <fileId> [--content "..."] [--filename "..."] [--fileType "..."]` | Update an existing file |
-| `delete-file` | `--id <fileId>` | Delete a file from a design |
-| `list-files` | `--designId <id>` | List all files in a design |
-| `generate-design` | `--designId <id> --prompt "..." --files '[...]' [--designSystemId] [--projectType]` | Batch create/update files (preferred for generation) |
+| Action            | Args                                                                                               | Purpose                                              |
+| ----------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `create-file`     | `--designId <id> --filename "index.html" --content "<html>..." [--fileType html\|css\|jsx\|asset]` | Add a file to a design                               |
+| `update-file`     | `--id <fileId> [--content "..."] [--filename "..."] [--fileType "..."]`                            | Update an existing file                              |
+| `delete-file`     | `--id <fileId>`                                                                                    | Delete a file from a design                          |
+| `list-files`      | `--designId <id>`                                                                                  | List all files in a design                           |
+| `generate-design` | `--designId <id> --prompt "..." --files '[...]' [--designSystemId] [--projectType]`                | Batch create/update files (preferred for generation) |
 
 ### Design Systems
 
-| Action | Args | Purpose |
-| --- | --- | --- |
-| `create-design-system` | `--title "X" [--description "..."] --data '<json>'` | Create a new design system |
-| `update-design-system` | `--id <id> [--title] [--description] [--data] [--assets]` | Update design system tokens |
-| `get-design-system` | `--id <id>` | Get design system with all tokens |
-| `list-design-systems` | `[--compact true]` | List all design systems |
-| `set-default-design-system` | `--id <id>` | Set one as the default |
-| `analyze-brand-assets` | `[--websiteUrl "..."] [--companyName "..."] [--brandNotes "..."] [--designSystemId <id>]` | Gather brand data for analysis |
+| Action                      | Args                                                                                      | Purpose                           |
+| --------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------- |
+| `create-design-system`      | `--title "X" [--description "..."] --data '<json>'`                                       | Create a new design system        |
+| `update-design-system`      | `--id <id> [--title] [--description] [--data] [--assets]`                                 | Update design system tokens       |
+| `get-design-system`         | `--id <id>`                                                                               | Get design system with all tokens |
+| `list-design-systems`       | `[--compact true]`                                                                        | List all design systems           |
+| `set-default-design-system` | `--id <id>`                                                                               | Set one as the default            |
+| `analyze-brand-assets`      | `[--websiteUrl "..."] [--companyName "..."] [--brandNotes "..."] [--designSystemId <id>]` | Gather brand data for analysis    |
 
 ### Import & Export
 
-| Action | Args | Purpose |
-| --- | --- | --- |
-| `import-from-url` | `--url <websiteUrl>` | Analyze a website and extract design tokens, colors, fonts |
-| `import-figma` | `--description "..." [--figmaUrl "..."] [--projectTitle "..."]` | Process Figma file description for design import |
-| `export-html` | `--id <designId>` | Export as standalone HTML with CDN scripts |
-| `export-zip` | `--id <designId>` | Export as ZIP with all files + README |
-| `export-pdf` | `--id <designId>` | Prepare data for client-side PDF rendering |
+| Action            | Args                                                            | Purpose                                                    |
+| ----------------- | --------------------------------------------------------------- | ---------------------------------------------------------- |
+| `import-from-url` | `--url <websiteUrl>`                                            | Analyze a website and extract design tokens, colors, fonts |
+| `import-figma`    | `--description "..." [--figmaUrl "..."] [--projectTitle "..."]` | Process Figma file description for design import           |
+| `export-html`     | `--id <designId>`                                               | Export as standalone HTML with CDN scripts                 |
+| `export-zip`      | `--id <designId>`                                               | Export as ZIP with all files + README                      |
+| `export-pdf`      | `--id <designId>`                                               | Prepare data for client-side PDF rendering                 |
 
 ### Sharing
 
 Designs are **private by default** — only the creator sees them. These actions are auto-mounted framework-wide:
 
-| Action | Args | Purpose |
-| --- | --- | --- |
-| `share-resource` | `--resourceType design --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant access |
-| `unshare-resource` | `--resourceType design --resourceId <id> --principalType user\|org --principalId <email-or-orgId>` | Revoke access |
-| `list-resource-shares` | `--resourceType design --resourceId <id>` | Show current visibility + grants |
-| `set-resource-visibility` | `--resourceType design --resourceId <id> --visibility private\|org\|public` | Change coarse visibility |
+| Action                    | Args                                                                                                                            | Purpose                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `share-resource`          | `--resourceType design --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant access                     |
+| `unshare-resource`        | `--resourceType design --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                              | Revoke access                    |
+| `list-resource-shares`    | `--resourceType design --resourceId <id>`                                                                                       | Show current visibility + grants |
+| `set-resource-visibility` | `--resourceType design --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility         |
 
 ### Database
 
-| Action | Args | Purpose |
-| --- | --- | --- |
-| `db-schema` | | Show all tables, columns, types |
-| `db-query` | `--sql "SELECT ..."` | Run a SELECT query |
-| `db-exec` | `--sql "INSERT ..."` | Run INSERT/UPDATE/DELETE |
+| Action      | Args                 | Purpose                         |
+| ----------- | -------------------- | ------------------------------- |
+| `db-schema` |                      | Show all tables, columns, types |
+| `db-query`  | `--sql "SELECT ..."` | Run a SELECT query              |
+| `db-exec`   | `--sql "INSERT ..."` | Run INSERT/UPDATE/DELETE        |
 
 ---
 
@@ -386,13 +402,13 @@ pnpm action update-file --id <fileId> --content "<updated HTML>"
 
 ### When to Ask Questions
 
-| Scenario | Questions |
-| --- | --- |
-| Complex/ambiguous request ("design me an app") | Ask 8-12 structured questions |
-| Specific request with clear direction ("landing page for a SaaS") | Ask 3-5 clarifying questions |
-| Simple tweaks/follow-ups ("make the header bigger") | Skip questions, just do it |
-| "Make me a prototype of X" | Light questioning (3-4 questions) |
-| "Decide for me" / "surprise me" | Zero questions — pick a bold direction |
+| Scenario                                                          | Questions                              |
+| ----------------------------------------------------------------- | -------------------------------------- |
+| Complex/ambiguous request ("design me an app")                    | Ask 8-12 structured questions          |
+| Specific request with clear direction ("landing page for a SaaS") | Ask 3-5 clarifying questions           |
+| Simple tweaks/follow-ups ("make the header bigger")               | Skip questions, just do it             |
+| "Make me a prototype of X"                                        | Light questioning (3-4 questions)      |
+| "Decide for me" / "surprise me"                                   | Zero questions — pick a bold direction |
 
 ### Sending Questions to the UI
 
@@ -459,13 +475,13 @@ Use the `show-questions` application state key to trigger the question flow over
 
 ### Question Types
 
-| Type | UI | Use for |
-| --- | --- | --- |
-| `text-options` | Button group | Style, layout, purpose choices |
-| `color-options` | Color swatches | Color mood, theme selection |
-| `slider` | Range slider | Density, intensity, number of sections |
-| `file` | File upload | Logo, brand assets, reference images |
-| `freeform` | Text input | Brand description, specific requirements |
+| Type            | UI             | Use for                                  |
+| --------------- | -------------- | ---------------------------------------- |
+| `text-options`  | Button group   | Style, layout, purpose choices           |
+| `color-options` | Color swatches | Color mood, theme selection              |
+| `slider`        | Range slider   | Density, intensity, number of sections   |
+| `file`          | File upload    | Logo, brand assets, reference images     |
+| `freeform`      | Text input     | Brand description, specific requirements |
 
 ### Standard Question Categories
 
@@ -535,12 +551,12 @@ When generating a design, ALWAYS include tweaks definitions in the design's `dat
 
 ### Tweak Types
 
-| Type | UI | CSS Var Value |
-| --- | --- | --- |
-| `color-swatch` | Color dot selector | Hex color string |
-| `segment` | Segmented control | String value (map in CSS) |
-| `slider` | Range slider | Number (px or unitless) |
-| `toggle` | On/off switch | `1` or `0` |
+| Type           | UI                 | CSS Var Value             |
+| -------------- | ------------------ | ------------------------- |
+| `color-swatch` | Color dot selector | Hex color string          |
+| `segment`      | Segmented control  | String value (map in CSS) |
+| `slider`       | Range slider       | Number (px or unitless)   |
+| `toggle`       | On/off switch      | `1` or `0`                |
 
 ### CSS Custom Properties for Tweaks
 
@@ -549,12 +565,12 @@ Generated HTML MUST use CSS custom properties that the tweaks panel controls. Ev
 ```css
 :root {
   /* Tweaks panel controls these */
-  --color-accent: #0EA5E9;
-  --color-primary: #0F172A;
-  --color-surface: #1E293B;
-  --color-text: #F8FAFC;
-  --color-text-muted: #94A3B8;
-  --density: normal;        /* compact | normal | roomy */
+  --color-accent: #0ea5e9;
+  --color-primary: #0f172a;
+  --color-surface: #1e293b;
+  --color-text: #f8fafc;
+  --color-text-muted: #94a3b8;
+  --density: normal; /* compact | normal | roomy */
   --radius: 12px;
   --spacing: 1.5rem;
 
@@ -592,17 +608,17 @@ The returned `data` is a JSON string containing `DesignSystemData`:
 ```typescript
 interface DesignSystemData {
   colors: {
-    primary: string;      // Main background
-    secondary: string;    // Secondary background
-    accent: string;       // Accent/CTA color
-    background: string;   // Page background
-    surface: string;      // Card/panel background
-    text: string;         // Primary text
-    textMuted: string;    // Secondary text
+    primary: string; // Main background
+    secondary: string; // Secondary background
+    accent: string; // Accent/CTA color
+    background: string; // Page background
+    surface: string; // Card/panel background
+    text: string; // Primary text
+    textMuted: string; // Secondary text
   };
   typography: {
-    headingFont: string;  // Google Fonts family name
-    bodyFont: string;     // Google Fonts family name
+    headingFont: string; // Google Fonts family name
+    bodyFont: string; // Google Fonts family name
     headingWeight: string;
     bodyWeight: string;
     headingSizes: { h1: string; h2: string; h3: string };
@@ -649,7 +665,10 @@ Replace the default `:root` values with design system tokens:
 Include the design system's Google Font in the `<link>` tag:
 
 ```html
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Source+Sans+3:wght@300;400;600&display=swap" rel="stylesheet">
+<link
+  href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Source+Sans+3:wght@300;400;600&display=swap"
+  rel="stylesheet"
+/>
 ```
 
 ### Brand Asset Hierarchy
@@ -679,23 +698,23 @@ For deeper analysis, also use: `import-from-url --url "https://example.com"` whi
 
 ## Common Tasks
 
-| User request | What to do |
-| --- | --- |
-| "What am I looking at?" | `pnpm action view-screen` |
-| "List my designs" | `pnpm action list-designs` |
-| "Create a new design" | `create-design --title "X"` then `navigate --view editor --designId <id>` then `generate-design` with HTML |
-| "Make a landing page for X" | Create design, ask 3-5 questions or proceed, generate HTML, save via `generate-design` |
-| "Change the color scheme" | `get-design --id <id>` to read current files, modify CSS custom properties, save via `generate-design` |
-| "Make it responsive" | `get-design --id <id>`, add responsive Tailwind classes, save |
-| "Add a navigation bar" | `get-design --id <id>`, add nav HTML to `index.html`, save |
-| "Export as HTML" | `export-html --id <id>` |
-| "Export as ZIP" | `export-zip --id <id>` |
-| "Duplicate this design" | `duplicate-design --id <id>` |
-| "Set up brand identity for X" | `analyze-brand-assets --websiteUrl "..."` then `create-design-system` |
-| "Apply my brand to this design" | `get-design-system --id <id>` then regenerate with tokens |
-| "Go to design list" | `navigate --view list` |
-| "Open design abc123" | `navigate --view editor --designId abc123` |
-| "Present this design" | `navigate --path /present/<designId>` |
+| User request                    | What to do                                                                                                 |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| "What am I looking at?"         | `pnpm action view-screen`                                                                                  |
+| "List my designs"               | `pnpm action list-designs`                                                                                 |
+| "Create a new design"           | `create-design --title "X"` then `navigate --view editor --designId <id>` then `generate-design` with HTML |
+| "Make a landing page for X"     | Create design, ask 3-5 questions or proceed, generate HTML, save via `generate-design`                     |
+| "Change the color scheme"       | `get-design --id <id>` to read current files, modify CSS custom properties, save via `generate-design`     |
+| "Make it responsive"            | `get-design --id <id>`, add responsive Tailwind classes, save                                              |
+| "Add a navigation bar"          | `get-design --id <id>`, add nav HTML to `index.html`, save                                                 |
+| "Export as HTML"                | `export-html --id <id>`                                                                                    |
+| "Export as ZIP"                 | `export-zip --id <id>`                                                                                     |
+| "Duplicate this design"         | `duplicate-design --id <id>`                                                                               |
+| "Set up brand identity for X"   | `analyze-brand-assets --websiteUrl "..."` then `create-design-system`                                      |
+| "Apply my brand to this design" | `get-design-system --id <id>` then regenerate with tokens                                                  |
+| "Go to design list"             | `navigate --view list`                                                                                     |
+| "Open design abc123"            | `navigate --view editor --designId abc123`                                                                 |
+| "Present this design"           | `navigate --path /present/<designId>`                                                                      |
 
 ---
 
@@ -708,126 +727,287 @@ For deeper analysis, also use: `import-from-url --url "https://example.com"` whi
 ```html
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Landing Page</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=DM+Sans:opsz,wght@9..40,300..700&display=swap" rel="stylesheet">
-  <style>
-    [x-cloak] { display: none !important; }
-    :root {
-      --color-primary: #0F172A;
-      --color-accent: #0EA5E9;
-      --color-accent-hover: #0284C7;
-      --color-surface: #1E293B;
-      --color-text: #F8FAFC;
-      --color-text-muted: #94A3B8;
-      --font-heading: 'Space Grotesk', sans-serif;
-      --font-body: 'DM Sans', sans-serif;
-      --radius: 12px;
-    }
-    body { font-family: var(--font-body); }
-    h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); text-wrap: balance; }
-    p { text-wrap: pretty; }
-  </style>
-</head>
-<body class="bg-[var(--color-primary)] text-[var(--color-text)]" x-data="{ mobileNav: false }">
-
-  <!-- Navigation -->
-  <nav class="fixed top-0 inset-x-0 z-50 border-b border-white/5 backdrop-blur-xl bg-[var(--color-primary)]/80">
-    <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-      <a href="#" class="text-lg font-bold tracking-tight" style="font-family: var(--font-heading)">Brand</a>
-      <div class="hidden md:flex items-center gap-8">
-        <a href="#features" class="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors">Features</a>
-        <a href="#pricing" class="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors">Pricing</a>
-        <a href="#" class="text-sm font-medium px-4 py-2 rounded-[var(--radius)] bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] transition-colors">Get Started</a>
-      </div>
-      <button @click="mobileNav = !mobileNav" class="md:hidden p-2 cursor-pointer" aria-label="Toggle menu">
-        <svg x-show="!mobileNav" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-        <svg x-show="mobileNav" x-cloak class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-      </button>
-    </div>
-    <div x-show="mobileNav" x-cloak x-transition class="md:hidden border-t border-white/5 bg-[var(--color-primary)] px-6 py-4 space-y-3">
-      <a href="#features" class="block text-sm text-[var(--color-text-muted)]">Features</a>
-      <a href="#pricing" class="block text-sm text-[var(--color-text-muted)]">Pricing</a>
-      <a href="#" class="block text-sm font-medium text-[var(--color-accent)]">Get Started</a>
-    </div>
-  </nav>
-
-  <!-- Hero -->
-  <section class="pt-32 pb-20 px-6">
-    <div class="max-w-4xl mx-auto text-center">
-      <p class="text-xs font-semibold tracking-[0.2em] uppercase text-[var(--color-accent)] mb-6">Introducing Product</p>
-      <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.08] mb-6">
-        The headline that<br>captures attention
-      </h1>
-      <p class="text-lg text-[var(--color-text-muted)] max-w-2xl mx-auto mb-10 leading-relaxed">
-        A concise description of the value proposition. One or two sentences that explain what this does and why it matters.
-      </p>
-      <div class="flex flex-col sm:flex-row gap-4 justify-center">
-        <a href="#" class="px-6 py-3 rounded-[var(--radius)] bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] font-medium transition-colors text-center">Start Free Trial</a>
-        <a href="#" class="px-6 py-3 rounded-[var(--radius)] border border-white/10 hover:border-white/20 text-[var(--color-text-muted)] hover:text-[var(--color-text)] font-medium transition-colors text-center">Learn More</a>
-      </div>
-    </div>
-  </section>
-
-  <!-- Features -->
-  <section id="features" class="py-20 px-6">
-    <div class="max-w-6xl mx-auto">
-      <div class="text-center mb-16">
-        <p class="text-xs font-semibold tracking-[0.2em] uppercase text-[var(--color-accent)] mb-4">Features</p>
-        <h2 class="text-3xl sm:text-4xl font-bold tracking-tight">Everything you need</h2>
-      </div>
-      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div class="p-6 rounded-[var(--radius)] bg-[var(--color-surface)] border border-white/5">
-          <div class="w-10 h-10 rounded-lg bg-[var(--color-accent)]/10 flex items-center justify-center mb-4">
-            <div class="w-5 h-5 rounded bg-[var(--color-accent)]/40"></div>
-          </div>
-          <h3 class="font-semibold mb-2" style="font-family: var(--font-heading)">Feature One</h3>
-          <p class="text-sm text-[var(--color-text-muted)] leading-relaxed">Description of the feature and why it matters to the user.</p>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Landing Page</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
+    ></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=DM+Sans:opsz,wght@9..40,300..700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      [x-cloak] {
+        display: none !important;
+      }
+      :root {
+        --color-primary: #0f172a;
+        --color-accent: #0ea5e9;
+        --color-accent-hover: #0284c7;
+        --color-surface: #1e293b;
+        --color-text: #f8fafc;
+        --color-text-muted: #94a3b8;
+        --font-heading: "Space Grotesk", sans-serif;
+        --font-body: "DM Sans", sans-serif;
+        --radius: 12px;
+      }
+      body {
+        font-family: var(--font-body);
+      }
+      h1,
+      h2,
+      h3,
+      h4,
+      h5,
+      h6 {
+        font-family: var(--font-heading);
+        text-wrap: balance;
+      }
+      p {
+        text-wrap: pretty;
+      }
+    </style>
+  </head>
+  <body
+    class="bg-[var(--color-primary)] text-[var(--color-text)]"
+    x-data="{ mobileNav: false }"
+  >
+    <!-- Navigation -->
+    <nav
+      class="fixed top-0 inset-x-0 z-50 border-b border-white/5 backdrop-blur-xl bg-[var(--color-primary)]/80"
+    >
+      <div
+        class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between"
+      >
+        <a
+          href="#"
+          class="text-lg font-bold tracking-tight"
+          style="font-family: var(--font-heading)"
+          >Brand</a
+        >
+        <div class="hidden md:flex items-center gap-8">
+          <a
+            href="#features"
+            class="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+            >Features</a
+          >
+          <a
+            href="#pricing"
+            class="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+            >Pricing</a
+          >
+          <a
+            href="#"
+            class="text-sm font-medium px-4 py-2 rounded-[var(--radius)] bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] transition-colors"
+            >Get Started</a
+          >
         </div>
-        <div class="p-6 rounded-[var(--radius)] bg-[var(--color-surface)] border border-white/5">
-          <div class="w-10 h-10 rounded-lg bg-[var(--color-accent)]/10 flex items-center justify-center mb-4">
-            <div class="w-5 h-5 rounded bg-[var(--color-accent)]/40"></div>
-          </div>
-          <h3 class="font-semibold mb-2" style="font-family: var(--font-heading)">Feature Two</h3>
-          <p class="text-sm text-[var(--color-text-muted)] leading-relaxed">Description of the feature and why it matters to the user.</p>
-        </div>
-        <div class="p-6 rounded-[var(--radius)] bg-[var(--color-surface)] border border-white/5">
-          <div class="w-10 h-10 rounded-lg bg-[var(--color-accent)]/10 flex items-center justify-center mb-4">
-            <div class="w-5 h-5 rounded bg-[var(--color-accent)]/40"></div>
-          </div>
-          <h3 class="font-semibold mb-2" style="font-family: var(--font-heading)">Feature Three</h3>
-          <p class="text-sm text-[var(--color-text-muted)] leading-relaxed">Description of the feature and why it matters to the user.</p>
+        <button
+          @click="mobileNav = !mobileNav"
+          class="md:hidden p-2 cursor-pointer"
+          aria-label="Toggle menu"
+        >
+          <svg
+            x-show="!mobileNav"
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 6h16M4 12h16M4 18h16"
+            />
+          </svg>
+          <svg
+            x-show="mobileNav"
+            x-cloak
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M6 18L18 6M6 6l12 12"
+            />
+          </svg>
+        </button>
+      </div>
+      <div
+        x-show="mobileNav"
+        x-cloak
+        x-transition
+        class="md:hidden border-t border-white/5 bg-[var(--color-primary)] px-6 py-4 space-y-3"
+      >
+        <a href="#features" class="block text-sm text-[var(--color-text-muted)]"
+          >Features</a
+        >
+        <a href="#pricing" class="block text-sm text-[var(--color-text-muted)]"
+          >Pricing</a
+        >
+        <a href="#" class="block text-sm font-medium text-[var(--color-accent)]"
+          >Get Started</a
+        >
+      </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="pt-32 pb-20 px-6">
+      <div class="max-w-4xl mx-auto text-center">
+        <p
+          class="text-xs font-semibold tracking-[0.2em] uppercase text-[var(--color-accent)] mb-6"
+        >
+          Introducing Product
+        </p>
+        <h1
+          class="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.08] mb-6"
+        >
+          The headline that<br />captures attention
+        </h1>
+        <p
+          class="text-lg text-[var(--color-text-muted)] max-w-2xl mx-auto mb-10 leading-relaxed"
+        >
+          A concise description of the value proposition. One or two sentences
+          that explain what this does and why it matters.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="#"
+            class="px-6 py-3 rounded-[var(--radius)] bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] font-medium transition-colors text-center"
+            >Start Free Trial</a
+          >
+          <a
+            href="#"
+            class="px-6 py-3 rounded-[var(--radius)] border border-white/10 hover:border-white/20 text-[var(--color-text-muted)] hover:text-[var(--color-text)] font-medium transition-colors text-center"
+            >Learn More</a
+          >
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- CTA -->
-  <section class="py-20 px-6">
-    <div class="max-w-3xl mx-auto text-center">
-      <h2 class="text-3xl sm:text-4xl font-bold tracking-tight mb-4">Ready to get started?</h2>
-      <p class="text-[var(--color-text-muted)] mb-8">Join thousands of users who already love this product.</p>
-      <a href="#" class="inline-block px-8 py-3 rounded-[var(--radius)] bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] font-medium transition-colors">Start Free Trial</a>
-    </div>
-  </section>
-
-  <!-- Footer -->
-  <footer class="border-t border-white/5 py-8 px-6">
-    <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-      <p class="text-sm text-[var(--color-text-muted)]">2026 Brand. All rights reserved.</p>
-      <div class="flex gap-6">
-        <a href="#" class="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)]">Privacy</a>
-        <a href="#" class="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)]">Terms</a>
+    <!-- Features -->
+    <section id="features" class="py-20 px-6">
+      <div class="max-w-6xl mx-auto">
+        <div class="text-center mb-16">
+          <p
+            class="text-xs font-semibold tracking-[0.2em] uppercase text-[var(--color-accent)] mb-4"
+          >
+            Features
+          </p>
+          <h2 class="text-3xl sm:text-4xl font-bold tracking-tight">
+            Everything you need
+          </h2>
+        </div>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div
+            class="p-6 rounded-[var(--radius)] bg-[var(--color-surface)] border border-white/5"
+          >
+            <div
+              class="w-10 h-10 rounded-lg bg-[var(--color-accent)]/10 flex items-center justify-center mb-4"
+            >
+              <div class="w-5 h-5 rounded bg-[var(--color-accent)]/40"></div>
+            </div>
+            <h3
+              class="font-semibold mb-2"
+              style="font-family: var(--font-heading)"
+            >
+              Feature One
+            </h3>
+            <p class="text-sm text-[var(--color-text-muted)] leading-relaxed">
+              Description of the feature and why it matters to the user.
+            </p>
+          </div>
+          <div
+            class="p-6 rounded-[var(--radius)] bg-[var(--color-surface)] border border-white/5"
+          >
+            <div
+              class="w-10 h-10 rounded-lg bg-[var(--color-accent)]/10 flex items-center justify-center mb-4"
+            >
+              <div class="w-5 h-5 rounded bg-[var(--color-accent)]/40"></div>
+            </div>
+            <h3
+              class="font-semibold mb-2"
+              style="font-family: var(--font-heading)"
+            >
+              Feature Two
+            </h3>
+            <p class="text-sm text-[var(--color-text-muted)] leading-relaxed">
+              Description of the feature and why it matters to the user.
+            </p>
+          </div>
+          <div
+            class="p-6 rounded-[var(--radius)] bg-[var(--color-surface)] border border-white/5"
+          >
+            <div
+              class="w-10 h-10 rounded-lg bg-[var(--color-accent)]/10 flex items-center justify-center mb-4"
+            >
+              <div class="w-5 h-5 rounded bg-[var(--color-accent)]/40"></div>
+            </div>
+            <h3
+              class="font-semibold mb-2"
+              style="font-family: var(--font-heading)"
+            >
+              Feature Three
+            </h3>
+            <p class="text-sm text-[var(--color-text-muted)] leading-relaxed">
+              Description of the feature and why it matters to the user.
+            </p>
+          </div>
+        </div>
       </div>
-    </div>
-  </footer>
-</body>
+    </section>
+
+    <!-- CTA -->
+    <section class="py-20 px-6">
+      <div class="max-w-3xl mx-auto text-center">
+        <h2 class="text-3xl sm:text-4xl font-bold tracking-tight mb-4">
+          Ready to get started?
+        </h2>
+        <p class="text-[var(--color-text-muted)] mb-8">
+          Join thousands of users who already love this product.
+        </p>
+        <a
+          href="#"
+          class="inline-block px-8 py-3 rounded-[var(--radius)] bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] font-medium transition-colors"
+          >Start Free Trial</a
+        >
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="border-t border-white/5 py-8 px-6">
+      <div
+        class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4"
+      >
+        <p class="text-sm text-[var(--color-text-muted)]">
+          2026 Brand. All rights reserved.
+        </p>
+        <div class="flex gap-6">
+          <a
+            href="#"
+            class="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            >Privacy</a
+          >
+          <a
+            href="#"
+            class="text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            >Terms</a
+          >
+        </div>
+      </div>
+    </footer>
+  </body>
 </html>
 ```
 
@@ -836,39 +1016,54 @@ For deeper analysis, also use: `import-from-url --url "https://example.com"` whi
 ```html
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=DM+Sans:opsz,wght@9..40,300..700&display=swap" rel="stylesheet">
-  <style>
-    [x-cloak] { display: none !important; }
-    :root {
-      --color-primary: #0F172A;
-      --color-accent: #0EA5E9;
-      --color-surface: #1E293B;
-      --color-surface-hover: #334155;
-      --color-text: #F8FAFC;
-      --color-text-muted: #94A3B8;
-      --color-border: rgba(255,255,255,0.06);
-      --color-success: #22C55E;
-      --color-warning: #F59E0B;
-      --color-error: #EF4444;
-      --font-heading: 'Space Grotesk', sans-serif;
-      --font-body: 'DM Sans', sans-serif;
-      --radius: 10px;
-      --sidebar-width: 240px;
-    }
-    body { font-family: var(--font-body); }
-    h1, h2, h3 { font-family: var(--font-heading); }
-  </style>
-</head>
-<body class="bg-[var(--color-primary)] text-[var(--color-text)]"
-      x-data="{
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
+    ></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=DM+Sans:opsz,wght@9..40,300..700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      [x-cloak] {
+        display: none !important;
+      }
+      :root {
+        --color-primary: #0f172a;
+        --color-accent: #0ea5e9;
+        --color-surface: #1e293b;
+        --color-surface-hover: #334155;
+        --color-text: #f8fafc;
+        --color-text-muted: #94a3b8;
+        --color-border: rgba(255, 255, 255, 0.06);
+        --color-success: #22c55e;
+        --color-warning: #f59e0b;
+        --color-error: #ef4444;
+        --font-heading: "Space Grotesk", sans-serif;
+        --font-body: "DM Sans", sans-serif;
+        --radius: 10px;
+        --sidebar-width: 240px;
+      }
+      body {
+        font-family: var(--font-body);
+      }
+      h1,
+      h2,
+      h3 {
+        font-family: var(--font-heading);
+      }
+    </style>
+  </head>
+  <body
+    class="bg-[var(--color-primary)] text-[var(--color-text)]"
+    x-data="{
         sidebarOpen: true,
         activeTab: 'overview',
         stats: [
@@ -877,106 +1072,196 @@ For deeper analysis, also use: `import-from-url --url "https://example.com"` whi
           { label: 'Orders', value: '1,234', change: '-2.4%', up: false },
           { label: 'Conversion', value: '3.2%', change: '+0.8%', up: true }
         ]
-      }">
-
-  <div class="flex h-screen overflow-hidden">
-    <!-- Sidebar -->
-    <aside x-show="sidebarOpen" x-transition class="w-[var(--sidebar-width)] border-r border-[var(--color-border)] flex flex-col shrink-0">
-      <div class="h-14 px-4 flex items-center border-b border-[var(--color-border)]">
-        <span class="font-bold text-sm tracking-tight" style="font-family: var(--font-heading)">Dashboard</span>
-      </div>
-      <nav class="flex-1 p-3 space-y-1">
-        <template x-for="item in ['overview', 'analytics', 'customers', 'orders', 'settings']" :key="item">
-          <button @click="activeTab = item"
-            :class="activeTab === item ? 'bg-[var(--color-surface)] text-[var(--color-text)]' : 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface)]/50'"
-            class="w-full text-left px-3 py-2 rounded-lg text-sm capitalize transition-colors cursor-pointer"
-            x-text="item">
-          </button>
-        </template>
-      </nav>
-    </aside>
-
-    <!-- Main content -->
-    <main class="flex-1 overflow-auto">
-      <header class="h-14 px-6 flex items-center justify-between border-b border-[var(--color-border)]">
-        <button @click="sidebarOpen = !sidebarOpen" class="p-1.5 rounded-lg hover:bg-[var(--color-surface)] transition-colors cursor-pointer" aria-label="Toggle sidebar">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-        </button>
-        <div class="flex items-center gap-3">
-          <div class="w-7 h-7 rounded-full bg-[var(--color-accent)]/20 flex items-center justify-center text-xs font-medium text-[var(--color-accent)]">U</div>
+      }"
+  >
+    <div class="flex h-screen overflow-hidden">
+      <!-- Sidebar -->
+      <aside
+        x-show="sidebarOpen"
+        x-transition
+        class="w-[var(--sidebar-width)] border-r border-[var(--color-border)] flex flex-col shrink-0"
+      >
+        <div
+          class="h-14 px-4 flex items-center border-b border-[var(--color-border)]"
+        >
+          <span
+            class="font-bold text-sm tracking-tight"
+            style="font-family: var(--font-heading)"
+            >Dashboard</span
+          >
         </div>
-      </header>
-
-      <div class="p-6">
-        <h1 class="text-xl font-bold mb-6">Overview</h1>
-
-        <!-- Stats grid -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <template x-for="stat in stats" :key="stat.label">
-            <div class="p-4 rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)]">
-              <p class="text-xs text-[var(--color-text-muted)] mb-1" x-text="stat.label"></p>
-              <p class="text-2xl font-bold tracking-tight" style="font-family: var(--font-heading)" x-text="stat.value"></p>
-              <p class="text-xs mt-1"
-                 :class="stat.up ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'"
-                 x-text="stat.change"></p>
-            </div>
+        <nav class="flex-1 p-3 space-y-1">
+          <template
+            x-for="item in ['overview', 'analytics', 'customers', 'orders', 'settings']"
+            :key="item"
+          >
+            <button
+              @click="activeTab = item"
+              :class="activeTab === item ? 'bg-[var(--color-surface)] text-[var(--color-text)]' : 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface)]/50'"
+              class="w-full text-left px-3 py-2 rounded-lg text-sm capitalize transition-colors cursor-pointer"
+              x-text="item"
+            ></button>
           </template>
-        </div>
+        </nav>
+      </aside>
 
-        <!-- Chart placeholder -->
-        <div class="rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)] p-6 mb-8">
-          <h3 class="text-sm font-semibold mb-4">Revenue Over Time</h3>
-          <div class="h-48 flex items-end gap-2">
-            <template x-for="(height, i) in [40, 65, 45, 80, 55, 90, 70, 85, 60, 95, 75, 88]" :key="i">
-              <div class="flex-1 rounded-t bg-[var(--color-accent)]/60 hover:bg-[var(--color-accent)] transition-colors cursor-pointer" :style="'height: ' + height + '%'"></div>
+      <!-- Main content -->
+      <main class="flex-1 overflow-auto">
+        <header
+          class="h-14 px-6 flex items-center justify-between border-b border-[var(--color-border)]"
+        >
+          <button
+            @click="sidebarOpen = !sidebarOpen"
+            class="p-1.5 rounded-lg hover:bg-[var(--color-surface)] transition-colors cursor-pointer"
+            aria-label="Toggle sidebar"
+          >
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 6h16M4 12h16M4 18h16"
+              />
+            </svg>
+          </button>
+          <div class="flex items-center gap-3">
+            <div
+              class="w-7 h-7 rounded-full bg-[var(--color-accent)]/20 flex items-center justify-center text-xs font-medium text-[var(--color-accent)]"
+            >
+              U
+            </div>
+          </div>
+        </header>
+
+        <div class="p-6">
+          <h1 class="text-xl font-bold mb-6">Overview</h1>
+
+          <!-- Stats grid -->
+          <div
+            class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8"
+          >
+            <template x-for="stat in stats" :key="stat.label">
+              <div
+                class="p-4 rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)]"
+              >
+                <p
+                  class="text-xs text-[var(--color-text-muted)] mb-1"
+                  x-text="stat.label"
+                ></p>
+                <p
+                  class="text-2xl font-bold tracking-tight"
+                  style="font-family: var(--font-heading)"
+                  x-text="stat.value"
+                ></p>
+                <p
+                  class="text-xs mt-1"
+                  :class="stat.up ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'"
+                  x-text="stat.change"
+                ></p>
+              </div>
             </template>
           </div>
-          <div class="flex justify-between mt-2">
-            <span class="text-xs text-[var(--color-text-muted)]">Jan</span>
-            <span class="text-xs text-[var(--color-text-muted)]">Dec</span>
-          </div>
-        </div>
 
-        <!-- Table -->
-        <div class="rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)] overflow-hidden">
-          <div class="px-4 py-3 border-b border-[var(--color-border)]">
-            <h3 class="text-sm font-semibold">Recent Orders</h3>
+          <!-- Chart placeholder -->
+          <div
+            class="rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)] p-6 mb-8"
+          >
+            <h3 class="text-sm font-semibold mb-4">Revenue Over Time</h3>
+            <div class="h-48 flex items-end gap-2">
+              <template
+                x-for="(height, i) in [40, 65, 45, 80, 55, 90, 70, 85, 60, 95, 75, 88]"
+                :key="i"
+              >
+                <div
+                  class="flex-1 rounded-t bg-[var(--color-accent)]/60 hover:bg-[var(--color-accent)] transition-colors cursor-pointer"
+                  :style="'height: ' + height + '%'"
+                ></div>
+              </template>
+            </div>
+            <div class="flex justify-between mt-2">
+              <span class="text-xs text-[var(--color-text-muted)]">Jan</span>
+              <span class="text-xs text-[var(--color-text-muted)]">Dec</span>
+            </div>
           </div>
-          <table class="w-full">
-            <thead>
-              <tr class="border-b border-[var(--color-border)]">
-                <th class="text-left text-xs font-medium text-[var(--color-text-muted)] px-4 py-2">Order</th>
-                <th class="text-left text-xs font-medium text-[var(--color-text-muted)] px-4 py-2">Customer</th>
-                <th class="text-left text-xs font-medium text-[var(--color-text-muted)] px-4 py-2">Amount</th>
-                <th class="text-left text-xs font-medium text-[var(--color-text-muted)] px-4 py-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="border-b border-[var(--color-border)]">
-                <td class="px-4 py-3 text-sm">#1234</td>
-                <td class="px-4 py-3 text-sm">Alice Johnson</td>
-                <td class="px-4 py-3 text-sm">$299.00</td>
-                <td class="px-4 py-3"><span class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-success)]/10 text-[var(--color-success)]">Completed</span></td>
-              </tr>
-              <tr class="border-b border-[var(--color-border)]">
-                <td class="px-4 py-3 text-sm">#1233</td>
-                <td class="px-4 py-3 text-sm">Bob Chen</td>
-                <td class="px-4 py-3 text-sm">$149.00</td>
-                <td class="px-4 py-3"><span class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-warning)]/10 text-[var(--color-warning)]">Pending</span></td>
-              </tr>
-              <tr>
-                <td class="px-4 py-3 text-sm">#1232</td>
-                <td class="px-4 py-3 text-sm">Clara Davis</td>
-                <td class="px-4 py-3 text-sm">$89.00</td>
-                <td class="px-4 py-3"><span class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-success)]/10 text-[var(--color-success)]">Completed</span></td>
-              </tr>
-            </tbody>
-          </table>
+
+          <!-- Table -->
+          <div
+            class="rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)] overflow-hidden"
+          >
+            <div class="px-4 py-3 border-b border-[var(--color-border)]">
+              <h3 class="text-sm font-semibold">Recent Orders</h3>
+            </div>
+            <table class="w-full">
+              <thead>
+                <tr class="border-b border-[var(--color-border)]">
+                  <th
+                    class="text-left text-xs font-medium text-[var(--color-text-muted)] px-4 py-2"
+                  >
+                    Order
+                  </th>
+                  <th
+                    class="text-left text-xs font-medium text-[var(--color-text-muted)] px-4 py-2"
+                  >
+                    Customer
+                  </th>
+                  <th
+                    class="text-left text-xs font-medium text-[var(--color-text-muted)] px-4 py-2"
+                  >
+                    Amount
+                  </th>
+                  <th
+                    class="text-left text-xs font-medium text-[var(--color-text-muted)] px-4 py-2"
+                  >
+                    Status
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="border-b border-[var(--color-border)]">
+                  <td class="px-4 py-3 text-sm">#1234</td>
+                  <td class="px-4 py-3 text-sm">Alice Johnson</td>
+                  <td class="px-4 py-3 text-sm">$299.00</td>
+                  <td class="px-4 py-3">
+                    <span
+                      class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-success)]/10 text-[var(--color-success)]"
+                      >Completed</span
+                    >
+                  </td>
+                </tr>
+                <tr class="border-b border-[var(--color-border)]">
+                  <td class="px-4 py-3 text-sm">#1233</td>
+                  <td class="px-4 py-3 text-sm">Bob Chen</td>
+                  <td class="px-4 py-3 text-sm">$149.00</td>
+                  <td class="px-4 py-3">
+                    <span
+                      class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-warning)]/10 text-[var(--color-warning)]"
+                      >Pending</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td class="px-4 py-3 text-sm">#1232</td>
+                  <td class="px-4 py-3 text-sm">Clara Davis</td>
+                  <td class="px-4 py-3 text-sm">$89.00</td>
+                  <td class="px-4 py-3">
+                    <span
+                      class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-success)]/10 text-[var(--color-success)]"
+                      >Completed</span
+                    >
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
-    </main>
-  </div>
-</body>
+      </main>
+    </div>
+  </body>
 </html>
 ```
 
@@ -985,90 +1270,161 @@ For deeper analysis, also use: `import-from-url --url "https://example.com"` whi
 ```html
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Mobile App</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=DM+Sans:opsz,wght@9..40,300..700&display=swap" rel="stylesheet">
-  <style>
-    [x-cloak] { display: none !important; }
-    :root {
-      --color-primary: #0F172A;
-      --color-accent: #0EA5E9;
-      --color-surface: #1E293B;
-      --color-text: #F8FAFC;
-      --color-text-muted: #94A3B8;
-      --color-border: rgba(255,255,255,0.08);
-      --font-heading: 'Space Grotesk', sans-serif;
-      --font-body: 'DM Sans', sans-serif;
-      --radius: 16px;
-      --safe-top: env(safe-area-inset-top, 0px);
-      --safe-bottom: env(safe-area-inset-bottom, 0px);
-    }
-    body { font-family: var(--font-body); }
-    h1, h2, h3 { font-family: var(--font-heading); }
-  </style>
-</head>
-<body class="bg-[var(--color-primary)] text-[var(--color-text)]">
-  <div class="min-h-screen flex items-center justify-center p-4 md:p-8">
-    <div class="w-full max-w-[390px] min-h-[844px] bg-[var(--color-primary)] rounded-[40px] md:border md:border-[var(--color-border)] md:shadow-2xl overflow-hidden relative"
-         x-data="{ activeTab: 'home', items: [
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Mobile App</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
+    ></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=DM+Sans:opsz,wght@9..40,300..700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      [x-cloak] {
+        display: none !important;
+      }
+      :root {
+        --color-primary: #0f172a;
+        --color-accent: #0ea5e9;
+        --color-surface: #1e293b;
+        --color-text: #f8fafc;
+        --color-text-muted: #94a3b8;
+        --color-border: rgba(255, 255, 255, 0.08);
+        --font-heading: "Space Grotesk", sans-serif;
+        --font-body: "DM Sans", sans-serif;
+        --radius: 16px;
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
+      body {
+        font-family: var(--font-body);
+      }
+      h1,
+      h2,
+      h3 {
+        font-family: var(--font-heading);
+      }
+    </style>
+  </head>
+  <body class="bg-[var(--color-primary)] text-[var(--color-text)]">
+    <div class="min-h-screen flex items-center justify-center p-4 md:p-8">
+      <div
+        class="w-full max-w-[390px] min-h-[844px] bg-[var(--color-primary)] rounded-[40px] md:border md:border-[var(--color-border)] md:shadow-2xl overflow-hidden relative"
+        x-data="{ activeTab: 'home', items: [
            { title: 'Morning Routine', subtitle: '7 tasks', color: 'var(--color-accent)' },
            { title: 'Work Focus', subtitle: '12 tasks', color: '#22C55E' },
            { title: 'Evening Wind Down', subtitle: '4 tasks', color: '#A855F7' }
-         ]}">
+         ]}"
+      >
+        <!-- Status bar -->
+        <div
+          class="h-12 px-6 flex items-center justify-between text-xs font-medium"
+          style="padding-top: var(--safe-top)"
+        >
+          <span>9:41</span>
+          <div class="flex items-center gap-1">
+            <div class="w-4 h-2.5 rounded-sm border border-current relative">
+              <div
+                class="absolute inset-0.5 rounded-[1px] bg-current"
+                style="width: 70%"
+              ></div>
+            </div>
+          </div>
+        </div>
 
-      <!-- Status bar -->
-      <div class="h-12 px-6 flex items-center justify-between text-xs font-medium" style="padding-top: var(--safe-top)">
-        <span>9:41</span>
-        <div class="flex items-center gap-1">
-          <div class="w-4 h-2.5 rounded-sm border border-current relative">
-            <div class="absolute inset-0.5 rounded-[1px] bg-current" style="width: 70%"></div>
+        <!-- Screen content -->
+        <div class="px-5 pt-2 pb-24">
+          <h1 class="text-2xl font-bold mb-1">Good morning</h1>
+          <p class="text-sm text-[var(--color-text-muted)] mb-6">
+            3 routines ready
+          </p>
+
+          <div class="space-y-3">
+            <template x-for="(item, i) in items" :key="i">
+              <div
+                class="p-4 rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)] active:scale-[0.98] transition-transform cursor-pointer"
+              >
+                <div class="flex items-center gap-3">
+                  <div
+                    class="w-10 h-10 rounded-xl flex items-center justify-center"
+                    :style="'background: ' + item.color + '20'"
+                  >
+                    <div
+                      class="w-4 h-4 rounded"
+                      :style="'background: ' + item.color"
+                    ></div>
+                  </div>
+                  <div class="flex-1">
+                    <p class="text-sm font-semibold" x-text="item.title"></p>
+                    <p
+                      class="text-xs text-[var(--color-text-muted)]"
+                      x-text="item.subtitle"
+                    ></p>
+                  </div>
+                  <svg
+                    class="w-4 h-4 text-[var(--color-text-muted)]"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Tab bar -->
+        <div
+          class="absolute bottom-0 inset-x-0 border-t border-[var(--color-border)] bg-[var(--color-primary)]/90 backdrop-blur-xl"
+          style="padding-bottom: var(--safe-bottom)"
+        >
+          <div class="flex justify-around py-2">
+            <template
+              x-for="tab in [{name:'home', icon:'M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3M19 10v10a1 1 0 01-1 1h-3'}, {name:'search', icon:'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z'}, {name:'profile', icon:'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'}]"
+              :key="tab.name"
+            >
+              <button
+                @click="activeTab = tab.name"
+                class="p-2 flex flex-col items-center gap-0.5 cursor-pointer"
+                :class="activeTab === tab.name ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)]'"
+              >
+                <svg
+                  class="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.5"
+                    :d="tab.icon"
+                  />
+                </svg>
+                <span class="text-[10px] capitalize" x-text="tab.name"></span>
+              </button>
+            </template>
           </div>
         </div>
       </div>
-
-      <!-- Screen content -->
-      <div class="px-5 pt-2 pb-24">
-        <h1 class="text-2xl font-bold mb-1">Good morning</h1>
-        <p class="text-sm text-[var(--color-text-muted)] mb-6">3 routines ready</p>
-
-        <div class="space-y-3">
-          <template x-for="(item, i) in items" :key="i">
-            <div class="p-4 rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)] active:scale-[0.98] transition-transform cursor-pointer">
-              <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl flex items-center justify-center" :style="'background: ' + item.color + '20'">
-                  <div class="w-4 h-4 rounded" :style="'background: ' + item.color"></div>
-                </div>
-                <div class="flex-1">
-                  <p class="text-sm font-semibold" x-text="item.title"></p>
-                  <p class="text-xs text-[var(--color-text-muted)]" x-text="item.subtitle"></p>
-                </div>
-                <svg class="w-4 h-4 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-              </div>
-            </div>
-          </template>
-        </div>
-      </div>
-
-      <!-- Tab bar -->
-      <div class="absolute bottom-0 inset-x-0 border-t border-[var(--color-border)] bg-[var(--color-primary)]/90 backdrop-blur-xl" style="padding-bottom: var(--safe-bottom)">
-        <div class="flex justify-around py-2">
-          <template x-for="tab in [{name:'home', icon:'M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3M19 10v10a1 1 0 01-1 1h-3'}, {name:'search', icon:'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z'}, {name:'profile', icon:'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'}]" :key="tab.name">
-            <button @click="activeTab = tab.name" class="p-2 flex flex-col items-center gap-0.5 cursor-pointer" :class="activeTab === tab.name ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)]'">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" :d="tab.icon"/></svg>
-              <span class="text-[10px] capitalize" x-text="tab.name"></span>
-            </button>
-          </template>
-        </div>
-      </div>
     </div>
-  </div>
-</body>
+  </body>
 </html>
 ```
 
@@ -1081,13 +1437,17 @@ For multi-page designs, use Alpine.js to simulate page routing:
   <!-- Page: Home -->
   <div x-show="currentPage === 'home'" x-transition>
     <!-- Home page content -->
-    <button @click="currentPage = 'about'" class="cursor-pointer">Go to About</button>
+    <button @click="currentPage = 'about'" class="cursor-pointer">
+      Go to About
+    </button>
   </div>
 
   <!-- Page: About -->
   <div x-show="currentPage === 'about'" x-cloak x-transition>
     <!-- About page content -->
-    <button @click="currentPage = 'home'" class="cursor-pointer">Back to Home</button>
+    <button @click="currentPage = 'home'" class="cursor-pointer">
+      Back to Home
+    </button>
   </div>
 
   <!-- Page: Contact -->
@@ -1105,23 +1465,40 @@ For multi-page designs, use Alpine.js to simulate page routing:
   <div class="max-w-6xl mx-auto" x-data="{ filter: 'all' }">
     <!-- Filter bar -->
     <div class="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
-      <template x-for="cat in ['all', 'design', 'code', 'marketing', 'product']" :key="cat">
-        <button @click="filter = cat"
+      <template
+        x-for="cat in ['all', 'design', 'code', 'marketing', 'product']"
+        :key="cat"
+      >
+        <button
+          @click="filter = cat"
           :class="filter === cat ? 'bg-[var(--color-accent)] text-white' : 'bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]'"
           class="px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors cursor-pointer capitalize"
-          x-text="cat">
-        </button>
+          x-text="cat"
+        ></button>
       </template>
     </div>
 
     <!-- Card grid -->
     <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-      <div class="group rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)] overflow-hidden hover:border-[var(--color-accent)]/30 transition-colors">
-        <div class="aspect-[16/10] bg-gradient-to-br from-[var(--color-accent)]/20 to-[var(--color-accent)]/5"></div>
+      <div
+        class="group rounded-[var(--radius)] bg-[var(--color-surface)] border border-[var(--color-border)] overflow-hidden hover:border-[var(--color-accent)]/30 transition-colors"
+      >
+        <div
+          class="aspect-[16/10] bg-gradient-to-br from-[var(--color-accent)]/20 to-[var(--color-accent)]/5"
+        ></div>
         <div class="p-5">
-          <p class="text-xs text-[var(--color-accent)] font-medium mb-2">Category</p>
-          <h3 class="font-semibold mb-1" style="font-family: var(--font-heading)">Card Title</h3>
-          <p class="text-sm text-[var(--color-text-muted)] line-clamp-2">Description text that gives context about this card item.</p>
+          <p class="text-xs text-[var(--color-accent)] font-medium mb-2">
+            Category
+          </p>
+          <h3
+            class="font-semibold mb-1"
+            style="font-family: var(--font-heading)"
+          >
+            Card Title
+          </h3>
+          <p class="text-sm text-[var(--color-text-muted)] line-clamp-2">
+            Description text that gives context about this card item.
+          </p>
         </div>
       </div>
     </div>
@@ -1274,33 +1651,33 @@ When the user's request is vague about visual direction, recommend from these sc
 
 ### Information Architecture School
 
-| Style | Philosophy | When to Use |
-| --- | --- | --- |
-| **Pentagram** | Grid-first, black/white/red, structured information hierarchy | Data-heavy dashboards, editorial layouts, corporate reports |
-| **Stamen Design** | Data-driven, cartographic precision, clear visual encoding | Analytics dashboards, map interfaces, data visualization |
+| Style             | Philosophy                                                    | When to Use                                                 |
+| ----------------- | ------------------------------------------------------------- | ----------------------------------------------------------- |
+| **Pentagram**     | Grid-first, black/white/red, structured information hierarchy | Data-heavy dashboards, editorial layouts, corporate reports |
+| **Stamen Design** | Data-driven, cartographic precision, clear visual encoding    | Analytics dashboards, map interfaces, data visualization    |
 
 ### Motion Poetics School
 
-| Style | Philosophy | When to Use |
-| --- | --- | --- |
-| **Locomotive** | Smooth scroll, parallax depth, cinematic pacing | Long-form landing pages, storytelling, product showcases |
-| **Active Theory** | WebGL experiments, particle systems, immersive 3D | Creative portfolios, tech demos, experimental interfaces |
-| **Field.io** | Generative art, algorithmic beauty, mathematical precision | Art installations, creative tools, music/audio interfaces |
+| Style             | Philosophy                                                 | When to Use                                               |
+| ----------------- | ---------------------------------------------------------- | --------------------------------------------------------- |
+| **Locomotive**    | Smooth scroll, parallax depth, cinematic pacing            | Long-form landing pages, storytelling, product showcases  |
+| **Active Theory** | WebGL experiments, particle systems, immersive 3D          | Creative portfolios, tech demos, experimental interfaces  |
+| **Field.io**      | Generative art, algorithmic beauty, mathematical precision | Art installations, creative tools, music/audio interfaces |
 
 ### Minimalism School
 
-| Style | Philosophy | When to Use |
-| --- | --- | --- |
-| **Experimental Jetset** | Swiss typography, geometric forms, pure structure | Typographic layouts, manifesto pages, text-first designs |
-| **Muller-Brockmann** | Grid systems, objective communication, typographic hierarchy | Enterprise SaaS, documentation, structured content |
-| **Build** | Reduction to essence, mono-font, pure whitespace | Developer tools, API docs, technical products |
+| Style                   | Philosophy                                                   | When to Use                                              |
+| ----------------------- | ------------------------------------------------------------ | -------------------------------------------------------- |
+| **Experimental Jetset** | Swiss typography, geometric forms, pure structure            | Typographic layouts, manifesto pages, text-first designs |
+| **Muller-Brockmann**    | Grid systems, objective communication, typographic hierarchy | Enterprise SaaS, documentation, structured content       |
+| **Build**               | Reduction to essence, mono-font, pure whitespace             | Developer tools, API docs, technical products            |
 
 ### Eastern Philosophy School
 
-| Style | Philosophy | When to Use |
-| --- | --- | --- |
-| **Kenya Hara** | Ma (negative space), simplicity as depth, emptiness as design | Luxury products, meditation/wellness, premium experiences |
-| **Takram** | Craft meets technology, material honesty, subtle animation | Physical-digital products, IoT dashboards, craft-focused brands |
+| Style          | Philosophy                                                    | When to Use                                                     |
+| -------------- | ------------------------------------------------------------- | --------------------------------------------------------------- |
+| **Kenya Hara** | Ma (negative space), simplicity as depth, emptiness as design | Luxury products, meditation/wellness, premium experiences       |
+| **Takram**     | Craft meets technology, material honesty, subtle animation    | Physical-digital products, IoT dashboards, craft-focused brands |
 
 **Key insight**: Describe mood, not layout. Short emotional prompts outperform detailed layout specifications. "Make it feel like a quiet morning" is more effective than "put the header at the top with 80px padding and a centered logo."
 
@@ -1328,6 +1705,7 @@ For multi-page prototypes, establish the visual language on the home page first,
 ### ZIP Export
 
 `export-zip --id <id>` creates a ZIP containing:
+
 - All HTML, CSS, JSX files organized by type
 - `README.md` with project metadata
 - `design-data.json` with generation metadata
@@ -1381,18 +1759,18 @@ title: Landing Page Preview
 
 Skills provide detailed guidance for specific patterns. Read the relevant skill before making changes — these are the source of truth.
 
-| Skill | When to read |
-| --- | --- |
-| `design-generation` | Before generating any design HTML content |
-| `design-systems` | Before creating/applying design systems |
-| `export-handoff` | Before exporting or generating handoff commands |
-| `actions` | Before creating or modifying actions |
-| `delegate-to-agent` | Before adding LLM calls or AI delegation |
-| `self-modifying-code` | Before editing source, components, or styles |
-| `frontend-design` | Before building or restyling any UI component, page, or layout |
-| `capture-learnings` | When you learn something worth remembering |
-| `create-skill` | When adding a new skill |
-| `security` | Before writing any action that touches user data |
+| Skill                 | When to read                                                   |
+| --------------------- | -------------------------------------------------------------- |
+| `design-generation`   | Before generating any design HTML content                      |
+| `design-systems`      | Before creating/applying design systems                        |
+| `export-handoff`      | Before exporting or generating handoff commands                |
+| `actions`             | Before creating or modifying actions                           |
+| `delegate-to-agent`   | Before adding LLM calls or AI delegation                       |
+| `self-modifying-code` | Before editing source, components, or styles                   |
+| `frontend-design`     | Before building or restyling any UI component, page, or layout |
+| `capture-learnings`   | When you learn something worth remembering                     |
+| `create-skill`        | When adding a new skill                                        |
+| `security`            | Before writing any action that touches user data               |
 
 The framework auto-injects a `<skills>` block in your system prompt listing every available skill. Read a skill via shell:
 
