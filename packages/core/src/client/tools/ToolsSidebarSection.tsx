@@ -10,6 +10,7 @@ import {
   IconDots,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
+import { sendToAgentChat } from "../agent-chat.js";
 
 interface Tool {
   id: string;
@@ -46,6 +47,8 @@ export function ToolsSidebarSection() {
     typeof window !== "undefined" ? getFavorites() : new Set(),
   );
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createPrompt, setCreatePrompt] = useState("");
 
   const { data: tools } = useQuery<Tool[]>({
     queryKey: ["tools"],
@@ -108,19 +111,70 @@ export function ToolsSidebarSection() {
   }, [tools, favoriteIds]);
 
   return (
-    <div className="py-2">
+    <div className="relative py-2">
       <div className="flex items-center justify-between px-3 mb-1">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Tools
         </span>
-        <Link
-          to="/tools/new"
+        <button
+          type="button"
+          onClick={() => setShowCreate(true)}
           className="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           aria-label="New tool"
         >
           <IconPlus className="h-3.5 w-3.5" />
-        </Link>
+        </button>
       </div>
+
+      {showCreate && (
+        <div className="absolute left-0 right-0 z-50 mt-1 rounded-lg border bg-popover p-3 shadow-lg">
+          <input
+            autoFocus
+            value={createPrompt}
+            onChange={(e) => setCreatePrompt(e.target.value)}
+            placeholder="What would you like to build?"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && createPrompt.trim()) {
+                sendToAgentChat({
+                  message: `Create a tool called "${createPrompt.trim()}"`,
+                  submit: true,
+                  openSidebar: true,
+                });
+                setCreatePrompt("");
+                setShowCreate(false);
+              }
+              if (e.key === "Escape") setShowCreate(false);
+            }}
+          />
+          <div className="flex justify-end gap-2 mt-2">
+            <button
+              type="button"
+              onClick={() => setShowCreate(false)}
+              className="rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (createPrompt.trim()) {
+                  sendToAgentChat({
+                    message: `Create a tool called "${createPrompt.trim()}"`,
+                    submit: true,
+                    openSidebar: true,
+                  });
+                  setCreatePrompt("");
+                  setShowCreate(false);
+                }
+              }}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 cursor-pointer"
+            >
+              Create
+            </button>
+          </div>
+        </div>
+      )}
 
       {sortedTools.length === 0 ? (
         <div className="px-3 py-2">
