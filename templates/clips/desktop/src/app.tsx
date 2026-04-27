@@ -115,7 +115,7 @@ export function App() {
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
   const [voiceShortcut, setVoiceShortcut] = useState<VoiceShortcutPreference>(
     () => {
-      const saved = loadString(VOICE_SHORTCUT_KEY, "fn");
+      const saved = loadString(VOICE_SHORTCUT_KEY, "both");
       return saved === "cmd-shift-space" ||
         saved === "ctrl-shift-space" ||
         saved === "both" ||

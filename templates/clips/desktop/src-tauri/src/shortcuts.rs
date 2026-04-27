@@ -67,6 +67,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                         }
                     }
                     if !already_active {
+                        eprintln!("[clips-tray] {source} down — starting voice dictation");
                         let _ = app.emit(
                             "voice:shortcut-start",
                             serde_json::json!({ "source": source }),
@@ -79,6 +80,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                             *g = false;
                         }
                     }
+                    eprintln!("[clips-tray] {source} up — stopping voice dictation");
                     let _ = app.emit(
                         "voice:shortcut-stop",
                         serde_json::json!({ "source": source }),
