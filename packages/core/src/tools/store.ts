@@ -15,6 +15,8 @@ import {
   TOOLS_CREATE_SQL_PG,
   TOOL_SHARES_CREATE_SQL,
   TOOL_SHARES_CREATE_SQL_PG,
+  TOOL_DATA_CREATE_SQL,
+  TOOL_DATA_CREATE_SQL_PG,
 } from "./schema.js";
 
 const getDb = createGetDb({ tools, toolShares });
@@ -30,6 +32,7 @@ export async function ensureToolsTables(): Promise<void> {
       await client.execute(
         pg ? TOOL_SHARES_CREATE_SQL_PG : TOOL_SHARES_CREATE_SQL,
       );
+      await client.execute(pg ? TOOL_DATA_CREATE_SQL_PG : TOOL_DATA_CREATE_SQL);
     })();
   }
   return _initPromise;

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   defineEventHandler,
   getMethod,
@@ -10,6 +11,7 @@ import { getSession } from "../server/auth.js";
 import { recordChange } from "../server/poll.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { getOrgContext } from "../org/context.js";
+import { getDbExec, isPostgres } from "../db/client.js";
 import {
   listTools,
   getTool,
@@ -17,6 +19,7 @@ import {
   updateTool,
   updateToolContent,
   deleteTool,
+  ensureToolsTables,
 } from "./store.js";
 import { buildToolHtml } from "./html-shell.js";
 import { getThemeVars } from "./theme.js";
@@ -76,6 +79,21 @@ async function dispatch(
     return handleSqlExec(event);
   }
 
+  // GET /data/:toolId/:collection — list items in a collection
+  if (method === "GET" && parts.length === 3 && parts[0] === "data") {
+    return handleToolDataList(event, parts[1], parts[2], userEmail);
+  }
+
+  // POST /data/:toolId/:collection — create/upsert an item
+  if (method === "POST" && parts.length === 3 && parts[0] === "data") {
+    return handleToolDataUpsert(event, parts[1], parts[2], userEmail);
+  }
+
+  // DELETE /data/:toolId/:collection/:itemId — delete an item
+  if (method === "DELETE" && parts.length === 4 && parts[0] === "data") {
+    return handleToolDataDelete(event, parts[1], parts[2], parts[3], userEmail);
+  }
+
   // POST /proxy
   if (method === "POST" && parts.length === 1 && parts[0] === "proxy") {
     return handleProxy(event, userEmail);
@@ -109,7 +127,7 @@ async function dispatch(
     const search = event.url?.search || "";
     const isDark = search.includes("dark=1") || search.includes("dark=true");
     const themeVars = getThemeVars(isDark);
-    const html = buildToolHtml(tool.content, themeVars, isDark);
+    const html = buildToolHtml(tool.content, themeVars, isDark, parts[0]);
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
     return html;
   }
@@ -169,6 +187,85 @@ async function dispatch(
 
   setResponseStatus(event, 404);
   return { error: "Not found" };
+}
+
+async function handleToolDataList(
+  event: H3Event,
+  toolId: string,
+  collection: string,
+  userEmail: string,
+): Promise<unknown> {
+  await ensureToolsTables();
+  const client = getDbExec();
+  const url = event.url;
+  const limitParam = url?.searchParams?.get("limit");
+  const limit = limitParam
+    ? Math.min(Math.max(1, Number(limitParam)), 1000)
+    : 100;
+  const result = await client.execute({
+    sql: `SELECT * FROM tool_data WHERE tool_id = ? AND collection = ? AND owner_email = ? ORDER BY created_at DESC LIMIT ?`,
+    args: [toolId, collection, userEmail, limit],
+  });
+  return result.rows ?? [];
+}
+
+async function handleToolDataUpsert(
+  event: H3Event,
+  toolId: string,
+  collection: string,
+  userEmail: string,
+): Promise<unknown> {
+  await ensureToolsTables();
+  const body = await readBody(event);
+  if (!body.data) {
+    setResponseStatus(event, 400);
+    return { error: "data is required" };
+  }
+  const id = body.id || randomUUID();
+  const data =
+    typeof body.data === "string" ? body.data : JSON.stringify(body.data);
+  const now = new Date().toISOString();
+  const client = getDbExec();
+  const pg = isPostgres();
+  if (pg) {
+    await client.execute({
+      sql: `INSERT INTO tool_data (id, tool_id, collection, data, owner_email, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
+      args: [id, toolId, collection, data, userEmail, now, now],
+    });
+  } else {
+    await client.execute({
+      sql: `INSERT OR REPLACE INTO tool_data (id, tool_id, collection, data, owner_email, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [id, toolId, collection, data, userEmail, now, now],
+    });
+  }
+  return {
+    id,
+    toolId,
+    collection,
+    data,
+    ownerEmail: userEmail,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function handleToolDataDelete(
+  event: H3Event,
+  toolId: string,
+  _collection: string,
+  itemId: string,
+  userEmail: string,
+): Promise<unknown> {
+  await ensureToolsTables();
+  const client = getDbExec();
+  await client.execute({
+    sql: `DELETE FROM tool_data WHERE id = ? AND tool_id = ? AND owner_email = ?`,
+    args: [itemId, toolId, userEmail],
+  });
+  return { ok: true };
 }
 
 const PRIVATE_IP_RE =

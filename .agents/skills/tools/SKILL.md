@@ -34,6 +34,7 @@ Tools have full access to app data via helpers injected into the iframe:
 - `dbQuery(sql, args)` — read from SQL
 - `dbExec(sql, args)` — write to SQL
 - `toolFetch(url, options)` — call external APIs via proxy
+- `toolData.set/list/get/remove(collection, ...)` — persist custom data per-tool
 
 ## What tools are
 
@@ -181,6 +182,34 @@ await dbExec("UPDATE notes SET title = 'Updated Title' WHERE id = 'abc'");
 | `dbQuery(sql)` | Read from the app's SQL database | `dbQuery('SELECT * FROM notes LIMIT 10')` |
 | `dbExec(sql)` | Write to the app's SQL database | `dbExec("INSERT INTO notes ...")` |
 | `toolFetch(url, options)` | Call external APIs via proxy | `toolFetch('https://api.github.com/user', { headers: { 'Authorization': 'Bearer ${keys.GITHUB_TOKEN}' } })` |
+| `toolData.set(collection, id, data)` | Save an item to tool storage | `toolData.set('todos', 'todo-1', { title: 'Buy milk' })` |
+| `toolData.list(collection)` | List all items in a collection | `toolData.list('todos')` |
+| `toolData.get(collection, id)` | Get a single item by id | `toolData.get('todos', 'todo-1')` |
+| `toolData.remove(collection, id)` | Delete an item | `toolData.remove('todos', 'todo-1')` |
+
+## Persisting Custom Data
+
+Tools have a built-in key-value store via `toolData`. Each tool gets its own isolated storage, organized into collections:
+
+```javascript
+// Save an item (id is auto-generated if omitted)
+await toolData.set('todos', 'todo-1', { title: 'Buy milk', done: false });
+
+// List all items in a collection
+const todos = await toolData.list('todos');
+// Returns: [{ id, toolId, collection, data (JSON string), ownerEmail, createdAt, updatedAt }]
+
+// Parse the JSON data
+const parsed = todos.map(t => ({ ...JSON.parse(t.data), id: t.id }));
+
+// Get a single item
+const item = await toolData.get('todos', 'todo-1');
+
+// Delete an item
+await toolData.remove('todos', 'todo-1');
+```
+
+Data is scoped per-tool and per-user. Each tool can have multiple collections. **Prefer `toolData` over raw `dbExec` for tool-specific persistence** — it handles table creation, user scoping, and upserts automatically.
 
 ## Using `toolFetch()` for API calls
 
@@ -318,9 +347,9 @@ Fetches current weather for a city:
 </div>
 ```
 
-### Todo List (SQL-backed CRUD)
+### Todo List (using toolData)
 
-Full CRUD app using `dbQuery`/`dbExec` for persistence — no source code changes, no schema files, no actions. The tool creates its own table at runtime:
+Full CRUD app using the built-in `toolData` store — no SQL, no schema files, no actions. Data is automatically scoped per-tool and per-user:
 
 ```html
 <div x-data="{
@@ -328,25 +357,24 @@ Full CRUD app using `dbQuery`/`dbExec` for persistence — no source code change
   newTodo: '',
   loading: true,
   async init() {
-    await dbExec('CREATE TABLE IF NOT EXISTS tool_todos (id TEXT PRIMARY KEY, title TEXT NOT NULL, completed INTEGER DEFAULT 0, created_at TEXT DEFAULT (datetime(\'now\')))', []);
-    const result = await dbQuery('SELECT * FROM tool_todos ORDER BY created_at DESC');
-    this.todos = result.rows || [];
+    const items = await toolData.list('todos');
+    this.todos = items.map(i => ({ id: i.id, ...JSON.parse(i.data) }));
     this.loading = false;
   },
   async addTodo() {
     if (!this.newTodo.trim()) return;
     const id = crypto.randomUUID();
-    await dbExec('INSERT INTO tool_todos (id, title) VALUES (?, ?)', [id, this.newTodo.trim()]);
-    this.todos.unshift({ id, title: this.newTodo.trim(), completed: 0 });
+    const data = { title: this.newTodo.trim(), completed: false };
+    await toolData.set('todos', id, data);
+    this.todos.unshift({ id, ...data });
     this.newTodo = '';
   },
   async toggle(todo) {
-    const newVal = todo.completed ? 0 : 1;
-    await dbExec('UPDATE tool_todos SET completed = ? WHERE id = ?', [newVal, todo.id]);
-    todo.completed = newVal;
+    todo.completed = !todo.completed;
+    await toolData.set('todos', todo.id, { title: todo.title, completed: todo.completed });
   },
   async remove(id) {
-    await dbExec('DELETE FROM tool_todos WHERE id = ?', [id]);
+    await toolData.remove('todos', id);
     this.todos = this.todos.filter(t => t.id !== id);
   }
 }">
