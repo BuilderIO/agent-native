@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { IconArrowLeft, IconPencil } from "@tabler/icons-react";
@@ -85,9 +85,75 @@ function EditToolPopover({ tool }: { tool: Tool }) {
 
 export function ToolViewer({ toolId }: ToolViewerProps) {
   const [isDark, setIsDark] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
+
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const message = event.data;
+      if (!message || message.type !== "agent-native-tool-request") return;
+
+      const requestId = String(message.requestId ?? "");
+      const path = String(message.path ?? "");
+      const respond = (payload: Record<string, unknown>) => {
+        iframeRef.current?.contentWindow?.postMessage(
+          {
+            type: "agent-native-tool-response",
+            requestId,
+            ...payload,
+          },
+          "*",
+        );
+      };
+
+      if (!requestId || !isAllowedToolPath(path)) {
+        respond({ error: "Tool request path is not allowed" });
+        return;
+      }
+
+      try {
+        const options = sanitizeToolRequestOptions(message.options);
+        const res = await fetch(path, {
+          ...options,
+          credentials: "same-origin",
+        });
+        const text = await res.text();
+        let body: unknown = text;
+        if (text) {
+          try {
+            body = JSON.parse(text);
+          } catch {
+            body = text;
+          }
+        }
+        respond({
+          response: {
+            ok: res.ok,
+            status: res.status,
+            statusText: res.statusText,
+            body,
+          },
+        });
+      } catch (err: any) {
+        respond({ error: err?.message ?? "Tool host request failed" });
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
   }, []);
 
   const { data: tool, isLoading } = useQuery<Tool>({
@@ -141,11 +207,54 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
         </div>
       </div>
       <iframe
+        ref={iframeRef}
         src={`/_agent-native/tools/${toolId}/render?dark=${isDark}`}
         className="flex-1 w-full border-0"
-        sandbox="allow-scripts allow-same-origin"
+        sandbox="allow-scripts allow-forms"
         title={tool.name}
       />
     </div>
   );
+}
+
+function isAllowedToolPath(path: string): boolean {
+  if (!path.startsWith("/") || path.startsWith("//")) return false;
+  if (path.includes("\\") || path.includes("\0")) return false;
+  return true;
+}
+
+function sanitizeToolRequestOptions(value: unknown): RequestInit {
+  if (!value || typeof value !== "object") return {};
+  const raw = value as Record<string, unknown>;
+  const method =
+    typeof raw.method === "string" && raw.method.trim()
+      ? raw.method.toUpperCase()
+      : "GET";
+  const headers =
+    raw.headers && typeof raw.headers === "object"
+      ? Object.fromEntries(
+          Object.entries(raw.headers as Record<string, unknown>)
+            .filter(([key, val]) => isAllowedHeader(key) && val !== undefined)
+            .map(([key, val]) => [key, String(val)]),
+        )
+      : undefined;
+  const body =
+    typeof raw.body === "string" ||
+    raw.body instanceof Blob ||
+    raw.body instanceof FormData
+      ? raw.body
+      : raw.body === undefined
+        ? undefined
+        : JSON.stringify(raw.body);
+
+  return {
+    method,
+    headers,
+    body: method === "GET" || method === "HEAD" ? undefined : body,
+  };
+}
+
+function isAllowedHeader(name: string): boolean {
+  const lower = name.toLowerCase();
+  return !["cookie", "host", "origin", "referer"].includes(lower);
 }

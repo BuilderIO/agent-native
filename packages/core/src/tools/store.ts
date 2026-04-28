@@ -17,6 +17,8 @@ import {
   TOOL_SHARES_CREATE_SQL_PG,
   TOOL_DATA_CREATE_SQL,
   TOOL_DATA_CREATE_SQL_PG,
+  TOOL_DATA_ITEM_INDEX_SQL,
+  TOOL_DATA_ITEM_INDEX_SQL_PG,
 } from "./schema.js";
 
 const getDb = createGetDb({ tools, toolShares });
@@ -33,9 +35,39 @@ export async function ensureToolsTables(): Promise<void> {
         pg ? TOOL_SHARES_CREATE_SQL_PG : TOOL_SHARES_CREATE_SQL,
       );
       await client.execute(pg ? TOOL_DATA_CREATE_SQL_PG : TOOL_DATA_CREATE_SQL);
+      await ensureToolDataItemId(client, pg);
+      await client.execute(
+        pg ? TOOL_DATA_ITEM_INDEX_SQL_PG : TOOL_DATA_ITEM_INDEX_SQL,
+      );
     })();
   }
   return _initPromise;
+}
+
+async function ensureToolDataItemId(
+  client: ReturnType<typeof getDbExec>,
+  pg: boolean,
+): Promise<void> {
+  if (pg) {
+    await client.execute(
+      `ALTER TABLE tool_data ADD COLUMN IF NOT EXISTS item_id TEXT`,
+    );
+  } else {
+    try {
+      await client.execute(`ALTER TABLE tool_data ADD COLUMN item_id TEXT`);
+    } catch (err: any) {
+      if (
+        !String(err?.message ?? err)
+          .toLowerCase()
+          .includes("duplicate")
+      ) {
+        throw err;
+      }
+    }
+  }
+  await client.execute(
+    `UPDATE tool_data SET item_id = id WHERE item_id IS NULL`,
+  );
 }
 
 export function registerToolsShareable() {
@@ -103,7 +135,7 @@ export async function createTool(data: CreateToolData): Promise<ToolRow> {
     updatedAt: now,
     ownerEmail: userEmail,
     orgId: orgId ?? null,
-    visibility: orgId ? "org" : "private",
+    visibility: "private",
   };
   await db.insert(tools).values(row);
   return row;
@@ -177,6 +209,10 @@ export async function deleteTool(id: string): Promise<boolean> {
   const rows = await db.select().from(tools).where(eq(tools.id, id));
   if (!rows[0]) return false;
   await db.delete(toolShares).where(eq(toolShares.resourceId, id));
+  await getDbExec().execute({
+    sql: `DELETE FROM tool_data WHERE tool_id = ?`,
+    args: [id],
+  });
   await db.delete(tools).where(eq(tools.id, id));
   return true;
 }

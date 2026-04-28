@@ -109,6 +109,8 @@ export function AgentTaskCard({
                 // null or non-running status means the run finished
                 if (
                   !runData ||
+                  runData.active === false ||
+                  (runData.status && runData.status !== "running") ||
                   runData.status === "completed" ||
                   runData.status === "errored"
                 ) {

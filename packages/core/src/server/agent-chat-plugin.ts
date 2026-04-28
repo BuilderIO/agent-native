@@ -2270,6 +2270,11 @@ export function createAgentChatPlugin(
           },
         });
       } catch {}
+      let toolActions: Record<string, ActionEntry> = {};
+      try {
+        const { createToolActionEntries } = await import("../tools/actions.js");
+        toolActions = createToolActionEntries();
+      } catch {}
 
       // In dev mode, template actions (templateScripts and discoveredActions) are
       // NOT registered as native tools — the agent invokes them via shell instead.
@@ -2281,12 +2286,14 @@ export function createAgentChatPlugin(
             ...resourceScripts,
             ...docsScripts,
             ...(lazyContext ? frameworkContextTool : {}),
+            ...urlTools,
             ...chatScripts,
             ...callAgentScript,
             ...automationTools,
             ...notificationTools,
             ...progressTools,
             ...fetchTool,
+            ...toolActions,
             ...browserTools,
             ...devScriptsForA2A,
           }
@@ -2305,6 +2312,7 @@ export function createAgentChatPlugin(
             ...notificationTools,
             ...progressTools,
             ...fetchTool,
+            ...toolActions,
             ...browserTools,
             ...devScriptsForA2A,
           };
@@ -2412,7 +2420,9 @@ export function createAgentChatPlugin(
                 ...resourceScripts,
                 ...docsScripts,
                 ...(lazyContext ? frameworkContextTool : {}),
+                ...urlTools,
                 ...chatScripts,
+                ...toolActions,
                 ...browserTools,
                 ...devScriptsForA2A,
               }
@@ -2425,6 +2435,7 @@ export function createAgentChatPlugin(
                 ...(lazyContext ? frameworkContextTool : {}),
                 ...urlTools,
                 ...chatScripts,
+                ...toolActions,
                 ...browserTools,
               };
 
@@ -2546,6 +2557,7 @@ export function createAgentChatPlugin(
                 ...resourceScripts,
                 ...docsScripts,
                 ...(lazyContext ? frameworkContextTool : {}),
+                ...urlTools,
                 ...chatScripts,
                 ...devScriptsForA2A,
               }
@@ -2897,6 +2909,7 @@ export function createAgentChatPlugin(
         ...refreshScreenTool,
         ...urlTools,
         ...chatScripts,
+        ...toolActions,
       };
 
       const prodActions = {
@@ -2915,6 +2928,7 @@ export function createAgentChatPlugin(
         ...notificationTools,
         ...progressTools,
         ...fetchTool,
+        ...toolActions,
         ...browserTools,
         ...mcpActionEntries,
       };
@@ -3042,6 +3056,7 @@ export function createAgentChatPlugin(
                 ...notificationTools,
                 ...progressTools,
                 ...fetchTool,
+                ...toolActions,
                 ...browserTools,
                 ...mcpActionEntries,
                 ...(await createDevScriptRegistry()),
@@ -3776,11 +3791,16 @@ export function createAgentChatPlugin(
             // Check in-memory first, then SQL (cross-isolate on Workers)
             const run = await getActiveRunForThreadAsync(threadId);
             if (!run) {
-              setResponseStatus(event, 404);
-              return { error: "No active run for this thread" };
+              return {
+                active: false,
+                threadId,
+                status: "idle",
+                heartbeatAt: null,
+              };
             }
 
             return {
+              active: true,
               runId: run.runId,
               threadId: run.threadId,
               status: run.status,
@@ -4153,6 +4173,7 @@ export function createAgentChatPlugin(
             ...notificationTools,
             ...progressTools,
             ...fetchTool,
+            ...toolActions,
           }),
           getSystemPrompt: async (owner: string) => {
             const resources = await loadResourcesForPrompt(owner, lazyContext);
@@ -4195,6 +4216,7 @@ export function createAgentChatPlugin(
             ...notificationTools,
             ...progressTools,
             ...fetchTool,
+            ...toolActions,
           }),
           getSystemPrompt: async (owner: string) => {
             const resources = await loadResourcesForPrompt(owner, lazyContext);
