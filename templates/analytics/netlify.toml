@@ -6,3 +6,9 @@
 [build.environment]
   NITRO_PRESET = "netlify"
   NPM_CONFIG_PRODUCTION = "false"
+
+# A2A delegation calls run a full agent loop (LLM + BigQuery + tool calls),
+# which exceeds the default 10s function timeout. Bump to 26s (Netlify Pro max).
+[functions]
+  node_bundler = "esbuild"
+  timeout = 26
