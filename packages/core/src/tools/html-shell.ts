@@ -211,17 +211,19 @@ export function buildToolHtml(
 	    #__tool-error-toast {
 	      display: none;
 	      position: fixed;
-	      bottom: 12px;
-	      left: 12px;
-	      right: 12px;
-	      background: hsl(0 84.2% 60.2%);
-	      color: white;
-	      border-radius: 8px;
-	      padding: 10px 14px;
+	      bottom: 16px;
+	      right: 16px;
+	      max-width: 420px;
+	      background: hsl(var(--destructive));
+	      color: hsl(var(--destructive-foreground));
+	      border: 1px solid hsl(var(--destructive) / .6);
+	      border-radius: calc(var(--radius, .5rem) + 2px);
+	      padding: 12px 16px;
 	      font-size: 13px;
+	      line-height: 1.4;
 	      font-family: 'Inter', sans-serif;
 	      z-index: 9999;
-	      box-shadow: 0 4px 12px rgba(0,0,0,.2);
+	      box-shadow: 0 4px 12px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.1);
 	      animation: __toast-in 0.2s ease-out;
 	    }
 	    @keyframes __toast-in {
@@ -231,10 +233,14 @@ export function buildToolHtml(
 	  </style>
 	  <script>
 	    var _toolErrors = [];
+	    var _toolErrorDetails = [];
 
-	    function _collectError(message) {
-	      if (!message || _toolErrors.indexOf(message) !== -1) return;
+	    function _collectError(message, stack) {
+	      if (!message) return;
+	      if (message === 'Script error.' || message === 'Script error') message = 'Runtime error';
+	      if (_toolErrors.indexOf(message) !== -1) return;
 	      _toolErrors.push(message);
+	      _toolErrorDetails.push({ message: message, stack: stack || '' });
 	      var toast = document.getElementById('__tool-error-toast');
 	      if (!toast) return;
 	      var msg = document.getElementById('__tool-error-msg');
@@ -249,11 +255,14 @@ export function buildToolHtml(
 	    window.addEventListener('error', function(event) {
 	      var msg = event.message || '';
 	      if (msg.indexOf('Alpine Expression Error') === 0) return;
-	      _collectError(msg);
+	      var stack = event.error && event.error.stack ? event.error.stack : '';
+	      _collectError(msg, stack);
 	    });
 
 	    window.addEventListener('unhandledrejection', function(event) {
-	      _collectError(event.reason && event.reason.message ? event.reason.message : String(event.reason));
+	      var msg = event.reason && event.reason.message ? event.reason.message : String(event.reason);
+	      var stack = event.reason && event.reason.stack ? event.reason.stack : '';
+	      _collectError(msg, stack);
 	    });
 
 	    window.addEventListener('message', function(event) {
@@ -278,7 +287,8 @@ export function buildToolHtml(
 	        fixBtn.addEventListener('click', function() {
 	          window.parent.postMessage({
 	            type: 'agent-native-tool-error-fix',
-	            errors: _toolErrors
+	            errors: _toolErrors,
+	            errorDetails: _toolErrorDetails
 	          }, '*');
 	          document.getElementById('__tool-error-toast').style.display = 'none';
 	        });
@@ -295,11 +305,11 @@ export function buildToolHtml(
 	<body${toolId ? ` data-tool-id="${toolIdAttr}"` : ""} class="bg-background text-foreground">
 	${content}
 	<div id="__tool-error-toast">
-	  <div style="display:flex;align-items:center;gap:8px;">
-	    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-	    <span id="__tool-error-msg" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
-	    <button id="__tool-error-fix" style="cursor:pointer;border:none;background:rgba(255,255,255,.9);color:hsl(0 84.2% 40%);font-size:12px;font-weight:500;padding:4px 12px;border-radius:4px;">Fix</button>
-	    <button id="__tool-error-dismiss" style="cursor:pointer;border:none;background:transparent;color:inherit;font-size:16px;padding:2px 6px;opacity:0.7;">&#215;</button>
+	  <div style="display:flex;align-items:flex-start;gap:8px;">
+	    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+	    <span id="__tool-error-msg" style="flex:1;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;"></span>
+	    <button id="__tool-error-fix" style="cursor:pointer;border:none;background:rgba(255,255,255,.9);color:hsl(0 84.2% 40%);font-size:12px;font-weight:500;padding:4px 12px;border-radius:4px;flex-shrink:0;">Fix</button>
+	    <button id="__tool-error-dismiss" style="cursor:pointer;border:none;background:transparent;color:inherit;font-size:16px;padding:2px 6px;opacity:0.7;flex-shrink:0;">&#215;</button>
 	  </div>
 	</div>
 	</body>

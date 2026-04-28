@@ -181,9 +181,14 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
         const t = toolRef.current;
         if (!t) return;
         const errors: string[] = message.errors || [];
+        const errorDetails: Array<{ message: string; stack: string }> =
+          message.errorDetails || [];
+        const detailedTrace = errorDetails
+          .map((e) => (e.stack ? `${e.message}\n${e.stack}` : e.message))
+          .join("\n\n");
         sendToAgentChat({
           message: `Fix runtime errors in this tool:\n${errors.join("\n")}`,
-          context: `The user is viewing tool "${t.name}" (id: ${t.id}) and there are runtime errors that need fixing.`,
+          context: `The user is viewing tool "${t.name}" (id: ${t.id}) and there are runtime errors that need fixing.\n\nFull error details:\n${detailedTrace}`,
           submit: true,
           openSidebar: true,
         });
