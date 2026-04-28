@@ -1074,7 +1074,16 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           )}
                         </Link>
                       ))}
-                      <div className="mt-2 pt-2 border-t border-border/20">
+                    </div>
+
+                    {/* Tools section */}
+                    <div className="mt-3 pt-1 border-t border-border/20">
+                      <ToolsSidebarSection />
+                    </div>
+
+                    {/* Settings / Feedback / Account */}
+                    <div className="mt-3 pt-1 border-t border-border/20">
+                      <div className="space-y-0.5">
                         <Link
                           to="/settings"
                           onClick={() => setSidebarOpen(false)}
@@ -1087,9 +1096,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         >
                           Settings
                         </Link>
-                        <div className="mt-1">
-                          <ToolsSidebarSection />
-                        </div>
                         <div className="mt-1">
                           <FeedbackButton />
                         </div>
