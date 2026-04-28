@@ -22,11 +22,39 @@ interface A2ATokenPayload {
 }
 
 async function verifyA2AToken(authHeader: string): Promise<A2ATokenPayload> {
-  const secret = process.env.A2A_SECRET;
+  const token = authHeader.replace("Bearer ", "");
+
+  // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
+  // This is safe because we only use org_domain to look up the secret,
+  // then verify the full JWT with that secret. If someone forges a JWT
+  // with a fake org_domain, verification will fail because they don't
+  // have the real secret.
+  let orgDomainHint: string | undefined;
+  try {
+    const unverified = jose.decodeJwt(token);
+    orgDomainHint = unverified.org_domain as string | undefined;
+  } catch {
+    // Malformed token — fall through to global secret attempt
+  }
+
+  // Step 2: Look up the org's A2A secret by domain
+  let secret: string | undefined;
+  if (orgDomainHint) {
+    try {
+      const { getA2ASecretByDomain } = await import("../org/context.js");
+      const orgSecret = await getA2ASecretByDomain(orgDomainHint);
+      if (orgSecret) secret = orgSecret;
+    } catch {
+      // DB not ready or column doesn't exist yet — fall through
+    }
+  }
+
+  // Step 3: Fall back to global A2A_SECRET
+  if (!secret) secret = process.env.A2A_SECRET;
   if (!secret) return { email: null, orgDomain: null };
 
+  // Step 4: Verify JWT with the resolved secret
   try {
-    const token = authHeader.replace("Bearer ", "");
     const { payload } = await jose.jwtVerify(
       token,
       new TextEncoder().encode(secret),

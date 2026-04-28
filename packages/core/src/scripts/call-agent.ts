@@ -6,7 +6,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "../server/request-context.js";
-import { getOrgDomain } from "../org/context.js";
+import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
 
 export const tool: ActionTool = {
   description:
@@ -62,6 +62,7 @@ export async function run(
 
       // Include org domain for cross-app org resolution
       let callerOrgDomain: string | undefined;
+      let callerOrgSecret: string | undefined;
       const orgId = getRequestOrgId();
       if (orgId) {
         try {
@@ -71,13 +72,21 @@ export async function run(
             a2aMetadata.orgDomain = domain;
           }
         } catch {}
+        try {
+          const secret = await getOrgA2ASecret(orgId);
+          if (secret) callerOrgSecret = secret;
+        } catch {}
       }
 
       // Sign JWT with identity + org domain for the streaming client
       let apiKey: string | undefined;
-      if (callerEmail && process.env.A2A_SECRET) {
+      if (callerEmail && (callerOrgSecret || process.env.A2A_SECRET)) {
         try {
-          apiKey = await signA2AToken(callerEmail, callerOrgDomain);
+          apiKey = await signA2AToken(
+            callerEmail,
+            callerOrgDomain,
+            callerOrgSecret,
+          );
         } catch {}
       }
 
@@ -141,6 +150,7 @@ export async function run(
           responseText = await callAgent(agent.url, message, {
             userEmail: callerEmail,
             orgDomain: callerOrgDomain,
+            orgSecret: callerOrgSecret,
           });
         }
       }
@@ -157,15 +167,20 @@ export async function run(
     // No context — use simple blocking call
     const email = getRequestUserEmail();
     let domain: string | undefined;
+    let orgSecret: string | undefined;
     const currentOrgId = getRequestOrgId();
     if (currentOrgId) {
       try {
         domain = (await getOrgDomain(currentOrgId)) ?? undefined;
       } catch {}
+      try {
+        orgSecret = (await getOrgA2ASecret(currentOrgId)) ?? undefined;
+      } catch {}
     }
     const response = await callAgent(agent.url, message, {
       userEmail: email,
       orgDomain: domain,
+      orgSecret,
     });
     return response || "(empty response)";
   } catch (err: any) {
