@@ -11,7 +11,7 @@ import { getSession } from "../server/auth.js";
 import { recordChange } from "../server/poll.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { getOrgContext } from "../org/context.js";
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   listTools,
   getTool,
@@ -211,7 +211,7 @@ async function handleToolDataList(
     sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, created_at, updated_at
       FROM tool_data
       WHERE tool_id = ? AND collection = ? AND owner_email = ?
-      ORDER BY created_at DESC
+      ORDER BY updated_at DESC
       LIMIT ?`,
     args: [toolId, collection, userEmail, limit],
   });
@@ -240,25 +240,17 @@ async function handleToolDataUpsert(
     typeof body.data === "string" ? body.data : JSON.stringify(body.data);
   const now = new Date().toISOString();
   const client = getDbExec();
-  const pg = isPostgres();
-  if (pg) {
-    await client.execute({
-      sql: `INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (tool_id, collection, owner_email, item_id)
-       DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
-      args: [
-        randomUUID(),
-        toolId,
-        collection,
-        itemId,
-        data,
-        userEmail,
-        now,
-        now,
-      ],
-    });
-  } else {
+  const updateResult = await client.execute({
+    sql: `UPDATE tool_data
+      SET data = ?, updated_at = ?
+      WHERE tool_id = ?
+        AND collection = ?
+        AND owner_email = ?
+        AND (item_id = ? OR (item_id IS NULL AND id = ?))`,
+    args: [data, now, toolId, collection, userEmail, itemId, itemId],
+  });
+
+  if ((updateResult.rowsAffected ?? 0) === 0) {
     await client.execute({
       sql: `INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -276,14 +268,27 @@ async function handleToolDataUpsert(
       ],
     });
   }
+
+  const saved = await client.execute({
+    sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, created_at, updated_at
+      FROM tool_data
+      WHERE tool_id = ?
+        AND collection = ?
+        AND owner_email = ?
+        AND (item_id = ? OR (item_id IS NULL AND id = ?))
+      ORDER BY updated_at DESC
+      LIMIT 1`,
+    args: [toolId, collection, userEmail, itemId, itemId],
+  });
+  const row = saved.rows?.[0];
   return {
-    id: itemId,
-    toolId,
-    collection,
-    data,
-    ownerEmail: userEmail,
-    createdAt: now,
-    updatedAt: now,
+    id: row?.id ?? itemId,
+    toolId: row?.tool_id ?? toolId,
+    collection: row?.collection ?? collection,
+    data: row?.data ?? data,
+    ownerEmail: row?.owner_email ?? userEmail,
+    createdAt: row?.created_at ?? now,
+    updatedAt: row?.updated_at ?? now,
   };
 }
 
@@ -576,7 +581,7 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
 }
 
 const DESTRUCTIVE_SQL_RE =
-  /\b(CREATE\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+TABLE\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA)\b/i;
+  /\b(CREATE\s+(?:TEMPORARY|TEMP)?\s*(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+TABLE\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA)\b/i;
 
 const SENSITIVE_SQL_RE =
   /\b(app_secrets|user|users|session|sessions|account|accounts|verification|oauth_tokens|tool_shares)\b/i;

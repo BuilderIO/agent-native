@@ -65,9 +65,7 @@ async function ensureToolDataItemId(
       }
     }
   }
-  await client.execute(
-    `UPDATE tool_data SET item_id = id WHERE item_id IS NULL`,
-  );
+  await client.execute(`UPDATE tool_data SET item_id = NULL WHERE item_id = id`);
 }
 
 export function registerToolsShareable() {
