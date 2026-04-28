@@ -25,7 +25,8 @@ import {
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { cn } from "@/lib/utils";
-import { IconMenu2 } from "@tabler/icons-react";
+import { IconMenu2, IconSun, IconMoon } from "@tabler/icons-react";
+import { ThemeProvider, useTheme } from "next-themes";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -90,7 +91,7 @@ function useExitSelectionOnOutsideClick() {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -126,6 +127,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function AppContent() {
   useExitSelectionOnOutsideClick();
   useNavigationState();
+  const { theme, setTheme } = useTheme();
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -149,6 +151,19 @@ function AppContent() {
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Presentations">
           <CommandMenu.Item onSelect={() => {}}>Search decks</CommandMenu.Item>
+        </CommandMenu.Group>
+        <CommandMenu.Group heading="Appearance">
+          <CommandMenu.Item
+            onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+            keywords={["theme", "dark", "light", "mode"]}
+          >
+            {theme === "dark" ? (
+              <IconSun size={16} />
+            ) : (
+              <IconMoon size={16} />
+            )}
+            Toggle {theme === "dark" ? "light" : "dark"} mode
+          </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
       <DeckProvider key={DECK_KEY}>
@@ -218,11 +233,18 @@ export default function Root() {
 
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <AppContent />
-        </TooltipProvider>
-      </QueryClientProvider>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="dark"
+        enableSystem
+        disableTransitionOnChange
+      >
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <AppContent />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
     </ClientOnly>
   );
 }

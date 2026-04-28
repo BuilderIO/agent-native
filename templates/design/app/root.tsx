@@ -24,7 +24,8 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { Toaster } from "sonner";
-import { IconMenu2 } from "@tabler/icons-react";
+import { IconMenu2, IconSun, IconMoon } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -93,6 +94,7 @@ function DbSyncSetup() {
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const location = useLocation();
   useEffect(() => {
@@ -111,6 +113,19 @@ function AppContent() {
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Actions">
           <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+        </CommandMenu.Group>
+        <CommandMenu.Group heading="Appearance">
+          <CommandMenu.Item
+            onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+            keywords={["theme", "dark", "light", "mode"]}
+          >
+            {theme === "dark" ? (
+              <IconSun size={16} />
+            ) : (
+              <IconMoon size={16} />
+            )}
+            Toggle {theme === "dark" ? "light" : "dark"} mode
+          </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
       <AgentSidebar

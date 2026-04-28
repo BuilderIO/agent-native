@@ -14,6 +14,8 @@ import {
   DefaultSpinner,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
+import { useTheme } from "next-themes";
+import { IconSun, IconMoon } from "@tabler/icons-react";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { LinksFunction } from "react-router";
@@ -85,6 +87,7 @@ function DbSyncSetup() {
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
@@ -100,6 +103,21 @@ export default function Root() {
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
               <CommandMenu.Group heading="Actions">
                 <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+              </CommandMenu.Group>
+              <CommandMenu.Group heading="Appearance">
+                <CommandMenu.Item
+                  onSelect={() =>
+                    setTheme(theme === "dark" ? "light" : "dark")
+                  }
+                  keywords={["theme", "dark", "light", "mode"]}
+                >
+                  {theme === "dark" ? (
+                    <IconSun size={16} />
+                  ) : (
+                    <IconMoon size={16} />
+                  )}
+                  Toggle {theme === "dark" ? "light" : "dark"} mode
+                </CommandMenu.Item>
               </CommandMenu.Group>
             </CommandMenu>
             <Outlet />

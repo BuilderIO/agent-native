@@ -1,7 +1,8 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
+import { ThemeProvider, useTheme } from "next-themes";
+import { IconSun, IconMoon } from "@tabler/icons-react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -66,6 +67,7 @@ function AppSetup() {
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
@@ -79,6 +81,21 @@ export default function Root() {
               <CommandMenu.Group heading="Documents">
                 <CommandMenu.Item onSelect={() => {}}>
                   Search documents
+                </CommandMenu.Item>
+              </CommandMenu.Group>
+              <CommandMenu.Group heading="Appearance">
+                <CommandMenu.Item
+                  onSelect={() =>
+                    setTheme(theme === "dark" ? "light" : "dark")
+                  }
+                  keywords={["theme", "dark", "light", "mode"]}
+                >
+                  {theme === "dark" ? (
+                    <IconSun size={16} />
+                  ) : (
+                    <IconMoon size={16} />
+                  )}
+                  Toggle {theme === "dark" ? "light" : "dark"} mode
                 </CommandMenu.Item>
               </CommandMenu.Group>
             </CommandMenu>
