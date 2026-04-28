@@ -320,7 +320,11 @@ export async function callAgent(
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
 
-  const useAsync = opts?.async ?? true;
+  // Default to synchronous mode — async mode requires the receiving server to
+  // run detached promises after sending the response, which doesn't work
+  // reliably on Netlify Functions (the runtime kills the function once the
+  // response is flushed). Callers that want async polling can opt in.
+  const useAsync = opts?.async ?? false;
   const message: Message = {
     role: "user",
     parts: [{ type: "text", text }],

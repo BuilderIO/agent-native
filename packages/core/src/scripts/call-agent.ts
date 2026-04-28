@@ -157,7 +157,6 @@ export async function run(
               userEmail: callerEmail,
               orgDomain: callerOrgDomain,
               orgSecret: callerOrgSecret,
-              async: true,
             });
           } catch (pollErr: any) {
             // Surface a friendly message rather than a raw fetch error.
