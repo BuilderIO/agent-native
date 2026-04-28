@@ -273,40 +273,66 @@ const METADATA_HOSTS = [
   "metadata.google.internal.",
 ];
 
+function isPrivateIpv4(a: number, b: number): boolean {
+  if (a === 127) return true;
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 0) return true;
+  return false;
+}
+
 function isPrivateHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (h === "localhost" || h === "[::1]" || h === "[::0]") return true;
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (h === "localhost") return true;
   if (METADATA_HOSTS.includes(h)) return true;
-  const parts = h.split(".");
+
+  // IPv6 forms
+  if (h === "::1" || h === "::0" || h === "::") return true;
+  // IPv4-mapped IPv6: ::ffff:127.0.0.1
+  const v4mapped = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (v4mapped) {
+    const [a, b] = v4mapped[1].split(".").map(Number);
+    if (isPrivateIpv4(a, b)) return true;
+  }
+  // ULA (fc00::/7) and link-local (fe80::/10)
+  if (/^f[cd]/.test(h)) return true;
+  if (/^fe[89ab]/.test(h)) return true;
+
+  // Dotted IPv4
+  const raw = hostname.toLowerCase();
+  const parts = raw.split(".");
   if (parts.length === 4 && parts.every((p) => /^\d+$/.test(p))) {
     const [a, b] = parts.map(Number);
-    if (a === 127) return true;
-    if (a === 10) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 169 && b === 254) return true;
-    if (a === 0) return true;
+    if (isPrivateIpv4(a, b)) return true;
   }
-  if (/^\d+$/.test(h)) {
-    const num = Number(h);
+  // Decimal integer IPv4
+  if (/^\d+$/.test(raw)) {
+    const num = Number(raw);
     if (num >= 0 && num <= 0xffffffff) {
       const a = (num >>> 24) & 0xff;
       const b = (num >>> 16) & 0xff;
-      if (a === 127) return true;
-      if (a === 10) return true;
-      if (a === 172 && b >= 16 && b <= 31) return true;
-      if (a === 192 && b === 168) return true;
-      if (a === 169 && b === 254) return true;
-      if (a === 0) return true;
+      if (isPrivateIpv4(a, b)) return true;
     }
   }
   return false;
 }
 
+const DNS_REBIND_SUFFIXES = [
+  ".nip.io",
+  ".sslip.io",
+  ".xip.io",
+  ".localtest.me",
+  ".lvh.me",
+];
+
 function isBlockedUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    if (isPrivateHost(parsed.hostname)) return true;
+    const host = parsed.hostname.toLowerCase();
+    if (isPrivateHost(host)) return true;
+    if (DNS_REBIND_SUFFIXES.some((s) => host.endsWith(s))) return true;
   } catch {
     return true;
   }
@@ -499,6 +525,10 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
 const DESTRUCTIVE_SQL_RE =
   /\b(DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+TABLE\s+(?!tool_data\b))/i;
 
+function stripSqlComments(sql: string): string {
+  return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
+}
+
 async function handleSqlExec(event: H3Event): Promise<unknown> {
   const body = await readBody(event);
   const sql = body.sql;
@@ -507,7 +537,7 @@ async function handleSqlExec(event: H3Event): Promise<unknown> {
     return { error: "sql is required" };
   }
 
-  if (DESTRUCTIVE_SQL_RE.test(sql)) {
+  if (DESTRUCTIVE_SQL_RE.test(stripSqlComments(sql))) {
     setResponseStatus(event, 403);
     return {
       error:
