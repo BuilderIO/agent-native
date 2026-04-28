@@ -1,8 +1,13 @@
 [build]
-  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} NITRO_PRESET=netlify pnpm --filter content build"
+  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter content build"
   publish = "templates/content/dist"
   functions = "templates/content/.netlify/functions-internal"
 
 [build.environment]
   NITRO_PRESET = "netlify"
   NPM_CONFIG_PRODUCTION = "false"
+
+# A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
+# The default 10s timeout is too short — bump to 26s (Netlify Pro plan max).
+[functions."*"]
+  timeout = 26

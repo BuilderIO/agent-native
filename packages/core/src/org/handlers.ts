@@ -654,11 +654,274 @@ export const setA2ASecretHandler = defineEventHandler(
     }
 
     const e = await exec();
+    // Read the previous secret BEFORE overwriting so the client can chain a
+    // sync call that signs JWTs with the secret peers still hold.
+    const prevRes = await e.execute({
+      sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
+      args: [ctx.orgId],
+    });
+    const previousSecret =
+      String((prevRes.rows[0] as any)?.a2a_secret ?? "") || null;
+
     await e.execute({
       sql: `UPDATE organizations SET a2a_secret = ? WHERE id = ?`,
       args: [secret, ctx.orgId],
     });
 
-    return { a2aSecret: secret };
+    return { a2aSecret: secret, previousSecret };
+  },
+);
+
+/**
+ * POST /_agent-native/org/a2a-secret/sync — push the org's A2A secret to all
+ * connected apps so cross-app delegation works without manual copy/paste.
+ *
+ * Auth: standard session — owner/admin only.
+ *
+ * For each discovered agent, signs a JWT with the org's CURRENT a2a_secret
+ * and POSTs to `<app>/_agent-native/org/a2a-secret/receive` with the same
+ * secret + the org's domain. The receiving app verifies the JWT using its
+ * own copy of the secret (peers must already share a secret to be trusted)
+ * — for the first-ever sync this means at least one peer must already hold
+ * the secret, which is the bootstrap. For ongoing rotation, regenerate
+ * locally and call sync immediately; sync signs with the secret that's
+ * currently in DB, which the peers still have.
+ *
+ * Body (optional): { signSecret?: string } — sign the outbound JWTs with
+ * this secret instead of the org's current secret. Used by the regenerate-
+ * then-sync flow: regenerate stores the NEW secret, but sync needs to
+ * authenticate using the OLD one that peers still hold. Owner/admin only,
+ * gated by the session.
+ */
+export const syncA2ASecretHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({
+        statusCode: 400,
+        message: "No active organization",
+      });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can sync the A2A secret",
+      });
+    }
+
+    const body = await readBody(event).catch(() => null);
+    const overrideSignSecret =
+      typeof body?.signSecret === "string" && body.signSecret.trim()
+        ? body.signSecret.trim()
+        : null;
+
+    const e = await exec();
+    const orgRes = await e.execute({
+      sql: `SELECT a2a_secret, allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+      args: [ctx.orgId],
+    });
+    if (orgRes.rows.length === 0) {
+      throw createError({
+        statusCode: 404,
+        message: "Organization not found",
+      });
+    }
+    const orgRow = orgRes.rows[0] as any;
+    const secret = String(orgRow.a2a_secret ?? "") || null;
+    const orgDomain = String(orgRow.allowed_domain ?? "") || null;
+
+    if (!secret) {
+      throw createError({
+        statusCode: 400,
+        message: "Org has no A2A secret. Generate one first before syncing.",
+      });
+    }
+    if (!orgDomain) {
+      throw createError({
+        statusCode: 400,
+        message:
+          "Org has no allowed domain set. Set the email domain first so connected apps can identify which org to update.",
+      });
+    }
+
+    const signSecret = overrideSignSecret || secret;
+
+    const { discoverAgents } = await import("../server/agent-discovery.js");
+    const { signA2AToken } = await import("../a2a/client.js");
+
+    const agents = await discoverAgents();
+
+    const results: Array<{
+      id: string;
+      name: string;
+      url: string;
+      ok: boolean;
+      status?: number;
+      error?: string;
+    }> = [];
+
+    await Promise.all(
+      agents.map(async (agent) => {
+        try {
+          const token = await signA2AToken(ctx.email, orgDomain, signSecret);
+
+          const target = `${agent.url.replace(/\/$/, "")}/_agent-native/org/a2a-secret/receive`;
+          const res = await fetch(target, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ secret, orgDomain }),
+          });
+
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            results.push({
+              id: agent.id,
+              name: agent.name,
+              url: agent.url,
+              ok: false,
+              status: res.status,
+              error: text || res.statusText,
+            });
+            return;
+          }
+          results.push({
+            id: agent.id,
+            name: agent.name,
+            url: agent.url,
+            ok: true,
+            status: res.status,
+          });
+        } catch (err) {
+          results.push({
+            id: agent.id,
+            name: agent.name,
+            url: agent.url,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }),
+    );
+
+    const succeeded = results.filter((r) => r.ok).length;
+    return {
+      total: results.length,
+      succeeded,
+      failed: results.length - succeeded,
+      results,
+    };
+  },
+);
+
+/**
+ * POST /_agent-native/org/a2a-secret/receive — accept a secret push from a
+ * connected agent-native app. Auth-exempt at the route guard; we verify a
+ * JWT signed by the calling app using OUR copy of the org's a2a_secret. If
+ * verification succeeds the calling app is a trusted peer and we overwrite
+ * our local org's secret with the supplied value.
+ *
+ * Body: { secret: string, orgDomain: string }
+ *
+ * Header: Authorization: Bearer <JWT signed with the existing shared
+ * a2a_secret, with `org_domain` matching the body's orgDomain>.
+ */
+export const receiveA2ASecretHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const { getRequestHeader } = await import("h3");
+    const jose = await import("jose");
+
+    const authHeader = getRequestHeader(event, "authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      throw createError({
+        statusCode: 401,
+        message: "Bearer token required",
+      });
+    }
+    const token = authHeader.slice("Bearer ".length);
+
+    const body = await readBody(event);
+    const newSecret =
+      typeof body?.secret === "string" ? body.secret.trim() : "";
+    const orgDomain =
+      typeof body?.orgDomain === "string"
+        ? body.orgDomain.trim().toLowerCase()
+        : "";
+    if (!newSecret || !orgDomain) {
+      throw createError({
+        statusCode: 400,
+        message: "secret and orgDomain are required",
+      });
+    }
+
+    // Peek at JWT (unverified) to confirm it claims the same domain we're
+    // updating. Verification still happens below with the trusted secret.
+    let claimedDomain: string | undefined;
+    try {
+      const unverified = jose.decodeJwt(token);
+      claimedDomain =
+        (unverified.org_domain as string | undefined) || undefined;
+    } catch {
+      throw createError({
+        statusCode: 401,
+        message: "Malformed JWT",
+      });
+    }
+    if (
+      !claimedDomain ||
+      claimedDomain.toLowerCase() !== orgDomain.toLowerCase()
+    ) {
+      throw createError({
+        statusCode: 401,
+        message: "JWT org_domain does not match request body",
+      });
+    }
+
+    // Look up our local org by the domain and grab the existing secret.
+    const e = await exec();
+    const orgRes = await e.execute({
+      sql: `SELECT id, a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+      args: [orgDomain],
+    });
+    if (orgRes.rows.length === 0) {
+      throw createError({
+        statusCode: 404,
+        message: "No local org matches that domain",
+      });
+    }
+    const row = orgRes.rows[0] as any;
+    const localOrgId = String(row.id);
+    const existingSecret = String(row.a2a_secret ?? "") || null;
+
+    if (!existingSecret) {
+      // Bootstrap requires an existing shared secret to verify the caller.
+      // If we have nothing on file, we can't verify trust — refuse.
+      throw createError({
+        statusCode: 401,
+        message:
+          "Local org has no A2A secret yet — cannot verify caller. Set the secret manually for the first time.",
+      });
+    }
+
+    // Verify the JWT using OUR existing secret. If the caller is a trusted
+    // peer they signed with the same secret and verification succeeds.
+    try {
+      await jose.jwtVerify(token, new TextEncoder().encode(existingSecret));
+    } catch {
+      throw createError({
+        statusCode: 401,
+        message: "Invalid or expired JWT signature",
+      });
+    }
+
+    // Trusted — apply the new secret.
+    await e.execute({
+      sql: `UPDATE organizations SET a2a_secret = ? WHERE id = ?`,
+      args: [newSecret, localOrgId],
+    });
+
+    return { ok: true, orgId: localOrgId };
   },
 );
