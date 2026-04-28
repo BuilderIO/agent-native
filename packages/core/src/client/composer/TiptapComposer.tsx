@@ -797,22 +797,97 @@ export function TiptapComposer({
     [editor],
   );
 
-  const insertTranscript = useCallback(
-    (text: string) => {
+  // --- Live voice transcription: text appears in the editor as the user speaks ---
+  const voiceAnchorRef = useRef<number | null>(null);
+  const prevVoiceInsertRef = useRef("");
+
+  const handleLiveUpdate = useCallback(
+    (finalText: string, interimText: string) => {
       const ed = editor;
-      if (!ed || !text) return;
-      const { from } = ed.state.selection;
-      const prevChar = from > 1 ? ed.state.doc.textBetween(from - 1, from) : "";
-      const needsLead = prevChar && !/\s/.test(prevChar);
+      if (!ed) return;
+
+      if (voiceAnchorRef.current == null) {
+        const { from } = ed.state.selection;
+        const prevChar =
+          from > 1 ? ed.state.doc.textBetween(from - 1, from) : "";
+        if (prevChar && !/\s/.test(prevChar)) {
+          ed.chain().insertContent(" ").run();
+        }
+        voiceAnchorRef.current = ed.state.selection.from;
+        prevVoiceInsertRef.current = "";
+      }
+
+      const anchor = voiceAnchorRef.current;
+      const prevLen = prevVoiceInsertRef.current.length;
+      const newText = finalText + interimText;
+
+      if (newText === prevVoiceInsertRef.current) return;
+
       ed.chain()
-        .focus()
-        .insertContent((needsLead ? " " : "") + text + " ")
+        .deleteRange({ from: anchor, to: anchor + prevLen })
+        .insertContentAt(anchor, newText)
         .run();
+
+      prevVoiceInsertRef.current = newText;
     },
     [editor],
   );
 
-  const voice = useVoiceDictation({ onTranscript: insertTranscript });
+  const insertTranscript = useCallback(
+    (text: string) => {
+      const ed = editor;
+      if (!ed) return;
+
+      const anchor = voiceAnchorRef.current;
+      if (anchor != null) {
+        const prevLen = prevVoiceInsertRef.current.length;
+        if (text) {
+          ed.chain()
+            .focus()
+            .deleteRange({ from: anchor, to: anchor + prevLen })
+            .insertContentAt(anchor, text + " ")
+            .run();
+        } else if (prevLen > 0) {
+          ed.chain()
+            .deleteRange({ from: anchor, to: anchor + prevLen })
+            .run();
+        }
+        voiceAnchorRef.current = null;
+        prevVoiceInsertRef.current = "";
+      } else if (text) {
+        const { from } = ed.state.selection;
+        const prevChar =
+          from > 1 ? ed.state.doc.textBetween(from - 1, from) : "";
+        const needsLead = prevChar && !/\s/.test(prevChar);
+        ed.chain()
+          .focus()
+          .insertContent((needsLead ? " " : "") + text + " ")
+          .run();
+      }
+    },
+    [editor],
+  );
+
+  const voice = useVoiceDictation({
+    onTranscript: insertTranscript,
+    onLiveUpdate: handleLiveUpdate,
+  });
+
+  // Clean up live text if voice session ends without a final transcript (cancel/error)
+  useEffect(() => {
+    if (voice.state === "idle" && voiceAnchorRef.current != null) {
+      const anchor = voiceAnchorRef.current;
+      const prevLen = prevVoiceInsertRef.current.length;
+      if (editor && prevLen > 0) {
+        editor
+          .chain()
+          .deleteRange({ from: anchor, to: anchor + prevLen })
+          .run();
+      }
+      voiceAnchorRef.current = null;
+      prevVoiceInsertRef.current = "";
+    }
+  }, [voice.state, editor]);
 
   // Global shortcut: Cmd/Ctrl + Shift + M toggles dictation. Escape cancels
   // while recording. Scoped to avoid firing when focus is outside the app.
