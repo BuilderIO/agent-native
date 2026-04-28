@@ -174,6 +174,7 @@ export function ToolsSidebarSection() {
       message: `Create a tool: ${createPrompt.trim()}`,
       submit: true,
       openSidebar: true,
+      newTab: true,
     });
     setCreatePrompt("");
     setShowCreate(false);
@@ -229,7 +230,7 @@ export function ToolsSidebarSection() {
                   }
                 }}
               />
-              <div className="flex items-center justify-between mt-3">
+              <div className="flex items-center justify-end gap-2 mt-3">
                 <span className="text-[11px] text-muted-foreground">
                   {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
                   +Enter

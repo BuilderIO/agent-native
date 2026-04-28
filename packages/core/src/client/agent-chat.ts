@@ -45,6 +45,12 @@ export interface AgentChatMessage {
    * Pass `false` for background/silent sends that shouldn't pop the UI open.
    */
   openSidebar?: boolean;
+  /**
+   * When true, opens a new chat tab before sending the message.
+   * Use for creation requests (create tool, dashboard, etc.) that deserve
+   * their own isolated thread rather than cluttering an existing conversation.
+   */
+  newTab?: boolean;
 }
 
 const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";

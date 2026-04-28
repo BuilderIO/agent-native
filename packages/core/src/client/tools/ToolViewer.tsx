@@ -317,7 +317,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full w-full flex-col">
       <div className="flex items-center justify-between border-b px-3 py-1.5">
         <div className="group/name flex items-center gap-1">
           {isRenaming ? (

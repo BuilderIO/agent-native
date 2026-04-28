@@ -17,6 +17,7 @@ import { ThemeProvider } from "next-themes";
 import { useDbSync } from "@agent-native/core";
 import {
   AgentSidebar,
+  AgentToggleButton,
   ClientOnly,
   CommandMenu,
   DefaultSpinner,
@@ -139,14 +140,15 @@ function AppContent() {
             <Sidebar />
           </div>
           <div className="flex h-full flex-1 flex-col overflow-hidden">
-            <div className="flex h-12 items-center border-b border-border px-4 md:hidden">
+            <header className="flex h-12 items-center justify-between border-b border-border px-4 shrink-0">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground"
+                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground md:hidden"
               >
                 <IconMenu2 className="h-4 w-4" />
               </button>
-            </div>
+              <AgentToggleButton className="ml-auto h-8 w-8 rounded-md hover:bg-accent" />
+            </header>
             <Outlet />
           </div>
         </div>

@@ -712,21 +712,7 @@ export function MultiTabAssistantChat({
       const context = event.data.data?.context as string | undefined;
       const openSidebar = event.data.data?.openSidebar as boolean | undefined;
       const model = event.data.data?.model as string | undefined;
-
-      // If a model override was specified, apply it only if we recognize it
-      if (model) {
-        const threadId = activeThreadIdRef.current;
-        const matchedGroup = availableModels.find((g) =>
-          g.models.includes(model),
-        );
-        if (threadId && matchedGroup) {
-          threadModelRef.current.set(threadId, {
-            model,
-            engine: matchedGroup.engine,
-          });
-          setSelectedModelForActiveThread(model);
-        }
-      }
+      const newTab = event.data.data?.newTab as boolean | undefined;
 
       // Make sure the sidebar is visible to show the response, unless the
       // caller explicitly opted out.
@@ -751,13 +737,40 @@ export function MultiTabAssistantChat({
         ? `${PLAN_MODE_INSTRUCTION}\n\n${baseMessage}`
         : baseMessage;
 
-      const currentTabId = activeThreadIdRef.current;
-      if (!currentTabId) return;
-      const activeRef = chatRefs.current.get(currentTabId);
-      if (activeRef) {
-        activeRef.sendMessage(fullMessage);
+      const sendToTab = (threadId: string) => {
+        // If a model override was specified, apply it only if we recognize it
+        if (model) {
+          const matchedGroup = availableModels.find((g) =>
+            g.models.includes(model),
+          );
+          if (matchedGroup) {
+            threadModelRef.current.set(threadId, {
+              model,
+              engine: matchedGroup.engine,
+            });
+            setSelectedModelForActiveThread(model);
+          }
+        }
+
+        const ref = chatRefs.current.get(threadId);
+        if (ref) {
+          ref.sendMessage(fullMessage);
+        } else {
+          pendingSends.current.set(threadId, fullMessage);
+        }
+      };
+
+      if (newTab) {
+        createThread().then((newId) => {
+          if (newId) {
+            newThreadIds.current.add(newId);
+            sendToTab(newId);
+          }
+        });
       } else {
-        pendingSends.current.set(currentTabId, fullMessage);
+        const currentTabId = activeThreadIdRef.current;
+        if (!currentTabId) return;
+        sendToTab(currentTabId);
       }
     };
     window.addEventListener("message", handler);

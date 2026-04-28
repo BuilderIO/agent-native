@@ -32,6 +32,7 @@ function CreateToolInput({
       message: `Create a tool: ${prompt.trim()}`,
       submit: true,
       openSidebar: true,
+      newTab: true,
     });
     setPrompt("");
   };
@@ -104,13 +105,14 @@ export function ToolsListPage() {
       message: `Create a tool: ${createPrompt.trim()}`,
       submit: true,
       openSidebar: true,
+      newTab: true,
     });
     setCreatePrompt("");
     setShowCreate(false);
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full w-full flex-col">
       <header className="flex items-center justify-between border-b px-6 py-4">
         <h1 className="text-lg font-semibold">Tools</h1>
         <Popover open={showCreate} onOpenChange={setShowCreate}>
