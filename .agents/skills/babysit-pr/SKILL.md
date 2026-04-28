@@ -88,18 +88,21 @@ Fix issues that are:
 - CLAUDE.md violations
 - Data loss risks
 
-## Merge criteria — be thorough before merging
+## Merging
 
-Before merging, **all** of these must be true:
+**Never auto-merge by default.** Only merge when the user explicitly asks you to.
+
+When the user does ask to merge, all of these must be true **simultaneously for 10 consecutive minutes** before merging:
 
 1. **No local uncommitted changes** — `git status --short` must be empty
 2. **No unpushed commits** — `git log --oneline origin/<branch>..HEAD` must be empty
 3. **All GitHub Actions CI green** — Build, Lint, Test, Typecheck, Scaffold E2E, Guard
 4. **All review comments addressed** — every bot comment has a fix or a reply
-5. **2 minutes of sustained green** — don't merge the instant CI goes green; wait at least 2 minutes to catch late-arriving review comments or concurrent agent changes
-6. **Force merge with `--admin`** — use `gh pr merge <number> --squash --admin`
+5. **No merge conflicts** — `gh pr view --json mergeable --jq '.mergeable'` must be `MERGEABLE`
 
-If any condition fails, do NOT merge. Fix the issue and reset the soak timer.
+The 10-minute soak timer **resets to zero** whenever you push anything, CI fails, a new review comment arrives, merge conflicts appear, or local changes are found and committed.
+
+Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> --squash --admin`.
 
 ## Stop conditions
 
