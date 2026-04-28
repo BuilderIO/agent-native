@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
-import { IconArrowLeft, IconPencil } from "@tabler/icons-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { IconPencil, IconRefresh } from "@tabler/icons-react";
 import { ShareButton } from "../sharing/ShareButton.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import {
@@ -15,6 +14,7 @@ interface Tool {
   name: string;
   description?: string;
   content?: string;
+  updatedAt?: string;
 }
 
 export interface ToolViewerProps {
@@ -42,10 +42,10 @@ function EditToolPopover({ tool }: { tool: Tool }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 h-9 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground cursor-pointer"
+          className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
+          title="Edit"
         >
           <IconPencil className="h-4 w-4" />
-          <span>Edit</span>
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={6} className="w-80 p-4">
@@ -86,6 +86,11 @@ function EditToolPopover({ tool }: { tool: Tool }) {
 export function ToolViewer({ toolId }: ToolViewerProps) {
   const [isDark, setIsDark] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -165,6 +170,40 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
     },
   });
 
+  const startRename = useCallback(() => {
+    if (!tool) return;
+    setRenameValue(tool.name);
+    setIsRenaming(true);
+    requestAnimationFrame(() => renameInputRef.current?.select());
+  }, [tool]);
+
+  const submitRename = useCallback(async () => {
+    const trimmed = renameValue.trim();
+    if (!trimmed || !tool || trimmed === tool.name) {
+      setIsRenaming(false);
+      return;
+    }
+    queryClient.setQueryData<Tool>(["tool", toolId], (old) =>
+      old ? { ...old, name: trimmed } : old,
+    );
+    queryClient.setQueryData<Tool[]>(["tools"], (old) =>
+      (old ?? []).map((t) => (t.id === toolId ? { ...t, name: trimmed } : t)),
+    );
+    setIsRenaming(false);
+    try {
+      await fetch(`/_agent-native/tools/${toolId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
+      queryClient.invalidateQueries({ queryKey: ["tools"] });
+    } catch {
+      queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
+      queryClient.invalidateQueries({ queryKey: ["tools"] });
+    }
+  }, [renameValue, tool, toolId, queryClient]);
+
   if (isLoading) {
     return (
       <div className="flex h-full flex-col">
@@ -188,16 +227,42 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-3 py-1.5">
-        <div className="flex items-center gap-2">
-          <Link
-            to="/tools"
-            className="text-muted-foreground hover:text-foreground cursor-pointer"
-          >
-            <IconArrowLeft className="h-3.5 w-3.5" />
-          </Link>
-          <span className="text-sm font-medium">{tool.name}</span>
+        <div className="group/name flex items-center gap-1">
+          {isRenaming ? (
+            <input
+              ref={renameInputRef}
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={submitRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitRename();
+                if (e.key === "Escape") setIsRenaming(false);
+              }}
+              className="text-sm font-medium bg-transparent border-b border-primary outline-none py-0 px-0"
+            />
+          ) : (
+            <>
+              <span className="text-sm font-medium">{tool.name}</span>
+              <button
+                type="button"
+                onClick={startRename}
+                className="cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/name:opacity-100 hover:text-foreground"
+                title="Rename"
+              >
+                <IconPencil className="h-3 w-3" />
+              </button>
+            </>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setRefreshKey((k) => k + 1)}
+            className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
+            title="Refresh"
+          >
+            <IconRefresh className="h-4 w-4" />
+          </button>
           <EditToolPopover tool={tool} />
           <ShareButton
             resourceType="tool"
@@ -208,7 +273,8 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
       </div>
       <iframe
         ref={iframeRef}
-        src={`/_agent-native/tools/${toolId}/render?dark=${isDark}`}
+        key={`${tool.updatedAt}-${refreshKey}`}
+        src={`/_agent-native/tools/${toolId}/render?dark=${isDark}&v=${encodeURIComponent(tool.updatedAt ?? "")}&r=${refreshKey}`}
         className="flex-1 w-full border-0"
         sandbox="allow-scripts allow-forms"
         title={tool.name}

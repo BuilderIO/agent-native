@@ -9,6 +9,7 @@ import {
   IconTrash,
   IconDots,
   IconHelpCircle,
+  IconPencil,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
@@ -54,6 +55,8 @@ export function ToolsSidebarSection() {
     typeof window !== "undefined" ? getFavorites() : new Set(),
   );
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [createPrompt, setCreatePrompt] = useState("");
 
@@ -110,6 +113,44 @@ export function ToolsSidebarSection() {
       }
     },
     [location.pathname, navigate, queryClient],
+  );
+
+  const startRename = useCallback(
+    (tool: Tool) => {
+      setMenuOpenId(null);
+      setRenameValue(tool.name);
+      setRenamingId(tool.id);
+    },
+    [],
+  );
+
+  const submitRename = useCallback(
+    async (toolId: string) => {
+      const trimmed = renameValue.trim();
+      setRenamingId(null);
+      if (!trimmed) return;
+      const prev = queryClient.getQueryData<Tool[]>(["tools"]);
+      const existing = prev?.find((t) => t.id === toolId);
+      if (!existing || trimmed === existing.name) return;
+      queryClient.setQueryData<Tool[]>(["tools"], (old) =>
+        (old ?? []).map((t) => (t.id === toolId ? { ...t, name: trimmed } : t)),
+      );
+      queryClient.setQueryData<Tool>(["tool", toolId], (old) =>
+        old ? { ...old, name: trimmed } : old,
+      );
+      try {
+        await fetch(`/_agent-native/tools/${toolId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: trimmed }),
+        });
+        queryClient.invalidateQueries({ queryKey: ["tools"] });
+        queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
+      } catch {
+        if (prev) queryClient.setQueryData(["tools"], prev);
+      }
+    },
+    [renameValue, queryClient],
   );
 
   // Close menu on click outside
@@ -227,25 +268,44 @@ export function ToolsSidebarSection() {
               location.pathname === `/tools/${tool.id}` ||
               location.pathname === `/tools/${tool.id}/edit`;
             const isFav = favoriteIds.has(tool.id);
+            const isRenamingThis = renamingId === tool.id;
 
             return (
               <div
                 key={tool.id}
-                className="group/tool relative flex items-center px-1"
+                className="group/tool relative"
               >
                 <Link
                   to={`/tools/${tool.id}`}
                   className={cn(
-                    "flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                    "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm",
                     "hover:bg-accent hover:text-accent-foreground",
                     isActive && "bg-accent text-accent-foreground font-medium",
                   )}
                 >
                   <IconTool className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{tool.name}</span>
+                  {isRenamingThis ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={() => submitRename(tool.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") submitRename(tool.id);
+                        if (e.key === "Escape") setRenamingId(null);
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      className="flex-1 min-w-0 truncate text-sm bg-transparent border-b border-primary outline-none py-0 px-0"
+                    />
+                  ) : (
+                    <span className="truncate">{tool.name}</span>
+                  )}
                 </Link>
 
-                <div className="flex shrink-0 items-center gap-0.5">
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
                   <button
                     type="button"
                     onClick={(e) => {
@@ -287,6 +347,14 @@ export function ToolsSidebarSection() {
                         className="absolute right-0 top-full z-50 mt-1 min-w-[120px] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
                         onClick={(e) => e.stopPropagation()}
                       >
+                        <button
+                          type="button"
+                          onClick={() => startRename(tool)}
+                          className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                        >
+                          <IconPencil className="h-3.5 w-3.5" />
+                          Rename
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleDelete(tool.id)}
