@@ -17,6 +17,7 @@ import {
   IconRefresh,
   IconEye,
   IconEyeOff,
+  IconCloudUpload,
 } from "@tabler/icons-react";
 import {
   useOrg,
@@ -30,6 +31,8 @@ import {
   useSwitchOrg,
   useSetOrgDomain,
   useSetA2ASecret,
+  useSyncA2ASecret,
+  type SyncA2ASecretResult,
 } from "./hooks.js";
 
 export interface TeamPageProps {
@@ -529,10 +532,14 @@ function DomainSettingsSection({ domain }: { domain: string | null }) {
 
 function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
   const setA2ASecret = useSetA2ASecret();
+  const syncA2ASecret = useSyncA2ASecret();
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
   const [pasteValue, setPasteValue] = useState("");
+  const [syncResult, setSyncResult] = useState<SyncA2ASecretResult | null>(
+    null,
+  );
 
   function copyToClipboard() {
     if (!secret) return;
@@ -542,10 +549,26 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
     });
   }
 
+  // Push the current secret to all connected apps. Optionally pass the
+  // PREVIOUS secret as `signSecret` so the receiving apps (which still
+  // hold the previous value) can verify the JWT.
+  function syncToApps(signSecret?: string) {
+    setSyncResult(null);
+    syncA2ASecret.mutate(signSecret ? { signSecret } : undefined, {
+      onSuccess: (result) => {
+        setSyncResult(result);
+      },
+    });
+  }
+
   function regenerate() {
     setA2ASecret.mutate(undefined, {
-      onSuccess: () => {
+      onSuccess: (result) => {
         setRevealed(false);
+        // Auto-sync the new secret to all connected apps. Sign with the
+        // PREVIOUS secret (which peers still hold) so verification on
+        // their side succeeds and they accept the new value.
+        syncToApps(result.previousSecret ?? undefined);
       },
     });
   }
@@ -554,9 +577,12 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
     const trimmed = pasteValue.trim();
     if (!trimmed) return;
     setA2ASecret.mutate(trimmed, {
-      onSuccess: () => {
+      onSuccess: (result) => {
         setPasteMode(false);
         setPasteValue("");
+        // Same auto-sync flow as regenerate: peers verify with the
+        // previous secret, then update to the new pasted value.
+        syncToApps(result.previousSecret ?? undefined);
       },
     });
   }
@@ -573,7 +599,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
         Analytics). All apps in your organization need the same secret.
       </p>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono">
           <IconKey className="h-3.5 w-3.5 text-muted-foreground" />
           {revealed && secret ? secret : masked}
@@ -609,9 +635,9 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
         <button
           type="button"
           onClick={regenerate}
-          disabled={setA2ASecret.isPending}
+          disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
-          title="Regenerate secret"
+          title="Regenerate secret and sync to connected apps"
         >
           {setA2ASecret.isPending ? (
             <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
@@ -620,7 +646,50 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
           )}
           Regenerate
         </button>
+        {secret && (
+          <button
+            type="button"
+            onClick={() => syncToApps()}
+            disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
+            title="Push this secret to every connected app"
+          >
+            {syncA2ASecret.isPending ? (
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <IconCloudUpload className="h-3.5 w-3.5" />
+            )}
+            Sync to apps
+          </button>
+        )}
       </div>
+
+      {syncA2ASecret.isPending && (
+        <p className="text-[11px] text-muted-foreground">
+          Syncing to connected apps…
+        </p>
+      )}
+
+      {syncResult && !syncA2ASecret.isPending && (
+        <div className="space-y-1">
+          <p className="text-[11px] text-muted-foreground">
+            Synced to {syncResult.succeeded}/{syncResult.total} app
+            {syncResult.total === 1 ? "" : "s"}
+            {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
+          </p>
+          {syncResult.failed > 0 && (
+            <ul className="text-[11px] text-red-500 list-disc pl-5 space-y-0.5">
+              {syncResult.results
+                .filter((r) => !r.ok)
+                .map((r) => (
+                  <li key={r.id}>
+                    {r.name}: {r.error || `HTTP ${r.status ?? "?"}`}
+                  </li>
+                ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {!pasteMode ? (
         <button
@@ -674,6 +743,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
       )}
 
       <ErrorText error={setA2ASecret.error} />
+      <ErrorText error={syncA2ASecret.error} />
     </div>
   );
 }
