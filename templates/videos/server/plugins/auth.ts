@@ -2,7 +2,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   marketing: {
-    appName: "Videos",
+    appName: "Agent-Native Videos",
     tagline:
       "Your AI agent builds, animates, and refines programmatic videos alongside you.",
     features: [
