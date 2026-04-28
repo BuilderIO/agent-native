@@ -16,12 +16,13 @@ import type {
 export async function signA2AToken(
   email: string,
   orgDomain?: string,
+  orgSecret?: string,
 ): Promise<string> {
-  const secret = process.env.A2A_SECRET;
+  const secret = orgSecret || process.env.A2A_SECRET;
   if (!secret) {
     throw new Error(
-      "A2A_SECRET is required for authenticated cross-app calls. " +
-        "Set the same A2A_SECRET on all apps that need to verify identity.",
+      "No A2A secret available. Set an org-level A2A secret in Team settings, " +
+        "or set A2A_SECRET as an environment variable on all apps that need to verify identity.",
     );
   }
 
@@ -205,14 +206,23 @@ export async function callAgent(
     contextId?: string;
     userEmail?: string;
     orgDomain?: string;
+    orgSecret?: string;
   },
 ): Promise<string> {
   let apiKey = opts?.apiKey;
 
-  // Auto-sign with JWT when A2A_SECRET is available and we have a user email
-  if (!apiKey && opts?.userEmail && process.env.A2A_SECRET) {
+  // Auto-sign with JWT when an A2A secret (org or global) is available and we have a user email
+  if (
+    !apiKey &&
+    opts?.userEmail &&
+    (opts?.orgSecret || process.env.A2A_SECRET)
+  ) {
     try {
-      apiKey = await signA2AToken(opts.userEmail, opts.orgDomain);
+      apiKey = await signA2AToken(
+        opts.userEmail,
+        opts.orgDomain,
+        opts.orgSecret,
+      );
     } catch {
       // Fall back to unsigned call
     }

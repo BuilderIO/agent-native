@@ -10,7 +10,13 @@ export type {
   OrgPendingInvitation,
 } from "./types.js";
 
-export { getOrgContext, getOrgDomain, resolveOrgByDomain } from "./context.js";
+export {
+  getOrgContext,
+  getOrgDomain,
+  getOrgA2ASecret,
+  getA2ASecretByDomain,
+  resolveOrgByDomain,
+} from "./context.js";
 
 export { acceptPendingInvitationsForEmail } from "./accept-pending.js";
 export type { AcceptPendingResult } from "./accept-pending.js";

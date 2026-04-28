@@ -199,12 +199,45 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
         const errors: string[] = message.errors || [];
         const errorDetails: Array<{ message: string; stack: string }> =
           message.errorDetails || [];
+        const consoleLogs: Array<{ level: string; message: string }> =
+          message.consoleLogs || [];
+        const networkLogs: Array<{
+          path: string;
+          method: string;
+          ok?: boolean;
+          status?: number;
+          error?: string;
+        }> = message.networkLogs || [];
+
         const detailedTrace = errorDetails
           .map((e) => (e.stack ? `${e.message}\n${e.stack}` : e.message))
           .join("\n\n");
+
+        const contextParts = [
+          `The user is viewing tool "${t.name}" (id: ${t.id}) and there are runtime errors that need fixing.`,
+          `\nFull error details:\n${detailedTrace}`,
+        ];
+
+        if (consoleLogs.length > 0) {
+          const consoleStr = consoleLogs
+            .map((l) => `[${l.level}] ${l.message}`)
+            .join("\n");
+          contextParts.push(`\nRecent console output:\n${consoleStr}`);
+        }
+
+        if (networkLogs.length > 0) {
+          const netStr = networkLogs
+            .map(
+              (l) =>
+                `${l.method} ${l.path} → ${l.ok ? l.status : "FAILED: " + (l.error || l.status)}`,
+            )
+            .join("\n");
+          contextParts.push(`\nRecent network requests:\n${netStr}`);
+        }
+
         sendToAgentChat({
           message: `Fix runtime errors in this tool:\n${errors.join("\n")}`,
-          context: `The user is viewing tool "${t.name}" (id: ${t.id}) and there are runtime errors that need fixing.\n\nFull error details:\n${detailedTrace}`,
+          context: contextParts.join("\n"),
           submit: true,
           openSidebar: true,
         });

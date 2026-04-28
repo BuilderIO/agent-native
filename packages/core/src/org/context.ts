@@ -301,6 +301,51 @@ export async function getOrgDomain(orgId: string): Promise<string | null> {
 }
 
 /**
+ * Look up the org's A2A secret by org ID.
+ * Used when making outbound A2A calls so the JWT is signed with the
+ * org-specific secret rather than the global A2A_SECRET env var.
+ */
+export async function getOrgA2ASecret(
+  orgId: string,
+): Promise<string | null> {
+  try {
+    const exec = getDbExec();
+    const { rows } = await exec.execute({
+      sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
+      args: [orgId],
+    });
+    if (!rows[0]) return null;
+    const secret = String((rows[0] as any).a2a_secret || "");
+    return secret || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Look up an org's A2A secret by its `allowed_domain`.
+ * Used on the A2A receiving side: the caller's JWT includes `org_domain`,
+ * and the receiver looks up which local org matches that domain to find
+ * the secret used to verify the JWT signature.
+ */
+export async function getA2ASecretByDomain(
+  domain: string,
+): Promise<string | null> {
+  try {
+    const exec = getDbExec();
+    const { rows } = await exec.execute({
+      sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+      args: [domain.toLowerCase()],
+    });
+    if (!rows[0]) return null;
+    const secret = String((rows[0] as any).a2a_secret || "");
+    return secret || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve a local org by its `allowed_domain`.
  * Used on the A2A receiving side: the caller sends `org_domain` in the JWT,
  * and the receiver looks up which local org matches that domain.

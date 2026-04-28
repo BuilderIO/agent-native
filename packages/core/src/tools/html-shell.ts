@@ -16,6 +16,60 @@ export function buildToolHtml(
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet" />
+  <script>
+    var _toolErrors = [];
+    var _toolErrorDetails = [];
+    var _consoleLogs = [];
+    var _networkLogs = [];
+
+    var _origConsole = { log: console.log, warn: console.warn, error: console.error, info: console.info };
+    function _wrapConsole(level, orig) {
+      return function() {
+        var args = Array.prototype.slice.call(arguments);
+        var msg = args.map(function(a) {
+          try { return typeof a === 'object' ? JSON.stringify(a) : String(a); }
+          catch(e) { return String(a); }
+        }).join(' ');
+        if (_consoleLogs.length >= 50) _consoleLogs.shift();
+        _consoleLogs.push({ level: level, message: msg });
+        orig.apply(console, arguments);
+      };
+    }
+    console.log = _wrapConsole('log', _origConsole.log);
+    console.warn = _wrapConsole('warn', _origConsole.warn);
+    console.error = _wrapConsole('error', _origConsole.error);
+    console.info = _wrapConsole('info', _origConsole.info);
+
+    function _collectError(message, stack) {
+      if (!message) return;
+      if (message === 'Script error.' || message === 'Script error') message = 'Runtime error';
+      if (_toolErrors.indexOf(message) !== -1) return;
+      _toolErrors.push(message);
+      _toolErrorDetails.push({ message: message, stack: stack || '' });
+      var toast = document.getElementById('__tool-error-toast');
+      if (!toast) return;
+      var msg = document.getElementById('__tool-error-msg');
+      if (_toolErrors.length === 1) {
+        msg.textContent = _toolErrors[0];
+      } else {
+        msg.textContent = _toolErrors.length + ' errors — ' + _toolErrors[_toolErrors.length - 1];
+      }
+      toast.style.display = 'block';
+    }
+
+    window.addEventListener('error', function(event) {
+      var msg = event.message || '';
+      if (msg.indexOf('Alpine Expression Error') === 0) return;
+      var stack = event.error && event.error.stack ? event.error.stack : '';
+      _collectError(msg, stack);
+    });
+
+    window.addEventListener('unhandledrejection', function(event) {
+      var msg = event.reason && event.reason.message ? event.reason.message : String(event.reason);
+      var stack = event.reason && event.reason.stack ? event.reason.stack : '';
+      _collectError(msg, stack);
+    });
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
   <style>${themeVars}</style>
@@ -98,6 +152,27 @@ export function buildToolHtml(
 	        }, 30000);
 	      });
 	    }
+
+	    var _origHostRequest = hostRequest;
+	    hostRequest = function(path, options) {
+	      var entry = { path: path, method: (options && options.method) || 'GET' };
+	      return _origHostRequest(path, options).then(function(res) {
+	        entry.ok = res.ok;
+	        entry.status = res.status;
+	        if (!res.ok && res.body) {
+	          try { entry.error = typeof res.body === 'string' ? res.body.slice(0, 200) : JSON.stringify(res.body).slice(0, 200); } catch(e) {}
+	        }
+	        if (_networkLogs.length >= 20) _networkLogs.shift();
+	        _networkLogs.push(entry);
+	        return res;
+	      }, function(err) {
+	        entry.ok = false;
+	        entry.error = err.message;
+	        if (_networkLogs.length >= 20) _networkLogs.shift();
+	        _networkLogs.push(entry);
+	        throw err;
+	      });
+	    };
 
 	    function toolFetch(url, options) {
 	      var opts = options || {};
@@ -232,39 +307,6 @@ export function buildToolHtml(
 	    }
 	  </style>
 	  <script>
-	    var _toolErrors = [];
-	    var _toolErrorDetails = [];
-
-	    function _collectError(message, stack) {
-	      if (!message) return;
-	      if (message === 'Script error.' || message === 'Script error') message = 'Runtime error';
-	      if (_toolErrors.indexOf(message) !== -1) return;
-	      _toolErrors.push(message);
-	      _toolErrorDetails.push({ message: message, stack: stack || '' });
-	      var toast = document.getElementById('__tool-error-toast');
-	      if (!toast) return;
-	      var msg = document.getElementById('__tool-error-msg');
-	      if (_toolErrors.length === 1) {
-	        msg.textContent = _toolErrors[0];
-	      } else {
-	        msg.textContent = _toolErrors.length + ' errors \u2014 ' + _toolErrors[_toolErrors.length - 1];
-	      }
-	      toast.style.display = 'block';
-	    }
-
-	    window.addEventListener('error', function(event) {
-	      var msg = event.message || '';
-	      if (msg.indexOf('Alpine Expression Error') === 0) return;
-	      var stack = event.error && event.error.stack ? event.error.stack : '';
-	      _collectError(msg, stack);
-	    });
-
-	    window.addEventListener('unhandledrejection', function(event) {
-	      var msg = event.reason && event.reason.message ? event.reason.message : String(event.reason);
-	      var stack = event.reason && event.reason.stack ? event.reason.stack : '';
-	      _collectError(msg, stack);
-	    });
-
 	    window.addEventListener('message', function(event) {
 	      var msg = event.data;
 	      if (!msg || msg.type !== 'agent-native-theme-update') return;
@@ -312,7 +354,9 @@ export function buildToolHtml(
 	          window.parent.postMessage({
 	            type: 'agent-native-tool-error-fix',
 	            errors: _toolErrors,
-	            errorDetails: _toolErrorDetails
+	            errorDetails: _toolErrorDetails,
+	            consoleLogs: _consoleLogs.slice(-30),
+	            networkLogs: _networkLogs.slice(-15)
 	          }, '*');
 	          document.getElementById('__tool-error-toast').style.display = 'none';
 	        });
