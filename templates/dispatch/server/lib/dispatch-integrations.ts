@@ -11,11 +11,15 @@ import {
 export async function resolveDispatchOwner(
   incoming: IncomingMessage,
 ): Promise<string> {
-  const owner = await resolveLinkedOwner(
-    incoming.platform,
-    incoming.senderId || null,
-  );
-  return owner || SHARED_DISPATCH_OWNER;
+  try {
+    const owner = await resolveLinkedOwner(
+      incoming.platform,
+      incoming.senderId || null,
+    );
+    return owner || SHARED_DISPATCH_OWNER;
+  } catch {
+    return SHARED_DISPATCH_OWNER;
+  }
 }
 
 export async function beforeDispatchProcess(
