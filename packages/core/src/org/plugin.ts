@@ -24,6 +24,7 @@ import {
   acceptInvitationHandler,
   joinByDomainHandler,
   setDomainHandler,
+  setA2ASecretHandler,
 } from "./handlers.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
@@ -46,6 +47,7 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  *   POST   /_agent-native/org/invitations/:id/accept      — accept an invitation
  *   POST   /_agent-native/org/join-by-domain              — join org via email domain match
  *   PUT    /_agent-native/org/domain                      — set/clear allowed email domain (owner/admin)
+ *   PUT    /_agent-native/org/a2a-secret                  — regenerate or set A2A secret (owner/admin)
  */
 export function createOrgPlugin(): NitroPluginDef {
   const migrate = runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" });
@@ -131,6 +133,18 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return joinByDomainHandler(event);
+      }),
+    );
+
+    // PUT /a2a-secret
+    app.use(
+      `${ORG_PREFIX}/a2a-secret`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setA2ASecretHandler(event);
       }),
     );
 

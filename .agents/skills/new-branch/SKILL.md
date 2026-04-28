@@ -8,6 +8,18 @@ user_invocable: true
 
 Quickly stash any local changes, pull latest from origin/main, and create a new working branch. Designed to be as fast as possible since other agents may be working concurrently on this repo.
 
+## Pre-flight: verify main has the latest merge
+
+Before creating the branch, **always** verify that `origin/main` contains the most recently merged PR. If you just merged a PR (or know one was recently merged), run:
+
+```bash
+git fetch origin main
+gh pr list --state merged --base main --limit 1 --json number,mergedAt,mergeCommit --jq '.[0]'
+git log origin/main --oneline -1
+```
+
+Compare the merge commit SHA. If `origin/main` doesn't include it yet, wait and re-fetch — GitHub can take a few seconds to update after a squash merge. **Never create a branch off stale main.** Creating a branch that's missing a just-merged PR causes chaos: subsequent work assumes the merged code is there, leading to conflicts, regressions, and duplicated changes.
+
 ## Steps
 
 Run as a single chained command to minimize time off-branch. The `git stash push` is gated so we **only pop a stash we just created** — never an old stash from a previous session:

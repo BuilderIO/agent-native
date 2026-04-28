@@ -38,6 +38,7 @@ export interface OrgInfo {
   pendingInvitations: OrgInvitationSummary[];
   domainMatches: DomainMatchOrg[];
   allowedDomain: string | null;
+  a2aSecret?: string | null;
 }
 
 export interface OrgMember {
