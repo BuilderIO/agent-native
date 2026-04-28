@@ -52,7 +52,7 @@ export function buildToolHtml(
   </style>
   <style>
     *, *::before, *::after { border-color: hsl(var(--border)); }
-    body { font-family: 'Inter', sans-serif; margin: 0; }
+    body { font-family: 'Inter', sans-serif; margin: 0; padding: 1.5rem; }
   </style>
   <script>
     function toolFetch(url, options) {
