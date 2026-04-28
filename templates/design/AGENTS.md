@@ -304,7 +304,7 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 | Action             | Args                                                                                               | Purpose                            |
 | ------------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `create-design`    | `--title "X" [--description "..."] [--projectType prototype\|deck\|other] [--designSystemId <id>]` | Create a new empty design project  |
+| `create-design`    | `--title "X" [--description "..."] [--projectType prototype\|other] [--designSystemId <id>]` | Create a new empty design project  |
 | `update-design`    | `--id <id> [--title] [--description] [--data] [--projectType] [--designSystemId]`                  | Update design metadata             |
 | `delete-design`    | `--id <id>`                                                                                        | Delete design + all files/versions |
 | `duplicate-design` | `--id <id> [--title "Copy of..."]`                                                                 | Deep copy design + all files       |
@@ -624,14 +624,14 @@ interface DesignSystemData {
     headingSizes: { h1: string; h2: string; h3: string };
   };
   spacing: {
-    slidePadding: string;
+    pagePadding: string;
     elementGap: string;
   };
   borders: {
     radius: string;
     accentWidth: string;
   };
-  slideDefaults: {
+  defaults: {
     background: string;
     labelStyle: "uppercase" | "lowercase" | "capitalize" | "none";
   };

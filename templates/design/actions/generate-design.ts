@@ -40,7 +40,7 @@ export default defineAction({
       .optional()
       .describe("Design system ID used for generation"),
     projectType: z
-      .enum(["prototype", "deck", "other"])
+      .enum(["prototype", "other"])
       .optional()
       .describe("Project type hint for generation"),
   }),
