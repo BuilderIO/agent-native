@@ -332,15 +332,15 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 ### Import
 
-| Action                  | Args                                                                 | Purpose                                                         |
-| ----------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Action                  | Args                                                                 | Purpose                                                                       |
+| ----------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `import-from-url`       | `--url <websiteUrl>`                                                 | Analyze a website and extract design tokens, colors, fonts (static HTML only) |
-| `import-github`         | `--repoUrl <url-or-org/repo>`                                        | Extract tokens from a public GitHub repo (Tailwind, CSS, theme) |
-| `import-code`           | `--files '[{"filename":"...","content":"..."}]'`                     | Extract tokens from uploaded code files                         |
-| `import-document`       | `--files '[{"filename":"...","fileType":"...","sizeBytes":...}]'`    | Process document metadata (DOCX, PPTX, PDF) for design cues     |
-| `import-design-project` | `--designId <id> [--designSystemId <id>]`                            | Extract tokens from existing project or fork a design system    |
-| `import-figma`          | `--description "..." [--figmaUrl "..."] [--projectTitle "..."]`      | Process Figma file description for design import                |
-| `analyze-brand-assets`  | `[--websiteUrl "..."] [--companyName "..."] [--designSystemId <id>]` | Gather brand data from multiple sources                         |
+| `import-github`         | `--repoUrl <url-or-org/repo>`                                        | Extract tokens from a public GitHub repo (Tailwind, CSS, theme)               |
+| `import-code`           | `--files '[{"filename":"...","content":"..."}]'`                     | Extract tokens from uploaded code files                                       |
+| `import-document`       | `--files '[{"filename":"...","fileType":"...","sizeBytes":...}]'`    | Process document metadata (DOCX, PPTX, PDF) for design cues                   |
+| `import-design-project` | `--designId <id> [--designSystemId <id>]`                            | Extract tokens from existing project or fork a design system                  |
+| `import-figma`          | `--description "..." [--figmaUrl "..."] [--projectTitle "..."]`      | Process Figma file description for design import                              |
+| `analyze-brand-assets`  | `[--websiteUrl "..."] [--companyName "..."] [--designSystemId <id>]` | Gather brand data from multiple sources                                       |
 
 **Browser-powered URL import (recommended):** For website URLs, prefer browser automation over `import-from-url`. Most modern sites use JS-rendered styles (CSS-in-JS, Tailwind JIT, SPAs) that plain HTML fetch misses entirely. Call `activate-browser`, navigate to the URL with chrome-devtools tools, then use `evaluate_script` to extract `getComputedStyle()` values, CSS custom properties, rendered font families, and actual color palette. Take a screenshot for visual reference. Fall back to `import-from-url` only when Builder is not connected.
 
