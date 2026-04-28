@@ -79,6 +79,9 @@ export const toolData = table("tool_data", {
   itemId: text("item_id").notNull(),
   data: text("data").notNull(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  scope: text("scope").notNull().default("user"),
+  orgId: text("org_id"),
+  scopeKey: text("scope_key").notNull().default("local@localhost"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -90,6 +93,9 @@ export const TOOL_DATA_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_data (
   item_id TEXT NOT NULL,
   data TEXT NOT NULL,
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  scope TEXT NOT NULL DEFAULT 'user',
+  org_id TEXT,
+  scope_key TEXT NOT NULL DEFAULT 'local@localhost',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`;
@@ -101,12 +107,18 @@ export const TOOL_DATA_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_data (
   item_id TEXT NOT NULL,
   data TEXT NOT NULL,
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+  scope TEXT NOT NULL DEFAULT 'user',
+  org_id TEXT,
+  scope_key TEXT NOT NULL DEFAULT 'local@localhost',
   created_at TEXT NOT NULL DEFAULT now(),
   updated_at TEXT NOT NULL DEFAULT now()
 )`;
 
-export const TOOL_DATA_ITEM_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT EXISTS tool_data_scope_item_idx
-  ON tool_data (tool_id, collection, owner_email, item_id)`;
+export const TOOL_DATA_ITEM_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT EXISTS tool_data_scoped_item_idx
+  ON tool_data (tool_id, collection, scope_key, item_id)`;
 
-export const TOOL_DATA_ITEM_INDEX_SQL_PG = `CREATE UNIQUE INDEX IF NOT EXISTS tool_data_scope_item_idx
-  ON tool_data (tool_id, collection, owner_email, item_id)`;
+export const TOOL_DATA_ITEM_INDEX_SQL_PG = `CREATE UNIQUE INDEX IF NOT EXISTS tool_data_scoped_item_idx
+  ON tool_data (tool_id, collection, scope_key, item_id)`;
+
+export const TOOL_DATA_DROP_OLD_INDEX_SQL = `DROP INDEX IF EXISTS tool_data_scope_item_idx`;
+export const TOOL_DATA_DROP_OLD_INDEX_SQL_PG = `DROP INDEX IF EXISTS tool_data_scope_item_idx`;

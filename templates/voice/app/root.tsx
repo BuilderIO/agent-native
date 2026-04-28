@@ -1,13 +1,18 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
+import { ThemeProvider, useTheme } from "next-themes";
 import { useDbSync } from "@agent-native/core";
-import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+import {
+  ClientOnly,
+  DefaultSpinner,
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { IconMenu2, IconX } from "@tabler/icons-react";
+import { IconMenu2, IconMoon, IconSun, IconX } from "@tabler/icons-react";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 
@@ -39,6 +44,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function AppShell() {
   useDbSync();
   const [panelOpen, setPanelOpen] = useState(false);
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const { theme, setTheme } = useTheme();
 
   return (
     <TooltipProvider>
@@ -76,6 +84,26 @@ function AppShell() {
           <ToolsSidebarSection />
         </div>
 
+        <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+          </CommandMenu.Group>
+          <CommandMenu.Group heading="Appearance">
+            <CommandMenu.Item
+              onSelect={() =>
+                setTheme(theme === "dark" ? "light" : "dark")
+              }
+              keywords={["theme", "dark", "light", "mode"]}
+            >
+              {theme === "dark" ? (
+                <IconSun size={16} />
+              ) : (
+                <IconMoon size={16} />
+              )}
+              Toggle {theme === "dark" ? "light" : "dark"} mode
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>
         <Outlet />
       </div>
       <Toaster position="bottom-right" />

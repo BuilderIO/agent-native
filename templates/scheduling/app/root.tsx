@@ -1,5 +1,5 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -10,7 +10,11 @@ import {
   useDbSync,
   ClientOnly,
   DefaultSpinner,
+  CommandMenu,
+  useCommandMenuShortcut,
 } from "@agent-native/core/client";
+import { useTheme } from "next-themes";
+import { IconSun, IconMoon } from "@tabler/icons-react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { LinksFunction } from "react-router";
@@ -97,6 +101,9 @@ export default function Root() {
         },
       }),
   );
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const { theme, setTheme } = useTheme();
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <QueryClientProvider client={queryClient}>
@@ -109,6 +116,28 @@ export default function Root() {
           <TooltipProvider>
             <DbSyncSetup />
             <Toaster position="bottom-left" />
+            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+              <CommandMenu.Group heading="Actions">
+                <CommandMenu.Item onSelect={() => {}}>
+                  Search
+                </CommandMenu.Item>
+              </CommandMenu.Group>
+              <CommandMenu.Group heading="Appearance">
+                <CommandMenu.Item
+                  onSelect={() =>
+                    setTheme(theme === "dark" ? "light" : "dark")
+                  }
+                  keywords={["theme", "dark", "light", "mode"]}
+                >
+                  {theme === "dark" ? (
+                    <IconSun size={16} />
+                  ) : (
+                    <IconMoon size={16} />
+                  )}
+                  Toggle {theme === "dark" ? "light" : "dark"} mode
+                </CommandMenu.Item>
+              </CommandMenu.Group>
+            </CommandMenu>
             <Outlet />
           </TooltipProvider>
         </ThemeProvider>

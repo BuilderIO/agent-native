@@ -9,7 +9,10 @@ import {
 import { readBody } from "../server/h3-helpers.js";
 import { getSession } from "../server/auth.js";
 import { recordChange } from "../server/poll.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import {
+  runWithRequestContext,
+  getRequestOrgId,
+} from "../server/request-context.js";
 import { getOrgContext } from "../org/context.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import {
@@ -207,10 +210,42 @@ async function handleToolDataList(
   const limit = limitParam
     ? Math.min(Math.max(1, Number(limitParam)), 1000)
     : 100;
+  const scope = url?.searchParams?.get("scope") || "user";
+  const orgId = getRequestOrgId();
+
+  if (scope === "org") {
+    if (!orgId) {
+      setResponseStatus(event, 400);
+      return { error: "Org context required for scope=org" };
+    }
+    const result = await client.execute({
+      sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, scope, org_id, created_at, updated_at
+        FROM tool_data
+        WHERE tool_id = ? AND collection = ? AND scope = 'org' AND org_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?`,
+      args: [toolId, collection, orgId, limit],
+    });
+    return result.rows ?? [];
+  }
+
+  if (scope === "all") {
+    const result = await client.execute({
+      sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, scope, org_id, created_at, updated_at
+        FROM tool_data
+        WHERE tool_id = ? AND collection = ?
+          AND ((scope = 'user' AND owner_email = ?) OR (scope = 'org' AND org_id = ?))
+        ORDER BY created_at DESC
+        LIMIT ?`,
+      args: [toolId, collection, userEmail, orgId ?? "", limit],
+    });
+    return result.rows ?? [];
+  }
+
   const result = await client.execute({
-    sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, created_at, updated_at
+    sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, scope, org_id, created_at, updated_at
       FROM tool_data
-      WHERE tool_id = ? AND collection = ? AND owner_email = ?
+      WHERE tool_id = ? AND collection = ? AND scope = 'user' AND owner_email = ?
       ORDER BY created_at DESC
       LIMIT ?`,
     args: [toolId, collection, userEmail, limit],
@@ -239,49 +274,49 @@ async function handleToolDataUpsert(
   const data =
     typeof body.data === "string" ? body.data : JSON.stringify(body.data);
   const now = new Date().toISOString();
+  const scope = body.scope === "org" ? "org" : "user";
+  const orgId = getRequestOrgId();
+
+  if (scope === "org" && !orgId) {
+    setResponseStatus(event, 400);
+    return { error: "Org context required for scope=org" };
+  }
+
+  const scopeKey = scope === "org" ? `org:${orgId}` : userEmail;
   const client = getDbExec();
   const pg = isPostgres();
-  if (pg) {
-    await client.execute({
-      sql: `INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (tool_id, collection, owner_email, item_id)
-       DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
-      args: [
-        randomUUID(),
-        toolId,
-        collection,
-        itemId,
-        data,
-        userEmail,
-        now,
-        now,
-      ],
-    });
-  } else {
-    await client.execute({
-      sql: `INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (tool_id, collection, owner_email, item_id)
-       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
-      args: [
-        randomUUID(),
-        toolId,
-        collection,
-        itemId,
-        data,
-        userEmail,
-        now,
-        now,
-      ],
-    });
-  }
+  const conflictClause = pg
+    ? `ON CONFLICT (tool_id, collection, scope_key, item_id)
+       DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`
+    : `ON CONFLICT (tool_id, collection, scope_key, item_id)
+       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`;
+
+  await client.execute({
+    sql: `INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, scope, org_id, scope_key, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ${conflictClause}`,
+    args: [
+      randomUUID(),
+      toolId,
+      collection,
+      itemId,
+      data,
+      userEmail,
+      scope,
+      scope === "org" ? orgId! : null,
+      scopeKey,
+      now,
+      now,
+    ],
+  });
   return {
     id: itemId,
     toolId,
     collection,
     data,
     ownerEmail: userEmail,
+    scope,
+    orgId: scope === "org" ? orgId : null,
     createdAt: now,
     updatedAt: now,
   };
@@ -300,9 +335,25 @@ async function handleToolDataDelete(
     setResponseStatus(event, 404);
     return { error: "Tool not found" };
   }
+  const url = event.url;
+  const scope = url?.searchParams?.get("scope") || "user";
+  const orgId = getRequestOrgId();
   const client = getDbExec();
+
+  if (scope === "org") {
+    if (!orgId) {
+      setResponseStatus(event, 400);
+      return { error: "Org context required for scope=org" };
+    }
+    await client.execute({
+      sql: `DELETE FROM tool_data WHERE COALESCE(item_id, id) = ? AND tool_id = ? AND collection = ? AND scope = 'org' AND org_id = ?`,
+      args: [itemId, toolId, collection, orgId],
+    });
+    return { ok: true };
+  }
+
   await client.execute({
-    sql: `DELETE FROM tool_data WHERE COALESCE(item_id, id) = ? AND tool_id = ? AND collection = ? AND owner_email = ?`,
+    sql: `DELETE FROM tool_data WHERE COALESCE(item_id, id) = ? AND tool_id = ? AND collection = ? AND scope = 'user' AND owner_email = ?`,
     args: [itemId, toolId, collection, userEmail],
   });
   return { ok: true };
