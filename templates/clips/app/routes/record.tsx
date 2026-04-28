@@ -344,6 +344,10 @@ export default function RecordRoute() {
       }
 
       await engine.stop();
+      // Recording is fully saved — clear refs so that if anything below throws
+      // and the user clicks "Try again", doCancel() won't trash a good recording.
+      pendingRef.current = null;
+      engineRef.current = null;
       setCameraStream(null);
       setPreviewStream(null);
       setUiState("complete");
