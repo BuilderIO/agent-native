@@ -14,7 +14,7 @@ export default defineAction({
     description: z.string().optional().describe("New description"),
     data: z.string().optional().describe("Updated JSON string of design data"),
     projectType: z
-      .enum(["prototype", "deck", "other"])
+      .enum(["prototype", "other"])
       .optional()
       .describe("Updated project type"),
     designSystemId: z.string().optional().describe("Design system ID to link"),
