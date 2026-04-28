@@ -6,7 +6,22 @@ import type {
   IntegrationsPluginOptions,
   IntegrationStatus,
 } from "./types.js";
-import { handleWebhook } from "./webhook-handler.js";
+import {
+  handleWebhook,
+  processIntegrationTask,
+} from "./webhook-handler.js";
+import {
+  claimPendingTask,
+  getPendingTask,
+  markTaskCompleted,
+  markTaskFailed,
+} from "./pending-tasks-store.js";
+import {
+  extractBearerToken,
+  verifyInternalToken,
+} from "./internal-token.js";
+import { readBody } from "../server/h3-helpers.js";
+import { getRequestHeader } from "h3";
 import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
 import { slackAdapter } from "./adapters/slack.js";
 import { telegramAdapter } from "./adapters/telegram.js";
@@ -18,6 +33,8 @@ import {
   handlePushNotification,
 } from "./google-docs-poller.js";
 import { resourceGetByPath, SHARED_OWNER } from "../resources/store.js";
+import { getTaskQueueStats } from "./task-queue-stats.js";
+import { getSession } from "../server/auth.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -149,6 +166,33 @@ export function createIntegrationsPlugin(
       }),
     );
 
+    // ─── Task queue status (observability) ───────────────────────
+    // GET /_agent-native/integrations/task-queue/status
+    // Returns counts + recent failures for the integration_pending_tasks
+    // queue. Requires a normal session — this exposes operational data, not
+    // platform secrets. If the queue table doesn't exist yet (no inbound
+    // webhook has been processed), returns zeroed stats rather than 500.
+    h3.use(
+      `${P}/task-queue/status`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "unauthorized" };
+        }
+        try {
+          return await getTaskQueueStats();
+        } catch (err: any) {
+          setResponseStatus(event, 500);
+          return { error: err?.message ?? String(err) };
+        }
+      }),
+    );
+
     // ─── Per-platform catch-all ───────────────────────────────────
     // Handles: webhook, status, enable, disable, setup for each platform
     h3.use(
@@ -161,6 +205,8 @@ export function createIntegrationsPlugin(
 
         // Already handled by the dedicated /status route above
         if (parts[0] === "status" && parts.length === 1) return;
+        // Already handled by the dedicated /task-queue/status route above
+        if (parts[0] === "task-queue") return;
 
         const platform = parts[0];
         const action = parts[1]; // webhook, status, enable, disable, setup
