@@ -105,9 +105,7 @@ export default function Root() {
               </CommandMenu.Group>
               <CommandMenu.Group heading="Appearance">
                 <CommandMenu.Item
-                  onSelect={() =>
-                    setTheme(theme === "dark" ? "light" : "dark")
-                  }
+                  onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
                   keywords={["theme", "dark", "light", "mode"]}
                 >
                   {theme === "dark" ? (

@@ -106,11 +106,7 @@ function AppContent() {
             onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
             keywords={["theme", "dark", "light", "mode"]}
           >
-            {theme === "dark" ? (
-              <IconSun size={16} />
-            ) : (
-              <IconMoon size={16} />
-            )}
+            {theme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
             Toggle {theme === "dark" ? "light" : "dark"} mode
           </CommandMenu.Item>
         </CommandMenu.Group>

@@ -119,15 +119,11 @@ export default function Root() {
             <DbSyncSetup />
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
               <CommandMenu.Group heading="Actions">
-                <CommandMenu.Item onSelect={() => {}}>
-                  Search
-                </CommandMenu.Item>
+                <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
               </CommandMenu.Group>
               <CommandMenu.Group heading="Appearance">
                 <CommandMenu.Item
-                  onSelect={() =>
-                    setTheme(theme === "dark" ? "light" : "dark")
-                  }
+                  onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
                   keywords={["theme", "dark", "light", "mode"]}
                 >
                   {theme === "dark" ? (
