@@ -19,9 +19,10 @@ Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and review feedback 
 **Step 0 — always do this first, before anything else:**
 
 1. Run `git status --short` to check for local uncommitted changes from concurrent agents.
-2. If any exist: `git add <files> && git commit -m "chore: sweep concurrent agent changes" && git push`.
-3. Run `git log --oneline origin/<branch>..HEAD` to check for local commits not yet on the remote.
-4. If any unpushed commits exist: `git push`.
+2. If any exist: look at `git diff --stat` to understand what changed, then write a descriptive commit message based on the actual changes (e.g. "feat(tools): add error toast + dark mode sync" or "fix(analytics): update sidebar layout"). Never use generic messages like "chore: sweep concurrent agent changes".
+3. `git add <files> && git commit -m "<descriptive message>" && git push`.
+4. Run `git log --oneline origin/<branch>..HEAD` to check for local commits not yet on the remote.
+5. If any unpushed commits exist: `git push`.
 
 This ensures every tick starts with a clean, fully-pushed working tree. Never skip this step.
 
