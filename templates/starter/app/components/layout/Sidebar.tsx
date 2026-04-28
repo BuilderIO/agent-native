@@ -15,9 +15,7 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 items-center px-4 border-b border-border">
-        <span className="text-sm font-semibold tracking-tight">
-          Agent Native
-        </span>
+        <span className="text-sm font-semibold tracking-tight">Starter</span>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
