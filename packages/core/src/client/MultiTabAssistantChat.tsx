@@ -713,10 +713,11 @@ export function MultiTabAssistantChat({
       const openSidebar = event.data.data?.openSidebar as boolean | undefined;
       const model = event.data.data?.model as string | undefined;
       const newTab = event.data.data?.newTab as boolean | undefined;
+      const background = event.data.data?.background as boolean | undefined;
 
       // Make sure the sidebar is visible to show the response, unless the
-      // caller explicitly opted out.
-      if (openSidebar !== false) {
+      // caller explicitly opted out or it's a background send.
+      if (openSidebar !== false && !background) {
         window.dispatchEvent(new CustomEvent("agent-panel:open"));
       }
 
@@ -761,10 +762,14 @@ export function MultiTabAssistantChat({
       };
 
       if (newTab) {
+        const previousTabId = activeThreadIdRef.current;
         createThread().then((newId) => {
           if (newId) {
             newThreadIds.current.add(newId);
             sendToTab(newId);
+            if (background && previousTabId) {
+              switchThread(previousTabId);
+            }
           }
         });
       } else {
@@ -775,7 +780,7 @@ export function MultiTabAssistantChat({
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [keyPrefix, availableModels]);
+  }, [keyPrefix, availableModels, createThread, switchThread]);
 
   // Process pending sends when refs mount
   useEffect(() => {

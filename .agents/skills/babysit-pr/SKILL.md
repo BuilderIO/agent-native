@@ -16,6 +16,17 @@ Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and review feedback 
 
 ## Each tick
 
+**Step 0 — always do this first, before anything else:**
+
+1. Run `git status --short` to check for local uncommitted changes from concurrent agents.
+2. If any exist: `git add <files> && git commit -m "chore: sweep concurrent agent changes" && git push`.
+3. Run `git log --oneline origin/<branch>..HEAD` to check for local commits not yet on the remote.
+4. If any unpushed commits exist: `git push`.
+
+This ensures every tick starts with a clean, fully-pushed working tree. Never skip this step.
+
+**Then proceed with PR checks:**
+
 1. Check for new review comments from bots:
    ```bash
    gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/comments --jq '.[] | select(.user.type == "Bot") | select(.created_at > "<30min_ago>") | {id, path: .path, body: .body[0:300]}'
@@ -69,6 +80,19 @@ Fix issues that are:
 - Security issues
 - CLAUDE.md violations
 - Data loss risks
+
+## Merge criteria — be thorough before merging
+
+Before merging, **all** of these must be true:
+
+1. **No local uncommitted changes** — `git status --short` must be empty
+2. **No unpushed commits** — `git log --oneline origin/<branch>..HEAD` must be empty
+3. **All GitHub Actions CI green** — Build, Lint, Test, Typecheck, Scaffold E2E, Guard
+4. **All review comments addressed** — every bot comment has a fix or a reply
+5. **2 minutes of sustained green** — don't merge the instant CI goes green; wait at least 2 minutes to catch late-arriving review comments or concurrent agent changes
+6. **Force merge with `--admin`** — use `gh pr merge <number> --squash --admin`
+
+If any condition fails, do NOT merge. Fix the issue and reset the soak timer.
 
 ## Stop conditions
 

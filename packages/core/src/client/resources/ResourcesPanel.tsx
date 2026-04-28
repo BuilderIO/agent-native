@@ -496,6 +496,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
             "Help me create a new automation. Ask me what I want to automate.",
           context: `The user wants to create a new automation. Scope: personal. Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
           submit: true,
+          newTab: true,
         });
         onCreated?.();
       },
