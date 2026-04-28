@@ -2,7 +2,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   marketing: {
-    appName: "Voice",
+    appName: "Agent-Native Voice",
     tagline:
       "Speak to type anywhere with context-aware formatting, snippets, and custom vocabulary.",
     features: [
