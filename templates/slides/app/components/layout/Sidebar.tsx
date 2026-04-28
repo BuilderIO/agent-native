@@ -1,10 +1,5 @@
 import { Link, useLocation } from "react-router";
-import {
-  IconStack2,
-  IconPalette,
-  IconUsers,
-  IconSettings,
-} from "@tabler/icons-react";
+import { IconStack2, IconPalette, IconUsers } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { FeedbackButton } from "@agent-native/core/client";
@@ -13,7 +8,6 @@ const navItems = [
   { icon: IconStack2, label: "Decks", href: "/" },
   { icon: IconPalette, label: "Design Systems", href: "/design-systems" },
   { icon: IconUsers, label: "Team", href: "/team" },
-  { icon: IconSettings, label: "Settings", href: "/settings" },
 ];
 
 export function Sidebar() {
