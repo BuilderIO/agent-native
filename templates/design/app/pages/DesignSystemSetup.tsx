@@ -321,7 +321,7 @@ export default function DesignSystemSetup() {
     );
 
     openAgentSidebar();
-    sendToAgentChat({ message: parts.join("\n"), submit: true });
+    sendToAgentChat({ message: parts.join("\n"), submit: true, newTab: true });
     navigate("/design-systems");
   }, [
     companyInfo,
