@@ -398,14 +398,17 @@ export function useVoiceDictation(
     speechTranscriptRef.current = "";
 
     recognition.onresult = (event: any) => {
-      let finalText = "";
+      let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
+        const text = result[0]?.transcript ?? "";
         if (result.isFinal) {
-          finalText += result[0]?.transcript ?? "";
+          speechTranscriptRef.current += text;
+        } else {
+          interim += text;
         }
       }
-      if (finalText) speechTranscriptRef.current += finalText;
+      onLiveUpdateRef.current?.(speechTranscriptRef.current, interim);
     };
     recognition.onerror = (event: any) => {
       if (event?.error === "no-speech" || event?.error === "aborted") return;
@@ -420,8 +423,8 @@ export function useVoiceDictation(
       const wasCancelled = cancelledRef.current;
       cancelledRef.current = false;
       teardown();
-      setState("idle");
       if (!wasCancelled && text) onTranscriptRef.current?.(text);
+      setState("idle");
     };
 
     startTimer();
