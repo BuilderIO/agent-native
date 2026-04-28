@@ -7,7 +7,6 @@ import {
   IconFolder,
   IconX,
   IconWorld,
-  IconFileTypePdf,
   IconFileDescription,
   IconPhoto,
   IconPalette,
