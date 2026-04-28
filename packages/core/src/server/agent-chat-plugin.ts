@@ -1306,7 +1306,7 @@ When the user says "show me", "go to", "open", etc., ALWAYS use \`navigate\` fir
 
 ### Extended Capabilities
 
-You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, and browser access. Call \`get-framework-context\` to read detailed instructions for any of these when needed.
+You also have tools for: inline embeds, chat history search, agent teams/sub-agents, recurring jobs, A2A cross-app calls, structured memory, and browser automation (\`activate-browser\` to provision a real Chrome). Call \`get-framework-context\` to read detailed instructions for any of these when needed.
 `;
 
 /**
@@ -1568,11 +1568,9 @@ Job instructions should be self-contained — include which actions to call, wha
 
 When the user asks to connect Builder.io, needs Builder for LLM access / browser automation, or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a one-click Connect card inline in the chat — do NOT write out multi-step setup instructions yourself (no "Option 1 / Option 2", no terminal commands). Just call the tool and let the card handle the rest.
 
-### Browser Access
+### Browser Automation
 
-Use \`connect-builder\` when you need browser access backed by Builder. It renders a Connect card that provisions a browser session.
-
-- If Builder is not configured, the card will guide the user through setup.
+Call \`activate-browser\` to provision a real Chrome browser. After activation, chrome-devtools MCP tools become available for navigating pages, reading rendered DOM, taking screenshots, and evaluating JavaScript. If Builder is not connected, call \`connect-builder\` first. Use browser automation proactively when tasks benefit from full page rendering (design system extraction from URLs, visual verification, SPA content reading).
 
 ### call-agent — External Apps Only
 
