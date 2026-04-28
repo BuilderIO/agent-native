@@ -23,9 +23,9 @@ export interface DesignSystemData {
     bodyWeight: string;
     headingSizes: { h1: string; h2: string; h3: string };
   };
-  spacing: { slidePadding: string; elementGap: string };
+  spacing: { pagePadding: string; elementGap: string };
   borders: { radius: string; accentWidth: string };
-  slideDefaults: {
+  defaults: {
     background: string;
     labelStyle: "uppercase" | "lowercase" | "capitalize" | "none";
   };
@@ -44,7 +44,7 @@ export interface DesignProject {
   id: string;
   title: string;
   description?: string;
-  projectType: "prototype" | "deck" | "other";
+  projectType: "prototype" | "other";
   designSystemId?: string;
   files: DesignFile[];
   tweaks?: TweakDefinition[];
