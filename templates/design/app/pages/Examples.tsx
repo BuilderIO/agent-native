@@ -7,10 +7,7 @@ import {
   IconUser,
   IconChartBar,
 } from "@tabler/icons-react";
-import {
-  sendToAgentChat,
-  openAgentSidebar,
-} from "@agent-native/core/client";
+import { sendToAgentChat, openAgentSidebar } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 
 const EXAMPLES = [
@@ -72,8 +69,8 @@ export default function Examples() {
             Starter Examples
           </h1>
           <p className="text-sm text-white/40">
-            Pick a template to get started quickly, or use it as inspiration
-            for your own design.
+            Pick a template to get started quickly, or use it as inspiration for
+            your own design.
           </p>
         </div>
 

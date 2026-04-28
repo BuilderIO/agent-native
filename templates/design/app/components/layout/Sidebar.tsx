@@ -20,7 +20,7 @@ export function Sidebar() {
   const location = useLocation();
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
+    <aside className="flex h-full w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 items-center px-4 border-b border-border">
         <span className="text-sm font-semibold tracking-tight">Design</span>
       </div>
