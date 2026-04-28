@@ -234,7 +234,7 @@ function registerMiddleware(
       }
       return {
         error: e?.message || "Internal server error",
-        ...(process.env.NODE_ENV !== "production" && e?.stack
+        ...(status >= 500 && process.env.NODE_ENV !== "production" && e?.stack
           ? { stack: e.stack }
           : {}),
       };

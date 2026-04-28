@@ -1068,16 +1068,13 @@ export function AgentPanel({
 
       {/* CLI terminals — dev mode: real terminal, prod mode: prompt to use dev */}
       {isDevMode
-        ? cliTabs.map((id) => (
+        ? mode === "cli" &&
+          cliTabs.map((id) => (
             <div
               key={id}
-              className={cn(
-                "min-h-0 relative",
-                mode === "cli" ? "flex-1" : "hidden",
-              )}
+              className="min-h-0 relative flex-1"
               style={{
-                display:
-                  mode === "cli" && id === activeCliTab ? undefined : "none",
+                display: id === activeCliTab ? undefined : "none",
               }}
             >
               <Suspense

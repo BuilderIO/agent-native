@@ -12,6 +12,10 @@
 
 import { readAppSecret, readAppSecretMeta } from "./storage.js";
 import type { SecretScope } from "./register.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 
 const KEY_REFERENCE_REGEX = /\$\{keys\.([A-Za-z0-9_-]+)\}/g;
 
@@ -45,7 +49,11 @@ export async function resolveKeyReferences(
 
     let result = await readAppSecret({ key: name, scope, scopeId });
     if (!result && scope === "user") {
-      result = await readAppSecret({ key: name, scope: "workspace", scopeId });
+      result = await readAppSecret({
+        key: name,
+        scope: "workspace",
+        scopeId: getWorkspaceScopeId(scopeId),
+      });
     }
     if (!result) {
       throw new Error(
@@ -109,8 +117,15 @@ export async function getKeyAllowlist(
     meta = await readAppSecretMeta({
       key: name,
       scope: "workspace",
-      scopeId,
+      scopeId: getWorkspaceScopeId(scopeId),
     });
   }
   return meta?.urlAllowlist ?? null;
+}
+
+function getWorkspaceScopeId(userScopeId: string): string {
+  const orgId = getRequestOrgId();
+  if (orgId) return orgId;
+  const email = getRequestUserEmail() || userScopeId;
+  return `solo:${email}`;
 }

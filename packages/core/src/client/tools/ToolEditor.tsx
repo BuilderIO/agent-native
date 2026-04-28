@@ -226,7 +226,7 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
             <iframe
               srcDoc={content}
               className="h-full w-full border-0"
-              sandbox="allow-scripts"
+              sandbox="allow-scripts allow-forms"
               title="Tool preview"
             />
           ) : (

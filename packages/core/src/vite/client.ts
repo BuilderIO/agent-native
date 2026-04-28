@@ -124,6 +124,10 @@ function getCoreSourceAliases(
     "@agent-native/core": path.join(coreSrc, "index.browser.ts"),
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
     "@agent-native/core/client": path.join(coreSrc, "client/index.ts"),
+    "@agent-native/core/client/tools": path.join(
+      coreSrc,
+      "client/tools/index.ts",
+    ),
     "@agent-native/core/db": path.join(coreSrc, "db/index.ts"),
     "@agent-native/core/db/schema": path.join(coreSrc, "db/schema.ts"),
     "@agent-native/core/shared": path.join(coreSrc, "shared/index.ts"),
@@ -629,6 +633,10 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
   const appBasePath =
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "/";
   const base = appBasePath.endsWith("/") ? appBasePath : `${appBasePath}/`;
+  const monorepoCoreAllow = [
+    path.resolve(cwd, "../../packages/core"),
+    path.resolve(cwd, "../core"),
+  ].filter((candidate) => fs.existsSync(path.join(candidate, "package.json")));
 
   return {
     envDir,
@@ -637,7 +645,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       host: "::",
       port: options.port ?? 8080,
       fs: {
-        allow: [".", ...(options.fsAllow ?? [])],
+        allow: [".", ...monorepoCoreAllow, ...(options.fsAllow ?? [])],
         deny: [
           ".env",
           ".env.*",
@@ -656,11 +664,26 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       // the blur in prod where the unprefixed form was expected.
       cssTarget: ["es2020", "safari18"],
     },
-    // Bundle all non-Node.js deps into the SSR server build.
+    // Bundle all non-Node.js deps into the production SSR server build.
     // Edge runtimes (CF Workers, Deno) don't have node_modules at runtime.
-    ssr: {
-      noExternal: /^(?!node:)/,
-    },
+    // In dev, React Router's Vite Environment runner expects CJS packages
+    // like React to stay external; forcing them through the module runner
+    // raises `module is not defined`.
+    ssr: process.argv.includes("build")
+      ? {
+          noExternal: /^(?!node:)/,
+        }
+      : {
+          noExternal: [/^@agent-native\/core(\/.*)?$/],
+          external: [
+            "react",
+            "react-dom",
+            "react-dom/server",
+            "react-router",
+            "react-router/dom",
+            "react-router-dom",
+          ],
+        },
     plugins: [
       // Stub packages from `options.ssrStubs` in the SSR bundle so they
       // don't bloat the edge worker. Opt-in per template — the framework
@@ -670,6 +693,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
         const p = ssrStubPlugin(options.ssrStubs ?? []);
         return p ? [p] : [];
       })(),
+      ...(options.plugins ?? []),
       actionTypesPlugin(),
       agentsBundlePlugin(),
       autoReloadOnOptimizeDep(),
@@ -689,7 +713,6 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           ]),
       reactPluginInstance,
       tailwindPluginInstance,
-      ...(options.plugins ?? []),
     ].filter(Boolean),
     optimizeDeps: {
       include: [

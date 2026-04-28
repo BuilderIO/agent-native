@@ -76,6 +76,7 @@ export const toolData = table("tool_data", {
   id: text("id").primaryKey(),
   toolId: text("tool_id").notNull(),
   collection: text("collection").notNull(),
+  itemId: text("item_id").notNull(),
   data: text("data").notNull(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   createdAt: text("created_at").notNull().default(now()),
@@ -86,6 +87,7 @@ export const TOOL_DATA_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_data (
   id TEXT PRIMARY KEY,
   tool_id TEXT NOT NULL,
   collection TEXT NOT NULL,
+  item_id TEXT NOT NULL,
   data TEXT NOT NULL,
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -96,8 +98,15 @@ export const TOOL_DATA_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_data (
   id TEXT PRIMARY KEY,
   tool_id TEXT NOT NULL,
   collection TEXT NOT NULL,
+  item_id TEXT NOT NULL,
   data TEXT NOT NULL,
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   created_at TEXT NOT NULL DEFAULT now(),
   updated_at TEXT NOT NULL DEFAULT now()
 )`;
+
+export const TOOL_DATA_ITEM_INDEX_SQL = `CREATE UNIQUE INDEX IF NOT EXISTS tool_data_scope_item_idx
+  ON tool_data (tool_id, collection, owner_email, item_id)`;
+
+export const TOOL_DATA_ITEM_INDEX_SQL_PG = `CREATE UNIQUE INDEX IF NOT EXISTS tool_data_scope_item_idx
+  ON tool_data (tool_id, collection, owner_email, item_id)`;
