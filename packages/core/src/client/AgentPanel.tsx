@@ -38,7 +38,6 @@ import {
   IconTerminal2,
   IconSettings,
   IconLayoutSidebarRightCollapse,
-  IconMessage,
   IconLayoutGrid,
   IconCheck,
   IconPlus,

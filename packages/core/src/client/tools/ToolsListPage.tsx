@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { IconPlus, IconTool } from "@tabler/icons-react";
 import { cn } from "../utils.js";
+import { AgentToggleButton } from "../AgentPanel.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import {
   Popover,
@@ -113,54 +114,57 @@ export function ToolsListPage() {
 
   return (
     <div className="flex h-full w-full flex-col">
-      <header className="flex items-center justify-between border-b px-6 py-4">
-        <h1 className="text-lg font-semibold">Tools</h1>
-        <Popover open={showCreate} onOpenChange={setShowCreate}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              <IconPlus className="h-4 w-4" />
-              New Tool
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="end" sideOffset={6} className="w-80 p-4">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleCreate();
-              }}
-            >
-              <textarea
-                autoFocus
-                value={createPrompt}
-                onChange={(e) => setCreatePrompt(e.target.value)}
-                placeholder="Describe what you'd like to build..."
-                className="flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[140px] resize-y"
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                    e.preventDefault();
-                    handleCreate();
-                  }
+      <header className="flex h-12 items-center justify-between border-b px-4 shrink-0">
+        <h1 className="text-sm font-semibold">Tools</h1>
+        <div className="flex items-center gap-2">
+          <Popover open={showCreate} onOpenChange={setShowCreate}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                <IconPlus className="h-4 w-4" />
+                New Tool
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" sideOffset={6} className="w-80 p-4">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleCreate();
                 }}
-              />
-              <div className="flex items-center justify-end gap-2 mt-3">
-                <span className="text-[11px] text-muted-foreground/50">
-                  {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                  +Enter
-                </span>
-                <button
-                  type="submit"
-                  disabled={!createPrompt.trim()}
-                  className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  Create
-                </button>
-              </div>
-            </form>
-          </PopoverContent>
-        </Popover>
+              >
+                <textarea
+                  autoFocus
+                  value={createPrompt}
+                  onChange={(e) => setCreatePrompt(e.target.value)}
+                  placeholder="Describe what you'd like to build..."
+                  className="flex w-full rounded-md border border-input bg-background px-3 py-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 min-h-[140px] resize-y"
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      handleCreate();
+                    }
+                  }}
+                />
+                <div className="flex items-center justify-end gap-2 mt-3">
+                  <span className="text-[11px] text-muted-foreground/50">
+                    {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+                    +Enter
+                  </span>
+                  <button
+                    type="submit"
+                    disabled={!createPrompt.trim()}
+                    className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Create
+                  </button>
+                </div>
+              </form>
+            </PopoverContent>
+          </Popover>
+          <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+        </div>
       </header>
 
       <div className="flex-1 overflow-auto p-6">

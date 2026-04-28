@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconPencil, IconRefresh } from "@tabler/icons-react";
 import { ShareButton } from "../sharing/ShareButton.js";
+import { AgentToggleButton } from "../AgentPanel.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import {
   Popover,
@@ -299,7 +300,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
   if (isLoading) {
     return (
       <div className="flex h-full flex-col">
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b">
+        <div className="flex h-12 items-center gap-2 px-3 border-b shrink-0">
           <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse" />
           <div className="h-3.5 w-24 rounded bg-muted animate-pulse" />
         </div>
@@ -318,7 +319,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
   return (
     <div className="flex h-full w-full flex-col">
-      <div className="flex items-center justify-between border-b px-3 py-1.5">
+      <div className="flex h-12 items-center justify-between border-b px-3 shrink-0">
         <div className="group/name flex items-center gap-1">
           {isRenaming ? (
             <input
@@ -361,6 +362,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
             resourceId={toolId}
             resourceTitle={tool.name}
           />
+          <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
         </div>
       </div>
       <div className="relative flex-1 min-h-0">
