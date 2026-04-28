@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Link, useLocation } from "react-router";
 import { compositions } from "@/remotion/registry";
 import { CompositionCard } from "@/components/CompositionCard";
 import { PropsEditor } from "@/components/PropsEditor";
@@ -15,6 +16,10 @@ import {
   IconSettings,
   IconFileText,
   IconClick,
+  IconVideo,
+  IconComponents,
+  IconPalette,
+  IconUsers,
 } from "@tabler/icons-react";
 import { NewCompositionPopover } from "@/components/NewCompositionPopover";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -22,6 +27,8 @@ import { cn } from "@/lib/utils";
 import { useComposition } from "@/contexts/CompositionContext";
 import { useTimeline } from "@/contexts/TimelineContext";
 import { usePlayback } from "@/contexts/PlaybackContext";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { FeedbackButton } from "@agent-native/core/client";
 
 type SidebarProps = {
   open: boolean;
@@ -192,6 +199,38 @@ export function Sidebar({
     }
   }, [compSettingsTrigger]);
 
+  const location = useLocation();
+
+  const navItems = [
+    {
+      icon: IconVideo,
+      label: "Animations",
+      href: "/",
+      active:
+        !location.pathname.startsWith("/components") &&
+        !location.pathname.startsWith("/design-systems") &&
+        !location.pathname.startsWith("/team"),
+    },
+    {
+      icon: IconComponents,
+      label: "Components",
+      href: "/components",
+      active: location.pathname.startsWith("/components"),
+    },
+    {
+      icon: IconPalette,
+      label: "Design Systems",
+      href: "/design-systems",
+      active: location.pathname.startsWith("/design-systems"),
+    },
+    {
+      icon: IconUsers,
+      label: "Team",
+      href: "/team",
+      active: location.pathname === "/team",
+    },
+  ];
+
   return (
     <div
       className={cn(
@@ -203,12 +242,39 @@ export function Sidebar({
       )}
     >
       <div className="w-64 lg:w-72 h-full flex flex-col">
+        {/* App name */}
+        <div className="flex h-10 items-center px-3 border-b border-border shrink-0">
+          <span className="text-xs font-semibold tracking-tight">Videos</span>
+        </div>
+
+        {/* Navigation */}
+        <nav className="px-2 py-1.5 space-y-0.5 border-b border-border shrink-0">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                to={item.href}
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
+                  item.active
+                    ? "bg-secondary text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/50",
+                )}
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+
         <Tabs
           value={tab}
           onValueChange={(v) => setTab(v as "compositions" | "properties")}
-          className="flex flex-col h-full"
+          className="flex flex-col flex-1 min-h-0"
         >
-          <TabsList className="w-full bg-transparent h-auto p-1.5 gap-1 border-b border-border">
+          <TabsList className="w-full bg-transparent h-auto p-1.5 gap-1 border-b border-border shrink-0">
             <TabsTrigger
               value="compositions"
               className="flex-1 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground data-[state=active]:bg-secondary data-[state=active]:text-foreground data-[state=active]:shadow-none"
@@ -412,6 +478,14 @@ export function Sidebar({
             )}
           </TabsContent>
         </Tabs>
+
+        <div className="border-t border-border px-2 py-1.5 shrink-0">
+          <ToolsSidebarSection />
+        </div>
+
+        <div className="border-t border-border px-3 py-1.5 shrink-0">
+          <FeedbackButton />
+        </div>
       </div>
     </div>
   );

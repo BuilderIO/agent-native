@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { WorkspaceSwitcher } from "@/components/workspace/workspace-switcher";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { toast } from "sonner";
 
 interface FolderNode {
@@ -358,6 +359,10 @@ export function LibrarySidebar({ className }: LibrarySidebarProps) {
             </ul>
           )}
         </Section>
+      </div>
+
+      <div className="border-t border-border px-2 py-1">
+        <ToolsSidebarSection />
       </div>
 
       <SidebarFooter />

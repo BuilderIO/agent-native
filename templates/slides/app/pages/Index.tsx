@@ -1,12 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router";
-import {
-  IconPlus,
-  IconStack2,
-  IconSettings,
-  IconUsers,
-  IconPalette,
-} from "@tabler/icons-react";
+import { IconPlus, IconStack2 } from "@tabler/icons-react";
 import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
@@ -14,7 +8,6 @@ import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 
 import { Button } from "@/components/ui/button";
-import { AgentToggleButton } from "@agent-native/core/client";
 
 export default function Index() {
   const { decks, createDeck, deleteDeck, loading } = useDecks();
@@ -41,9 +34,6 @@ export default function Index() {
     prompt: string,
     files: UploadedFile[],
   ) => {
-    // Create an empty deck and navigate to it immediately so the user sees
-    // slides appear one-by-one as the agent generates them (feels like the
-    // deck is being built live rather than popping in all at once).
     const deck = createDeck(undefined, { noDefaultSlides: true });
 
     const fileContext =
@@ -76,116 +66,73 @@ export default function Index() {
   };
 
   return (
-    <div className="min-h-screen bg-[hsl(240,6%,4%)]">
-      {/* Header */}
-      <header className="border-b border-white/[0.06]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-          <span className="text-base font-semibold text-white/90 tracking-tight">
-            Slides
-          </span>
-          <div className="flex items-center gap-2">
-            <Link
-              to="/design-systems"
-              className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white"
-            >
-              <IconPalette className="w-4 h-4" />
-              Design Systems
-            </Link>
-            <Link
-              to="/team"
-              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80"
-              title="Team"
-              aria-label="Team"
-            >
-              <IconUsers className="w-4 h-4" />
-            </Link>
-            <Link
-              to="/settings"
-              className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-white/50 hover:text-white/80"
-              title="Settings"
-              aria-label="Settings"
-            >
-              <IconSettings className="w-4 h-4" />
-            </Link>
-            <Button onClick={openNewDeck} size="sm">
-              <IconPlus className="w-3.5 h-3.5" />
-              New Deck
-            </Button>
-            <AgentToggleButton />
+    <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-10">
+      {loading ? (
+        <>
+          <div className="flex items-center justify-between mb-6">
+            <div className="h-5 w-32 rounded-md bg-white/[0.05] animate-pulse" />
+            <div className="h-3 w-16 rounded bg-white/[0.05] animate-pulse" />
           </div>
-        </div>
-      </header>
-
-      {/* Content */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-        {loading ? (
-          <>
-            <div className="flex items-center justify-between mb-6">
-              <div className="h-5 w-32 rounded-md bg-white/[0.05] animate-pulse" />
-              <div className="h-3 w-16 rounded bg-white/[0.05] animate-pulse" />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="rounded-xl border border-white/[0.06] bg-[hsl(240,5%,8%)] overflow-hidden"
-                >
-                  <div className="aspect-video bg-white/[0.03] animate-pulse" />
-                  <div className="p-4 space-y-2">
-                    <div className="h-4 w-3/4 rounded bg-white/[0.05] animate-pulse" />
-                    <div className="h-3 w-1/2 rounded bg-white/[0.05] animate-pulse" />
-                  </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div
+                key={i}
+                className="rounded-xl border border-white/[0.06] bg-[hsl(240,5%,8%)] overflow-hidden"
+              >
+                <div className="aspect-video bg-white/[0.03] animate-pulse" />
+                <div className="p-4 space-y-2">
+                  <div className="h-4 w-3/4 rounded bg-white/[0.05] animate-pulse" />
+                  <div className="h-3 w-1/2 rounded bg-white/[0.05] animate-pulse" />
                 </div>
-              ))}
-            </div>
-          </>
-        ) : decks.length === 0 ? (
-          <EmptyState onCreateDeck={openNewDeck} />
-        ) : (
-          <>
-            <div className="flex items-center justify-between mb-6">
-              <h1 className="text-lg font-semibold text-white/90">
-                Your Decks
-              </h1>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : decks.length === 0 ? (
+        <EmptyState onCreateDeck={openNewDeck} />
+      ) : (
+        <>
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-lg font-semibold text-white/90">Your Decks</h1>
+            <div className="flex items-center gap-3">
               <span className="text-xs text-white/30">
                 {decks.length} deck{decks.length !== 1 ? "s" : ""}
               </span>
+              <Button onClick={openNewDeck} size="sm">
+                <IconPlus className="w-3.5 h-3.5" />
+                New Deck
+              </Button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {/* New deck card - matches DeckCard structure */}
-              <button
-                onClick={openNewDeck}
-                className="group relative rounded-xl border border-dashed border-white/[0.08] bg-[hsl(240,5%,8%)] hover:border-white/[0.15] transition-all duration-200 overflow-hidden text-left"
-              >
-                {/* Slide preview area - matches DeckCard aspect-video */}
-                <div className="aspect-video flex items-center justify-center bg-white/[0.02]">
-                  <div className="w-12 h-12 rounded-xl bg-white/[0.04] flex items-center justify-center group-hover:bg-white/[0.06] transition-colors">
-                    <IconPlus className="w-6 h-6 text-white/30 group-hover:text-white/50 transition-colors" />
-                  </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {/* New deck card */}
+            <button
+              onClick={openNewDeck}
+              className="group relative rounded-xl border border-dashed border-white/[0.08] bg-[hsl(240,5%,8%)] hover:border-white/[0.15] overflow-hidden text-left cursor-pointer"
+            >
+              <div className="aspect-video flex items-center justify-center bg-white/[0.02]">
+                <div className="w-12 h-12 rounded-xl bg-white/[0.04] flex items-center justify-center group-hover:bg-white/[0.06]">
+                  <IconPlus className="w-6 h-6 text-white/30 group-hover:text-white/50" />
                 </div>
-                {/* Info area - matches DeckCard p-4 */}
-                <div className="p-4">
-                  <h3 className="font-medium text-sm text-white/50 group-hover:text-white/70 transition-colors">
-                    New Deck
-                  </h3>
-                  <div className="text-xs text-white/30 mt-1">
-                    Create a deck
-                  </div>
-                </div>
-              </button>
+              </div>
+              <div className="p-4">
+                <h3 className="font-medium text-sm text-white/50 group-hover:text-white/70">
+                  New Deck
+                </h3>
+                <div className="text-xs text-white/30 mt-1">Create a deck</div>
+              </div>
+            </button>
 
-              {/* Deck cards */}
-              {[...decks].reverse().map((deck) => (
-                <DeckCard
-                  key={deck.id}
-                  deck={deck}
-                  onDelete={(id) => setDeckToDelete(id)}
-                />
-              ))}
-            </div>
-          </>
-        )}
-      </main>
+            {[...decks].reverse().map((deck) => (
+              <DeckCard
+                key={deck.id}
+                deck={deck}
+                onDelete={(id) => setDeckToDelete(id)}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Delete Confirmation Dialog */}
       {deckToDelete && (
@@ -225,7 +172,7 @@ export default function Index() {
         loading={generating}
         anchorRef={anchorRef}
       />
-    </div>
+    </main>
   );
 }
 

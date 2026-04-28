@@ -5,6 +5,7 @@ import {
   IconBulb,
   IconClock,
   IconBolt,
+  IconTool,
   IconPlugConnected,
   IconLoader2,
   IconCheck,
@@ -17,20 +18,23 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "../components/ui/popover.js";
-import { sendToAgentChat } from "../agent-chat.js";
 import { useOrg } from "../org/hooks.js";
 import {
   useCreateMcpServer,
   testMcpServerUrl,
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
+import type { ComposerMode } from "./types.js";
 
-type View = "menu" | "skill" | "job" | "mcp-server";
+interface ComposerPlusMenuProps {
+  onSelectMode?: (mode: ComposerMode) => void;
+}
 
-export function ComposerPlusMenu() {
+type View = "menu" | "mcp-server";
+
+export function ComposerPlusMenu({ onSelectMode }: ComposerPlusMenuProps) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("menu");
-  const [value, setValue] = useState("");
 
   // MCP state
   const { data: org } = useOrg();
@@ -52,13 +56,12 @@ export function ComposerPlusMenu() {
   } | null>(null);
   const createMcp = useCreateMcpServer();
 
-  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const fileUploadRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (open) {
       setView("menu");
-      setValue("");
       setMcpScope(defaultMcpScope);
       setMcpName("");
       setMcpUrl("");
@@ -71,59 +74,11 @@ export function ComposerPlusMenu() {
   }, [open, defaultMcpScope]);
 
   useEffect(() => {
-    if (view !== "menu") {
-      setValue("");
+    if (view === "mcp-server") {
       const t = setTimeout(() => inputRef.current?.focus(), 50);
       return () => clearTimeout(t);
     }
   }, [view]);
-
-  const submitSkill = () => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    sendToAgentChat({
-      message: `Create a skill: ${trimmed}`,
-      context: `The user wants to create an agent skill. Their description: "${trimmed}"
-
-Follow the create-skill pattern to build this. Before writing:
-
-1. **Determine the skill name** â€” derive a hyphen-case name from the description (e.g. "code review" â†’ "code-review")
-2. **Determine the skill type** â€” Pattern (architectural rule), Workflow (step-by-step), or Generator (scaffolding)
-3. **Write the skill** as a personal resource at path "skills/<name>.md" using resource-write
-
-The skill file MUST have YAML frontmatter with name and description (under 40 words), then markdown with:
-- Clear rule/purpose statement
-- Why this skill exists
-- How to follow it (with code examples where helpful)
-- Common violations to avoid
-- Related skills
-
-After creating, update the shared AGENTS.md resource to reference the new skill in its skills table.
-
-Keep the skill concise (under 500 lines) and actionable.`,
-      submit: true,
-    });
-    setOpen(false);
-  };
-
-  const submitJob = () => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    sendToAgentChat({
-      message: `Create a recurring job: ${trimmed}`,
-      context: `The user wants to create a recurring job. Their description: "${trimmed}"
-
-Use the manage-jobs tool with action "create" to create this. You need to:
-1. Derive a hyphen-case name from the description
-2. Convert the schedule to a cron expression (e.g., "every weekday at 9am" â†’ "0 9 * * 1-5")
-3. Write clear, self-contained instructions for what the agent should do each time the job runs
-4. Create it in personal scope
-
-The job will run automatically on the schedule. Make the instructions specific â€” include which actions to call and what to do with results.`,
-      submit: true,
-    });
-    setOpen(false);
-  };
 
   const parseHeaderLines = (
     text: string,
@@ -206,32 +161,36 @@ The job will run automatically on the schedule. Make the instructions specific â
       icon: <IconBulb className="h-3.5 w-3.5" />,
       label: "Create Skill",
       desc: "Teach the agent a new ability",
-      action: () => setView("skill"),
+      action: () => {
+        onSelectMode?.("skill");
+        setOpen(false);
+      },
     },
     {
       icon: <IconClock className="h-3.5 w-3.5" />,
       label: "Scheduled Task",
       desc: "Run something on a schedule",
-      action: () => setView("job"),
+      action: () => {
+        onSelectMode?.("job");
+        setOpen(false);
+      },
     },
     {
       icon: <IconBolt className="h-3.5 w-3.5" />,
       label: "Create Automation",
       desc: "Set up a when-X-do-Y rule",
       action: () => {
+        onSelectMode?.("automation");
         setOpen(false);
-        window.dispatchEvent(
-          new CustomEvent("agent-panel:set-mode", {
-            detail: { mode: "chat" },
-          }),
-        );
-        sendToAgentChat({
-          message:
-            "Help me create a new automation. Ask me what I want to automate.",
-          context:
-            "The user wants to create a new automation. Scope: personal. Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.",
-          submit: true,
-        });
+      },
+    },
+    {
+      icon: <IconTool className="h-3.5 w-3.5" />,
+      label: "Create Tool",
+      desc: "Build an interactive mini app",
+      action: () => {
+        onSelectMode?.("tool");
+        setOpen(false);
       },
     },
     {
@@ -306,85 +265,6 @@ The job will run automatically on the schedule. Make the instructions specific â
             </div>
           )}
 
-          {view === "skill" && (
-            <div className="p-3">
-              {backButton}
-              <label className="mb-1 block text-[11px] font-semibold text-foreground">
-                Create Skill
-              </label>
-              <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
-                Describe what kind of skill you want and the agent will create
-                it.
-              </p>
-              <textarea
-                ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    submitSkill();
-                  }
-                  if (e.key === "Escape") {
-                    e.stopPropagation();
-                    setView("menu");
-                  }
-                }}
-                rows={3}
-                className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="e.g. A skill that reviews PRs for security issues"
-              />
-              <div className="mt-2.5 flex justify-end">
-                <button
-                  onClick={submitSkill}
-                  disabled={!value.trim()}
-                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  Create
-                </button>
-              </div>
-            </div>
-          )}
-
-          {view === "job" && (
-            <div className="p-3">
-              {backButton}
-              <label className="mb-1 block text-[11px] font-semibold text-foreground">
-                Scheduled Task
-              </label>
-              <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
-                Describe what should happen and when.
-              </p>
-              <textarea
-                ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    submitJob();
-                  }
-                  if (e.key === "Escape") {
-                    e.stopPropagation();
-                    setView("menu");
-                  }
-                }}
-                rows={3}
-                className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="e.g. Every weekday at 9am, check for overdue tasks and send a Slack update"
-              />
-              <div className="mt-2.5 flex justify-end">
-                <button
-                  onClick={submitJob}
-                  disabled={!value.trim()}
-                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  Create
-                </button>
-              </div>
-            </div>
-          )}
-
           {view === "mcp-server" && (
             <div className="p-3">
               {backButton}
@@ -435,7 +315,7 @@ The job will run automatically on the schedule. Make the instructions specific â
                   </button>
                 </div>
                 <input
-                  ref={inputRef as React.RefObject<HTMLInputElement>}
+                  ref={inputRef}
                   value={mcpName}
                   onChange={(e) => setMcpName(e.target.value)}
                   className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"

@@ -137,6 +137,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         const errorCode = details.errorCode;
         const description = String(details.errorDescription || "");
         if (errorCode === -3) return;
+        // Sub-resource failures (favicon, HMR websocket, etc.) should not
+        // trigger the error overlay — only main-frame load failures matter.
+        if (details.isMainFrame === false) return;
         if (
           IS_DEV &&
           (errorCode === 504 || description.includes("Outdated Optimize Dep"))

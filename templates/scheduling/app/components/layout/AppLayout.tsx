@@ -13,6 +13,7 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { ThemeToggle } from "./ThemeToggle";
 
 const NAV = [
@@ -71,6 +72,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+        <div className="border-t border-border/60 mx-1 pt-1">
+          <ToolsSidebarSection />
+        </div>
         <div className="mt-auto border-t border-border/60 pt-2">
           <div className="flex items-center justify-between px-1">
             <span className="text-xs text-muted-foreground">Theme</span>

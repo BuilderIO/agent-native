@@ -36,6 +36,7 @@ import {
   IconPencil,
   IconCheck,
   IconPlus,
+  IconTool,
 } from "@tabler/icons-react";
 import {
   Popover,
@@ -49,6 +50,7 @@ import {
   FeedbackButton,
 } from "@agent-native/core/client";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import type { Label } from "@shared/types";
 import { toast } from "sonner";
 
@@ -961,6 +963,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 </Popover>
               )}
 
+              <Link
+                to="/tools"
+                className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                title="Tools"
+              >
+                <IconTool className="h-4 w-4" />
+              </Link>
+
               <AgentToggleButton />
             </header>
 
@@ -1064,7 +1074,16 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           )}
                         </Link>
                       ))}
-                      <div className="mt-2 pt-2 border-t border-border/20">
+                    </div>
+
+                    {/* Tools section */}
+                    <div className="mt-3 pt-1 border-t border-border/20">
+                      <ToolsSidebarSection />
+                    </div>
+
+                    {/* Settings / Feedback / Account */}
+                    <div className="mt-3 pt-1 border-t border-border/20">
+                      <div className="space-y-0.5">
                         <Link
                           to="/settings"
                           onClick={() => setSidebarOpen(false)}

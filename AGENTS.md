@@ -75,6 +75,7 @@ Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant s
 | `voice-transcription` | Voice dictation in the agent composer (Whisper / browser)     |
 | `frontend-design`     | Building or styling any web UI, components, or pages          |
 | `create-skill`        | Adding new skills for the agent                               |
+| `tools`               | Creating, editing, and managing sandboxed mini-app tools      |
 | `capture-learnings`   | Recording corrections and patterns                            |
 
 ## All-Agent Support
@@ -109,6 +110,63 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
   4. Fire the mutation in the background; in `onError` roll back the cache + toast, in `onSuccess` replace optimistic entry with server value.
   5. Never block a click with a spinner unless the user is performing a destructive/irreversible action (payment, delete, publish).
      Same for navigation: a link click must navigate on press — never `await` a fetch before `navigate()`. Preload data into the cache first (via `queryClient.prefetchQuery` on hover/focus) if the target page depends on it. Treat any "loading spinner after click" as a bug to fix, not a feature.
+
+## Tools
+
+Tools are mini sandboxed Alpine.js apps that run inside iframes. The agent can create, edit, and manage them at runtime without modifying the app's source code. See the `tools` skill for full patterns.
+
+**IMPORTANT:** When a user asks to "create a tool" or "make a ... tool", use the `create-tool` action with Alpine.js HTML content. Do NOT create React components, actions, or schema changes.
+
+### Tool Capabilities
+
+Tools are 100% self-contained. They have FULL access to app data, external APIs, and their own persistent storage — **without any source code changes, new files, Builder, or schema migrations.**
+
+| Helper                               | Purpose                | Example                                       |
+| ------------------------------------ | ---------------------- | --------------------------------------------- |
+| `toolData.set(collection, id, data)` | Persist data per-tool  | `toolData.set('notes', id, { text: '...' })`  |
+| `toolData.list(collection)`          | List persisted items   | `toolData.list('notes')`                      |
+| `toolData.get(collection, id)`       | Get a single item      | `toolData.get('notes', 'note-1')`             |
+| `toolData.remove(collection, id)`    | Delete persisted item  | `toolData.remove('notes', 'note-1')`          |
+| `appAction(name, params)`            | Call any app action    | `appAction('list-emails', { view: 'inbox' })` |
+| `dbQuery(sql, args)`                 | Read from SQL          | `dbQuery('SELECT * FROM tools')`              |
+| `dbExec(sql, args)`                  | Write to SQL           | `dbExec('INSERT INTO ...')`                   |
+| `appFetch(path, options)`            | Call any app endpoint  | `appFetch('/api/settings')`                   |
+| `toolFetch(url, options)`            | External API via proxy | `toolFetch('https://api.github.com/...')`     |
+
+**`toolData` is a built-in per-tool, per-user key-value store.** When a user asks to "add persistence", "save data", or "remember state" in a tool, use `toolData` — no SQL schema, no new tables, no source code, no Builder. Data is automatically scoped by tool ID and user.
+
+**NEVER suggest Builder, source code changes, or new files for tool modifications.** All tool changes go through `update-tool-content` (to edit the Alpine.js HTML) or `toolData` (to persist data).
+
+### How it works
+
+- Tools are stored in the `tools` SQL table and rendered via `GET /_agent-native/tools/:id/render` inside a sandboxed iframe.
+- `toolFetch()` proxies API calls through `POST /_agent-native/tools/proxy`, which injects encrypted secrets (`${keys.NAME}` pattern) and enforces SSRF protections.
+- Tools inherit the main app's Tailwind v4 theme automatically.
+- Sharing uses the standard framework model (`ownableColumns()` + `createSharesTable()`): private by default, shareable with org or specific users.
+
+### Agent actions for tools
+
+| Action        | What it does                                                  |
+| ------------- | ------------------------------------------------------------- |
+| `create-tool` | Create a new tool (name, description, Alpine.js HTML content) |
+| `update-tool` | Update a tool — use `patches` array for find/replace diffs    |
+| `navigate`    | Navigate to `--view=tools` or `--view=tools --toolId=<id>`    |
+
+### Routes
+
+| Method | Path                              | Purpose                                      |
+| ------ | --------------------------------- | -------------------------------------------- |
+| GET    | `/_agent-native/tools`            | List tools (filtered by ownership + sharing) |
+| POST   | `/_agent-native/tools`            | Create a tool                                |
+| GET    | `/_agent-native/tools/:id`        | Get a tool                                   |
+| PUT    | `/_agent-native/tools/:id`        | Update (supports `patches` for diffing)      |
+| DELETE | `/_agent-native/tools/:id`        | Delete a tool                                |
+| GET    | `/_agent-native/tools/:id/render` | Render HTML for iframe                       |
+| POST   | `/_agent-native/tools/proxy`      | Authenticated proxy with secret injection    |
+
+### Secrets for tools
+
+Tools reference secrets via `${keys.NAME}` in `toolFetch()` headers and body. Create ad-hoc secrets via `POST /_agent-native/secrets/adhoc` with a `urlAllowlist` to restrict which domains the secret can be sent to.
 
 ## Auto-Memory
 

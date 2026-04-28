@@ -22,6 +22,7 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { Sidebar } from "@/components/layout/Sidebar";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -32,8 +33,10 @@ configureTracking({
   }),
 });
 
-/** Routes that render without the AgentSidebar / app shell */
+/** Routes that render without the app shell (sidebar + AgentSidebar) */
 const BARE_ROUTES = new Set(["/slide"]);
+/** Route prefixes that render without the app shell */
+const BARE_PREFIXES = ["/share/"];
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
@@ -123,7 +126,10 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const location = useLocation();
-  const isBare = BARE_ROUTES.has(location.pathname);
+  const isBare =
+    BARE_ROUTES.has(location.pathname) ||
+    BARE_PREFIXES.some((p) => location.pathname.startsWith(p)) ||
+    location.pathname.endsWith("/present");
 
   if (isBare) {
     return <Outlet />;
@@ -147,8 +153,15 @@ function AppContent() {
             "Add an image to this slide",
           ]}
         >
-          <InvitationBanner />
-          <Outlet />
+          <div className="flex h-screen w-full overflow-hidden">
+            <div className="hidden md:block">
+              <Sidebar />
+            </div>
+            <div className="flex h-full flex-1 flex-col overflow-hidden">
+              <InvitationBanner />
+              <Outlet />
+            </div>
+          </div>
         </AgentSidebar>
       </DeckProvider>
     </>

@@ -6,6 +6,7 @@ import {
   FeedbackButton,
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import {
   IconArrowUpRight,
   IconBellCog,
@@ -125,6 +126,7 @@ export function DispatchShell({
               </SidebarMenu>
             </SidebarContent>
             <SidebarFooter className="border-t px-2 py-2">
+              <ToolsSidebarSection />
               <FeedbackButton />
             </SidebarFooter>
           </Sidebar>

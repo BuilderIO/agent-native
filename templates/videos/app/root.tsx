@@ -1,14 +1,23 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
 import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  AgentSidebar,
   ClientOnly,
   CommandMenu,
   DefaultSpinner,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { NavSidebar } from "@/components/layout/NavSidebar";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -53,10 +62,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Routes where the studio page renders its own sidebar */
+const STUDIO_ROUTES = new Set(["/"]);
+const STUDIO_PREFIXES = ["/c/"];
+
 function AppContent() {
   useNavigationState();
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const location = useLocation();
+
+  // Studio routes render their own complex sidebar with composition panels.
+  // Non-studio routes get the simple nav sidebar from root.
+  const isStudioRoute =
+    STUDIO_ROUTES.has(location.pathname) ||
+    STUDIO_PREFIXES.some((p) => location.pathname.startsWith(p));
+
   return (
     <TooltipProvider>
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
@@ -66,7 +87,29 @@ function AppContent() {
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
-      <Outlet />
+      {isStudioRoute ? (
+        <Outlet />
+      ) : (
+        <AgentSidebar
+          position="right"
+          defaultOpen
+          emptyStateText="Ask me anything about your videos"
+          suggestions={[
+            "Create a new composition",
+            "Add a camera pan effect",
+            "Adjust the animation timing",
+          ]}
+        >
+          <div className="flex h-screen w-full overflow-hidden">
+            <div className="hidden md:block">
+              <NavSidebar />
+            </div>
+            <div className="flex h-full flex-1 flex-col overflow-hidden">
+              <Outlet />
+            </div>
+          </div>
+        </AgentSidebar>
+      )}
     </TooltipProvider>
   );
 }

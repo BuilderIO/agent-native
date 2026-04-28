@@ -2,7 +2,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   marketing: {
-    appName: "Agent-Native Forms",
+    appName: "Forms",
     tagline:
       "Your AI agent builds, publishes, and analyzes forms alongside you.",
     features: [

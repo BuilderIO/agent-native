@@ -126,3 +126,15 @@ pnpm action <name> [--args]  # Run a backend script
 ## TypeScript Everywhere
 
 All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`, or `.mjs` files. Node 22+ runs `.ts` files natively, so no compilation step is needed for scripts. Use ESM imports (`import`), not CommonJS (`require`).
+
+## Tools (Framework Feature)
+
+The framework provides **Tools** — mini sandboxed Alpine.js apps that run inside iframes. Tools let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under a "Tools" section.
+
+- **Creating tools**: Via the sidebar "+" button, agent chat, or `POST /_agent-native/tools`
+- **API calls**: Tools use `toolFetch()` which proxies requests through the server with `${keys.NAME}` secret injection
+- **Styling**: Tools inherit the main app's Tailwind v4 theme automatically
+- **Sharing**: Private by default, shareable with org or specific users (same model as other ownable resources)
+- **Security**: Iframe sandbox + CSP + SSRF protection on the proxy
+
+See the `tools` skill in `.agents/skills/tools/SKILL.md` for full implementation details.
