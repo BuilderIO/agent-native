@@ -96,16 +96,15 @@ export function useAutoTitleBridge(): void {
       try {
         for (const rec of untitledRecordings) {
           if (cancelled) return;
-          if (dispatched.current.has(rec.id)) continue;
 
           const request = await readRequest(rec.id);
 
           if (request?.kind === "regenerate-title") {
             // Server queued a delegation — use the full context it provided.
+            // Key includes requestedAt so each distinct server request fires
+            // exactly once, independent of any prior fallback dispatch.
             const dispatchKey = `${rec.id}:${request.requestedAt ?? "0"}`;
             if (dispatched.current.has(dispatchKey)) continue;
-
-            dispatched.current.add(rec.id);
             dispatched.current.add(dispatchKey);
 
             sendToAgentChat({
@@ -128,13 +127,17 @@ export function useAutoTitleBridge(): void {
             // recordings that are old enough (>2 min) that the server has had
             // ample time to write its own clips-ai-request entry. For freshly-
             // finalized clips the server request may still be en route; if we
-            // mark the recording as dispatched now we'd block that richer
-            // transcript-backed delegation from ever firing.
+            // dispatch now we'd block that richer transcript-backed delegation.
             const ageMs = Date.now() - new Date(rec.createdAt).getTime();
             const TWO_MINUTES_MS = 2 * 60 * 1000;
             if (ageMs < TWO_MINUTES_MS) continue;
 
-            dispatched.current.add(rec.id);
+            // Use a dedicated key so a later server-queued request (e.g. from
+            // a long transcription that finishes after the 2-min window) is
+            // NOT blocked by this fallback having already run.
+            const fallbackKey = `${rec.id}:fallback`;
+            if (dispatched.current.has(fallbackKey)) continue;
+            dispatched.current.add(fallbackKey);
 
             sendToAgentChat({
               message: `This clip (${rec.id}) still has its default title. Please read its transcript via get-recording-player-data and generate a concise 3-8 word title, then call update-recording --id=${rec.id} --title="...".`,

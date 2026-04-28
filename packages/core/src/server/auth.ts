@@ -458,10 +458,13 @@ async function consumeDesktopExchangeFromDB(
     // Atomic DELETE...RETURNING prevents token replay: two concurrent polls
     // cannot both retrieve the token because only one DELETE will match the row.
     // SQLite ≥3.35 and PostgreSQL both support this syntax.
+    // The created_at predicate enforces the 5-minute TTL so stale DB entries
+    // (e.g. the desktop app never polled) are rejected rather than silently
+    // redeemed with the session table's default 30-day TTL.
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `DELETE FROM sessions WHERE token = ? RETURNING email`,
-      args: [`dex:${flowId}`],
+      sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? RETURNING email`,
+      args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
     });
     if (rows.length === 0) return null;
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
