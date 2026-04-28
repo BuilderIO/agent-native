@@ -116,6 +116,18 @@ export async function run(
         status: "start",
       });
 
+      const emitNewText = (newText: string) => {
+        if (newText.length > lastSentLength) {
+          context.send!({
+            type: "agent_call_text",
+            agent: agent.name,
+            text: newText.slice(lastSentLength),
+          });
+          lastSentLength = newText.length;
+        }
+        responseText = newText;
+      };
+
       try {
         for await (const task of client.stream(
           {
@@ -133,25 +145,26 @@ export async function run(
               )
               ?.map((p) => p.text)
               ?.join("") ?? "";
-
-          if (newText.length > lastSentLength) {
-            context.send({
-              type: "agent_call_text",
-              agent: agent.name,
-              text: newText.slice(lastSentLength),
-            });
-            lastSentLength = newText.length;
-          }
-          responseText = newText;
+          emitNewText(newText);
         }
-      } catch {
-        // Streaming failed — fall back to blocking call
+      } catch (streamErr: any) {
+        // Streaming failed (often a serverless gateway timeout on long
+        // LLM-driven calls). Fall back to async + poll so we don't hit the
+        // ~30s Netlify gateway limit on a single request.
         if (!responseText) {
-          responseText = await callAgent(agent.url, message, {
-            userEmail: callerEmail,
-            orgDomain: callerOrgDomain,
-            orgSecret: callerOrgSecret,
-          });
+          try {
+            responseText = await callAgent(agent.url, message, {
+              userEmail: callerEmail,
+              orgDomain: callerOrgDomain,
+              orgSecret: callerOrgSecret,
+              async: true,
+            });
+          } catch (pollErr: any) {
+            // Surface a friendly message rather than a raw fetch error.
+            const reason =
+              pollErr?.message ?? streamErr?.message ?? "unknown error";
+            responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
+          }
         }
       }
 
@@ -164,7 +177,8 @@ export async function run(
       return responseText || "(empty response)";
     }
 
-    // No context — use simple blocking call
+    // No context — use the async + poll call so we don't get cut off at the
+    // serverless gateway's ~30s timeout. callAgent defaults to async:true.
     const email = getRequestUserEmail();
     let domain: string | undefined;
     let orgSecret: string | undefined;
@@ -184,6 +198,12 @@ export async function run(
     });
     return response || "(empty response)";
   } catch (err: any) {
-    return `Error calling ${agent.name}: ${err?.message}`;
+    const msg = err?.message ?? String(err);
+    // Friendlier message for the common timeout case so the calling agent can
+    // decide whether to give up or retry.
+    if (/timeout|did not complete|Inactivity|504/i.test(msg)) {
+      return `The ${agent.name} agent is taking longer than expected. Please try again, ask a simpler question, or open the ${agent.name} app directly.`;
+    }
+    return `Error calling ${agent.name}: ${msg}`;
   }
 }
