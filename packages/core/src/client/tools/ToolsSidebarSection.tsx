@@ -145,6 +145,7 @@ export function ToolsSidebarSection() {
         queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
       } catch {
         if (prev) queryClient.setQueryData(["tools"], prev);
+        queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
       }
     },
     [renameValue, queryClient],
