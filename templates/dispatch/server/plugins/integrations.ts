@@ -24,6 +24,7 @@ When a user asks for something:
 - If a task requires many steps, summarize what you did rather than streaming every detail.`;
 
 export default createIntegrationsPlugin({
+  appId: "dispatch",
   actions: await autoDiscoverActions(import.meta.url),
   resolveOwner: resolveDispatchOwner,
   beforeProcess: beforeDispatchProcess,
