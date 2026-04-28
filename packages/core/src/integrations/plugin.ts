@@ -188,6 +188,79 @@ export function createIntegrationsPlugin(
       }),
     );
 
+    // ─── Process pending task (cross-platform task queue) ────────
+    // POST /_agent-native/integrations/process-task
+    // Internal endpoint invoked via fire-and-forget self-webhook from the
+    // public webhook handler. Auth: HMAC bearer signed with A2A_SECRET.
+    // Each invocation runs the agent loop in a fresh function execution.
+    h3.use(
+      `${P}/process-task`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        const body = (await readBody(event)) as { taskId?: string };
+        const taskId = body?.taskId;
+        if (!taskId) {
+          setResponseStatus(event, 400);
+          return { error: "taskId required" };
+        }
+
+        // Auth: HMAC token. Falls open when A2A_SECRET is unset (the SQL
+        // atomic claim is then the only gating factor — same posture as
+        // the A2A endpoint when no secret is configured).
+        if (process.env.A2A_SECRET) {
+          const tok = extractBearerToken(
+            getRequestHeader(event, "authorization"),
+          );
+          if (!tok || !verifyInternalToken(tok, taskId)) {
+            setResponseStatus(event, 401);
+            return { error: "Invalid or expired internal token" };
+          }
+        }
+
+        // Atomic claim: only one invocation gets to process this task
+        const claim = await claimPendingTask(taskId);
+        if (!claim.task) {
+          setResponseStatus(event, 200);
+          return { ok: true, skipped: claim.reason ?? "already-claimed" };
+        }
+
+        try {
+          const adapter = adapterMap.get(claim.task.platform);
+          if (!adapter) {
+            await markTaskFailed(
+              taskId,
+              `Unknown platform: ${claim.task.platform}`,
+            );
+            setResponseStatus(event, 404);
+            return { error: "Unknown platform" };
+          }
+          await processIntegrationTask({
+            task: claim.task,
+            adapter,
+            systemPrompt: baseSystemPrompt,
+            actions,
+            model,
+            apiKey,
+          });
+          await markTaskCompleted(taskId);
+          return { ok: true, taskId };
+        } catch (err: any) {
+          await markTaskFailed(
+            taskId,
+            err?.message
+              ? String(err.message).slice(0, 1000)
+              : "processor failed",
+          );
+          setResponseStatus(event, 500);
+          return { error: err?.message ?? String(err) };
+        }
+      }),
+    );
+
     // ─── Per-platform catch-all ───────────────────────────────────
     // Handles: webhook, status, enable, disable, setup for each platform
     h3.use(
@@ -202,6 +275,8 @@ export function createIntegrationsPlugin(
         if (parts[0] === "status" && parts.length === 1) return;
         // Already handled by the dedicated /task-queue/status route above
         if (parts[0] === "task-queue") return;
+        // Already handled by the dedicated /process-task route above
+        if (parts[0] === "process-task") return;
 
         const platform = parts[0];
         const action = parts[1]; // webhook, status, enable, disable, setup
