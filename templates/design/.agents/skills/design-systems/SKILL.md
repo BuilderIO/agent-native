@@ -40,14 +40,14 @@ interface DesignSystemData {
     };
   };
   spacing: {
-    slidePadding: string;  // e.g., "80px 110px"
+    pagePadding: string;  // e.g., "80px 110px"
     elementGap: string;    // e.g., "24px"
   };
   borders: {
     radius: string;        // e.g., "12px"
     accentWidth: string;   // e.g., "4px"
   };
-  slideDefaults: {
+  defaults: {
     background: string;    // e.g., "#0F172A"
     labelStyle: "uppercase" | "lowercase" | "capitalize" | "none";
   };
@@ -90,9 +90,9 @@ pnpm action create-design-system \
       "bodyWeight": "400",
       "headingSizes": { "h1": "64px", "h2": "40px", "h3": "28px" }
     },
-    "spacing": { "slidePadding": "80px 110px", "elementGap": "24px" },
+    "spacing": { "pagePadding": "80px 110px", "elementGap": "24px" },
     "borders": { "radius": "12px", "accentWidth": "4px" },
-    "slideDefaults": { "background": "#0F172A", "labelStyle": "uppercase" },
+    "defaults": { "background": "#0F172A", "labelStyle": "uppercase" },
     "logos": []
   }'
 ```
