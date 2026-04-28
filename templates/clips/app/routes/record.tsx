@@ -458,6 +458,11 @@ export default function RecordRoute() {
       if (e.key === "Escape") {
         if (!showStopConfirm && uiState === "recording") {
           e.preventDefault();
+          // Stop propagation so the same Esc keydown doesn't also trigger
+          // the AlertDialog's built-in Esc-to-close handler, which would
+          // immediately dismiss the dialog the moment it opens — leaving
+          // the user trapped in recording state with a flickering dialog.
+          e.stopPropagation();
           requestStop();
           return;
         }

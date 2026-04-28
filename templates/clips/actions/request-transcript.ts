@@ -315,6 +315,24 @@ export default defineAction({
         console.log(
           `[clips] No API key configured but browser transcript exists for ${args.recordingId} — keeping it`,
         );
+        // Still queue a title-generation delegation — the browser transcript
+        // is good enough for the agent to produce a real title even without
+        // Whisper. This covers recordings where no API key is configured.
+        const [recForTitle] = await db
+          .select({ title: schema.recordings.title })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, args.recordingId))
+          .limit(1);
+        if (recForTitle && isDefaultTitle(recForTitle.title)) {
+          try {
+            await regenerateTitle.run({ recordingId: args.recordingId });
+          } catch (delegateErr) {
+            console.warn(
+              `[clips] auto-title delegation failed for ${args.recordingId}:`,
+              (delegateErr as Error).message,
+            );
+          }
+        }
         return {
           recordingId: args.recordingId,
           status: "ready" as const,

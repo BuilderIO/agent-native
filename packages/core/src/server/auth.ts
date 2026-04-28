@@ -397,10 +397,19 @@ let _authGuardConfig: AuthGuardConfig | null = null;
 // Desktop OAuth exchange store — holds session tokens keyed by a unique flow
 // ID so native apps (Tauri, Electron) that open OAuth in the system browser
 // can retrieve the token after the callback completes on the server.
+//
+// Primary: in-memory Map (fast, works for single-instance dev/preview builds).
+// Fallback: sessions table with a "dex:" prefixed key for cross-instance
+// durability (Cloudflare Workers, multi-region deployments). The value stored
+// in the `email` column is "{realToken}::{userEmail}" so both can be recovered
+// from a single DB lookup.
 const _desktopExchanges = new Map<
   string,
   { token: string; email: string; expiresAt: number }
 >();
+
+// 5-minute TTL for exchange entries (short — single-use tokens).
+const DESKTOP_EXCHANGE_TTL_MS = 5 * 60 * 1000;
 
 export function setDesktopExchange(
   flowId: string,
@@ -410,9 +419,52 @@ export function setDesktopExchange(
   _desktopExchanges.set(flowId, {
     token,
     email,
-    expiresAt: Date.now() + 5 * 60 * 1000,
+    expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
   });
 }
+
+/**
+ * Persist a desktop exchange entry to the sessions table so it survives
+ * cross-instance routing (e.g. Cloudflare Workers). Stored under a synthetic
+ * token key "dex:{flowId}"; the `email` column packs both the real session
+ * token and the user email so they can be recovered in one query.
+ * Non-fatal — if the DB isn't ready yet the in-memory Map still works for
+ * same-instance requests.
+ */
+async function persistDesktopExchangeToDB(
+  flowId: string,
+  token: string,
+  email: string,
+): Promise<void> {
+  try {
+    await addSession(`dex:${flowId}`, `${token}::${email}`);
+  } catch {
+    // non-fatal — in-memory Map is the primary path
+  }
+}
+
+/**
+ * Retrieve and consume a desktop exchange entry from the DB fallback.
+ * Returns null if not found or already consumed.
+ */
+async function consumeDesktopExchangeFromDB(
+  flowId: string,
+): Promise<{ token: string; email: string } | null> {
+  try {
+    const packed = await getSessionEmail(`dex:${flowId}`);
+    if (!packed) return null;
+    const sepIdx = packed.indexOf("::");
+    if (sepIdx === -1) return null;
+    const token = packed.slice(0, sepIdx);
+    const email = packed.slice(sepIdx + 2);
+    // Single-use — delete immediately after reading.
+    await removeSession(`dex:${flowId}`);
+    return { token, email };
+  } catch {
+    return null;
+  }
+}
+
 setInterval(() => {
   const now = Date.now();
   for (const [k, v] of _desktopExchanges) {
@@ -1178,8 +1230,12 @@ async function mountBetterAuthRoutes(
             _desktopExchanges.set(flowId, {
               token: sessionToken,
               email,
-              expiresAt: Date.now() + 5 * 60 * 1000,
+              expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
             });
+            // Also persist to DB for cross-instance durability (Cloudflare
+            // Workers, multi-region). Fire-and-forget — in-memory Map is
+            // still the primary fast path for same-instance requests.
+            void persistDesktopExchangeToDB(flowId, sessionToken, email);
           }
 
           return oauthCallbackResponse(event, email, {
@@ -1201,7 +1257,7 @@ async function mountBetterAuthRoutes(
   // afterwards since they don't share a cookie jar with the browser.
   app.use(
     "/_agent-native/auth/desktop-exchange",
-    defineEventHandler((event) => {
+    defineEventHandler(async (event) => {
       if (getMethod(event) !== "GET") {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -1211,9 +1267,20 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
       }
-      const entry = _desktopExchanges.get(flowId);
+      let entry = _desktopExchanges.get(flowId);
       if (!entry || entry.expiresAt < Date.now()) {
-        return { pending: true };
+        // In-memory miss — fall back to the DB-persisted entry. This handles
+        // cross-instance routing (Cloudflare Workers, multi-region) where the
+        // OAuth callback and the polling request may hit different isolates.
+        const fromDb = await consumeDesktopExchangeFromDB(flowId);
+        if (!fromDb) {
+          return { pending: true };
+        }
+        entry = {
+          token: fromDb.token,
+          email: fromDb.email,
+          expiresAt: Date.now() + 1, // already consumed from DB
+        };
       }
       _desktopExchanges.delete(flowId);
       return { token: entry.token, email: entry.email };

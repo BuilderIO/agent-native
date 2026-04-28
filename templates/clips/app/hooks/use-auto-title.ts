@@ -99,28 +99,45 @@ export function useAutoTitleBridge(): void {
           if (dispatched.current.has(rec.id)) continue;
 
           const request = await readRequest(rec.id);
-          if (!request || request.kind !== "regenerate-title") continue;
-          const dispatchKey = `${rec.id}:${request.requestedAt ?? "0"}`;
-          if (dispatched.current.has(dispatchKey)) continue;
 
-          dispatched.current.add(rec.id);
-          dispatched.current.add(dispatchKey);
+          if (request?.kind === "regenerate-title") {
+            // Server queued a delegation — use the full context it provided.
+            const dispatchKey = `${rec.id}:${request.requestedAt ?? "0"}`;
+            if (dispatched.current.has(dispatchKey)) continue;
 
-          sendToAgentChat({
-            message:
-              request.message ??
-              `Generate a concise 3-8 word title for recording ${rec.id} from its transcript, then call update-recording --id=${rec.id} --title="...".`,
-            context: JSON.stringify({
-              recordingId: rec.id,
-              currentTitle: request.currentTitle ?? rec.title,
-              transcript: request.transcriptText ?? "",
-              transcriptStatus: request.transcriptStatus ?? "ready",
-            }),
-            submit: true,
-            openSidebar: false,
-          });
+            dispatched.current.add(rec.id);
+            dispatched.current.add(dispatchKey);
 
-          void clearRequest(rec.id);
+            sendToAgentChat({
+              message:
+                request.message ??
+                `Generate a concise 3-8 word title for recording ${rec.id} from its transcript, then call update-recording --id=${rec.id} --title="...".`,
+              context: JSON.stringify({
+                recordingId: rec.id,
+                currentTitle: request.currentTitle ?? rec.title,
+                transcript: request.transcriptText ?? "",
+                transcriptStatus: request.transcriptStatus ?? "ready",
+              }),
+              submit: true,
+              openSidebar: false,
+            });
+
+            void clearRequest(rec.id);
+          } else {
+            // No server-queued delegation (e.g. older recording). Dispatch a
+            // generic title request — the agent will fetch the transcript itself.
+            dispatched.current.add(rec.id);
+
+            sendToAgentChat({
+              message: `This clip (${rec.id}) still has its default title. Please read its transcript via get-recording-player-data and generate a concise 3-8 word title, then call update-recording --id=${rec.id} --title="...".`,
+              context: JSON.stringify({
+                recordingId: rec.id,
+                currentTitle: rec.title,
+              }),
+              submit: true,
+              openSidebar: false,
+            });
+          }
         }
       } finally {
         inflight.current = false;

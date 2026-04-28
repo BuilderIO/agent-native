@@ -149,6 +149,7 @@ export function App() {
     "unknown",
   );
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
+  const [signInPending, setSignInPending] = useState(false);
   const isRecording = recorder !== null;
   const updateVoiceShortcut = useCallback((value: VoiceShortcutPreference) => {
     saveBool(VOICE_SHORTCUT_CONFIGURED_KEY, true);
@@ -208,6 +209,7 @@ export function App() {
   // Instead: fetch the Google auth URL, open it externally, then poll a
   // server-side exchange endpoint for the session token.
   async function signInExternal() {
+    if (signInPending) return; // prevent double-tap
     try {
       const flowId =
         crypto.randomUUID?.() ||
@@ -221,30 +223,47 @@ export function App() {
         `${base}/_agent-native/google/auth-url?desktop=1&flow_id=${flowId}&redirect=1`,
       );
 
+      setSignInPending(true);
+
       // Poll the exchange endpoint for the session token.
       const start = Date.now();
+      const TIMEOUT_MS = 180_000; // 3 minutes
       const interval = setInterval(async () => {
         try {
           const xr = await fetch(
             `${base}/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
           );
+          if (!xr.ok) {
+            if (Date.now() - start > TIMEOUT_MS) {
+              clearInterval(interval);
+              setSignInPending(false);
+            }
+            return;
+          }
           const xd = await xr.json();
           if (xd?.token) {
             clearInterval(interval);
+            // Establish the session cookie in the Tauri WebView's cookie jar.
             await fetch(
               `${base}/_agent-native/auth/session?_session=${xd.token}`,
               { credentials: "include" },
             );
+            setSignInPending(false);
             await checkAuth();
-          } else if (Date.now() - start > 120_000) {
+          } else if (Date.now() - start > TIMEOUT_MS) {
             clearInterval(interval);
+            setSignInPending(false);
           }
         } catch {
-          if (Date.now() - start > 120_000) clearInterval(interval);
+          if (Date.now() - start > TIMEOUT_MS) {
+            clearInterval(interval);
+            setSignInPending(false);
+          }
         }
       }, 1500);
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
+      setSignInPending(false);
     }
   }
 
@@ -969,13 +988,27 @@ export function App() {
       <div className="app" ref={appRef}>
         <Header mode={mode} onModeChange={setMode} />
         <UpdateBanner />
-        <SignInForm
-          serverUrl={serverUrl}
-          onSignedIn={async () => {
-            await checkAuth();
-          }}
-          onUseBrowser={signInExternal}
-        />
+        {signInPending ? (
+          <div className="signin-pending">
+            <div className="signin-pending-spinner" />
+            <p className="signin-pending-text">Waiting for browser sign-in…</p>
+            <button
+              type="button"
+              className="signin-pending-cancel"
+              onClick={() => setSignInPending(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <SignInForm
+            serverUrl={serverUrl}
+            onSignedIn={async () => {
+              await checkAuth();
+            }}
+            onUseBrowser={signInExternal}
+          />
+        )}
         <div className="footer">
           <a className="footer-link" onClick={() => setShowSettings(true)}>
             Settings
