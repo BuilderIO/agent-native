@@ -6,7 +6,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 export default createAuthPlugin({
   googleOnly: true,
   marketing: {
-    appName: "Agent-Native Calendar",
+    appName: "Calendar",
     tagline:
       "Your AI agent schedules, reschedules, and manages your calendar so you never have to.",
     features: [

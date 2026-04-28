@@ -97,7 +97,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
           <div className="flex h-12 items-center px-4 border-b border-border">
             <span className="font-logo font-bold tracking-tight text-sm text-foreground">
-              macros
+              Macros
             </span>
           </div>
 

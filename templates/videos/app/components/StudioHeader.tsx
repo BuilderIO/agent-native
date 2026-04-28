@@ -40,7 +40,7 @@ export function StudioHeader({
           <div className="w-px h-5 bg-border hidden sm:block" />
 
           <h1 className="text-sm font-semibold tracking-tight hidden sm:block">
-            Video Studio
+            Videos
           </h1>
         </div>
 
