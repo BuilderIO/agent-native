@@ -263,7 +263,7 @@ export function ToolsSidebarSection() {
           ))}
         </div>
       ) : sortedTools.length === 0 ? null : (
-        <div className="space-y-0.5">
+        <div className="space-y-0.5 px-1">
           {sortedTools.map((tool) => {
             const isActive =
               location.pathname === `/tools/${tool.id}` ||
@@ -276,7 +276,7 @@ export function ToolsSidebarSection() {
                 <Link
                   to={`/tools/${tool.id}`}
                   className={cn(
-                    "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm",
+                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
                     "hover:bg-accent hover:text-accent-foreground",
                     isActive && "bg-accent text-accent-foreground font-medium",
                   )}
