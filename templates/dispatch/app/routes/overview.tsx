@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useActionQuery } from "@agent-native/core/client";
 import {
+  IconAlertTriangle,
   IconArrowUpRight,
   IconCheck,
+  IconClockHour4,
   IconInfoCircle,
   IconKey,
+  IconListCheck,
   IconMessage,
   IconNetwork,
   IconPlugConnected,
@@ -13,6 +16,7 @@ import {
   type IconProps,
 } from "@tabler/icons-react";
 import { DispatchShell } from "@/components/dispatch-shell";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -25,6 +29,144 @@ interface IntegrationStatus {
   label: string;
   enabled: boolean;
   configured: boolean;
+}
+
+interface TaskQueueRecentFailure {
+  id: string;
+  platform: string;
+  error: string;
+  attempts: number;
+}
+
+interface TaskQueueStats {
+  pending: number;
+  processing: number;
+  completed_last_hour: number;
+  failed_last_hour: number;
+  oldest_pending_age_seconds: number;
+  recent_failures: TaskQueueRecentFailure[];
+}
+
+const ZERO_TASK_QUEUE_STATS: TaskQueueStats = {
+  pending: 0,
+  processing: 0,
+  completed_last_hour: 0,
+  failed_last_hour: 0,
+  oldest_pending_age_seconds: 0,
+  recent_failures: [],
+};
+
+function formatAgeSeconds(seconds: number): string {
+  if (!seconds || seconds < 0) return "0s";
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
+
+function TaskQueueMetric({
+  label,
+  value,
+  tone,
+  icon: Icon,
+}: {
+  label: string;
+  value: string | number;
+  tone?: "default" | "warning" | "danger";
+  icon?: React.ComponentType<IconProps>;
+}) {
+  const toneClass =
+    tone === "danger"
+      ? "text-red-600 dark:text-red-400"
+      : tone === "warning"
+        ? "text-amber-600 dark:text-amber-400"
+        : "text-foreground";
+  return (
+    <div className="rounded-xl border bg-card px-4 py-3">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        {Icon ? <Icon size={14} /> : null}
+        <span>{label}</span>
+      </div>
+      <div className={`mt-1 text-2xl font-semibold ${toneClass}`}>{value}</div>
+    </div>
+  );
+}
+
+function TaskQueueSection({ stats }: { stats: TaskQueueStats }) {
+  const showAlert = stats.pending > 5 || stats.failed_last_hour > 0;
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <IconListCheck size={16} className="text-muted-foreground" />
+        <h2 className="text-sm font-semibold text-foreground">Task queue</h2>
+      </div>
+      {showAlert && (
+        <Alert variant={stats.failed_last_hour > 0 ? "destructive" : "default"}>
+          <IconAlertTriangle className="h-4 w-4" />
+          <AlertTitle>
+            {stats.failed_last_hour > 0
+              ? `${stats.failed_last_hour} integration task${stats.failed_last_hour === 1 ? "" : "s"} failed in the last hour`
+              : `${stats.pending} pending integration task${stats.pending === 1 ? "" : "s"} queued`}
+          </AlertTitle>
+          <AlertDescription>
+            {stats.failed_last_hour > 0
+              ? "Recent failures are listed below. Check platform credentials and retry."
+              : "Tasks are waiting to be processed. The queue may be backed up."}
+          </AlertDescription>
+        </Alert>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <TaskQueueMetric
+          label="Pending"
+          value={stats.pending}
+          tone={stats.pending > 5 ? "warning" : "default"}
+        />
+        <TaskQueueMetric label="Processing" value={stats.processing} />
+        <TaskQueueMetric
+          label="Completed (1h)"
+          value={stats.completed_last_hour}
+        />
+        <TaskQueueMetric
+          label="Failed (1h)"
+          value={stats.failed_last_hour}
+          tone={stats.failed_last_hour > 0 ? "danger" : "default"}
+        />
+        <TaskQueueMetric
+          label="Oldest pending"
+          value={formatAgeSeconds(stats.oldest_pending_age_seconds)}
+          icon={IconClockHour4}
+          tone={stats.oldest_pending_age_seconds > 300 ? "warning" : "default"}
+        />
+      </div>
+      {stats.recent_failures.length > 0 && (
+        <div className="rounded-2xl border bg-card p-4">
+          <div className="text-sm font-semibold text-foreground">
+            Recent failures
+          </div>
+          <div className="mt-3 space-y-2">
+            {stats.recent_failures.map((failure) => (
+              <div
+                key={failure.id}
+                className="rounded-xl border bg-muted/30 px-3 py-2"
+              >
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    {failure.platform}
+                  </span>
+                  <span>
+                    {failure.attempts} attempt
+                    {failure.attempts === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="mt-1 truncate text-sm text-foreground">
+                  {failure.error || "(no error message)"}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }
 
 function HelpTooltip({ content }: { content: string }) {
@@ -177,6 +319,9 @@ export default function OverviewRoute() {
   const [integrationStatuses, setIntegrationStatuses] = useState<
     IntegrationStatus[]
   >([]);
+  const [taskQueueStats, setTaskQueueStats] = useState<TaskQueueStats>(
+    ZERO_TASK_QUEUE_STATS,
+  );
 
   useEffect(() => {
     let active = true;
@@ -192,6 +337,38 @@ export default function OverviewRoute() {
       });
     return () => {
       active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      fetch("/_agent-native/integrations/task-queue/status")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((stats) => {
+          if (!active || !stats || typeof stats !== "object") return;
+          setTaskQueueStats({
+            pending: Number(stats.pending ?? 0),
+            processing: Number(stats.processing ?? 0),
+            completed_last_hour: Number(stats.completed_last_hour ?? 0),
+            failed_last_hour: Number(stats.failed_last_hour ?? 0),
+            oldest_pending_age_seconds: Number(
+              stats.oldest_pending_age_seconds ?? 0,
+            ),
+            recent_failures: Array.isArray(stats.recent_failures)
+              ? stats.recent_failures
+              : [],
+          });
+        })
+        .catch(() => {
+          // Endpoint may not exist on older deploys — ignore.
+        });
+    };
+    load();
+    const id = window.setInterval(load, 15000);
+    return () => {
+      active = false;
+      window.clearInterval(id);
     };
   }, []);
 
@@ -329,6 +506,8 @@ export default function OverviewRoute() {
           }
         />
       </div>
+
+      <TaskQueueSection stats={taskQueueStats} />
 
       <div className="grid gap-4 xl:grid-cols-3">
         <section className="rounded-2xl border bg-card p-5 xl:col-span-2">

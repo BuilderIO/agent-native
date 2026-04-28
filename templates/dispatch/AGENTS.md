@@ -10,6 +10,19 @@ Dispatch is the workspace control plane. It is the central entrypoint for secret
 - Save durable behavior in resources and jobs, not just in chat replies.
 - When an external sender is linked, use that person’s personal resources and permissions. Otherwise fall back to the shared dispatch owner.
 
+## Integration Webhooks (Slack, Telegram, WhatsApp, Email)
+
+Inbound platform webhooks follow a cross-platform queue pattern so they work on every serverless host (Netlify, Vercel, Cloudflare, etc.) without relying on platform-specific background-execution APIs:
+
+1. `POST /_agent-native/integrations/:platform/webhook` verifies the signature, parses the message into `IncomingMessage`, and **inserts a row into `integration_pending_tasks`** with `status='pending'`.
+2. The handler fires a fire-and-forget `POST /_agent-native/integrations/_process-task` and returns `200` immediately so the platform doesn't retry.
+3. The processor endpoint runs in a **fresh function execution** with its own full timeout. It atomically claims the task (`pending` → `processing` via `claimPendingTask`), runs the agent loop, sends the reply via the adapter, and marks the task `completed`.
+4. A recurring retry job (`startPendingTasksRetryJob`, every 60s) sweeps tasks stuck in `pending` >90s or `processing` >5min and re-fires the processor. Capped at 3 attempts, then `failed`.
+
+Never run the agent loop inside the webhook handler itself, and never rely on a fire-and-forget `Promise` outliving the response — serverless freezes the function the moment the response is sent. The SQL queue + self-webhook is what makes the pattern portable.
+
+Adapters (`packages/core/src/integrations/adapters/*.ts`) are platform-specific only for verification, parsing, formatting, and delivery. The queue, processor, and retry are shared infrastructure. See the `integration-webhooks` skill for adding a new platform.
+
 ## Resources To Use
 
 Read both personal and shared copies of these when they exist:

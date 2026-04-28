@@ -189,7 +189,8 @@ export function ToolsSidebarSection() {
           sortedTools.length > 0 && "mb-1",
         )}
       >
-        <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <IconTool className="h-3.5 w-3.5 shrink-0" />
           Tools
           <a
             href="https://agent-native.com/docs/tools"
@@ -252,13 +253,9 @@ export function ToolsSidebarSection() {
       {isLoading ? (
         <div className="space-y-0.5 px-1">
           {[1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="flex items-center gap-2 rounded-md px-2 py-1.5"
-            >
-              <div className="h-4 w-4 rounded bg-muted animate-pulse" />
+            <div key={i} className="flex items-center rounded-md px-2 py-1.5">
               <div
-                className="h-3.5 rounded bg-muted animate-pulse"
+                className="h-3 rounded bg-muted animate-pulse"
                 style={{ width: `${60 + i * 20}px` }}
               />
             </div>
@@ -278,12 +275,12 @@ export function ToolsSidebarSection() {
                 <Link
                   to={`/tools/${tool.id}`}
                   className={cn(
-                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
-                    "hover:bg-accent hover:text-accent-foreground",
-                    isActive && "bg-accent text-accent-foreground font-medium",
+                    "flex items-center rounded-md px-2 py-1.5 text-xs transition-colors",
+                    isActive
+                      ? "bg-accent text-accent-foreground font-medium"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
                   )}
                 >
-                  <IconTool className="h-4 w-4 shrink-0" />
                   {isRenamingThis ? (
                     <input
                       autoFocus
@@ -298,7 +295,7 @@ export function ToolsSidebarSection() {
                         e.preventDefault();
                         e.stopPropagation();
                       }}
-                      className="flex-1 min-w-0 truncate text-sm bg-transparent border-b border-primary outline-none py-0 px-0"
+                      className="flex-1 min-w-0 truncate text-xs bg-transparent border-b border-primary outline-none py-0 px-0"
                     />
                   ) : (
                     <span className="truncate">{tool.name}</span>
