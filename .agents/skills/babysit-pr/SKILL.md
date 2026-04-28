@@ -26,6 +26,12 @@ Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and review feedback 
 
 This ensures every tick starts with a clean, fully-pushed working tree. Never skip this step.
 
+**Step 1 — check for merge conflicts:**
+
+1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
+2. If `CONFLICTING`: rebase on main (`git fetch origin main && git rebase origin/main`), resolve conflicts, commit, and push. This resets the soak timer.
+3. If `MERGEABLE` or `UNKNOWN`: proceed.
+
 **Then proceed with PR checks:**
 
 1. Check for new review comments from bots:
