@@ -37,6 +37,8 @@ export type VoiceState =
 export interface UseVoiceDictationOptions {
   onTranscript: (text: string) => void;
   onError?: (message: string) => void;
+  /** Called with (accumulatedFinalText, currentInterimText) as speech is recognized in real time. */
+  onLiveUpdate?: (finalText: string, interimText: string) => void;
 }
 
 export interface VoiceDictationApi {
@@ -94,11 +96,13 @@ function pickMimeType(): string {
 export function useVoiceDictation(
   options: UseVoiceDictationOptions,
 ): VoiceDictationApi {
-  const { onTranscript, onError } = options;
+  const { onTranscript, onError, onLiveUpdate } = options;
   const onTranscriptRef = useRef(onTranscript);
   const onErrorRef = useRef(onError);
+  const onLiveUpdateRef = useRef(onLiveUpdate);
   onTranscriptRef.current = onTranscript;
   onErrorRef.current = onError;
+  onLiveUpdateRef.current = onLiveUpdate;
 
   const [state, setState] = useState<VoiceState>("idle");
   const [amplitude, setAmplitude] = useState(0);
@@ -119,6 +123,9 @@ export function useVoiceDictation(
   const speechRef = useRef<any>(null);
   const speechTranscriptRef = useRef<string>("");
   const activeProviderRef = useRef<VoiceProvider>("browser");
+  // Parallel live recognition for OpenAI mode (provides instant preview while MediaRecorder captures)
+  const liveSpeechRef = useRef<any>(null);
+  const liveTextRef = useRef<string>("");
 
   const mediaRecorderSupported =
     typeof window !== "undefined" &&
@@ -158,11 +165,20 @@ export function useVoiceDictation(
         /* ignore */
       }
     }
+    if (liveSpeechRef.current) {
+      try {
+        liveSpeechRef.current.abort?.();
+      } catch {
+        /* ignore */
+      }
+      liveSpeechRef.current = null;
+    }
     analyserRef.current = null;
     mediaRecorderRef.current = null;
     chunksRef.current = [];
     speechRef.current = null;
     speechTranscriptRef.current = "";
+    liveTextRef.current = "";
     setAmplitude(0);
   }, []);
 
@@ -242,6 +258,7 @@ export function useVoiceDictation(
     recorder.onstop = async () => {
       const localChunks = chunksRef.current.slice();
       const localMime = recorder.mimeType || mimeType;
+      const liveSnapshot = liveTextRef.current;
       teardown();
       if (cancelledRef.current) {
         cancelledRef.current = false;
@@ -249,6 +266,7 @@ export function useVoiceDictation(
         return;
       }
       if (localChunks.length === 0) {
+        if (liveSnapshot) onTranscriptRef.current?.(liveSnapshot.trim());
         setState("idle");
         return;
       }
@@ -273,13 +291,22 @@ export function useVoiceDictation(
         }
         const data = (await res.json()) as { text?: string };
         const text = (data.text ?? "").trim();
+        if (text) {
+          onTranscriptRef.current?.(text);
+        } else if (liveSnapshot) {
+          onTranscriptRef.current?.(liveSnapshot.trim());
+        }
         setState("idle");
-        if (text) onTranscriptRef.current?.(text);
       } catch (err) {
-        failWith(
-          (err as Error)?.message ??
-            "Transcription failed. Check your OpenAI key in settings.",
-        );
+        if (liveSnapshot) {
+          onTranscriptRef.current?.(liveSnapshot.trim());
+          setState("idle");
+        } else {
+          failWith(
+            (err as Error)?.message ??
+              "Transcription failed. Check your OpenAI key in settings.",
+          );
+        }
       }
     };
 
@@ -287,6 +314,52 @@ export function useVoiceDictation(
     startTimer();
     setState("recording");
     recorder.start();
+
+    // Start parallel Web Speech recognition for live preview text.
+    // This runs alongside MediaRecorder so the user sees words appear
+    // immediately while Whisper processes the full recording later.
+    const SpeechCtor = getSpeechRecognitionCtor();
+    if (SpeechCtor) {
+      const liveSpeech = new SpeechCtor();
+      liveSpeech.continuous = true;
+      liveSpeech.interimResults = true;
+      liveSpeech.lang =
+        (typeof navigator !== "undefined" && navigator.language) || "en-US";
+      liveSpeechRef.current = liveSpeech;
+      liveTextRef.current = "";
+
+      liveSpeech.onresult = (event: any) => {
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          const text = result[0]?.transcript ?? "";
+          if (result.isFinal) {
+            liveTextRef.current += text;
+          } else {
+            interim += text;
+          }
+        }
+        onLiveUpdateRef.current?.(liveTextRef.current, interim);
+      };
+
+      liveSpeech.onend = () => {
+        if (liveSpeechRef.current === liveSpeech) {
+          try {
+            liveSpeech.start();
+          } catch {
+            /* ignore */
+          }
+        }
+      };
+
+      liveSpeech.onerror = () => {};
+
+      try {
+        liveSpeech.start();
+      } catch {
+        /* best effort — live preview just won't appear */
+      }
+    }
   }, [startMeter, startTimer, teardown, failWith]);
 
   const startBrowser = useCallback(async () => {
