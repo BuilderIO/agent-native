@@ -14,7 +14,7 @@ import {
   getRequestOrgId,
 } from "../server/request-context.js";
 import { getOrgContext } from "../org/context.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, isPostgres } from "../db/client.js";
 import {
   listTools,
   getTool,
