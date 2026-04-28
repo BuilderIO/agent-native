@@ -6,20 +6,14 @@ import type {
   IntegrationsPluginOptions,
   IntegrationStatus,
 } from "./types.js";
-import {
-  handleWebhook,
-  processIntegrationTask,
-} from "./webhook-handler.js";
+import { handleWebhook, processIntegrationTask } from "./webhook-handler.js";
 import {
   claimPendingTask,
   getPendingTask,
   markTaskCompleted,
   markTaskFailed,
 } from "./pending-tasks-store.js";
-import {
-  extractBearerToken,
-  verifyInternalToken,
-} from "./internal-token.js";
+import { extractBearerToken, verifyInternalToken } from "./internal-token.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getRequestHeader } from "h3";
 import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
@@ -32,6 +26,7 @@ import {
   startGoogleDocsPoller,
   handlePushNotification,
 } from "./google-docs-poller.js";
+import { startPendingTasksRetryJob } from "./pending-tasks-retry-job.js";
 import { resourceGetByPath, SHARED_OWNER } from "../resources/store.js";
 import { getTaskQueueStats } from "./task-queue-stats.js";
 import { getSession } from "../server/auth.js";
@@ -339,6 +334,15 @@ export function createIntegrationsPlugin(
         return { error: "Not found" };
       }),
     );
+
+    // ─── Start pending-tasks retry sweeper ────────────────────────
+    // Sweeps the integration_pending_tasks queue every 60s and re-fires the
+    // processor for any tasks that got stuck (initial dispatch lost or
+    // processor killed mid-flight). No-ops gracefully if the queue table
+    // hasn't been created yet on this deployment.
+    startPendingTasksRetryJob({
+      webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
+    });
 
     // ─── Start Google Docs poller/push ────────────────────────────
     if (adapterMap.has("google-docs")) {
