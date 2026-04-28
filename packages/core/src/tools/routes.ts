@@ -196,6 +196,11 @@ async function handleToolDataList(
   userEmail: string,
 ): Promise<unknown> {
   await ensureToolsTables();
+  const tool = await getTool(toolId);
+  if (!tool) {
+    setResponseStatus(event, 404);
+    return { error: "Tool not found" };
+  }
   const client = getDbExec();
   const url = event.url;
   const limitParam = url?.searchParams?.get("limit");
@@ -203,7 +208,11 @@ async function handleToolDataList(
     ? Math.min(Math.max(1, Number(limitParam)), 1000)
     : 100;
   const result = await client.execute({
-    sql: `SELECT * FROM tool_data WHERE tool_id = ? AND collection = ? AND owner_email = ? ORDER BY created_at DESC LIMIT ?`,
+    sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, created_at, updated_at
+      FROM tool_data
+      WHERE tool_id = ? AND collection = ? AND owner_email = ?
+      ORDER BY created_at DESC
+      LIMIT ?`,
     args: [toolId, collection, userEmail, limit],
   });
   return result.rows ?? [];
@@ -216,12 +225,17 @@ async function handleToolDataUpsert(
   userEmail: string,
 ): Promise<unknown> {
   await ensureToolsTables();
+  const tool = await getTool(toolId);
+  if (!tool) {
+    setResponseStatus(event, 404);
+    return { error: "Tool not found" };
+  }
   const body = await readBody(event);
-  if (!body.data) {
+  if (body.data === undefined) {
     setResponseStatus(event, 400);
     return { error: "data is required" };
   }
-  const id = body.id || randomUUID();
+  const itemId = String(body.id || randomUUID());
   const data =
     typeof body.data === "string" ? body.data : JSON.stringify(body.data);
   const now = new Date().toISOString();
@@ -229,20 +243,41 @@ async function handleToolDataUpsert(
   const pg = isPostgres();
   if (pg) {
     await client.execute({
-      sql: `INSERT INTO tool_data (id, tool_id, collection, data, owner_email, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
-      args: [id, toolId, collection, data, userEmail, now, now],
+      sql: `INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (tool_id, collection, owner_email, item_id)
+       DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
+      args: [
+        randomUUID(),
+        toolId,
+        collection,
+        itemId,
+        data,
+        userEmail,
+        now,
+        now,
+      ],
     });
   } else {
     await client.execute({
-      sql: `INSERT OR REPLACE INTO tool_data (id, tool_id, collection, data, owner_email, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [id, toolId, collection, data, userEmail, now, now],
+      sql: `INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (tool_id, collection, owner_email, item_id)
+       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+      args: [
+        randomUUID(),
+        toolId,
+        collection,
+        itemId,
+        data,
+        userEmail,
+        now,
+        now,
+      ],
     });
   }
   return {
-    id,
+    id: itemId,
     toolId,
     collection,
     data,
@@ -255,15 +290,20 @@ async function handleToolDataUpsert(
 async function handleToolDataDelete(
   event: H3Event,
   toolId: string,
-  _collection: string,
+  collection: string,
   itemId: string,
   userEmail: string,
 ): Promise<unknown> {
   await ensureToolsTables();
+  const tool = await getTool(toolId);
+  if (!tool) {
+    setResponseStatus(event, 404);
+    return { error: "Tool not found" };
+  }
   const client = getDbExec();
   await client.execute({
-    sql: `DELETE FROM tool_data WHERE id = ? AND tool_id = ? AND owner_email = ?`,
-    args: [itemId, toolId, userEmail],
+    sql: `DELETE FROM tool_data WHERE COALESCE(item_id, id) = ? AND tool_id = ? AND collection = ? AND owner_email = ?`,
+    args: [itemId, toolId, collection, userEmail],
   });
   return { ok: true };
 }
@@ -330,6 +370,9 @@ const DNS_REBIND_SUFFIXES = [
 function isBlockedUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return true;
+    }
     const host = parsed.hostname.toLowerCase();
     if (isPrivateHost(host)) return true;
     if (DNS_REBIND_SUFFIXES.some((s) => host.endsWith(s))) return true;
@@ -506,6 +549,16 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
     return { error: "sql is required" };
   }
 
+  const cleanSql = stripSqlComments(sql);
+  if (!/^\s*(SELECT|WITH)\b/i.test(cleanSql)) {
+    setResponseStatus(event, 403);
+    return { error: "Only SELECT queries are allowed from tools" };
+  }
+  if (SENSITIVE_SQL_RE.test(cleanSql)) {
+    setResponseStatus(event, 403);
+    return { error: "Sensitive framework tables are not readable from tools" };
+  }
+
   try {
     const mod = await import("../scripts/db/query.js");
     const args = ["--sql", sql, "--format", "json"];
@@ -523,7 +576,10 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
 }
 
 const DESTRUCTIVE_SQL_RE =
-  /\b(DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+TABLE\s+(?!tool_data\b))/i;
+  /\b(CREATE\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+TABLE\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA)\b/i;
+
+const SENSITIVE_SQL_RE =
+  /\b(app_secrets|user|users|session|sessions|account|accounts|verification|oauth_tokens|tool_shares)\b/i;
 
 function stripSqlComments(sql: string): string {
   return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
@@ -537,12 +593,16 @@ async function handleSqlExec(event: H3Event): Promise<unknown> {
     return { error: "sql is required" };
   }
 
-  if (DESTRUCTIVE_SQL_RE.test(stripSqlComments(sql))) {
+  const cleanSql = stripSqlComments(sql);
+  if (DESTRUCTIVE_SQL_RE.test(cleanSql)) {
     setResponseStatus(event, 403);
     return {
-      error:
-        "Destructive SQL (DROP, TRUNCATE, DELETE, ALTER) is not allowed from tools",
+      error: "Schema changes and destructive SQL are not allowed from tools",
     };
+  }
+  if (SENSITIVE_SQL_RE.test(cleanSql)) {
+    setResponseStatus(event, 403);
+    return { error: "Sensitive framework tables are not writable from tools" };
   }
 
   try {

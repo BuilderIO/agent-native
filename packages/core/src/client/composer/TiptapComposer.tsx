@@ -134,9 +134,9 @@ Use manage-automations with action=define to create it. Ask clarifying questions
 
 Use the create-tool action with Alpine.js HTML content. The tool runs as a sandboxed iframe with Tailwind CSS.
 
-After creating the tool, navigate the user to it using the navigate action with --view=tools --toolId=<id>.
+After creating the tool, navigate the user to it with set-url-path using pathname "/tools/<id>".
 
-Make the tool functional and visually polished. Tools can use toolFetch() for API calls and dbQuery()/dbExec() for data storage.`,
+Make the tool functional and visually polished. Tools can use toolFetch() for external API calls, appAction()/appFetch() for app operations, toolData for tool-specific persistence, and dbQuery()/dbExec() only for existing app tables.`,
   },
 };
 

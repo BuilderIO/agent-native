@@ -307,7 +307,7 @@ See the `sharing` skill for visibility levels and roles.
 pnpm action navigate --view=tools
 
 # Navigate to a specific tool
-pnpm action navigate --view=tools --toolId=TOOL_ID
+set-url-path({ "pathname": "/tools/TOOL_ID" })
 ```
 
 ## Example tools
