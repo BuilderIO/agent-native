@@ -6,4 +6,6 @@ export const coreDbScripts: Record<string, (args: string[]) => Promise<void>> =
     "db-patch": (args) => import("./patch.js").then((m) => m.default(args)),
     "db-check-scoping": (args) =>
       import("./check-scoping.js").then((m) => m.default(args)),
+    "db-wipe-leaked-builder-keys": (args) =>
+      import("./wipe-leaked-builder-keys.js").then((m) => m.default(args)),
   };
