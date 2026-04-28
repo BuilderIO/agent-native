@@ -228,23 +228,45 @@ export function LibraryGrid({
                 onTag={() => toast.info("Tag: implement via shadcn dialog")}
                 onArchive={async () => {
                   const ids = Array.from(selected);
-                  await Promise.all(
+                  const results = await Promise.allSettled(
                     ids.map((id) => archiveRecording.mutateAsync({ id })),
                   );
-                  toast.success(
-                    `${ids.length} clip${ids.length === 1 ? "" : "s"} archived`,
-                  );
-                  clearSelection();
+                  const succeeded = results.filter(
+                    (r) => r.status === "fulfilled",
+                  ).length;
+                  const failed = results.length - succeeded;
+                  if (succeeded > 0) {
+                    toast.success(
+                      `${succeeded} clip${succeeded === 1 ? "" : "s"} archived`,
+                    );
+                    clearSelection();
+                  }
+                  if (failed > 0) {
+                    toast.error(
+                      `${failed} clip${failed === 1 ? "" : "s"} could not be archived`,
+                    );
+                  }
                 }}
                 onTrash={async () => {
                   const ids = Array.from(selected);
-                  await Promise.all(
+                  const results = await Promise.allSettled(
                     ids.map((id) => trashRecording.mutateAsync({ id })),
                   );
-                  toast.success(
-                    `${ids.length} clip${ids.length === 1 ? "" : "s"} moved to trash`,
-                  );
-                  clearSelection();
+                  const succeeded = results.filter(
+                    (r) => r.status === "fulfilled",
+                  ).length;
+                  const failed = results.length - succeeded;
+                  if (succeeded > 0) {
+                    toast.success(
+                      `${succeeded} clip${succeeded === 1 ? "" : "s"} moved to trash`,
+                    );
+                    clearSelection();
+                  }
+                  if (failed > 0) {
+                    toast.error(
+                      `${failed} clip${failed === 1 ? "" : "s"} could not be moved to trash`,
+                    );
+                  }
                 }}
                 onClear={clearSelection}
               />
