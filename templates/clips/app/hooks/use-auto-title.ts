@@ -124,8 +124,16 @@ export function useAutoTitleBridge(): void {
 
             void clearRequest(rec.id);
           } else {
-            // No server-queued delegation (e.g. older recording). Dispatch a
-            // generic title request — the agent will fetch the transcript itself.
+            // No server-queued delegation. Only dispatch the fallback for
+            // recordings that are old enough (>2 min) that the server has had
+            // ample time to write its own clips-ai-request entry. For freshly-
+            // finalized clips the server request may still be en route; if we
+            // mark the recording as dispatched now we'd block that richer
+            // transcript-backed delegation from ever firing.
+            const ageMs = Date.now() - new Date(rec.createdAt).getTime();
+            const TWO_MINUTES_MS = 2 * 60 * 1000;
+            if (ageMs < TWO_MINUTES_MS) continue;
+
             dispatched.current.add(rec.id);
 
             sendToAgentChat({

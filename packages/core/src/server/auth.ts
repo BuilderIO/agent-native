@@ -421,6 +421,10 @@ export function setDesktopExchange(
     email,
     expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
   });
+  // Persist to DB so the token survives cross-instance routing (e.g. when
+  // templates call this helper directly instead of going through the OAuth
+  // callback path).
+  void persistDesktopExchangeToDB(flowId, token, email);
 }
 
 /**
@@ -451,15 +455,20 @@ async function consumeDesktopExchangeFromDB(
   flowId: string,
 ): Promise<{ token: string; email: string } | null> {
   try {
-    const packed = await getSessionEmail(`dex:${flowId}`);
+    // Atomic DELETE...RETURNING prevents token replay: two concurrent polls
+    // cannot both retrieve the token because only one DELETE will match the row.
+    // SQLite ≥3.35 and PostgreSQL both support this syntax.
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `DELETE FROM sessions WHERE token = ? RETURNING email`,
+      args: [`dex:${flowId}`],
+    });
+    if (rows.length === 0) return null;
+    const packed = (rows[0].email ?? rows[0][0]) as string | null;
     if (!packed) return null;
     const sepIdx = packed.indexOf("::");
     if (sepIdx === -1) return null;
-    const token = packed.slice(0, sepIdx);
-    const email = packed.slice(sepIdx + 2);
-    // Single-use — delete immediately after reading.
-    await removeSession(`dex:${flowId}`);
-    return { token, email };
+    return { token: packed.slice(0, sepIdx), email: packed.slice(sepIdx + 2) };
   } catch {
     return null;
   }
@@ -1283,6 +1292,9 @@ async function mountBetterAuthRoutes(
         };
       }
       _desktopExchanges.delete(flowId);
+      // Also wipe the DB-persisted entry so it cannot be replayed via the
+      // DB fallback path after in-memory consumption.
+      void removeSession(`dex:${flowId}`);
       return { token: entry.token, email: entry.email };
     }),
   );

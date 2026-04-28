@@ -253,7 +253,14 @@ export default defineAction({
         });
         await writeAppState("refresh-signal", { ts: Date.now() });
 
-        if (isDefaultTitle(rec.title)) {
+        // Re-read title fresh — `rec.title` was fetched before the 30+ s
+        // transcription and may be stale if the user renamed during that window.
+        const [freshRec] = await db
+          .select({ title: schema.recordings.title })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, args.recordingId))
+          .limit(1);
+        if (isDefaultTitle(freshRec?.title)) {
           try {
             await regenerateTitle.run({ recordingId: args.recordingId });
           } catch (delegateErr) {
