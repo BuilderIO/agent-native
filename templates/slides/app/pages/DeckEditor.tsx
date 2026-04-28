@@ -465,7 +465,7 @@ export default function DeckEditor() {
   currentSlideRef.current = currentSlide;
 
   return (
-    <div className="h-screen flex flex-col bg-[hsl(240,5%,5%)]">
+    <div className="flex-1 flex flex-col overflow-hidden bg-[hsl(240,5%,5%)]">
       <EditorToolbar
         deck={deck}
         deckId={id}

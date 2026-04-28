@@ -8,7 +8,6 @@ import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 
 import { Button } from "@/components/ui/button";
-import { Sidebar } from "@/components/layout/Sidebar";
 
 export default function Index() {
   const { decks, createDeck, deleteDeck, loading } = useDecks();
@@ -67,9 +66,7 @@ export default function Index() {
   };
 
   return (
-    <div className="flex h-screen">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-10">
+    <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-10">
         {loading ? (
           <>
             <div className="flex items-center justify-between mb-6">
@@ -179,8 +176,7 @@ export default function Index() {
           loading={generating}
           anchorRef={anchorRef}
         />
-      </main>
-    </div>
+    </main>
   );
 }
 

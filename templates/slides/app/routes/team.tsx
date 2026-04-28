@@ -14,17 +14,7 @@ export function HydrateFallback() {
 
 export default function TeamRoute() {
   return (
-    <div className="min-h-screen bg-[hsl(240,6%,4%)]">
-      <header className="border-b border-white/[0.06]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center">
-          <a
-            href="/"
-            className="text-base font-semibold text-white/90 tracking-tight hover:text-white"
-          >
-            Slides
-          </a>
-        </div>
-      </header>
+    <div className="flex-1 overflow-y-auto">
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         <TeamPage createOrgDescription="Set up a team to share presentations with your colleagues." />
       </main>

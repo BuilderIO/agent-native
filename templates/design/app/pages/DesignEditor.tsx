@@ -23,8 +23,6 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import {
-  AgentSidebar,
-  AgentToggleButton,
   useActionQuery,
   sendToAgentChat,
   useSession,
@@ -229,7 +227,7 @@ export default function DesignEditor() {
 
   if (designLoading) {
     return (
-      <div className="h-screen bg-[hsl(240,5%,5%)] flex items-center justify-center">
+      <div className="flex-1 bg-[hsl(240,5%,5%)] flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white/30" />
       </div>
     );
@@ -237,7 +235,7 @@ export default function DesignEditor() {
 
   if (!design) {
     return (
-      <div className="h-screen bg-[hsl(240,5%,5%)] flex flex-col items-center justify-center gap-4">
+      <div className="flex-1 bg-[hsl(240,5%,5%)] flex flex-col items-center justify-center gap-4">
         <p className="text-white/50">Design not found</p>
         <Button
           variant="outline"
@@ -257,16 +255,7 @@ export default function DesignEditor() {
   }));
 
   return (
-    <AgentSidebar
-      position="right"
-      emptyStateText="Describe changes to make"
-      suggestions={[
-        "Change the primary color to blue",
-        "Make the layout more responsive",
-        "Add a hero section",
-      ]}
-    >
-      <div className="h-screen flex flex-col bg-[hsl(240,5%,5%)]">
+    <div className="flex-1 flex flex-col overflow-hidden bg-[hsl(240,5%,5%)]">
         {/* Toolbar */}
         <header className="h-12 border-b border-white/[0.06] flex items-center justify-between px-3 shrink-0">
           <div className="flex items-center gap-2">
@@ -583,6 +572,6 @@ export default function DesignEditor() {
           )}
         </div>
       </div>
-    </AgentSidebar>
+    </div>
   );
 }
