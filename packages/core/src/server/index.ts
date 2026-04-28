@@ -145,6 +145,7 @@ export {
   slackAdapter,
   telegramAdapter,
   whatsappAdapter,
+  emailAdapter,
   type PlatformAdapter,
   type IncomingMessage,
   type OutgoingMessage,

@@ -8,6 +8,7 @@ import {
   IconExternalLink,
   IconInfoCircle,
   IconLoader2,
+  IconMail,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +34,7 @@ interface IntegrationStatus {
 }
 
 interface PlatformDefinition {
-  id: "slack" | "telegram";
+  id: "slack" | "telegram" | "email";
   label: string;
   icon: typeof IconBrandSlack;
   description: string;
@@ -67,6 +68,20 @@ const PLATFORM_DEFINITIONS: PlatformDefinition[] = [
       "Create a bot with @BotFather.",
       "Save the bot token here.",
       "Run webhook setup once to connect Telegram to this app.",
+    ],
+  },
+  {
+    id: "email",
+    label: "Email",
+    icon: IconMail,
+    description:
+      "Give your agent an email address. People can email it directly or CC it on threads.",
+    envKeys: ["EMAIL_AGENT_ADDRESS"],
+    setupSteps: [
+      "Ensure Resend or SendGrid credentials are saved.",
+      "Choose an email address (e.g., agent@yourcompany.com or use the free .resend.app address).",
+      "Add MX records for your domain (or skip for .resend.app).",
+      "Register the webhook URL below in your email provider's dashboard.",
     ],
   },
 ];
@@ -324,7 +339,7 @@ export function MessagingSetupPanel() {
           <div>
             <h2 className="text-lg font-semibold text-foreground">Messaging</h2>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Connect Slack or Telegram here. Once a channel is enabled,
+              Connect Slack, Telegram, or Email here. Once a channel is enabled,
               dispatch can receive inbound messages and respond in the same
               conversation.
             </p>
