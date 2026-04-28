@@ -2,7 +2,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   marketing: {
-    appName: "Meeting Notes",
+    appName: "Agent-Native Meeting Notes",
     tagline:
       "Your AI agent transcribes, enhances, and organizes your meeting notes while you focus on the conversation.",
     features: [

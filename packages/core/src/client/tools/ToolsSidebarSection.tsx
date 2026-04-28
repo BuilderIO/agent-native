@@ -8,6 +8,7 @@ import {
   IconStarFilled,
   IconTrash,
   IconDots,
+  IconHelpCircle,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
@@ -141,10 +142,24 @@ export function ToolsSidebarSection() {
   };
 
   return (
-    <div className="relative py-2">
-      <div className="flex items-center justify-between px-3 mb-1">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="group/help relative py-2">
+      <div
+        className={cn(
+          "flex items-center justify-between px-3",
+          sortedTools.length > 0 && "mb-1",
+        )}
+      >
+        <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Tools
+          <a
+            href="https://agent-native.com/docs/tools"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="opacity-0 group-hover/help:opacity-100 transition-opacity text-muted-foreground/50 hover:text-muted-foreground"
+            aria-label="Tools documentation"
+          >
+            <IconHelpCircle className="h-3 w-3" />
+          </a>
         </span>
         <Popover open={showCreate} onOpenChange={setShowCreate}>
           <PopoverTrigger asChild>
@@ -205,11 +220,7 @@ export function ToolsSidebarSection() {
             </div>
           ))}
         </div>
-      ) : sortedTools.length === 0 ? (
-        <div className="px-3 py-2">
-          <p className="text-xs text-muted-foreground/60">No tools yet</p>
-        </div>
-      ) : (
+      ) : sortedTools.length === 0 ? null : (
         <div className="space-y-0.5">
           {sortedTools.map((tool) => {
             const isActive =

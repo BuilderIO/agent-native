@@ -26,6 +26,7 @@
     "./server/ssr-handler": "./dist/server/ssr-handler.js",
     "./server/agent-discovery": "./dist/server/agent-discovery.js",
     "./server/request-context": "./dist/server/request-context.js",
+    "./server/design-token-utils": "./dist/server/design-token-utils.js",
     "./db": "./dist/db/index.js",
     "./db/schema": "./dist/db/schema.js",
     "./db/drizzle-config": "./dist/db/drizzle-config.js",
