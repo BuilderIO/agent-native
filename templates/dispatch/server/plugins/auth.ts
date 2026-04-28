@@ -2,7 +2,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   marketing: {
-    appName: "Agent-Native Dispatch",
+    appName: "Dispatch",
     tagline:
       "Your AI agent manages secrets, orchestrates other agents, and routes messages across your workspace.",
     features: [

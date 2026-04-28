@@ -19,6 +19,7 @@ export function Layout({ children }: LayoutProps) {
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
+  const isToolsRoute = location.pathname.startsWith("/tools/");
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
@@ -39,7 +40,13 @@ export function Layout({ children }: LayoutProps) {
             <MobileNav />
             <Header />
             <InvitationBanner />
-            <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+            <main
+              className={
+                isToolsRoute
+                  ? "flex-1 overflow-y-auto"
+                  : "flex-1 overflow-y-auto p-4 md:p-6 lg:p-8"
+              }
+            >
               {children}
             </main>
           </div>

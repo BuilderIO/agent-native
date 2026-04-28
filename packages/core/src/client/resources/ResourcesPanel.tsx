@@ -805,7 +805,16 @@ The result should be a reusable agent profile, not a one-off task response.`,
               </label>
               <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
                 Point at any Streamable HTTP MCP server (Zapier, Cloudflare,
-                internal tools). Its tools become available to the agent.
+                internal tools). Its tools become available to the agent.{" "}
+                <a
+                  href="https://agent-native.com/docs/mcp-clients#remote-via-ui"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 text-muted-foreground/80 underline hover:text-foreground"
+                >
+                  Learn more
+                  <IconExternalLink className="inline h-2.5 w-2.5" />
+                </a>
               </p>
               <div className="space-y-2">
                 <div className="flex gap-1 rounded-md border border-border p-0.5">

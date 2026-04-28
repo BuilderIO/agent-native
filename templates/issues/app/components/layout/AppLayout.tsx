@@ -19,6 +19,7 @@ import {
   FeedbackButton,
 } from "@agent-native/core/client";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { cn } from "@/lib/utils";
 import { useProjects } from "@/hooks/use-projects";
 import { useBoards } from "@/hooks/use-boards";
@@ -191,6 +192,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Bottom */}
         <div className="border-t border-border p-2">
+          {!sidebarCollapsed && (
+            <div className="mb-1">
+              <ToolsSidebarSection />
+            </div>
+          )}
           {!sidebarCollapsed && (
             <div className="mb-1">
               <FeedbackButton />

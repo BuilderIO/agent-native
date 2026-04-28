@@ -11,9 +11,22 @@ import {
   AgentToggleButton,
   getCallbackOrigin,
 } from "@agent-native/core/client";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { FeedbackButton } from "@agent-native/core/client";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { IconFlame, IconLoader2 } from "@tabler/icons-react";
+import {
+  IconFlame,
+  IconLoader2,
+  IconChartBar,
+  IconSettings,
+} from "@tabler/icons-react";
+
+const navItems = [
+  { icon: IconFlame, label: "Entry", href: "/" },
+  { icon: IconChartBar, label: "Analytics", href: "/analytics" },
+  { icon: IconSettings, label: "Settings", href: "/settings" },
+];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -79,47 +92,48 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         "Protein shake after gym",
       ]}
     >
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Top nav */}
-        <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-md border-b border-white/[0.08] px-3 sm:px-4 py-2.5 sm:py-3">
-          <div className="max-w-3xl lg:max-w-6xl mx-auto flex items-center justify-between gap-2">
-            {/* Logo */}
-            <span className="font-logo font-bold tracking-tight text-lg sm:text-xl text-foreground">
-              macros
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left sidebar */}
+        <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
+          <div className="flex h-12 items-center px-4 border-b border-border">
+            <span className="font-logo font-bold tracking-tight text-sm text-foreground">
+              Macros
             </span>
-
-            {/* Tab Navigation */}
-            <nav className="flex items-center p-1 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-              <Link to="/">
-                <button
-                  className={cn(
-                    "px-3 py-1.5 text-sm font-medium rounded-md sm:px-4",
-                    isEntry
-                      ? "text-foreground bg-white/[0.08] shadow-sm"
-                      : "text-muted-foreground hover:text-foreground hover:bg-white/[0.02]",
-                  )}
-                >
-                  Entry
-                </button>
-              </Link>
-              <Link to="/analytics">
-                <button
-                  className={cn(
-                    "px-3 py-1.5 text-sm font-medium rounded-md sm:px-4",
-                    isAnalytics
-                      ? "text-foreground bg-white/[0.08] shadow-sm"
-                      : "text-muted-foreground hover:text-foreground hover:bg-white/[0.02]",
-                  )}
-                >
-                  Analytics
-                </button>
-              </Link>
-            </nav>
-
-            {/* Agent toggle */}
-            <AgentToggleButton />
           </div>
-        </header>
+
+          <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive =
+                item.href === "/"
+                  ? location.pathname === "/" || location.pathname === "/entry"
+                  : location.pathname.startsWith(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  to={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="border-t border-border px-2 py-2">
+            <ToolsSidebarSection />
+          </div>
+
+          <div className="border-t border-border px-3 py-2">
+            <FeedbackButton />
+          </div>
+        </aside>
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto">{children}</main>

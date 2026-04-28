@@ -77,7 +77,20 @@ This means users who've installed the claude-in-chrome extension get browser con
 
 ## Remote MCP servers via the settings UI {#remote-via-ui}
 
-Users don't have to edit `mcp.config.json` to add a remote, HTTP-based MCP server (Zapier, Cloudflare, Composio, an internal tool, etc). Open the settings panel → **MCP Servers** and paste the server's URL. Two scopes are supported:
+MCP (Model Context Protocol) servers give your agent new abilities — like connecting to Zapier, Cloudflare, Composio, or your company's internal tools. Once connected, the agent can use those tools just like its built-in ones.
+
+### How to connect a remote MCP server
+
+1. **Server name** — a short label for your own reference (e.g. "zapier", "slack-tools").
+2. **URL** — the HTTPS endpoint the MCP server provider gave you (e.g. `https://mcp.zapier.com/s/abc123/mcp`). This is usually found in the provider's dashboard or integration docs.
+3. **Description** (optional) — a note about what this server does.
+4. **Headers** — authentication credentials the server requires, one per line. Most servers need an `Authorization` header. Example: `Authorization: Bearer sk-your-key-here`. The provider's docs will tell you what to put here.
+
+Click **Test** to verify the connection before saving. If it succeeds, you'll see the number of tools available. Click **Connect** to add it.
+
+### Personal vs Organization scope
+
+Two scopes are supported:
 
 - **Personal** — only the signed-in user gets the tools. Stored as a user-scope setting.
 - **Team** — everyone in the active organization gets the tools. Owners and admins can add; members see the list read-only. Stored as an org-scope setting.

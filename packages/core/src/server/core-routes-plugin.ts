@@ -912,6 +912,18 @@ export function createCoreRoutesPlugin(
     // DELETE /_agent-native/notifications/:id
     getH3App(nitroApp).use(`${P}/notifications`, createNotificationsHandler());
 
+    // ─── Tools (mini-app runtime + proxy) ───────────────────────────────
+    try {
+      const { ensureToolsTables, registerToolsShareable } =
+        await import("../tools/store.js");
+      const { createToolsHandler } = await import("../tools/routes.js");
+      ensureToolsTables().catch(() => {});
+      registerToolsShareable();
+      getH3App(nitroApp).use(`${P}/tools`, createToolsHandler());
+    } catch {
+      // Tools module not available — skip
+    }
+
     // ─── Agent run progress ───────────────────────────────────────────
     // GET    /_agent-native/runs[?active&limit]
     // GET    /_agent-native/runs/:id

@@ -1,7 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router";
-import { IconPlus, IconPalette, IconArrowLeft } from "@tabler/icons-react";
-import { AgentToggleButton } from "@agent-native/core/client";
+import { IconPlus, IconPalette } from "@tabler/icons-react";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { DesignSystemCard } from "@/components/design-system/DesignSystemCard";
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
@@ -51,41 +49,24 @@ export default function DesignSystems() {
   };
 
   return (
-    <div className="min-h-screen bg-[hsl(240,6%,4%)]">
-      {/* Header */}
-      <header className="border-b border-white/[0.06]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              to="/"
-              className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white/80 py-2"
-            >
-              <IconArrowLeft className="w-4 h-4" />
-              Back
-            </Link>
-            <span className="text-base font-semibold text-white/90 tracking-tight">
-              Design Systems
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              onClick={() => {
-                setEditingId(null);
-                setShowSetup(true);
-              }}
-              className="cursor-pointer"
-            >
-              <IconPlus className="w-3.5 h-3.5" />
-              New Design System
-            </Button>
-            <AgentToggleButton />
-          </div>
-        </div>
-      </header>
-
-      {/* Content */}
+    <div className="flex-1 overflow-y-auto">
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-lg font-semibold text-white/90">
+            Design Systems
+          </h1>
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditingId(null);
+              setShowSetup(true);
+            }}
+            className="cursor-pointer"
+          >
+            <IconPlus className="w-3.5 h-3.5" />
+            New Design System
+          </Button>
+        </div>
         {isLoading ? (
           <>
             <div className="flex items-center justify-between mb-6">
@@ -116,15 +97,6 @@ export default function DesignSystems() {
           />
         ) : (
           <>
-            <div className="flex items-center justify-between mb-6">
-              <h1 className="text-lg font-semibold text-white/90">
-                Your Design Systems
-              </h1>
-              <span className="text-xs text-white/30">
-                {designSystems.length} system
-                {designSystems.length !== 1 ? "s" : ""}
-              </span>
-            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {/* New design system card */}
               <button

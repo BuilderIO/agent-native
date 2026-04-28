@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client";
+import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { NotionButton } from "./NotionButton";
 import { DocumentTreeItem } from "./DocumentTreeItem";
 import {
@@ -405,6 +406,10 @@ export function DocumentSidebar({
           <IconUsers size={14} className="shrink-0" />
           <span>Team</span>
         </Link>
+      </div>
+
+      <div className="border-t border-border px-3 py-1">
+        <ToolsSidebarSection />
       </div>
 
       {/* Footer */}

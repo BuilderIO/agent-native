@@ -1,6 +1,4 @@
-import { useState } from "react";
-import { StudioHeader } from "@/components/StudioHeader";
-import { TeamPage, InvitationBanner } from "@agent-native/core/client/org";
+import { TeamPage } from "@agent-native/core/client/org";
 
 export function meta() {
   return [{ title: "Team — Remotion Studio" }];
@@ -15,18 +13,10 @@ export function HydrateFallback() {
 }
 
 export default function TeamRoute() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   return (
-    <div className="flex flex-col h-screen bg-background">
-      <StudioHeader
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen((v) => !v)}
-      />
-      <InvitationBanner />
-      <main className="flex-1 overflow-auto p-6">
-        <div className="max-w-3xl mx-auto">
-          <TeamPage createOrgDescription="Set up a team to share compositions and animations with your colleagues." />
-        </div>
+    <div className="flex-1 overflow-y-auto">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+        <TeamPage createOrgDescription="Set up a team to share compositions and animations with your colleagues." />
       </main>
     </div>
   );

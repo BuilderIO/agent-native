@@ -6,7 +6,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 export default createAuthPlugin({
   googleOnly: true,
   marketing: {
-    appName: "Agent-Native Mail",
+    appName: "Mail",
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
     features: [
       "Replies that match your tone and style",
