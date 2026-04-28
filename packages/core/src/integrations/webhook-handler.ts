@@ -255,8 +255,21 @@ async function processMessageInBackground(
           }
         }
 
-        if (!responseText.trim()) {
-          responseText = "(No response)";
+        // If the run errored OR produced no text, post a graceful fallback so
+        // the user isn't left wondering whether the bot saw their message.
+        // Common case: an A2A delegation timed out and the agent loop bailed
+        // before generating any user-facing text.
+        const runErrored = completedRun.status === "errored";
+        if (!responseText.trim() || runErrored) {
+          if (runErrored) {
+            responseText =
+              (responseText.trim() ? responseText + "\n\n" : "") +
+              "I ran into a problem before I could finish that one. " +
+              "If it was a complex analytics question, opening the analytics app " +
+              "directly is the most reliable way to get an answer right now.";
+          } else {
+            responseText = "(No response)";
+          }
         }
 
         // Append thread link for web UI access
@@ -276,6 +289,13 @@ async function processMessageInBackground(
           `[integrations] Error sending response to ${incoming.platform}:`,
           err,
         );
+        // Last-ditch: try to post a brief apology so the thread isn't silent.
+        try {
+          const fallback = adapter.formatAgentResponse(
+            "Something went wrong on my end while replying. Please try again.",
+          );
+          await adapter.sendResponse(fallback, incoming);
+        } catch {}
       }
     },
   );

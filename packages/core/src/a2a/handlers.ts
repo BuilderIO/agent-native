@@ -153,6 +153,92 @@ async function withA2ARequestContext<T>(
   ) as Promise<T>;
 }
 
+/**
+ * Best-effort "keep this promise alive after the response is sent."
+ *
+ * On Cloudflare Workers we have `__cf_ctx.waitUntil`. On Netlify Functions
+ * (Lambda under the hood) the function instance can be frozen the moment the
+ * response is flushed, so detached promises may not run to completion.
+ * Netlify's Background Functions (15-min timeout) are the durable answer, but
+ * for now we at least wire up the Workers path and a Netlify `context.waitUntil`
+ * if/when one is exposed. Anywhere else we fall back to fire-and-forget — the
+ * Node server (local dev, long-running hosts) will run it normally.
+ */
+function keepAlive(event: any | undefined, p: Promise<unknown>): void {
+  try {
+    const cfCtx = (globalThis as any).__cf_ctx;
+    if (cfCtx?.waitUntil) {
+      cfCtx.waitUntil(p);
+      return;
+    }
+  } catch {}
+  try {
+    // Netlify exposes a Lambda-ish `context` object; if it ever exposes a
+    // waitUntil-style API at event.context, prefer that.
+    const ctx = event?.context;
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(p);
+      return;
+    }
+  } catch {}
+  // Fire-and-forget — fine for Node hosts, may be cut short on serverless.
+  p.catch(() => {});
+}
+
+/**
+ * Run the handler against the message and persist the outcome to the task store.
+ * Used both synchronously (await) and detached (in async mode).
+ */
+async function runHandlerAndPersist(
+  taskId: string,
+  message: Message,
+  config: A2AConfig,
+  contextId: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+): Promise<void> {
+  const { context, artifacts } = makeHandlerContext(
+    taskId,
+    contextId,
+    metadata,
+  );
+  try {
+    const result = getHandler(config)(message, context);
+
+    if (
+      result &&
+      typeof result === "object" &&
+      Symbol.asyncIterator in result
+    ) {
+      let lastMessage: Message | undefined;
+      for await (const msg of result as AsyncGenerator<Message>) {
+        lastMessage = msg;
+      }
+      await updateTask(taskId, {
+        state: "completed",
+        message: lastMessage,
+        artifacts: artifacts.length > 0 ? artifacts : undefined,
+      });
+      return;
+    }
+
+    const handlerResult = await (result as Promise<A2AHandlerResult>);
+    const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
+    await updateTask(taskId, {
+      state: "completed",
+      message: handlerResult.message,
+      artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
+    });
+  } catch (err: any) {
+    await updateTask(taskId, {
+      state: "failed",
+      message: {
+        role: "agent",
+        parts: [{ type: "text", text: err?.message ?? "Handler failed" }],
+      },
+    });
+  }
+}
+
 async function handleSend(
   params: Record<string, unknown>,
   config: A2AConfig,
@@ -173,43 +259,95 @@ async function handleSend(
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
 
+  // Async mode: return the task immediately in `working` state, run the
+  // handler in the background, and let the caller poll `tasks/get`. This is
+  // the workaround for Netlify's ~26s function / 30s gateway timeout when the
+  // handler runs LLM + tool loops that can exceed those bounds.
+  const asyncMode =
+    params.async === true ||
+    (metadata && (metadata as any).async === true) ||
+    (event && event.context?.__a2aForceAsync === true);
+
+  if (asyncMode) {
+    // Resolve identity up front (cheap), then return immediately and re-enter
+    // a request context inside the detached promise so the handler still sees
+    // the caller's email/org.
+    const verifiedEmail =
+      (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
+    const orgDomainHint =
+      (event?.context?.__a2aOrgDomain as string | undefined) ??
+      ((metadata as any)?.orgDomain as string | undefined) ??
+      undefined;
+
+    const task = await createTask(message, contextId);
+    const working = await updateTask(task.id, { state: "working" });
+
+    const detached = (async () => {
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      let resolvedOrgId: string | undefined;
+      if (orgDomainHint) {
+        try {
+          const { resolveOrgByDomain } = await import("../org/context.js");
+          const org = await resolveOrgByDomain(orgDomainHint);
+          if (org) resolvedOrgId = org.orgId;
+        } catch {}
+      }
+      try {
+        await runWithRequestContext(
+          { userEmail: verifiedEmail, orgId: resolvedOrgId },
+          () =>
+            runHandlerAndPersist(task.id, message, config, contextId, metadata),
+        );
+      } catch (err: any) {
+        try {
+          await updateTask(task.id, {
+            state: "failed",
+            message: {
+              role: "agent",
+              parts: [
+                { type: "text", text: err?.message ?? "Handler crashed" },
+              ],
+            },
+          });
+        } catch {}
+      }
+    })();
+    keepAlive(event, detached);
+    return { ...jsonRpcResult(0, working ?? task), _id: 0 };
+  }
+
   return withA2ARequestContext(metadata, event, async () => {
     const task = await createTask(message, contextId);
-
     await updateTask(task.id, { state: "working" });
 
-    const { context, artifacts } = makeHandlerContext(
-      task.id,
-      contextId,
-      metadata,
-    );
+    const ctx = makeHandlerContext(task.id, contextId, metadata);
 
     try {
-      const result = getHandler(config)(message, context);
+      const result = getHandler(config)(message, ctx.context);
 
-      // Check if it's an async generator
       if (
         result &&
         typeof result === "object" &&
         Symbol.asyncIterator in result
       ) {
-        // For non-streaming send, collect all messages
         let lastMessage: Message | undefined;
         for await (const msg of result as AsyncGenerator<Message>) {
           lastMessage = msg;
         }
-        const allArtifacts = [...artifacts];
         const updated = await updateTask(task.id, {
           state: "completed",
           message: lastMessage,
-          artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
+          artifacts: ctx.artifacts.length > 0 ? ctx.artifacts : undefined,
         });
         return { ...jsonRpcResult(0, updated), _id: 0 };
       }
 
-      // Promise-based handler
       const handlerResult = await (result as Promise<A2AHandlerResult>);
-      const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
+      const allArtifacts = [
+        ...ctx.artifacts,
+        ...(handlerResult.artifacts ?? []),
+      ];
       const updated = await updateTask(task.id, {
         state: "completed",
         message: handlerResult.message,
