@@ -542,6 +542,12 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Integration webhook endpoints verify authenticity via platform-specific
+    // signature verification (Slack HMAC, Telegram token, etc.), not sessions.
+    if (/^\/_agent-native\/integrations\/[^/]+\/webhook$/.test(p)) {
+      return;
+    }
+
     // Force-sign-in entrypoint. Templates send viewers from public pages
     // (share links, embeds) here with a `?return=<path>` query — anonymous
     // visitors get the loginHtml, and once they sign in the loginHtml's

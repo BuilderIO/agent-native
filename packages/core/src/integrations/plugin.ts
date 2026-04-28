@@ -185,6 +185,13 @@ export function createIntegrationsPlugin(
             return "ok";
           }
 
+          // Handle platform verification challenges (e.g. Slack url_verification)
+          // before checking enable state or parsing the message.
+          const verification = await adapter.handleVerification(event);
+          if (verification.handled) {
+            return verification.response ?? "ok";
+          }
+
           const config = await getIntegrationConfig(platform);
           if (!config?.configData?.enabled) {
             setResponseStatus(event, 404);
