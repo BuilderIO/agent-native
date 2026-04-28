@@ -246,6 +246,69 @@ describe("handleJsonRpc", () => {
     );
     expect(result.error.code).toBe(-32602);
   });
+
+  it("async message/send returns immediately and processes in background", async () => {
+    // Handler resolves only when we let it — so if the response came back
+    // synchronously the task could not yet be 'completed'.
+    let release: (v: unknown) => void = () => {};
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const slowConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => {
+        await gate;
+        return {
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: "done eventually" }],
+          },
+        };
+      },
+    };
+
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      slowConfig,
+    );
+
+    // Returned immediately, before the handler resolved
+    expect(result.error).toBeUndefined();
+    expect(result.result.status.state).toBe("working");
+    const taskId = result.result.id;
+
+    // Now let the handler finish, and verify the task progresses to completed
+    release(undefined);
+    await new Promise((r) => setTimeout(r, 10));
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      mockEvent(),
+      slowConfig,
+    );
+    expect(followup.error).toBeUndefined();
+    expect(followup.result.status.state).toBe("completed");
+    expect(followup.result.status.message.parts[0].text).toBe(
+      "done eventually",
+    );
+  });
 });
 
 describe("default handler (no custom handler)", () => {

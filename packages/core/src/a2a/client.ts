@@ -115,12 +115,25 @@ export class A2AClient {
 
   async send(
     message: Message,
-    opts?: { contextId?: string; metadata?: Record<string, unknown> },
+    opts?: {
+      contextId?: string;
+      metadata?: Record<string, unknown>;
+      /**
+       * If true, ask the server to return the task immediately in `working`
+       * state and process the handler in the background. The caller should
+       * then poll `getTask(taskId)` until `completed` / `failed` / `canceled`.
+       *
+       * Use this when you expect the handler may exceed the gateway timeout
+       * (e.g. Netlify's ~26s per-function / 30s gateway limit on Pro).
+       */
+      async?: boolean;
+    },
   ): Promise<Task> {
     const response = await this.rpc("message/send", {
       message,
       contextId: opts?.contextId,
       metadata: opts?.metadata,
+      ...(opts?.async ? { async: true } : {}),
     });
 
     if (response.error) {
@@ -130,6 +143,71 @@ export class A2AClient {
     }
 
     return response.result as Task;
+  }
+
+  /**
+   * Poll for a task by id. Used in async mode after `send({ async: true })`.
+   */
+  async getTask(taskId: string): Promise<Task> {
+    const response = await this.rpc("tasks/get", { id: taskId });
+    if (response.error) {
+      throw new Error(
+        `A2A error (${response.error.code}): ${response.error.message}`,
+      );
+    }
+    return response.result as Task;
+  }
+
+  /**
+   * Send a message in async mode and poll until the task reaches a terminal
+   * state. This is the recommended path on serverless hosts with short
+   * function timeouts (Netlify, Vercel) where a synchronous LLM-driven A2A
+   * call can exceed the gateway limit.
+   *
+   * Each individual fetch returns quickly; long-running work happens on the
+   * receiving side and is checked via `tasks/get`.
+   */
+  async sendAndWait(
+    message: Message,
+    opts?: {
+      contextId?: string;
+      metadata?: Record<string, unknown>;
+      /** Total time to wait for completion. Default 5 min. */
+      timeoutMs?: number;
+      /** Poll interval. Default 2s. */
+      pollIntervalMs?: number;
+      /** Called with each polled task — useful for surfacing progress. */
+      onUpdate?: (task: Task) => void;
+    },
+  ): Promise<Task> {
+    const submitted = await this.send(message, {
+      contextId: opts?.contextId,
+      metadata: opts?.metadata,
+      async: true,
+    });
+
+    const terminalStates = new Set(["completed", "failed", "canceled"]);
+    if (terminalStates.has(submitted.status.state)) return submitted;
+
+    const timeoutMs = opts?.timeoutMs ?? 5 * 60_000;
+    const pollMs = opts?.pollIntervalMs ?? 2_000;
+    const deadline = Date.now() + timeoutMs;
+
+    let current = submitted;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, pollMs));
+      try {
+        current = await this.getTask(submitted.id);
+        opts?.onUpdate?.(current);
+      } catch (err) {
+        // Transient fetch failure — keep polling until the deadline.
+        continue;
+      }
+      if (terminalStates.has(current.status.state)) return current;
+    }
+    throw new Error(
+      `A2A task ${submitted.id} did not complete within ${timeoutMs}ms (last state: ${current.status.state})`,
+    );
   }
 
   async *stream(
@@ -207,6 +285,15 @@ export async function callAgent(
     userEmail?: string;
     orgDomain?: string;
     orgSecret?: string;
+    /**
+     * Use async/poll instead of a single blocking POST. Recommended for
+     * cross-app calls that may exceed serverless gateway timeouts (Netlify
+     * caps a single function at ~26s; the gateway times out at ~30s).
+     * Defaults to true so callers get safe behavior out of the box.
+     */
+    async?: boolean;
+    /** Total time to wait for the polled task (default 5 min). */
+    timeoutMs?: number;
   },
 ): Promise<string> {
   let apiKey = opts?.apiKey;
@@ -232,13 +319,30 @@ export async function callAgent(
   const metadata: Record<string, unknown> = {};
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
-  const task = await client.send(
-    {
-      role: "user",
-      parts: [{ type: "text", text }],
-    },
-    { contextId: opts?.contextId, metadata },
-  );
+
+  // Default to synchronous mode — async mode requires the receiving server to
+  // run detached promises after sending the response, which doesn't work
+  // reliably on Netlify Functions (the runtime kills the function once the
+  // response is flushed). Callers that want async polling can opt in.
+  const useAsync = opts?.async ?? false;
+  const message: Message = {
+    role: "user",
+    parts: [{ type: "text", text }],
+  };
+
+  let task: Task;
+  if (useAsync) {
+    task = await client.sendAndWait(message, {
+      contextId: opts?.contextId,
+      metadata,
+      timeoutMs: opts?.timeoutMs,
+    });
+  } else {
+    task = await client.send(message, {
+      contextId: opts?.contextId,
+      metadata,
+    });
+  }
 
   // Extract text from the response
   const responseMessage = task.status.message;
