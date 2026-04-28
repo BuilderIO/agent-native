@@ -201,7 +201,11 @@ export function useSetOrgDomain() {
 
 export function useSetA2ASecret() {
   const qc = useQueryClient();
-  return useMutation({
+  return useMutation<
+    { a2aSecret: string; previousSecret: string | null },
+    Error,
+    string | undefined
+  >({
     mutationFn: (secret?: string) =>
       apiFetch(`${ORG_BASE}/a2a-secret`, {
         method: "PUT",
@@ -210,5 +214,43 @@ export function useSetA2ASecret() {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-me"] });
     },
+  });
+}
+
+export interface SyncA2ASecretResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: Array<{
+    id: string;
+    name: string;
+    url: string;
+    ok: boolean;
+    status?: number;
+    error?: string;
+  }>;
+}
+
+/**
+ * Push the org's A2A secret to every connected app so cross-app delegation
+ * works without manual copy/paste. Optionally pass a `signSecret` to sign
+ * the outbound JWTs with a different secret (used by the regenerate-then-
+ * sync flow where the new secret is in DB but peers still hold the old
+ * one).
+ */
+export function useSyncA2ASecret() {
+  return useMutation<
+    SyncA2ASecretResult,
+    Error,
+    { signSecret?: string } | void
+  >({
+    mutationFn: (vars) =>
+      apiFetch(`${ORG_BASE}/a2a-secret/sync`, {
+        method: "POST",
+        body: JSON.stringify({
+          signSecret:
+            vars && "signSecret" in vars ? vars.signSecret : undefined,
+        }),
+      }),
   });
 }

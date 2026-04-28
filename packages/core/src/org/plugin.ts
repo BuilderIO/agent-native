@@ -25,6 +25,8 @@ import {
   joinByDomainHandler,
   setDomainHandler,
   setA2ASecretHandler,
+  syncA2ASecretHandler,
+  receiveA2ASecretHandler,
 } from "./handlers.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
@@ -48,6 +50,8 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  *   POST   /_agent-native/org/join-by-domain              — join org via email domain match
  *   PUT    /_agent-native/org/domain                      — set/clear allowed email domain (owner/admin)
  *   PUT    /_agent-native/org/a2a-secret                  — regenerate or set A2A secret (owner/admin)
+ *   POST   /_agent-native/org/a2a-secret/sync             — push secret to all connected apps (owner/admin)
+ *   POST   /_agent-native/org/a2a-secret/receive          — accept a peer's secret push (JWT-auth, no session)
  */
 export function createOrgPlugin(): NitroPluginDef {
   const migrate = runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" });
@@ -136,10 +140,52 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // PUT /a2a-secret
+    // POST /a2a-secret/sync — must mount BEFORE /a2a-secret since h3
+    // matches by prefix. Pushes the org's A2A secret to every connected app.
+    app.use(
+      `${ORG_PREFIX}/a2a-secret/sync`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return syncA2ASecretHandler(event);
+      }),
+    );
+
+    // POST /a2a-secret/receive — must mount BEFORE /a2a-secret. Accepts a
+    // peer's secret push; auth is JWT-based (see auth guard exemption).
+    app.use(
+      `${ORG_PREFIX}/a2a-secret/receive`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return receiveA2ASecretHandler(event);
+      }),
+    );
+
+    // PUT /a2a-secret — must mount AFTER /a2a-secret/sync and /receive.
+    // Dispatches by tail to keep PUT semantics on the parent path while
+    // letting POST /a2a-secret return 405 (rather than silently routing
+    // to the more-specific handlers above).
     app.use(
       `${ORG_PREFIX}/a2a-secret`,
       defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        // The sub-route handlers above intercept these tails first; if we
+        // see them here it means the method didn't match (e.g. GET) and
+        // we should 405 rather than fall into the PUT handler.
+        if (
+          tail === "/sync" ||
+          tail === "/sync/" ||
+          tail === "/receive" ||
+          tail === "/receive/"
+        ) {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
         if (getMethod(event) !== "PUT") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };

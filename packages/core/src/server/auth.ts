@@ -554,6 +554,13 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // A2A secret receive endpoint — verifies authenticity via JWT signed
+    // with the calling app's A2A secret, not via session cookies. Used to
+    // sync the org A2A secret across connected apps.
+    if (p === "/_agent-native/org/a2a-secret/receive") {
+      return;
+    }
+
     // Force-sign-in entrypoint. Templates send viewers from public pages
     // (share links, embeds) here with a `?return=<path>` query — anonymous
     // visitors get the loginHtml, and once they sign in the loginHtml's

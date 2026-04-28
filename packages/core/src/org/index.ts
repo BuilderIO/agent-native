@@ -43,4 +43,6 @@ export {
   createInvitationHandler,
   acceptInvitationHandler,
   setA2ASecretHandler,
+  syncA2ASecretHandler,
+  receiveA2ASecretHandler,
 } from "./handlers.js";
