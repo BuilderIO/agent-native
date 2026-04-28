@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import {
   IconTool,
   IconPlus,
@@ -47,6 +47,7 @@ function saveFavorites(ids: Set<string>) {
 
 export function ToolsSidebarSection() {
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(() =>
     typeof window !== "undefined" ? getFavorites() : new Set(),
@@ -89,12 +90,25 @@ export function ToolsSidebarSection() {
           method: "DELETE",
         });
         if (!res.ok) throw new Error("Delete failed");
+        queryClient.removeQueries({ queryKey: ["tool", toolId] });
         queryClient.invalidateQueries({ queryKey: ["tools"] });
+        setFavoriteIds((prev) => {
+          const next = new Set(prev);
+          next.delete(toolId);
+          saveFavorites(next);
+          return next;
+        });
+        if (
+          location.pathname === `/tools/${toolId}` ||
+          location.pathname === `/tools/${toolId}/edit`
+        ) {
+          navigate("/tools");
+        }
       } catch {
         if (prev) queryClient.setQueryData(["tools"], prev);
       }
     },
-    [queryClient],
+    [location.pathname, navigate, queryClient],
   );
 
   // Close menu on click outside
@@ -232,7 +246,7 @@ export function ToolsSidebarSection() {
                       "cursor-pointer rounded p-0.5",
                       isFav
                         ? "text-yellow-500"
-                        : "text-muted-foreground/40 opacity-0 group-hover/tool:opacity-100 hover:text-yellow-500",
+                        : "text-muted-foreground/40 opacity-100 hover:text-yellow-500 md:opacity-0 md:group-hover/tool:opacity-100 md:group-focus-within/tool:opacity-100",
                     )}
                     aria-label={isFav ? "Unfavorite" : "Favorite"}
                   >
@@ -251,7 +265,7 @@ export function ToolsSidebarSection() {
                         e.stopPropagation();
                         setMenuOpenId(menuOpenId === tool.id ? null : tool.id);
                       }}
-                      className="cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/tool:opacity-100 hover:text-foreground"
+                      className="cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-100 hover:text-foreground md:opacity-0 md:group-hover/tool:opacity-100 md:group-focus-within/tool:opacity-100"
                       aria-label="Tool actions"
                     >
                       <IconDots className="h-3 w-3" />
