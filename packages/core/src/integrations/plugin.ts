@@ -202,9 +202,17 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 200);
             return "ok";
           }
-          const owner = options?.resolveOwner
-            ? await options.resolveOwner(incoming)
-            : `integration@${platform}`;
+          let owner = `integration@${platform}`;
+          if (options?.resolveOwner) {
+            try {
+              owner = await options.resolveOwner(incoming);
+            } catch (err) {
+              console.error(
+                `[integrations] resolveOwner failed, using default:`,
+                err,
+              );
+            }
+          }
           const resources = await loadResourcesForPrompt(owner);
           const systemPrompt = baseSystemPrompt + resources;
           const result = await handleWebhook(event, {
