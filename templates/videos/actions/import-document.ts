@@ -1,117 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-
-const HEX_COLOR_RE = /#(?:[0-9a-fA-F]{3,4}){1,2}\b/g;
-const NAMED_COLOR_RE =
-  /\b(red|blue|green|yellow|orange|purple|pink|cyan|magenta|teal|navy|maroon|coral|salmon|gold|silver|gray|grey|indigo|violet|lime|olive|aqua|fuchsia|crimson|turquoise|ivory|beige|lavender|tan|khaki|plum|orchid|sienna)\b/gi;
-const FONT_NAME_RE =
-  /\b(Helvetica|Arial|Times New Roman|Georgia|Garamond|Futura|Bodoni|Avenir|Proxima Nova|Montserrat|Open Sans|Lato|Poppins|Raleway|Playfair Display|Merriweather|Source Sans|Noto Sans|Work Sans|Nunito|Rubik|Oswald|Roboto|Inter|DM Sans|Space Grotesk|SF Pro|Segoe UI|Calibri|Cambria|Century Gothic|Franklin Gothic|Gill Sans|Fira Sans|Barlow|Manrope|Sora|Plus Jakarta Sans|IBM Plex Sans|IBM Plex Serif|Libre Baskerville|Cormorant|Crimson Text)\b/gi;
-
-function unique(arr: string[]): string[] {
-  return [...new Set(arr.map((s) => s.trim()))];
-}
-
-function extractColors(text: string): string[] {
-  const hex = text.match(HEX_COLOR_RE) ?? [];
-  const named = text.match(NAMED_COLOR_RE) ?? [];
-  return unique([...hex, ...named.map((n) => n.toLowerCase())]);
-}
-
-function extractFonts(text: string): string[] {
-  const matches = text.match(FONT_NAME_RE) ?? [];
-  return unique(matches);
-}
-
-type ContentType =
-  | "presentation"
-  | "document"
-  | "spreadsheet"
-  | "pdf"
-  | "other";
-
-function classifyFile(fileType: string): ContentType {
-  const ft = fileType.toLowerCase();
-  if (
-    ft.includes("pptx") ||
-    ft.includes("ppt") ||
-    ft.includes("presentation") ||
-    ft.includes("keynote")
-  )
-    return "presentation";
-  if (
-    ft.includes("docx") ||
-    ft.includes("doc") ||
-    ft.includes("document") ||
-    ft.includes("rtf")
-  )
-    return "document";
-  if (
-    ft.includes("xlsx") ||
-    ft.includes("xls") ||
-    ft.includes("spreadsheet") ||
-    ft.includes("csv")
-  )
-    return "spreadsheet";
-  if (ft.includes("pdf")) return "pdf";
-  return "other";
-}
-
-function suggestionsForType(
-  contentType: ContentType,
-  hasText: boolean,
-): string[] {
-  const base: string[] = [];
-
-  switch (contentType) {
-    case "presentation":
-      base.push(
-        "Look for slide master/theme colors — these define the brand palette",
-        "Check heading fonts on title slides for the brand typeface",
-        "Note any accent colors used for callouts or highlights",
-        "Slide backgrounds may reveal primary and secondary brand colors",
-        "Chart/graph colors often match the brand accent palette",
-      );
-      break;
-    case "document":
-      base.push(
-        "Heading styles reveal the typographic hierarchy and heading font",
-        "Body text font is likely the primary readable typeface",
-        "Look for colored headings or accent text for brand colors",
-        "Document margins and spacing suggest preferred density",
-        "Header/footer formatting may include brand colors or logos",
-      );
-      break;
-    case "spreadsheet":
-      base.push(
-        "Header row colors often reflect the brand palette",
-        "Conditional formatting colors may indicate status/accent colors",
-        "Chart and graph colors are strong brand palette signals",
-        "Cell background highlighting colors suggest accent palette",
-      );
-      break;
-    case "pdf":
-      base.push(
-        "PDF may contain embedded brand guidelines or style specs",
-        "Look for consistent heading colors and font choices",
-        "Background colors and accent bars reveal brand palette",
-      );
-      break;
-    case "other":
-      base.push(
-        "Examine any visual elements for recurring color patterns",
-        "Note any typography that appears intentionally branded",
-      );
-      break;
-  }
-
-  if (!hasText) {
-    base.push(
-      "No text content was extracted — ask the user to paste key sections or send the file as a chat attachment for visual analysis",
-    );
-  }
-
-  return base;
-}
+import {
+  extractDocumentColors,
+  extractDocumentFonts,
+  classifyFile,
+  suggestionsForType,
+  unique,
+} from "@agent-native/core/server/design-token-utils";
 
 export default defineAction({
   description:
@@ -156,13 +51,11 @@ export default defineAction({
       let likelyColors: string[] = [];
       let likelyFonts: string[] = [];
 
-      // Extract from text content if available
       if (file.textContent) {
-        likelyColors = extractColors(file.textContent);
-        likelyFonts = extractFonts(file.textContent);
+        likelyColors = extractDocumentColors(file.textContent);
+        likelyFonts = extractDocumentFonts(file.textContent);
       }
 
-      // Merge in any client-side metadata
       if (file.metadata) {
         if (Array.isArray(file.metadata.colors)) {
           likelyColors = unique([

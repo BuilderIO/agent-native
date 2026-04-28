@@ -143,7 +143,12 @@ export function ToolsSidebarSection() {
 
   return (
     <div className="group/help relative py-2">
-      <div className={cn("flex items-center justify-between px-3", sortedTools.length > 0 && "mb-1")}>
+      <div
+        className={cn(
+          "flex items-center justify-between px-3",
+          sortedTools.length > 0 && "mb-1",
+        )}
+      >
         <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Tools
           <a

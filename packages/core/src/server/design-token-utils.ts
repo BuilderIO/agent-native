@@ -239,9 +239,7 @@ export async function fetchGitHubRaw(
 // ---------------------------------------------------------------------------
 
 /** Extract colors, fonts, spacing, borderRadius from a Tailwind config file string. */
-export function parseTailwindConfig(
-  content: string,
-): Record<string, unknown> {
+export function parseTailwindConfig(content: string): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
   const colorsMatch = content.match(
@@ -483,9 +481,7 @@ export function extractCodeFonts(
   const fontFacePattern = /@font-face\s*\{([^}]+)\}/g;
   while ((m = fontFacePattern.exec(content)) !== null) {
     const block = m[1];
-    const familyMatch = block.match(
-      /font-family\s*:\s*["']?([^"';]+)["']?/,
-    );
+    const familyMatch = block.match(/font-family\s*:\s*["']?([^"';]+)["']?/);
     if (familyMatch) {
       addFont(state, familyMatch[1], filename);
     }
@@ -521,12 +517,9 @@ export function analyzeTailwindConfig(
     }
   }
 
-  const fontFamilyBlockMatch = content.match(
-    /fontFamily\s*:\s*\{([\s\S]*?)\}/,
-  );
+  const fontFamilyBlockMatch = content.match(/fontFamily\s*:\s*\{([\s\S]*?)\}/);
   if (fontFamilyBlockMatch) {
-    const fontPairPattern =
-      /["']?([\w-]+)["']?\s*:\s*\[?\s*["']([^"']+)["']/g;
+    const fontPairPattern = /["']?([\w-]+)["']?\s*:\s*\[?\s*["']([^"']+)["']/g;
     let m;
     while ((m = fontPairPattern.exec(fontFamilyBlockMatch[1])) !== null) {
       addFont(state, m[2], filename);
@@ -542,9 +535,7 @@ export function analyzeTailwindConfig(
     }
   }
 
-  const radiusBlockMatch = content.match(
-    /borderRadius\s*:\s*\{([\s\S]*?)\}/,
-  );
+  const radiusBlockMatch = content.match(/borderRadius\s*:\s*\{([\s\S]*?)\}/);
   if (radiusBlockMatch) {
     const pairPattern = /["']?([\w-]+)["']?\s*:\s*["']([^"']+)["']/g;
     let m;
@@ -668,8 +659,7 @@ export function analyzeThemeSourceFile(
     state.colors[m[1]] = m[2];
   }
 
-  const kvHexPattern =
-    /["']?([\w-]+)["']?\s*:\s*["'](#[0-9a-fA-F]{3,8})["']/g;
+  const kvHexPattern = /["']?([\w-]+)["']?\s*:\s*["'](#[0-9a-fA-F]{3,8})["']/g;
   while ((m = kvHexPattern.exec(content)) !== null) {
     state.colors[m[1]] = m[2];
   }

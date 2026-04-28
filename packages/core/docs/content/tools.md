@@ -15,14 +15,14 @@ Your agent-native app has a full codebase — React components, routes, actions,
 
 Tools are different:
 
-| | App code | Tools |
-| --- | --- | --- |
-| **Created by** | Developer or agent editing source files | Agent or user, instantly from chat |
-| **Stored in** | Git repository | Database |
-| **Requires a build** | Yes | No |
-| **Requires a deploy** | Yes | No |
-| **Scope** | Part of the app for all users | Private by default, shareable |
-| **Best for** | Core app features | Personal dashboards, utilities, quick integrations |
+|                       | App code                                | Tools                                              |
+| --------------------- | --------------------------------------- | -------------------------------------------------- |
+| **Created by**        | Developer or agent editing source files | Agent or user, instantly from chat                 |
+| **Stored in**         | Git repository                          | Database                                           |
+| **Requires a build**  | Yes                                     | No                                                 |
+| **Requires a deploy** | Yes                                     | No                                                 |
+| **Scope**             | Part of the app for all users           | Private by default, shareable                      |
+| **Best for**          | Core app features                       | Personal dashboards, utilities, quick integrations |
 
 Use app code for features that are core to the product. Use tools for everything else — one-off utilities, personal dashboards, quick integrations, monitors, and things you want to spin up in seconds.
 

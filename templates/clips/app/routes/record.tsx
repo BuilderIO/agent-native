@@ -364,6 +364,7 @@ export default function RecordRoute() {
   }, [navigate, liveTranscription]);
 
   const requestStop = useCallback(() => {
+    setIsDrawing(false);
     const engine = engineRef.current;
     if (engine && engine.getState() === "recording") {
       engine.pause();
@@ -389,11 +390,19 @@ export default function RecordRoute() {
 
   const doCancel = useCallback(async () => {
     const engine = engineRef.current;
+    const pendingId = pendingRef.current?.id;
     liveTranscription.stop();
     try {
       await engine?.cancel();
     } catch {
       // ignore
+    }
+    if (pendingId) {
+      fetch("/_agent-native/actions/trash-recording", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: pendingId }),
+      }).catch(() => {});
     }
     setCameraStream(null);
     setPreviewStream(null);
