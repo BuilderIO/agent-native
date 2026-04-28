@@ -45,6 +45,24 @@ const IntegrationsPanel = lazy(() =>
 
 // ─── Shared helpers ─────────────────────────────────────────────────────────
 
+function SettingsSkeleton({ lines = 3 }: { lines?: number }) {
+  return (
+    <div className="space-y-3 animate-pulse">
+      {Array.from({ length: lines }, (_, i) => (
+        <div key={i} className="space-y-1.5">
+          <div
+            className="h-3 rounded bg-muted-foreground/10"
+            style={{ width: i === 0 ? "30%" : i === 1 ? "100%" : "60%" }}
+          />
+          {i < 2 && (
+            <div className="h-9 rounded-md border border-border bg-muted-foreground/5" />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface SettingsSelectOption {
   value: string;
   label: string;
@@ -529,6 +547,7 @@ const PROVIDER_DOCS: Record<string, string> = {
 
 function LLMSectionInner({
   builderEnabled,
+  builderLoading,
   connectUrl,
   connected,
   orgName,
@@ -536,6 +555,7 @@ function LLMSectionInner({
   onToggle,
 }: {
   builderEnabled: boolean;
+  builderLoading?: boolean;
   connectUrl?: string;
   connected: boolean;
   orgName?: string;
@@ -562,12 +582,19 @@ function LLMSectionInner({
   >(null);
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus>(null);
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
+  const [envLoaded, setEnvLoaded] = useState(false);
+  const [enginesLoaded, setEnginesLoaded] = useState(false);
+  const [statusLoaded, setStatusLoaded] = useState(false);
+
+  const initialLoading =
+    !envLoaded || !enginesLoaded || !statusLoaded || !!builderLoading;
 
   useEffect(() => {
     fetch("/_agent-native/env-status")
       .then((r) => (r.ok ? r.json() : []))
       .then(setEnvKeys)
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setEnvLoaded(true));
   }, [saved]);
 
   const notifyConfigChanged = useCallback(() => {
@@ -592,7 +619,8 @@ function LLMSectionInner({
           setSettingsStatus(null);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setStatusLoaded(true));
   }, []);
 
   useEffect(() => {
@@ -615,7 +643,8 @@ function LLMSectionInner({
         setSelectedEngine(cur.engine ?? "anthropic");
         setSelectedModel(cur.model ?? "");
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setEnginesLoaded(true));
   }, []);
 
   const selectedEngineInfo = engines.find((e) => e.name === selectedEngine);
@@ -774,158 +803,164 @@ function LLMSectionInner({
       title="LLM"
       subtitle="Connect any major LLM — Claude, GPT, Gemini, and more."
       required
-      connected={anyKeyConfigured}
+      connected={initialLoading ? undefined : anyKeyConfigured}
       open={open}
       onToggle={onToggle}
     >
-      <div className="space-y-2">
-        <UseBuilderCard
-          connectUrl={connectUrl}
-          connected={connected}
-          orgName={orgName}
-          label="Connect Builder.io"
-        />
-        {!connected && (
-          <ManualSetupCard
-            hint="Choose your AI provider and model."
-            docsUrl={PROVIDER_DOCS[selectedEngine]}
-            sourceBadge={sourceBadge}
-            docsLabel="Get an API key"
-          >
-            <div className="space-y-2 mb-1">
-              <SettingsSelect
-                label="Provider"
-                value={selectedEngine}
-                options={providerOptions}
-                onValueChange={(val) => {
-                  setSelectedEngine(val);
-                  const info = engines.find((e) => e.name === val);
-                  setSelectedModel(info?.defaultModel ?? "");
-                  setApiKey("");
-                }}
-              />
-
-              {/* Free-form input so OpenRouter/Ollama custom model IDs can
-                be typed — the registry's supportedModels is only suggestions. */}
-              <div className="space-y-1.5">
-                <p className="text-[12px] font-medium text-foreground">Model</p>
-                <input
-                  type="text"
-                  list={`model-suggestions-${selectedEngine}`}
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  placeholder={
-                    selectedEngineInfo?.defaultModel ?? "e.g. model-id"
-                  }
-                  spellCheck={false}
-                  autoComplete="off"
-                  className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent placeholder:text-muted-foreground/50"
-                  style={CONTROL_STYLE}
+      {initialLoading ? (
+        <SettingsSkeleton lines={3} />
+      ) : (
+        <div className="space-y-2">
+          <UseBuilderCard
+            connectUrl={connectUrl}
+            connected={connected}
+            orgName={orgName}
+            label="Connect Builder.io"
+          />
+          {!connected && (
+            <ManualSetupCard
+              hint="Choose your AI provider and model."
+              docsUrl={PROVIDER_DOCS[selectedEngine]}
+              sourceBadge={sourceBadge}
+              docsLabel="Get an API key"
+            >
+              <div className="space-y-2 mb-1">
+                <SettingsSelect
+                  label="Provider"
+                  value={selectedEngine}
+                  options={providerOptions}
+                  onValueChange={(val) => {
+                    setSelectedEngine(val);
+                    const info = engines.find((e) => e.name === val);
+                    setSelectedModel(info?.defaultModel ?? "");
+                    setApiKey("");
+                  }}
                 />
-                {modelOptions.length > 0 && (
-                  <datalist id={`model-suggestions-${selectedEngine}`}>
-                    {modelOptions.map((opt) => (
-                      <option
-                        key={opt.value}
-                        value={opt.value}
-                        label={opt.label}
-                      />
-                    ))}
-                  </datalist>
-                )}
-              </div>
 
-              {envVar && envConfigured ? (
-                <div className="flex items-center gap-1.5 text-[10px] text-green-500">
-                  <IconCheck size={10} />
-                  {envVar} configured
-                </div>
-              ) : envVar ? (
-                <div className="flex gap-1.5">
+                {/* Free-form input so OpenRouter/Ollama custom model IDs can
+                be typed — the registry's supportedModels is only suggestions. */}
+                <div className="space-y-1.5">
+                  <p className="text-[12px] font-medium text-foreground">
+                    Model
+                  </p>
                   <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleSave();
-                    }}
-                    placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
-                    className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                    type="text"
+                    list={`model-suggestions-${selectedEngine}`}
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    placeholder={
+                      selectedEngineInfo?.defaultModel ?? "e.g. model-id"
+                    }
+                    spellCheck={false}
+                    autoComplete="off"
+                    className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent placeholder:text-muted-foreground/50"
+                    style={CONTROL_STYLE}
                   />
+                  {modelOptions.length > 0 && (
+                    <datalist id={`model-suggestions-${selectedEngine}`}>
+                      {modelOptions.map((opt) => (
+                        <option
+                          key={opt.value}
+                          value={opt.value}
+                          label={opt.label}
+                        />
+                      ))}
+                    </datalist>
+                  )}
+                </div>
+
+                {envVar && envConfigured ? (
+                  <div className="flex items-center gap-1.5 text-[10px] text-green-500">
+                    <IconCheck size={10} />
+                    {envVar} configured
+                  </div>
+                ) : envVar ? (
+                  <div className="flex gap-1.5">
+                    <input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSave();
+                      }}
+                      placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
+                      className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                    />
+                    <button
+                      onClick={handleSave}
+                      disabled={!apiKey.trim() || saving}
+                      className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                    >
+                      {saving ? (
+                        <IconLoader2 size={10} className="animate-spin" />
+                      ) : saved ? (
+                        <IconCheck size={10} />
+                      ) : (
+                        "Save"
+                      )}
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={handleSave}
-                    disabled={!apiKey.trim() || saving}
-                    className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                    onClick={handleTest}
+                    disabled={testing}
+                    className="rounded border border-border px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/40 disabled:opacity-40"
                   >
-                    {saving ? (
-                      <IconLoader2 size={10} className="animate-spin" />
-                    ) : saved ? (
-                      <IconCheck size={10} />
+                    {testing ? (
+                      <span className="flex items-center gap-1">
+                        <IconLoader2 size={10} className="animate-spin" />
+                        Testing…
+                      </span>
                     ) : (
-                      "Save"
+                      "Test"
                     )}
                   </button>
-                </div>
-              ) : null}
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleTest}
-                  disabled={testing}
-                  className="rounded border border-border px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/40 disabled:opacity-40"
-                >
-                  {testing ? (
-                    <span className="flex items-center gap-1">
-                      <IconLoader2 size={10} className="animate-spin" />
-                      Testing…
-                    </span>
-                  ) : (
-                    "Test"
+                  {engineChanged && (
+                    <button
+                      onClick={handleApply}
+                      className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80"
+                    >
+                      Apply
+                    </button>
                   )}
-                </button>
-                {engineChanged && (
-                  <button
-                    onClick={handleApply}
-                    className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80"
-                  >
-                    Apply
-                  </button>
+                  {settingsStatus != null && (
+                    <button
+                      onClick={handleDisconnect}
+                      className="ml-auto rounded border border-border px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
+                      title="Clear the saved engine — the app will fall back to the default until you re-apply."
+                    >
+                      Disconnect
+                    </button>
+                  )}
+                </div>
+                {testResult && testResult.ok && (
+                  <p className="flex items-center gap-1 text-[10px] text-green-500">
+                    <IconCheck size={10} />
+                    Test passed — {testResult.latencyMs}ms
+                  </p>
                 )}
-                {settingsStatus != null && (
-                  <button
-                    onClick={handleDisconnect}
-                    className="ml-auto rounded border border-border px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
-                    title="Clear the saved engine — the app will fall back to the default until you re-apply."
-                  >
-                    Disconnect
-                  </button>
+                {testResult && testResult.ok === false && (
+                  <p className="text-[10px] text-destructive">
+                    Test failed: {testResult.error}
+                  </p>
+                )}
+                {disconnectError && (
+                  <p className="text-[10px] text-destructive">
+                    Disconnect failed: {disconnectError}
+                  </p>
+                )}
+                {applyNote && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Changes take effect on next conversation
+                  </p>
                 )}
               </div>
-              {testResult && testResult.ok && (
-                <p className="flex items-center gap-1 text-[10px] text-green-500">
-                  <IconCheck size={10} />
-                  Test passed — {testResult.latencyMs}ms
-                </p>
-              )}
-              {testResult && testResult.ok === false && (
-                <p className="text-[10px] text-destructive">
-                  Test failed: {testResult.error}
-                </p>
-              )}
-              {disconnectError && (
-                <p className="text-[10px] text-destructive">
-                  Disconnect failed: {disconnectError}
-                </p>
-              )}
-              {applyNote && (
-                <p className="text-[10px] text-muted-foreground">
-                  Changes take effect on next conversation
-                </p>
-              )}
-            </div>
-          </ManualSetupCard>
-        )}
-      </div>
+            </ManualSetupCard>
+          )}
+        </div>
+      )}
     </SettingsSection>
   );
 }
@@ -948,12 +983,14 @@ function EmailSectionInner({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showSendgrid, setShowSendgrid] = useState(false);
+  const [envLoaded, setEnvLoaded] = useState(false);
 
   useEffect(() => {
     fetch("/_agent-native/env-status")
       .then((r) => (r.ok ? r.json() : []))
       .then(setEnvKeys)
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setEnvLoaded(true));
   }, [saved]);
 
   const resendConfigured =
@@ -1007,118 +1044,39 @@ function EmailSectionInner({
       icon={<IconMail size={14} />}
       title="Email"
       subtitle="Send password resets and team invitations. Without a provider, emails are logged to the server console."
-      connected={anyConfigured}
+      connected={!envLoaded ? undefined : anyConfigured}
       open={open}
       onToggle={onToggle}
     >
-      <div className="space-y-2">
-        <ManualSetupCard
-          hint="Paste a Resend API key to start sending real emails."
-          docsUrl="https://resend.com/api-keys"
-          docsLabel="Get a Resend key"
-        >
-          {resendConfigured ? (
-            <div className="flex items-center gap-1.5 text-[10px] text-green-500 mb-1">
-              <IconCheck size={10} />
-              RESEND_API_KEY configured
-            </div>
-          ) : (
-            <div className="flex gap-1.5 mb-1">
-              <input
-                type="password"
-                value={resendKey}
-                onChange={(e) => setResendKey(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") saveResend();
-                }}
-                placeholder="re_..."
-                className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-              />
-              <button
-                onClick={saveResend}
-                disabled={!resendKey.trim() || saving}
-                className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
-              >
-                {saving ? (
-                  <IconLoader2 size={10} className="animate-spin" />
-                ) : saved ? (
-                  <IconCheck size={10} />
-                ) : (
-                  "Save"
-                )}
-              </button>
-            </div>
-          )}
-          {fromConfigured ? (
-            <div className="flex items-center gap-1.5 text-[10px] text-green-500">
-              <IconCheck size={10} />
-              EMAIL_FROM configured
-            </div>
-          ) : (
-            <div className="flex gap-1.5">
-              <input
-                type="text"
-                value={fromAddr}
-                onChange={(e) => setFromAddr(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") saveResend();
-                }}
-                placeholder="From address — e.g. Acme <hi@acme.com>"
-                className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-              />
-              {!resendConfigured ? null : (
-                <button
-                  onClick={saveResend}
-                  disabled={!fromAddr.trim() || saving}
-                  className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
-                >
-                  {saving ? (
-                    <IconLoader2 size={10} className="animate-spin" />
-                  ) : saved ? (
-                    <IconCheck size={10} />
-                  ) : (
-                    "Save"
-                  )}
-                </button>
-              )}
-            </div>
-          )}
-        </ManualSetupCard>
-
-        {!sendgridConfigured && !showSendgrid ? (
-          <button
-            type="button"
-            onClick={() => setShowSendgrid(true)}
-            className="text-[10px] text-muted-foreground hover:text-foreground"
-          >
-            Use SendGrid instead
-          </button>
-        ) : (
+      {!envLoaded ? (
+        <SettingsSkeleton lines={2} />
+      ) : (
+        <div className="space-y-2">
           <ManualSetupCard
-            hint="SendGrid alternative — requires a verified sender address (set EMAIL_FROM above)."
-            docsUrl="https://app.sendgrid.com/settings/api_keys"
-            docsLabel="Get a SendGrid key"
+            hint="Paste a Resend API key to start sending real emails."
+            docsUrl="https://resend.com/api-keys"
+            docsLabel="Get a Resend key"
           >
-            {sendgridConfigured ? (
-              <div className="flex items-center gap-1.5 text-[10px] text-green-500">
+            {resendConfigured ? (
+              <div className="flex items-center gap-1.5 text-[10px] text-green-500 mb-1">
                 <IconCheck size={10} />
-                SENDGRID_API_KEY configured
+                RESEND_API_KEY configured
               </div>
             ) : (
-              <div className="flex gap-1.5">
+              <div className="flex gap-1.5 mb-1">
                 <input
                   type="password"
-                  value={sendgridKey}
-                  onChange={(e) => setSendgridKey(e.target.value)}
+                  value={resendKey}
+                  onChange={(e) => setResendKey(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") saveSendgrid();
+                    if (e.key === "Enter") saveResend();
                   }}
-                  placeholder="SG...."
+                  placeholder="re_..."
                   className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
                 />
                 <button
-                  onClick={saveSendgrid}
-                  disabled={!sendgridKey.trim() || saving}
+                  onClick={saveResend}
+                  disabled={!resendKey.trim() || saving}
                   className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
                 >
                   {saving ? (
@@ -1131,9 +1089,92 @@ function EmailSectionInner({
                 </button>
               </div>
             )}
+            {fromConfigured ? (
+              <div className="flex items-center gap-1.5 text-[10px] text-green-500">
+                <IconCheck size={10} />
+                EMAIL_FROM configured
+              </div>
+            ) : (
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={fromAddr}
+                  onChange={(e) => setFromAddr(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveResend();
+                  }}
+                  placeholder="From address — e.g. Acme <hi@acme.com>"
+                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                />
+                {!resendConfigured ? null : (
+                  <button
+                    onClick={saveResend}
+                    disabled={!fromAddr.trim() || saving}
+                    className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                  >
+                    {saving ? (
+                      <IconLoader2 size={10} className="animate-spin" />
+                    ) : saved ? (
+                      <IconCheck size={10} />
+                    ) : (
+                      "Save"
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
           </ManualSetupCard>
-        )}
-      </div>
+
+          {!sendgridConfigured && !showSendgrid ? (
+            <button
+              type="button"
+              onClick={() => setShowSendgrid(true)}
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              Use SendGrid instead
+            </button>
+          ) : (
+            <ManualSetupCard
+              hint="SendGrid alternative — requires a verified sender address (set EMAIL_FROM above)."
+              docsUrl="https://app.sendgrid.com/settings/api_keys"
+              docsLabel="Get a SendGrid key"
+            >
+              {sendgridConfigured ? (
+                <div className="flex items-center gap-1.5 text-[10px] text-green-500">
+                  <IconCheck size={10} />
+                  SENDGRID_API_KEY configured
+                </div>
+              ) : (
+                <div className="flex gap-1.5">
+                  <input
+                    type="password"
+                    value={sendgridKey}
+                    onChange={(e) => setSendgridKey(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveSendgrid();
+                    }}
+                    placeholder="SG...."
+                    className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  />
+                  <button
+                    onClick={saveSendgrid}
+                    disabled={!sendgridKey.trim() || saving}
+                    className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                  >
+                    {saving ? (
+                      <IconLoader2 size={10} className="animate-spin" />
+                    ) : saved ? (
+                      <IconCheck size={10} />
+                    ) : (
+                      "Save"
+                    )}
+                  </button>
+                </div>
+              )}
+            </ManualSetupCard>
+          )}
+        </div>
+      )}
     </SettingsSection>
   );
 }
@@ -1166,7 +1207,7 @@ export function SettingsPanel({
   showDevToggle,
   devAppUrl,
 }: SettingsPanelProps) {
-  const { status: builder } = useBuilderStatus();
+  const { status: builder, loading: builderLoading } = useBuilderStatus();
   const connected = builder?.configured ?? false;
   const connectUrl = builder?.connectUrl;
   const orgName = builder?.orgName;
@@ -1260,6 +1301,7 @@ export function SettingsPanel({
       {/* LLM */}
       <LLMSectionInner
         builderEnabled={builderEnabled}
+        builderLoading={builderLoading}
         connectUrl={connectUrl}
         connected={connected}
         orgName={orgName}

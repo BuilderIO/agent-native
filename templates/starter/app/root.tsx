@@ -1,5 +1,12 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useCallback, useState } from "react";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   QueryClient,
@@ -15,9 +22,11 @@ import {
   DefaultSpinner,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
+import { IconMenu2 } from "@tabler/icons-react";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { cn } from "@/lib/utils";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -77,6 +86,11 @@ function DbSyncSetup() {
 
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
@@ -96,10 +110,31 @@ function AppContent() {
         ]}
       >
         <div className="flex h-screen w-full overflow-hidden">
-          <div className="hidden md:block">
+          {sidebarOpen && (
+            <div
+              className="fixed inset-0 z-40 bg-black/50 md:hidden"
+              onClick={() => setSidebarOpen(false)}
+            />
+          )}
+          <div
+            className={cn(
+              "fixed inset-y-0 left-0 z-50 md:static md:z-auto",
+              sidebarOpen
+                ? "translate-x-0"
+                : "-translate-x-full md:translate-x-0",
+            )}
+          >
             <Sidebar />
           </div>
           <div className="flex h-full flex-1 flex-col overflow-hidden">
+            <div className="flex h-12 items-center px-4 md:hidden border-b border-border">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground"
+              >
+                <IconMenu2 className="h-4 w-4" />
+              </button>
+            </div>
             <Outlet />
           </div>
         </div>

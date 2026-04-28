@@ -35,7 +35,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,7 +46,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-type ProjectType = "prototype" | "deck" | "other";
+type ProjectType = "prototype" | "other";
 
 interface Design {
   id: string;
@@ -66,12 +65,11 @@ export default function Index() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [createTab, setCreateTab] = useState<
-    "prototype" | "deck" | "template" | "other"
+    "prototype" | "template" | "other"
   >("prototype");
   const [projectName, setProjectName] = useState("");
   const [designSystemId, setDesignSystemId] = useState<string>("");
   const [fidelity, setFidelity] = useState<"wireframe" | "high">("high");
-  const [useSpeakerNotes, setUseSpeakerNotes] = useState(false);
 
   const { data: designsData, isLoading } = useActionQuery<{
     count: number;
@@ -203,7 +201,6 @@ export default function Index() {
   const projectTypeBadge = (type: ProjectType) => {
     const labels: Record<ProjectType, string> = {
       prototype: "Prototype",
-      deck: "Slide Deck",
       other: "Other",
     };
     return (
@@ -352,15 +349,12 @@ export default function Index() {
             <Tabs
               value={createTab}
               onValueChange={(v) =>
-                setCreateTab(v as "prototype" | "deck" | "template" | "other")
+                setCreateTab(v as "prototype" | "template" | "other")
               }
             >
               <TabsList className="w-full">
                 <TabsTrigger value="prototype" className="flex-1">
                   Prototype
-                </TabsTrigger>
-                <TabsTrigger value="deck" className="flex-1">
-                  Slide Deck
                 </TabsTrigger>
                 <TabsTrigger value="template" className="flex-1">
                   From Template
@@ -421,18 +415,6 @@ export default function Index() {
                       High fidelity
                     </Button>
                   </div>
-                </div>
-              )}
-
-              {createTab === "deck" && (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-white/60">
-                    Use speaker notes
-                  </span>
-                  <Switch
-                    checked={useSpeakerNotes}
-                    onCheckedChange={setUseSpeakerNotes}
-                  />
                 </div>
               )}
 
@@ -523,8 +505,8 @@ function EmptyState({ onCreateDesign }: { onCreateDesign: () => void }) {
         Create your first design
       </h2>
       <p className="text-sm text-white/40 max-w-sm mb-8 leading-relaxed">
-        Build interactive prototypes, slide decks, and design artifacts with
-        AI-powered generation and a visual editor.
+        Build interactive prototypes and design artifacts with AI-powered
+        generation and a visual editor.
       </p>
       <Button onClick={onCreateDesign} className="cursor-pointer">
         <IconPlus className="w-4 h-4" />

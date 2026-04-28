@@ -23,6 +23,8 @@ import {
 } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { cn } from "@/lib/utils";
+import { IconMenu2 } from "@tabler/icons-react";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -125,7 +127,13 @@ function AppContent() {
   useNavigationState();
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
   const isBare =
     BARE_ROUTES.has(location.pathname) ||
     BARE_PREFIXES.some((p) => location.pathname.startsWith(p)) ||
@@ -154,10 +162,31 @@ function AppContent() {
           ]}
         >
           <div className="flex h-screen w-full overflow-hidden">
-            <div className="hidden md:block">
+            {sidebarOpen && (
+              <div
+                className="fixed inset-0 z-40 bg-black/50 md:hidden"
+                onClick={() => setSidebarOpen(false)}
+              />
+            )}
+            <div
+              className={cn(
+                "fixed inset-y-0 left-0 z-50 md:static md:z-auto",
+                sidebarOpen
+                  ? "translate-x-0"
+                  : "-translate-x-full md:translate-x-0",
+              )}
+            >
               <Sidebar />
             </div>
             <div className="flex h-full flex-1 flex-col overflow-hidden">
+              <div className="flex h-12 items-center border-b border-border px-4 md:hidden">
+                <button
+                  onClick={() => setSidebarOpen(true)}
+                  className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground"
+                >
+                  <IconMenu2 className="h-4 w-4" />
+                </button>
+              </div>
               <InvitationBanner />
               <Outlet />
             </div>

@@ -18,9 +18,9 @@ const DEFAULT_DESIGN_SYSTEM: DesignSystemData = {
     bodyWeight: "400",
     headingSizes: { h1: "64px", h2: "40px", h3: "28px" },
   },
-  spacing: { slidePadding: "80px 110px", elementGap: "20px" },
+  spacing: { pagePadding: "80px 110px", elementGap: "20px" },
   borders: { radius: "12px", accentWidth: "4px" },
-  slideDefaults: { background: "#000000", labelStyle: "uppercase" },
+  defaults: { background: "#000000", labelStyle: "uppercase" },
   logos: [],
 };
 

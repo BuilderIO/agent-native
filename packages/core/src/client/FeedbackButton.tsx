@@ -217,7 +217,7 @@ export function FeedbackButton({
           <TooltipPrimitive.Portal>
             <TooltipPrimitive.Content
               sideOffset={6}
-              className="z-[230] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md"
+              className="z-[230] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md animate-in fade-in-0 zoom-in-95"
             >
               {label}
             </TooltipPrimitive.Content>
@@ -252,7 +252,7 @@ export function FeedbackButton({
           align={align}
           sideOffset={8}
           collisionPadding={16}
-          className="z-[300] overflow-hidden rounded-lg border border-border bg-popover shadow-xl outline-none"
+          className="z-[300] overflow-hidden rounded-lg border border-border bg-popover shadow-xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
           style={surfaceStyle}
         >
           {submitted ? (
