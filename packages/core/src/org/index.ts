@@ -16,6 +16,7 @@ export {
   getOrgA2ASecret,
   getA2ASecretByDomain,
   resolveOrgByDomain,
+  resolveOrgIdForEmail,
 } from "./context.js";
 
 export { acceptPendingInvitationsForEmail } from "./accept-pending.js";
@@ -42,4 +43,6 @@ export {
   createInvitationHandler,
   acceptInvitationHandler,
   setA2ASecretHandler,
+  syncA2ASecretHandler,
+  receiveA2ASecretHandler,
 } from "./handlers.js";

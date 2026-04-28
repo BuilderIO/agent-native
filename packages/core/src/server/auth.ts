@@ -548,9 +548,26 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Internal processor endpoint for the integration webhook fanout. The
+    // webhook handler enqueues a task to SQL and dispatches a fresh HTTP POST
+    // to this endpoint so the agent loop runs in its own function execution
+    // (cross-platform serverless-safe — see `integrations/webhook-handler.ts`).
+    // Authenticity is verified via an HMAC token signed with A2A_SECRET, plus
+    // an atomic SQL claim that prevents duplicate processing.
+    if (p === "/_agent-native/integrations/process-task") {
+      return;
+    }
+
     // A2A endpoint verifies authenticity via JWT signed with the org's A2A
     // secret (or the global A2A_SECRET fallback), not via session cookies.
     if (p === "/_agent-native/a2a") {
+      return;
+    }
+
+    // A2A secret receive endpoint — verifies authenticity via JWT signed
+    // with the calling app's A2A secret, not via session cookies. Used to
+    // sync the org A2A secret across connected apps.
+    if (p === "/_agent-native/org/a2a-secret/receive") {
       return;
     }
 
