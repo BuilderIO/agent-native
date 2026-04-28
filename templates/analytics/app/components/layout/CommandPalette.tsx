@@ -14,7 +14,10 @@ import {
   IconTool,
   IconChartBar,
   IconLayoutDashboard,
+  IconSun,
+  IconMoon,
 } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
 import { dashboards } from "@/pages/adhoc/registry";
 import { getIdToken } from "@/lib/auth";
 
@@ -76,6 +79,7 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
 
   const { data: savedCharts = [] } = useQuery({
     queryKey: ["explorer-configs-palette"],
@@ -170,6 +174,20 @@ export function CommandPalette() {
               {t.name}
             </CommandItem>
           ))}
+        </CommandGroup>
+
+        <CommandGroup heading="Appearance">
+          <CommandItem
+            onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+            keywords={["theme", "dark", "light", "mode"]}
+          >
+            {theme === "dark" ? (
+              <IconSun className="mr-2 h-4 w-4 text-muted-foreground" />
+            ) : (
+              <IconMoon className="mr-2 h-4 w-4 text-muted-foreground" />
+            )}
+            Toggle {theme === "dark" ? "light" : "dark"} mode
+          </CommandItem>
         </CommandGroup>
 
         {savedCharts.length > 0 && (

@@ -2,7 +2,7 @@ import { Link, NavLink, useLocation } from "react-router";
 import ThemeToggle from "./ThemeToggle";
 import { useSearchModal, SearchModal } from "./SearchModal";
 import { useState, useEffect } from "react";
-import { IconMessageCircle } from "@tabler/icons-react";
+import { IconMessage } from "@tabler/icons-react";
 
 function SearchTrigger({ onClick }: { onClick: () => void }) {
   return (
@@ -165,7 +165,7 @@ export default function Header() {
               className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
               title="Ask the AI assistant"
             >
-              <IconMessageCircle size={16} stroke={1.5} />
+              <IconMessage size={16} stroke={1.5} />
             </button>
 
             {/* Mobile hamburger */}

@@ -144,6 +144,9 @@ function CreateOrgPane({
   const hasInvites = pendingInvitations.length > 0;
   const hasDomainMatches = domainMatches.length > 0;
   const userDomain = email.split("@")[1] ?? "";
+  const [showCreateForm, setShowCreateForm] = useState(
+    !hasDomainMatches && !hasInvites,
+  );
 
   const busy =
     createOrg.isPending || acceptInvitation.isPending || joinByDomain.isPending;
@@ -165,13 +168,15 @@ function CreateOrgPane({
         {hasDomainMatches && (
           <div className="mb-4">
             <div className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-              Join your team
+              {domainMatches.length === 1
+                ? "Your organization"
+                : "Join your team"}
             </div>
             <ul className="space-y-2">
               {domainMatches.map((match) => (
                 <li
                   key={match.orgId}
-                  className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2"
+                  className="flex items-center gap-3 rounded-lg border border-primary/50 bg-primary/5 px-4 py-3"
                 >
                   <IconAt className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
@@ -186,12 +191,12 @@ function CreateOrgPane({
                     type="button"
                     disabled={busy}
                     onClick={() => joinByDomain.mutate(match.orgId)}
-                    className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                    className="shrink-0 rounded-md bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                   >
                     {joinByDomain.isPending ? (
                       <IconLoader2 className="h-3 w-3 animate-spin" />
                     ) : (
-                      "Join"
+                      `Join ${match.orgName}`
                     )}
                   </button>
                 </li>
@@ -239,64 +244,74 @@ function CreateOrgPane({
         )}
 
         {(hasDomainMatches || hasInvites) && (
-          <div className="mb-4 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowCreateForm((v) => !v)}
+            className="mb-4 flex w-full cursor-pointer items-center gap-3"
+          >
             <div className="h-px flex-1 bg-border" />
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              or create your own
+              or create a separate organization
             </span>
             <div className="h-px flex-1 bg-border" />
-          </div>
+          </button>
         )}
 
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const trimmed = name.trim();
-            if (!trimmed) return;
-            try {
-              await createOrg.mutateAsync(trimmed);
-            } catch {
-              /* surfaced below */
-            }
-          }}
-          className="space-y-3"
-        >
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-foreground">
-              Organization name
-            </span>
-            <input
-              autoFocus={!hasDomainMatches && !hasInvites}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Acme Inc."
-              disabled={busy}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-            />
-          </label>
-          {createOrg.error && (
-            <div className="text-xs text-red-600">
-              {(createOrg.error as Error).message}
-            </div>
-          )}
-          {acceptInvitation.error && (
-            <div className="text-xs text-red-600">
-              {(acceptInvitation.error as Error).message}
-            </div>
-          )}
-          {joinByDomain.error && (
-            <div className="text-xs text-red-600">
-              {(joinByDomain.error as Error).message}
-            </div>
-          )}
-          <button
-            type="submit"
-            disabled={busy || !name.trim()}
-            className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        {showCreateForm && (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const trimmed = name.trim();
+              if (!trimmed) return;
+              try {
+                await createOrg.mutateAsync(trimmed);
+              } catch {
+                /* surfaced below */
+              }
+            }}
+            className="space-y-3"
           >
-            {createOrg.isPending ? "Creating…" : "Create organization"}
-          </button>
-        </form>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-foreground">
+                Organization name
+              </span>
+              <input
+                autoFocus={!hasDomainMatches && !hasInvites}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Acme Inc."
+                disabled={busy}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              />
+            </label>
+            {createOrg.error && (
+              <div className="text-xs text-red-600">
+                {(createOrg.error as Error).message}
+              </div>
+            )}
+            {acceptInvitation.error && (
+              <div className="text-xs text-red-600">
+                {(acceptInvitation.error as Error).message}
+              </div>
+            )}
+            {joinByDomain.error && (
+              <div className="text-xs text-red-600">
+                {(joinByDomain.error as Error).message}
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={busy || !name.trim()}
+              className={
+                hasDomainMatches
+                  ? "w-full rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+                  : "w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              }
+            >
+              {createOrg.isPending ? "Creating…" : "Create organization"}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

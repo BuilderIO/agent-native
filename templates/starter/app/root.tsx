@@ -17,12 +17,14 @@ import { ThemeProvider } from "next-themes";
 import { useDbSync } from "@agent-native/core";
 import {
   AgentSidebar,
+  AgentToggleButton,
   ClientOnly,
   CommandMenu,
   DefaultSpinner,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
-import { IconMenu2 } from "@tabler/icons-react";
+import { IconMenu2, IconSun, IconMoon } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -87,6 +89,7 @@ function DbSyncSetup() {
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
   const location = useLocation();
   useEffect(() => {
     setSidebarOpen(false);
@@ -97,6 +100,15 @@ function AppContent() {
       <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
         <CommandMenu.Group heading="Actions">
           <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+        </CommandMenu.Group>
+        <CommandMenu.Group heading="Appearance">
+          <CommandMenu.Item
+            onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+            keywords={["theme", "dark", "light", "mode"]}
+          >
+            {theme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
+            Toggle {theme === "dark" ? "light" : "dark"} mode
+          </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
       <AgentSidebar
@@ -127,14 +139,27 @@ function AppContent() {
             <Sidebar />
           </div>
           <div className="flex h-full flex-1 flex-col overflow-hidden">
-            <div className="flex h-12 items-center px-4 md:hidden border-b border-border">
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground"
-              >
-                <IconMenu2 className="h-4 w-4" />
-              </button>
-            </div>
+            {(() => {
+              const hasOwnToolbar = location.pathname.startsWith("/tools");
+              return (
+                <header
+                  className={cn(
+                    "flex h-12 items-center justify-between border-b border-border px-4 shrink-0",
+                    hasOwnToolbar && "md:hidden",
+                  )}
+                >
+                  <button
+                    onClick={() => setSidebarOpen(true)}
+                    className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground md:hidden"
+                  >
+                    <IconMenu2 className="h-4 w-4" />
+                  </button>
+                  {!hasOwnToolbar && (
+                    <AgentToggleButton className="ml-auto h-8 w-8 rounded-md hover:bg-accent" />
+                  )}
+                </header>
+              );
+            })()}
             <Outlet />
           </div>
         </div>

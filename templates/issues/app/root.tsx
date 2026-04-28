@@ -1,16 +1,22 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   QueryClient,
   QueryClientProvider,
   useQueryClient,
 } from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
+import { ThemeProvider, useTheme } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useDbSync } from "@agent-native/core";
-import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+import {
+  ClientOnly,
+  DefaultSpinner,
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client";
+import { IconSun, IconMoon } from "@tabler/icons-react";
 import { TAB_ID } from "@/lib/tab-id";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
@@ -140,6 +146,9 @@ export default function Root() {
         },
       }),
   );
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const { theme, setTheme } = useTheme();
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <QueryClientProvider client={queryClient}>
@@ -154,6 +163,24 @@ export default function Root() {
             <AutoFocus />
             <OAuthReturnHandler />
             <DbSyncSetup />
+            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+              <CommandMenu.Group heading="Actions">
+                <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+              </CommandMenu.Group>
+              <CommandMenu.Group heading="Appearance">
+                <CommandMenu.Item
+                  onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  keywords={["theme", "dark", "light", "mode"]}
+                >
+                  {theme === "dark" ? (
+                    <IconSun size={16} />
+                  ) : (
+                    <IconMoon size={16} />
+                  )}
+                  Toggle {theme === "dark" ? "light" : "dark"} mode
+                </CommandMenu.Item>
+              </CommandMenu.Group>
+            </CommandMenu>
             <AppLayout>
               <Outlet />
             </AppLayout>

@@ -38,7 +38,6 @@ import {
   IconTerminal2,
   IconSettings,
   IconLayoutSidebarRightCollapse,
-  IconLayoutSidebarRightExpand,
   IconLayoutGrid,
   IconCheck,
   IconPlus,
@@ -110,7 +109,7 @@ const AGENT_PANEL_ROOT_STYLE = {
   lineHeight: 1.2,
 } satisfies React.CSSProperties;
 const AGENT_PANEL_HEADER_CLASS =
-  "relative z-[240] flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border";
+  "relative z-[240] flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border";
 const AGENT_PANEL_HEADER_STYLE = {
   paddingLeft: 8,
   paddingRight: 8,
@@ -1796,7 +1795,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
       )}
       title="Toggle agent"
     >
-      <IconLayoutSidebarRightExpand size={16} />
+      <IconMessage size={16} />
     </button>
   );
 }

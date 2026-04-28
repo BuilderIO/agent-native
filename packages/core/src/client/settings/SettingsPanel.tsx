@@ -1461,8 +1461,6 @@ export function SettingsPanel({
           connectUrl={connectUrl}
           connected={connected}
           orgName={orgName}
-          comingSoon
-          builderEnabled={builderEnabled}
         />
       </SettingsSection>
 

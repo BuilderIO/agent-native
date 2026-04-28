@@ -276,6 +276,10 @@ export default function PromptPopover({
           </div>
 
           <div className="flex items-center gap-3">
+            <span className="text-[10px] text-white/25">
+              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+              +Enter
+            </span>
             {onSkip && (
               <button
                 onClick={() => {

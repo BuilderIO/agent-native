@@ -116,6 +116,12 @@ export class McpClientManager {
     return !!this.config && Object.keys(this.config.servers).length > 0;
   }
 
+  /** Return the current config (read-only snapshot for callers that need to
+   *  merge new servers into the existing set before calling reconfigure). */
+  getConfig(): McpConfig | null {
+    return this.config;
+  }
+
   /** List of configured server ids (whether or not they're connected). */
   get configuredServers(): string[] {
     if (!this.config) return [];

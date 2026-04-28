@@ -808,7 +808,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 z-10"
         />
       )}
-      <div className="flex h-14 items-center border-b border-border px-4 lg:h-[60px] lg:px-6">
+      <div className="flex h-12 items-center border-b border-border px-4 lg:px-6">
         <Link to="/" className="font-semibold">
           <span className="text-lg font-bold tracking-tight">Analytics</span>
         </Link>

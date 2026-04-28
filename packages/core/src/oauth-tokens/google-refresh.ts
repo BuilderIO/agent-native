@@ -122,6 +122,13 @@ export function startGoogleTokenRefreshLoop(
 ): void {
   if (_started) return;
   _started = true;
+
+  // In dev mode the local DB is usually the shared prod DB. Proactively
+  // refreshing every user's token with local OAuth credentials always fails
+  // (wrong client_id/secret). Tokens still refresh reactively on-demand.
+  if (process.env.NODE_ENV !== "production") {
+    return;
+  }
   const intervalMs = opts.intervalMs ?? 20 * 60 * 1000;
   const bufferMs = opts.bufferMs ?? 15 * 60 * 1000;
 

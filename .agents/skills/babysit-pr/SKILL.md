@@ -16,6 +16,24 @@ Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and review feedback 
 
 ## Each tick
 
+**Step 0 — always do this first, before anything else:**
+
+1. Run `git status --short` to check for local uncommitted changes from concurrent agents.
+2. If any exist: look at `git diff --stat` to understand what changed, then write a descriptive commit message based on the actual changes (e.g. "feat(tools): add error toast + dark mode sync" or "fix(analytics): update sidebar layout"). Never use generic messages like "chore: sweep concurrent agent changes".
+3. `git add <files> && git commit -m "<descriptive message>" && git push`.
+4. Run `git log --oneline origin/<branch>..HEAD` to check for local commits not yet on the remote.
+5. If any unpushed commits exist: `git push`.
+
+This ensures every tick starts with a clean, fully-pushed working tree. Never skip this step.
+
+**Step 1 — check for merge conflicts:**
+
+1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
+2. If `CONFLICTING`: rebase on main (`git fetch origin main && git rebase origin/main`), resolve conflicts, commit, and push. This resets the soak timer.
+3. If `MERGEABLE` or `UNKNOWN`: proceed.
+
+**Then proceed with PR checks:**
+
 1. Check for new review comments from bots:
    ```bash
    gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/comments --jq '.[] | select(.user.type == "Bot") | select(.created_at > "<30min_ago>") | {id, path: .path, body: .body[0:300]}'
@@ -69,6 +87,22 @@ Fix issues that are:
 - Security issues
 - CLAUDE.md violations
 - Data loss risks
+
+## Merging
+
+**Never auto-merge by default.** Only merge when the user explicitly asks you to.
+
+When the user does ask to merge, all of these must be true **simultaneously for 10 consecutive minutes** before merging:
+
+1. **No local uncommitted changes** — `git status --short` must be empty
+2. **No unpushed commits** — `git log --oneline origin/<branch>..HEAD` must be empty
+3. **All GitHub Actions CI green** — Build, Lint, Test, Typecheck, Scaffold E2E, Guard
+4. **All review comments addressed** — every bot comment has a fix or a reply
+5. **No merge conflicts** — `gh pr view --json mergeable --jq '.mergeable'` must be `MERGEABLE`
+
+The 10-minute soak timer **resets to zero** whenever you push anything, CI fails, a new review comment arrives, merge conflicts appear, or local changes are found and committed.
+
+Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> --squash --admin`.
 
 ## Stop conditions
 

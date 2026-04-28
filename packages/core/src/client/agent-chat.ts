@@ -45,6 +45,17 @@ export interface AgentChatMessage {
    * Pass `false` for background/silent sends that shouldn't pop the UI open.
    */
   openSidebar?: boolean;
+  /**
+   * When true, opens a new chat tab before sending the message.
+   * Use for creation requests (create tool, dashboard, etc.) that deserve
+   * their own isolated thread rather than cluttering an existing conversation.
+   */
+  newTab?: boolean;
+  /**
+   * When true with newTab, creates the tab in the background without
+   * focusing it or opening the sidebar. The message runs silently.
+   */
+  background?: boolean;
 }
 
 const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";
@@ -92,7 +103,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   // via `openSidebar: false` for background/silent sends. AgentSidebar
   // listens for this event; the parent-frame case is handled by whoever
   // owns that sidebar receiving the postMessage above.
-  if (opts.openSidebar !== false) {
+  if (opts.openSidebar !== false && !opts.background) {
     window.dispatchEvent(new CustomEvent("agent-panel:open"));
   }
   return tabId;

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router";
 import {
   AgentSidebar,
@@ -17,23 +17,14 @@ import {
   IconBroadcast,
   IconFingerprint,
   IconHistory,
+  IconLayoutSidebar,
   IconPuzzle,
   IconShieldCheck,
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 
 const NAV_ITEMS = [
   { to: "/overview", label: "Overview", icon: IconBroadcast },
@@ -58,6 +49,60 @@ const SIDEBAR_SUGGESTIONS = [
 
 const CHROMELESS_PATHS = ["/approval"];
 
+function NavContent({ onNavigate }: { onNavigate?: () => void }) {
+  return (
+    <>
+      <div className="border-b px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl border bg-card text-foreground">
+            <IconBellCog size={17} />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-foreground">
+              Dispatch
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Workspace control plane
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto px-2 py-3">
+        <ul className="space-y-0.5">
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <li key={item.to}>
+                <NavLink
+                  to={item.to}
+                  onClick={onNavigate}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+                      isActive
+                        ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    )
+                  }
+                >
+                  <Icon size={16} className="shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </NavLink>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      <div className="border-t px-2 py-2">
+        <ToolsSidebarSection />
+        <FeedbackButton />
+      </div>
+    </>
+  );
+}
+
 export function DispatchShell({
   title,
   description,
@@ -68,98 +113,70 @@ export function DispatchShell({
   children: ReactNode;
 }) {
   const location = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   if (CHROMELESS_PATHS.some((path) => location.pathname === path)) {
     return <>{children}</>;
   }
 
   return (
-    <SidebarProvider defaultOpen>
+    <div className="flex h-screen w-full overflow-hidden bg-background">
+      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+        <NavContent />
+      </aside>
+
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent
+          side="left"
+          className="w-72 p-0 bg-sidebar text-sidebar-foreground [&>button]:hidden"
+        >
+          <div className="flex h-full w-full flex-col">
+            <NavContent onNavigate={() => setMobileOpen(false)} />
+          </div>
+        </SheetContent>
+      </Sheet>
+
       <AgentSidebar
         position="right"
         defaultOpen
         emptyStateText="Manage routes, identities, approvals, and jobs."
         suggestions={SIDEBAR_SUGGESTIONS}
       >
-        <div className="flex min-h-screen w-full bg-background">
-          <Sidebar collapsible="offcanvas" className="border-r">
-            <SidebarHeader className="border-b px-4 py-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl border bg-card text-foreground">
-                  <IconBellCog size={17} />
-                </div>
-                <div>
-                  <div className="text-sm font-semibold text-foreground">
-                    Dispatch
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Workspace control plane
-                  </div>
-                </div>
+        <div className="flex h-full flex-1 flex-col overflow-hidden">
+          <header className="flex h-14 shrink-0 items-center justify-between border-b px-4 sm:px-6">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 md:hidden"
+                onClick={() => setMobileOpen(true)}
+              >
+                <IconLayoutSidebar />
+              </Button>
+              <div className="text-sm font-medium text-muted-foreground">
+                Workspace control plane
               </div>
-            </SidebarHeader>
+            </div>
+            <AgentToggleButton />
+          </header>
 
-            <SidebarContent className="px-2 py-3">
-              <SidebarMenu>
-                {NAV_ITEMS.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <SidebarMenuItem key={item.to}>
-                      <SidebarMenuButton asChild tooltip={item.label}>
-                        <NavLink to={item.to}>
-                          {({ isActive }) => (
-                            <span
-                              className={cn(
-                                "flex items-center gap-2",
-                                isActive && "text-foreground",
-                              )}
-                              data-active={isActive}
-                            >
-                              <Icon size={16} />
-                              <span>{item.label}</span>
-                            </span>
-                          )}
-                        </NavLink>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarContent>
-            <SidebarFooter className="border-t px-2 py-2">
-              <ToolsSidebarSection />
-              <FeedbackButton />
-            </SidebarFooter>
-          </Sidebar>
+          <InvitationBanner />
 
-          <SidebarInset className="bg-background">
-            <header className="flex h-14 items-center justify-between border-b px-4 sm:px-6">
-              <div className="flex items-center gap-2">
-                <SidebarTrigger className="md:hidden" />
-                <div className="text-sm font-medium text-muted-foreground">
-                  Workspace control plane
-                </div>
+          <main className="flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+              <div className="border-b pb-4">
+                <h1 className="text-2xl font-semibold text-foreground">
+                  {title}
+                </h1>
+                <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                  {description}
+                </p>
               </div>
-              <AgentToggleButton />
-            </header>
-
-            <InvitationBanner />
-
-            <main className="flex-1 overflow-y-auto">
-              <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-                <div className="border-b pb-4">
-                  <h1 className="text-2xl font-semibold text-foreground">
-                    {title}
-                  </h1>
-                  <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                    {description}
-                  </p>
-                </div>
-                <div className="mt-5 space-y-5">{children}</div>
-              </div>
-            </main>
-          </SidebarInset>
+              <div className="mt-5 space-y-5">{children}</div>
+            </div>
+          </main>
         </div>
       </AgentSidebar>
-    </SidebarProvider>
+    </div>
   );
 }

@@ -34,27 +34,33 @@ Tools have full access to app data via helpers injected into the iframe:
 - `dbQuery(sql, args)` — read from SQL
 - `dbExec(sql, args)` — write to SQL
 - `toolFetch(url, options)` — call external APIs via proxy
-- `toolData.set/list/get/remove(collection, ...)` — persist custom data per-tool
+- `toolData.set/list/get/remove(collection, ...)` — persist custom data per-tool (supports `{ scope: 'user' | 'org' | 'all' }` option)
 
 ## Data Persistence is Built In
 
-**Every tool has `toolData` — a per-tool, per-user key-value store. NO source code changes, NO Builder, NO new tables needed.**
+**Every tool has `toolData` — a per-tool key-value store. NO source code changes, NO Builder, NO new tables needed.**
 
-When a user asks to "add persistence", "save data", "remember state", or "store settings" in a tool, use `toolData`. It handles table creation, user scoping, and upserts automatically. Data is organized into collections per-tool:
+When a user asks to "add persistence", "save data", "remember state", or "store settings" in a tool, use `toolData`. It handles table creation, scoping, and upserts automatically. Data is organized into collections per-tool:
 
 ```javascript
-// Save an item
+// Save a private item (default — only the current user can see it)
 await toolData.set('notes', 'note-1', { title: 'My Note', body: 'Hello' });
 
-// List all items in a collection
-const notes = await toolData.list('notes');
-const parsed = notes.map(n => ({ id: n.id, ...JSON.parse(n.data) }));
+// Save an org-shared item (visible to everyone in the org)
+await toolData.set('notes', 'note-1', { title: 'Team Note', body: 'Hello' }, { scope: 'org' });
+
+// List items by scope
+const myNotes = await toolData.list('notes');                        // user-scoped (default)
+const orgNotes = await toolData.list('notes', { scope: 'org' });    // org-scoped only
+const allNotes = await toolData.list('notes', { scope: 'all' });    // both user + org
 
 // Get one item
-const note = await toolData.get('notes', 'note-1');
+const note = await toolData.get('notes', 'note-1');                         // user-scoped
+const orgNote = await toolData.get('notes', 'note-1', { scope: 'org' });   // org-scoped
 
 // Delete an item
-await toolData.remove('notes', 'note-1');
+await toolData.remove('notes', 'note-1');                                   // user-scoped
+await toolData.remove('notes', 'note-1', { scope: 'org' });                // org-scoped
 ```
 
 **Prefer `toolData` over raw `dbExec` for tool-specific persistence** — it handles everything automatically. Only use `dbQuery`/`dbExec` when querying the app's existing tables.
@@ -205,34 +211,45 @@ await dbExec("UPDATE notes SET title = 'Updated Title' WHERE id = 'abc'");
 | `dbQuery(sql)` | Read from the app's SQL database | `dbQuery('SELECT * FROM notes LIMIT 10')` |
 | `dbExec(sql)` | Write to the app's SQL database | `dbExec("INSERT INTO notes ...")` |
 | `toolFetch(url, options)` | Call external APIs via proxy | `toolFetch('https://api.github.com/user', { headers: { 'Authorization': 'Bearer ${keys.GITHUB_TOKEN}' } })` |
-| `toolData.set(collection, id, data)` | Save an item to tool storage | `toolData.set('todos', 'todo-1', { title: 'Buy milk' })` |
-| `toolData.list(collection)` | List all items in a collection | `toolData.list('todos')` |
-| `toolData.get(collection, id)` | Get a single item by id | `toolData.get('todos', 'todo-1')` |
-| `toolData.remove(collection, id)` | Delete an item | `toolData.remove('todos', 'todo-1')` |
+| `toolData.set(collection, id, data, opts?)` | Save an item to tool storage | `toolData.set('todos', 'todo-1', { title: 'Buy milk' })` |
+| `toolData.list(collection, opts?)` | List items in a collection | `toolData.list('todos', { scope: 'all' })` |
+| `toolData.get(collection, id, opts?)` | Get a single item by id | `toolData.get('todos', 'todo-1')` |
+| `toolData.remove(collection, id, opts?)` | Delete an item | `toolData.remove('todos', 'todo-1')` |
 
 ## Persisting Custom Data
 
-Tools have a built-in key-value store via `toolData`. Each tool gets its own isolated storage, organized into collections:
+Tools have a built-in key-value store via `toolData`. Each tool gets its own isolated storage, organized into collections. Every method accepts an optional `{ scope }` option:
+
+- `'user'` (default) — private to the current user
+- `'org'` — visible to everyone in the user's org
+- `'all'` (list/get only) — returns both user and org items
 
 ```javascript
-// Save an item (id is auto-generated if omitted)
+// Save a private item (default scope: 'user')
 await toolData.set('todos', 'todo-1', { title: 'Buy milk', done: false });
 
-// List all items in a collection
-const todos = await toolData.list('todos');
-// Returns: [{ id, toolId, collection, data (JSON string), ownerEmail, createdAt, updatedAt }]
+// Save an org-shared item
+await toolData.set('todos', 'team-todo-1', { title: 'Ship v2', done: false }, { scope: 'org' });
+
+// List user items (default)
+const myTodos = await toolData.list('todos');
+
+// List org items
+const orgTodos = await toolData.list('todos', { scope: 'org' });
+
+// List both user + org items
+const allTodos = await toolData.list('todos', { scope: 'all' });
+// Returns: [{ id, toolId, collection, data (JSON string), ownerEmail, scope, orgId, createdAt, updatedAt }]
 
 // Parse the JSON data
-const parsed = todos.map(t => ({ ...JSON.parse(t.data), id: t.id }));
+const parsed = allTodos.map(t => ({ ...JSON.parse(t.data), id: t.id, scope: t.scope }));
 
-// Get a single item
-const item = await toolData.get('todos', 'todo-1');
-
-// Delete an item
-await toolData.remove('todos', 'todo-1');
+// Get/delete with scope
+const item = await toolData.get('todos', 'team-todo-1', { scope: 'org' });
+await toolData.remove('todos', 'team-todo-1', { scope: 'org' });
 ```
 
-Data is scoped per-tool and per-user. Each tool can have multiple collections. **Prefer `toolData` over raw `dbExec` for tool-specific persistence** — it handles table creation, user scoping, and upserts automatically.
+Data is scoped per-tool. User-scoped items are private per-user; org-scoped items are shared across the org. Any org member can read, update, or delete org-scoped items. **Prefer `toolData` over raw `dbExec` for tool-specific persistence** — it handles table creation, scoping, and upserts automatically.
 
 ## Using `toolFetch()` for API calls
 
@@ -317,7 +334,7 @@ set-url-path({ "pathname": "/tools/TOOL_ID" })
 Checks the health of multiple endpoints and shows green/red status:
 
 ```html
-<div x-data="{
+<div class="p-6" x-data="{
   endpoints: [
     { name: 'API', url: 'https://api.example.com/health' },
     { name: 'Auth', url: 'https://auth.example.com/health' },
@@ -348,7 +365,7 @@ Checks the health of multiple endpoints and shows green/red status:
 Fetches current weather for a city:
 
 ```html
-<div x-data="{ city: 'San Francisco', weather: null, loading: false }" x-init="
+<div class="p-6" x-data="{ city: 'San Francisco', weather: null, loading: false }" x-init="
   loading = true;
   toolFetch('https://api.weatherapi.com/v1/current.json?q=' + encodeURIComponent(city) + '&key=${keys.WEATHER_API_KEY}')
     .then(r => r.json()).then(d => { weather = d; loading = false })
@@ -375,7 +392,7 @@ Fetches current weather for a city:
 Full CRUD app using the built-in `toolData` store — no SQL, no schema files, no actions. Data is automatically scoped per-tool and per-user:
 
 ```html
-<div x-data="{
+<div class="p-6" x-data="{
   todos: [],
   newTodo: '',
   loading: true,
@@ -436,7 +453,7 @@ Full CRUD app using the built-in `toolData` store — no SQL, no schema files, n
 Persistent notes using localStorage -- no API key needed:
 
 ```html
-<div x-data="{
+<div class="p-6" x-data="{
   notes: JSON.parse(localStorage.getItem('quick-notes') || '[]'),
   draft: '',
   save() {
@@ -475,8 +492,11 @@ Persistent notes using localStorage -- no API key needed:
 
 ## Guidelines
 
+- **Add padding to your root element.** The iframe body has no padding — add `p-4` or `p-6` to the outermost `<div>` in your tool HTML. This gives tools full-bleed control when needed.
+- **Use semantic Tailwind colors for native theming.** Always use `bg-background`, `text-foreground`, `bg-primary`, `text-primary-foreground`, `border-border`, `bg-muted`, `text-muted-foreground`, etc. The tool inherits the parent app's exact theme variables, so it will look fully native in both light and dark modes.
 - **Keep tools focused.** One tool, one job. A "GitHub PR Dashboard" should show PRs, not also manage issues.
 - **Handle loading and error states.** Always show a loading indicator during fetch and handle failures gracefully.
+- **All functions referenced in Alpine expressions must be defined in `x-data`.** If you use `@click="add()"`, there must be an `add()` method in the component's `x-data` object. Undefined references cause runtime errors.
 - **Use the right fetch helper.** `appAction()` for app actions, `appFetch()` for app endpoints, `toolFetch()` for external APIs. Never use raw `fetch()` -- secrets won't be injected and CORS will block external APIs.
 - **Single quotes around `${keys.*}`** to prevent browser-side template literal evaluation.
 - **Prefer patches over full rewrites** when editing existing tools. Smaller diffs are less error-prone.
