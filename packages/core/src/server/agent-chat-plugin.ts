@@ -856,6 +856,94 @@ function createBuilderBrowserTool(deps: {
         });
       },
     },
+    "activate-browser": {
+      tool: {
+        description:
+          "Activate browser automation tools. Call this when you need to interact with a real browser — e.g. to extract design tokens from a rendered page, take screenshots, read computed styles from JS-heavy sites, or test a live URL. After activation, chrome-devtools MCP tools (navigate, click, evaluate_script, take_screenshot, etc.) become available on your next action. Requires Builder.io connection.",
+        parameters: {
+          type: "object",
+          properties: {
+            sessionId: {
+              type: "string",
+              description:
+                "Optional session identifier for the browser connection. Auto-generated if omitted.",
+            },
+          },
+        },
+      },
+      run: async (args) => {
+        const { resolveBuilderCredentials } =
+          await import("./credential-provider.js");
+        const creds = await resolveBuilderCredentials();
+        if (!creds.privateKey || !creds.publicKey) {
+          return JSON.stringify({
+            error: "builder-not-connected",
+            message:
+              "Builder.io is not connected. Call `connect-builder` first to enable browser automation.",
+          });
+        }
+
+        const { requestBuilderBrowserConnection } =
+          await import("./builder-browser.js");
+        const sessionId =
+          (typeof args?.sessionId === "string" && args.sessionId) ||
+          `an-browser-${Date.now()}`;
+
+        let connection: Record<string, unknown>;
+        try {
+          connection = await requestBuilderBrowserConnection({ sessionId });
+        } catch (err: any) {
+          return JSON.stringify({
+            error: "browser-connection-failed",
+            message: `Failed to get browser connection: ${err?.message ?? err}`,
+          });
+        }
+
+        const wsUrl = connection.wsUrl as string;
+        if (!wsUrl) {
+          return JSON.stringify({
+            error: "no-ws-url",
+            message: "Browser connection did not return a WebSocket URL.",
+          });
+        }
+
+        const manager = getGlobalMcpManager();
+        if (!manager) {
+          return JSON.stringify({
+            error: "no-mcp-manager",
+            message: "MCP manager is not available.",
+          });
+        }
+
+        // Add chrome-devtools-mcp server pointing at the provisioned browser
+        const currentConfig = manager.getConfig();
+        const servers = { ...(currentConfig?.servers ?? {}) };
+        servers["chrome-devtools"] = {
+          command: "npx",
+          args: [
+            "-y",
+            "chrome-devtools-mcp@latest",
+            "--wsEndpoint",
+            wsUrl,
+            "--categoryEmulation=false",
+          ],
+          type: "stdio",
+        } as any;
+
+        await manager.reconfigure({
+          servers,
+          source: currentConfig?.source ?? "runtime",
+        });
+
+        return JSON.stringify({
+          success: true,
+          message:
+            "Browser activated. Chrome DevTools MCP tools (mcp__chrome-devtools__*) are now available. Use them on your next action to navigate pages, read DOM, take screenshots, evaluate JavaScript, etc.",
+          wsUrl,
+          sessionId,
+        });
+      },
+    },
   };
 }
 
@@ -1291,11 +1379,26 @@ Convert natural language to 5-field cron format:
 
 When the user asks to connect Builder.io or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a one-click Connect card inline — do NOT write out multi-step setup instructions yourself.`,
 
-  browser: `### Browser Access
+  browser: `### Browser Automation
 
-Use \`connect-builder\` when you need browser access backed by Builder. It renders a Connect card that provisions a browser session.
+You can activate a real Chrome browser via Builder.io for tasks that need full page rendering:
+- Extracting design tokens from JS-heavy or SPA websites (computed styles, rendered colors/fonts)
+- Taking screenshots of live pages
+- Testing interactive flows on deployed URLs
+- Reading content from pages that require JavaScript execution
 
-- If Builder is not configured, the card will guide the user through setup.`,
+**How to use:**
+1. Call \`activate-browser\` — this provisions a Chrome instance and registers chrome-devtools MCP tools
+2. On your next action, use \`mcp__chrome-devtools__navigate_page\`, \`mcp__chrome-devtools__evaluate_script\`, \`mcp__chrome-devtools__take_screenshot\`, etc.
+3. If Builder is not connected, call \`connect-builder\` first
+
+**When to recommend browser automation:**
+- User wants to import a design system from a URL (JS-rendered sites give almost no useful data from plain HTML fetch)
+- User asks you to check how a deployed site looks or behaves
+- Any task involving reading computed/rendered page state
+- When \`web-request\` returns minimal/skeleton HTML from a modern SPA
+
+Prefer \`web-request\` for simple API calls and static pages. Use browser automation when you need the real rendered page.`,
 
   "call-agent": `### call-agent — External Apps Only
 
