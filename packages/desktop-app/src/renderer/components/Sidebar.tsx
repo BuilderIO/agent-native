@@ -10,7 +10,7 @@ import {
   IconClipboardList,
   IconUsers,
   IconCode,
-  IconMessageCircle,
+  IconMessage,
   IconSettings,
   IconScreenShare,
   IconBrush,
@@ -30,7 +30,7 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   ClipboardList: IconClipboardList,
   Users: IconUsers,
   Code: IconCode,
-  MessageCircle: IconMessageCircle,
+  Message: IconMessage,
   ScreenShare: IconScreenShare,
   Brush: IconBrush,
 };

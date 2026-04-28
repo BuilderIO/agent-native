@@ -291,7 +291,7 @@ export function FeedbackButton({
                 <div
                   className={cn(
                     "text-[11px]",
-                    error ? "text-destructive" : "text-muted-foreground",
+                    error ? "text-destructive" : "text-muted-foreground/50",
                   )}
                 >
                   {error ??
