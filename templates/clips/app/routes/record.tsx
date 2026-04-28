@@ -257,6 +257,7 @@ export default function RecordRoute() {
             console.error("[recorder] error:", err);
             toast.error(err.message);
             setError(err.message);
+            setUiState("error");
           },
           onChunk: ({ index, bytes }) => {
             void writeAppState(`recording-upload-${info.id}`, {
@@ -729,8 +730,7 @@ export default function RecordRoute() {
                 <Button
                   variant="outline"
                   onClick={() => {
-                    setError(null);
-                    setUiState("idle");
+                    void doCancel();
                   }}
                 >
                   Try again
