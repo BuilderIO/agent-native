@@ -20,6 +20,8 @@ import {
   IconLoader2,
   IconChartBar,
   IconSettings,
+  IconMenu2,
+  IconX,
 } from "@tabler/icons-react";
 
 const navItems = [
@@ -33,8 +35,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const isEntry = location.pathname === "/" || location.pathname === "/entry";
   const isAnalytics = location.pathname === "/analytics";
+
+  // Auto-close sidebar on route change (mobile)
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
 
   // Navigation state sync - write current view to application state
   useEffect(() => {
@@ -93,12 +102,33 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       ]}
     >
       <div className="flex flex-1 overflow-hidden">
+        {/* Mobile backdrop */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/50 md:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
         {/* Left sidebar */}
-        <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
+        <aside
+          className={cn(
+            "fixed inset-y-0 left-0 z-50 flex w-56 flex-col border-r border-border bg-sidebar text-sidebar-foreground md:static md:z-auto",
+            sidebarOpen
+              ? "translate-x-0"
+              : "-translate-x-full md:translate-x-0",
+          )}
+        >
           <div className="flex h-12 items-center px-4 border-b border-border">
             <span className="font-logo font-bold tracking-tight text-sm text-foreground">
               Macros
             </span>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent md:hidden"
+            >
+              <IconX className="h-4 w-4" />
+            </button>
           </div>
 
           <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
@@ -136,7 +166,17 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </aside>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto">
+          <div className="flex h-12 items-center px-4 md:hidden border-b border-border">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground"
+            >
+              <IconMenu2 className="h-4 w-4" />
+            </button>
+          </div>
+          {children}
+        </main>
         <AgentActionOptimisticUpdates />
         <SyncIndicator />
       </div>

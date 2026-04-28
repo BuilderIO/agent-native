@@ -1,4 +1,4 @@
-import { ReactNode, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useParams } from "react-router";
 import {
   IconInbox,
@@ -9,6 +9,7 @@ import {
   IconPlayerRecord,
   IconAppWindow,
   IconX,
+  IconMenu2,
 } from "@tabler/icons-react";
 import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
@@ -73,6 +74,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     [libFolders],
   );
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const createFolder = useCreateFolder();
@@ -126,8 +133,23 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           description="Clips organizes recordings by team. Create an organization to continue — you can invite teammates afterward."
         >
           <div className="flex h-full w-full">
+            {/* Mobile backdrop */}
+            {sidebarOpen && (
+              <div
+                className="fixed inset-0 z-40 bg-black/50 md:hidden"
+                onClick={() => setSidebarOpen(false)}
+              />
+            )}
+
             {/* Left sidebar */}
-            <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-border bg-sidebar">
+            <aside
+              className={cn(
+                "fixed inset-y-0 left-0 z-50 flex h-full w-[260px] flex-col border-r border-border bg-sidebar md:static md:z-auto",
+                sidebarOpen
+                  ? "translate-x-0"
+                  : "-translate-x-full md:translate-x-0",
+              )}
+            >
               <div className="px-3 py-3">
                 <OrganizationSwitcher />
               </div>
@@ -253,6 +275,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             {/* Main content area */}
             <div className="flex min-w-0 flex-1 flex-col">
               <header className="flex items-center gap-3 border-b border-border px-5 py-2">
+                <button
+                  onClick={() => setSidebarOpen(true)}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground md:hidden"
+                >
+                  <IconMenu2 className="h-4 w-4" />
+                </button>
                 <SearchBar />
                 <div className="ml-auto flex items-center gap-2">
                   <AgentToggleButton />
