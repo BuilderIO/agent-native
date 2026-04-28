@@ -260,6 +260,7 @@ export default function RecordRoute() {
             console.error("[recorder] error:", err);
             toast.error(err.message);
             setError(err.message);
+            setUiState("error");
           },
           onChunk: ({ index, bytes }) => {
             void writeAppState(`recording-upload-${info.id}`, {
@@ -364,6 +365,10 @@ export default function RecordRoute() {
       }
 
       await engine.stop();
+      // Recording is fully saved — clear refs so that if anything below throws
+      // and the user clicks "Try again", doCancel() won't trash a good recording.
+      pendingRef.current = null;
+      engineRef.current = null;
       setCameraStream(null);
       setPreviewStream(null);
       setUiState("complete");
@@ -482,6 +487,11 @@ export default function RecordRoute() {
       if (e.key === "Escape") {
         if (!showStopConfirm && uiState === "recording") {
           e.preventDefault();
+          // Stop propagation so the same Esc keydown doesn't also trigger
+          // the AlertDialog's built-in Esc-to-close handler, which would
+          // immediately dismiss the dialog the moment it opens — leaving
+          // the user trapped in recording state with a flickering dialog.
+          e.stopPropagation();
           requestStop();
           return;
         }
@@ -753,8 +763,7 @@ export default function RecordRoute() {
                 <Button
                   variant="outline"
                   onClick={() => {
-                    setError(null);
-                    setUiState("idle");
+                    void doCancel();
                   }}
                 >
                   Try again

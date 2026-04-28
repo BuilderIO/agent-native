@@ -149,6 +149,12 @@ export function App() {
     "unknown",
   );
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
+  const [signInPending, setSignInPending] = useState(false);
+  // Ref-based lock so two fast clicks cannot both enter signInExternal()
+  // (state updates are async; refs are synchronous).
+  const signInInflightRef = useRef(false);
+  // Stored so Cancel can stop the polling loop.
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRecording = recorder !== null;
   const updateVoiceShortcut = useCallback((value: VoiceShortcutPreference) => {
     saveBool(VOICE_SHORTCUT_CONFIGURED_KEY, true);
@@ -208,6 +214,18 @@ export function App() {
   // Instead: fetch the Google auth URL, open it externally, then poll a
   // server-side exchange endpoint for the session token.
   async function signInExternal() {
+    // Synchronous ref guard — prevents a double-click from opening two OAuth
+    // tabs. State updates are async so `signInPending` alone isn't sufficient.
+    if (signInInflightRef.current) return;
+    signInInflightRef.current = true;
+
+    function stopPolling() {
+      if (pollIntervalRef.current !== null) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    }
+
     try {
       const flowId =
         crypto.randomUUID?.() ||
@@ -221,30 +239,52 @@ export function App() {
         `${base}/_agent-native/google/auth-url?desktop=1&flow_id=${flowId}&redirect=1`,
       );
 
+      setSignInPending(true);
+
       // Poll the exchange endpoint for the session token.
       const start = Date.now();
-      const interval = setInterval(async () => {
+      const TIMEOUT_MS = 180_000; // 3 minutes
+      pollIntervalRef.current = setInterval(async () => {
         try {
           const xr = await fetch(
             `${base}/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
           );
+          if (!xr.ok) {
+            if (Date.now() - start > TIMEOUT_MS) {
+              stopPolling();
+              signInInflightRef.current = false;
+              setSignInPending(false);
+            }
+            return;
+          }
           const xd = await xr.json();
           if (xd?.token) {
-            clearInterval(interval);
+            stopPolling();
+            // Establish the session cookie in the Tauri WebView's cookie jar.
             await fetch(
               `${base}/_agent-native/auth/session?_session=${xd.token}`,
               { credentials: "include" },
             );
+            signInInflightRef.current = false;
+            setSignInPending(false);
             await checkAuth();
-          } else if (Date.now() - start > 120_000) {
-            clearInterval(interval);
+          } else if (Date.now() - start > TIMEOUT_MS) {
+            stopPolling();
+            signInInflightRef.current = false;
+            setSignInPending(false);
           }
         } catch {
-          if (Date.now() - start > 120_000) clearInterval(interval);
+          if (Date.now() - start > TIMEOUT_MS) {
+            stopPolling();
+            signInInflightRef.current = false;
+            setSignInPending(false);
+          }
         }
       }, 1500);
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
+      signInInflightRef.current = false;
+      setSignInPending(false);
     }
   }
 
@@ -969,13 +1009,34 @@ export function App() {
       <div className="app" ref={appRef}>
         <Header mode={mode} onModeChange={setMode} />
         <UpdateBanner />
-        <SignInForm
-          serverUrl={serverUrl}
-          onSignedIn={async () => {
-            await checkAuth();
-          }}
-          onUseBrowser={signInExternal}
-        />
+        {signInPending ? (
+          <div className="signin-pending">
+            <div className="signin-pending-spinner" />
+            <p className="signin-pending-text">Waiting for browser sign-in…</p>
+            <button
+              type="button"
+              className="signin-pending-cancel"
+              onClick={() => {
+                if (pollIntervalRef.current !== null) {
+                  clearInterval(pollIntervalRef.current);
+                  pollIntervalRef.current = null;
+                }
+                signInInflightRef.current = false;
+                setSignInPending(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <SignInForm
+            serverUrl={serverUrl}
+            onSignedIn={async () => {
+              await checkAuth();
+            }}
+            onUseBrowser={signInExternal}
+          />
+        )}
         <div className="footer">
           <a className="footer-link" onClick={() => setShowSettings(true)}>
             Settings
