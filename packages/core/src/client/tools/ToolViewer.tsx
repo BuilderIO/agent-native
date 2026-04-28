@@ -148,11 +148,44 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
     return () => observer.disconnect();
   }, []);
 
+  const sendThemeToIframe = () => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    win.postMessage(
+      {
+        type: "agent-native-theme-update",
+        isDark: document.documentElement.classList.contains("dark"),
+        vars: getParentThemeVars(),
+      },
+      "*",
+    );
+  };
+
+  useEffect(() => {
+    if (!iframeReady) return;
+    sendThemeToIframe();
+  }, [isDark, iframeReady]);
+
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
       const message = event.data;
-      if (!message || message.type !== "agent-native-tool-request") return;
+      if (!message) return;
+
+      if (message.type === "agent-native-tool-error-fix") {
+        const t = toolRef.current;
+        if (!t) return;
+        const errors: string[] = message.errors || [];
+        sendToAgentChat({
+          message: `Fix runtime errors in this tool:\n${errors.join("\n")}`,
+          context: `The user is viewing tool "${t.name}" (id: ${t.id}) and there are runtime errors that need fixing.`,
+          submit: true,
+          openSidebar: true,
+        });
+        return;
+      }
+
+      if (message.type !== "agent-native-tool-request") return;
 
       const requestId = String(message.requestId ?? "");
       const path = String(message.path ?? "");
@@ -212,6 +245,18 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
       return res.json();
     },
   });
+
+  toolRef.current = tool ?? null;
+
+  const iframeSrc = useMemo(
+    () =>
+      `/_agent-native/tools/${toolId}/render?dark=${document.documentElement.classList.contains("dark")}&v=${encodeURIComponent(tool?.updatedAt ?? "")}&r=${refreshKey}`,
+    [toolId, tool?.updatedAt, refreshKey],
+  );
+
+  useEffect(() => {
+    setIframeReady(false);
+  }, [toolId, tool?.updatedAt, refreshKey]);
 
   const startRename = useCallback(() => {
     if (!tool) return;
@@ -314,14 +359,25 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
           />
         </div>
       </div>
-      <iframe
-        ref={iframeRef}
-        key={`${tool.updatedAt}-${refreshKey}`}
-        src={`/_agent-native/tools/${toolId}/render?dark=${isDark}&v=${encodeURIComponent(tool.updatedAt ?? "")}&r=${refreshKey}`}
-        className="flex-1 w-full border-0"
-        sandbox="allow-scripts allow-forms"
-        title={tool.name}
-      />
+      <div className="relative flex-1 min-h-0">
+        {!iframeReady && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+          </div>
+        )}
+        <iframe
+          ref={iframeRef}
+          key={`${tool.updatedAt}-${refreshKey}`}
+          src={iframeSrc}
+          className="h-full w-full border-0"
+          sandbox="allow-scripts allow-forms"
+          title={tool.name}
+          onLoad={() => {
+            sendThemeToIframe();
+            setTimeout(() => setIframeReady(true), 150);
+          }}
+        />
+      </div>
     </div>
   );
 }
