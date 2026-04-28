@@ -340,33 +340,42 @@ export class RecorderEngine {
     }
 
     // The MediaRecorder may have auto-stopped if all its tracks ended (e.g.
-    // display-only mode with no mic). In that case the browser already fired
-    // `dataavailable` with the final buffered data, which was queued for
-    // upload by our existing `dataavailable` listener. We just need to drain
-    // that queue and send the `isFinal=1` marker so the server can finalize.
+    // display-only mode with no mic). Different browsers dispatch `dataavailable`
+    // either before or after state transitions to `inactive`. Yielding one
+    // macrotask (setTimeout 0) ensures any still-pending `dataavailable` event
+    // runs first and gets queued by our start()-time listener before we drain
+    // the chunk queue and send the isFinal=1 sentinel.
     if (this.recorder.state === "inactive") {
       this.transition("stopping");
+      // Yield to the event loop so any pending dataavailable event from the
+      // auto-stop can fire and be queued before we drain chunkQueue.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
       await this.chunkQueue.catch(() => {});
       const dimensions = this.readDimensions();
       const durationMs = Math.round(this.getElapsedMs());
       const hasAudio = this.hasAudioTrack();
       const hasCamera = !!this.cameraStream;
       this.transition("uploading", { progress: 100 });
-      const result = await this.uploadChunk(
-        new Blob([], { type: this.mimeType }),
-        this.chunkIndex++,
-        {
-          isFinal: true,
-          total: this.chunkIndex,
-          mimeType: this.mimeType,
-          durationMs,
-          width: dimensions.width,
-          height: dimensions.height,
-          hasAudio,
-          hasCamera,
-        },
-      );
-      this.cleanupTracks();
+      let result: Record<string, unknown> | undefined;
+      try {
+        result = await this.uploadChunk(
+          new Blob([], { type: this.mimeType }),
+          this.chunkIndex++,
+          {
+            isFinal: true,
+            total: this.chunkIndex,
+            mimeType: this.mimeType,
+            durationMs,
+            width: dimensions.width,
+            height: dimensions.height,
+            hasAudio,
+            hasCamera,
+          },
+        );
+      } finally {
+        // Always release hardware resources, even if the final upload failed.
+        this.cleanupTracks();
+      }
       this.transition("complete");
       return {
         videoUrl: (result?.videoUrl as string | undefined) ?? null,
