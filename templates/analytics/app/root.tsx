@@ -9,6 +9,7 @@ import {
   DefaultSpinner,
   useDbSync,
 } from "@agent-native/core/client";
+import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
@@ -28,7 +29,7 @@ export const links: LinksFunction = () => [
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -76,19 +77,26 @@ export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
-      <QueryClientProvider client={queryClient}>
-        <DbSyncBridge queryClient={queryClient} />
-        <TooltipProvider>
-          <Toaster />
-          <Sonner position="bottom-left" />
-          <AuthProvider>
-            <CommandPalette />
-            <AppLayout>
-              <Outlet />
-            </AppLayout>
-          </AuthProvider>
-        </TooltipProvider>
-      </QueryClientProvider>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="dark"
+        enableSystem
+        disableTransitionOnChange
+      >
+        <QueryClientProvider client={queryClient}>
+          <DbSyncBridge queryClient={queryClient} />
+          <TooltipProvider>
+            <Toaster />
+            <Sonner position="bottom-left" />
+            <AuthProvider>
+              <CommandPalette />
+              <AppLayout>
+                <Outlet />
+              </AppLayout>
+            </AuthProvider>
+          </TooltipProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
     </ClientOnly>
   );
 }

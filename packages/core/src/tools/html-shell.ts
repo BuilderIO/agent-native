@@ -20,6 +20,7 @@ export function buildToolHtml(
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
   <style>${themeVars}</style>
   <style type="text/tailwindcss">
+    @custom-variant dark (&:where(.dark, .dark *));
     @theme {
       --color-border: hsl(var(--border));
       --color-input: hsl(var(--input));
@@ -55,7 +56,7 @@ export function buildToolHtml(
   </style>
 	  <style>
 	    *, *::before, *::after { border-color: hsl(var(--border)); }
-	    body { font-family: 'Inter', sans-serif; margin: 0; padding: 1.5rem; }
+	    body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; min-height: 100vh; }
 	  </style>
 	  <script>
 	    var _toolRequestSeq = 0;
@@ -176,25 +177,29 @@ export function buildToolHtml(
     var toolData = {
 	      async list(collection, opts) {
 	        var limit = (opts && opts.limit) || 100;
-	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection) + '?limit=' + limit);
+	        var scope = (opts && opts.scope) || 'user';
+	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection) + '?limit=' + limit + '&scope=' + scope);
 	        if (!res.ok) throw new Error('Failed to list tool data');
 	        return res.body;
 	      },
-      async get(collection, id) {
-        var items = await this.list(collection);
+      async get(collection, id, opts) {
+        var scope = (opts && opts.scope) || 'user';
+        var items = await this.list(collection, { scope: scope });
         return (items || []).find(function(item) { return item.id === id; }) || null;
       },
-      async set(collection, id, data) {
+      async set(collection, id, data, opts) {
+	        var scope = (opts && opts.scope) || 'user';
 	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection), {
 	          method: 'POST',
 	          headers: { 'Content-Type': 'application/json' },
-	          body: JSON.stringify({ id: id, data: data }),
+	          body: JSON.stringify({ id: id, data: data, scope: scope }),
 	        });
 	        if (!res.ok) throw new Error('Failed to save tool data');
 	        return res.body;
 	      },
-	      async remove(collection, id) {
-	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection) + '/' + encodeURIComponent(id), {
+	      async remove(collection, id, opts) {
+	        var scope = (opts && opts.scope) || 'user';
+	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection) + '/' + encodeURIComponent(id) + '?scope=' + scope, {
 	          method: 'DELETE',
 	        });
 	        if (!res.ok) throw new Error('Failed to delete tool data');
@@ -202,9 +207,101 @@ export function buildToolHtml(
 	      },
 	    };
 	  </script>
+	  <style>
+	    #__tool-error-toast {
+	      display: none;
+	      position: fixed;
+	      bottom: 12px;
+	      left: 12px;
+	      right: 12px;
+	      background: hsl(0 84.2% 60.2%);
+	      color: white;
+	      border-radius: 8px;
+	      padding: 10px 14px;
+	      font-size: 13px;
+	      font-family: 'Inter', sans-serif;
+	      z-index: 9999;
+	      box-shadow: 0 4px 12px rgba(0,0,0,.2);
+	      animation: __toast-in 0.2s ease-out;
+	    }
+	    @keyframes __toast-in {
+	      from { opacity: 0; transform: translateY(8px); }
+	      to { opacity: 1; transform: translateY(0); }
+	    }
+	  </style>
+	  <script>
+	    var _toolErrors = [];
+
+	    function _collectError(message) {
+	      if (!message || _toolErrors.indexOf(message) !== -1) return;
+	      _toolErrors.push(message);
+	      var toast = document.getElementById('__tool-error-toast');
+	      if (!toast) return;
+	      var msg = document.getElementById('__tool-error-msg');
+	      if (_toolErrors.length === 1) {
+	        msg.textContent = _toolErrors[0];
+	      } else {
+	        msg.textContent = _toolErrors.length + ' errors \u2014 ' + _toolErrors[_toolErrors.length - 1];
+	      }
+	      toast.style.display = 'block';
+	    }
+
+	    window.addEventListener('error', function(event) {
+	      var msg = event.message || '';
+	      if (msg.indexOf('Alpine Expression Error') === 0) return;
+	      _collectError(msg);
+	    });
+
+	    window.addEventListener('unhandledrejection', function(event) {
+	      _collectError(event.reason && event.reason.message ? event.reason.message : String(event.reason));
+	    });
+
+	    window.addEventListener('message', function(event) {
+	      var msg = event.data;
+	      if (!msg || msg.type !== 'agent-native-theme-update') return;
+	      var root = document.documentElement;
+	      if (msg.isDark !== undefined) {
+	        if (msg.isDark) root.classList.add('dark');
+	        else root.classList.remove('dark');
+	      }
+	      var vars = msg.vars || {};
+	      for (var key in vars) {
+	        if (vars.hasOwnProperty(key)) {
+	          root.style.setProperty(key, vars[key]);
+	        }
+	      }
+	    });
+
+	    document.addEventListener('DOMContentLoaded', function() {
+	      var fixBtn = document.getElementById('__tool-error-fix');
+	      if (fixBtn) {
+	        fixBtn.addEventListener('click', function() {
+	          window.parent.postMessage({
+	            type: 'agent-native-tool-error-fix',
+	            errors: _toolErrors
+	          }, '*');
+	          document.getElementById('__tool-error-toast').style.display = 'none';
+	        });
+	      }
+	      var dismissBtn = document.getElementById('__tool-error-dismiss');
+	      if (dismissBtn) {
+	        dismissBtn.addEventListener('click', function() {
+	          document.getElementById('__tool-error-toast').style.display = 'none';
+	        });
+	      }
+	    });
+	  </script>
 	</head>
 	<body${toolId ? ` data-tool-id="${toolIdAttr}"` : ""} class="bg-background text-foreground">
 	${content}
+	<div id="__tool-error-toast">
+	  <div style="display:flex;align-items:center;gap:8px;">
+	    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+	    <span id="__tool-error-msg" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+	    <button id="__tool-error-fix" style="cursor:pointer;border:none;background:rgba(255,255,255,.9);color:hsl(0 84.2% 40%);font-size:12px;font-weight:500;padding:4px 12px;border-radius:4px;">Fix</button>
+	    <button id="__tool-error-dismiss" style="cursor:pointer;border:none;background:transparent;color:inherit;font-size:16px;padding:2px 6px;opacity:0.7;">&#215;</button>
+	  </div>
+	</div>
 	</body>
 	</html>`;
 }

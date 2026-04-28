@@ -18,7 +18,8 @@ import {
 } from "@agent-native/core/client";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NavSidebar } from "@/components/layout/NavSidebar";
-import { IconMenu2 } from "@tabler/icons-react";
+import { IconMenu2, IconSun, IconMoon } from "@tabler/icons-react";
+import { ThemeProvider, useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
@@ -36,7 +37,7 @@ export const links: LinksFunction = () => [
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -70,6 +71,7 @@ const STUDIO_PREFIXES = ["/c/"];
 
 function AppContent() {
   useNavigationState();
+  const { theme, setTheme } = useTheme();
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const location = useLocation();
@@ -91,6 +93,15 @@ function AppContent() {
         <CommandMenu.Group heading="Videos">
           <CommandMenu.Item onSelect={() => {}}>
             Search compositions
+          </CommandMenu.Item>
+        </CommandMenu.Group>
+        <CommandMenu.Group heading="Appearance">
+          <CommandMenu.Item
+            onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+            keywords={["theme", "dark", "light", "mode"]}
+          >
+            {theme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
+            Toggle {theme === "dark" ? "light" : "dark"} mode
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
@@ -146,9 +157,16 @@ export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
-      <QueryClientProvider client={queryClient}>
-        <AppContent />
-      </QueryClientProvider>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="dark"
+        enableSystem
+        disableTransitionOnChange
+      >
+        <QueryClientProvider client={queryClient}>
+          <AppContent />
+        </QueryClientProvider>
+      </ThemeProvider>
     </ClientOnly>
   );
 }

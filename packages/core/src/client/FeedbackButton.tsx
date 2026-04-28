@@ -291,10 +291,11 @@ export function FeedbackButton({
                 <div
                   className={cn(
                     "text-[11px]",
-                    error ? "text-destructive" : "text-muted-foreground",
+                    error ? "text-destructive" : "text-muted-foreground/75",
                   )}
                 >
-                  {error ?? "⌘+Enter to send"}
+                  {error ??
+                    `${/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter to send`}
                 </div>
                 <button
                   type="submit"

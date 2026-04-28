@@ -19,6 +19,8 @@ import {
   TOOL_DATA_CREATE_SQL_PG,
   TOOL_DATA_ITEM_INDEX_SQL,
   TOOL_DATA_ITEM_INDEX_SQL_PG,
+  TOOL_DATA_DROP_OLD_INDEX_SQL,
+  TOOL_DATA_DROP_OLD_INDEX_SQL_PG,
 } from "./schema.js";
 
 const getDb = createGetDb({ tools, toolShares });
@@ -36,6 +38,10 @@ export async function ensureToolsTables(): Promise<void> {
       );
       await client.execute(pg ? TOOL_DATA_CREATE_SQL_PG : TOOL_DATA_CREATE_SQL);
       await ensureToolDataItemId(client, pg);
+      await ensureToolDataScope(client, pg);
+      await client.execute(
+        pg ? TOOL_DATA_DROP_OLD_INDEX_SQL_PG : TOOL_DATA_DROP_OLD_INDEX_SQL,
+      );
       await client.execute(
         pg ? TOOL_DATA_ITEM_INDEX_SQL_PG : TOOL_DATA_ITEM_INDEX_SQL,
       );
@@ -94,6 +100,35 @@ async function makeSqliteToolDataItemIdNullable(
     FROM tool_data_old
   `);
   await client.execute(`DROP TABLE tool_data_old`);
+}
+
+async function ensureToolDataScope(
+  client: ReturnType<typeof getDbExec>,
+  pg: boolean,
+): Promise<void> {
+  const addCol = (name: string, def: string) => {
+    if (pg) {
+      return client.execute(
+        `ALTER TABLE tool_data ADD COLUMN IF NOT EXISTS ${name} ${def}`,
+      );
+    }
+    return client
+      .execute(`ALTER TABLE tool_data ADD COLUMN ${name} ${def}`)
+      .catch((err: any) => {
+        if (
+          !String(err?.message ?? err)
+            .toLowerCase()
+            .includes("duplicate")
+        )
+          throw err;
+      });
+  };
+  await addCol("scope", "TEXT NOT NULL DEFAULT 'user'");
+  await addCol("org_id", "TEXT");
+  await addCol("scope_key", "TEXT NOT NULL DEFAULT 'local@localhost'");
+  await client.execute(
+    `UPDATE tool_data SET scope_key = owner_email WHERE scope_key = 'local@localhost' AND owner_email != 'local@localhost'`,
+  );
 }
 
 export function registerToolsShareable() {

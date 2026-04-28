@@ -10,7 +10,7 @@ import {
   IconChevronDown,
   IconCopy,
   IconArrowUp,
-  IconMessageCircle,
+  IconMessage,
   IconGlobe,
   IconHash,
   IconTrash,
@@ -762,7 +762,7 @@ function BuilderContent({
                   size="icon"
                   aria-label="Edit form with AI"
                 >
-                  <IconMessageCircle className="h-4 w-4" />
+                  <IconMessage className="h-4 w-4" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent

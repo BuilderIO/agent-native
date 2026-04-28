@@ -243,7 +243,7 @@ export default function DesignSystemSetup() {
 
     if (websiteUrls.length > 0) {
       parts.push(
-        `\n## Website URLs\nAnalyze these websites for design tokens. Call \`import-from-url\` for each:\n${websiteUrls.map((u) => `- ${u}`).join("\n")}`,
+        `\n## Website URLs\nExtract design tokens from these websites:\n${websiteUrls.map((u) => `- ${u}`).join("\n")}\n\n**Best approach:** Call \`activate-browser\` first, then use chrome-devtools MCP tools to navigate each URL and extract computed styles (colors, fonts, spacing, CSS custom properties) via \`evaluate_script\`. This captures the real rendered design — including JS-injected styles, CSS-in-JS, and SPA content that plain HTML fetch misses. Take a screenshot too for visual reference. If Builder is not connected, fall back to \`import-from-url\` for each URL (limited to static HTML parsing).`,
       );
     }
 
@@ -321,7 +321,7 @@ export default function DesignSystemSetup() {
     );
 
     openAgentSidebar();
-    sendToAgentChat({ message: parts.join("\n"), submit: true });
+    sendToAgentChat({ message: parts.join("\n"), submit: true, newTab: true });
     navigate("/design-systems");
   }, [
     companyInfo,

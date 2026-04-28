@@ -249,6 +249,12 @@ async function processMessageInBackground(
           responseText = "(No response)";
         }
 
+        // Append thread link for web UI access
+        const baseUrl = process.env.APP_URL || process.env.URL || "";
+        if (baseUrl && threadId) {
+          responseText += `\n\n<${baseUrl}/?thread=${threadId}|View full thread>`;
+        }
+
         // Format and send back to platform
         const outgoing = adapter.formatAgentResponse(responseText);
         await adapter.sendResponse(outgoing, incoming);

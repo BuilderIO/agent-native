@@ -1,6 +1,7 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { focusAgentChat } from "@agent-native/core/client";
 import {
   QueryClient,
   QueryClientProvider,
@@ -14,6 +15,8 @@ import {
   DefaultSpinner,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
+import { useTheme } from "next-themes";
+import { IconSun, IconMoon } from "@tabler/icons-react";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { LinksFunction } from "react-router";
@@ -78,12 +81,51 @@ function DbSyncSetup() {
     ],
     ignoreSource: TAB_ID,
   });
+  useThreadDeepLink();
   return null;
+}
+
+/**
+ * Reads ?thread=<id> from the URL on mount and opens that thread
+ * in the agent sidebar via the chat-command application-state mechanism.
+ */
+function useThreadDeepLink() {
+  const handled = useRef(false);
+  useEffect(() => {
+    if (handled.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const threadId = params.get("thread");
+    if (!threadId) return;
+    handled.current = true;
+
+    // Write a chat-command to application-state so the sidebar opens this thread
+    fetch("/_agent-native/application-state/chat-command", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        command: "open-thread",
+        threadId,
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+
+    // Open the sidebar
+    focusAgentChat();
+
+    // Clean the ?thread= param from the URL without a navigation
+    params.delete("thread");
+    const next =
+      window.location.pathname +
+      (params.toString() ? `?${params.toString()}` : "") +
+      window.location.hash;
+    window.history.replaceState({}, "", next);
+  }, []);
 }
 
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
@@ -99,6 +141,19 @@ export default function Root() {
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
               <CommandMenu.Group heading="Actions">
                 <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+              </CommandMenu.Group>
+              <CommandMenu.Group heading="Appearance">
+                <CommandMenu.Item
+                  onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  keywords={["theme", "dark", "light", "mode"]}
+                >
+                  {theme === "dark" ? (
+                    <IconSun size={16} />
+                  ) : (
+                    <IconMoon size={16} />
+                  )}
+                  Toggle {theme === "dark" ? "light" : "dark"} mode
+                </CommandMenu.Item>
               </CommandMenu.Group>
             </CommandMenu>
             <Outlet />

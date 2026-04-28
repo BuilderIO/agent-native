@@ -220,6 +220,7 @@ function CreateMenu({
 
     sendToAgentChat({
       message: `Create a skill: ${trimmed}`,
+      newTab: true,
       context: `The user wants to create an agent skill. Their description: "${trimmed}"
 
 Follow the create-skill pattern to build this. Before writing:
@@ -294,6 +295,7 @@ Keep the skill concise (under 500 lines) and actionable.`,
 
     sendToAgentChat({
       message: `Create a recurring job: ${trimmed}`,
+      newTab: true,
       context: `The user wants to create a recurring job. Their description: "${trimmed}"
 
 Use the manage-jobs tool with action "create" to create this. You need to:
@@ -315,6 +317,7 @@ The job will run automatically on the schedule. Make the instructions specific â
 
     sendToAgentChat({
       message: `Create a custom agent: ${trimmed}`,
+      newTab: true,
       context: `The user wants a reusable custom sub-agent profile for the workspace. Their description: "${trimmed}"
 
 Create it as a ${scope} resource under "agents/<name>.md" using resource-write.
@@ -493,6 +496,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
             "Help me create a new automation. Ask me what I want to automate.",
           context: `The user wants to create a new automation. Scope: personal. Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
           submit: true,
+          newTab: true,
         });
         onCreated?.();
       },
