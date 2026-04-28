@@ -240,17 +240,27 @@ async function handleToolDataUpsert(
     typeof body.data === "string" ? body.data : JSON.stringify(body.data);
   const now = new Date().toISOString();
   const client = getDbExec();
-  const updateResult = await client.execute({
-    sql: `UPDATE tool_data
-      SET data = ?, updated_at = ?
+  const existing = await client.execute({
+    sql: `SELECT id
+      FROM tool_data
       WHERE tool_id = ?
         AND collection = ?
         AND owner_email = ?
-        AND (item_id = ? OR (item_id IS NULL AND id = ?))`,
-    args: [data, now, toolId, collection, userEmail, itemId, itemId],
+        AND (item_id = ? OR (item_id IS NULL AND id = ?))
+      ORDER BY CASE WHEN item_id = ? THEN 0 ELSE 1 END, updated_at DESC
+      LIMIT 1`,
+    args: [toolId, collection, userEmail, itemId, itemId, itemId],
   });
+  const storageId = existing.rows?.[0]?.id;
 
-  if ((updateResult.rowsAffected ?? 0) === 0) {
+  if (storageId) {
+    await client.execute({
+      sql: `UPDATE tool_data
+        SET data = ?, updated_at = ?
+        WHERE id = ? AND tool_id = ? AND collection = ? AND owner_email = ?`,
+      args: [data, now, storageId, toolId, collection, userEmail],
+    });
+  } else {
     await client.execute({
       sql: `INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -276,9 +286,9 @@ async function handleToolDataUpsert(
         AND collection = ?
         AND owner_email = ?
         AND (item_id = ? OR (item_id IS NULL AND id = ?))
-      ORDER BY updated_at DESC
+      ORDER BY CASE WHEN item_id = ? THEN 0 ELSE 1 END, updated_at DESC
       LIMIT 1`,
-    args: [toolId, collection, userEmail, itemId, itemId],
+    args: [toolId, collection, userEmail, itemId, itemId, itemId],
   });
   const row = saved.rows?.[0];
   return {
@@ -306,10 +316,24 @@ async function handleToolDataDelete(
     return { error: "Tool not found" };
   }
   const client = getDbExec();
-  await client.execute({
-    sql: `DELETE FROM tool_data WHERE COALESCE(item_id, id) = ? AND tool_id = ? AND collection = ? AND owner_email = ?`,
-    args: [itemId, toolId, collection, userEmail],
+  const existing = await client.execute({
+    sql: `SELECT id
+      FROM tool_data
+      WHERE tool_id = ?
+        AND collection = ?
+        AND owner_email = ?
+        AND (item_id = ? OR (item_id IS NULL AND id = ?))
+      ORDER BY CASE WHEN item_id = ? THEN 0 ELSE 1 END, updated_at DESC
+      LIMIT 1`,
+    args: [toolId, collection, userEmail, itemId, itemId, itemId],
   });
+  const storageId = existing.rows?.[0]?.id;
+  if (storageId) {
+    await client.execute({
+      sql: `DELETE FROM tool_data WHERE id = ? AND tool_id = ? AND collection = ? AND owner_email = ?`,
+      args: [storageId, toolId, collection, userEmail],
+    });
+  }
   return { ok: true };
 }
 
