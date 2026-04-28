@@ -101,6 +101,37 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   };
 }
 
+/**
+ * Resolve the active org ID for a given email — for non-HTTP contexts like
+ * the integration webhook handler where we have an email but no event/session.
+ * Picks the user's active-org-id setting if set, otherwise the first membership.
+ * Returns null if the user has no memberships.
+ */
+export async function resolveOrgIdForEmail(
+  email: string,
+): Promise<string | null> {
+  const exec = getDbExec();
+  if (!exec) return null;
+  try {
+    const { rows } = await exec.execute({
+      sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?`,
+      args: [email.toLowerCase()],
+    });
+    if (rows.length === 0) return null;
+    const ids = rows.map((r: any) => String(r.org_id));
+    if (ids.length === 1) return ids[0];
+    const activeOrgSetting = (await getUserSetting(email, "active-org-id")) as {
+      orgId: string;
+    } | null;
+    if (activeOrgSetting?.orgId && ids.includes(activeOrgSetting.orgId)) {
+      return activeOrgSetting.orgId;
+    }
+    return ids[0];
+  } catch {
+    return null;
+  }
+}
+
 function defaultOrgName(
   email: string,
   session: { name?: string } | null,

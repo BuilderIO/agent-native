@@ -17,6 +17,8 @@ import {
 } from "../agent/thread-data-builder.js";
 import { updateThreadData } from "../chat-threads/store.js";
 import { readBody } from "../server/h3-helpers.js";
+import { runWithRequestContext } from "../server/request-context.js";
+import { resolveOrgIdForEmail } from "../org/context.js";
 
 /**
  * Tracks recently processed event IDs to deduplicate webhook retries.
@@ -213,7 +215,11 @@ async function processMessageInBackground(
     { role: "user", content: [{ type: "text", text: incoming.text }] },
   ];
 
-  // Step 6: Run agent loop via startRun
+  // Step 6: Run agent loop via startRun, wrapped in a request context so that
+  // tools (especially call-agent) can resolve the caller's org for org-scoped
+  // A2A delegation. Without this, getRequestOrgId() returns undefined and
+  // call-agent can't look up the org's a2a_secret or org_domain.
+  const orgId = await resolveOrgIdForEmail(ownerEmail);
   const engine = createAnthropicEngine({ apiKey });
   const tools = actionsToEngineTools(actions);
 
@@ -223,16 +229,20 @@ async function processMessageInBackground(
     runId,
     threadId,
     async (send, signal) => {
-      await runAgentLoop({
-        engine,
-        model,
-        systemPrompt,
-        tools,
-        messages,
-        actions,
-        send,
-        signal,
-      });
+      await runWithRequestContext(
+        { userEmail: ownerEmail, orgId: orgId ?? undefined },
+        () =>
+          runAgentLoop({
+            engine,
+            model,
+            systemPrompt,
+            tools,
+            messages,
+            actions,
+            send,
+            signal,
+          }),
+      );
     },
     async (completedRun: ActiveRun) => {
       // Step 7: On completion, send response back to platform
