@@ -123,16 +123,18 @@ export async function retryStuckPendingTasks(
         continue;
       }
 
-      // Touch updated_at so we don't re-fire it on the very next tick if the
-      // processor is just slow to pick it up. The processor itself will
-      // increment the attempt count when it claims the task.
+      // Reset stuck `processing` rows back to `pending` so the processor's
+      // atomic claim (which only matches pending/failed) can re-acquire it.
+      // Without this, processing rows stay stuck forever.
+      // For pending rows, just touch updated_at to avoid re-firing every tick.
+      const newStatus = row.status === "processing" ? "pending" : row.status;
       await client.execute({
         sql: `
           UPDATE integration_pending_tasks
-             SET updated_at = ?
+             SET status = ?, updated_at = ?
            WHERE id = ?
         `,
-        args: [Date.now(), row.id],
+        args: [newStatus, Date.now(), row.id],
       });
 
       await refireProcessor(row.id, baseUrl);
