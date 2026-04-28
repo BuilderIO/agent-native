@@ -57,9 +57,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <AgentToggleButton className="ml-auto h-8 w-8 rounded-md hover:bg-accent" />
           </header>
           <InvitationBanner />
-          <main className="flex-1 overflow-auto">
-            {children}
-          </main>
+          <main className="flex-1 overflow-auto">{children}</main>
         </div>
       </AgentSidebar>
     </div>

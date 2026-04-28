@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect } from "react";
 import { useLocation } from "react-router";
 import { IconMenu } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { Sidebar } from "./Sidebar";
 import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
@@ -169,18 +169,20 @@ export function AppLayout({ children }: AppLayoutProps) {
           ]}
         >
           <div className="flex flex-1 flex-col overflow-hidden">
-            {/* Mobile header */}
-            <div className="flex h-12 items-center border-b border-border px-3 lg:hidden">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-10 w-10"
-                onClick={() => setSidebarOpen(true)}
-              >
-                <IconMenu className="h-5 w-5" />
-              </Button>
-              <span className="ml-2 text-sm font-semibold">Calendar</span>
-            </div>
+            <header className="flex h-12 items-center justify-between border-b border-border px-3 shrink-0">
+              <div className="flex items-center lg:hidden">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-10 w-10"
+                  onClick={() => setSidebarOpen(true)}
+                >
+                  <IconMenu className="h-5 w-5" />
+                </Button>
+                <span className="ml-2 text-sm font-semibold">Calendar</span>
+              </div>
+              <AgentToggleButton className="ml-auto h-8 w-8 rounded-md hover:bg-accent" />
+            </header>
 
             <InvitationBanner />
 
