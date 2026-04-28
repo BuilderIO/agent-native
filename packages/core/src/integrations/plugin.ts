@@ -222,29 +222,26 @@ export function createIntegrationsPlugin(
         }
 
         // Atomic claim: only one invocation gets to process this task
-        const claim = await claimPendingTask(taskId);
-        if (!claim.task) {
+        const task = await claimPendingTask(taskId);
+        if (!task) {
           setResponseStatus(event, 200);
-          return { ok: true, skipped: claim.reason ?? "already-claimed" };
+          return { ok: true, skipped: "already-claimed-or-missing" };
         }
 
         try {
-          const adapter = adapterMap.get(claim.task.platform);
+          const adapter = adapterMap.get(task.platform);
           if (!adapter) {
-            await markTaskFailed(
-              taskId,
-              `Unknown platform: ${claim.task.platform}`,
-            );
+            await markTaskFailed(taskId, `Unknown platform: ${task.platform}`);
             setResponseStatus(event, 404);
             return { error: "Unknown platform" };
           }
-          await processIntegrationTask({
-            task: claim.task,
+          await processIntegrationTask(task, {
             adapter,
             systemPrompt: baseSystemPrompt,
             actions,
             model,
             apiKey,
+            ownerEmail: task.ownerEmail,
           });
           await markTaskCompleted(taskId);
           return { ok: true, taskId };
