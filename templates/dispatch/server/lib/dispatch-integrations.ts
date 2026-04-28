@@ -12,11 +12,24 @@ export async function resolveDispatchOwner(
   incoming: IncomingMessage,
 ): Promise<string> {
   try {
+    // Check linked identities first (works for all platforms)
     const owner = await resolveLinkedOwner(
       incoming.platform,
       incoming.senderId || null,
     );
-    return owner || SHARED_DISPATCH_OWNER;
+    if (owner) return owner;
+
+    // For email, the sender's email address is already a natural identity.
+    // If the senderId looks like an email address, use it directly as the owner.
+    if (
+      incoming.platform === "email" &&
+      incoming.senderId &&
+      incoming.senderId.includes("@")
+    ) {
+      return incoming.senderId;
+    }
+
+    return SHARED_DISPATCH_OWNER;
   } catch {
     return SHARED_DISPATCH_OWNER;
   }

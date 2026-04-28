@@ -279,3 +279,90 @@ async function releaseClaim(
     .execute({ sql: `DELETE FROM settings WHERE key = ?`, args: [claimKey] })
     .catch(() => {});
 }
+
+/**
+ * Look up the `allowed_domain` for an org by its ID.
+ * Used when making outbound A2A calls so the JWT includes the
+ * caller's org domain for cross-app org resolution.
+ */
+export async function getOrgDomain(orgId: string): Promise<string | null> {
+  try {
+    const exec = getDbExec();
+    const { rows } = await exec.execute({
+      sql: `SELECT allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+      args: [orgId],
+    });
+    if (!rows[0]) return null;
+    const domain = String((rows[0] as any).allowed_domain || "");
+    return domain || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Look up the org's A2A secret by org ID.
+ * Used when making outbound A2A calls so the JWT is signed with the
+ * org-specific secret rather than the global A2A_SECRET env var.
+ */
+export async function getOrgA2ASecret(orgId: string): Promise<string | null> {
+  try {
+    const exec = getDbExec();
+    const { rows } = await exec.execute({
+      sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
+      args: [orgId],
+    });
+    if (!rows[0]) return null;
+    const secret = String((rows[0] as any).a2a_secret || "");
+    return secret || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Look up an org's A2A secret by its `allowed_domain`.
+ * Used on the A2A receiving side: the caller's JWT includes `org_domain`,
+ * and the receiver looks up which local org matches that domain to find
+ * the secret used to verify the JWT signature.
+ */
+export async function getA2ASecretByDomain(
+  domain: string,
+): Promise<string | null> {
+  try {
+    const exec = getDbExec();
+    const { rows } = await exec.execute({
+      sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+      args: [domain.toLowerCase()],
+    });
+    if (!rows[0]) return null;
+    const secret = String((rows[0] as any).a2a_secret || "");
+    return secret || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a local org by its `allowed_domain`.
+ * Used on the A2A receiving side: the caller sends `org_domain` in the JWT,
+ * and the receiver looks up which local org matches that domain.
+ */
+export async function resolveOrgByDomain(
+  domain: string,
+): Promise<{ orgId: string; orgName: string } | null> {
+  try {
+    const exec = getDbExec();
+    const { rows } = await exec.execute({
+      sql: `SELECT id, name FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+      args: [domain.toLowerCase()],
+    });
+    if (!rows[0]) return null;
+    return {
+      orgId: String((rows[0] as any).id),
+      orgName: String((rows[0] as any).name),
+    };
+  } catch {
+    return null;
+  }
+}

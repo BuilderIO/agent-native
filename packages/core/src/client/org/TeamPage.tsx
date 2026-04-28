@@ -12,6 +12,11 @@ import {
   IconPencil,
   IconAt,
   IconX,
+  IconKey,
+  IconCopy,
+  IconRefresh,
+  IconEye,
+  IconEyeOff,
 } from "@tabler/icons-react";
 import {
   useOrg,
@@ -24,6 +29,7 @@ import {
   useRemoveMember,
   useSwitchOrg,
   useSetOrgDomain,
+  useSetA2ASecret,
 } from "./hooks.js";
 
 export interface TeamPageProps {
@@ -405,6 +411,8 @@ function MembersCard() {
 
       {isOwnerOrAdmin && <DomainSettingsSection domain={org.allowedDomain} />}
 
+      {isOwnerOrAdmin && <A2ASecretSection secret={org.a2aSecret} />}
+
       <ErrorText error={removeMember.error} />
       <ErrorText error={switchOrg.error} />
     </section>
@@ -515,6 +523,157 @@ function DomainSettingsSection({ domain }: { domain: string | null }) {
         </div>
       )}
       <ErrorText error={setOrgDomain.error} />
+    </div>
+  );
+}
+
+function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
+  const setA2ASecret = useSetA2ASecret();
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [pasteMode, setPasteMode] = useState(false);
+  const [pasteValue, setPasteValue] = useState("");
+
+  function copyToClipboard() {
+    if (!secret) return;
+    navigator.clipboard.writeText(secret).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function regenerate() {
+    setA2ASecret.mutate(undefined, {
+      onSuccess: () => {
+        setRevealed(false);
+      },
+    });
+  }
+
+  function saveSecret() {
+    const trimmed = pasteValue.trim();
+    if (!trimmed) return;
+    setA2ASecret.mutate(trimmed, {
+      onSuccess: () => {
+        setPasteMode(false);
+        setPasteValue("");
+      },
+    });
+  }
+
+  const masked = secret ? "****" + secret.slice(-8) : "Not set";
+
+  return (
+    <div className="border-t border-border pt-3 space-y-2">
+      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        Cross-app authentication
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        This secret authenticates cross-app delegation (e.g. Dispatch to
+        Analytics). All apps in your organization need the same secret.
+      </p>
+
+      <div className="flex items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono">
+          <IconKey className="h-3.5 w-3.5 text-muted-foreground" />
+          {revealed && secret ? secret : masked}
+        </span>
+        {secret && (
+          <>
+            <button
+              type="button"
+              onClick={() => setRevealed(!revealed)}
+              className="text-muted-foreground hover:text-foreground"
+              title={revealed ? "Hide secret" : "Reveal secret"}
+            >
+              {revealed ? (
+                <IconEyeOff className="h-3.5 w-3.5" />
+              ) : (
+                <IconEye className="h-3.5 w-3.5" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={copyToClipboard}
+              className="text-muted-foreground hover:text-foreground"
+              title="Copy secret"
+            >
+              {copied ? (
+                <IconCheck className="h-3.5 w-3.5 text-green-500" />
+              ) : (
+                <IconCopy className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          onClick={regenerate}
+          disabled={setA2ASecret.isPending}
+          className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
+          title="Regenerate secret"
+        >
+          {setA2ASecret.isPending ? (
+            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <IconRefresh className="h-3.5 w-3.5" />
+          )}
+          Regenerate
+        </button>
+      </div>
+
+      {!pasteMode ? (
+        <button
+          type="button"
+          onClick={() => setPasteMode(true)}
+          className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+        >
+          <IconKey className="h-3.5 w-3.5" />
+          Paste secret from another app
+        </button>
+      ) : (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={pasteValue}
+            onChange={(e) => setPasteValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveSecret();
+              if (e.key === "Escape") {
+                setPasteMode(false);
+                setPasteValue("");
+              }
+            }}
+            placeholder="Paste A2A secret"
+            className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
+            autoFocus
+          />
+          <button
+            type="button"
+            disabled={!pasteValue.trim() || setA2ASecret.isPending}
+            onClick={saveSecret}
+            className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+          >
+            {setA2ASecret.isPending ? (
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              "Save"
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setPasteMode(false);
+              setPasteValue("");
+            }}
+            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      <ErrorText error={setA2ASecret.error} />
     </div>
   );
 }

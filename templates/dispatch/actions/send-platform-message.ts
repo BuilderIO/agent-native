@@ -1,20 +1,25 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { slackAdapter, telegramAdapter } from "@agent-native/core/server";
+import {
+  slackAdapter,
+  telegramAdapter,
+  emailAdapter,
+} from "@agent-native/core/server";
 import {
   getDestinationById,
   recordAudit,
 } from "../server/lib/dispatch-store.js";
 
-function getAdapter(platform: "slack" | "telegram") {
+function getAdapter(platform: "slack" | "telegram" | "email") {
+  if (platform === "email") return emailAdapter();
   return platform === "slack" ? slackAdapter() : telegramAdapter();
 }
 
 export default defineAction({
   description:
-    "Send a proactive message to a saved Slack or Telegram destination.",
+    "Send a proactive message to a saved Slack, Telegram, or email destination.",
   schema: z.object({
-    platform: z.enum(["slack", "telegram"]).optional(),
+    platform: z.enum(["slack", "telegram", "email"]).optional(),
     destinationId: z.string().optional().describe("Saved destination id"),
     destination: z.string().optional().describe("Raw platform destination id"),
     threadRef: z.string().optional().describe("Optional thread reference"),
@@ -27,6 +32,7 @@ export default defineAction({
     const resolvedPlatform = (saved?.platform || platform) as
       | "slack"
       | "telegram"
+      | "email"
       | undefined;
     const resolvedDestination = saved?.destination || destination;
     const resolvedThreadRef = saved?.threadRef || threadRef || null;

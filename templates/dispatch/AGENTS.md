@@ -79,10 +79,10 @@ The agent can navigate with:
 ### Messaging & Routing
 
 - `list-dispatch-overview`: high-level counts, recent audit, approvals, vault health
-- `list-destinations`: saved Slack and Telegram targets
-- `upsert-destination`: create or update a saved destination
+- `list-destinations`: saved Slack, Telegram, and email targets
+- `upsert-destination`: create or update a saved destination (Slack, Telegram, or email)
 - `delete-destination`: remove a saved destination
-- `send-platform-message`: proactive send to a saved or raw destination
+- `send-platform-message`: proactive send to a saved or raw destination (Slack, Telegram, or email)
 - `list-linked-identities`: linked platform users and unclaimed `/link` tokens
 - `create-link-token`: create a Slack or Telegram `/link` token
 - `get-dispatch-settings`: read approval settings
@@ -102,6 +102,8 @@ The agent can navigate with:
 - After granting a secret to an app, always offer to sync it immediately with `sync-vault-to-app`.
 - When creating workspace skills or agents, use proper YAML frontmatter (name, description fields).
 - After creating or updating workspace resources, offer to sync them to apps with `sync-workspace-resources-to-app` or `sync-workspace-resources-to-all`.
+- When CC'd on an email, only reply if your input is clearly requested or you have something actionable to add. Don't insert yourself into every CC'd thread.
+- For email replies, write in proper email format with a greeting and sign-off. Use rich HTML formatting — tables, lists, links, and bold are all supported.
 
 ## Current Approval Scope
 

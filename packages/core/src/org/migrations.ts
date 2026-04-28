@@ -39,4 +39,8 @@ export const ORG_MIGRATIONS = [
     version: 1004,
     sql: `ALTER TABLE organizations ADD COLUMN allowed_domain TEXT`,
   },
+  {
+    version: 1005,
+    sql: `ALTER TABLE organizations ADD COLUMN a2a_secret TEXT`,
+  },
 ];

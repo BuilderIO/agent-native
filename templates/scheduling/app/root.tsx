@@ -5,7 +5,8 @@ import {
   QueryClientProvider,
   useQueryClient,
 } from "@tanstack/react-query";
-import { ThemeProvider, useTheme } from "next-themes";
+import { ThemeProvider } from "next-themes";
+import { useTheme } from "next-themes";
 import {
   useDbSync,
   ClientOnly,
@@ -87,6 +88,19 @@ function DbSyncSetup() {
   return null;
 }
 
+function ThemeToggleItem() {
+  const { theme, setTheme } = useTheme();
+  return (
+    <CommandMenu.Item
+      onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+      keywords={["theme", "dark", "light", "mode"]}
+    >
+      {theme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
+      Toggle theme
+    </CommandMenu.Item>
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(
     () =>
@@ -102,7 +116,6 @@ export default function Root() {
   );
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
-  const { theme, setTheme } = useTheme();
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <QueryClientProvider client={queryClient}>
@@ -120,17 +133,7 @@ export default function Root() {
                 <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
               </CommandMenu.Group>
               <CommandMenu.Group heading="Appearance">
-                <CommandMenu.Item
-                  onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
-                  keywords={["theme", "dark", "light", "mode"]}
-                >
-                  {theme === "dark" ? (
-                    <IconSun size={16} />
-                  ) : (
-                    <IconMoon size={16} />
-                  )}
-                  Toggle {theme === "dark" ? "light" : "dark"} mode
-                </CommandMenu.Item>
+                <ThemeToggleItem />
               </CommandMenu.Group>
             </CommandMenu>
             <Outlet />

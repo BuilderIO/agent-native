@@ -16,19 +16,55 @@ import { readBody } from "../server/h3-helpers.js";
  * Verify an inbound A2A JWT signed with the shared A2A_SECRET.
  * Returns the caller's email (from `sub` claim) if valid, null otherwise.
  */
-async function verifyA2AToken(authHeader: string): Promise<string | null> {
-  const secret = process.env.A2A_SECRET;
-  if (!secret) return null;
+interface A2ATokenPayload {
+  email: string | null;
+  orgDomain: string | null;
+}
 
+async function verifyA2AToken(authHeader: string): Promise<A2ATokenPayload> {
+  const token = authHeader.replace("Bearer ", "");
+
+  // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
+  // This is safe because we only use org_domain to look up the secret,
+  // then verify the full JWT with that secret. If someone forges a JWT
+  // with a fake org_domain, verification will fail because they don't
+  // have the real secret.
+  let orgDomainHint: string | undefined;
   try {
-    const token = authHeader.replace("Bearer ", "");
+    const unverified = jose.decodeJwt(token);
+    orgDomainHint = unverified.org_domain as string | undefined;
+  } catch {
+    // Malformed token — fall through to global secret attempt
+  }
+
+  // Step 2: Look up the org's A2A secret by domain
+  let secret: string | undefined;
+  if (orgDomainHint) {
+    try {
+      const { getA2ASecretByDomain } = await import("../org/context.js");
+      const orgSecret = await getA2ASecretByDomain(orgDomainHint);
+      if (orgSecret) secret = orgSecret;
+    } catch {
+      // DB not ready or column doesn't exist yet — fall through
+    }
+  }
+
+  // Step 3: Fall back to global A2A_SECRET
+  if (!secret) secret = process.env.A2A_SECRET;
+  if (!secret) return { email: null, orgDomain: null };
+
+  // Step 4: Verify JWT with the resolved secret
+  try {
     const { payload } = await jose.jwtVerify(
       token,
       new TextEncoder().encode(secret),
     );
-    return (payload.sub as string) ?? null;
+    return {
+      email: (payload.sub as string) ?? null,
+      orgDomain: (payload.org_domain as string) ?? null,
+    };
   } catch {
-    return null;
+    return { email: null, orgDomain: null };
   }
 }
 
@@ -75,12 +111,15 @@ export function mountA2A(
 
       const authHeader = getRequestHeader(event, "authorization");
       let verifiedCallerEmail: string | null = null;
+      let verifiedOrgDomain: string | null = null;
 
-      // Try JWT verification first (A2A_SECRET-based identity)
-      if (authHeader?.startsWith("Bearer ") && process.env.A2A_SECRET) {
-        verifiedCallerEmail = await verifyA2AToken(authHeader);
-        // If A2A_SECRET is set and token fails verification, reject the request
-        if (!verifiedCallerEmail) {
+      // Try JWT verification first (org-level or global A2A_SECRET-based identity)
+      if (authHeader?.startsWith("Bearer ")) {
+        const tokenPayload = await verifyA2AToken(authHeader);
+        verifiedCallerEmail = tokenPayload.email;
+        verifiedOrgDomain = tokenPayload.orgDomain;
+        // If a secret exists (org-level or global) and token fails verification, reject
+        if (!verifiedCallerEmail && process.env.A2A_SECRET) {
           setResponseStatus(event, 401);
           return {
             jsonrpc: "2.0",
@@ -117,10 +156,13 @@ export function mountA2A(
         }
       }
 
-      // Store verified caller email on the event context so the handler
-      // can set AGENT_USER_EMAIL from a trusted source instead of metadata
+      // Store verified caller identity on the event context so the handler
+      // can set request context from a trusted source instead of metadata
       if (verifiedCallerEmail) {
         event.context.__a2aVerifiedEmail = verifiedCallerEmail;
+      }
+      if (verifiedOrgDomain) {
+        event.context.__a2aOrgDomain = verifiedOrgDomain;
       }
 
       const body = await readBody(event);

@@ -107,19 +107,24 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   let allowedDomain: string | null = null;
+  let a2aSecret: string | null = null;
   if (ctx.orgId) {
     try {
       const adRes = await e.execute({
-        sql: `SELECT allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+        sql: `SELECT allowed_domain, a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
         args: [ctx.orgId],
       });
-      allowedDomain = adRes.rows[0]
-        ? String((adRes.rows[0] as any).allowed_domain ?? "") || null
-        : null;
+      if (adRes.rows[0]) {
+        allowedDomain =
+          String((adRes.rows[0] as any).allowed_domain ?? "") || null;
+        a2aSecret = String((adRes.rows[0] as any).a2a_secret ?? "") || null;
+      }
     } catch {
       // Column may not exist yet
     }
   }
+
+  const isOwnerOrAdmin = ctx.role === "owner" || ctx.role === "admin";
 
   const invitesRes = await e.execute({
     // Case-insensitive match: invitations are stored with whatever case
@@ -148,6 +153,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     pendingInvitations,
     domainMatches,
     allowedDomain,
+    a2aSecret: isOwnerOrAdmin ? a2aSecret : undefined,
   };
 });
 
@@ -169,9 +175,13 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
   const now = Date.now();
   const e = await exec();
 
+  // Auto-generate a per-org A2A secret for cross-app delegation
+  const { randomBytes } = await import("node:crypto");
+  const a2aSecret = randomBytes(32).toString("base64url");
+
   await e.execute({
-    sql: `INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)`,
-    args: [orgId, name, email, now],
+    sql: `INSERT INTO organizations (id, name, created_by, created_at, a2a_secret) VALUES (?, ?, ?, ?, ?)`,
+    args: [orgId, name, email, now, a2aSecret],
   });
 
   await e.execute({
@@ -616,3 +626,39 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
 
   return { domain: raw };
 });
+
+/** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner/admin only) */
+export const setA2ASecretHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({
+        statusCode: 400,
+        message: "No active organization",
+      });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can manage the A2A secret",
+      });
+    }
+
+    const body = await readBody(event);
+    let secret = body?.secret?.trim() || null;
+
+    // If no secret provided, auto-generate one
+    if (!secret) {
+      const { randomBytes } = await import("node:crypto");
+      secret = randomBytes(32).toString("base64url");
+    }
+
+    const e = await exec();
+    await e.execute({
+      sql: `UPDATE organizations SET a2a_secret = ? WHERE id = ?`,
+      args: [secret, ctx.orgId],
+    });
+
+    return { a2aSecret: secret };
+  },
+);

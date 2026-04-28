@@ -117,9 +117,46 @@ function makeHandlerContext(
   return { context, artifacts };
 }
 
+/**
+ * Resolve org context from A2A metadata / event context and wrap `fn`
+ * inside `runWithRequestContext` so downstream actions see the org.
+ */
+async function withA2ARequestContext<T>(
+  metadata: Record<string, unknown> | undefined,
+  event: any | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const { runWithRequestContext } =
+    await import("../server/request-context.js");
+
+  const verifiedEmail =
+    (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
+  const orgDomain =
+    (event?.context?.__a2aOrgDomain as string | undefined) ??
+    (metadata?.orgDomain as string | undefined) ??
+    undefined;
+
+  let resolvedOrgId: string | undefined;
+  if (orgDomain) {
+    try {
+      const { resolveOrgByDomain } = await import("../org/context.js");
+      const org = await resolveOrgByDomain(orgDomain);
+      if (org) resolvedOrgId = org.orgId;
+    } catch {
+      // Org tables may not exist — continue without org context
+    }
+  }
+
+  return runWithRequestContext(
+    { userEmail: verifiedEmail, orgId: resolvedOrgId },
+    fn,
+  ) as Promise<T>;
+}
+
 async function handleSend(
   params: Record<string, unknown>,
   config: A2AConfig,
+  event?: any,
 ): Promise<JsonRpcResponse & { _id: string | number }> {
   const message = params.message as Message;
   if (!message || !message.role || !Array.isArray(message.parts)) {
@@ -135,67 +172,71 @@ async function handleSend(
 
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
-  const task = await createTask(message, contextId);
 
-  await updateTask(task.id, { state: "working" });
+  return withA2ARequestContext(metadata, event, async () => {
+    const task = await createTask(message, contextId);
 
-  const { context, artifacts } = makeHandlerContext(
-    task.id,
-    contextId,
-    metadata,
-  );
+    await updateTask(task.id, { state: "working" });
 
-  try {
-    const result = getHandler(config)(message, context);
+    const { context, artifacts } = makeHandlerContext(
+      task.id,
+      contextId,
+      metadata,
+    );
 
-    // Check if it's an async generator
-    if (
-      result &&
-      typeof result === "object" &&
-      Symbol.asyncIterator in result
-    ) {
-      // For non-streaming send, collect all messages
-      let lastMessage: Message | undefined;
-      for await (const msg of result as AsyncGenerator<Message>) {
-        lastMessage = msg;
+    try {
+      const result = getHandler(config)(message, context);
+
+      // Check if it's an async generator
+      if (
+        result &&
+        typeof result === "object" &&
+        Symbol.asyncIterator in result
+      ) {
+        // For non-streaming send, collect all messages
+        let lastMessage: Message | undefined;
+        for await (const msg of result as AsyncGenerator<Message>) {
+          lastMessage = msg;
+        }
+        const allArtifacts = [...artifacts];
+        const updated = await updateTask(task.id, {
+          state: "completed",
+          message: lastMessage,
+          artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
+        });
+        return { ...jsonRpcResult(0, updated), _id: 0 };
       }
-      const allArtifacts = [...artifacts];
+
+      // Promise-based handler
+      const handlerResult = await (result as Promise<A2AHandlerResult>);
+      const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
       const updated = await updateTask(task.id, {
         state: "completed",
-        message: lastMessage,
+        message: handlerResult.message,
         artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
       });
       return { ...jsonRpcResult(0, updated), _id: 0 };
+    } catch (err: any) {
+      await updateTask(task.id, {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: err.message ?? "Handler failed" }],
+        },
+      });
+      return {
+        ...jsonRpcError(0, -32000, err.message ?? "Handler failed"),
+        _id: 0,
+      };
     }
-
-    // Promise-based handler
-    const handlerResult = await (result as Promise<A2AHandlerResult>);
-    const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
-    const updated = await updateTask(task.id, {
-      state: "completed",
-      message: handlerResult.message,
-      artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
-    });
-    return { ...jsonRpcResult(0, updated), _id: 0 };
-  } catch (err: any) {
-    await updateTask(task.id, {
-      state: "failed",
-      message: {
-        role: "agent",
-        parts: [{ type: "text", text: err.message ?? "Handler failed" }],
-      },
-    });
-    return {
-      ...jsonRpcError(0, -32000, err.message ?? "Handler failed"),
-      _id: 0,
-    };
-  }
+  });
 }
 
 async function handleStream(
   params: Record<string, unknown>,
   config: A2AConfig,
   res: { write: (chunk: string) => void; end: () => void },
+  event?: any,
 ): Promise<void> {
   const message = params.message as Message;
   if (!message || !message.role || !Array.isArray(message.parts)) {
@@ -208,60 +249,63 @@ async function handleStream(
 
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
-  const task = await createTask(message, contextId);
 
-  await updateTask(task.id, { state: "working" });
+  await withA2ARequestContext(metadata, event, async () => {
+    const task = await createTask(message, contextId);
 
-  const { context, artifacts } = makeHandlerContext(
-    task.id,
-    contextId,
-    metadata,
-  );
+    await updateTask(task.id, { state: "working" });
 
-  try {
-    const result = getHandler(config)(message, context);
+    const { context, artifacts } = makeHandlerContext(
+      task.id,
+      contextId,
+      metadata,
+    );
 
-    if (
-      result &&
-      typeof result === "object" &&
-      Symbol.asyncIterator in result
-    ) {
-      for await (const msg of result as AsyncGenerator<Message>) {
-        const intermediate = await updateTask(task.id, {
-          state: "working",
-          message: msg,
+    try {
+      const result = getHandler(config)(message, context);
+
+      if (
+        result &&
+        typeof result === "object" &&
+        Symbol.asyncIterator in result
+      ) {
+        for await (const msg of result as AsyncGenerator<Message>) {
+          const intermediate = await updateTask(task.id, {
+            state: "working",
+            message: msg,
+          });
+          res.write(
+            `data: ${JSON.stringify(jsonRpcResult(0, intermediate))}\n\n`,
+          );
+        }
+      } else {
+        const handlerResult = await (result as Promise<A2AHandlerResult>);
+        const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
+        const updated = await updateTask(task.id, {
+          state: "completed",
+          message: handlerResult.message,
+          artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
         });
-        res.write(
-          `data: ${JSON.stringify(jsonRpcResult(0, intermediate))}\n\n`,
-        );
+        res.write(`data: ${JSON.stringify(jsonRpcResult(0, updated))}\n\n`);
+        res.end();
+        return;
       }
-    } else {
-      const handlerResult = await (result as Promise<A2AHandlerResult>);
-      const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
-      const updated = await updateTask(task.id, {
+
+      const allArtifacts = [...artifacts];
+      const final = await updateTask(task.id, {
         state: "completed",
-        message: handlerResult.message,
         artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
       });
-      res.write(`data: ${JSON.stringify(jsonRpcResult(0, updated))}\n\n`);
-      res.end();
-      return;
+      res.write(`data: ${JSON.stringify(jsonRpcResult(0, final))}\n\n`);
+    } catch (err: any) {
+      await updateTask(task.id, { state: "failed" });
+      res.write(
+        `data: ${JSON.stringify(jsonRpcError(0, -32000, err.message ?? "Handler failed"))}\n\n`,
+      );
     }
 
-    const allArtifacts = [...artifacts];
-    const final = await updateTask(task.id, {
-      state: "completed",
-      artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
-    });
-    res.write(`data: ${JSON.stringify(jsonRpcResult(0, final))}\n\n`);
-  } catch (err: any) {
-    await updateTask(task.id, { state: "failed" });
-    res.write(
-      `data: ${JSON.stringify(jsonRpcError(0, -32000, err.message ?? "Handler failed"))}\n\n`,
-    );
-  }
-
-  res.end();
+    res.end();
+  });
 }
 
 async function handleGet(
@@ -311,7 +355,7 @@ export async function handleJsonRpcH3(
 
   switch (body.method) {
     case "message/send": {
-      const result = await handleSend(params, config);
+      const result = await handleSend(params, config, event);
       const { _id, ...response } = result;
       return { ...response, id } as JsonRpcResponse;
     }
@@ -327,7 +371,7 @@ export async function handleJsonRpcH3(
       setResponseHeader(event, "Content-Type", "text/event-stream");
       setResponseHeader(event, "Cache-Control", "no-cache");
       setResponseHeader(event, "Connection", "keep-alive");
-      await handleStream(params, config, res);
+      await handleStream(params, config, res, event);
       return undefined as any; // Response already sent via SSE
     }
     case "tasks/get": {

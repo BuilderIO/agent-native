@@ -12,12 +12,23 @@
 
 export type EmailProvider = "resend" | "sendgrid" | "dev";
 
+export interface EmailAttachment {
+  filename: string;
+  content: string | Buffer;
+  contentType?: string;
+}
+
 export interface SendEmailArgs {
   to: string;
   subject: string;
   html: string;
   text?: string;
   from?: string;
+  cc?: string | string[];
+  replyTo?: string;
+  inReplyTo?: string;
+  references?: string;
+  attachments?: EmailAttachment[];
 }
 
 export function isEmailConfigured(): boolean {
@@ -48,19 +59,37 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
   const from = getFromAddress(args.from, provider);
 
   if (provider === "resend") {
+    const payload: Record<string, unknown> = {
+      from,
+      to: args.to,
+      subject: args.subject,
+      html: args.html,
+      text: args.text,
+    };
+    if (args.cc) payload.cc = Array.isArray(args.cc) ? args.cc : [args.cc];
+    if (args.replyTo) payload.reply_to = args.replyTo;
+    if (args.attachments?.length) {
+      payload.attachments = args.attachments.map((a) => ({
+        filename: a.filename,
+        content:
+          typeof a.content === "string"
+            ? a.content
+            : a.content.toString("base64"),
+        content_type: a.contentType,
+      }));
+    }
+    const headers: Record<string, string> = {};
+    if (args.inReplyTo) headers["In-Reply-To"] = args.inReplyTo;
+    if (args.references) headers["References"] = args.references;
+    if (Object.keys(headers).length) payload.headers = headers;
+
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        from,
-        to: args.to,
-        subject: args.subject,
-        html: args.html,
-        text: args.text,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -70,21 +99,46 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
   }
 
   if (provider === "sendgrid") {
+    const personalization: Record<string, unknown> = {
+      to: [{ email: args.to }],
+    };
+    if (args.cc) {
+      const ccList = Array.isArray(args.cc) ? args.cc : [args.cc];
+      personalization.cc = ccList.map((email) => ({ email }));
+    }
+
+    const sgPayload: Record<string, unknown> = {
+      personalizations: [personalization],
+      from: parseSendGridFrom(from),
+      subject: args.subject,
+      content: [
+        ...(args.text ? [{ type: "text/plain", value: args.text }] : []),
+        { type: "text/html", value: args.html },
+      ],
+    };
+    if (args.replyTo) sgPayload.reply_to = parseSendGridFrom(args.replyTo);
+    const sgHeaders: Record<string, string> = {};
+    if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
+    if (args.references) sgHeaders["References"] = args.references;
+    if (Object.keys(sgHeaders).length) sgPayload.headers = sgHeaders;
+    if (args.attachments?.length) {
+      sgPayload.attachments = args.attachments.map((a) => ({
+        filename: a.filename,
+        content:
+          typeof a.content === "string"
+            ? Buffer.from(a.content).toString("base64")
+            : a.content.toString("base64"),
+        type: a.contentType,
+      }));
+    }
+
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email: args.to }] }],
-        from: parseSendGridFrom(from),
-        subject: args.subject,
-        content: [
-          ...(args.text ? [{ type: "text/plain", value: args.text }] : []),
-          { type: "text/html", value: args.html },
-        ],
-      }),
+      body: JSON.stringify(sgPayload),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");

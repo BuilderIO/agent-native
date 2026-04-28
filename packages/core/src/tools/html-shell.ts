@@ -16,6 +16,60 @@ export function buildToolHtml(
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet" />
+  <script>
+    var _toolErrors = [];
+    var _toolErrorDetails = [];
+    var _consoleLogs = [];
+    var _networkLogs = [];
+
+    var _origConsole = { log: console.log, warn: console.warn, error: console.error, info: console.info };
+    function _wrapConsole(level, orig) {
+      return function() {
+        var args = Array.prototype.slice.call(arguments);
+        var msg = args.map(function(a) {
+          try { return typeof a === 'object' ? JSON.stringify(a) : String(a); }
+          catch(e) { return String(a); }
+        }).join(' ');
+        if (_consoleLogs.length >= 50) _consoleLogs.shift();
+        _consoleLogs.push({ level: level, message: msg });
+        orig.apply(console, arguments);
+      };
+    }
+    console.log = _wrapConsole('log', _origConsole.log);
+    console.warn = _wrapConsole('warn', _origConsole.warn);
+    console.error = _wrapConsole('error', _origConsole.error);
+    console.info = _wrapConsole('info', _origConsole.info);
+
+    function _collectError(message, stack) {
+      if (!message) return;
+      if (message === 'Script error.' || message === 'Script error') message = 'Runtime error';
+      if (_toolErrors.indexOf(message) !== -1) return;
+      _toolErrors.push(message);
+      _toolErrorDetails.push({ message: message, stack: stack || '' });
+      var toast = document.getElementById('__tool-error-toast');
+      if (!toast) return;
+      var msg = document.getElementById('__tool-error-msg');
+      if (_toolErrors.length === 1) {
+        msg.textContent = _toolErrors[0];
+      } else {
+        msg.textContent = _toolErrors.length + ' errors — ' + _toolErrors[_toolErrors.length - 1];
+      }
+      toast.style.display = 'block';
+    }
+
+    window.addEventListener('error', function(event) {
+      var msg = event.message || '';
+      if (msg.indexOf('Alpine Expression Error') === 0) return;
+      var stack = event.error && event.error.stack ? event.error.stack : '';
+      _collectError(msg, stack);
+    });
+
+    window.addEventListener('unhandledrejection', function(event) {
+      var msg = event.reason && event.reason.message ? event.reason.message : String(event.reason);
+      var stack = event.reason && event.reason.stack ? event.reason.stack : '';
+      _collectError(msg, stack);
+    });
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
   <style>${themeVars}</style>
@@ -98,6 +152,27 @@ export function buildToolHtml(
 	        }, 30000);
 	      });
 	    }
+
+	    var _origHostRequest = hostRequest;
+	    hostRequest = function(path, options) {
+	      var entry = { path: path, method: (options && options.method) || 'GET' };
+	      return _origHostRequest(path, options).then(function(res) {
+	        entry.ok = res.ok;
+	        entry.status = res.status;
+	        if (!res.ok && res.body) {
+	          try { entry.error = typeof res.body === 'string' ? res.body.slice(0, 200) : JSON.stringify(res.body).slice(0, 200); } catch(e) {}
+	        }
+	        if (_networkLogs.length >= 20) _networkLogs.shift();
+	        _networkLogs.push(entry);
+	        return res;
+	      }, function(err) {
+	        entry.ok = false;
+	        entry.error = err.message;
+	        if (_networkLogs.length >= 20) _networkLogs.shift();
+	        _networkLogs.push(entry);
+	        throw err;
+	      });
+	    };
 
 	    function toolFetch(url, options) {
 	      var opts = options || {};
@@ -211,17 +286,19 @@ export function buildToolHtml(
 	    #__tool-error-toast {
 	      display: none;
 	      position: fixed;
-	      bottom: 12px;
-	      left: 12px;
-	      right: 12px;
-	      background: hsl(0 84.2% 60.2%);
-	      color: white;
-	      border-radius: 8px;
-	      padding: 10px 14px;
+	      bottom: 16px;
+	      right: 16px;
+	      max-width: 420px;
+	      background: hsl(var(--destructive));
+	      color: hsl(var(--destructive-foreground));
+	      border: 1px solid hsl(var(--destructive) / .6);
+	      border-radius: calc(var(--radius, .5rem) + 2px);
+	      padding: 12px 16px;
 	      font-size: 13px;
+	      line-height: 1.4;
 	      font-family: 'Inter', sans-serif;
 	      z-index: 9999;
-	      box-shadow: 0 4px 12px rgba(0,0,0,.2);
+	      box-shadow: 0 4px 12px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.1);
 	      animation: __toast-in 0.2s ease-out;
 	    }
 	    @keyframes __toast-in {
@@ -230,32 +307,6 @@ export function buildToolHtml(
 	    }
 	  </style>
 	  <script>
-	    var _toolErrors = [];
-
-	    function _collectError(message) {
-	      if (!message || _toolErrors.indexOf(message) !== -1) return;
-	      _toolErrors.push(message);
-	      var toast = document.getElementById('__tool-error-toast');
-	      if (!toast) return;
-	      var msg = document.getElementById('__tool-error-msg');
-	      if (_toolErrors.length === 1) {
-	        msg.textContent = _toolErrors[0];
-	      } else {
-	        msg.textContent = _toolErrors.length + ' errors \u2014 ' + _toolErrors[_toolErrors.length - 1];
-	      }
-	      toast.style.display = 'block';
-	    }
-
-	    window.addEventListener('error', function(event) {
-	      var msg = event.message || '';
-	      if (msg.indexOf('Alpine Expression Error') === 0) return;
-	      _collectError(msg);
-	    });
-
-	    window.addEventListener('unhandledrejection', function(event) {
-	      _collectError(event.reason && event.reason.message ? event.reason.message : String(event.reason));
-	    });
-
 	    window.addEventListener('message', function(event) {
 	      var msg = event.data;
 	      if (!msg || msg.type !== 'agent-native-theme-update') return;
@@ -272,13 +323,40 @@ export function buildToolHtml(
 	      }
 	    });
 
+	    document.addEventListener('keydown', function(e) {
+	      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+	        var key = e.key.toLowerCase();
+	        if (key === 'c' || key === 'v' || key === 'x' || key === 'a' || key === 'z' || key === 'y') return;
+	        e.preventDefault();
+	        e.stopPropagation();
+	        window.parent.postMessage({
+	          type: 'agent-native-tool-keydown',
+	          key: e.key, code: e.code,
+	          metaKey: e.metaKey, ctrlKey: e.ctrlKey,
+	          shiftKey: e.shiftKey, altKey: e.altKey,
+	        }, '*');
+	        return;
+	      }
+	      if (e.key === 'Escape') {
+	        window.parent.postMessage({
+	          type: 'agent-native-tool-keydown',
+	          key: e.key, code: e.code,
+	          metaKey: false, ctrlKey: false,
+	          shiftKey: false, altKey: false,
+	        }, '*');
+	      }
+	    });
+
 	    document.addEventListener('DOMContentLoaded', function() {
 	      var fixBtn = document.getElementById('__tool-error-fix');
 	      if (fixBtn) {
 	        fixBtn.addEventListener('click', function() {
 	          window.parent.postMessage({
 	            type: 'agent-native-tool-error-fix',
-	            errors: _toolErrors
+	            errors: _toolErrors,
+	            errorDetails: _toolErrorDetails,
+	            consoleLogs: _consoleLogs.slice(-30),
+	            networkLogs: _networkLogs.slice(-15)
 	          }, '*');
 	          document.getElementById('__tool-error-toast').style.display = 'none';
 	        });
@@ -295,11 +373,11 @@ export function buildToolHtml(
 	<body${toolId ? ` data-tool-id="${toolIdAttr}"` : ""} class="bg-background text-foreground">
 	${content}
 	<div id="__tool-error-toast">
-	  <div style="display:flex;align-items:center;gap:8px;">
-	    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-	    <span id="__tool-error-msg" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
-	    <button id="__tool-error-fix" style="cursor:pointer;border:none;background:rgba(255,255,255,.9);color:hsl(0 84.2% 40%);font-size:12px;font-weight:500;padding:4px 12px;border-radius:4px;">Fix</button>
-	    <button id="__tool-error-dismiss" style="cursor:pointer;border:none;background:transparent;color:inherit;font-size:16px;padding:2px 6px;opacity:0.7;">&#215;</button>
+	  <div style="display:flex;align-items:flex-start;gap:8px;">
+	    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+	    <span id="__tool-error-msg" style="flex:1;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;"></span>
+	    <button id="__tool-error-fix" style="cursor:pointer;border:none;background:rgba(255,255,255,.9);color:hsl(0 84.2% 40%);font-size:12px;font-weight:500;padding:4px 12px;border-radius:4px;flex-shrink:0;">Fix</button>
+	    <button id="__tool-error-dismiss" style="cursor:pointer;border:none;background:transparent;color:inherit;font-size:16px;padding:2px 6px;opacity:0.7;flex-shrink:0;">&#215;</button>
 	  </div>
 	</div>
 	</body>

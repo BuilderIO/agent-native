@@ -198,3 +198,17 @@ export function useSetOrgDomain() {
     },
   });
 }
+
+export function useSetA2ASecret() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (secret?: string) =>
+      apiFetch(`${ORG_BASE}/a2a-secret`, {
+        method: "PUT",
+        body: JSON.stringify({ secret }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}

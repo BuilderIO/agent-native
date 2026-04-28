@@ -12,6 +12,7 @@ import { slackAdapter } from "./adapters/slack.js";
 import { telegramAdapter } from "./adapters/telegram.js";
 import { whatsappAdapter } from "./adapters/whatsapp.js";
 import { googleDocsAdapter } from "./adapters/google-docs.js";
+import { emailAdapter } from "./adapters/email.js";
 import {
   startGoogleDocsPoller,
   handlePushNotification,
@@ -27,6 +28,7 @@ function getDefaultAdapters(): PlatformAdapter[] {
     telegramAdapter(),
     whatsappAdapter(),
     googleDocsAdapter(),
+    emailAdapter(),
   ];
 }
 
