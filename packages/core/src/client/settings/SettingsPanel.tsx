@@ -45,6 +45,24 @@ const IntegrationsPanel = lazy(() =>
 
 // ─── Shared helpers ─────────────────────────────────────────────────────────
 
+function SettingsSkeleton({ lines = 3 }: { lines?: number }) {
+  return (
+    <div className="space-y-3 animate-pulse">
+      {Array.from({ length: lines }, (_, i) => (
+        <div key={i} className="space-y-1.5">
+          <div
+            className="h-3 rounded bg-muted-foreground/10"
+            style={{ width: i === 0 ? "30%" : i === 1 ? "100%" : "60%" }}
+          />
+          {i < 2 && (
+            <div className="h-9 rounded-md border border-border bg-muted-foreground/5" />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface SettingsSelectOption {
   value: string;
   label: string;
@@ -529,6 +547,7 @@ const PROVIDER_DOCS: Record<string, string> = {
 
 function LLMSectionInner({
   builderEnabled,
+  builderLoading,
   connectUrl,
   connected,
   orgName,
@@ -536,6 +555,7 @@ function LLMSectionInner({
   onToggle,
 }: {
   builderEnabled: boolean;
+  builderLoading?: boolean;
   connectUrl?: string;
   connected: boolean;
   orgName?: string;
@@ -562,12 +582,19 @@ function LLMSectionInner({
   >(null);
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus>(null);
   const [disconnectError, setDisconnectError] = useState<string | null>(null);
+  const [envLoaded, setEnvLoaded] = useState(false);
+  const [enginesLoaded, setEnginesLoaded] = useState(false);
+  const [statusLoaded, setStatusLoaded] = useState(false);
+
+  const initialLoading =
+    !envLoaded || !enginesLoaded || !statusLoaded || !!builderLoading;
 
   useEffect(() => {
     fetch("/_agent-native/env-status")
       .then((r) => (r.ok ? r.json() : []))
       .then(setEnvKeys)
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setEnvLoaded(true));
   }, [saved]);
 
   const notifyConfigChanged = useCallback(() => {
