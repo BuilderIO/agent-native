@@ -52,6 +52,9 @@ async function ensureToolDataItemId(
     await client.execute(
       `ALTER TABLE tool_data ADD COLUMN IF NOT EXISTS item_id TEXT`,
     );
+    await client.execute(
+      `ALTER TABLE tool_data ALTER COLUMN item_id DROP NOT NULL`,
+    );
   } else {
     try {
       await client.execute(`ALTER TABLE tool_data ADD COLUMN item_id TEXT`);
@@ -64,10 +67,33 @@ async function ensureToolDataItemId(
         throw err;
       }
     }
+    await makeSqliteToolDataItemIdNullable(client);
   }
   await client.execute(
-    `UPDATE tool_data SET item_id = id WHERE item_id IS NULL`,
+    `UPDATE tool_data SET item_id = NULL WHERE item_id = id`,
   );
+}
+
+async function makeSqliteToolDataItemIdNullable(
+  client: ReturnType<typeof getDbExec>,
+): Promise<void> {
+  const info = await client.execute(`PRAGMA table_info(tool_data)`);
+  const itemIdColumn = (info.rows ?? []).find(
+    (row: any) => String(row.name) === "item_id",
+  );
+  if (!itemIdColumn || Number((itemIdColumn as any).notnull ?? 0) === 0) {
+    return;
+  }
+
+  await client.execute(`DROP INDEX IF EXISTS tool_data_scope_item_idx`);
+  await client.execute(`ALTER TABLE tool_data RENAME TO tool_data_old`);
+  await client.execute(TOOL_DATA_CREATE_SQL);
+  await client.execute(`
+    INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, created_at, updated_at)
+    SELECT id, tool_id, collection, item_id, data, owner_email, created_at, updated_at
+    FROM tool_data_old
+  `);
+  await client.execute(`DROP TABLE tool_data_old`);
 }
 
 export function registerToolsShareable() {

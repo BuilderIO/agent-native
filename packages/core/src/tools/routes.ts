@@ -11,7 +11,7 @@ import { getSession } from "../server/auth.js";
 import { recordChange } from "../server/poll.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { getOrgContext } from "../org/context.js";
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   listTools,
   getTool,
@@ -211,7 +211,7 @@ async function handleToolDataList(
     sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, created_at, updated_at
       FROM tool_data
       WHERE tool_id = ? AND collection = ? AND owner_email = ?
-      ORDER BY created_at DESC
+      ORDER BY updated_at DESC
       LIMIT ?`,
     args: [toolId, collection, userEmail, limit],
   });
@@ -240,23 +240,25 @@ async function handleToolDataUpsert(
     typeof body.data === "string" ? body.data : JSON.stringify(body.data);
   const now = new Date().toISOString();
   const client = getDbExec();
-  const pg = isPostgres();
-  if (pg) {
+  const existing = await client.execute({
+    sql: `SELECT id
+      FROM tool_data
+      WHERE tool_id = ?
+        AND collection = ?
+        AND owner_email = ?
+        AND (item_id = ? OR (item_id IS NULL AND id = ?))
+      ORDER BY CASE WHEN item_id = ? THEN 0 ELSE 1 END, updated_at DESC
+      LIMIT 1`,
+    args: [toolId, collection, userEmail, itemId, itemId, itemId],
+  });
+  const storageId = existing.rows?.[0]?.id;
+
+  if (storageId) {
     await client.execute({
-      sql: `INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (tool_id, collection, owner_email, item_id)
-       DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
-      args: [
-        randomUUID(),
-        toolId,
-        collection,
-        itemId,
-        data,
-        userEmail,
-        now,
-        now,
-      ],
+      sql: `UPDATE tool_data
+        SET data = ?, updated_at = ?
+        WHERE id = ? AND tool_id = ? AND collection = ? AND owner_email = ?`,
+      args: [data, now, storageId, toolId, collection, userEmail],
     });
   } else {
     await client.execute({
@@ -276,14 +278,27 @@ async function handleToolDataUpsert(
       ],
     });
   }
+
+  const saved = await client.execute({
+    sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, created_at, updated_at
+      FROM tool_data
+      WHERE tool_id = ?
+        AND collection = ?
+        AND owner_email = ?
+        AND (item_id = ? OR (item_id IS NULL AND id = ?))
+      ORDER BY CASE WHEN item_id = ? THEN 0 ELSE 1 END, updated_at DESC
+      LIMIT 1`,
+    args: [toolId, collection, userEmail, itemId, itemId, itemId],
+  });
+  const row = saved.rows?.[0];
   return {
-    id: itemId,
-    toolId,
-    collection,
-    data,
-    ownerEmail: userEmail,
-    createdAt: now,
-    updatedAt: now,
+    id: row?.id ?? itemId,
+    toolId: row?.tool_id ?? toolId,
+    collection: row?.collection ?? collection,
+    data: row?.data ?? data,
+    ownerEmail: row?.owner_email ?? userEmail,
+    createdAt: row?.created_at ?? now,
+    updatedAt: row?.updated_at ?? now,
   };
 }
 
@@ -301,10 +316,24 @@ async function handleToolDataDelete(
     return { error: "Tool not found" };
   }
   const client = getDbExec();
-  await client.execute({
-    sql: `DELETE FROM tool_data WHERE COALESCE(item_id, id) = ? AND tool_id = ? AND collection = ? AND owner_email = ?`,
-    args: [itemId, toolId, collection, userEmail],
+  const existing = await client.execute({
+    sql: `SELECT id
+      FROM tool_data
+      WHERE tool_id = ?
+        AND collection = ?
+        AND owner_email = ?
+        AND (item_id = ? OR (item_id IS NULL AND id = ?))
+      ORDER BY CASE WHEN item_id = ? THEN 0 ELSE 1 END, updated_at DESC
+      LIMIT 1`,
+    args: [toolId, collection, userEmail, itemId, itemId, itemId],
   });
+  const storageId = existing.rows?.[0]?.id;
+  if (storageId) {
+    await client.execute({
+      sql: `DELETE FROM tool_data WHERE id = ? AND tool_id = ? AND collection = ? AND owner_email = ?`,
+      args: [storageId, toolId, collection, userEmail],
+    });
+  }
   return { ok: true };
 }
 
@@ -576,7 +605,7 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
 }
 
 const DESTRUCTIVE_SQL_RE =
-  /\b(CREATE\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+TABLE\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA)\b/i;
+  /\b(CREATE\s+(?:(?:LOCAL|GLOBAL)\s+)?(?:TEMPORARY|TEMP)?\s*(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+TABLE\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA)\b/i;
 
 const SENSITIVE_SQL_RE =
   /\b(app_secrets|user|users|session|sessions|account|accounts|verification|oauth_tokens|tool_shares)\b/i;
