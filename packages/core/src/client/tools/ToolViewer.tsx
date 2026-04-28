@@ -177,6 +177,22 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
       const message = event.data;
       if (!message) return;
 
+      if (message.type === "agent-native-tool-keydown") {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: message.key,
+            code: message.code,
+            metaKey: !!message.metaKey,
+            ctrlKey: !!message.ctrlKey,
+            shiftKey: !!message.shiftKey,
+            altKey: !!message.altKey,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        return;
+      }
+
       if (message.type === "agent-native-tool-error-fix") {
         const t = toolRef.current;
         if (!t) return;

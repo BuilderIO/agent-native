@@ -281,6 +281,30 @@ export function buildToolHtml(
 	      }
 	    });
 
+	    document.addEventListener('keydown', function(e) {
+	      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+	        var key = e.key.toLowerCase();
+	        if (key === 'c' || key === 'v' || key === 'x' || key === 'a' || key === 'z' || key === 'y') return;
+	        e.preventDefault();
+	        e.stopPropagation();
+	        window.parent.postMessage({
+	          type: 'agent-native-tool-keydown',
+	          key: e.key, code: e.code,
+	          metaKey: e.metaKey, ctrlKey: e.ctrlKey,
+	          shiftKey: e.shiftKey, altKey: e.altKey,
+	        }, '*');
+	        return;
+	      }
+	      if (e.key === 'Escape') {
+	        window.parent.postMessage({
+	          type: 'agent-native-tool-keydown',
+	          key: e.key, code: e.code,
+	          metaKey: false, ctrlKey: false,
+	          shiftKey: false, altKey: false,
+	        }, '*');
+	      }
+	    });
+
 	    document.addEventListener('DOMContentLoaded', function() {
 	      var fixBtn = document.getElementById('__tool-error-fix');
 	      if (fixBtn) {
