@@ -179,7 +179,8 @@ export const TEMPLATES: TemplateMeta[] = [
     color: "#14B8A6",
     colorRgb: "20 184 166",
     devPort: 8092,
-    defaultMode: "dev",
+    prodUrl: "https://dispatch.agent-native.com",
+    defaultMode: "prod",
     core: true,
   },
   {
