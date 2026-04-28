@@ -1,4 +1,11 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
 import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
@@ -9,6 +16,7 @@ import {
 import { ThemeProvider } from "next-themes";
 import { useDbSync } from "@agent-native/core";
 import {
+  AgentSidebar,
   ClientOnly,
   CommandMenu,
   DefaultSpinner,
@@ -16,6 +24,7 @@ import {
 } from "@agent-native/core/client";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Sidebar } from "@/components/layout/Sidebar";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -25,6 +34,11 @@ configureTracking({
     app: "design",
   }),
 });
+
+/** Routes that render without the app shell */
+const BARE_ROUTES = new Set<string>([]);
+/** Route prefixes that render without the app shell */
+const BARE_PREFIXES = ["/present/"];
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
@@ -73,10 +87,50 @@ function DbSyncSetup() {
   return null;
 }
 
-export default function Root() {
-  const [queryClient] = useState(() => new QueryClient());
+function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const location = useLocation();
+  const isBare =
+    BARE_ROUTES.has(location.pathname) ||
+    BARE_PREFIXES.some((p) => location.pathname.startsWith(p));
+
+  if (isBare) {
+    return <Outlet />;
+  }
+
+  return (
+    <>
+      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu.Group heading="Actions">
+          <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+        </CommandMenu.Group>
+      </CommandMenu>
+      <AgentSidebar
+        position="right"
+        emptyStateText="Describe a design to create"
+        suggestions={[
+          "Create a todo app prototype",
+          "Design a landing page for my startup",
+          "Build a dashboard with charts",
+        ]}
+      >
+        <div className="flex h-screen w-full overflow-hidden">
+          <div className="hidden md:block">
+            <Sidebar />
+          </div>
+          <div className="flex h-full flex-1 flex-col overflow-hidden">
+            <Outlet />
+          </div>
+        </div>
+      </AgentSidebar>
+      <Toaster position="bottom-left" />
+    </>
+  );
+}
+
+export default function Root() {
+  const [queryClient] = useState(() => new QueryClient());
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <ThemeProvider
@@ -88,13 +142,7 @@ export default function Root() {
         <QueryClientProvider client={queryClient}>
           <TooltipProvider>
             <DbSyncSetup />
-            <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-              <CommandMenu.Group heading="Actions">
-                <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
-              </CommandMenu.Group>
-            </CommandMenu>
-            <Outlet />
-            <Toaster position="bottom-left" />
+            <AppContent />
           </TooltipProvider>
         </QueryClientProvider>
       </ThemeProvider>

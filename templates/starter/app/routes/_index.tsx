@@ -7,11 +7,9 @@ import {
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
-  AgentSidebar,
   sendToAgentChat,
   openAgentSidebar,
 } from "@agent-native/core/client";
-import { Sidebar } from "@/components/layout/Sidebar";
 
 export function meta() {
   return [{ title: "Agent Native App" }];
@@ -97,28 +95,8 @@ export default function IndexPage() {
     ? FIRST_VISIT_SUGGESTIONS
     : RETURNING_SUGGESTIONS;
 
-  const sidebarSuggestions = isFirstVisit
-    ? [
-        "How does state sync work between agent and UI?",
-        "Show me the actions/ directory",
-        "Walk me through this project's structure",
-      ]
-    : [
-        "What can you do?",
-        "Show me the database schema",
-        "Create something cool",
-      ];
-
   return (
-    <div className="flex h-screen">
-      <Sidebar />
-      <AgentSidebar
-        position="right"
-        defaultOpen
-        emptyStateText="How can I help?"
-        suggestions={sidebarSuggestions}
-      >
-        <div className="flex h-full flex-col">
+    <div className="flex flex-1 flex-col overflow-y-auto">
           <div className="flex flex-1 flex-col items-center justify-center px-6">
             <div className="w-full max-w-xl space-y-6">
               <h1 className="text-center text-3xl font-semibold tracking-tight text-foreground">
@@ -218,7 +196,6 @@ export default function IndexPage() {
             </div>
           </div>
         </div>
-      </AgentSidebar>
     </div>
   );
 }

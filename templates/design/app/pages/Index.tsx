@@ -11,13 +11,9 @@ import {
   IconCode,
 } from "@tabler/icons-react";
 import {
-  AgentSidebar,
   useActionQuery,
   useActionMutation,
-  sendToAgentChat,
-  openAgentSidebar,
 } from "@agent-native/core/client";
-import { Sidebar } from "@/components/layout/Sidebar";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -231,18 +227,8 @@ export default function Index() {
   };
 
   return (
-    <AgentSidebar
-      position="right"
-      emptyStateText="Describe a design to create"
-      suggestions={[
-        "Create a todo app prototype",
-        "Design a landing page for my startup",
-        "Build a dashboard with charts",
-      ]}
-    >
-      <div className="flex h-screen">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-10">
+    <>
+      <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-10">
           {isLoading ? (
             <LoadingSkeleton />
           ) : designs.length === 0 ? (
@@ -503,8 +489,7 @@ export default function Index() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </div>
-    </AgentSidebar>
+    </>
   );
 }
 
