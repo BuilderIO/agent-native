@@ -226,12 +226,26 @@ export function LibraryGrid({
                   toast.info("Add to space: implement via shadcn dialog")
                 }
                 onTag={() => toast.info("Tag: implement via shadcn dialog")}
-                onArchive={() =>
-                  toast.info("Archive: wire to archive-recording action")
-                }
-                onTrash={() =>
-                  toast.info("Trash: wire to trash-recording action")
-                }
+                onArchive={async () => {
+                  const ids = Array.from(selected);
+                  await Promise.all(
+                    ids.map((id) => archiveRecording.mutateAsync({ id })),
+                  );
+                  toast.success(
+                    `${ids.length} clip${ids.length === 1 ? "" : "s"} archived`,
+                  );
+                  clearSelection();
+                }}
+                onTrash={async () => {
+                  const ids = Array.from(selected);
+                  await Promise.all(
+                    ids.map((id) => trashRecording.mutateAsync({ id })),
+                  );
+                  toast.success(
+                    `${ids.length} clip${ids.length === 1 ? "" : "s"} moved to trash`,
+                  );
+                  clearSelection();
+                }}
                 onClear={clearSelection}
               />
             </div>
