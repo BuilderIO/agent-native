@@ -49,34 +49,35 @@ actions/               # App operations (agent tools + auto-mounted HTTP endpoin
 
 Agent skills in `.agents/skills/` provide detailed guidance. Read the relevant skill before making changes — these are the source of truth for how to do things in this codebase.
 
-| Skill                 | When to use                                                   |
-| --------------------- | ------------------------------------------------------------- |
-| `adding-a-feature`    | Adding any new feature (the four-area checklist)              |
-| `actions`             | Creating or running agent actions                             |
-| `storing-data`        | Adding data models, reading/writing config or state           |
-| `real-time-sync`      | Wiring polling sync, debugging UI not updating, jitter issues |
-| `real-time-collab`    | Multi-user collaborative editing with Yjs CRDT + live cursors |
-| `context-awareness`   | Exposing UI state to the agent, view-screen pattern           |
-| `client-side-routing` | Adding routes without remounting the app shell                |
-| `delegate-to-agent`   | Delegating AI work from UI or actions to the agent            |
-| `self-modifying-code` | Editing app source, components, or styles                     |
-| `portability`         | Keeping code database- and hosting-agnostic                   |
-| `server-plugins`      | Framework plugins and the `/_agent-native/` namespace         |
-| `authentication`      | Auth modes, sessions, orgs, protecting routes                 |
-| `security`            | Input validation, SQL injection, XSS, secrets, data scoping   |
-| `a2a-protocol`        | Enabling inter-agent communication                            |
-| `recurring-jobs`      | Scheduled tasks the agent runs on a cron schedule             |
-| `onboarding`          | Registering setup steps for API keys / OAuth                  |
-| `secrets`             | Declaratively register API keys the template needs            |
-| `automations`         | Event-triggered and schedule-triggered automations            |
-| `observability`       | Agent traces, evals, feedback, experiments, and dashboard     |
-| `tracking`            | Server-side analytics with pluggable providers                |
-| `sharing`             | Per-user / per-org sharing and access checks on resources     |
-| `voice-transcription` | Voice dictation in the agent composer (Whisper / browser)     |
-| `frontend-design`     | Building or styling any web UI, components, or pages          |
-| `create-skill`        | Adding new skills for the agent                               |
-| `tools`               | Creating, editing, and managing sandboxed mini-app tools      |
-| `capture-learnings`   | Recording corrections and patterns                            |
+| Skill                  | When to use                                                   |
+| ---------------------- | ------------------------------------------------------------- |
+| `adding-a-feature`     | Adding any new feature (the four-area checklist)              |
+| `actions`              | Creating or running agent actions                             |
+| `storing-data`         | Adding data models, reading/writing config or state           |
+| `real-time-sync`       | Wiring polling sync, debugging UI not updating, jitter issues |
+| `real-time-collab`     | Multi-user collaborative editing with Yjs CRDT + live cursors |
+| `context-awareness`    | Exposing UI state to the agent, view-screen pattern           |
+| `client-side-routing`  | Adding routes without remounting the app shell                |
+| `delegate-to-agent`    | Delegating AI work from UI or actions to the agent            |
+| `self-modifying-code`  | Editing app source, components, or styles                     |
+| `portability`          | Keeping code database- and hosting-agnostic                   |
+| `server-plugins`       | Framework plugins and the `/_agent-native/` namespace         |
+| `authentication`       | Auth modes, sessions, orgs, protecting routes                 |
+| `security`             | Input validation, SQL injection, XSS, secrets, data scoping   |
+| `a2a-protocol`         | Enabling inter-agent communication                            |
+| `recurring-jobs`       | Scheduled tasks the agent runs on a cron schedule             |
+| `onboarding`           | Registering setup steps for API keys / OAuth                  |
+| `secrets`              | Declaratively register API keys the template needs            |
+| `automations`          | Event-triggered and schedule-triggered automations            |
+| `integration-webhooks` | Cross-platform webhook → SQL queue → processor pattern        |
+| `observability`        | Agent traces, evals, feedback, experiments, and dashboard     |
+| `tracking`             | Server-side analytics with pluggable providers                |
+| `sharing`              | Per-user / per-org sharing and access checks on resources     |
+| `voice-transcription`  | Voice dictation in the agent composer (Whisper / browser)     |
+| `frontend-design`      | Building or styling any web UI, components, or pages          |
+| `create-skill`         | Adding new skills for the agent                               |
+| `tools`                | Creating, editing, and managing sandboxed mini-app tools      |
+| `capture-learnings`    | Recording corrections and patterns                            |
 
 ## All-Agent Support
 
@@ -90,6 +91,7 @@ Run `agent-native setup-agents` to create all symlinks (done automatically by `a
 ## Conventions
 
 - **Actions first** — use `defineAction` for new operations; only create `/api/` routes for file uploads, streaming, webhooks, or OAuth callbacks.
+- **Integration webhooks (Slack/Telegram/etc.) use the queue pattern.** The webhook handler verifies and enqueues to `integration_pending_tasks`, returns 200 immediately, then a self-fired `POST /_agent-native/integrations/_process-task` runs the agent loop in a fresh function execution. A 60s recurring job retries stuck tasks. This works on every serverless host — never use Netlify Background Functions, Cloudflare `waitUntil`, Vercel `after()`, or fire-and-forget promises after `return`. See `integration-webhooks` skill.
 - **TypeScript everywhere** — all code must be `.ts`/`.tsx`. Never `.js` or `.mjs`.
 - **Prettier** — run `npx prettier --write <files>` after modifying source files.
 - **SSR for public pages, CSR for logged-in pages.** Any page a visitor can see without logging in — homepages, landing pages, docs, marketing, pricing — must server-side render so crawlers get real HTML. Logged-in app pages use client-side rendering via the `ClientOnly` wrapper in `root.tsx` to keep things simple. Never wrap public/SEO-critical content in `ClientOnly`. If a client-only component (e.g. `AgentSidebar`) needs to appear on a public page, render the page content directly and add the component as a client-only progressive enhancement (render children on server, mount the wrapper after hydration).
