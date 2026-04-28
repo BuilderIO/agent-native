@@ -66,11 +66,12 @@ This ensures every tick starts with a clean, fully-pushed working tree. Never sk
 
 ## Responding to feedback
 
-**Every comment must get a response** — either a fix or a reply explaining why you're skipping it.
+**Every comment must get an inline reply** — either a fix or an explanation of why you're skipping it.
 
-- If you fix it: commit, push, and the fix speaks for itself
-- If you skip it: reply to the comment via `gh api repos/{owner}/{repo}/pulls/comments/{id}/replies -f body="..."` explaining why (pre-existing, false positive, not practical, etc.)
-- Never silently ignore a comment
+- If you fix it: commit, push, AND reply inline confirming the fix. Fixing code marks the comment as "outdated" in GitHub's UI, but the user needs to see the reply to know you addressed it — don't rely on the outdated status alone.
+- If you skip it: reply to the comment via `gh api repos/{owner}/{repo}/pulls/323/comments/{id}/replies -f body="..."` explaining why (pre-existing, false positive, not practical, etc.)
+- If the issue is real but you didn't introduce it: fix it anyway and reply. Real bugs should be fixed regardless of who wrote the code.
+- **Never silently ignore a comment** — every single one must have a reply so the user can verify everything was addressed.
 
 ## Evaluating feedback — be skeptical
 
