@@ -1,7 +1,7 @@
 import DesignSystems from "@/pages/DesignSystems";
 
 export function meta() {
-  return [{ title: "Design Systems — Video Studio" }];
+  return [{ title: "Design Systems — Videos" }];
 }
 
 export function HydrateFallback() {

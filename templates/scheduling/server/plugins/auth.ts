@@ -2,7 +2,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   marketing: {
-    appName: "Agent-Native Scheduling",
+    appName: "Scheduling",
     tagline:
       "Your AI agent manages availability, books meetings, and handles rescheduling alongside you.",
     features: [

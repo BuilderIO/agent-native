@@ -4,7 +4,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 // reach unauthenticated viewers. Everything else sits behind auth.
 export default createAuthPlugin({
   marketing: {
-    appName: "Agent-Native Calls",
+    appName: "Calls",
     tagline:
       "Your AI agent transcribes, summarizes, and surfaces key moments from every conversation.",
     features: [

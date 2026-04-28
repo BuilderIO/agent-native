@@ -244,9 +244,7 @@ export function Sidebar({
       <div className="w-64 lg:w-72 h-full flex flex-col">
         {/* App name */}
         <div className="flex h-10 items-center px-3 border-b border-border shrink-0">
-          <span className="text-xs font-semibold tracking-tight">
-            Video Studio
-          </span>
+          <span className="text-xs font-semibold tracking-tight">Videos</span>
         </div>
 
         {/* Navigation */}

@@ -16,7 +16,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <IconMenu2 className="h-4 w-4" />
         </button>
         <span className="ml-2 text-sm font-semibold text-foreground">
-          Notes
+          Meeting Notes
         </span>
       </header>
 
@@ -29,7 +29,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="fixed inset-y-0 left-0 z-50 w-64 bg-background border-r border-border shadow-xl overflow-y-auto">
             <div className="flex h-12 items-center justify-between border-b border-border px-4">
               <span className="text-sm font-semibold text-foreground">
-                Notes
+                Meeting Notes
               </span>
               <button
                 onClick={() => setMenuOpen(false)}
