@@ -250,7 +250,7 @@ export function VoiceDictation({ currentDate }: VoiceDictationProps) {
       </button>
 
       {state === "idle" && (
-        <p className="text-xs text-muted-foreground/60 text-center animate-in fade-in duration-500 md:hidden">
+        <p className="text-xs text-muted-foreground/60 text-center whitespace-nowrap animate-in fade-in duration-500 md:hidden">
           Tap to speak
         </p>
       )}
