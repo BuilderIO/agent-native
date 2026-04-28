@@ -55,7 +55,10 @@ function CreateToolInput({
           }
         }}
       />
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-muted-foreground">
+          {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter
+        </span>
         <button
           type="button"
           onClick={handleCreate}
@@ -142,9 +145,7 @@ export function ToolsListPage() {
               />
               <div className="flex items-center justify-between mt-3">
                 <span className="text-[11px] text-muted-foreground">
-                  {/Mac|iPhone|iPad/.test(navigator.userAgent)
-                    ? "⌘"
-                    : "Ctrl"}
+                  {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
                   +Enter
                 </span>
                 <button

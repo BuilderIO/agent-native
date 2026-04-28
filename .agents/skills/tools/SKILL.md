@@ -317,7 +317,7 @@ set-url-path({ "pathname": "/tools/TOOL_ID" })
 Checks the health of multiple endpoints and shows green/red status:
 
 ```html
-<div x-data="{
+<div class="p-6" x-data="{
   endpoints: [
     { name: 'API', url: 'https://api.example.com/health' },
     { name: 'Auth', url: 'https://auth.example.com/health' },
@@ -348,7 +348,7 @@ Checks the health of multiple endpoints and shows green/red status:
 Fetches current weather for a city:
 
 ```html
-<div x-data="{ city: 'San Francisco', weather: null, loading: false }" x-init="
+<div class="p-6" x-data="{ city: 'San Francisco', weather: null, loading: false }" x-init="
   loading = true;
   toolFetch('https://api.weatherapi.com/v1/current.json?q=' + encodeURIComponent(city) + '&key=${keys.WEATHER_API_KEY}')
     .then(r => r.json()).then(d => { weather = d; loading = false })
@@ -375,7 +375,7 @@ Fetches current weather for a city:
 Full CRUD app using the built-in `toolData` store — no SQL, no schema files, no actions. Data is automatically scoped per-tool and per-user:
 
 ```html
-<div x-data="{
+<div class="p-6" x-data="{
   todos: [],
   newTodo: '',
   loading: true,
@@ -436,7 +436,7 @@ Full CRUD app using the built-in `toolData` store — no SQL, no schema files, n
 Persistent notes using localStorage -- no API key needed:
 
 ```html
-<div x-data="{
+<div class="p-6" x-data="{
   notes: JSON.parse(localStorage.getItem('quick-notes') || '[]'),
   draft: '',
   save() {
@@ -475,8 +475,11 @@ Persistent notes using localStorage -- no API key needed:
 
 ## Guidelines
 
+- **Add padding to your root element.** The iframe body has no padding — add `p-4` or `p-6` to the outermost `<div>` in your tool HTML. This gives tools full-bleed control when needed.
+- **Use semantic Tailwind colors for native theming.** Always use `bg-background`, `text-foreground`, `bg-primary`, `text-primary-foreground`, `border-border`, `bg-muted`, `text-muted-foreground`, etc. The tool inherits the parent app's exact theme variables, so it will look fully native in both light and dark modes.
 - **Keep tools focused.** One tool, one job. A "GitHub PR Dashboard" should show PRs, not also manage issues.
 - **Handle loading and error states.** Always show a loading indicator during fetch and handle failures gracefully.
+- **All functions referenced in Alpine expressions must be defined in `x-data`.** If you use `@click="add()"`, there must be an `add()` method in the component's `x-data` object. Undefined references cause runtime errors.
 - **Use the right fetch helper.** `appAction()` for app actions, `appFetch()` for app endpoints, `toolFetch()` for external APIs. Never use raw `fetch()` -- secrets won't be injected and CORS will block external APIs.
 - **Single quotes around `${keys.*}`** to prevent browser-side template literal evaluation.
 - **Prefer patches over full rewrites** when editing existing tools. Smaller diffs are less error-prone.

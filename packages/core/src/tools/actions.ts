@@ -24,7 +24,7 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
             content: {
               type: "string",
               description:
-                "Self-contained Alpine.js HTML body snippet. Do not include a full app build, React code, or source files.",
+                "Self-contained Alpine.js HTML body snippet. The iframe body has no padding, so add p-4 or p-6 to the outermost element. Use semantic Tailwind colors (bg-background, text-foreground, bg-primary, etc.) for native theming. Do not include a full app build, React code, or source files.",
             },
             icon: {
               type: "string",

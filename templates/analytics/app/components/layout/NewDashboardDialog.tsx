@@ -81,7 +81,11 @@ export function NewDashboardDialog() {
               }
             }}
           />
-          <div className="flex justify-end mt-3">
+          <div className="flex items-center justify-between mt-3">
+            <span className="text-[11px] text-muted-foreground">
+              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+              +Enter
+            </span>
             <button
               type="submit"
               disabled={!prompt.trim() || isGenerating}
