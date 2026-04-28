@@ -113,13 +113,13 @@ export function mountA2A(
       let verifiedCallerEmail: string | null = null;
       let verifiedOrgDomain: string | null = null;
 
-      // Try JWT verification first (A2A_SECRET-based identity)
-      if (authHeader?.startsWith("Bearer ") && process.env.A2A_SECRET) {
+      // Try JWT verification first (org-level or global A2A_SECRET-based identity)
+      if (authHeader?.startsWith("Bearer ")) {
         const tokenPayload = await verifyA2AToken(authHeader);
         verifiedCallerEmail = tokenPayload.email;
         verifiedOrgDomain = tokenPayload.orgDomain;
-        // If A2A_SECRET is set and token fails verification, reject the request
-        if (!verifiedCallerEmail) {
+        // If a secret exists (org-level or global) and token fails verification, reject
+        if (!verifiedCallerEmail && process.env.A2A_SECRET) {
           setResponseStatus(event, 401);
           return {
             jsonrpc: "2.0",

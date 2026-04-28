@@ -305,9 +305,7 @@ export async function getOrgDomain(orgId: string): Promise<string | null> {
  * Used when making outbound A2A calls so the JWT is signed with the
  * org-specific secret rather than the global A2A_SECRET env var.
  */
-export async function getOrgA2ASecret(
-  orgId: string,
-): Promise<string | null> {
+export async function getOrgA2ASecret(orgId: string): Promise<string | null> {
   try {
     const exec = getDbExec();
     const { rows } = await exec.execute({
