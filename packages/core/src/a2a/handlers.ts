@@ -132,8 +132,8 @@ async function withA2ARequestContext<T>(
   const verifiedEmail =
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
   const orgDomain =
-    (metadata?.orgDomain as string | undefined) ??
     (event?.context?.__a2aOrgDomain as string | undefined) ??
+    (metadata?.orgDomain as string | undefined) ??
     undefined;
 
   let resolvedOrgId: string | undefined;
