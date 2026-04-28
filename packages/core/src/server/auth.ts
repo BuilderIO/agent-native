@@ -548,6 +548,12 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // A2A endpoint verifies authenticity via JWT signed with the org's A2A
+    // secret (or the global A2A_SECRET fallback), not via session cookies.
+    if (p === "/_agent-native/a2a") {
+      return;
+    }
+
     // Force-sign-in entrypoint. Templates send viewers from public pages
     // (share links, embeds) here with a `?return=<path>` query — anonymous
     // visitors get the loginHtml, and once they sign in the loginHtml's
