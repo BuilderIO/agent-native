@@ -18,7 +18,7 @@ export default defineAction({
       .optional()
       .describe("Short description of the design project"),
     projectType: z
-      .enum(["prototype", "deck", "other"])
+      .enum(["prototype", "other"])
       .optional()
       .default("prototype")
       .describe("Type of design project"),
