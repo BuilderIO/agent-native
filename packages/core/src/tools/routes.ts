@@ -14,7 +14,7 @@ import {
   getRequestOrgId,
 } from "../server/request-context.js";
 import { getOrgContext } from "../org/context.js";
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   listTools,
   getTool,
@@ -246,7 +246,7 @@ async function handleToolDataList(
     sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, scope, org_id, created_at, updated_at
       FROM tool_data
       WHERE tool_id = ? AND collection = ? AND scope = 'user' AND owner_email = ?
-      ORDER BY created_at DESC
+      ORDER BY updated_at DESC
       LIMIT ?`,
     args: [toolId, collection, userEmail, limit],
   });
@@ -627,7 +627,7 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
 }
 
 const DESTRUCTIVE_SQL_RE =
-  /\b(CREATE\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+TABLE\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA)\b/i;
+  /\b(CREATE\s+(?:(?:LOCAL|GLOBAL)\s+)?(?:TEMPORARY|TEMP)?\s*(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+TABLE\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA)\b/i;
 
 const SENSITIVE_SQL_RE =
   /\b(app_secrets|user|users|session|sessions|account|accounts|verification|oauth_tokens|tool_shares)\b/i;

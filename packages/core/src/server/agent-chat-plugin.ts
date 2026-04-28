@@ -2559,6 +2559,7 @@ export function createAgentChatPlugin(
                 ...(lazyContext ? frameworkContextTool : {}),
                 ...urlTools,
                 ...chatScripts,
+                ...toolActions,
                 ...devScriptsForA2A,
               }
             : {
@@ -2570,6 +2571,7 @@ export function createAgentChatPlugin(
                 ...(lazyContext ? frameworkContextTool : {}),
                 ...urlTools,
                 ...chatScripts,
+                ...toolActions,
               };
 
           const mcpTools = actionsToEngineTools(mcpActions);
