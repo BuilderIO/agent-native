@@ -5,7 +5,7 @@ import {
   QueryClientProvider,
   useQueryClient,
 } from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
+import { ThemeProvider, useTheme } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useDbSync } from "@agent-native/core";
@@ -15,7 +15,6 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
-import { useTheme } from "next-themes";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { TAB_ID } from "@/lib/tab-id";
 import { AppLayout } from "@/components/layout/AppLayout";

@@ -89,7 +89,11 @@ async function ensureToolDataScope(
     return client
       .execute(`ALTER TABLE tool_data ADD COLUMN ${name} ${def}`)
       .catch((err: any) => {
-        if (!String(err?.message ?? err).toLowerCase().includes("duplicate"))
+        if (
+          !String(err?.message ?? err)
+            .toLowerCase()
+            .includes("duplicate")
+        )
           throw err;
       });
   };

@@ -123,17 +123,17 @@ Tools are 100% self-contained. They have FULL access to app data, external APIs,
 
 | Helper                               | Purpose                | Example                                       |
 | ------------------------------------ | ---------------------- | --------------------------------------------- |
-| `toolData.set(collection, id, data)` | Persist data per-tool  | `toolData.set('notes', id, { text: '...' })`  |
-| `toolData.list(collection)`          | List persisted items   | `toolData.list('notes')`                      |
-| `toolData.get(collection, id)`       | Get a single item      | `toolData.get('notes', 'note-1')`             |
-| `toolData.remove(collection, id)`    | Delete persisted item  | `toolData.remove('notes', 'note-1')`          |
+| `toolData.set(collection, id, data, opts?)` | Persist data per-tool  | `toolData.set('notes', id, { text: '...' })`  |
+| `toolData.list(collection, opts?)`          | List persisted items   | `toolData.list('notes', { scope: 'all' })`    |
+| `toolData.get(collection, id, opts?)`       | Get a single item      | `toolData.get('notes', 'note-1')`             |
+| `toolData.remove(collection, id, opts?)`    | Delete persisted item  | `toolData.remove('notes', 'note-1')`          |
 | `appAction(name, params)`            | Call any app action    | `appAction('list-emails', { view: 'inbox' })` |
 | `dbQuery(sql, args)`                 | Read from SQL          | `dbQuery('SELECT * FROM tools')`              |
 | `dbExec(sql, args)`                  | Write to SQL           | `dbExec('INSERT INTO ...')`                   |
 | `appFetch(path, options)`            | Call any app endpoint  | `appFetch('/api/settings')`                   |
 | `toolFetch(url, options)`            | External API via proxy | `toolFetch('https://api.github.com/...')`     |
 
-**`toolData` is a built-in per-tool, per-user key-value store.** When a user asks to "add persistence", "save data", or "remember state" in a tool, use `toolData` — no SQL schema, no new tables, no source code, no Builder. Data is automatically scoped by tool ID and user.
+**`toolData` is a built-in per-tool key-value store with user/org scoping.** When a user asks to "add persistence", "save data", or "remember state" in a tool, use `toolData` — no SQL schema, no new tables, no source code, no Builder. Data is automatically scoped by tool ID. All methods accept an optional `{ scope }` option: `'user'` (default, private), `'org'` (shared with org), or `'all'` (list/get only — returns both).
 
 **NEVER suggest Builder, source code changes, or new files for tool modifications.** All tool changes go through `update-tool-content` (to edit the Alpine.js HTML) or `toolData` (to persist data).
 

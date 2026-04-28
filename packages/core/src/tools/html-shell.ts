@@ -177,25 +177,29 @@ export function buildToolHtml(
     var toolData = {
 	      async list(collection, opts) {
 	        var limit = (opts && opts.limit) || 100;
-	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection) + '?limit=' + limit);
+	        var scope = (opts && opts.scope) || 'user';
+	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection) + '?limit=' + limit + '&scope=' + scope);
 	        if (!res.ok) throw new Error('Failed to list tool data');
 	        return res.body;
 	      },
-      async get(collection, id) {
-        var items = await this.list(collection);
+      async get(collection, id, opts) {
+        var scope = (opts && opts.scope) || 'user';
+        var items = await this.list(collection, { scope: scope });
         return (items || []).find(function(item) { return item.id === id; }) || null;
       },
-      async set(collection, id, data) {
+      async set(collection, id, data, opts) {
+	        var scope = (opts && opts.scope) || 'user';
 	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection), {
 	          method: 'POST',
 	          headers: { 'Content-Type': 'application/json' },
-	          body: JSON.stringify({ id: id, data: data }),
+	          body: JSON.stringify({ id: id, data: data, scope: scope }),
 	        });
 	        if (!res.ok) throw new Error('Failed to save tool data');
 	        return res.body;
 	      },
-	      async remove(collection, id) {
-	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection) + '/' + encodeURIComponent(id), {
+	      async remove(collection, id, opts) {
+	        var scope = (opts && opts.scope) || 'user';
+	        var res = await hostRequest('/_agent-native/tools/data/' + _toolId + '/' + encodeURIComponent(collection) + '/' + encodeURIComponent(id) + '?scope=' + scope, {
 	          method: 'DELETE',
 	        });
 	        if (!res.ok) throw new Error('Failed to delete tool data');
