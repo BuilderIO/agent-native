@@ -57,6 +57,7 @@ export function LibraryGrid({
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
+  const [isBulkPending, setIsBulkPending] = useState(false);
 
   const args: ListRecordingsArgs = useMemo(
     () => ({
@@ -227,48 +228,71 @@ export function LibraryGrid({
                 }
                 onTag={() => toast.info("Tag: implement via shadcn dialog")}
                 onArchive={async () => {
-                  const ids = Array.from(selected);
-                  const results = await Promise.allSettled(
-                    ids.map((id) => archiveRecording.mutateAsync({ id })),
-                  );
-                  const succeeded = results.filter(
-                    (r) => r.status === "fulfilled",
-                  ).length;
-                  const failed = results.length - succeeded;
-                  if (succeeded > 0) {
-                    toast.success(
-                      `${succeeded} clip${succeeded === 1 ? "" : "s"} archived`,
+                  setIsBulkPending(true);
+                  try {
+                    const ids = Array.from(selected);
+                    const results = await Promise.allSettled(
+                      ids.map((id) => archiveRecording.mutateAsync({ id })),
                     );
-                    clearSelection();
-                  }
-                  if (failed > 0) {
-                    toast.error(
-                      `${failed} clip${failed === 1 ? "" : "s"} could not be archived`,
+                    const succeededIds = ids.filter(
+                      (_, i) => results[i].status === "fulfilled",
                     );
+                    const failed = ids.length - succeededIds.length;
+                    if (succeededIds.length > 0) {
+                      toast.success(
+                        `${succeededIds.length} clip${
+                          succeededIds.length === 1 ? "" : "s"
+                        } archived`,
+                      );
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        succeededIds.forEach((id) => next.delete(id));
+                        return next;
+                      });
+                    }
+                    if (failed > 0) {
+                      toast.error(
+                        `${failed} clip${failed === 1 ? "" : "s"} could not be archived`,
+                      );
+                    }
+                  } finally {
+                    setIsBulkPending(false);
                   }
                 }}
                 onTrash={async () => {
-                  const ids = Array.from(selected);
-                  const results = await Promise.allSettled(
-                    ids.map((id) => trashRecording.mutateAsync({ id })),
-                  );
-                  const succeeded = results.filter(
-                    (r) => r.status === "fulfilled",
-                  ).length;
-                  const failed = results.length - succeeded;
-                  if (succeeded > 0) {
-                    toast.success(
-                      `${succeeded} clip${succeeded === 1 ? "" : "s"} moved to trash`,
+                  setIsBulkPending(true);
+                  try {
+                    const ids = Array.from(selected);
+                    const results = await Promise.allSettled(
+                      ids.map((id) => trashRecording.mutateAsync({ id })),
                     );
-                    clearSelection();
-                  }
-                  if (failed > 0) {
-                    toast.error(
-                      `${failed} clip${failed === 1 ? "" : "s"} could not be moved to trash`,
+                    const succeededIds = ids.filter(
+                      (_, i) => results[i].status === "fulfilled",
                     );
+                    const failed = ids.length - succeededIds.length;
+                    if (succeededIds.length > 0) {
+                      toast.success(
+                        `${succeededIds.length} clip${
+                          succeededIds.length === 1 ? "" : "s"
+                        } moved to trash`,
+                      );
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        succeededIds.forEach((id) => next.delete(id));
+                        return next;
+                      });
+                    }
+                    if (failed > 0) {
+                      toast.error(
+                        `${failed} clip${failed === 1 ? "" : "s"} could not be moved to trash`,
+                      );
+                    }
+                  } finally {
+                    setIsBulkPending(false);
                   }
                 }}
                 onClear={clearSelection}
+                isPending={isBulkPending}
               />
             </div>
           </div>
