@@ -138,7 +138,7 @@ export default defineAction({
               "Text extracted client-side (PDF text layer, PPTX slide text, etc.)",
             ),
           metadata: z
-            .record(z.any())
+            .record(z.string(), z.any())
             .optional()
             .describe(
               "Additional metadata from client parsing (detected fonts, theme colors, etc.)",

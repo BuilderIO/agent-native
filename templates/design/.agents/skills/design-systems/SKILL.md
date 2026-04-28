@@ -130,11 +130,52 @@ pnpm action set-default-design-system --id <id>
 
 Unsets any previously-default design system for this user.
 
-## Brand Asset Extraction Flow
+## Multi-Source Import Flow
 
-When a user wants to create a design system from an existing brand:
+The design system setup page collects brand assets from multiple sources. When the user clicks "Continue to generation", a structured message is sent to the agent with all sources. Process each source type with the appropriate action:
 
-### Step 1: Gather brand signals
+### Source: Website URL
+
+```bash
+pnpm action import-from-url --url "https://acme.com"
+```
+
+Returns CSS custom properties, colors, fonts, Google Fonts links, theme-color, OG image, favicon.
+
+### Source: GitHub Repository
+
+```bash
+pnpm action import-github --repoUrl "https://github.com/acme/ui"
+```
+
+Fetches Tailwind configs, CSS files, theme files, package.json. Returns extracted colors, fonts, spacing, border-radius, and styling framework detection.
+
+### Source: Local Code Files
+
+```bash
+pnpm action import-code --files '[{"filename":"globals.css","content":"..."}]'
+```
+
+Analyzes CSS, Tailwind configs, JSON theme files, TS/JS theme files. Returns structured tokens.
+
+### Source: Documents (DOCX, PPTX, PDF)
+
+```bash
+pnpm action import-document --files '[{"filename":"brand.pptx","fileType":"application/pptx","sizeBytes":1234}]'
+```
+
+Returns content-type-aware design hints and agent instructions. Presentations are the strongest signal for brand colors/fonts.
+
+### Source: Existing Project or Design System
+
+```bash
+pnpm action import-design-project --designId "abc123"
+pnpm action import-design-project --designId _ --designSystemId "ds-456"
+```
+
+Extracts CSS tokens from a project's generated HTML, or clones an existing design system for forking.
+
+### Source: Brand Analysis (combines website + notes)
 
 ```bash
 pnpm action analyze-brand-assets \
@@ -143,30 +184,19 @@ pnpm action analyze-brand-assets \
   --brandNotes "Modern B2B SaaS, blue accent, clean"
 ```
 
-Returns:
-- `cssCustomProperties` — extracted CSS variables from the website
-- `colors` — hex/rgb colors found in the HTML/CSS
-- `fontFaces` — @font-face declarations
-- `googleFonts` — Google Fonts links
-- `themeColor` — meta theme-color
-- `pageTitle`, `metaDescription`, `ogImage`, `favicon`
+Returns CSS properties, colors, fonts, theme-color, metadata.
 
-### Step 2: Analyze and create
+### Processing Multiple Sources
 
-Use the extracted data to build a `DesignSystemData` object:
+When the user provides multiple sources, call all applicable import actions in parallel, then synthesize:
 
-1. Map the most prominent colors to `primary`, `accent`, `surface`, `text`
-2. Identify heading and body fonts from `fontFaces` or `googleFonts`
-3. Extract border radius and spacing patterns from `cssCustomProperties`
-4. Use `ogImage` or `favicon` for logo URLs
-
-Then call `create-design-system` with the assembled JSON.
-
-### Step 3: Link to a design
-
-```bash
-pnpm action update-design --id <designId> --designSystemId <designSystemId>
-```
+1. **Prioritize code sources** (GitHub, local files) — these have the most accurate tokens
+2. **Cross-reference with website** — validates colors/fonts are actually deployed
+3. **Documents supplement** — presentations may reveal brand colors not in code
+4. **Images inform mood** — color temperature, density, visual style
+5. **Aggregate into DesignSystemData** — merge all extracted tokens, resolve conflicts
+6. **Call `create-design-system`** with the combined result
+7. **Link to design** via `update-design --designSystemId`
 
 ## Applying Design System to Generated HTML
 

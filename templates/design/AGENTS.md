@@ -302,12 +302,12 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 ### Creating & Editing Designs
 
-| Action             | Args                                                                                               | Purpose                            |
-| ------------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| Action             | Args                                                                                         | Purpose                            |
+| ------------------ | -------------------------------------------------------------------------------------------- | ---------------------------------- |
 | `create-design`    | `--title "X" [--description "..."] [--projectType prototype\|other] [--designSystemId <id>]` | Create a new empty design project  |
-| `update-design`    | `--id <id> [--title] [--description] [--data] [--projectType] [--designSystemId]`                  | Update design metadata             |
-| `delete-design`    | `--id <id>`                                                                                        | Delete design + all files/versions |
-| `duplicate-design` | `--id <id> [--title "Copy of..."]`                                                                 | Deep copy design + all files       |
+| `update-design`    | `--id <id> [--title] [--description] [--data] [--projectType] [--designSystemId]`            | Update design metadata             |
+| `delete-design`    | `--id <id>`                                                                                  | Delete design + all files/versions |
+| `duplicate-design` | `--id <id> [--title "Copy of..."]`                                                           | Deep copy design + all files       |
 
 ### File Operations
 
@@ -330,15 +330,25 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 | `set-default-design-system` | `--id <id>`                                                                               | Set one as the default            |
 | `analyze-brand-assets`      | `[--websiteUrl "..."] [--companyName "..."] [--brandNotes "..."] [--designSystemId <id>]` | Gather brand data for analysis    |
 
-### Import & Export
+### Import
 
-| Action            | Args                                                            | Purpose                                                    |
-| ----------------- | --------------------------------------------------------------- | ---------------------------------------------------------- |
-| `import-from-url` | `--url <websiteUrl>`                                            | Analyze a website and extract design tokens, colors, fonts |
-| `import-figma`    | `--description "..." [--figmaUrl "..."] [--projectTitle "..."]` | Process Figma file description for design import           |
-| `export-html`     | `--id <designId>`                                               | Export as standalone HTML with CDN scripts                 |
-| `export-zip`      | `--id <designId>`                                               | Export as ZIP with all files + README                      |
-| `export-pdf`      | `--id <designId>`                                               | Prepare data for client-side PDF rendering                 |
+| Action                  | Args                                                                 | Purpose                                                         |
+| ----------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `import-from-url`       | `--url <websiteUrl>`                                                 | Analyze a website and extract design tokens, colors, fonts      |
+| `import-github`         | `--repoUrl <url-or-org/repo>`                                        | Extract tokens from a public GitHub repo (Tailwind, CSS, theme) |
+| `import-code`           | `--files '[{"filename":"...","content":"..."}]'`                     | Extract tokens from uploaded code files                         |
+| `import-document`       | `--files '[{"filename":"...","fileType":"...","sizeBytes":...}]'`    | Process document metadata (DOCX, PPTX, PDF) for design cues     |
+| `import-design-project` | `--designId <id> [--designSystemId <id>]`                            | Extract tokens from existing project or fork a design system    |
+| `import-figma`          | `--description "..." [--figmaUrl "..."] [--projectTitle "..."]`      | Process Figma file description for design import                |
+| `analyze-brand-assets`  | `[--websiteUrl "..."] [--companyName "..."] [--designSystemId <id>]` | Gather brand data from multiple sources                         |
+
+### Export
+
+| Action        | Args              | Purpose                                    |
+| ------------- | ----------------- | ------------------------------------------ |
+| `export-html` | `--id <designId>` | Export as standalone HTML with CDN scripts |
+| `export-zip`  | `--id <designId>` | Export as ZIP with all files + README      |
+| `export-pdf`  | `--id <designId>` | Prepare data for client-side PDF rendering |
 
 ### Sharing
 
