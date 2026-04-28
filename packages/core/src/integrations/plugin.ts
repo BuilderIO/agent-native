@@ -215,7 +215,7 @@ export function createIntegrationsPlugin(
           const tok = extractBearerToken(
             getRequestHeader(event, "authorization"),
           );
-          if (!tok || !verifyInternalToken(tok, taskId)) {
+          if (!tok || !verifyInternalToken(taskId, tok)) {
             setResponseStatus(event, 401);
             return { error: "Invalid or expired internal token" };
           }

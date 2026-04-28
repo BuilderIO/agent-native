@@ -138,8 +138,10 @@ export async function handleWebhook(
       `[integrations] Failed to enqueue/dispatch ${incoming.platform} message:`,
       err,
     );
-    // Still return 200 so the platform doesn't retry — the user-visible
-    // failure surfaces as the bot not replying, not as an HTTP retry storm.
+    // Return 500 so the platform retries. If the SQL insert failed, the
+    // message is genuinely lost — better to let Slack retry (it will
+    // re-fire the same event_callback) than silently drop it.
+    return { status: 500, body: { error: "enqueue failed" } };
   }
 
   return { status: 200, body: "ok" };
