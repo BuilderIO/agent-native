@@ -268,19 +268,45 @@ async function handleToolDataDelete(
   return { ok: true };
 }
 
-const PRIVATE_IP_RE =
-  /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|0\.0\.0\.0|\[::1?\])/i;
 const METADATA_HOSTS = [
   "metadata.google.internal",
   "metadata.google.internal.",
 ];
 
+function isPrivateHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (h === "localhost" || h === "[::1]" || h === "[::0]") return true;
+  if (METADATA_HOSTS.includes(h)) return true;
+  const parts = h.split(".");
+  if (parts.length === 4 && parts.every((p) => /^\d+$/.test(p))) {
+    const [a, b] = parts.map(Number);
+    if (a === 127) return true;
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 0) return true;
+  }
+  if (/^\d+$/.test(h)) {
+    const num = Number(h);
+    if (num >= 0 && num <= 0xffffffff) {
+      const a = (num >>> 24) & 0xff;
+      const b = (num >>> 16) & 0xff;
+      if (a === 127) return true;
+      if (a === 10) return true;
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      if (a === 192 && b === 168) return true;
+      if (a === 169 && b === 254) return true;
+      if (a === 0) return true;
+    }
+  }
+  return false;
+}
+
 function isBlockedUrl(url: string): boolean {
-  if (PRIVATE_IP_RE.test(url)) return true;
   try {
-    const host = new URL(url).hostname.toLowerCase();
-    if (METADATA_HOSTS.includes(host)) return true;
-    if (host === "169.254.169.254") return true;
+    const parsed = new URL(url);
+    if (isPrivateHost(parsed.hostname)) return true;
   } catch {
     return true;
   }
@@ -364,6 +390,7 @@ async function handleProxy(
       method,
       headers,
       signal: controller.signal,
+      redirect: "manual",
     };
     if (resolvedBody && ["POST", "PUT", "PATCH"].includes(method)) {
       fetchOpts.body =
@@ -376,6 +403,19 @@ async function handleProxy(
     }
 
     const response = await fetch(resolvedUrl, fetchOpts);
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (location && isBlockedUrl(new URL(location, resolvedUrl).href)) {
+        setResponseStatus(event, 403);
+        return { error: "Redirect to private/internal address blocked" };
+      }
+      return {
+        status: response.status,
+        body: { redirect: location },
+      };
+    }
+
     const text = await response.text();
     let responseBody: unknown;
     try {
@@ -456,12 +496,23 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
   }
 }
 
+const DESTRUCTIVE_SQL_RE =
+  /\b(DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+TABLE\s+(?!tool_data\b))/i;
+
 async function handleSqlExec(event: H3Event): Promise<unknown> {
   const body = await readBody(event);
   const sql = body.sql;
   if (!sql || typeof sql !== "string") {
     setResponseStatus(event, 400);
     return { error: "sql is required" };
+  }
+
+  if (DESTRUCTIVE_SQL_RE.test(sql)) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Destructive SQL (DROP, TRUNCATE, DELETE, ALTER) is not allowed from tools",
+    };
   }
 
   try {
