@@ -13,7 +13,10 @@ import type {
  * Uses A2A_SECRET as an HMAC key. The token contains the caller's email
  * as `sub`, so the receiving app can verify who's calling.
  */
-export async function signA2AToken(email: string): Promise<string> {
+export async function signA2AToken(
+  email: string,
+  orgDomain?: string,
+): Promise<string> {
   const secret = process.env.A2A_SECRET;
   if (!secret) {
     throw new Error(
@@ -27,7 +30,10 @@ export async function signA2AToken(email: string): Promise<string> {
     process.env.BETTER_AUTH_URL ||
     "http://localhost:3000";
 
-  return new jose.SignJWT({ sub: email })
+  return new jose.SignJWT({
+    sub: email,
+    ...(orgDomain ? { org_domain: orgDomain } : {}),
+  })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(appUrl)
     .setIssuedAt()
@@ -198,6 +204,7 @@ export async function callAgent(
     apiKey?: string;
     contextId?: string;
     userEmail?: string;
+    orgDomain?: string;
   },
 ): Promise<string> {
   let apiKey = opts?.apiKey;
@@ -205,14 +212,16 @@ export async function callAgent(
   // Auto-sign with JWT when A2A_SECRET is available and we have a user email
   if (!apiKey && opts?.userEmail && process.env.A2A_SECRET) {
     try {
-      apiKey = await signA2AToken(opts.userEmail);
+      apiKey = await signA2AToken(opts.userEmail, opts.orgDomain);
     } catch {
       // Fall back to unsigned call
     }
   }
 
   const client = new A2AClient(url, apiKey);
-  const metadata = opts?.userEmail ? { userEmail: opts.userEmail } : undefined;
+  const metadata: Record<string, unknown> = {};
+  if (opts?.userEmail) metadata.userEmail = opts.userEmail;
+  if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
   const task = await client.send(
     {
       role: "user",

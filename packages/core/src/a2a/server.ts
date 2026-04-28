@@ -16,9 +16,14 @@ import { readBody } from "../server/h3-helpers.js";
  * Verify an inbound A2A JWT signed with the shared A2A_SECRET.
  * Returns the caller's email (from `sub` claim) if valid, null otherwise.
  */
-async function verifyA2AToken(authHeader: string): Promise<string | null> {
+interface A2ATokenPayload {
+  email: string | null;
+  orgDomain: string | null;
+}
+
+async function verifyA2AToken(authHeader: string): Promise<A2ATokenPayload> {
   const secret = process.env.A2A_SECRET;
-  if (!secret) return null;
+  if (!secret) return { email: null, orgDomain: null };
 
   try {
     const token = authHeader.replace("Bearer ", "");
@@ -26,9 +31,12 @@ async function verifyA2AToken(authHeader: string): Promise<string | null> {
       token,
       new TextEncoder().encode(secret),
     );
-    return (payload.sub as string) ?? null;
+    return {
+      email: (payload.sub as string) ?? null,
+      orgDomain: (payload.org_domain as string) ?? null,
+    };
   } catch {
-    return null;
+    return { email: null, orgDomain: null };
   }
 }
 
@@ -75,10 +83,13 @@ export function mountA2A(
 
       const authHeader = getRequestHeader(event, "authorization");
       let verifiedCallerEmail: string | null = null;
+      let verifiedOrgDomain: string | null = null;
 
       // Try JWT verification first (A2A_SECRET-based identity)
       if (authHeader?.startsWith("Bearer ") && process.env.A2A_SECRET) {
-        verifiedCallerEmail = await verifyA2AToken(authHeader);
+        const tokenPayload = await verifyA2AToken(authHeader);
+        verifiedCallerEmail = tokenPayload.email;
+        verifiedOrgDomain = tokenPayload.orgDomain;
         // If A2A_SECRET is set and token fails verification, reject the request
         if (!verifiedCallerEmail) {
           setResponseStatus(event, 401);
@@ -117,10 +128,13 @@ export function mountA2A(
         }
       }
 
-      // Store verified caller email on the event context so the handler
-      // can set AGENT_USER_EMAIL from a trusted source instead of metadata
+      // Store verified caller identity on the event context so the handler
+      // can set request context from a trusted source instead of metadata
       if (verifiedCallerEmail) {
         event.context.__a2aVerifiedEmail = verifiedCallerEmail;
+      }
+      if (verifiedOrgDomain) {
+        event.context.__a2aOrgDomain = verifiedOrgDomain;
       }
 
       const body = await readBody(event);
