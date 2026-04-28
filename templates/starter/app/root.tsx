@@ -129,7 +129,7 @@ function AppContent() {
           </div>
           <div className="flex h-full flex-1 flex-col overflow-hidden">
             {(() => {
-              const hasOwnToolbar = location.pathname.startsWith("/tools/");
+              const hasOwnToolbar = location.pathname.startsWith("/tools");
               return (
                 <header
                   className={cn(

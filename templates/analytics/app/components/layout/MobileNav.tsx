@@ -14,7 +14,7 @@ export function MobileNav() {
   }, [location.pathname]);
 
   return (
-    <div className="flex items-center h-14 border-b border-border px-4 md:hidden bg-sidebar">
+    <div className="flex items-center h-12 border-b border-border px-4 md:hidden bg-sidebar">
       <button
         onClick={() => setOpen(true)}
         className="mr-3 p-2.5 -ml-1 rounded-md hover:bg-sidebar-accent/50"

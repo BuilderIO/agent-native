@@ -183,7 +183,7 @@ function AppContent() {
               {(() => {
                 const hasOwnToolbar =
                   location.pathname.startsWith("/deck/") ||
-                  location.pathname.startsWith("/tools/");
+                  location.pathname.startsWith("/tools");
                 return (
                   <header
                     className={cn(
