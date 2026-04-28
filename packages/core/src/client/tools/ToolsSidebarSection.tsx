@@ -115,14 +115,11 @@ export function ToolsSidebarSection() {
     [location.pathname, navigate, queryClient],
   );
 
-  const startRename = useCallback(
-    (tool: Tool) => {
-      setMenuOpenId(null);
-      setRenameValue(tool.name);
-      setRenamingId(tool.id);
-    },
-    [],
-  );
+  const startRename = useCallback((tool: Tool) => {
+    setMenuOpenId(null);
+    setRenameValue(tool.name);
+    setRenamingId(tool.id);
+  }, []);
 
   const submitRename = useCallback(
     async (toolId: string) => {
@@ -271,10 +268,7 @@ export function ToolsSidebarSection() {
             const isRenamingThis = renamingId === tool.id;
 
             return (
-              <div
-                key={tool.id}
-                className="group/tool relative"
-              >
+              <div key={tool.id} className="group/tool relative">
                 <Link
                   to={`/tools/${tool.id}`}
                   className={cn(

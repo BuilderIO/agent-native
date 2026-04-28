@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconPencil, IconRefresh } from "@tabler/icons-react";
 import { ShareButton } from "../sharing/ShareButton.js";
@@ -8,6 +8,47 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+
+const THEME_CSS_VARS = [
+  "--background",
+  "--foreground",
+  "--card",
+  "--card-foreground",
+  "--popover",
+  "--popover-foreground",
+  "--primary",
+  "--primary-foreground",
+  "--secondary",
+  "--secondary-foreground",
+  "--muted",
+  "--muted-foreground",
+  "--accent",
+  "--accent-foreground",
+  "--destructive",
+  "--destructive-foreground",
+  "--border",
+  "--input",
+  "--ring",
+  "--radius",
+  "--sidebar-background",
+  "--sidebar-foreground",
+  "--sidebar-primary",
+  "--sidebar-primary-foreground",
+  "--sidebar-accent",
+  "--sidebar-accent-foreground",
+  "--sidebar-border",
+  "--sidebar-ring",
+];
+
+function getParentThemeVars(): Record<string, string> {
+  const computed = getComputedStyle(document.documentElement);
+  const vars: Record<string, string> = {};
+  for (const name of THEME_CSS_VARS) {
+    const val = computed.getPropertyValue(name).trim();
+    if (val) vars[name] = val;
+  }
+  return vars;
+}
 
 interface Tool {
   id: string;
@@ -85,7 +126,9 @@ function EditToolPopover({ tool }: { tool: Tool }) {
 
 export function ToolViewer({ toolId }: ToolViewerProps) {
   const [isDark, setIsDark] = useState(false);
+  const [iframeReady, setIframeReady] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const toolRef = useRef<Tool | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);

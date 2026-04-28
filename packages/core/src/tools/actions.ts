@@ -14,7 +14,8 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
           properties: {
             name: {
               type: "string",
-              description: "Short display name for the tool.",
+              description:
+                'Short display name for the tool. Do not include "app" — e.g. name a todo app "Todos", a weather app "Weather".',
             },
             description: {
               type: "string",
