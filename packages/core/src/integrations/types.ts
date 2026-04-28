@@ -135,6 +135,8 @@ export interface PlatformAdapter {
  * Options for the integrations plugin.
  */
 export interface IntegrationsPluginOptions {
+  /** App identifier used by call-agent to prevent self-calls (e.g. "dispatch"). */
+  appId?: string;
   /** Platform adapters to enable. Default: all built-in adapters with configured env keys. */
   adapters?: PlatformAdapter[];
   /** System prompt for the agent (same as agent-chat). Inherited from agent-chat plugin if not set. */

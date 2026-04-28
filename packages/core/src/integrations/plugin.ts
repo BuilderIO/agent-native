@@ -104,8 +104,26 @@ export function createIntegrationsPlugin(
     // Build the system prompt
     const baseSystemPrompt = options?.systemPrompt ?? INTEGRATION_SYSTEM_PROMPT;
 
-    // Resolve actions
-    const actions = options?.actions ?? {};
+    // Resolve actions — auto-include call-agent so the integration agent can
+    // delegate to other A2A apps, matching the behavior of the agent-chat plugin.
+    const localActions = options?.actions ?? {};
+    let callAgentEntry: Record<string, unknown> = {};
+    try {
+      const mod = await import("../scripts/call-agent.js");
+      callAgentEntry = {
+        "call-agent": {
+          tool: mod.tool,
+          run: (args: Record<string, string>, context: unknown) =>
+            mod.run(args, context as any, options?.appId),
+        },
+      };
+    } catch {
+      // call-agent script not available — skip
+    }
+    const actions = {
+      ...localActions,
+      ...callAgentEntry,
+    } as typeof localActions;
 
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
