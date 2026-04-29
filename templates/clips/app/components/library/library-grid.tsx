@@ -16,6 +16,7 @@ import { EmptyState } from "./empty-state";
 import { SortMenu, type SortKey } from "./sort-menu";
 import { FilterChips, type FilterChip } from "./filter-chips";
 import { BulkActionToolbar } from "./bulk-action-toolbar";
+import { PageHeader } from "./page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -195,8 +196,8 @@ export function LibraryGrid({
         </DialogContent>
       </Dialog>
 
-      {/* Header */}
-      <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3">
+      {/* Page header — rendered into the top app bar */}
+      <PageHeader>
         <div className="min-w-0">
           {title && (
             <h1 className="text-base font-semibold text-foreground truncate">
@@ -227,7 +228,7 @@ export function LibraryGrid({
           </Button>
           <SortMenu value={sort} onChange={setSort} />
         </div>
-      </div>
+      </PageHeader>
 
       {chips.length > 0 && (
         <div className="border-b border-border px-5 py-2">

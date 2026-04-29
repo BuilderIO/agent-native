@@ -5,6 +5,10 @@ import { useActionQuery } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CallPlayer } from "@/components/player/call-player";
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
 
 export function meta({ params }: { params: { snippetId?: string } }) {
   return [{ title: `Snippet · ${params.snippetId ?? ""}` }];
@@ -48,6 +52,53 @@ export default function SnippetPlayerRoute() {
     return { startMs: s.startMs ?? 0, endMs: s.endMs ?? 0 };
   }, [snippetQ.data?.snippet]);
 
+  const snippet = snippetQ.data?.snippet;
+  const parent = snippetQ.data?.call;
+
+  useSetPageTitle(
+    <div className="flex items-center gap-2 min-w-0">
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => navigate(-1)}
+        aria-label="Back"
+        className="h-8 w-8 cursor-pointer"
+      >
+        <IconArrowLeft className="h-4 w-4" />
+      </Button>
+      <div className="min-w-0">
+        <h1 className="text-sm font-semibold truncate">
+          {snippet?.title ?? "Snippet"}
+        </h1>
+        {parent ? (
+          <Link
+            to={`/calls/${parent.id}`}
+            className="text-xs text-muted-foreground hover:text-foreground truncate inline-block"
+          >
+            From: {parent.title}
+          </Link>
+        ) : null}
+      </div>
+    </div>,
+  );
+
+  useSetHeaderActions(
+    snippet ? (
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1.5 cursor-pointer"
+        onClick={() => {
+          const url = `${window.location.origin}/share-snippet/${snippetId}`;
+          navigator.clipboard?.writeText(url).catch(() => {});
+        }}
+      >
+        <IconShare3 className="h-4 w-4" />
+        Share
+      </Button>
+    ) : null,
+  );
+
   if (!snippetId) return null;
 
   if (snippetQ.isLoading) {
@@ -70,44 +121,8 @@ export default function SnippetPlayerRoute() {
     );
   }
 
-  const snippet = snippetQ.data.snippet;
-  const parent = snippetQ.data.call;
-
   return (
     <div className="flex flex-col h-full min-h-0">
-      <header className="flex items-center gap-3 px-6 py-4 border-b border-border shrink-0">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => navigate(-1)}
-          aria-label="Back"
-        >
-          <IconArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold truncate">{snippet.title}</h1>
-          {parent ? (
-            <Link
-              to={`/calls/${parent.id}`}
-              className="text-xs text-muted-foreground hover:text-foreground truncate inline-block"
-            >
-              From: {parent.title}
-            </Link>
-          ) : null}
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={() => {
-            const url = `${window.location.origin}/share-snippet/${snippetId}`;
-            navigator.clipboard?.writeText(url).catch(() => {});
-          }}
-        >
-          <IconShare3 className="h-4 w-4" />
-          Share
-        </Button>
-      </header>
       <div className="flex-1 min-h-0">
         <CallPlayer data={snippetQ.data} boundsMs={bounds} />
       </div>

@@ -1,15 +1,7 @@
-import {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  lazy,
-  Suspense,
-} from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import {
   IconArrowLeft,
-  IconPlayerPlay,
   IconPencil,
   IconMessage,
   IconBrush,
@@ -24,25 +16,24 @@ import {
 } from "@tabler/icons-react";
 import {
   useActionQuery,
-  sendToAgentChat,
   useSession,
   useCollaborativeDoc,
   generateTabId,
   emailToColor,
   emailToName,
   PresenceBar,
+  AgentToggleButton,
   type CollabUser,
 } from "@agent-native/core/client";
 
-const Pinpoint = lazy(() =>
-  import("@agent-native/pinpoint/react").then((m) => ({
-    default: m.Pinpoint,
-  })),
-);
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
+import PromptPopover from "@/components/editor/PromptDialog";
+import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import type {
   ElementInfo,
   DeviceFrameType,
@@ -92,6 +83,11 @@ export default function DesignEditor() {
   const [tweaksVisible, setTweaksVisible] = useState(false);
   const [tweakValues, setTweakValues] = useState<Record<string, string>>({});
   const [drawAnnotations, setDrawAnnotations] = useState<DrawAnnotation[]>([]);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const generateBtnRef = useRef<HTMLButtonElement | null>(null);
+  const promptAnchorRef = useRef<HTMLElement | null>(null);
+  promptAnchorRef.current = generateBtnRef.current;
+  const { generating, submit: agentSubmit } = useAgentGenerating();
 
   const { session } = useSession();
 
@@ -228,7 +224,7 @@ export default function DesignEditor() {
   if (designLoading) {
     return (
       <div className="flex-1 bg-background flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground/30" />
+        <Spinner className="size-8 text-foreground/30" />
       </div>
     );
   }
@@ -371,20 +367,12 @@ export default function DesignEditor() {
           >
             <IconSettings className="w-3.5 h-3.5" />
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1 cursor-pointer"
-            onClick={() => navigate(`/present/${id}`)}
-          >
-            <IconPlayerPlay className="w-3.5 h-3.5" />
-            Present
-          </Button>
           <PresenceBar
             activeUsers={activeUsers}
             agentActive={agentActive}
             currentUserEmail={session?.email}
           />
+          <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
         </div>
       </header>
 
@@ -427,14 +415,11 @@ export default function DesignEditor() {
                 No files yet. Ask the agent to generate a design.
               </p>
               <Button
+                ref={generateBtnRef}
                 variant="outline"
                 size="sm"
                 className="cursor-pointer"
-                onClick={() => {
-                  sendToAgentChat({
-                    message: `Generate the initial design files for the "${design.title}" project.`,
-                  });
-                }}
+                onClick={() => setShowPrompt(true)}
               >
                 <IconPlus className="w-3.5 h-3.5" />
                 Generate Design
@@ -543,14 +528,6 @@ export default function DesignEditor() {
           </div>
         )}
 
-        <Suspense>
-          <Pinpoint
-            author={session?.email || "anonymous"}
-            colorScheme="dark"
-            compactPopup
-          />
-        </Suspense>
-
         {/* Draw overlay */}
         {mode === "draw" && (
           <div className="absolute inset-0 pointer-events-none z-10">
@@ -572,6 +549,42 @@ export default function DesignEditor() {
           </div>
         )}
       </div>
+
+      <PromptPopover
+        open={showPrompt}
+        onOpenChange={setShowPrompt}
+        title="Generate design"
+        placeholder="Describe what you want to build..."
+        skipLabel="Skip prompt"
+        onSkip={() => {
+          agentSubmit(
+            `Generate the initial design files for the "${design.title}" project.`,
+            `The user has design "${id}" open and wants to fill it with files. Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). DO NOT call create-design (the design already exists).`,
+          );
+          setShowPrompt(false);
+        }}
+        onSubmit={(prompt: string, files: UploadedFile[]) => {
+          const fileContext =
+            files.length > 0
+              ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
+              : "";
+          const context = [
+            `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
+            `User request: "${prompt}"`,
+            fileContext,
+            "",
+            `Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). The design already exists — DO NOT call create-design.`,
+            "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
+          ].join("\n");
+          agentSubmit(
+            `Generate design for "${design.title}": ${prompt}`,
+            context,
+          );
+          setShowPrompt(false);
+        }}
+        loading={generating}
+        anchorRef={promptAnchorRef}
+      />
     </div>
   );
 }

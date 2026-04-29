@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router";
 import { useActionQuery } from "@agent-native/core/client";
+import { Spinner } from "@/components/ui/spinner";
 
 interface DesignFile {
   id: string;
@@ -59,7 +60,7 @@ export default function Present() {
   if (isLoading) {
     return (
       <div className="h-screen w-screen bg-black flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white/30" />
+        <Spinner className="size-8 text-white/30" />
       </div>
     );
   }

@@ -8,7 +8,9 @@ export function Spinner({
 }: React.ComponentProps<typeof IconLoader2>) {
   return (
     <IconLoader2
-      className={cn("h-6 w-6 animate-spin text-muted-foreground/50", className)}
+      role="status"
+      aria-label="Loading"
+      className={cn("size-4 animate-spin", className)}
       {...props}
     />
   );

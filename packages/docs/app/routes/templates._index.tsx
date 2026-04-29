@@ -9,7 +9,7 @@ export default function TemplatesPage() {
     <main className="mx-auto max-w-[1200px] px-6 py-20">
       <div className="mb-12 text-center">
         <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-          Open-source, AI-native app templates you own
+          Open-source, Agent-native app templates you own
         </h1>
         <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
           Fork a template, run it locally, and let the agent evolve it.

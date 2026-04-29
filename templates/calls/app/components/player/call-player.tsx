@@ -22,7 +22,10 @@ import {
   IconBadgeCc,
   IconMessage,
 } from "@tabler/icons-react";
-import { useActionMutation } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  AgentToggleButton,
+} from "@agent-native/core/client";
 import { formatMs } from "@/lib/timestamp-format";
 import { useCallPlayer } from "@/hooks/use-call-player";
 import { useTalkTracks } from "@/hooks/use-talk-tracks";
@@ -359,6 +362,7 @@ export function CallPlayer({
             <IconMessage className="h-4 w-4" />
             Comments
           </Button>
+          <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
         </div>
       </header>
 

@@ -12,7 +12,7 @@ export default function AgentsRoute() {
   return (
     <DispatchShell
       title="Agents"
-      description="Built-in and external agents available for dispatch to delegate work to."
+      description="Dispatch can delegate to the built-in app suite over A2A by default. Add extra agents here only if you want to route work to apps outside that built-in set."
     >
       <AgentsPanel
         agents={(data || []) as ConnectedAgent[]}

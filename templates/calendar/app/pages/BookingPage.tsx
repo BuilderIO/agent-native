@@ -15,6 +15,7 @@ import {
 } from "@/hooks/use-public-data";
 import { useAvailableSlots, useCreateBooking } from "@/hooks/use-bookings";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import type { Booking } from "@shared/api";
 
@@ -129,7 +130,7 @@ export default function BookingPage() {
   if (bookingLinkLoading || settingsLoading || availabilityLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+        <Spinner className="size-8 text-foreground" />
       </div>
     );
   }

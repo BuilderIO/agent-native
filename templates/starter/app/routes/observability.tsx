@@ -6,7 +6,7 @@ export function meta() {
 
 export default function ObservabilityPage() {
   return (
-    <div className="min-h-screen bg-background p-6">
+    <div className="p-6">
       <ObservabilityDashboard />
     </div>
   );

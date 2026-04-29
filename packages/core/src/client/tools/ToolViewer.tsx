@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconPencil, IconRefresh } from "@tabler/icons-react";
+import { IconLoader2, IconPencil, IconRefresh } from "@tabler/icons-react";
 import { ShareButton } from "../sharing/ShareButton.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { sendToAgentChat } from "../agent-chat.js";
@@ -422,7 +422,11 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
       <div className="relative flex-1 min-h-0">
         {!iframeReady && (
           <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+            <IconLoader2
+              className="size-5 animate-spin text-muted-foreground"
+              role="status"
+              aria-label="Loading"
+            />
           </div>
         )}
         <iframe

@@ -24,11 +24,27 @@ import { formatLocalDate } from "@/lib/utils";
 import { WeeklyCaloriesChart } from "@/components/WeeklyCaloriesChart";
 import { IconCalendar } from "@tabler/icons-react";
 import { useState } from "react";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 
 const GOAL_CALORIES = 2000;
 
 export default function AnalyticsPage() {
   const [timeRange, setTimeRange] = useState("30");
+
+  useSetHeaderActions(
+    <Select value={timeRange} onValueChange={setTimeRange}>
+      <SelectTrigger className="w-[130px] sm:w-[140px] bg-card/40 border-border/30 h-8 text-xs shrink-0">
+        <IconCalendar className="w-3.5 h-3.5 mr-1.5 sm:mr-2 opacity-50" />
+        <SelectValue placeholder="Select range" />
+      </SelectTrigger>
+      <SelectContent className="bg-zinc-900 border-white/10">
+        <SelectItem value="7">Last 7 Days</SelectItem>
+        <SelectItem value="30">Last 30 Days</SelectItem>
+        <SelectItem value="90">Last 90 Days</SelectItem>
+        <SelectItem value="all">All Time</SelectItem>
+      </SelectContent>
+    </Select>,
+  );
 
   const getStartDate = (range: string) => {
     if (range === "all") return "2000-01-01";
@@ -111,24 +127,6 @@ export default function AnalyticsPage() {
   return (
     <div className="min-h-screen pb-20 relative z-10">
       <div className="max-w-2xl lg:max-w-4xl mx-auto px-3 sm:px-4 py-6 sm:py-8 space-y-6 sm:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
-            Analytics
-          </h1>
-          <Select value={timeRange} onValueChange={setTimeRange}>
-            <SelectTrigger className="w-[130px] sm:w-[140px] bg-card/40 border-border/30 h-9 text-xs shrink-0">
-              <IconCalendar className="w-3.5 h-3.5 mr-1.5 sm:mr-2 opacity-50" />
-              <SelectValue placeholder="Select range" />
-            </SelectTrigger>
-            <SelectContent className="bg-zinc-900 border-white/10">
-              <SelectItem value="7">Last 7 Days</SelectItem>
-              <SelectItem value="30">Last 30 Days</SelectItem>
-              <SelectItem value="90">Last 90 Days</SelectItem>
-              <SelectItem value="all">All Time</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
         {/* Stats Cards */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {[

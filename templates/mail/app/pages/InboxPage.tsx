@@ -65,6 +65,8 @@ function ContactPanel({
       email={displayEmail}
       displayName={displayName || displayEmail}
       recentEmails={recentFromContact}
+      threadId={email?.threadId}
+      focusedEmailId={emailId}
     />
   );
 }

@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { callAction } from "@/lib/api";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import {
   IconPlus,
   IconCopy,
@@ -92,32 +93,27 @@ export default function EventTypesPage() {
   const personalTypes = eventTypes.filter((et: any) => !et.teamId);
   const teamTypes = eventTypes.filter((et: any) => et.teamId);
 
+  useSetHeaderActions(
+    <Button onClick={() => setCreateOpen(true)} className="cursor-pointer">
+      <IconPlus className="mr-1.5 h-4 w-4" />
+      New
+    </Button>,
+  );
+
   return (
     <div className="mx-auto max-w-5xl p-6 lg:p-8">
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Event Types</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Create events to share for people to book on your calendar.
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <IconPlus className="mr-1.5 h-4 w-4" />
-          New
-        </Button>
-        <BookingLinkCreateDialog
-          open={createOpen}
-          onOpenChange={setCreateOpen}
-          slugPrefix={`/${ownerEmail}/`}
-          defaultLength={30}
-          onSubmit={async (draft) => {
-            await callAction("create-event-type", draft);
-            toast.success("Event type created");
-            setCreateOpen(false);
-            rv.revalidate();
-          }}
-        />
-      </header>
+      <BookingLinkCreateDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        slugPrefix={`/${ownerEmail}/`}
+        defaultLength={30}
+        onSubmit={async (draft) => {
+          await callAction("create-event-type", draft);
+          toast.success("Event type created");
+          setCreateOpen(false);
+          rv.revalidate();
+        }}
+      />
 
       {eventTypes.length === 0 ? (
         <EmptyState onCreate={() => setCreateOpen(true)} />

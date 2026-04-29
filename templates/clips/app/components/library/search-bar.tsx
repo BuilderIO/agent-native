@@ -79,10 +79,10 @@ export function SearchBar({ className }: SearchBarProps) {
 
   return (
     <Popover open={showPopover} onOpenChange={setOpen}>
-      <div className={cn("relative w-full max-w-xl", className)}>
+      <div className={cn("relative w-full", className)}>
         <PopoverTrigger asChild>
           <div className="relative">
-            <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <input
               ref={inputRef}
               value={query}
@@ -91,8 +91,8 @@ export function SearchBar({ className }: SearchBarProps) {
                 setOpen(true);
               }}
               onFocus={() => setOpen(true)}
-              placeholder="Search recordings and transcripts…"
-              className="w-full h-9 rounded-md border border-border bg-background pl-9 pr-16 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+              placeholder="Search recordings…"
+              className="w-full h-8 rounded-md border border-border bg-background pl-8 pr-12 text-xs outline-none focus:ring-2 focus:ring-primary/30"
             />
             {query ? (
               <button
@@ -100,12 +100,12 @@ export function SearchBar({ className }: SearchBarProps) {
                   setQuery("");
                   inputRef.current?.focus();
                 }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-accent"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-accent"
               >
-                <IconX className="h-3.5 w-3.5" />
+                <IconX className="h-3 w-3" />
               </button>
             ) : (
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
                 ⌘K
               </span>
             )}
@@ -114,8 +114,9 @@ export function SearchBar({ className }: SearchBarProps) {
 
         <PopoverContent
           align="start"
-          sideOffset={4}
-          className="w-[var(--radix-popover-trigger-width)] p-0 overflow-hidden"
+          side="right"
+          sideOffset={8}
+          className="w-[420px] p-0 overflow-hidden"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           {isFetching && results.length === 0 && (
