@@ -124,7 +124,53 @@ if (existsSync(DESKTOP_BUILD)) {
   console.log("✔ packages/desktop-app/build/{icon.svg,icon.png,icon.iconset,icon.icns}");
 }
 
-// 5) Mobile app
+// 5) Clips Tauri desktop app
+const CLIPS_TAURI_ICONS = join(ROOT, "templates/clips/desktop/src-tauri/icons");
+if (existsSync(CLIPS_TAURI_ICONS)) {
+  const tmpFav = join(CLIPS_TAURI_ICONS, "_branding-source.svg");
+  writeFileSync(tmpFav, sized(FAVICON_SVG, 1024));
+  rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "icon.png"), 1024);
+  rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "32x32.png"), 32);
+  rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "128x128.png"), 128);
+  rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "128x128@2x.png"), 256);
+
+  // Build .icns from a fresh iconset
+  const ICONSET = join(CLIPS_TAURI_ICONS, "_iconset.iconset");
+  rmSync(ICONSET, { recursive: true, force: true });
+  mkdirSync(ICONSET, { recursive: true });
+  for (const [size, name] of [
+    [16, "icon_16x16.png"],
+    [32, "icon_16x16@2x.png"],
+    [32, "icon_32x32.png"],
+    [64, "icon_32x32@2x.png"],
+    [128, "icon_128x128.png"],
+    [256, "icon_128x128@2x.png"],
+    [256, "icon_256x256.png"],
+    [512, "icon_256x256@2x.png"],
+    [512, "icon_512x512.png"],
+    [1024, "icon_512x512@2x.png"],
+  ]) {
+    rasterize(tmpFav, join(ICONSET, name), size);
+  }
+  execSync(`iconutil -c icns -o "${join(CLIPS_TAURI_ICONS, "icon.icns")}" "${ICONSET}"`, { stdio: "inherit" });
+  rmSync(ICONSET, { recursive: true, force: true });
+
+  // .ico — sips writes a PNG-renamed-to-.ico, which Windows tolerates.
+  rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "icon.ico"), 256);
+
+  rmSync(tmpFav);
+
+  // Tray (macOS menu bar) — monochrome white on transparent at template-image size.
+  const traySrc = readFileSync(join(BRANDING, "tray-icon.svg"), "utf8");
+  const tmpTray = join(CLIPS_TAURI_ICONS, "_tray-source.svg");
+  writeFileSync(tmpTray, traySrc);
+  rasterize(tmpTray, join(CLIPS_TAURI_ICONS, "tray.png"), 44);
+  rmSync(tmpTray);
+
+  console.log("✔ templates/clips/desktop/src-tauri/icons/{icon.png,32x32.png,128x128.png,128x128@2x.png,icon.icns,icon.ico,tray.png}");
+}
+
+// 6) Mobile app
 const MOBILE_ASSETS = join(ROOT, "packages/mobile-app/assets");
 if (existsSync(MOBILE_ASSETS)) {
   const tmp = join(MOBILE_ASSETS, "_branding-source.svg");
