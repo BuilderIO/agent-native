@@ -12,6 +12,7 @@ import {
   ClientOnly,
   CommandMenu,
   DefaultSpinner,
+  DevOverlay,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
@@ -120,6 +121,7 @@ export default function Root() {
                 <ThemeToggleItem />
               </CommandMenu.Group>
             </CommandMenu>
+            <DevOverlay />
             <Outlet />
             <Toaster position="bottom-left" />
           </TooltipProvider>

@@ -110,11 +110,31 @@ export interface PlatformAdapter {
 
   /**
    * Send the agent's response back to the messaging platform.
+   *
+   * If `opts.placeholderRef` is provided (returned earlier by
+   * `postProcessingPlaceholder`), adapters that support in-place edits should
+   * update that placeholder message rather than posting a new one. Adapters
+   * without an "update message" API can ignore the ref and post fresh.
    */
   sendResponse(
     message: OutgoingMessage,
     context: IncomingMessage,
+    opts?: { placeholderRef?: string },
   ): Promise<void>;
+
+  /**
+   * Optionally post a "working on it…" placeholder message immediately when a
+   * webhook arrives, before the agent loop runs. Adapters that support
+   * in-place message edits (Slack via `chat.update`, etc.) return an opaque
+   * `placeholderRef` that the webhook flow threads through to `sendResponse`
+   * so the same message is updated with the final answer once ready.
+   *
+   * Adapters without edit support should leave this undefined; the webhook
+   * handler will skip the placeholder step entirely.
+   */
+  postProcessingPlaceholder?(
+    incoming: IncomingMessage,
+  ): Promise<{ placeholderRef: string } | null>;
 
   /**
    * Send a proactive outbound message to a platform destination. Adapters that
@@ -128,8 +148,16 @@ export interface PlatformAdapter {
   /**
    * Format plain agent response text into a platform-appropriate message.
    * Handles markdown conversion, message splitting for length limits, etc.
+   *
+   * `opts.threadDeepLinkUrl`, when present, is a URL back to the originating
+   * thread in the dispatch UI. Adapters that support rich blocks should
+   * render this as a button (Slack); adapters that don't may inline it as a
+   * link or simply omit it.
    */
-  formatAgentResponse(text: string): OutgoingMessage;
+  formatAgentResponse(
+    text: string,
+    opts?: { threadDeepLinkUrl?: string },
+  ): OutgoingMessage;
 
   /** Return current connection/configuration status for the settings UI. */
   getStatus(baseUrl?: string): Promise<IntegrationStatus>;
