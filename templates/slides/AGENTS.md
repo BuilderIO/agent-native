@@ -237,14 +237,15 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 - **Replace one slide's content:** `update-slide --find/--replace` (surgical, syncs live via Yjs) or `--fullContent`.
 - **Bulk replace (rare):** `create-deck --deckId <existing>` to atomically replace ALL slides in one deck.
 
-| Action         | Args                                                             | Purpose                                                          |
-| -------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `add-slide`    | `--deckId <id> --content "<html>" [--layout ...] [--position N]` | **PREFERRED** — add one slide to an existing deck; parallel-safe |
-| `create-deck`  | `--title "X" --slides '[]'`                                      | Create a new empty deck                                          |
-| `create-deck`  | `--title "X" --slides '[...]'`                                   | Create a new deck with all slides (bulk, rarely preferred)       |
-| `create-deck`  | `--title "X" --slides '[...]' --deckId <id>`                     | Replace all slides in an existing deck (atomic bulk replace)     |
-| `update-slide` | `--deckId <id> --slideId <id> --find "old" --replace "new"`      | Surgical text edit — syncs live to editors                       |
-| `update-slide` | `--deckId <id> --slideId <id> --fullContent "<html>"`            | Full slide content replacement                                   |
+| Action                      | Args                                                                  | Purpose                                                                  |
+| --------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `add-slide`                 | `--deckId <id> --content "<html>" [--layout ...] [--position N]`      | **PREFERRED** — add one slide to an existing deck; parallel-safe         |
+| `create-deck`               | `--title "X" --slides '[]' [--aspectRatio 16:9\|1:1\|9:16\|4:5]`      | Create a new empty deck (optionally set the aspect ratio)                |
+| `create-deck`               | `--title "X" --slides '[...]'`                                        | Create a new deck with all slides (bulk, rarely preferred)               |
+| `create-deck`               | `--title "X" --slides '[...]' --deckId <id>`                          | Replace all slides in an existing deck (atomic bulk replace)             |
+| `update-slide`              | `--deckId <id> --slideId <id> --find "old" --replace "new"`           | Surgical text edit — syncs live to editors                               |
+| `update-slide`              | `--deckId <id> --slideId <id> --fullContent "<html>"`                 | Full slide content replacement                                           |
+| `update-deck-aspect-ratio`  | `--deckId <id> --aspectRatio 16:9\|1:1\|9:16\|4:5`                    | Set the deck's aspect ratio (affects editor, presentation, PDF, PPTX)    |
 
 ### Navigation
 

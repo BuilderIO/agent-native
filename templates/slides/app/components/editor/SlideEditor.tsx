@@ -10,6 +10,7 @@ import { AgentPresenceChip } from "@agent-native/core/client";
 import { createPortal } from "react-dom";
 import { enterSelectionMode } from "@/root";
 import type { Slide } from "@/context/DeckContext";
+import type { AspectRatio } from "@/lib/aspect-ratios";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import CodeEditor from "./CodeEditor";
 import ImageOverlay from "./ImageOverlay";
@@ -162,6 +163,8 @@ interface SlideEditorProps {
   slideCount?: number;
   /** Design system to inject as CSS custom properties on the slide */
   designSystem?: DesignSystemData;
+  /** Deck aspect ratio (defaults to 16:9 when omitted) */
+  aspectRatio?: AspectRatio;
 }
 
 /** Selection outline rendered over a selected image */
@@ -199,6 +202,7 @@ export default function SlideEditor({
   slideIndex = 0,
   slideCount = 1,
   designSystem,
+  aspectRatio,
 }: SlideEditorProps) {
   const [isHoveringText, setIsHoveringText] = useState(false);
   const [imageOverlay, setImageOverlay] = useState<{
@@ -515,6 +519,7 @@ export default function SlideEditor({
                     slide={slide}
                     className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
                     designSystem={designSystem}
+                    aspectRatio={aspectRatio}
                   />
                   {/* Double-click hint */}
                   {isHoveringText && !editingEl && (

@@ -20,6 +20,7 @@ export default function Presentation() {
       slides={deck.slides}
       deckId={id}
       startIndex={startSlide}
+      aspectRatio={deck.aspectRatio}
     />
   );
 }

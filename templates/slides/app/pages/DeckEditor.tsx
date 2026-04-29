@@ -24,6 +24,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDecks } from "@/context/DeckContext";
 import type { SlideLayout } from "@/context/DeckContext";
+import type { AspectRatio } from "@/lib/aspect-ratios";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import EditorToolbar from "@/components/editor/EditorToolbar";
 import SlideEditor from "@/components/editor/SlideEditor";
@@ -526,8 +527,22 @@ export default function DeckEditor() {
             document.querySelectorAll(".slide-content"),
           ) as HTMLElement[];
           if (els.length > 0) {
-            await exportDeckAsPdf(deck.title, els);
+            await exportDeckAsPdf(deck.title, els, deck.aspectRatio);
           }
+        }}
+        aspectRatio={deck.aspectRatio}
+        onSetAspectRatio={(ratio: AspectRatio) => {
+          const previous = deck.aspectRatio;
+          // Optimistic UI: update local cache immediately so canvas resizes.
+          updateDeck(id, { aspectRatio: ratio });
+          fetch("/_agent-native/actions/update-deck-aspect-ratio", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deckId: id, aspectRatio: ratio }),
+          }).catch((err) => {
+            console.error("Failed to set aspect ratio:", err);
+            updateDeck(id, { aspectRatio: previous });
+          });
         }}
       />
 
@@ -562,6 +577,7 @@ export default function DeckEditor() {
                     if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
                   slidePresence={slidePresence}
+                  aspectRatio={deck.aspectRatio}
                 />
               </DndContext>
             </div>
@@ -606,6 +622,7 @@ export default function DeckEditor() {
             slideIndex={currentIndex >= 0 ? currentIndex : 0}
             slideCount={deck.slides.length}
             designSystem={designSystem}
+            aspectRatio={deck.aspectRatio}
             ydoc={ydoc}
             awareness={awareness}
             collabUser={
