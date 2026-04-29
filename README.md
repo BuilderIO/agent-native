@@ -24,72 +24,50 @@ Start from a complete, production-grade SaaS app. Each one replaces tools you're
 
 <table>
 <tr>
-<td width="33%" align="center" valign="top">
+<td width="50%" align="center" valign="top">
 
-**Mail**
+**Clips**
 
-<a href="https://agent-native.com/templates/mail"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Mail template" width="100%" /></a>
+<a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Clips template" width="100%" /></a>
 
-**AI-Native Mail, Superhuman**
+**Async screen recording for teams**
 
-Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable inbox you own.
-
-</td>
-<td width="33%" align="center" valign="top">
-
-**Calendar**
-
-<a href="https://agent-native.com/templates/calendar"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800" alt="Calendar template" width="100%" /></a>
-
-**AI-Native Google Calendar, Calendly**
-
-Manage events, sync with Google Calendar, and share a public booking page with AI scheduling.
+Record your screen with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.
 
 </td>
-<td width="33%" align="center" valign="top">
+<td width="50%" align="center" valign="top">
 
-**Content**
+**Design**
 
-<a href="https://agent-native.com/templates/content"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content template" width="100%" /></a>
+<a href="https://agent-native.com/templates/design"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Design template" width="100%" /></a>
 
-**AI-Native Notion, Google Docs**
+**AI-Native Figma, Canva**
 
-Write and organize content with an agent that knows your brand and publishing workflow.
+Create and edit visual designs by prompt or by hand, with the agent as your co-designer.
 
 </td>
 </tr>
 <tr>
-<td width="33%" align="center" valign="top">
+<td width="50%" align="center" valign="top">
 
-**Slides**
+**Dispatch**
 
-<a href="https://agent-native.com/templates/slides"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800" alt="Slides template" width="100%" /></a>
+<a href="https://agent-native.com/templates/dispatch"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Dispatch template" width="100%" /></a>
 
-**AI-Native Google Slides, Pitch**
+**Central agent router**
 
-Generate and edit React-based presentations via prompt or point-and-click.
-
-</td>
-<td width="33%" align="center" valign="top">
-
-**Video**
-
-<a href="https://agent-native.com/templates/video"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800" alt="Video template" width="100%" /></a>
-
-**AI-Native video editing**
-
-Create and edit Remotion video compositions with agent assistance.
+Talk to your agents from Slack or Telegram. Dispatch routes work, manages jobs, memory, approvals, and A2A delegation across every app.
 
 </td>
-<td width="33%" align="center" valign="top">
+<td width="50%" align="center" valign="top">
 
-**Analytics**
+**Forms**
 
-<a href="https://agent-native.com/templates/analytics"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800" alt="Analytics template" width="100%" /></a>
+<a href="https://agent-native.com/templates/forms"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Forms template" width="100%" /></a>
 
-**AI-Native Amplitude, Mixpanel**
+**AI-Native Typeform**
 
-Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
+Generate forms from a prompt, branch logic with the agent, and own every response in your own database.
 
 </td>
 </tr>
@@ -106,12 +84,12 @@ pnpm install
 pnpm dev
 ```
 
-The CLI shows a multi-select picker so you can include as many templates as you want in one workspace. Pick Mail + Calendar + Forms and you get all three apps wired up and sharing auth in one go. Or browse the **[template gallery](https://agent-native.com/templates)** for live demos.
+The CLI shows a multi-select picker so you can include as many templates as you want in one workspace. Pick Clips + Forms + Dispatch and you get all three apps wired up and sharing auth in one go. Or browse the **[template gallery](https://agent-native.com/templates)** for live demos.
 
 Want a single app, no monorepo? Use `--standalone`:
 
 ```bash
-npx @agent-native/core create my-app --standalone --template mail
+npx @agent-native/core create my-app --standalone --template clips
 ```
 
 ## Workspaces (Monorepo)
@@ -126,27 +104,27 @@ my-platform/
 ├── packages/
 │   └── core-module/               # shared auth, agent-chat plugin, skills, Tailwind v4 design tokens
 └── apps/
-    ├── mail/
-    ├── calendar/
+    ├── clips/
+    ├── dispatch/
     └── forms/
 ```
 
 Add another app later:
 
 ```bash
-agent-native add-app notes --template content
+agent-native add-app design-app --template design
 ```
 
 Deploy every app behind one origin:
 
 ```bash
 agent-native deploy
-# https://your-agents.com/mail/*       → mail
-# https://your-agents.com/calendar/*   → calendar
+# https://your-agents.com/clips/*      → clips
+# https://your-agents.com/dispatch/*   → dispatch
 # https://your-agents.com/forms/*      → forms
 ```
 
-Same-origin deploy means a **shared login session** across every app and **zero-config cross-app A2A** — tag `@mail` from the calendar's agent chat and it just works (no JWT signing, no CORS). Full details at **[agent-native.com/docs/multi-app-workspace](https://agent-native.com/docs/multi-app-workspace)**.
+Same-origin deploy means a **shared login session** across every app and **zero-config cross-app A2A** — tag `@dispatch` from the forms agent chat and it just works (no JWT signing, no CORS). Full details at **[agent-native.com/docs/multi-app-workspace](https://agent-native.com/docs/multi-app-workspace)**.
 
 ## The Best of Both Worlds
 

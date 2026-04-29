@@ -317,6 +317,92 @@ export function createBuilderBrowserCallbackPage(previewUrl: string): string {
 </html>`;
 }
 
+/**
+ * HTML page rendered inside the OAuth popup when the callback handler caught
+ * an error persisting the per-user Builder credentials. Without this, the
+ * popup would show the success page even though the write failed — leaving
+ * the parent window stuck on "Waiting for Builder…" until the 5-minute poll
+ * timeout fires (Midhun reported this on 2026-04-28).
+ *
+ * The page does two things:
+ * 1. Shows the user a clear "couldn't save credentials" message with the
+ *    underlying error so they can retry or report.
+ * 2. `postMessage`s the parent (same-origin opener) so the connect-flow
+ *    polling stops immediately rather than waiting for the next /status
+ *    poll to surface the SQL `builder-connect-error:<email>` row.
+ */
+export function createBuilderBrowserCallbackErrorPage(message: string): string {
+  const escapedMessage = JSON.stringify(message);
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Builder connect failed</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at top, rgba(244, 63, 94, 0.14), transparent 38%),
+          linear-gradient(180deg, #f7fafc 0%, #eef2f7 100%);
+        color: #0f172a;
+        font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+      }
+      .card {
+        width: min(460px, calc(100vw - 32px));
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 18px;
+        padding: 28px;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
+      }
+      h1 { margin: 0 0 8px; font-size: 22px; color: #b91c1c; }
+      p { margin: 0 0 12px; color: #475569; }
+      pre {
+        margin: 0 0 12px;
+        padding: 10px 12px;
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        color: #991b1b;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Couldn't save Builder connection</h1>
+      <p>Builder authorized your account but the server couldn't persist the credentials.</p>
+      <pre id="msg"></pre>
+      <p>You can close this tab and try again from settings. The connect dialog has the same error so you can copy it.</p>
+    </main>
+    <script>
+      try {
+        var msg = ${escapedMessage};
+        document.getElementById("msg").textContent = msg;
+        // Stop the parent's poll immediately. /builder/status also surfaces
+        // a connectError row written by the callback so the parent picks
+        // this up even if the popup closed before postMessage delivered.
+        if (window.opener && !window.opener.closed) {
+          try {
+            window.opener.postMessage(
+              { type: "builder-connect-error", message: msg },
+              window.location.origin,
+            );
+          } catch (e) {}
+        }
+      } catch (e) {}
+    </script>
+  </body>
+</html>`;
+}
+
 export interface RunBuilderAgentArgs {
   prompt: string;
   projectId?: string;

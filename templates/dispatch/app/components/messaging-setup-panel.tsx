@@ -77,6 +77,7 @@ const PLATFORM_DEFINITIONS: PlatformDefinition[] = [
       "Save the bot token and signing secret below — the webhook URL appears once they're saved.",
       "Back in Slack, enable Event Subscriptions and paste the webhook URL.",
       "Subscribe to app_mention and message.im events, then install the app.",
+      "Optional but recommended: Basic Information → Display Information → upload an app icon and pick a background color so the bot has a clean avatar in every channel.",
     ],
   },
   {

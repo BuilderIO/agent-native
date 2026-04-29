@@ -268,17 +268,26 @@ async function _doEnsureTable(): Promise<void> {
     ],
   });
 
-  // Seed built-in agents as shared resources under agents/
+  // Seed built-in agents as shared resources under remote-agents/. ALWAYS
+  // use the production URL here, never the env-resolved devUrl. The seed
+  // runs once per DB (ON CONFLICT DO NOTHING), so a localhost URL written
+  // during a dev run sticks forever — including when that DB is later used
+  // by a prod deploy and the override wins over the built-in's prod URL.
+  // (Verified problem: `dispatch.agent-native.com` had every remote-agents
+  // entry pointing at localhost from an early-seed run, breaking call-agent
+  // outbound from Lambda for ~12h before this was caught.)
   try {
-    const { getBuiltinAgents } = await import("../server/agent-discovery.js");
-    const builtins = getBuiltinAgents();
+    const { getBuiltinAgents, BUILTIN_AGENTS_FOR_SEEDING } =
+      await import("../server/agent-discovery.js");
+    void getBuiltinAgents; // referenced to keep type-only import alive
+    const builtins = BUILTIN_AGENTS_FOR_SEEDING;
     for (const agent of builtins) {
       const agentJson = JSON.stringify(
         {
           id: agent.id,
           name: agent.name,
           description: agent.description,
-          url: agent.url,
+          url: agent.url, // always prod
           color: agent.color,
         },
         null,

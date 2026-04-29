@@ -190,7 +190,25 @@ async function enqueueAndDispatch(
     orgId = null;
   }
 
-  const payload = JSON.stringify({ incoming });
+  // Post a "thinking…" placeholder immediately if the adapter supports
+  // in-place edits. The processor flow will update this same message with
+  // the final answer, so users see one tidy thread reply instead of
+  // "[silence] → answer". Adapters without edit support skip this and the
+  // processor posts a fresh response.
+  let placeholderRef: string | undefined;
+  try {
+    if (options.adapter.postProcessingPlaceholder) {
+      const placeholder =
+        await options.adapter.postProcessingPlaceholder(incoming);
+      if (placeholder?.placeholderRef) {
+        placeholderRef = placeholder.placeholderRef;
+      }
+    }
+  } catch (err) {
+    console.error("[integrations] postProcessingPlaceholder failed:", err);
+  }
+
+  const payload = JSON.stringify({ incoming, placeholderRef });
 
   await insertPendingTask({
     id: taskId,
@@ -219,15 +237,24 @@ async function enqueueAndDispatch(
     // No A2A_SECRET — proceed without a signed token. See note above.
   }
 
-  // Fire-and-forget: do NOT await. The dispatched request runs on its own
-  // function execution, freed from the current handler's timeout.
-  fetch(processUrl, {
+  // Fire-and-forget: do NOT await the full response (the processor's run
+  // takes minutes — we don't want to block the caller). BUT on Netlify
+  // Lambda, when we return immediately, the runtime can freeze the function
+  // before the outbound TCP handshake even starts, which leaves the dispatch
+  // request stuck waiting for the 60s retry-sweep job. Race the fetch
+  // against a short timer so the request gets at least ~250ms to leave the
+  // box; the trade-off is at most ~250ms of added webhook latency.
+  const dispatchPromise = fetch(processUrl, {
     method: "POST",
     headers,
     body: JSON.stringify({ taskId }),
   }).catch((err) => {
     console.error("[integrations] Failed to dispatch processor request:", err);
   });
+  await Promise.race([
+    dispatchPromise,
+    new Promise<void>((resolve) => setTimeout(resolve, 250)),
+  ]);
 }
 
 /**
@@ -271,8 +298,13 @@ export async function processIntegrationTask(
   task: PendingTask,
   options: WebhookHandlerOptions,
 ): Promise<void> {
-  const incoming: IncomingMessage = JSON.parse(task.payload).incoming;
-  await processIncomingMessage(incoming, options);
+  const parsed = JSON.parse(task.payload) as {
+    incoming: IncomingMessage;
+    placeholderRef?: string;
+  };
+  await processIncomingMessage(parsed.incoming, options, {
+    placeholderRef: parsed.placeholderRef,
+  });
 }
 
 /**
@@ -282,6 +314,7 @@ export async function processIntegrationTask(
 async function processIncomingMessage(
   incoming: IncomingMessage,
   options: WebhookHandlerOptions,
+  opts: { placeholderRef?: string } = {},
 ): Promise<void> {
   const { adapter, systemPrompt, actions, model, apiKey, ownerEmail } = options;
 
@@ -371,7 +404,14 @@ async function processIncomingMessage(
       threadId,
       async (send, signal) => {
         await runWithRequestContext(
-          { userEmail: ownerEmail, orgId: orgId ?? undefined },
+          {
+            userEmail: ownerEmail,
+            orgId: orgId ?? undefined,
+            // Lets downstream callers (call-agent script) apply tighter
+            // budgets on integration paths without affecting normal
+            // agent-chat. See `isIntegrationCallerRequest()`.
+            isIntegrationCaller: true,
+          },
           () =>
             runAgentLoop({
               engine,
@@ -387,11 +427,37 @@ async function processIncomingMessage(
       },
       async (completedRun: ActiveRun) => {
         try {
-          // Collect text from events
+          // Collect text events from the run, but drop any pre-tool-call
+          // preamble so the user sees just the final answer instead of
+          // "I need to delegate this..." run-on into the raw tool result.
+          //
+          // Heuristic: when the agent fired any tool, only keep text events
+          // that come AFTER the last tool. The preamble ("Let me check…")
+          // and the final answer ("630") are emitted as two separate text
+          // events, and concatenating them with no separator was producing
+          // "...signup data.630" in Slack.
+          let lastToolIdx = -1;
+          for (let i = completedRun.events.length - 1; i >= 0; i--) {
+            const t = completedRun.events[i].event.type;
+            if (t === "tool_start" || t === "tool_done") {
+              lastToolIdx = i;
+              break;
+            }
+          }
+          const startIdx = lastToolIdx >= 0 ? lastToolIdx + 1 : 0;
           let responseText = "";
-          for (const runEvent of completedRun.events) {
-            if (runEvent.event.type === "text") {
-              responseText += runEvent.event.text;
+          for (let i = startIdx; i < completedRun.events.length; i++) {
+            const ev = completedRun.events[i].event;
+            if (ev.type === "text") responseText += ev.text;
+          }
+          // If the post-tool window had no text (tool spoke for itself),
+          // fall back to all text events so we never leave the user with
+          // an empty reply.
+          if (!responseText.trim() && lastToolIdx >= 0) {
+            for (const runEvent of completedRun.events) {
+              if (runEvent.event.type === "text") {
+                responseText += runEvent.event.text;
+              }
             }
           }
 
@@ -412,15 +478,25 @@ async function processIncomingMessage(
             }
           }
 
-          // Append thread link for web UI access
+          // Compute the deep-link to the dispatch UI for this thread, then
+          // hand it to the adapter as a structured `threadDeepLinkUrl` so
+          // platforms with rich blocks (Slack) can render a button instead
+          // of inlining a `<url|text>` link that auto-unfurls into a giant
+          // preview card.
           const baseUrl = process.env.APP_URL || process.env.URL || "";
-          if (baseUrl && threadId) {
-            responseText += `\n\n<${baseUrl}/?thread=${threadId}|View full thread>`;
-          }
+          const threadDeepLinkUrl =
+            baseUrl && threadId
+              ? `${baseUrl.replace(/\/$/, "")}/?thread=${threadId}`
+              : undefined;
 
-          // Format and send back to platform
-          const outgoing = adapter.formatAgentResponse(responseText);
-          await adapter.sendResponse(outgoing, incoming);
+          // Format and send back to platform — update the "thinking…"
+          // placeholder in place if the adapter supplied one.
+          const outgoing = adapter.formatAgentResponse(responseText, {
+            threadDeepLinkUrl,
+          });
+          await adapter.sendResponse(outgoing, incoming, {
+            placeholderRef: opts.placeholderRef,
+          });
 
           // Persist thread data
           await persistThreadData(

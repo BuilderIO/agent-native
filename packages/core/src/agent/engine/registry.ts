@@ -105,6 +105,76 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
 }
 
 /**
+ * Detect a usable engine from the current request user's per-user
+ * `app_secrets` rows. Mirrors `detectEngineFromEnv` but consults the
+ * encrypted secret store instead of `process.env`.
+ *
+ * Required because the Builder OAuth callback (and the settings UI's
+ * "paste your own key" flow) writes credentials to app_secrets, not env.
+ * Without this check, a user who connected Builder would see status
+ * "configured" but the next chat turn would fall through to the default
+ * Anthropic engine and hit `missing_api_key` — exactly Brent's symptom
+ * on the docs site (Loom 2026-04-28: "It doesn't seem to realize I'm
+ * connected once I do a chat").
+ *
+ * Returns `null` for unauthenticated requests and for `local@localhost`
+ * — both rely on env-based detection (the dev box's deploy-level keys
+ * are unambiguous, and unauthenticated requests have no user to scope by).
+ */
+export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | null> {
+  let email: string | undefined;
+  try {
+    const { getRequestUserEmail } =
+      await import("../../server/request-context.js");
+    email = getRequestUserEmail();
+  } catch {
+    return null;
+  }
+  if (!email || email === "local@localhost") return null;
+
+  let readAppSecret: typeof import("../../secrets/storage.js").readAppSecret;
+  try {
+    ({ readAppSecret } = await import("../../secrets/storage.js"));
+  } catch {
+    return null;
+  }
+
+  const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
+    if (entry.requiredEnvVars.length === 0) return false;
+    for (const key of entry.requiredEnvVars) {
+      try {
+        const secret = await readAppSecret({
+          key,
+          scope: "user",
+          scopeId: email!,
+        });
+        if (!secret?.value) return false;
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const preferByo = /^(1|true)$/i.test(
+    process.env.AGENT_ENGINE_PREFER_BYO_KEY ?? "",
+  );
+
+  if (preferByo) {
+    for (const entry of _registry.values()) {
+      if (entry.name === "builder") continue;
+      if (await hasAllKeys(entry)) return entry;
+    }
+    // No BYO key matched — fall through to include Builder as fallback.
+  }
+
+  for (const entry of _registry.values()) {
+    if (await hasAllKeys(entry)) return entry;
+  }
+  return null;
+}
+
+/**
  * True when an `agent-engine` setting entry names an engine AND carries an
  * API key (top-level or inside `config`). Shared between the onboarding step
  * and the /agent-engine/status endpoint so both agree on "is this configured".
@@ -226,7 +296,14 @@ export async function resolveEngine(
     if (entry) return entry.create({ apiKey });
   }
 
-  // 6. Auto-detect from any provider env var — so just dropping a key in
+  // 6. Auto-detect from the current user's per-user `app_secrets` rows
+  // (Builder OAuth callback + "paste your own key" settings flow write
+  // here, not env). Comes before env-detection so a user-specific
+  // connection wins over a stale deploy-level key.
+  const detectedFromUser = await detectEngineFromUserSecrets();
+  if (detectedFromUser) return detectedFromUser.create({ apiKey });
+
+  // 7. Auto-detect from any provider env var — so just dropping a key in
   // .env works without also setting AGENT_ENGINE.
   const detected = detectEngineFromEnv();
   if (detected) return detected.create({ apiKey });

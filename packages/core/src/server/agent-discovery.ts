@@ -175,18 +175,32 @@ export async function discoverAgents(
         const full = await resourceGet(r.id);
         if (!full) continue;
         const manifest = parseRemoteAgentManifest(full.content, r.path);
-        const agent = manifest
-          ? {
-              id: manifest.id,
-              name: manifest.name,
-              description: manifest.description || "",
-              url: manifest.url,
-              color: manifest.color || "#6B7280",
-            }
-          : null;
-        if (agent && agent.id !== selfAppId) {
-          agentsById.set(agent.id, agent);
+        if (!manifest || manifest.id === selfAppId) continue;
+
+        // If the resource override carries a localhost URL but we're running
+        // in production (e.g. a stale dev-time seed got promoted to the prod
+        // DB), fall back to the matching built-in's prod URL instead of
+        // letting the override win — otherwise outbound `call-agent` fetches
+        // from a serverless function would target localhost and fail with
+        // "fetch failed" instantly. The override still wins for non-localhost
+        // URLs (the supported case for self-hosted custom agents).
+        let url = manifest.url;
+        if (
+          !isDevMode &&
+          typeof url === "string" &&
+          /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/.test(url)
+        ) {
+          const builtin = agentsById.get(manifest.id);
+          if (builtin?.url) url = builtin.url;
         }
+
+        agentsById.set(manifest.id, {
+          id: manifest.id,
+          name: manifest.name,
+          description: manifest.description || "",
+          url,
+          color: manifest.color || "#6B7280",
+        });
       } catch {
         // Skip unreadable resources
       }
@@ -222,3 +236,21 @@ function resolveAgentUrl(app: AgentEntry): string {
   }
   return app.url;
 }
+
+/**
+ * Like `getBuiltinAgents`, but always returns the production URL — never the
+ * env-resolved devUrl. Used by the resource seeder so that a one-time seed
+ * (`ON CONFLICT DO NOTHING`) can't permanently bake a localhost URL into the
+ * DB, which would override the built-in's prod URL for every later
+ * production deploy.
+ */
+export const BUILTIN_AGENTS_FOR_SEEDING: DiscoveredAgent[] =
+  BUILTIN_AGENTS.filter(
+    (app) => app.enabled && !app.placeholder && app.url,
+  ).map((app) => ({
+    id: app.id,
+    name: app.name,
+    description: app.description,
+    url: app.url, // ALWAYS prod
+    color: app.color,
+  }));

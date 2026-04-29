@@ -257,4 +257,118 @@ describe("AgentEngine registry", () => {
     expect(createFn).toHaveBeenCalled();
     expect(resolved).toBe(fakeEngine);
   });
+
+  describe("detectEngineFromUserSecrets", () => {
+    beforeEach(() => {
+      vi.resetModules();
+      delete process.env.AGENT_ENGINE;
+      delete process.env.AGENT_ENGINE_PREFER_BYO_KEY;
+    });
+
+    it("returns null when no request user is set", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => undefined,
+      }));
+      const { detectEngineFromUserSecrets } = await import("./registry.js");
+      expect(await detectEngineFromUserSecrets()).toBeNull();
+    });
+
+    it("returns null for the local-dev session", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "local@localhost",
+      }));
+      const { detectEngineFromUserSecrets } = await import("./registry.js");
+      expect(await detectEngineFromUserSecrets()).toBeNull();
+    });
+
+    it("picks the Builder engine when the user has BUILDER_PRIVATE_KEY in app_secrets", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "brent@example.com",
+      }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret: vi.fn(async ({ key }: { key: string }) =>
+          key === "BUILDER_PRIVATE_KEY"
+            ? { key, value: "p-key-from-app-secrets" }
+            : null,
+        ),
+      }));
+
+      const { registerAgentEngine, detectEngineFromUserSecrets } =
+        await import("./registry.js");
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const detected = await detectEngineFromUserSecrets();
+      expect(detected?.name).toBe("builder");
+    });
+
+    it("resolveEngine routes to Builder when the user has Builder creds in app_secrets and no env-level keys", async () => {
+      delete process.env.BUILDER_PRIVATE_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
+
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "brent@example.com",
+      }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret: vi.fn(async ({ key }: { key: string }) =>
+          key === "BUILDER_PRIVATE_KEY"
+            ? { key, value: "p-key-from-app-secrets" }
+            : null,
+        ),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const builderEngine = { name: "builder", stream: vi.fn() } as any;
+      const anthropicEngine = { name: "anthropic", stream: vi.fn() } as any;
+      const builderCreate = vi.fn().mockReturnValue(builderEngine);
+      const anthropicCreate = vi.fn().mockReturnValue(anthropicEngine);
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY"],
+        create: builderCreate,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: anthropicCreate,
+      });
+
+      const resolved = await resolveEngine({});
+      expect(builderCreate).toHaveBeenCalled();
+      expect(anthropicCreate).not.toHaveBeenCalled();
+      expect(resolved).toBe(builderEngine);
+    });
+  });
 });
