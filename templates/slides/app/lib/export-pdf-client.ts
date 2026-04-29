@@ -38,8 +38,7 @@ export async function exportDeckAsPdf(
   // ratios coming off old DB rows or external callers may not). See
   // commit 0bb5c827 — same pattern preserved through the modern-screenshot
   // rewrite.
-  const dims =
-    getAspectRatioDims(aspectRatio) ?? getAspectRatioDims(undefined);
+  const dims = getAspectRatioDims(aspectRatio) ?? getAspectRatioDims(undefined);
   const orientation = dims.width >= dims.height ? "landscape" : "portrait";
 
   const pdf = new jsPDF({
