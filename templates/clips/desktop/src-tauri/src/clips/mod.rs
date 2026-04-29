@@ -444,6 +444,19 @@ pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
 /// pick a fixed popover size that fits every state.
 #[tauri::command]
 pub async fn resize_popover(app: AppHandle, height: f64) -> Result<(), String> {
+    // CRITICAL: bail out when the popover is parked at 2x2 for voice
+    // wake-up. The React shell's ResizeObserver fires on every mount
+    // and would un-park the window back to full size, making the
+    // Clips UI flash on every Fn press AND steal focus from the
+    // foreground app. The window must stay invisible-but-alive until
+    // hide_flow_bar clears the wake flag.
+    let voice_woken = app
+        .try_state::<VoiceWakePopover>()
+        .and_then(|state| state.0.lock().ok().map(|g| *g))
+        .unwrap_or(false);
+    if voice_woken {
+        return Ok(());
+    }
     if let Some(w) = app.get_webview_window("popover") {
         let clamped = height.clamp(200.0, 820.0);
         let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
