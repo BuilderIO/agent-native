@@ -10,7 +10,8 @@ export default defineAction({
     timezone: z.string().optional().describe("Timezone"),
   }),
   run: async (args) => {
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     // The frontend sends the full availability config as the body
     const config = args as unknown as AvailabilityConfig;
     const configRecord = config as unknown as Record<string, unknown>;
