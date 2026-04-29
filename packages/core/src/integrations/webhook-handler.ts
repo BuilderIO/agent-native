@@ -427,11 +427,37 @@ async function processIncomingMessage(
       },
       async (completedRun: ActiveRun) => {
         try {
-          // Collect text from events
+          // Collect text events from the run, but drop any pre-tool-call
+          // preamble so the user sees just the final answer instead of
+          // "I need to delegate this..." run-on into the raw tool result.
+          //
+          // Heuristic: when the agent fired any tool, only keep text events
+          // that come AFTER the last tool. The preamble ("Let me check…")
+          // and the final answer ("630") are emitted as two separate text
+          // events, and concatenating them with no separator was producing
+          // "...signup data.630" in Slack.
+          let lastToolIdx = -1;
+          for (let i = completedRun.events.length - 1; i >= 0; i--) {
+            const t = completedRun.events[i].event.type;
+            if (t === "tool_start" || t === "tool_done") {
+              lastToolIdx = i;
+              break;
+            }
+          }
+          const startIdx = lastToolIdx >= 0 ? lastToolIdx + 1 : 0;
           let responseText = "";
-          for (const runEvent of completedRun.events) {
-            if (runEvent.event.type === "text") {
-              responseText += runEvent.event.text;
+          for (let i = startIdx; i < completedRun.events.length; i++) {
+            const ev = completedRun.events[i].event;
+            if (ev.type === "text") responseText += ev.text;
+          }
+          // If the post-tool window had no text (tool spoke for itself),
+          // fall back to all text events so we never leave the user with
+          // an empty reply.
+          if (!responseText.trim() && lastToolIdx >= 0) {
+            for (const runEvent of completedRun.events) {
+              if (runEvent.event.type === "text") {
+                responseText += runEvent.event.text;
+              }
             }
           }
 
