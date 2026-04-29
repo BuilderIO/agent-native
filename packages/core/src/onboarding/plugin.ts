@@ -11,6 +11,7 @@
 import {
   defineEventHandler,
   getMethod,
+  getQuery,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -123,7 +124,8 @@ export function createOnboardingPlugin(
             return { error: "Method not allowed" };
           }
           const sessionId = await resolveSessionId(event);
-          const preview = event.url?.searchParams?.get("preview") === "1";
+          const query = getQuery(event) as Record<string, unknown>;
+          const preview = query.preview === "1" || query.preview === 1;
           return serializeSteps(sessionId, { preview });
         }
 
