@@ -61,6 +61,7 @@ import {
   isAgentEngineSettingConfigured,
   getAgentEngineEntry,
   detectEngineFromEnv,
+  detectEngineFromUserSecrets,
   isStoredEngineUsable,
 } from "../agent/engine/registry.js";
 
@@ -751,6 +752,19 @@ export function createCoreRoutesPlugin(
                 envVar: entry.requiredEnvVars[0],
               };
             }
+          }
+          // Per-user app_secrets — a user who connected Builder (or pasted
+          // their own provider key) may not have any deploy-level env vars
+          // set, so check their per-user secret store before reporting "no
+          // engine configured" and re-showing the onboarding gate.
+          const detectedFromUser = await detectEngineFromUserSecrets();
+          if (detectedFromUser) {
+            return {
+              configured: true,
+              engine: detectedFromUser.name,
+              source: "app_secrets" as const,
+              envVar: detectedFromUser.requiredEnvVars[0],
+            };
           }
           const detected = detectEngineFromEnv();
           if (detected) {

@@ -152,9 +152,57 @@ export function slackAdapter(): PlatformAdapter {
       return null;
     },
 
+    async postProcessingPlaceholder(
+      incoming: IncomingMessage,
+    ): Promise<{ placeholderRef: string } | null> {
+      const token = process.env.SLACK_BOT_TOKEN;
+      if (!token) return null;
+
+      const channelId = incoming.platformContext.channelId as string;
+      const threadTs = incoming.platformContext.threadTs as string;
+      if (!channelId || !threadTs) return null;
+
+      const blocks = buildThinkingBlocks();
+      try {
+        const res = await fetch("https://slack.com/api/chat.postMessage", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            channel: channelId,
+            thread_ts: threadTs,
+            text: "Working on it…",
+            blocks,
+            // Suppress URL unfurl previews — the agent's reply often includes
+            // a deep-link to the dispatch UI and we want a clean section
+            // block, not Slack's auto-generated card.
+            unfurl_links: false,
+            unfurl_media: false,
+            mrkdwn: true,
+          }),
+        });
+        const data = (await res.json()) as {
+          ok: boolean;
+          ts?: string;
+          error?: string;
+        };
+        if (!data.ok || !data.ts) {
+          console.error("[slack] postProcessingPlaceholder error:", data.error);
+          return null;
+        }
+        return { placeholderRef: data.ts };
+      } catch (err) {
+        console.error("[slack] postProcessingPlaceholder failed:", err);
+        return null;
+      }
+    },
+
     async sendResponse(
       message: OutgoingMessage,
       context: IncomingMessage,
+      opts?: { placeholderRef?: string },
     ): Promise<void> {
       const token = process.env.SLACK_BOT_TOKEN;
       if (!token) {
@@ -164,33 +212,70 @@ export function slackAdapter(): PlatformAdapter {
 
       const channelId = context.platformContext.channelId as string;
       const threadTs = context.platformContext.threadTs as string;
+      const blocks = (message.platformContext as any)?.blocks as
+        | unknown[]
+        | undefined;
+      const placeholderRef = opts?.placeholderRef;
 
-      // Split long messages
+      // Block-rich path: split text into chunks but render the FIRST chunk as
+      // blocks (so we keep the in-place edit + button) and any overflow as
+      // plain follow-up posts. The vast majority of replies fit in one block.
       const chunks = splitMessage(message.text, SLACK_MAX_LENGTH);
+      const firstChunk = chunks[0] ?? "";
+      const restChunks = chunks.slice(1);
 
-      for (const chunk of chunks) {
-        const body: Record<string, unknown> = {
-          channel: channelId,
-          text: chunk,
-          thread_ts: threadTs,
-        };
+      const finalBlocks =
+        blocks ??
+        buildResponseBlocks(firstChunk, {
+          threadDeepLinkUrl: (message.platformContext as any)
+            ?.threadDeepLinkUrl,
+        });
 
-        try {
-          const res = await fetch("https://slack.com/api/chat.postMessage", {
+      const baseBody: Record<string, unknown> = {
+        channel: channelId,
+        text: firstChunk,
+        blocks: finalBlocks,
+        unfurl_links: false,
+        unfurl_media: false,
+        mrkdwn: true,
+      };
+
+      try {
+        if (placeholderRef) {
+          // Replace the "thinking…" placeholder in place.
+          const res = await fetch("https://slack.com/api/chat.update", {
             method: "POST",
             headers: {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify(body),
+            body: JSON.stringify({ ...baseBody, ts: placeholderRef }),
           });
-          const data = (await res.json()) as { ok: boolean; error?: string };
+          const data = (await res.json()) as {
+            ok: boolean;
+            error?: string;
+          };
           if (!data.ok) {
-            console.error("[slack] chat.postMessage error:", data.error);
+            console.error("[slack] chat.update error:", data.error);
+            // Fall back to a fresh post so the user still sees a reply
+            await postFresh(token, channelId, threadTs, baseBody);
           }
-        } catch (err) {
-          console.error("[slack] Failed to send message:", err);
+        } else {
+          await postFresh(token, channelId, threadTs, baseBody);
         }
+
+        // Overflow chunks (rare) — post as plain follow-ups in the same thread
+        for (const chunk of restChunks) {
+          await postFresh(token, channelId, threadTs, {
+            channel: channelId,
+            text: chunk,
+            unfurl_links: false,
+            unfurl_media: false,
+            mrkdwn: true,
+          });
+        }
+      } catch (err) {
+        console.error("[slack] Failed to send message:", err);
       }
     },
 
@@ -232,8 +317,16 @@ export function slackAdapter(): PlatformAdapter {
       }
     },
 
-    formatAgentResponse(text: string): OutgoingMessage {
-      return { text: markdownToSlackMrkdwn(text), platformContext: {} };
+    formatAgentResponse(
+      text: string,
+      opts?: { threadDeepLinkUrl?: string },
+    ): OutgoingMessage {
+      return {
+        text: markdownToSlackMrkdwn(text),
+        platformContext: opts?.threadDeepLinkUrl
+          ? { threadDeepLinkUrl: opts.threadDeepLinkUrl }
+          : {},
+      };
     },
 
     async getStatus(baseUrl?: string): Promise<IntegrationStatus> {
@@ -304,4 +397,82 @@ function markdownToSlackMrkdwn(text: string): string {
       // 's' flag (dotAll) so `.` matches newlines — bold text can span lines.
       .replace(/\*\*(.+?)\*\*/gs, "*$1*")
   );
+}
+
+/**
+ * Block Kit payload for the "Working on it…" placeholder posted as soon as
+ * the webhook arrives. Slack will swap this for the final answer via
+ * `chat.update` once the agent loop completes — same message ts, no extra
+ * post in the thread.
+ */
+function buildThinkingBlocks(): unknown[] {
+  return [
+    {
+      type: "context",
+      elements: [
+        { type: "mrkdwn", text: ":hourglass_flowing_sand: _Working on it…_" },
+      ],
+    },
+  ];
+}
+
+/**
+ * Block Kit payload for the final answer. We avoid auto-unfurl previews by
+ * separating the deep-link out into a button instead of inlining it as a
+ * `<url|text>` markdown link in the section body — that's what was producing
+ * the giant "Agent-Native Dispatch" card in every thread reply.
+ */
+function buildResponseBlocks(
+  text: string,
+  opts: { threadDeepLinkUrl?: string },
+): unknown[] {
+  const blocks: any[] = [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: text || "_(no response)_" },
+    },
+  ];
+  if (opts.threadDeepLinkUrl) {
+    blocks.push({
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Open thread", emoji: true },
+          url: opts.threadDeepLinkUrl,
+          action_id: "open_dispatch_thread",
+        },
+      ],
+    });
+  }
+  return blocks;
+}
+
+/**
+ * Post a fresh message to a thread. Used as the placeholder-fallback path
+ * (e.g. when chat.update fails) and for follow-up overflow chunks.
+ */
+async function postFresh(
+  token: string,
+  channelId: string,
+  threadTs: string | undefined,
+  body: Record<string, unknown>,
+): Promise<void> {
+  const payload: Record<string, unknown> = {
+    ...body,
+    channel: channelId,
+  };
+  if (threadTs && !payload.thread_ts) payload.thread_ts = threadTs;
+  const res = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as { ok: boolean; error?: string };
+  if (!data.ok) {
+    console.error("[slack] chat.postMessage error:", data.error);
+  }
 }

@@ -190,7 +190,25 @@ async function enqueueAndDispatch(
     orgId = null;
   }
 
-  const payload = JSON.stringify({ incoming });
+  // Post a "thinking…" placeholder immediately if the adapter supports
+  // in-place edits. The processor flow will update this same message with
+  // the final answer, so users see one tidy thread reply instead of
+  // "[silence] → answer". Adapters without edit support skip this and the
+  // processor posts a fresh response.
+  let placeholderRef: string | undefined;
+  try {
+    if (options.adapter.postProcessingPlaceholder) {
+      const placeholder =
+        await options.adapter.postProcessingPlaceholder(incoming);
+      if (placeholder?.placeholderRef) {
+        placeholderRef = placeholder.placeholderRef;
+      }
+    }
+  } catch (err) {
+    console.error("[integrations] postProcessingPlaceholder failed:", err);
+  }
+
+  const payload = JSON.stringify({ incoming, placeholderRef });
 
   await insertPendingTask({
     id: taskId,
@@ -280,8 +298,13 @@ export async function processIntegrationTask(
   task: PendingTask,
   options: WebhookHandlerOptions,
 ): Promise<void> {
-  const incoming: IncomingMessage = JSON.parse(task.payload).incoming;
-  await processIncomingMessage(incoming, options);
+  const parsed = JSON.parse(task.payload) as {
+    incoming: IncomingMessage;
+    placeholderRef?: string;
+  };
+  await processIncomingMessage(parsed.incoming, options, {
+    placeholderRef: parsed.placeholderRef,
+  });
 }
 
 /**
@@ -291,6 +314,7 @@ export async function processIntegrationTask(
 async function processIncomingMessage(
   incoming: IncomingMessage,
   options: WebhookHandlerOptions,
+  opts: { placeholderRef?: string } = {},
 ): Promise<void> {
   const { adapter, systemPrompt, actions, model, apiKey, ownerEmail } = options;
 
@@ -421,15 +445,25 @@ async function processIncomingMessage(
             }
           }
 
-          // Append thread link for web UI access
+          // Compute the deep-link to the dispatch UI for this thread, then
+          // hand it to the adapter as a structured `threadDeepLinkUrl` so
+          // platforms with rich blocks (Slack) can render a button instead
+          // of inlining a `<url|text>` link that auto-unfurls into a giant
+          // preview card.
           const baseUrl = process.env.APP_URL || process.env.URL || "";
-          if (baseUrl && threadId) {
-            responseText += `\n\n<${baseUrl}/?thread=${threadId}|View full thread>`;
-          }
+          const threadDeepLinkUrl =
+            baseUrl && threadId
+              ? `${baseUrl.replace(/\/$/, "")}/?thread=${threadId}`
+              : undefined;
 
-          // Format and send back to platform
-          const outgoing = adapter.formatAgentResponse(responseText);
-          await adapter.sendResponse(outgoing, incoming);
+          // Format and send back to platform — update the "thinking…"
+          // placeholder in place if the adapter supplied one.
+          const outgoing = adapter.formatAgentResponse(responseText, {
+            threadDeepLinkUrl,
+          });
+          await adapter.sendResponse(outgoing, incoming, {
+            placeholderRef: opts.placeholderRef,
+          });
 
           // Persist thread data
           await persistThreadData(

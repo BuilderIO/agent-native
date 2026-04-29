@@ -6,21 +6,38 @@
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
     },
     "./server": {
       "types": "./src/server/index.ts",
-      "default": "./src/server/index.ts"
+      "development": "./src/server/index.ts",
+      "default": "./dist/server/index.js"
     },
     "./client": {
       "types": "./src/client/index.ts",
-      "default": "./src/client/index.ts"
+      "development": "./src/client/index.ts",
+      "default": "./dist/client/index.js"
     },
     "./credentials": {
       "types": "./src/credentials.ts",
-      "default": "./src/credentials.ts"
+      "development": "./src/credentials.ts",
+      "default": "./dist/credentials.js"
     },
     "./styles/tokens.css": "./styles/tokens.css"
+  },
+  "files": [
+    "dist",
+    "src",
+    "styles",
+    "actions",
+    "AGENTS.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch --preserveWatchOutput",
+    "typecheck": "tsc --noEmit",
+    "prepare": "tsc"
   },
   "dependencies": {
     "@agent-native/core": "^0.7.10"

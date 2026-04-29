@@ -12,6 +12,88 @@ import { fileURLToPath } from "url";
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Sync discovery for the workspace-core in an enterprise monorepo.
+ *
+ * Mirrors `getWorkspaceCoreExports` in deploy/workspace-core.ts but stays
+ * synchronous so it can run inline in `defineConfig`. Returns the workspace
+ * core's package name + absolute directory, or null if no workspace core is
+ * declared in the ancestor chain.
+ *
+ * Walks up from `startDir` looking for a package.json with
+ * `agent-native.workspaceCore`. Resolves the declared package name through
+ * `<workspaceRoot>/node_modules/<name>` (pnpm symlink, fastest) or by
+ * scanning `packages/*` for a matching `name` field (fallback for
+ * pre-install scenarios).
+ */
+function findWorkspaceCoreSync(
+  startDir: string,
+): { packageName: string; packageDir: string } | null {
+  // 1) Walk up looking for the root package.json that declares workspaceCore.
+  let dir = path.resolve(startDir);
+  let workspaceRoot: string | null = null;
+  let packageName: string | null = null;
+  for (let i = 0; i < 20; i++) {
+    const pkgPath = path.join(dir, "package.json");
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+        const declared = pkg?.["agent-native"]?.workspaceCore;
+        if (typeof declared === "string" && declared.length > 0) {
+          workspaceRoot = dir;
+          packageName = declared;
+          break;
+        }
+      } catch {
+        // Malformed package.json — keep walking up.
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  if (!workspaceRoot || !packageName) return null;
+
+  // 2a) pnpm/npm symlink under workspaceRoot/node_modules.
+  const nm = path.join(workspaceRoot, "node_modules", packageName);
+  if (fs.existsSync(path.join(nm, "package.json"))) {
+    return { packageName, packageDir: fs.realpathSync(nm) };
+  }
+
+  // 2b) Scan packages/* and packages/@scope/* for a matching `name`.
+  const packagesDir = path.join(workspaceRoot, "packages");
+  if (fs.existsSync(packagesDir)) {
+    const candidates: string[] = [];
+    for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      candidates.push(path.join(packagesDir, entry.name));
+      if (entry.name.startsWith("@")) {
+        const scopeDir = path.join(packagesDir, entry.name);
+        for (const sub of fs.readdirSync(scopeDir, { withFileTypes: true })) {
+          if (sub.isDirectory()) candidates.push(path.join(scopeDir, sub.name));
+        }
+      }
+    }
+    for (const c of candidates) {
+      const p = path.join(c, "package.json");
+      if (!fs.existsSync(p)) continue;
+      try {
+        const pkg = JSON.parse(fs.readFileSync(p, "utf-8"));
+        if (pkg?.name === packageName)
+          return { packageName, packageDir: fs.realpathSync(c) };
+      } catch {
+        // ignore malformed package.json
+      }
+    }
+  }
+  return null;
+}
+
+/** Escape a string so it can be embedded as a regex literal. */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Check if a package is installed in the project */
 function hasDep(pkg: string, cwd: string): boolean {
   try {
@@ -638,6 +720,17 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     path.resolve(cwd, "../core"),
   ].filter((candidate) => fs.existsSync(path.join(candidate, "package.json")));
 
+  // Workspace-core (enterprise monorepo): pull its directory into Vite's
+  // file watcher + module graph so edits to its TS sources hot-reload the
+  // dev server, and its package name into ssr.noExternal so the dynamic
+  // import in framework-request-handler.ts goes through Vite's transform
+  // pipeline (TypeScript, SSR HMR, the works).
+  const workspaceCore = findWorkspaceCoreSync(cwd);
+  const workspaceCoreFsAllow = workspaceCore ? [workspaceCore.packageDir] : [];
+  const workspaceCoreNoExternal = workspaceCore
+    ? [new RegExp(`^${escapeRegex(workspaceCore.packageName)}(/.*)?$`)]
+    : [];
+
   return {
     envDir,
     base,
@@ -645,7 +738,12 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       host: "::",
       port: options.port ?? 8080,
       fs: {
-        allow: [".", ...monorepoCoreAllow, ...(options.fsAllow ?? [])],
+        allow: [
+          ".",
+          ...monorepoCoreAllow,
+          ...workspaceCoreFsAllow,
+          ...(options.fsAllow ?? []),
+        ],
         deny: [
           ".env",
           ".env.*",
@@ -672,9 +770,25 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     ssr: process.argv.includes("build")
       ? {
           noExternal: /^(?!node:)/,
+          // Pick the workspace-core's compiled `dist/` exports in prod —
+          // Node-style `default` condition matches what edge runtimes (CF
+          // Workers, Deno) can actually load. Without this, Vite's prod
+          // build inherits the dev-condition src/ entry and ships unbuilt
+          // TypeScript into the worker.
+          resolve: {
+            conditions: ["node", "module", "import", "default"],
+            externalConditions: ["node", "module", "import", "default"],
+          },
         }
       : {
-          noExternal: [/^@agent-native\/core(\/.*)?$/],
+          // Vite already sets `development` in the dev resolve conditions,
+          // so the workspace-core template's exports.development → src/
+          // entry is picked automatically — Vite handles TS compilation
+          // and triggers a server restart when those files change.
+          noExternal: [
+            /^@agent-native\/core(\/.*)?$/,
+            ...workspaceCoreNoExternal,
+          ],
           external: [
             "react",
             "react-dom",
