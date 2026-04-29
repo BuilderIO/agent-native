@@ -9,10 +9,6 @@ export function ProjectListPage() {
 
   return (
     <div className="h-full overflow-y-auto p-4 sm:p-6">
-      <h1 className="mb-4 text-lg font-semibold text-foreground sm:mb-6">
-        Projects
-      </h1>
-
       {isLoading ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (

@@ -183,7 +183,7 @@ export function installDesktopVoiceDictation(
   };
 
   const start = async () => {
-    if (disposed || !enabled || session || startInFlight) return;
+    if (disposed || !enabled) return;
     if (
       !navigator.mediaDevices?.getUserMedia ||
       typeof MediaRecorder === "undefined"
@@ -191,6 +191,18 @@ export function installDesktopVoiceDictation(
       console.error("[voice-dictation] MediaRecorder unavailable");
       return;
     }
+    // Wait briefly for any in-flight start() or stopping session to
+    // settle so a fast-repeat Fn press isn't dropped in the tear-down
+    // window of the previous one.
+    const waitStart = Date.now();
+    while (
+      !disposed &&
+      (startInFlight || (session && session.stopping)) &&
+      Date.now() - waitStart < 800
+    ) {
+      await new Promise((r) => window.setTimeout(r, 30));
+    }
+    if (disposed || session || startInFlight) return;
 
     try {
       startInFlight = true;
@@ -265,7 +277,19 @@ export function installDesktopVoiceDictation(
   const stop = () => {
     const current = session;
     if (!current) {
-      if (startInFlight) stopRequestedBeforeReady = true;
+      if (startInFlight) {
+        stopRequestedBeforeReady = true;
+        // If start() hangs (e.g. getUserMedia awaiting a permission
+        // dialog the user dismissed), the cleanup path that hides the
+        // flow-bar may never run. Force-hide after a short wait so the
+        // bar can't get stranded.
+        window.setTimeout(() => {
+          if (disposed) return;
+          if (!session && startInFlight) {
+            invoke("hide_flow_bar").catch(() => {});
+          }
+        }, 1500);
+      }
       return;
     }
     if (current.stopping) return;

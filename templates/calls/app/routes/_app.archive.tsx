@@ -16,6 +16,7 @@ import {
   EMPTY_FILTER,
   type FilterState,
 } from "@/components/library/filter-bar";
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 export function meta() {
   return [{ title: "Archive · Calls" }];
@@ -48,18 +49,15 @@ export default function ArchiveRoute() {
   );
   const calls = data?.calls ?? [];
 
+  useSetPageTitle(
+    <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2 truncate">
+      <IconArchive className="h-5 w-5 text-[#625DF5]" />
+      Archive
+    </h1>,
+  );
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      <header className="flex items-center gap-3 px-6 py-4 border-b border-border shrink-0">
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <IconArchive className="h-6 w-6 text-[#625DF5]" />
-            Archive
-          </h1>
-          <p className="text-xs text-muted-foreground">Calls you've archived</p>
-        </div>
-      </header>
-
       <div className="px-6 py-3 border-b border-border shrink-0 flex items-center gap-3 flex-wrap">
         <FilterBar value={filters} onChange={setFilters} />
         <div className="ml-auto flex items-center gap-2">

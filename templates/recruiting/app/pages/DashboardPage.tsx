@@ -70,9 +70,7 @@ export function DashboardPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6 pt-14 sm:px-6 sm:py-8 md:pt-8">
-      <h1 className="text-xl font-semibold text-foreground mb-6">Dashboard</h1>
-
+    <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
       {/* Stats cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4 mb-8">
         {stats.map((stat) => (

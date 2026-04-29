@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
 import { useSpaces, useOrganizations } from "@/hooks/use-library";
 import { EmptyState } from "@/components/library/empty-state";
+import { PageHeader } from "@/components/library/page-header";
 import { toast } from "sonner";
 import { sendToAgentChat } from "@agent-native/core/client";
 
@@ -40,7 +41,7 @@ export default function SpacesIndexRoute() {
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
-      <div className="flex items-center gap-3 border-b border-border px-5 py-3">
+      <PageHeader>
         <div className="flex items-center gap-2">
           <IconUsersGroup className="h-4 w-4 text-primary" />
           <h1 className="text-base font-semibold text-foreground">Spaces</h1>
@@ -62,7 +63,7 @@ export default function SpacesIndexRoute() {
             <IconPlus className="h-4 w-4" /> New space
           </Button>
         </div>
-      </div>
+      </PageHeader>
 
       <div className="flex-1 overflow-y-auto p-5">
         {isLoading ? (

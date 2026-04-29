@@ -175,9 +175,6 @@ export function slackAdapter(): PlatformAdapter {
             thread_ts: threadTs,
             text: "Working on it…",
             blocks,
-            // Suppress URL unfurl previews — the agent's reply often includes
-            // a deep-link to the dispatch UI and we want a clean section
-            // block, not Slack's auto-generated card.
             unfurl_links: false,
             unfurl_media: false,
             mrkdwn: true,
@@ -196,7 +193,6 @@ export function slackAdapter(): PlatformAdapter {
         // Best-effort: also flip the native AI-assistant "is thinking…"
         // status bar in the channel input area. Only works for apps
         // configured with `assistant:write`, otherwise silently no-ops.
-        // Mirrors the Builder.io ai-services slackbot pattern.
         setSlackAssistantStatus(token, channelId, threadTs, "is thinking…");
 
         return { placeholderRef: data.ts };
@@ -413,36 +409,6 @@ function markdownToSlackMrkdwn(text: string): string {
 }
 
 /**
- * Block Kit payload for the "Working on it…" placeholder posted as soon as
- * the webhook arrives. Slack will swap this for the final answer via
- * `chat.update` once the agent loop completes — same message ts, no extra
- * post in the thread. The mrkdwn-only context block keeps it visually
- * lightweight (no heading, no border) so the eventual final reply can swap
- * in cleanly without the eye flicker of a layout shift.
- */
-function buildThinkingBlocks(): unknown[] {
-  // Pick a witty rotating message so two back-to-back mentions don't both
-  // say the exact same thing. Same vibe as Builder.io's ai-services slackbot.
-  const messages = [
-    "Working on it…",
-    "On it — give me a sec…",
-    "Pulling that up now…",
-    "Routing your request…",
-    "Checking with the right agent…",
-    "Almost there…",
-  ];
-  const text = messages[Math.floor(Math.random() * messages.length)];
-  return [
-    {
-      type: "context",
-      elements: [
-        { type: "mrkdwn", text: `:hourglass_flowing_sand: _${text}_` },
-      ],
-    },
-  ];
-}
-
-/**
  * Optionally set Slack's native AI-assistant status indicator (the small
  * "is thinking…" line under the message composer) for an app configured
  * with the `assistant:write` scope. Pure best-effort — fails silently for
@@ -466,6 +432,28 @@ function setSlackAssistantStatus(
       status,
     }),
   }).catch(() => {});
+}
+
+function buildThinkingBlocks(): unknown[] {
+  // Pick a witty rotating message so two back-to-back mentions don't both
+  // say the exact same thing.
+  const messages = [
+    "Working on it…",
+    "On it — give me a sec…",
+    "Pulling that up now…",
+    "Routing your request…",
+    "Checking with the right agent…",
+    "Almost there…",
+  ];
+  const text = messages[Math.floor(Math.random() * messages.length)];
+  return [
+    {
+      type: "context",
+      elements: [
+        { type: "mrkdwn", text: `:hourglass_flowing_sand: _${text}_` },
+      ],
+    },
+  ];
 }
 
 /**

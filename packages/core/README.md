@@ -29,7 +29,7 @@ Start from a production-ready template. Each one replaces tools you're paying fo
 
 <a href="https://agent-native.com/templates/mail"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Mail template" width="100%" /></a>
 
-**AI-Native Mail, Superhuman**
+**Agent-Native Mail, Superhuman**
 
 Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable inbox you own.
 
@@ -40,7 +40,7 @@ Superhuman-style email client with keyboard shortcuts, AI triage, and a fully cu
 
 <a href="https://agent-native.com/templates/calendar"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800" alt="Calendar template" width="100%" /></a>
 
-**AI-Native Google Calendar, Calendly**
+**Agent-Native Google Calendar, Calendly**
 
 Manage events, sync with Google Calendar, and share a public booking page with AI scheduling.
 
@@ -51,7 +51,7 @@ Manage events, sync with Google Calendar, and share a public booking page with A
 
 <a href="https://agent-native.com/templates/content"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content template" width="100%" /></a>
 
-**AI-Native Notion, Google Docs**
+**Agent-Native Notion, Google Docs**
 
 Write and organize content with an agent that knows your brand and publishing workflow.
 
@@ -64,7 +64,7 @@ Write and organize content with an agent that knows your brand and publishing wo
 
 <a href="https://agent-native.com/templates/slides"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800" alt="Slides template" width="100%" /></a>
 
-**AI-Native Google Slides, Pitch**
+**Agent-Native Google Slides, Pitch**
 
 Generate and edit React-based presentations via prompt or point-and-click.
 
@@ -75,7 +75,7 @@ Generate and edit React-based presentations via prompt or point-and-click.
 
 <a href="https://agent-native.com/templates/video"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800" alt="Video template" width="100%" /></a>
 
-**AI-Native video editing**
+**Agent-Native video editing**
 
 Create and edit Remotion video compositions with agent assistance.
 
@@ -86,7 +86,7 @@ Create and edit Remotion video compositions with agent assistance.
 
 <a href="https://agent-native.com/templates/analytics"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800" alt="Analytics template" width="100%" /></a>
 
-**AI-Native Amplitude, Mixpanel**
+**Agent-Native Amplitude, Mixpanel**
 
 Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
 

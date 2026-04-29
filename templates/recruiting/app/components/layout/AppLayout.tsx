@@ -6,11 +6,7 @@ import { OnboardingScreen } from "@/components/recruiting/OnboardingScreen";
 import { CommandPalette } from "./CommandPalette";
 import { useGreenhouseStatus } from "@/hooks/use-greenhouse";
 import { OrgSwitcher, InvitationBanner } from "@agent-native/core/client/org";
-import {
-  AgentSidebar,
-  AgentToggleButton,
-  FeedbackButton,
-} from "@agent-native/core/client";
+import { AgentSidebar, FeedbackButton } from "@agent-native/core/client";
 import {
   IconLayoutDashboard,
   IconBriefcase,
@@ -19,11 +15,12 @@ import {
   IconSettings,
   IconPlant2,
   IconAlertCircle,
-  IconMenu2,
   IconUsersGroup,
   IconX,
 } from "@tabler/icons-react";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -147,115 +144,107 @@ export function AppLayout({ children }: AppLayoutProps) {
   if (!status?.connected) return <OnboardingScreen />;
 
   return (
-    <AgentSidebar
-      position="right"
-      defaultOpen={false}
-      emptyStateText="Ask me anything about your recruiting pipeline"
-      suggestions={[
-        "Show me open jobs",
-        "Who's in the pipeline?",
-        "Summarize my dashboard",
-      ]}
-    >
-      <div className="flex h-screen overflow-hidden bg-background">
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 z-40 bg-black/50 md:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-
-        <aside
-          className={cn(
-            "fixed inset-y-0 left-0 z-50 flex w-52 flex-col border-r border-border bg-sidebar-background md:static md:z-auto",
-            sidebarOpen
-              ? "translate-x-0"
-              : "-translate-x-full md:translate-x-0",
-          )}
-        >
-          <div className="flex h-12 items-center gap-2.5 px-4 border-b border-border">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-green-600/10">
-              <IconPlant2 className="h-4 w-4 text-green-600" />
-            </div>
-            <span className="text-sm font-semibold text-foreground">
-              Recruiting
-            </span>
-            <button
+    <HeaderActionsProvider>
+      <AgentSidebar
+        position="right"
+        defaultOpen={false}
+        emptyStateText="Ask me anything about your recruiting pipeline"
+        suggestions={[
+          "Show me open jobs",
+          "Who's in the pipeline?",
+          "Summarize my dashboard",
+        ]}
+      >
+        <div className="flex h-screen overflow-hidden bg-background">
+          {sidebarOpen && (
+            <div
+              className="fixed inset-0 z-40 bg-black/50 md:hidden"
               onClick={() => setSidebarOpen(false)}
-              className="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent md:hidden"
-            >
-              <IconX className="h-4 w-4" />
-            </button>
+            />
+          )}
+
+          <aside
+            className={cn(
+              "fixed inset-y-0 left-0 z-50 flex w-52 flex-col border-r border-border bg-sidebar-background md:static md:z-auto",
+              sidebarOpen
+                ? "translate-x-0"
+                : "-translate-x-full md:translate-x-0",
+            )}
+          >
+            <div className="flex h-12 items-center gap-2.5 px-4 border-b border-border">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-green-600/10">
+                <IconPlant2 className="h-4 w-4 text-green-600" />
+              </div>
+              <span className="text-sm font-semibold text-foreground">
+                Recruiting
+              </span>
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="ml-auto flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent md:hidden"
+              >
+                <IconX className="h-4 w-4" />
+              </button>
+            </div>
+
+            <nav className="flex flex-1 flex-col px-2 py-3 space-y-0.5">
+              {navItems.map((item) => {
+                const isActive =
+                  currentPath === item.id ||
+                  (item.id === "jobs" && currentPath === "jobs");
+                return (
+                  <Link
+                    key={item.id}
+                    to={item.path}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium",
+                      isActive
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+              <Link
+                to="/team"
+                className={cn(
+                  "mt-auto flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium",
+                  currentPath === "team"
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+              >
+                <IconUsersGroup className="h-4 w-4" />
+                Team
+              </Link>
+            </nav>
+
+            <div className="border-t border-border mx-2">
+              <ToolsSidebarSection />
+            </div>
+
+            <div className="px-2">
+              <FeedbackButton />
+            </div>
+
+            <OrgSwitcher />
+
+            <div className="flex items-center gap-1 border-t border-border px-3 py-2">
+              <ThemeToggle />
+            </div>
+          </aside>
+
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <Header onOpenSidebar={() => setSidebarOpen(true)} />
+            <InvitationBanner />
+            <main className="flex-1 overflow-auto">{children}</main>
           </div>
 
-          <nav className="flex flex-1 flex-col px-2 py-3 space-y-0.5">
-            {navItems.map((item) => {
-              const isActive =
-                currentPath === item.id ||
-                (item.id === "jobs" && currentPath === "jobs");
-              return (
-                <Link
-                  key={item.id}
-                  to={item.path}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium",
-                    isActive
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                  )}
-                >
-                  <item.icon className="h-4 w-4" />
-                  {item.label}
-                </Link>
-              );
-            })}
-            <Link
-              to="/team"
-              className={cn(
-                "mt-auto flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium",
-                currentPath === "team"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-              )}
-            >
-              <IconUsersGroup className="h-4 w-4" />
-              Team
-            </Link>
-          </nav>
-
-          <div className="border-t border-border mx-2">
-            <ToolsSidebarSection />
-          </div>
-
-          <div className="px-2">
-            <FeedbackButton />
-          </div>
-
-          <OrgSwitcher />
-
-          <div className="flex items-center gap-1 border-t border-border px-3 py-2">
-            <ThemeToggle />
-          </div>
-        </aside>
-
-        <main className="relative flex-1 overflow-auto">
-          <InvitationBanner />
-          <div className="absolute left-3 top-3 z-10 md:hidden">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground"
-            >
-              <IconMenu2 className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="absolute right-3 top-3 z-10">
-            <AgentToggleButton />
-          </div>
-          {children}
-        </main>
-
-        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
-      </div>
-    </AgentSidebar>
+          <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+        </div>
+      </AgentSidebar>
+    </HeaderActionsProvider>
   );
 }

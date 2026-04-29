@@ -3,6 +3,10 @@ import { useNavigate } from "react-router";
 import { useJobs } from "@/hooks/use-greenhouse";
 import { formatDateShort, cn } from "@/lib/utils";
 import { IconSearch, IconLoader2, IconBriefcase } from "@tabler/icons-react";
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
 
 export function JobsListPage() {
   const [statusFilter, setStatusFilter] = useState<string>("open");
@@ -31,43 +35,43 @@ export function JobsListPage() {
     { value: "", label: "All" },
   ];
 
+  useSetPageTitle(
+    <div className="flex items-center gap-3">
+      <h1 className="text-sm font-semibold text-foreground">Jobs</h1>
+      <div className="flex items-center gap-0.5">
+        {statuses.map((s) => (
+          <button
+            key={s.value}
+            onClick={() => setStatusFilter(s.value)}
+            className={cn(
+              "cursor-pointer rounded-md px-2 py-1 text-xs font-medium",
+              statusFilter === s.value
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+    </div>,
+  );
+
+  useSetHeaderActions(
+    <div className="relative">
+      <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search jobs..."
+        className="h-8 w-44 rounded-md border border-border bg-background pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-ring sm:w-56"
+      />
+    </div>,
+  );
+
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 min-h-14 py-2 flex-shrink-0 sm:px-6 sm:flex-nowrap">
-        <div className="flex items-center gap-3 sm:gap-4">
-          <h1 className="text-sm font-semibold text-foreground pl-10 md:pl-0">
-            Jobs
-          </h1>
-          <div className="flex items-center gap-0.5 sm:gap-1">
-            {statuses.map((s) => (
-              <button
-                key={s.value}
-                onClick={() => setStatusFilter(s.value)}
-                className={cn(
-                  "rounded-md px-2 py-1.5 text-xs font-medium sm:px-2.5",
-                  statusFilter === s.value
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="relative w-full sm:w-auto">
-          <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search jobs..."
-            className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-ring sm:w-56"
-          />
-        </div>
-      </div>
-
       {/* Table */}
       <div className="flex-1 overflow-auto">
         {isLoading ? (

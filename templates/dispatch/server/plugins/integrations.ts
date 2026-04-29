@@ -30,9 +30,8 @@ export default createIntegrationsPlugin({
   resolveOwner: resolveDispatchOwner,
   beforeProcess: beforeDispatchProcess,
   systemPrompt: DISPATCH_INTEGRATION_SYSTEM_PROMPT,
-  // Use Haiku for the dispatch routing layer — it's a thin shim that mostly
-  // delegates to specialized agents, and Sonnet's extra latency pushes the
-  // total round-trip past the 26s function timeout for delegations that
-  // include a slow downstream call (e.g. BigQuery via analytics).
-  model: "claude-haiku-4-5-20251001",
+  // Inherit the framework default (claude-sonnet-4-6 from
+  // packages/core/src/integrations/plugin.ts). Haiku was tried for latency
+  // but hallucinated URLs/IDs after delegated call-agent results
+  // (e.g. inventing `https://slides.workspace.com/deck/builder-io-deck-2024`).
 });

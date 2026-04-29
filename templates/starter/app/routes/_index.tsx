@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { sendToAgentChat, openAgentSidebar } from "@agent-native/core/client";
+import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [{ title: "Agent Native App" }];
@@ -15,7 +16,7 @@ export function meta() {
 export function HydrateFallback() {
   return (
     <div className="flex items-center justify-center h-screen w-full">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+      <Spinner className="size-8 text-foreground" />
     </div>
   );
 }
