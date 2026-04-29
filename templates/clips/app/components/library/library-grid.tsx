@@ -69,6 +69,7 @@ export function LibraryGrid({
   const [renamingRec, setRenamingRec] = useState<RecordingSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const [isBulkPending, setIsBulkPending] = useState(false);
 
   const args: ListRecordingsArgs = useMemo(
     () => ({
@@ -306,13 +307,68 @@ export function LibraryGrid({
                   toast.info("Add to space: implement via shadcn dialog")
                 }
                 onTag={() => toast.info("Tag: implement via shadcn dialog")}
-                onArchive={() =>
-                  toast.info("Archive: wire to archive-recording action")
-                }
-                onTrash={() =>
-                  toast.info("Trash: wire to trash-recording action")
-                }
+                onArchive={async () => {
+                  setIsBulkPending(true);
+                  try {
+                    const ids = Array.from(selected);
+                    const results = await Promise.allSettled(
+                      ids.map((id) => archiveRecording.mutateAsync({ id })),
+                    );
+                    const succeededIds = ids.filter(
+                      (_, i) => results[i].status === "fulfilled",
+                    );
+                    const failed = ids.length - succeededIds.length;
+                    if (succeededIds.length > 0) {
+                      toast.success(
+                        `${succeededIds.length} clip${succeededIds.length === 1 ? "" : "s"} archived`,
+                      );
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        succeededIds.forEach((id) => next.delete(id));
+                        return next;
+                      });
+                    }
+                    if (failed > 0) {
+                      toast.error(
+                        `${failed} clip${failed === 1 ? "" : "s"} could not be archived`,
+                      );
+                    }
+                  } finally {
+                    setIsBulkPending(false);
+                  }
+                }}
+                onTrash={async () => {
+                  setIsBulkPending(true);
+                  try {
+                    const ids = Array.from(selected);
+                    const results = await Promise.allSettled(
+                      ids.map((id) => trashRecording.mutateAsync({ id })),
+                    );
+                    const succeededIds = ids.filter(
+                      (_, i) => results[i].status === "fulfilled",
+                    );
+                    const failed = ids.length - succeededIds.length;
+                    if (succeededIds.length > 0) {
+                      toast.success(
+                        `${succeededIds.length} clip${succeededIds.length === 1 ? "" : "s"} moved to trash`,
+                      );
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        succeededIds.forEach((id) => next.delete(id));
+                        return next;
+                      });
+                    }
+                    if (failed > 0) {
+                      toast.error(
+                        `${failed} clip${failed === 1 ? "" : "s"} could not be moved to trash`,
+                      );
+                    }
+                  } finally {
+                    setIsBulkPending(false);
+                  }
+                }}
                 onClear={clearSelection}
+                isPending={isBulkPending}
               />
             </div>
           </div>
