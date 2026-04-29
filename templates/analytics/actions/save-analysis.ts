@@ -8,7 +8,8 @@ import { upsertAnalysis } from "../server/lib/dashboards-store";
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
-  const email = getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
   return { orgId, email };
 }
 

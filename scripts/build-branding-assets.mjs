@@ -177,8 +177,9 @@ if (existsSync(DESKTOP_BUILD)) {
   );
 }
 
-// 5) Clips Tauri desktop app
-const CLIPS_TAURI_ICONS = join(ROOT, "templates/clips/desktop/src-tauri/icons");
+// 5) Clips Tauri desktop app — same Liquid Glass treatment as Electron
+const CLIPS_TAURI_DIR = join(ROOT, "templates/clips/desktop/src-tauri");
+const CLIPS_TAURI_ICONS = join(CLIPS_TAURI_DIR, "icons");
 if (existsSync(CLIPS_TAURI_ICONS)) {
   const tmpFav = join(CLIPS_TAURI_ICONS, "_branding-source.svg");
   writeFileSync(tmpFav, sized(FAVICON_SVG, 1024));
@@ -187,11 +188,12 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
   rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "128x128.png"), 128);
   rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "128x128@2x.png"), 256);
 
-  // Build .icns from a fresh iconset
+  // Build .icns from a fresh iconset — render via ictool when available so the
+  // Liquid Glass shine is baked in for older macOS versions.
   const ICONSET = join(CLIPS_TAURI_ICONS, "_iconset.iconset");
   rmSync(ICONSET, { recursive: true, force: true });
   mkdirSync(ICONSET, { recursive: true });
-  for (const [size, name] of [
+  const sizes = [
     [16, "icon_16x16.png"],
     [32, "icon_16x16@2x.png"],
     [32, "icon_32x32.png"],
@@ -202,14 +204,35 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
     [512, "icon_256x256@2x.png"],
     [512, "icon_512x512.png"],
     [1024, "icon_512x512@2x.png"],
-  ]) {
-    rasterize(tmpFav, join(ICONSET, name), size);
+  ];
+  if (HAS_ICTOOL) {
+    for (const [size, name] of sizes) {
+      execSync(
+        `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(ICONSET, name)}" --platform macOS --rendition Default --width ${size} --height ${size} --scale 1`,
+        { stdio: ["ignore", "ignore", "inherit"] },
+      );
+    }
+  } else {
+    for (const [size, name] of sizes) {
+      rasterize(tmpFav, join(ICONSET, name), size);
+    }
   }
   execSync(
     `iconutil -c icns -o "${join(CLIPS_TAURI_ICONS, "icon.icns")}" "${ICONSET}"`,
     { stdio: "inherit" },
   );
   rmSync(ICONSET, { recursive: true, force: true });
+
+  // Compile Assets.car so a release `tauri build` ships Liquid Glass on macOS Tahoe.
+  // Tauri's bundle.macOS.files copies it into Contents/Resources/Assets.car at bundle time.
+  if (HAS_ICTOOL) {
+    rmSync(join(CLIPS_TAURI_DIR, "Assets.car"), { force: true });
+    execSync(
+      `xcrun actool "${ICON_BUNDLE}" --compile "${CLIPS_TAURI_DIR}" --include-all-app-icons --enable-on-demand-resources NO --enable-icon-stack-fallback-generation NO --development-region en --target-device mac --platform macosx --minimum-deployment-target 11.0 --app-icon agent-native --output-partial-info-plist "${join(CLIPS_TAURI_DIR, "_actool.plist")}" --output-format human-readable-text --notices --warnings --errors`,
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+    rmSync(join(CLIPS_TAURI_DIR, "_actool.plist"), { force: true });
+  }
 
   // .ico — sips writes a PNG-renamed-to-.ico, which Windows tolerates.
   rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "icon.ico"), 256);
@@ -224,7 +247,7 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
   rmSync(tmpTray);
 
   console.log(
-    "✔ templates/clips/desktop/src-tauri/icons/{icon.png,32x32.png,128x128.png,128x128@2x.png,icon.icns,icon.ico,tray.png}",
+    "✔ templates/clips/desktop/src-tauri/{icons/*,Assets.car}",
   );
 }
 
