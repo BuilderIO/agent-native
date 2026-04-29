@@ -229,7 +229,7 @@ export function slackAdapter(): PlatformAdapter {
     },
 
     formatAgentResponse(text: string): OutgoingMessage {
-      return { text, platformContext: {} };
+      return { text: markdownToSlackMrkdwn(text), platformContext: {} };
     },
 
     async getStatus(baseUrl?: string): Promise<IntegrationStatus> {
@@ -286,4 +286,15 @@ function splitMessage(text: string, maxLength: number): string[] {
     remaining = remaining.slice(splitIdx).trimStart();
   }
   return chunks;
+}
+
+/**
+ * Convert standard markdown to Slack's mrkdwn dialect.
+ * - `[text](url)` → `<url|text>`
+ * - `**bold**` → `*bold*` (Slack uses single asterisks for bold)
+ */
+function markdownToSlackMrkdwn(text: string): string {
+  return text
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "<$2|$1>")
+    .replace(/\*\*(.+?)\*\*/g, "*$1*");
 }

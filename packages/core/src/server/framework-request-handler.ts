@@ -323,9 +323,20 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
             );
           }
         } catch (e) {
+          const msg = (e as Error).message ?? "";
+          // Common cause: workspace-core's package.json points "./server"
+          // at a TS source file (the scaffold default), but Node can't
+          // resolve relative `.js` imports inside it without a TS loader.
+          // Tell the user to compile to dist/ rather than just dumping the
+          // raw resolution error.
+          const tsLoadHint = /\.js' imported from .*\.ts/.test(msg)
+            ? " — workspace-core src is TypeScript but isn't being compiled. " +
+              "Run `pnpm --filter " +
+              ws.packageName +
+              " build` and point its `./server` export at dist/server/index.js."
+            : "";
           console.warn(
-            `[agent-native] Failed to load workspace core ${ws.packageName}/server:`,
-            (e as Error).message,
+            `[agent-native] Failed to load workspace core ${ws.packageName}/server: ${msg}${tsLoadHint}`,
           );
         }
       }

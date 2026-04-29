@@ -3253,10 +3253,11 @@ export function createAgentChatPlugin(
       );
 
       // Mount save-key BEFORE the prefix handler so it isn't shadowed.
-      // Persists the user's key per-owner in the SQL settings table so it
-      // survives across serverless invocations (where mutating process.env
-      // and writing .env are both no-ops). Also updates process.env and
-      // .env when running locally for fast pickup by other handlers.
+      // Persists the user's API key in `app_secrets` (encrypted, scope=user,
+      // scopeId=email). Hard rule: never mutates process.env, never writes
+      // .env. User-pasted secrets must not become deploy-level identity —
+      // that's the cross-tenant leak class (KVesta Space, 2026-04).
+      // Consumers read these values per-request via `resolveSecret(key)`.
       getH3App(nitroApp).use(
         `${routePath}/save-key`,
         defineEventHandler(async (event) => {
@@ -3279,85 +3280,41 @@ export function createAgentChatPlugin(
 
           const trimmedKey = key.trim();
 
-          // Persist per-owner so the key survives cold starts in serverless
-          // and so the user's key isn't shared across users on multi-tenant
-          // hosted deployments. We require a real authenticated owner here —
-          // `local@localhost` is the unauthenticated fallback and must never
-          // become the shared key bucket on hosted deployments.
           const ownerEmail = await getOwnerFromEvent(event);
-          if (
-            isHostedProd &&
-            (!ownerEmail || ownerEmail === "local@localhost")
-          ) {
+          if (!ownerEmail || ownerEmail === "local@localhost") {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
           }
-          if (ownerEmail && ownerEmail !== "local@localhost") {
-            try {
-              await putSetting(`user-api-key:${provider}:${ownerEmail}`, {
-                key: trimmedKey,
-              });
-              // Verify the write actually landed — some managed DB drivers
-              // swallow errors on degraded connections. Without this the
-              // client sees "saved", reloads, and the usage-limit card
-              // re-appears on the next message because the key isn't
-              // really persisted.
-              const check = await getSetting(
-                `user-api-key:${provider}:${ownerEmail}`,
-              );
-              if (
-                !check ||
-                typeof check.key !== "string" ||
-                check.key !== trimmedKey
-              ) {
-                throw new Error("settings write did not persist");
-              }
-            } catch (err) {
-              if (isHostedProd) {
-                console.error(
-                  "[agent-chat] save-key persistence failed:",
-                  err instanceof Error ? err.message : err,
-                );
-                setResponseStatus(event, 500);
-                return {
-                  error:
-                    "Failed to persist API key. Please try again or contact support.",
-                };
-              }
-              // Local dev falls through to the env-file path below.
-            }
-          }
 
-          // In hosted/multi-tenant mode we deliberately do NOT touch
-          // process.env or .env: the per-owner SQL lookup above is the
-          // single source of truth, and overwriting the shared env key
-          // would leak one tenant's credentials into every subsequent
-          // request that hit the same warm instance without its own key.
-          if (!isHostedProd) {
-            const providerToEnv: Record<string, string> = {
-              anthropic: "ANTHROPIC_API_KEY",
-              openai: "OPENAI_API_KEY",
-              google: "GOOGLE_GENERATIVE_AI_API_KEY",
-              groq: "GROQ_API_KEY",
-              mistral: "MISTRAL_API_KEY",
-              cohere: "COHERE_API_KEY",
+          const providerToEnv: Record<string, string> = {
+            anthropic: "ANTHROPIC_API_KEY",
+            openai: "OPENAI_API_KEY",
+            google: "GOOGLE_GENERATIVE_AI_API_KEY",
+            groq: "GROQ_API_KEY",
+            mistral: "MISTRAL_API_KEY",
+            cohere: "COHERE_API_KEY",
+          };
+          const secretKey =
+            providerToEnv[provider] ?? `${provider.toUpperCase()}_API_KEY`;
+
+          try {
+            const { writeAppSecret } = await import("../secrets/storage.js");
+            await writeAppSecret({
+              key: secretKey,
+              value: trimmedKey,
+              scope: "user",
+              scopeId: ownerEmail,
+            });
+          } catch (err) {
+            console.error(
+              "[agent-chat] save-key persistence failed:",
+              err instanceof Error ? err.message : err,
+            );
+            setResponseStatus(event, 500);
+            return {
+              error:
+                "Failed to persist API key. Please try again or contact support.",
             };
-            const envVar =
-              providerToEnv[provider] ?? `${provider.toUpperCase()}_API_KEY`;
-            try {
-              const path = await import("path");
-              const { upsertEnvFile } = await import("./create-server.js");
-              const envPath = path.join(process.cwd(), ".env");
-              await upsertEnvFile(envPath, [
-                { key: envVar, value: trimmedKey },
-              ]);
-            } catch {
-              // Edge runtime — can't write .env, but can still update process.env
-            }
-            // Update process.env so the agent works immediately in the
-            // current local-dev invocation; the SQL persist above covers
-            // future invocations.
-            process.env[envVar] = trimmedKey;
           }
 
           return { ok: true };
@@ -3633,174 +3590,174 @@ export function createAgentChatPlugin(
           async function mentionsStreamWork(
             controller: ReadableStreamDefaultController<Uint8Array>,
           ) {
-              const MAX_RESULTS = 50;
-              let totalSent = 0;
-              let cancelled = false;
+            const MAX_RESULTS = 50;
+            let totalSent = 0;
+            let cancelled = false;
 
-              const flush = (batch: MentionItemResponse[]) => {
-                if (cancelled) return;
-                const filtered = batch.filter(matchesQuery);
-                if (filtered.length === 0) return;
-                const remaining = MAX_RESULTS - totalSent;
-                const toSend = filtered.slice(0, remaining);
-                if (toSend.length > 0) {
-                  totalSent += toSend.length;
-                  try {
-                    controller.enqueue(
-                      enc.encode(JSON.stringify({ items: toSend }) + "\n"),
-                    );
-                  } catch {
-                    // Stream was closed by client
-                    cancelled = true;
-                  }
+            const flush = (batch: MentionItemResponse[]) => {
+              if (cancelled) return;
+              const filtered = batch.filter(matchesQuery);
+              if (filtered.length === 0) return;
+              const remaining = MAX_RESULTS - totalSent;
+              const toSend = filtered.slice(0, remaining);
+              if (toSend.length > 0) {
+                totalSent += toSend.length;
+                try {
+                  controller.enqueue(
+                    enc.encode(JSON.stringify({ items: toSend }) + "\n"),
+                  );
+                } catch {
+                  // Stream was closed by client
+                  cancelled = true;
                 }
-              };
+              }
+            };
 
-              // All sources run in parallel; each flushes independently.
-              const sources: Promise<void>[] = [];
+            // All sources run in parallel; each flushes independently.
+            const sources: Promise<void>[] = [];
 
-              // 1. Resources from SQL (fast — flush first)
+            // 1. Resources from SQL (fast — flush first)
+            sources.push(
+              (async () => {
+                try {
+                  const resources = currentDevMode
+                    ? await resourceListAccessible("local@localhost")
+                    : await resourceList(SHARED_OWNER);
+                  flush(
+                    resources.map((r) => {
+                      const isShared = r.owner === SHARED_OWNER;
+                      return {
+                        id: `resource:${r.path}`,
+                        label: r.path.split("/").pop() || r.path,
+                        description: r.path,
+                        icon: "file",
+                        source: isShared
+                          ? "resource:shared"
+                          : "resource:private",
+                        refType: "file",
+                        refPath: r.path,
+                        section: "Files",
+                      };
+                    }),
+                  );
+                } catch {}
+              })(),
+            );
+
+            // 2. Codebase files (dev mode only — can be slow on large repos)
+            if (currentDevMode) {
               sources.push(
                 (async () => {
+                  const codebaseFiles: Array<{
+                    path: string;
+                    name: string;
+                    type: "file" | "folder";
+                  }> = [];
                   try {
-                    const resources = currentDevMode
-                      ? await resourceListAccessible("local@localhost")
-                      : await resourceList(SHARED_OWNER);
-                    flush(
-                      resources.map((r) => {
-                        const isShared = r.owner === SHARED_OWNER;
-                        return {
-                          id: `resource:${r.path}`,
-                          label: r.path.split("/").pop() || r.path,
-                          description: r.path,
-                          icon: "file",
-                          source: isShared
-                            ? "resource:shared"
-                            : "resource:private",
-                          refType: "file",
-                          refPath: r.path,
-                          section: "Files",
-                        };
-                      }),
-                    );
+                    await collectFiles(process.cwd(), "", 0, codebaseFiles);
                   } catch {}
+                  flush(
+                    codebaseFiles.map((f) => ({
+                      id: `codebase:${f.path}`,
+                      label: f.name,
+                      description: f.path !== f.name ? f.path : undefined,
+                      icon: f.type,
+                      source: "codebase",
+                      refType: "file",
+                      refPath: f.path,
+                      section: "Files",
+                    })),
+                  );
                 })(),
               );
+            }
 
-              // 2. Codebase files (dev mode only — can be slow on large repos)
-              if (currentDevMode) {
-                sources.push(
-                  (async () => {
-                    const codebaseFiles: Array<{
-                      path: string;
-                      name: string;
-                      type: "file" | "folder";
-                    }> = [];
-                    try {
-                      await collectFiles(process.cwd(), "", 0, codebaseFiles);
-                    } catch {}
-                    flush(
-                      codebaseFiles.map((f) => ({
-                        id: `codebase:${f.path}`,
-                        label: f.name,
-                        description: f.path !== f.name ? f.path : undefined,
-                        icon: f.type,
-                        source: "codebase",
-                        refType: "file",
-                        refPath: f.path,
-                        section: "Files",
-                      })),
-                    );
-                  })(),
-                );
-              }
-
-              // 3. Custom mention providers (each flushes independently)
-              for (const [key, provider] of Object.entries(mentionProviders)) {
-                sources.push(
-                  (async () => {
-                    try {
-                      const providerItems = await provider.search(q, event);
-                      flush(
-                        providerItems.map((item) => ({
-                          id: item.id,
-                          label: item.label,
-                          description: item.description,
-                          icon: item.icon || provider.icon || "file",
-                          source: key,
-                          refType: item.refType,
-                          refPath: item.refPath,
-                          refId: item.refId,
-                          section: provider.label,
-                        })),
-                      );
-                    } catch (e) {
-                      console.error(
-                        `[agent-native] Mention provider "${key}" failed:`,
-                        e,
-                      );
-                    }
-                  })(),
-                );
-              }
-
-              // 4. Custom workspace agents
+            // 3. Custom mention providers (each flushes independently)
+            for (const [key, provider] of Object.entries(mentionProviders)) {
               sources.push(
                 (async () => {
                   try {
-                    const owner = await getOwnerFromEvent(event);
-                    const { listAccessibleCustomAgents } =
-                      await import("../resources/agents.js");
-                    const agents = await listAccessibleCustomAgents(owner);
+                    const providerItems = await provider.search(q, event);
                     flush(
-                      agents.map((agent) => ({
-                        id: `custom-agent:${agent.id}`,
-                        label: agent.name,
-                        description: agent.description || agent.path,
-                        icon: "agent",
-                        source: "agent:custom",
-                        refType: "custom-agent",
-                        refPath: agent.path,
-                        refId: agent.id,
-                        section: "Agents",
+                      providerItems.map((item) => ({
+                        id: item.id,
+                        label: item.label,
+                        description: item.description,
+                        icon: item.icon || provider.icon || "file",
+                        source: key,
+                        refType: item.refType,
+                        refPath: item.refPath,
+                        refId: item.refId,
+                        section: provider.label,
                       })),
                     );
                   } catch (e) {
                     console.error(
-                      "[agent-native] Custom agent discovery failed:",
+                      `[agent-native] Mention provider "${key}" failed:`,
                       e,
                     );
                   }
                 })(),
               );
-
-              // 5. Peer agent discovery (network call — often slowest)
-              sources.push(
-                (async () => {
-                  try {
-                    const agents = await discoverAgents(options?.appId);
-                    flush(
-                      agents.map((agent) => ({
-                        id: `agent:${agent.id}`,
-                        label: agent.name,
-                        description: agent.description,
-                        icon: "agent",
-                        source: "agent",
-                        refType: "agent",
-                        refPath: agent.url,
-                        refId: agent.id,
-                        section: "Connected Agents",
-                      })),
-                    );
-                  } catch (e) {
-                    console.error("[agent-native] Agent discovery failed:", e);
-                  }
-                })(),
-              );
-
-              await Promise.all(sources);
-              if (!cancelled) controller.close();
             }
+
+            // 4. Custom workspace agents
+            sources.push(
+              (async () => {
+                try {
+                  const owner = await getOwnerFromEvent(event);
+                  const { listAccessibleCustomAgents } =
+                    await import("../resources/agents.js");
+                  const agents = await listAccessibleCustomAgents(owner);
+                  flush(
+                    agents.map((agent) => ({
+                      id: `custom-agent:${agent.id}`,
+                      label: agent.name,
+                      description: agent.description || agent.path,
+                      icon: "agent",
+                      source: "agent:custom",
+                      refType: "custom-agent",
+                      refPath: agent.path,
+                      refId: agent.id,
+                      section: "Agents",
+                    })),
+                  );
+                } catch (e) {
+                  console.error(
+                    "[agent-native] Custom agent discovery failed:",
+                    e,
+                  );
+                }
+              })(),
+            );
+
+            // 5. Peer agent discovery (network call — often slowest)
+            sources.push(
+              (async () => {
+                try {
+                  const agents = await discoverAgents(options?.appId);
+                  flush(
+                    agents.map((agent) => ({
+                      id: `agent:${agent.id}`,
+                      label: agent.name,
+                      description: agent.description,
+                      icon: "agent",
+                      source: "agent",
+                      refType: "agent",
+                      refPath: agent.url,
+                      refId: agent.id,
+                      section: "Connected Agents",
+                    })),
+                  );
+                } catch (e) {
+                  console.error("[agent-native] Agent discovery failed:", e);
+                }
+              })(),
+            );
+
+            await Promise.all(sources);
+            if (!cancelled) controller.close();
+          }
         }),
       );
 

@@ -14,14 +14,8 @@ import {
   sendRedirect,
   type H3Event,
 } from "h3";
-import {
-  getSession,
-  runWithRequestContext,
-} from "@agent-native/core/server";
-import {
-  resolveAccess,
-  ForbiddenError,
-} from "@agent-native/core/sharing";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
 import "../../../db/index.js"; // ensure registerShareableResource runs
 
 function initialsFor(title: string): string {
