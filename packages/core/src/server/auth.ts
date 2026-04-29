@@ -628,6 +628,16 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Internal processor endpoint for the A2A async-mode fanout. Mirrors the
+    // integration webhook fanout: when `message/send` is called with
+    // `async: true`, the JSON-RPC handler enqueues to a2a_tasks and self-
+    // fires a POST here so the handler runs in a fresh function execution.
+    // Authenticity is verified via an HMAC token signed with A2A_SECRET
+    // (same scheme as /_agent-native/integrations/process-task).
+    if (p === "/_agent-native/a2a/_process-task") {
+      return;
+    }
+
     // A2A secret receive endpoint — verifies authenticity via JWT signed
     // with the calling app's A2A secret, not via session cookies. Used to
     // sync the org A2A secret across connected apps.
