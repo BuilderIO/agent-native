@@ -14,6 +14,7 @@ import {
   actionsToEngineTools,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { createAnthropicEngine } from "../agent/engine/index.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
@@ -447,16 +448,20 @@ async function processComment(
     runId,
     capturedThreadId,
     async (send, signal) => {
-      await runAgentLoop({
-        engine,
-        model: options.model,
-        systemPrompt: options.systemPrompt,
-        tools,
-        messages,
-        actions: options.actions,
-        send,
-        signal,
-      });
+      await runWithRequestContext(
+        { userEmail: options.ownerEmail, isIntegrationCaller: true },
+        () =>
+          runAgentLoop({
+            engine,
+            model: options.model,
+            systemPrompt: options.systemPrompt,
+            tools,
+            messages,
+            actions: options.actions,
+            send,
+            signal,
+          }),
+      );
     },
     async (completedRun: ActiveRun) => {
       try {
