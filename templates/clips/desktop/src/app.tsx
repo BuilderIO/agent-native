@@ -12,6 +12,7 @@ import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
 import {
   installDesktopVoiceDictation,
   type VoiceMode,
+  type VoiceProvider,
   type VoiceShortcutPreference,
 } from "./lib/voice-dictation";
 import { UpdateBanner } from "./components/UpdateBanner";
@@ -33,6 +34,7 @@ const MODE_KEY = "clips:last-mode";
 const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
 const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
 const VOICE_MODE_KEY = "clips:voice-mode";
+const VOICE_PROVIDER_KEY = "clips:voice-provider";
 const SOURCE_KEY = "clips:last-source";
 const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";
@@ -133,6 +135,17 @@ export function App() {
     const saved = loadString(VOICE_MODE_KEY, "push-to-talk");
     return saved === "toggle" ? "toggle" : "push-to-talk";
   });
+  const [voiceProvider, setVoiceProvider] = useState<VoiceProvider>(() => {
+    const saved = loadString(VOICE_PROVIDER_KEY, "auto");
+    return saved === "auto" ||
+      saved === "browser" ||
+      saved === "builder" ||
+      saved === "gemini" ||
+      saved === "openai" ||
+      saved === "groq"
+      ? saved
+      : "auto";
+  });
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [showRecent, setShowRecent] = useState(false);
@@ -167,8 +180,15 @@ export function App() {
       serverUrl,
       shortcut: voiceShortcut,
       mode: voiceMode,
+      voiceProvider,
     });
-  }, [featureConfig?.voiceEnabled, serverUrl, voiceShortcut, voiceMode]);
+  }, [
+    featureConfig?.voiceEnabled,
+    serverUrl,
+    voiceShortcut,
+    voiceMode,
+    voiceProvider,
+  ]);
 
   // ---- auth status --------------------------------------------------------
   // The Tauri WebView has its own cookie jar (separate from the user's
@@ -707,6 +727,10 @@ export function App() {
     [voiceShortcut],
   );
   useEffect(() => saveString(VOICE_MODE_KEY, voiceMode), [voiceMode]);
+  useEffect(
+    () => saveString(VOICE_PROVIDER_KEY, voiceProvider),
+    [voiceProvider],
+  );
   useEffect(() => saveString(SOURCE_KEY, source), [source]);
   useEffect(() => saveString(CAM_KEY, cameraId), [cameraId]);
   useEffect(() => saveString(MIC_KEY, micId), [micId]);
@@ -1045,10 +1069,13 @@ export function App() {
         {showSettings ? (
           <Setup
             initial={serverUrl}
+            serverUrl={serverUrl}
             voiceShortcut={voiceShortcut}
             voiceMode={voiceMode}
+            voiceProvider={voiceProvider}
             onVoiceShortcutChange={updateVoiceShortcut}
             onVoiceModeChange={setVoiceMode}
+            onVoiceProviderChange={setVoiceProvider}
             onConnect={(url) => {
               saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
               setServerUrl(url.replace(/\/+$/, ""));

@@ -63,6 +63,7 @@ import { registerBuiltinNotificationChannels } from "../notifications/channels.j
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
+import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import {
   isAgentEngineSettingConfigured,
@@ -1012,6 +1013,14 @@ export function createCoreRoutesPlugin(
     getH3App(nitroApp).use(
       `${P}/transcribe-voice`,
       createTranscribeVoiceHandler(),
+    );
+
+    // ─── Voice provider status ───────────────────────────────────────
+    // GET /_agent-native/voice-providers/status — which providers are
+    // configured for the current user (powers the Settings UI pills).
+    getH3App(nitroApp).use(
+      `${P}/voice-providers/status`,
+      createVoiceProvidersStatusHandler(),
     );
 
     // ─── Ad-hoc secrets (user-created keys) ────────────────────────────

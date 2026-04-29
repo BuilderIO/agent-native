@@ -146,9 +146,11 @@ export function DesignCanvas({
 }: DesignCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Build the srcdoc with bridge script injected before </body>
+  // Build the srcdoc. The tweak bridge ALWAYS goes in so the panel works
+  // outside Edit mode. The edit bridge (click/hover overlays) is gated.
   const srcdoc = useMemo(() => {
-    const bridgeToInject = editMode ? BRIDGE_SCRIPT : "";
+    const bridgeToInject =
+      TWEAK_BRIDGE_SCRIPT + (editMode ? EDIT_BRIDGE_SCRIPT : "");
     if (content.includes("</body>")) {
       return content.replace("</body>", bridgeToInject + "</body>");
     }
@@ -174,14 +176,22 @@ export function DesignCanvas({
     return () => window.removeEventListener("message", handleMessage);
   }, [onElementSelect, onElementHover]);
 
-  // Send tweak values to the iframe whenever they change
+  // Send tweak values to the iframe whenever they change OR the iframe
+  // (re)loads. The reload case matters: changing `content` or toggling Edit
+  // mode rebuilds srcdoc and remounts the iframe; without replaying values
+  // here, the freshly mounted document loses the user's tweak state.
   useEffect(() => {
     const iframe = iframeRef.current;
-    if (!iframe?.contentWindow) return;
-    iframe.contentWindow.postMessage(
-      { type: "tweak-values", values: tweakValues },
-      "*",
-    );
+    if (!iframe) return;
+    const send = () => {
+      iframe.contentWindow?.postMessage(
+        { type: "tweak-values", values: tweakValues },
+        "*",
+      );
+    };
+    send();
+    iframe.addEventListener("load", send);
+    return () => iframe.removeEventListener("load", send);
   }, [tweakValues]);
 
   const sendStyleChange = useCallback(

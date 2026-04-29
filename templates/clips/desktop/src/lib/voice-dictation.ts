@@ -8,14 +8,39 @@ export type VoiceShortcutPreference =
   | "both";
 export type VoiceMode = "push-to-talk" | "toggle";
 
+/**
+ * Which transcription backend to use. The desktop app surfaces this in
+ * Settings → Voice transcription. "auto" picks the best server-side
+ * provider that's actually configured (Gemini → Builder → Groq → OpenAI),
+ * falling through to the browser's Web Speech API if nothing is set up —
+ * which is free, real-time, and routes through Apple's on-device
+ * dictation engine inside WKWebView.
+ */
+export type VoiceProvider =
+  | "auto"
+  | "browser"
+  | "builder"
+  | "gemini"
+  | "openai"
+  | "groq";
+
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
 type VoiceShortcutSource = "fn" | "cmd-shift-space" | "ctrl-shift-space";
+
+interface ProviderStatus {
+  builder: boolean;
+  gemini: boolean;
+  openai: boolean;
+  groq: boolean;
+  browser: true;
+}
 
 interface DesktopVoiceDictationOptions {
   enabled: boolean;
   serverUrl: string;
   shortcut: VoiceShortcutPreference;
   mode: VoiceMode;
+  provider: VoiceProvider;
 }
 
 interface VoiceShortcutEvent {
@@ -23,13 +48,25 @@ interface VoiceShortcutEvent {
 }
 
 interface VoiceSession {
-  stream: MediaStream;
-  recorder: MediaRecorder;
+  // "server" sessions capture audio with MediaRecorder and POST it to
+  // the transcribe-voice endpoint. "browser" sessions use WebKit's
+  // built-in webkitSpeechRecognition for real-time on-device dictation —
+  // no server round-trip, no API keys, no "Polishing..." state.
+  kind: "server" | "browser";
+  // server-only fields
+  stream: MediaStream | null;
+  recorder: MediaRecorder | null;
   chunks: Blob[];
   audioContext: AudioContext | null;
   analyser: AnalyserNode | null;
   raf: number | null;
   mimeType: string;
+  // browser-only fields
+  recognition: SpeechRecognition | null;
+  // Accumulated final transcript from interim webkit results, in case
+  // the recognition session ends before we ask it to stop.
+  browserTranscript: string;
+  // common
   startedAt: number;
   stopping: boolean;
   // Set when transcription begins so the cancel button can abort the
@@ -38,6 +75,38 @@ interface VoiceSession {
   // Marks the session as user-cancelled so the recorder.onstop handler
   // skips transcription + paste and just hides the bar.
   cancelled: boolean;
+}
+
+// Minimal type shim for webkitSpeechRecognition — TypeScript's lib.dom
+// only declares this under non-prefixed `SpeechRecognition` in newer
+// versions; on older targets it's missing entirely.
+interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  0: { transcript: string };
+}
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+}
+interface SpeechRecognition {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  maxAlternatives: number;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: ((ev: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((ev: { error: string }) => void) | null;
+  onend: (() => void) | null;
+}
+type SpeechRecognitionCtor = new () => SpeechRecognition;
+function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
+  const w = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionCtor;
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+  };
+  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
 }
 
 function pickMimeType(): string {

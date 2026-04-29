@@ -42,7 +42,11 @@ import {
   useGoogleAuthUrl,
   useGoogleAddAccountUrl,
 } from "@/hooks/use-google-auth";
-import { useSession, FeedbackButton } from "@agent-native/core/client";
+import {
+  useSession,
+  FeedbackButton,
+  DEV_MODE_USER_EMAIL,
+} from "@agent-native/core/client";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import {
   useOverlayPeople,
