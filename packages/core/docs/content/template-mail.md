@@ -1,83 +1,38 @@
 ---
-title: "Mail Template"
-description: "An agent-native email client. A Gmail and Superhuman alternative you own."
+title: "Mail"
+description: "An agent-powered email client. Connect your Gmail and the agent can read, draft, send, and organize email for you."
 ---
 
-# Mail Template
+# Mail
 
-Mail is an agent-native email client built on `@agent-native/core`. It reads from your real Gmail when you connect a Google account, and works as a local mailbox when you don't — with an AI agent that can triage, search, draft, and send on your behalf.
+An agent-powered email client. Connect your Gmail account and the agent can read, draft, send, and organize email for you — alongside a fast, keyboard-first inbox you can drive yourself. Think Superhuman, but the agent is a first-class citizen and the codebase is yours to own.
 
-## Overview {#overview}
+When you open the app, you'll see your inbox on the left, the open thread in the middle, and the agent in the sidebar on the right. The agent always knows which view you're in and which thread you have open, so you can say "archive this" or "draft a friendly decline" without explaining what "this" is.
 
-Mail is a drop-in replacement for Gmail and Superhuman. The UI is keyboard-first: a thread list on the left, the open thread in the middle, and a compose panel that opens as tabs on the right. The agent sits alongside in the sidebar and has the same powers the UI has — read, search, archive, label, star, draft, and send — via actions in `templates/mail/actions/`.
+## What you can do with it
 
-Use it if you want:
+- **Read and triage email** with keyboard shortcuts (`J`/`K` to move, `E` to archive, `R` to reply, `C` to compose).
+- **Connect multiple Gmail accounts** — personal and work in one inbox.
+- **Ask the agent to do anything you can do.** "Summarize my unread emails." "Draft a reply that politely declines." "Archive all Netlify bot emails older than a week."
+- **Auto-triage with rules.** Set up automation rules in plain English ("from a newsletter") with actions (label, archive, mark read, star, trash).
+- **Track opens and clicks** on the emails you send.
+- **Search across every connected inbox** with one query.
+- **Bulk archive, export, and label** — useful for inbox cleanup.
 
-- An email client where an AI agent can actually work on your mail, not just suggest.
-- Superhuman-style keyboard shortcuts without the subscription.
-- Multi-account Gmail support (personal + work in one inbox).
-- Your own codebase. Fork it, change anything, own the data.
+## Getting started
 
-The agent always knows which view, thread, and message you're looking at because the UI writes that state into SQL (`application_state`) where the agent can read it.
+Live demo: [mail.agent-native.com](https://mail.agent-native.com).
 
-## Quick start {#quick-start}
+When you first open the app:
 
-Create a new workspace with the Mail template:
+1. Click **Settings** in the sidebar.
+2. Click **Connect Google account**, sign in to Gmail, and approve.
+3. (Optional) Connect a second Google account for work + personal.
+4. Head back to the inbox — your real Gmail will sync in.
 
-```bash
-npx @agent-native/core create my-mail --standalone --template mail
-cd my-mail
-pnpm install
-pnpm dev
-```
+Without a Google account connected, the app runs against an empty local mailbox (useful for screenshots and demos, not much else).
 
-Or add Mail to an existing agent-native workspace:
-
-```bash
-agent-native add-app
-```
-
-Live demo: [mail.agent-native.com](https://mail.agent-native.com)
-
-On first run, connect a Google account from Settings to sync real Gmail. Without a Google account, the app runs against an empty local email store (useful for screenshots or demos).
-
-## Key features {#key-features}
-
-### Gmail sync (multi-account)
-
-Connect one or many Google accounts via OAuth. List and search actions query all connected inboxes by default; results carry an `accountEmail` field so you can tell which inbox each thread came from. Scope to a single account with `--account=user@example.com`. OAuth tokens are stored via `@agent-native/core/oauth-tokens` under the `"google"` provider.
-
-### Keyboard-first navigation
-
-The app is designed to run without a mouse. `J`/`K` move between threads, `E` archives, `R` replies, `C` composes, `/` focuses search, and `G` begins a "go to" chord (`G I` for Inbox, `G S` for Starred, etc.). See the [full list below](#keyboard-shortcuts).
-
-### Multiple compose drafts
-
-The compose panel supports multiple draft tabs at once. Each draft is stored as an `application_state` entry at `compose-{id}` and syncs live between the agent and the UI. The agent can create a new draft with `manage-draft --action=create`, edit your in-progress draft with `--action=update`, or close tabs with `--action=delete`. Drafts use markdown in the body field; the TipTap editor renders it as rich text and converts to HTML on send.
-
-### AI triage via automations
-
-Mail supports automation rules that run against new inbox email using AI. A rule has a natural-language condition (for example, `"from a newsletter"` or `"subject contains invoice"`) and a list of actions (`label`, `archive`, `mark_read`, `star`, `trash`). Manage them via `pnpm action manage-automations --action=create|list|update|delete|enable|disable`, or through the Settings page. Rules fire automatically and can be triggered manually with `pnpm action trigger-automations`.
-
-### Send tracking
-
-Sent messages get open-pixel and link-click tracking injected automatically. Settings live under `mail-settings.tracking` with `tracking.opens` and `tracking.clicks` (both default `true`). Only links in the new portion of a reply or forward are rewritten — quoted content is left alone. Pull stats for any sent message with `pnpm action get-tracking --id=<message-id>`, or from `GET /api/emails/:id/tracking`. Open and click events are stored in the `email_tracking` and `email_link_tracking` tables.
-
-### Search
-
-`pnpm action search-emails --q=<term>` searches across all views and all connected accounts. The UI search bar maps to the same action. Both `search-emails` and `list-emails` take `--compact` for shorter output and `--fields=from,subject,date` to limit returned fields.
-
-### Bulk operations and export
-
-- `pnpm action bulk-archive --older-than=30` archives everything older than N days.
-- `pnpm action export-emails --view=inbox --output=file.json` dumps a view to JSON.
-- Archive, trash, mark-read, and star all accept comma-separated IDs (`--id=id1,id2,id3`) for bulk changes.
-
-### Inline thread previews in agent chat
-
-When the agent answers a question about a specific thread, it can embed a live preview of the thread directly in the chat message via an `embed` code fence. The preview is a sandboxed iframe that shows the full conversation without leaving the chat, with an "Open in app" button that navigates the main window to that thread.
-
-## Working with the agent {#working-with-the-agent}
+## Talking to the agent
 
 The agent reads `application_state.navigation` on every turn, so it already knows which view you're in, which thread is open, and which message is focused — you don't have to tell it. You can just say things like:
 
@@ -89,19 +44,9 @@ The agent reads `application_state.navigation` on every turn, so it already know
 - "Make this draft more formal."
 - "Did they open my email?"
 
-How the agent sees your context:
+If you select text and hit Cmd+I, that selection travels with your next message — so "make this punchier" operates on exactly what you highlighted.
 
-- **Current view and thread** — the UI writes `navigation` (view, threadId, focusedEmailId, search, label) whenever you navigate. The agent reads it via `readAppState("navigation")` or `pnpm action view-screen`.
-- **Open draft** — if you're composing a reply and ask "help me word this", the agent reads the matching `compose-{id}` entry to see your current subject and body, then writes an updated draft back. The UI picks up the edit live.
-- **Thread history** — for context mid-reply, the agent fetches the full thread with `pnpm action get-thread --id=<threadId>`.
-
-How the agent takes action:
-
-- **Mail operations** — archive, trash, star, mark read, send, draft — all run as `pnpm action <name>` scripts under `templates/mail/actions/`.
-- **Navigation** — to open a thread or switch views for you, the agent writes `application_state.navigate`, which the UI consumes and deletes. The `pnpm action navigate` script wraps this.
-- **Refresh** — after any change, the agent runs `pnpm action refresh-list` so the UI refetches.
-
-## Keyboard shortcuts {#keyboard-shortcuts}
+## Keyboard shortcuts
 
 | Key       | Action                      |
 | --------- | --------------------------- |
@@ -124,7 +69,60 @@ How the agent takes action:
 | `G A`     | Go to Archive               |
 | `Esc`     | Close thread / clear search |
 
-## Data model {#data-model}
+## For developers
+
+The rest of this doc is for anyone forking the Mail template or extending it.
+
+### Quick start
+
+Create a new workspace with the Mail template:
+
+```bash
+npx @agent-native/core create my-mail --standalone --template mail
+cd my-mail
+pnpm install
+pnpm dev
+```
+
+Or add Mail to an existing agent-native workspace:
+
+```bash
+agent-native add-app
+```
+
+### Key features (technical)
+
+**Gmail sync (multi-account).** Connect one or many Google accounts via OAuth. List and search actions query all connected inboxes by default; results carry an `accountEmail` field so you can tell which inbox each thread came from. Scope to a single account with `--account=user@example.com`. OAuth tokens are stored via `@agent-native/core/oauth-tokens` under the `"google"` provider.
+
+**Multiple compose drafts.** The compose panel supports multiple draft tabs at once. Each draft is stored as an `application_state` entry at `compose-{id}` and syncs live between the agent and the UI. The agent can create a new draft with `manage-draft --action=create`, edit your in-progress draft with `--action=update`, or close tabs with `--action=delete`. Drafts use markdown in the body field; the TipTap editor renders it as rich text and converts to HTML on send.
+
+**AI triage via automations.** Mail supports automation rules that run against new inbox email using AI. A rule has a natural-language condition (for example, `"from a newsletter"` or `"subject contains invoice"`) and a list of actions (`label`, `archive`, `mark_read`, `star`, `trash`). Manage them via `pnpm action manage-automations --action=create|list|update|delete|enable|disable`, or through the Settings page. Rules fire automatically and can be triggered manually with `pnpm action trigger-automations`.
+
+**Send tracking.** Sent messages get open-pixel and link-click tracking injected automatically. Settings live under `mail-settings.tracking` with `tracking.opens` and `tracking.clicks` (both default `true`). Only links in the new portion of a reply or forward are rewritten — quoted content is left alone. Pull stats for any sent message with `pnpm action get-tracking --id=<message-id>`, or from `GET /api/emails/:id/tracking`. Open and click events are stored in the `email_tracking` and `email_link_tracking` tables.
+
+**Search.** `pnpm action search-emails --q=<term>` searches across all views and all connected accounts. The UI search bar maps to the same action. Both `search-emails` and `list-emails` take `--compact` for shorter output and `--fields=from,subject,date` to limit returned fields.
+
+**Bulk operations and export.**
+
+- `pnpm action bulk-archive --older-than=30` archives everything older than N days.
+- `pnpm action export-emails --view=inbox --output=file.json` dumps a view to JSON.
+- Archive, trash, mark-read, and star all accept comma-separated IDs (`--id=id1,id2,id3`) for bulk changes.
+
+**Inline thread previews in agent chat.** When the agent answers a question about a specific thread, it can embed a live preview of the thread directly in the chat message via an `embed` code fence. The preview is a sandboxed iframe that shows the full conversation without leaving the chat, with an "Open in app" button that navigates the main window to that thread.
+
+### How the agent sees your context
+
+- **Current view and thread** — the UI writes `navigation` (view, threadId, focusedEmailId, search, label) whenever you navigate. The agent reads it via `readAppState("navigation")` or `pnpm action view-screen`.
+- **Open draft** — if you're composing a reply and ask "help me word this", the agent reads the matching `compose-{id}` entry to see your current subject and body, then writes an updated draft back. The UI picks up the edit live.
+- **Thread history** — for context mid-reply, the agent fetches the full thread with `pnpm action get-thread --id=<threadId>`.
+
+### How the agent takes action
+
+- **Mail operations** — archive, trash, star, mark read, send, draft — all run as `pnpm action <name>` scripts under `templates/mail/actions/`.
+- **Navigation** — to open a thread or switch views for you, the agent writes `application_state.navigate`, which the UI consumes and deletes. The `pnpm action navigate` script wraps this.
+- **Refresh** — after any change, the agent runs `pnpm action refresh-list` so the UI refetches.
+
+### Data model
 
 When a Google account is connected, email lives in Gmail — the app is a view on top. When no account is connected, emails live in the SQL settings store under `getSetting("local-emails")` (empty by default).
 
@@ -150,7 +148,7 @@ Routes in the UI:
 - `/settings` — account connections, tracking, automations.
 - `/team` — team members and shared resources.
 
-## Customizing it {#customizing-it}
+### Customizing it
 
 Mail is yours to change. Everything important lives in a handful of places — start there.
 
