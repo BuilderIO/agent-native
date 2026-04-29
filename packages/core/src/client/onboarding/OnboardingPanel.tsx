@@ -17,6 +17,7 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { useOnboarding } from "./use-onboarding.js";
+import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
@@ -37,7 +38,8 @@ export function OnboardingPanel({
   className,
   title = "Setup",
 }: OnboardingPanelProps) {
-  const onboarding = useOnboarding();
+  const previewMode = useOnboardingPreviewMode();
+  const onboarding = useOnboarding({ preview: previewMode });
   const { isDevMode } = useDevMode();
   const builderEnabled = useBuilderEnabled();
   const {
@@ -68,10 +70,14 @@ export function OnboardingPanel({
   const [expanded, setExpanded] = useState(!allComplete);
 
   if (loading || totalCount === 0) return null;
-  if (dismissed) return null;
-  // Auto-hide once every required step is done — no need to take up sidebar
-  // space when there's nothing left to do.
-  if (allComplete) return null;
+  // Preview mode (dev overlay) bypasses the auto-hide so template authors
+  // can render the new-user flow even when their own setup is done.
+  if (!previewMode) {
+    if (dismissed) return null;
+    // Auto-hide once every required step is done — no need to take up sidebar
+    // space when there's nothing left to do.
+    if (allComplete) return null;
+  }
 
   if (!expanded) {
     return (

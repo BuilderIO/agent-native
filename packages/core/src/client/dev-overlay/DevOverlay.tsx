@@ -420,6 +420,10 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 12,
     overflowY: "auto",
     flex: 1,
+    // Required to let `overflow-y: auto` actually scroll inside a flex column.
+    // Without this, flex children grow to fit content and the scroll never
+    // engages.
+    minHeight: 0,
     display: "flex",
     flexDirection: "column",
     gap: 8,
