@@ -11,7 +11,10 @@ import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
 
 export const tool: ActionTool = {
   description:
-    "Call a DIFFERENT, separately-deployed agent app to ask a question or delegate a task. This is strictly for cross-app A2A communication — for example, asking the mail agent to send an email while you are the calendar agent. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time.",
+    "Call a DIFFERENT, separately-deployed agent app to ask a question or delegate a task. This is strictly for cross-app A2A communication — for example, asking the mail agent to send an email while you are the calendar agent. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
+    "IMPORTANT — handling the response: " +
+    "(a) If it contains a URL or ID, copy it VERBATIM into your reply. Do not 'correct' or pluralize the path (e.g. /deck/ → /decks/), normalize casing, or change the slug — any edit breaks the link. " +
+    '(b) If it does NOT contain a URL/ID and the user asked for one, say so explicitly (e.g. "the agent created the deck but didn\'t return a link — open the app directly to view it"). NEVER invent a URL, slug, or path — guessing produces broken links that look real.',
   parameters: {
     type: "object",
     properties: {
@@ -51,6 +54,17 @@ export async function run(
       .join(", ");
     return `Error: Agent "${agentIdOrName}" not found. Available agents: ${available || "(none)"}`;
   }
+
+  // Append a small cross-app hint to the outgoing message so the receiving
+  // agent (which may be on an older deploy without the receiver-side hint
+  // in handlers.ts) still emits fully-qualified URLs. This is belt-and-
+  // suspenders with the receiver hint — but it works against any current
+  // deployment, no redeploy required.
+  const messageWithHint =
+    `${message}\n\n` +
+    `[Note: this request comes from another app via A2A. The caller cannot see your local UI, deck list, or navigation — only the literal text you put in your reply. ` +
+    `If you create or reference a deck/document/dashboard, include its FULLY-QUALIFIED URL (e.g. ${agent.url}/deck/<id>) in your reply, not a relative path. ` +
+    `Use only IDs returned by your own actions — never invent slugs or hosts.]`;
 
   try {
     // If we have a send context, use streaming so the UI shows progressive text
@@ -142,20 +156,38 @@ export async function run(
       // but the receiving agent's full response still surfaces via the
       // tool_result event below.
       try {
-        // Apply the 18s polling cap ONLY when this call is from an
-        // integration-platform path (Slack/Telegram/etc.) where the host's
+        // Apply the 18s polling cap ONLY when we're on a serverless host
+        // (Netlify / Vercel / AWS Lambda / Cloudflare Workers) AND the
+        // call is from an integration-platform path. On those hosts the
         // function timeout (~26s on Netlify Pro) plus the platform's
-        // deliver-by deadline are the binding budget. Normal agent-chat
-        // callers run on a long-lived stream and should keep the default
-        // 5-min budget. Reviewer flagged in #354 that the previous
-        // unconditional cap regressed agent-chat A2A calls.
-        const callTimeoutMs = isIntegrationCallerRequest() ? 18000 : undefined;
-        responseText = await callAgent(agent.url, message, {
+        // deliver-by deadline are the binding budget, so dispatch must
+        // bail before the lambda dies. On long-running hosts (local Node
+        // dev, self-hosted Node, Docker containers) the budget is
+        // effectively infinite, so the cap would just truncate
+        // slow-but-valid answers.
+        //
+        // Detection mirrors db/migrations.ts:297-301. On Cloudflare
+        // Workers/Pages, `process.env` is shimmed and CF_PAGES isn't
+        // reliably populated at runtime — the canonical signal is the
+        // `__cf_env` global injected by the workerd runtime.
+        const onServerlessHost =
+          !!process.env.NETLIFY ||
+          !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+          !!process.env.VERCEL ||
+          "__cf_env" in globalThis;
+        const callTimeoutMs =
+          onServerlessHost && isIntegrationCallerRequest() ? 18000 : undefined;
+        responseText = await callAgent(agent.url, messageWithHint, {
           userEmail: callerEmail,
           orgDomain: callerOrgDomain,
           orgSecret: callerOrgSecret,
           ...(callTimeoutMs ? { timeoutMs: callTimeoutMs } : {}),
         });
+        // Some agents reply with relative paths (e.g. slides emits
+        // "/deck/abc"). Those resolve against the caller's host, not the
+        // receiver's, so they're broken for the user. Expand any leading-slash
+        // URL into a fully-qualified one rooted at the receiving agent's host.
+        responseText = expandRelativeUrls(responseText, agent.url);
         // Mirror the response into the streaming UI so the user sees it.
         if (responseText) emitNewText(responseText);
       } catch (pollErr: any) {
@@ -186,12 +218,12 @@ export async function run(
         orgSecret = (await getOrgA2ASecret(currentOrgId)) ?? undefined;
       } catch {}
     }
-    const response = await callAgent(agent.url, message, {
+    const response = await callAgent(agent.url, messageWithHint, {
       userEmail: email,
       orgDomain: domain,
       orgSecret,
     });
-    return response || "(empty response)";
+    return expandRelativeUrls(response, agent.url) || "(empty response)";
   } catch (err: any) {
     const msg = err?.message ?? String(err);
     // Friendlier message for the common timeout case so the calling agent can
@@ -201,4 +233,21 @@ export async function run(
     }
     return `Error calling ${agent.name}: ${msg}`;
   }
+}
+
+// Expand bare leading-slash paths (e.g. "/deck/abc") into fully-qualified URLs
+// rooted at the receiving agent's host. The receiver doesn't always know it's
+// being called cross-app, so it may emit relative paths that resolve against
+// the caller's host (broken). Match a path that starts at a word boundary,
+// begins with `/`, and has at least one path segment after that. Skip if it
+// already looks like a fully-qualified URL.
+export function expandRelativeUrls(text: string, agentUrl: string): string {
+  if (!text || !agentUrl) return text;
+  const base = agentUrl.replace(/\/$/, "");
+  // Path must start at boundary (start, whitespace, or punctuation that isn't
+  // ':' — to avoid mangling `https://example.com/foo` or markdown link bodies).
+  return text.replace(
+    /(^|[\s(\[<"'`])(\/[a-z0-9_-][a-z0-9_/?&=%#.,:-]*)/gi,
+    (_match, lead, path) => `${lead}${base}${path}`,
+  );
 }

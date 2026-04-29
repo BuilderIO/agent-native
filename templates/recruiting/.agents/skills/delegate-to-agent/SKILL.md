@@ -12,24 +12,133 @@ description: >-
 
 The UI and server never call an LLM directly. All AI work is delegated to the agent through the chat bridge.
 
+## Why
+
+The agent is the single AI interface. It has context about the full project, can read/write the database, and can run scripts. Inline LLM calls bypass this — they create a shadow AI that doesn't know what the agent knows and can't coordinate with it.
+
 ## How
+
+**From the UI (client):**
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core";
 
 sendToAgentChat({
-  message: "Analyze this candidate's resume",
-  submit: true,
+  message: "Generate a summary of this document",
+  context: documentContent, // optional hidden context (not shown in chat UI)
+  submit: true, // auto-submit to the agent
 });
 ```
 
+**From scripts (Node):**
+
+```ts
+import { agentChat } from "@agent-native/core";
+
+agentChat.submit("Process the uploaded images and create thumbnails");
+```
+
+**From the UI, detecting when agent is done:**
+
+```ts
+import { useAgentChatGenerating } from "@agent-native/core";
+
+function MyComponent() {
+  const isGenerating = useAgentChatGenerating();
+  // Show loading state while agent is working
+}
+```
+
+## `submit` vs Prefill
+
+The `submit` option controls whether the message is sent automatically or placed in the chat input for user review:
+
+| `submit` value | Behavior                                | Use when                                                                            |
+| -------------- | --------------------------------------- | ----------------------------------------------------------------------------------- |
+| `true`         | Auto-submits to the agent immediately   | Routine operations the user has already approved                                    |
+| `false`        | Prefills the chat input for user review | High-stakes operations (deleting data, modifying code, API calls with side effects) |
+| omitted        | Uses the project's default setting      | General-purpose delegation                                                          |
+
+```ts
+// Auto-submit: routine operation
+sendToAgentChat({ message: "Update the project summary", submit: true });
+
+// Prefill: let user review before sending
+sendToAgentChat({
+  message: "Delete all projects older than 30 days",
+  submit: false,
+});
+```
+
+## Capture user input first when generating from a prompt
+
+Buttons that produce new content ("New Design", "Create Dashboard", "Make Deck", "Generate Form") need the user's prompt as input. **Never hardcode a generic message** — the result will be a generic generation the user didn't actually ask for.
+
+**Bad** — auto-submits a placeholder message; the user never said what they wanted:
+
+```tsx
+<Button
+  onClick={() =>
+    sendToAgentChat({ message: "make a design", submit: true })
+  }
+>
+  New Design
+</Button>
+```
+
+**Good** — Popover anchored to the button captures the prompt, then submits it:
+
+```tsx
+<Popover open={open} onOpenChange={setOpen}>
+  <PopoverTrigger asChild>
+    <Button>New Design</Button>
+  </PopoverTrigger>
+  <PopoverContent className="w-96">
+    <Textarea
+      autoFocus
+      value={prompt}
+      onChange={(e) => setPrompt(e.target.value)}
+      placeholder="What do you want to design?"
+    />
+    <Button
+      onClick={() => {
+        sendToAgentChat({ message: prompt, submit: true });
+        setOpen(false);
+        setPrompt("");
+      }}
+    >
+      Create
+    </Button>
+  </PopoverContent>
+</Popover>
+```
+
+**Always ask for input first when** the output depends on a prompt the user must provide — "design what?", "deck about what?", "dashboard for which metric?", "form for which use case?".
+
+**Auto-submit without input is fine when intent is unambiguous:**
+
+- "Try to fix" on a tool error — submits the error details with a clear fix instruction
+- "Retry the last operation" after a transient failure
+- Single-purpose buttons where there is nothing meaningful for the user to add
+
+If you find yourself writing `submit: true` with a hardcoded creative verb (`"design a..."`, `"write a..."`, `"build a..."`), stop and add a Popover.
+
 ## Don't
 
-- Don't import AI SDKs in client or server code
+- Don't `import Anthropic from "@anthropic-ai/sdk"` in client or server code
+- Don't `import OpenAI from "openai"` in client or server code
 - Don't make direct API calls to any LLM provider
+- Don't use AI SDK functions like `generateText()`, `streamText()`, etc.
 - Don't build "AI features" that bypass the agent chat
+- Don't auto-submit a hardcoded prompt for generative actions — capture user input first (see above)
+
+## Exception
+
+Scripts may call external APIs (image generation, search, etc.) — but the AI reasoning and orchestration still goes through the agent. A script is a tool the agent uses, not a replacement for the agent.
 
 ## Related Skills
 
-- **scripts** — The agent invokes scripts via `pnpm action <name>`
-- **self-modifying-code** — The agent operates through the chat bridge
+- **scripts** — The agent invokes scripts via `pnpm action <name>` to perform complex operations
+- **self-modifying-code** — The agent operates through the chat bridge to make code changes
+- **storing-data** — The agent writes results to the database after processing requests
+- **real-time-sync** — The UI updates automatically when the agent writes to the database

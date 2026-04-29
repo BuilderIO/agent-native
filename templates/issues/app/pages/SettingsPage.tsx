@@ -17,10 +17,6 @@ export function SettingsPage() {
 
   return (
     <div className="h-full overflow-y-auto p-4 sm:p-6">
-      <h1 className="mb-4 text-lg font-semibold text-foreground sm:mb-6">
-        Settings
-      </h1>
-
       <div className="rounded-lg border border-border p-4 sm:p-6">
         <h2 className="mb-1 text-[15px] font-semibold text-foreground">
           Jira Connection

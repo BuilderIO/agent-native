@@ -19,6 +19,7 @@ import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Layout as AppLayout } from "@/components/layout/Layout";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -50,6 +51,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="black-translucent"
         />
         <meta name="apple-mobile-web-app-title" content="Dispatch" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="apple-touch-icon" href="/icon-180.svg" />
         <Meta />
         <Links />
@@ -158,7 +160,9 @@ export default function Root() {
                 <ThemeToggleItem />
               </CommandMenu.Group>
             </CommandMenu>
-            <Outlet />
+            <AppLayout>
+              <Outlet />
+            </AppLayout>
             <Toaster position="bottom-left" />
           </TooltipProvider>
         </QueryClientProvider>

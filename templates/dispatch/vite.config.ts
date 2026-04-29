@@ -12,6 +12,12 @@ export default {
   ...baseConfig,
   server: {
     ...baseConfig.server,
-    allowedHosts: [".ngrok-free.dev", ".ngrok-free.app", ".ngrok.io"],
+    allowedHosts: [
+      ".ngrok-free.dev",
+      ".ngrok-free.app",
+      ".ngrok.io",
+      "archer-ophitic-unhortatively.ngrok-free.dev",
+      "enjoyed-mutt-plainly.ngrok-free.app",
+    ],
   },
 };

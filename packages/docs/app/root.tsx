@@ -35,7 +35,7 @@ const JSON_LD = JSON.stringify({
   applicationCategory: "DeveloperApplication",
   operatingSystem: "Cross-platform",
   description:
-    "Open source framework for building AI-native applications where agents and UI share state through files.",
+    "Open source framework for building Agent-native applications where agents and UI share state through files.",
   url: "https://agent-native.com",
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
   license: "https://opensource.org/licenses/MIT",
@@ -49,20 +49,12 @@ const JSON_LD = JSON.stringify({
 
 export const links = () => [
   { rel: "stylesheet", href: appCss },
-  {
-    rel: "icon",
-    href: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F397134b86ceb49818bcfa4baf25708a3?width=64",
-    type: "image/png",
-  },
-  {
-    rel: "apple-touch-icon",
-    href: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F397134b86ceb49818bcfa4baf25708a3?width=180",
-    type: "image/png",
-  },
+  { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+  { rel: "apple-touch-icon", href: "/logo192.png", type: "image/png" },
 ];
 
 export const meta = () => [
-  { title: "Agent-Native — Framework for AI-Native Apps" },
+  { title: "Agent-Native — Framework for Agent-Native Apps" },
   {
     name: "description",
     content: "Build apps where AI agents and UI share state through files.",
@@ -74,7 +66,7 @@ export const meta = () => [
   },
   {
     property: "og:title",
-    content: "Agent-Native — Framework for AI-Native Apps",
+    content: "Agent-Native — Framework for Agent-Native Apps",
   },
   {
     property: "og:description",

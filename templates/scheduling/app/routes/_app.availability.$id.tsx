@@ -22,6 +22,7 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { callAction } from "@/lib/api";
 import { toast } from "sonner";
+import { AgentToggleButton } from "@agent-native/core/client";
 import {
   IconArrowLeft,
   IconCalendarPlus,
@@ -251,6 +252,7 @@ export default function ScheduleEditor() {
               />
               <span>Set as default</span>
             </div>
+            <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
           </div>
         </div>
       </header>

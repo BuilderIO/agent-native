@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { callAction } from "@/lib/api";
 import { toast } from "sonner";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import {
   IconCopy,
   IconDotsVertical,
@@ -73,64 +74,55 @@ export default function RoutingFormsIndex() {
     rv.revalidate();
   };
 
+  useSetHeaderActions(
+    <Button onClick={() => setOpen(true)} className="cursor-pointer">
+      <IconPlus className="mr-1.5 h-4 w-4" />
+      New
+    </Button>,
+  );
+
   return (
     <div className="mx-auto max-w-4xl p-6 lg:p-8">
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Routing Forms
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Route visitors to the right event type based on their answers.
-          </p>
-        </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <IconPlus className="mr-1.5 h-4 w-4" />
-              New
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add a new routing form</DialogTitle>
-              <DialogDescription>
-                Give your form a name. You'll add fields and rules next.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label>Name</Label>
-                <Input
-                  placeholder="Prospect intake"
-                  value={form.name}
-                  onChange={(e) =>
-                    setForm({ ...form, name: e.currentTarget.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Description</Label>
-                <Input
-                  placeholder="Shown to visitors on the form page"
-                  value={form.description}
-                  onChange={(e) =>
-                    setForm({ ...form, description: e.currentTarget.value })
-                  }
-                />
-              </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add a new routing form</DialogTitle>
+            <DialogDescription>
+              Give your form a name. You'll add fields and rules next.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Name</Label>
+              <Input
+                placeholder="Prospect intake"
+                value={form.name}
+                onChange={(e) =>
+                  setForm({ ...form, name: e.currentTarget.value })
+                }
+              />
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={create} disabled={!form.name}>
-                Continue
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </header>
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Input
+                placeholder="Shown to visitors on the form page"
+                value={form.description}
+                onChange={(e) =>
+                  setForm({ ...form, description: e.currentTarget.value })
+                }
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={create} disabled={!form.name}>
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {forms.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border p-16 text-center">

@@ -120,13 +120,6 @@ export default function BookingsPage() {
 
   return (
     <div className="mx-auto max-w-5xl p-6 lg:p-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Bookings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          See upcoming and past events booked through your event type links.
-        </p>
-      </header>
-
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <nav className="flex items-center gap-1 rounded-md bg-muted p-1">
           {TABS.map((t) => (

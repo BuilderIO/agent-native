@@ -99,11 +99,19 @@ function splitSqlStatements(sql: string): string[] {
 
 export interface RunMigrationsOptions {
   /**
-   * Name of the migrations bookkeeping table. Defaults to `_migrations` for
-   * template-owned migrations. Core feature plugins (e.g. the org module) pass
-   * their own table name to keep their version space separate from templates.
+   * Name of the migrations bookkeeping table. REQUIRED — there is intentionally
+   * no default. Two templates that share a database (e.g. via the same Neon URL)
+   * each have their own version space starting at v1, and a single shared
+   * `_migrations` table will silently skip the second template's migrations if
+   * the first has already advanced past those version numbers. This caused the
+   * design template's migrations to be skipped entirely on a Neon DB that
+   * slides had already populated up to v15 (PR #320 era).
+   *
+   * Use one bookkeeping table per template, e.g. `slides_migrations`. Core
+   * feature plugins (e.g. the org module) follow the same convention with
+   * their own prefix, e.g. `_org_migrations`.
    */
-  table?: string;
+  table: string;
 }
 
 /**
@@ -131,9 +139,20 @@ function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
 
 export function runMigrations(
   migrations: Array<MigrationEntry>,
-  options: RunMigrationsOptions = {},
+  options: RunMigrationsOptions,
 ): NitroPluginDef {
-  const table = options.table ?? "_migrations";
+  const table = options?.table;
+  if (
+    !table ||
+    typeof table !== "string" ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)
+  ) {
+    throw new Error(
+      "runMigrations: `table` option is required and must be a valid SQL identifier " +
+        '(e.g. `{ table: "slides_migrations" }`). See packages/core/src/db/migrations.ts ' +
+        "for why this is required (shared-DB version-collision bug).",
+    );
+  }
   return async () => {
     try {
       // Check for Cloudflare D1 binding (only if DATABASE_URL not set)

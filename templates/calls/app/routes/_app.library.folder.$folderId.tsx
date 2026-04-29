@@ -24,6 +24,10 @@ import {
   EMPTY_FILTER,
   type FilterState,
 } from "@/components/library/filter-bar";
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
 
 export function meta() {
   return [{ title: "Folder · Calls" }];
@@ -67,41 +71,45 @@ export default function LibraryFolderRoute() {
   const folder = data?.folder;
   const path = folder?.path ?? [];
 
+  useSetPageTitle(
+    <div className="flex items-center gap-2 min-w-0">
+      <IconFolder className="h-5 w-5 text-[#625DF5] shrink-0" />
+      <nav className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
+        <Link to="/library" className="hover:text-foreground">
+          Library
+        </Link>
+        {path.slice(0, -1).map((crumb) => (
+          <span key={crumb.id} className="flex items-center gap-1 min-w-0">
+            <IconChevronRight className="h-3 w-3 shrink-0" />
+            <Link
+              to={`/library/folder/${crumb.id}`}
+              className="hover:text-foreground truncate"
+            >
+              {crumb.name}
+            </Link>
+          </span>
+        ))}
+        <IconChevronRight className="h-3 w-3 shrink-0" />
+      </nav>
+      <h1 className="text-base font-semibold tracking-tight truncate">
+        {folder?.name ?? "Folder"}
+      </h1>
+    </div>,
+  );
+
+  useSetHeaderActions(
+    <Button
+      onClick={() => navigate("/upload")}
+      className="bg-[#625DF5] hover:bg-[#5049d9] text-white gap-1.5 cursor-pointer"
+      size="sm"
+    >
+      <IconUpload className="h-4 w-4" />
+      Upload
+    </Button>,
+  );
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      <header className="flex items-center gap-3 px-6 py-4 border-b border-border shrink-0">
-        <div className="flex-1 min-w-0">
-          <nav className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-            <Link to="/library" className="hover:text-foreground">
-              Library
-            </Link>
-            {path.map((crumb) => (
-              <span key={crumb.id} className="flex items-center gap-1">
-                <IconChevronRight className="h-3 w-3" />
-                <Link
-                  to={`/library/folder/${crumb.id}`}
-                  className="hover:text-foreground"
-                >
-                  {crumb.name}
-                </Link>
-              </span>
-            ))}
-          </nav>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <IconFolder className="h-6 w-6 text-[#625DF5]" />
-            {folder?.name ?? "Folder"}
-          </h1>
-        </div>
-        <Button
-          onClick={() => navigate("/upload")}
-          className="bg-[#625DF5] hover:bg-[#5049d9] text-white gap-1.5"
-          size="sm"
-        >
-          <IconUpload className="h-4 w-4" />
-          Upload
-        </Button>
-      </header>
-
       <div className="px-6 py-3 border-b border-border shrink-0 flex items-center gap-3 flex-wrap">
         <FilterBar value={filters} onChange={setFilters} />
         <div className="ml-auto flex items-center gap-2">

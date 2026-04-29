@@ -48,10 +48,11 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
   }
 }
 
-const migrations = runMigrations([
-  {
-    version: 1,
-    sql: `CREATE TABLE IF NOT EXISTS workspaces (
+const migrations = runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL DEFAULT 'My Workspace',
       slug TEXT NOT NULL,
@@ -64,10 +65,10 @@ const migrations = runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 2,
-    sql: `CREATE TABLE IF NOT EXISTS workspace_members (
+    },
+    {
+      version: 2,
+      sql: `CREATE TABLE IF NOT EXISTS workspace_members (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       email TEXT NOT NULL,
@@ -75,10 +76,10 @@ const migrations = runMigrations([
       invited_at TEXT,
       joined_at TEXT
     )`,
-  },
-  {
-    version: 3,
-    sql: `CREATE TABLE IF NOT EXISTS invites (
+    },
+    {
+      version: 3,
+      sql: `CREATE TABLE IF NOT EXISTS invites (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       email TEXT NOT NULL,
@@ -89,10 +90,10 @@ const migrations = runMigrations([
       accepted_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 4,
-    sql: `CREATE TABLE IF NOT EXISTS spaces (
+    },
+    {
+      version: 4,
+      sql: `CREATE TABLE IF NOT EXISTS spaces (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -101,19 +102,19 @@ const migrations = runMigrations([
       is_all_company BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 5,
-    sql: `CREATE TABLE IF NOT EXISTS space_members (
+    },
+    {
+      version: 5,
+      sql: `CREATE TABLE IF NOT EXISTS space_members (
       id TEXT PRIMARY KEY,
       space_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'contributor'
     )`,
-  },
-  {
-    version: 6,
-    sql: `CREATE TABLE IF NOT EXISTS folders (
+    },
+    {
+      version: 6,
+      sql: `CREATE TABLE IF NOT EXISTS folders (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       parent_id TEXT,
@@ -123,10 +124,10 @@ const migrations = runMigrations([
       position INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 7,
-    sql: `CREATE TABLE IF NOT EXISTS calls (
+    },
+    {
+      version: 7,
+      sql: `CREATE TABLE IF NOT EXISTS calls (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       folder_id TEXT,
@@ -165,10 +166,10 @@ const migrations = runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 8,
-    sql: `CREATE TABLE IF NOT EXISTS call_shares (
+    },
+    {
+      version: 8,
+      sql: `CREATE TABLE IF NOT EXISTS call_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -177,10 +178,10 @@ const migrations = runMigrations([
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 9,
-    sql: `CREATE TABLE IF NOT EXISTS call_participants (
+    },
+    {
+      version: 9,
+      sql: `CREATE TABLE IF NOT EXISTS call_participants (
       id TEXT PRIMARY KEY,
       call_id TEXT NOT NULL,
       speaker_label TEXT NOT NULL,
@@ -196,10 +197,10 @@ const migrations = runMigrations([
       questions_count INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 10,
-    sql: `CREATE TABLE IF NOT EXISTS call_transcripts (
+    },
+    {
+      version: 10,
+      sql: `CREATE TABLE IF NOT EXISTS call_transcripts (
       call_id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       language TEXT NOT NULL DEFAULT 'en',
@@ -211,10 +212,10 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 11,
-    sql: `CREATE TABLE IF NOT EXISTS call_summaries (
+    },
+    {
+      version: 11,
+      sql: `CREATE TABLE IF NOT EXISTS call_summaries (
       call_id TEXT PRIMARY KEY,
       recap TEXT NOT NULL DEFAULT '',
       key_points_json TEXT NOT NULL DEFAULT '[]',
@@ -227,10 +228,10 @@ const migrations = runMigrations([
       generated_at TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 12,
-    sql: `CREATE TABLE IF NOT EXISTS tracker_definitions (
+    },
+    {
+      version: 12,
+      sql: `CREATE TABLE IF NOT EXISTS tracker_definitions (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -244,10 +245,10 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 13,
-    sql: `CREATE TABLE IF NOT EXISTS tracker_hits (
+    },
+    {
+      version: 13,
+      sql: `CREATE TABLE IF NOT EXISTS tracker_hits (
       id TEXT PRIMARY KEY,
       call_id TEXT NOT NULL,
       tracker_id TEXT NOT NULL,
@@ -258,10 +259,10 @@ const migrations = runMigrations([
       confidence INTEGER NOT NULL DEFAULT 100,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 14,
-    sql: `CREATE TABLE IF NOT EXISTS snippets (
+    },
+    {
+      version: 14,
+      sql: `CREATE TABLE IF NOT EXISTS snippets (
       id TEXT PRIMARY KEY,
       call_id TEXT NOT NULL,
       workspace_id TEXT NOT NULL,
@@ -278,10 +279,10 @@ const migrations = runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 15,
-    sql: `CREATE TABLE IF NOT EXISTS snippet_shares (
+    },
+    {
+      version: 15,
+      sql: `CREATE TABLE IF NOT EXISTS snippet_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -290,19 +291,19 @@ const migrations = runMigrations([
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 16,
-    sql: `CREATE TABLE IF NOT EXISTS call_tags (
+    },
+    {
+      version: 16,
+      sql: `CREATE TABLE IF NOT EXISTS call_tags (
       id TEXT PRIMARY KEY,
       call_id TEXT NOT NULL,
       workspace_id TEXT NOT NULL,
       tag TEXT NOT NULL
     )`,
-  },
-  {
-    version: 17,
-    sql: `CREATE TABLE IF NOT EXISTS call_comments (
+    },
+    {
+      version: 17,
+      sql: `CREATE TABLE IF NOT EXISTS call_comments (
       id TEXT PRIMARY KEY,
       call_id TEXT NOT NULL,
       workspace_id TEXT NOT NULL,
@@ -317,10 +318,10 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 18,
-    sql: `CREATE TABLE IF NOT EXISTS call_viewers (
+    },
+    {
+      version: 18,
+      sql: `CREATE TABLE IF NOT EXISTS call_viewers (
       id TEXT PRIMARY KEY,
       call_id TEXT NOT NULL,
       viewer_email TEXT,
@@ -331,10 +332,10 @@ const migrations = runMigrations([
       completed_pct INTEGER NOT NULL DEFAULT 0,
       counted_view BOOLEAN NOT NULL DEFAULT FALSE
     )`,
-  },
-  {
-    version: 19,
-    sql: `CREATE TABLE IF NOT EXISTS call_events (
+    },
+    {
+      version: 19,
+      sql: `CREATE TABLE IF NOT EXISTS call_events (
       id TEXT PRIMARY KEY,
       call_id TEXT NOT NULL,
       viewer_id TEXT,
@@ -343,10 +344,10 @@ const migrations = runMigrations([
       payload TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 20,
-    sql: `CREATE TABLE IF NOT EXISTS snippet_viewers (
+    },
+    {
+      version: 20,
+      sql: `CREATE TABLE IF NOT EXISTS snippet_viewers (
       id TEXT PRIMARY KEY,
       snippet_id TEXT NOT NULL,
       viewer_email TEXT,
@@ -357,10 +358,10 @@ const migrations = runMigrations([
       completed_pct INTEGER NOT NULL DEFAULT 0,
       counted_view BOOLEAN NOT NULL DEFAULT FALSE
     )`,
-  },
-  {
-    version: 21,
-    sql: `CREATE TABLE IF NOT EXISTS recall_bots (
+    },
+    {
+      version: 21,
+      sql: `CREATE TABLE IF NOT EXISTS recall_bots (
       id TEXT PRIMARY KEY,
       call_id TEXT,
       workspace_id TEXT NOT NULL,
@@ -374,10 +375,10 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 22,
-    sql: `CREATE TABLE IF NOT EXISTS zoom_connections (
+    },
+    {
+      version: 22,
+      sql: `CREATE TABLE IF NOT EXISTS zoom_connections (
       email TEXT PRIMARY KEY,
       access_token_encrypted TEXT NOT NULL,
       refresh_token_encrypted TEXT NOT NULL,
@@ -386,10 +387,10 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 23,
-    sql: `CREATE TABLE IF NOT EXISTS accounts (
+    },
+    {
+      version: 23,
+      sql: `CREATE TABLE IF NOT EXISTS accounts (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -397,10 +398,10 @@ const migrations = runMigrations([
       logo_url TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 24,
-    sql: `CREATE TABLE IF NOT EXISTS saved_views (
+    },
+    {
+      version: 24,
+      sql: `CREATE TABLE IF NOT EXISTS saved_views (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -408,41 +409,43 @@ const migrations = runMigrations([
       filters_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // Indexes for common lookup paths
-  {
-    version: 25,
-    sql: `CREATE INDEX IF NOT EXISTS idx_calls_workspace_created ON calls(workspace_id, created_at)`,
-  },
-  {
-    version: 26,
-    sql: `CREATE INDEX IF NOT EXISTS idx_call_participants_call ON call_participants(call_id)`,
-  },
-  {
-    version: 27,
-    sql: `CREATE INDEX IF NOT EXISTS idx_tracker_hits_call ON tracker_hits(call_id)`,
-  },
-  {
-    version: 28,
-    sql: `CREATE INDEX IF NOT EXISTS idx_tracker_hits_tracker ON tracker_hits(tracker_id)`,
-  },
-  {
-    version: 29,
-    sql: `CREATE INDEX IF NOT EXISTS idx_snippets_call ON snippets(call_id)`,
-  },
-  {
-    version: 30,
-    sql: `CREATE INDEX IF NOT EXISTS idx_call_tags_call ON call_tags(call_id)`,
-  },
-  {
-    version: 31,
-    sql: `CREATE INDEX IF NOT EXISTS idx_call_comments_call ON call_comments(call_id)`,
-  },
-  {
-    version: 32,
-    sql: `CREATE INDEX IF NOT EXISTS idx_call_viewers_call ON call_viewers(call_id)`,
-  },
-]);
+    },
+    // Indexes for common lookup paths
+    {
+      version: 25,
+      sql: `CREATE INDEX IF NOT EXISTS idx_calls_workspace_created ON calls(workspace_id, created_at)`,
+    },
+    {
+      version: 26,
+      sql: `CREATE INDEX IF NOT EXISTS idx_call_participants_call ON call_participants(call_id)`,
+    },
+    {
+      version: 27,
+      sql: `CREATE INDEX IF NOT EXISTS idx_tracker_hits_call ON tracker_hits(call_id)`,
+    },
+    {
+      version: 28,
+      sql: `CREATE INDEX IF NOT EXISTS idx_tracker_hits_tracker ON tracker_hits(tracker_id)`,
+    },
+    {
+      version: 29,
+      sql: `CREATE INDEX IF NOT EXISTS idx_snippets_call ON snippets(call_id)`,
+    },
+    {
+      version: 30,
+      sql: `CREATE INDEX IF NOT EXISTS idx_call_tags_call ON call_tags(call_id)`,
+    },
+    {
+      version: 31,
+      sql: `CREATE INDEX IF NOT EXISTS idx_call_comments_call ON call_comments(call_id)`,
+    },
+    {
+      version: 32,
+      sql: `CREATE INDEX IF NOT EXISTS idx_call_viewers_call ON call_viewers(call_id)`,
+    },
+  ],
+  { table: "calls_migrations" },
+);
 
 export default async (nitroApp: any): Promise<void> => {
   await migrations(nitroApp);

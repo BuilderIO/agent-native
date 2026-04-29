@@ -1940,12 +1940,19 @@ button {
 /* Overlay: flow bar (voice dictation)                                        */
 /* ------------------------------------------------------------------------- */
 
+/* Wispr Flow-style dictation pill: small capsule anchored to the bottom
+   of its (transparent) overlay window. The window itself is positioned
+   bottom-center on the primary display by show_flow_bar in Rust, so we
+   align to flex-end here to push the pill to the bottom-edge of the
+   window — leaving the upper portion of the window as empty space the
+   drop shadow can paint into. */
 .flow-bar-root {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
+  padding-bottom: 8px;
   background: transparent;
   pointer-events: none;
 }
@@ -1954,45 +1961,23 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 20px;
-  background: rgba(20, 22, 28, 0.88);
+  height: 32px;
+  border-radius: 16px;
+  background: rgba(18, 18, 20, 0.92);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow:
-    0 10px 30px rgba(0, 0, 0, 0.35),
-    0 2px 6px rgba(0, 0, 0, 0.3);
+    0 8px 24px rgba(0, 0, 0, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.35);
   color: white;
   pointer-events: auto;
-}
-
-.flow-bar-idle {
-  padding: 8px 16px;
-  min-width: 320px;
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.flow-bar-lang {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  /* Subtle fade-in so the pill doesn't hard-pop on appear. */
+  animation: flow-bar-in 140ms ease-out;
 }
 
 .flow-bar-recording {
-  padding: 8px 20px;
-  min-width: 380px;
-  min-height: 48px;
+  padding: 0 14px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2003,25 +1988,35 @@ button {
 }
 
 .flow-bar-processing {
-  padding: 8px 20px;
-  min-width: 380px;
-  min-height: 48px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .flow-bar-shimmer {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: 0.1px;
   animation: flow-shimmer 1.2s ease-in-out infinite;
 }
 
 .flow-bar-error {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: #fecaca;
+}
+
+@keyframes flow-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes flow-shimmer {

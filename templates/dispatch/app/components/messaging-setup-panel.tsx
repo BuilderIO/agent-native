@@ -5,6 +5,7 @@ import {
   IconBrandTelegram,
   IconBrandWhatsapp,
   IconCheck,
+  IconChevronRight,
   IconCopy,
   IconExternalLink,
   IconInfoCircle,
@@ -12,6 +13,11 @@ import {
   IconMail,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import {
   Tooltip,
@@ -397,20 +403,6 @@ export function MessagingSetupPanel() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl border bg-card p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Messaging</h2>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Connect Slack, Telegram, or Email here. Once a channel is enabled,
-              dispatch can receive inbound messages and respond in the same
-              conversation.
-            </p>
-          </div>
-          <HelpTooltip content="Integrations handle inbound messaging. Destinations are separate saved outbound targets for proactive sends, digests, and scheduled jobs." />
-        </div>
-      </section>
-
       <div className="grid gap-4 xl:grid-cols-2">
         {PLATFORM_DEFINITIONS.map((platform) => {
           const status = statusByPlatform.get(platform.id);
@@ -475,21 +467,26 @@ export function MessagingSetupPanel() {
                 </div>
               </div>
 
-              <div className="mt-5 rounded-xl border bg-muted/20 p-4">
-                <div className="text-sm font-medium text-foreground">
-                  Setup steps
-                </div>
-                <ol className="mt-3 space-y-2 text-sm text-muted-foreground">
-                  {platform.setupSteps.map((step, index) => (
-                    <li key={step} className="flex gap-2">
-                      <span className="text-muted-foreground/60">
-                        {index + 1}.
-                      </span>
-                      <span>{step}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
+              <Collapsible className="mt-5">
+                <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+                  <IconChevronRight className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-90" />
+                  <span>Setup steps</span>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="mt-2 rounded-xl border bg-muted/20 p-4">
+                    <ol className="space-y-2 text-sm text-muted-foreground">
+                      {platform.setupSteps.map((step, index) => (
+                        <li key={step} className="flex gap-2">
+                          <span className="text-muted-foreground/60">
+                            {index + 1}.
+                          </span>
+                          <span>{step}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
 
               <div className="mt-4 space-y-3">
                 <div className="flex items-center gap-2">

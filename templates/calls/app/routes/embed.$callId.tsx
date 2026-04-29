@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { CallPlayer } from "@/components/player/call-player";
+import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [{ title: "Call" }];
@@ -10,7 +11,7 @@ export function meta() {
 export function HydrateFallback() {
   return (
     <div className="flex items-center justify-center h-screen w-full bg-black">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
+      <Spinner className="size-8 text-white" />
     </div>
   );
 }
@@ -73,7 +74,7 @@ export default function EmbedCallRoute() {
   if (dataQ.isLoading) {
     return (
       <div className="flex items-center justify-center h-screen w-full bg-black">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
+        <Spinner className="size-8 text-white" />
       </div>
     );
   }

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router";
 import { nanoid } from "nanoid";
 import {
@@ -14,7 +14,6 @@ import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -22,19 +21,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,6 +31,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import PromptPopover from "@/components/editor/PromptDialog";
+import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 
 type ProjectType = "prototype" | "other";
 
@@ -62,34 +52,26 @@ export default function Index() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [createTab, setCreateTab] = useState<
-    "prototype" | "template" | "other"
-  >("prototype");
-  const [projectName, setProjectName] = useState("");
-  const [designSystemId, setDesignSystemId] = useState<string>("");
-  const [fidelity, setFidelity] = useState<"wireframe" | "high">("high");
+  const [showNewPrompt, setShowNewPrompt] = useState(false);
+
+  const anchorElRef = useRef<HTMLElement | null>(null);
+  const anchorRef = useRef<HTMLElement | null>(null);
+  // Keep anchorRef.current in sync so PromptPopover can read it
+  anchorRef.current = anchorElRef.current;
+
+  const { generating, submit: agentSubmit } = useAgentGenerating();
 
   const { data: designsData, isLoading } = useActionQuery<{
     count: number;
     designs: Design[];
   }>("list-designs");
 
-  const { data: designSystemsData } = useActionQuery<{
-    designSystems: Array<{
-      id: string;
-      title: string;
-      isDefault: boolean;
-    }>;
-  }>("list-design-systems");
-
   const createMutation = useActionMutation("create-design");
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
 
   const designs = designsData?.designs ?? [];
-  const designSystems = designSystemsData?.designSystems ?? [];
 
   const filtered = search
     ? designs.filter(
@@ -99,64 +81,94 @@ export default function Index() {
       )
     : designs;
 
-  const handleCreate = useCallback(() => {
-    const id = nanoid();
-    const projectType: ProjectType =
-      createTab === "template" ? "prototype" : (createTab as ProjectType);
-    const title = projectName.trim() || "Untitled Design";
+  const openNewDesign = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    anchorElRef.current = e.currentTarget;
+    setShowNewPrompt(true);
+  }, []);
 
-    // Optimistic update
-    queryClient.setQueryData(
-      ["action", "list-designs", undefined],
-      (old: any) => {
-        const newDesign: Design = {
-          id,
-          title,
-          projectType,
-          designSystemId: designSystemId || null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        return {
-          count: (old?.count ?? 0) + 1,
-          designs: [newDesign, ...(old?.designs ?? [])],
-        };
-      },
-    );
+  const createDesign = useCallback(
+    (title: string): { id: string; title: string } => {
+      const id = nanoid();
+      const projectType: ProjectType = "prototype";
+      const finalTitle = title.trim() || "Untitled Design";
 
-    // Navigate immediately
-    navigate(`/design/${id}`);
-
-    // Fire mutation in background
-    createMutation.mutate(
-      {
-        id,
-        title,
-        projectType,
-        designSystemId: designSystemId || undefined,
-      } as any,
-      {
-        onError: () => {
-          queryClient.invalidateQueries({
-            queryKey: ["action", "list-designs"],
-          });
+      // Optimistic update
+      queryClient.setQueryData(
+        ["action", "list-designs", undefined],
+        (old: any) => {
+          const newDesign: Design = {
+            id,
+            title: finalTitle,
+            projectType,
+            designSystemId: null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          return {
+            count: (old?.count ?? 0) + 1,
+            designs: [newDesign, ...(old?.designs ?? [])],
+          };
         },
-      },
-    );
+      );
 
-    // Reset form
-    setShowCreateDialog(false);
-    setProjectName("");
-    setDesignSystemId("");
-    setCreateTab("prototype");
-  }, [
-    createTab,
-    projectName,
-    designSystemId,
-    queryClient,
-    navigate,
-    createMutation,
-  ]);
+      // Fire mutation in background
+      createMutation.mutate(
+        {
+          id,
+          title: finalTitle,
+          projectType,
+        } as any,
+        {
+          onError: () => {
+            queryClient.invalidateQueries({
+              queryKey: ["action", "list-designs"],
+            });
+          },
+        },
+      );
+      return { id, title: finalTitle };
+    },
+    [queryClient, createMutation],
+  );
+
+  const handleSkipPrompt = useCallback(() => {
+    const { id } = createDesign("Untitled Design");
+    setShowNewPrompt(false);
+    navigate(`/design/${id}`);
+  }, [createDesign, navigate]);
+
+  const handleSubmitPrompt = useCallback(
+    (prompt: string, files: UploadedFile[]) => {
+      // Derive a title from the prompt — first line / first ~60 chars
+      const derivedTitle =
+        prompt
+          .split("\n")[0]
+          ?.trim()
+          .replace(/[.!?]+$/, "")
+          .slice(0, 60) || "New Design";
+
+      const { id, title } = createDesign(derivedTitle);
+
+      const fileContext =
+        files.length > 0
+          ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
+          : "";
+
+      const context = [
+        `The user just created a new empty design (id: "${id}", title: "${title}") and wants to fill it with files.`,
+        `User request: "${prompt}"`,
+        fileContext,
+        "",
+        `Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). The design already exists — DO NOT call create-design.`,
+        "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
+      ].join("\n");
+
+      agentSubmit(`Create design: ${prompt}`, context);
+      setShowNewPrompt(false);
+      navigate(`/design/${id}`);
+    },
+    [createDesign, agentSubmit, navigate],
+  );
 
   const handleDelete = useCallback(() => {
     if (!deleteId) return;
@@ -220,49 +232,40 @@ export default function Index() {
     });
   };
 
+  useSetHeaderActions(
+    designs.length > 0 ? (
+      <div className="flex items-center gap-3">
+        <div className="relative">
+          <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search designs..."
+            className="pl-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
+          />
+        </div>
+        <Button size="sm" onClick={openNewDesign} className="cursor-pointer">
+          <IconPlus className="w-3.5 h-3.5" />
+          New Design
+        </Button>
+      </div>
+    ) : null,
+  );
+
   return (
     <>
-      <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-10">
+      <main className="px-4 sm:px-6 py-6 sm:py-10">
         {isLoading ? (
           <LoadingSkeleton />
         ) : designs.length === 0 ? (
-          <EmptyState onCreateDesign={() => setShowCreateDialog(true)} />
+          <EmptyState onCreateDesign={openNewDesign} />
         ) : (
           <>
-            {/* Search + Count */}
-            <div className="flex items-center justify-between mb-6">
-              <h1 className="text-lg font-semibold text-foreground">
-                Your Designs
-              </h1>
-              <div className="flex items-center gap-3">
-                <div className="relative">
-                  <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
-                  <Input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search designs..."
-                    className="pl-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
-                  />
-                </div>
-                <span className="text-xs text-muted-foreground/70">
-                  {filtered.length} design{filtered.length !== 1 ? "s" : ""}
-                </span>
-                <Button
-                  size="sm"
-                  onClick={() => setShowCreateDialog(true)}
-                  className="cursor-pointer"
-                >
-                  <IconPlus className="w-3.5 h-3.5" />
-                  New Design
-                </Button>
-              </div>
-            </div>
-
             {/* Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {/* New design card */}
               <button
-                onClick={() => setShowCreateDialog(true)}
+                onClick={openNewDesign}
                 className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-left cursor-pointer"
               >
                 <div className="aspect-video flex items-center justify-center bg-muted/30">
@@ -339,108 +342,17 @@ export default function Index() {
         )}
       </main>
 
-      {/* Create Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>New Design</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Tabs
-              value={createTab}
-              onValueChange={(v) =>
-                setCreateTab(v as "prototype" | "template" | "other")
-              }
-            >
-              <TabsList className="w-full">
-                <TabsTrigger value="prototype" className="flex-1">
-                  Prototype
-                </TabsTrigger>
-                <TabsTrigger value="template" className="flex-1">
-                  From Template
-                </TabsTrigger>
-                <TabsTrigger value="other" className="flex-1">
-                  Other
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-
-            <div className="space-y-3">
-              <Input
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                placeholder="Project name"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreate();
-                }}
-              />
-
-              {designSystems.length > 0 && (
-                <Select
-                  value={designSystemId}
-                  onValueChange={setDesignSystemId}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Design system (optional)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {designSystems.map((ds) => (
-                      <SelectItem key={ds.id} value={ds.id}>
-                        {ds.title}
-                        {ds.isDefault ? " (default)" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-
-              {createTab === "prototype" && (
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-muted-foreground">
-                    Fidelity:
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      variant={fidelity === "wireframe" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setFidelity("wireframe")}
-                      className="cursor-pointer"
-                    >
-                      Wireframe
-                    </Button>
-                    <Button
-                      variant={fidelity === "high" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setFidelity("high")}
-                      className="cursor-pointer"
-                    >
-                      High fidelity
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {createTab === "template" && (
-                <p className="text-sm text-muted-foreground">
-                  Browse the{" "}
-                  <Link
-                    to="/examples"
-                    className="text-[#609FF8] hover:underline"
-                  >
-                    examples gallery
-                  </Link>{" "}
-                  for starter templates.
-                </p>
-              )}
-            </div>
-
-            <Button onClick={handleCreate} className="w-full cursor-pointer">
-              <IconPlus className="w-3.5 h-3.5" />
-              Create
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <PromptPopover
+        open={showNewPrompt}
+        onOpenChange={setShowNewPrompt}
+        title="New design"
+        placeholder="Describe what you want to build..."
+        onSkip={handleSkipPrompt}
+        skipLabel="Skip prompt"
+        onSubmit={handleSubmitPrompt}
+        loading={generating}
+        anchorRef={anchorRef}
+      />
 
       {/* Delete Confirmation */}
       <AlertDialog
@@ -475,10 +387,6 @@ export default function Index() {
 function LoadingSkeleton() {
   return (
     <>
-      <div className="flex items-center justify-between mb-6">
-        <div className="h-5 w-32 rounded-md bg-muted animate-pulse" />
-        <div className="h-3 w-16 rounded bg-muted animate-pulse" />
-      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {Array.from({ length: 8 }).map((_, i) => (
           <div
@@ -497,7 +405,11 @@ function LoadingSkeleton() {
   );
 }
 
-function EmptyState({ onCreateDesign }: { onCreateDesign: () => void }) {
+function EmptyState({
+  onCreateDesign,
+}: {
+  onCreateDesign: (e: React.MouseEvent<HTMLElement>) => void;
+}) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
@@ -510,7 +422,12 @@ function EmptyState({ onCreateDesign }: { onCreateDesign: () => void }) {
         Build interactive prototypes and design artifacts with AI-powered
         generation and a visual editor.
       </p>
-      <Button onClick={onCreateDesign} className="cursor-pointer">
+      <Button
+        onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
+          onCreateDesign(e as React.MouseEvent<HTMLElement>)
+        }
+        className="cursor-pointer"
+      >
         <IconPlus className="w-4 h-4" />
         New Design
       </Button>
