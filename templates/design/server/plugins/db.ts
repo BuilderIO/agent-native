@@ -101,4 +101,4 @@ export default runMigrations([
       postgres: `ALTER TABLE design_systems ALTER COLUMN is_default SET DEFAULT false`,
     },
   },
-]);
+], { table: "design_migrations" });
