@@ -6,14 +6,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MermaidRenderer } from "./MermaidRenderer";
 import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
 import type { DesignSystemData } from "../../../shared/api";
+import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
 
 interface SlideRendererProps {
   slide: Slide;
   className?: string;
-  /** If true, renders at full 960x540 and scales down via CSS to fit the container */
+  /** If true, renders at full slide resolution and scales down via CSS to fit the container */
   thumbnail?: boolean;
   /** Design system to inject as CSS custom properties */
   designSystem?: DesignSystemData;
+  /** Deck aspect ratio (defaults to 16:9 when omitted) */
+  aspectRatio?: AspectRatio;
 }
 
 export const layoutClasses: Record<string, string> = {
@@ -171,14 +174,22 @@ function MermaidHtmlContent({
   );
 }
 
-/** Core slide rendering at fixed 960x540 - used by both thumbnails and presentation */
+/** Core slide rendering at the deck's aspect-ratio resolution - used by both thumbnails and presentation */
 export function SlideInner({
   slide,
   designSystem,
+  aspectRatio,
 }: {
   slide: Slide;
   designSystem?: DesignSystemData;
+  aspectRatio?: AspectRatio;
 }) {
+  const dims = getAspectRatioDims(aspectRatio);
+  const sizeStyle: React.CSSProperties = {
+    width: dims.width,
+    height: dims.height,
+  };
+
   const bg = slide.background || "bg-[#000000]";
   const isGradientClass = bg.startsWith("bg-");
   const bgStyle = !isGradientClass ? { background: bg } : undefined;
@@ -205,8 +216,8 @@ export function SlideInner({
   ) {
     return (
       <div
-        className={`w-[960px] h-[540px] relative ${bgClass}`}
-        style={{ ...bgStyle, ...dsStyle }}
+        className={`relative ${bgClass}`}
+        style={{ ...sizeStyle, ...bgStyle, ...dsStyle }}
       >
         <ExcalidrawThumbnail data={slide.excalidrawData} />
       </div>
@@ -239,8 +250,8 @@ export function SlideInner({
 
     return (
       <div
-        className={`w-[960px] h-[540px] relative ${bgClass} ${layoutClasses[slide.layout]}`}
-        style={{ ...bgStyle, ...dsStyle, textAlign: "left" }}
+        className={`relative ${bgClass} ${layoutClasses[slide.layout]}`}
+        style={{ ...sizeStyle, ...bgStyle, ...dsStyle, textAlign: "left" }}
       >
         {imageLoadingOverlay}
         <div className="slide-content text-white/90">
@@ -266,8 +277,8 @@ export function SlideInner({
   if (isRawHtml) {
     return (
       <div
-        className={`w-[960px] h-[540px] ${bgClass} ${layoutClasses.blank}`}
-        style={{ ...bgStyle, ...dsStyle }}
+        className={`${bgClass} ${layoutClasses.blank}`}
+        style={{ ...sizeStyle, ...bgStyle, ...dsStyle }}
       >
         <BlankSlideContent content={content} />
       </div>
@@ -276,8 +287,9 @@ export function SlideInner({
 
   return (
     <div
-      className={`w-[960px] h-[540px] relative ${bgClass} ${layoutClasses[slide.layout] || layoutClasses.content}`}
+      className={`relative ${bgClass} ${layoutClasses[slide.layout] || layoutClasses.content}`}
       style={{
+        ...sizeStyle,
         ...bgStyle,
         ...dsStyle,
         textAlign: isCentered ? "center" : "left",
@@ -301,42 +313,58 @@ export default function SlideRenderer({
   className = "",
   thumbnail = true,
   designSystem,
+  aspectRatio,
 }: SlideRendererProps) {
+  const dims = getAspectRatioDims(aspectRatio);
+
   if (!thumbnail) {
-    // Full-size rendering (for presentation mode) - same 960x540 canvas scaled to fill
+    // Full-size rendering (for presentation mode) — same intrinsic canvas scaled to fill
     return (
       <div className={`w-full h-full overflow-hidden relative ${className}`}>
         <div
           className="absolute top-0 left-0 origin-top-left"
           style={{
-            width: 960,
-            height: 540,
+            width: dims.width,
+            height: dims.height,
             transform: "scale(var(--slide-scale, 1))",
           }}
         >
-          <SlideInner slide={slide} designSystem={designSystem} />
+          <SlideInner
+            slide={slide}
+            designSystem={designSystem}
+            aspectRatio={aspectRatio}
+          />
         </div>
-        <ScaleHelper targetWidth={960} targetHeight={540} mode="fill" />
+        <ScaleHelper
+          targetWidth={dims.width}
+          targetHeight={dims.height}
+          mode="fill"
+        />
       </div>
     );
   }
 
-  // Thumbnail mode: render at 960x540 and scale down to fit
+  // Thumbnail mode: render at intrinsic resolution and scale down to fit
   return (
     <div
-      className={`w-full aspect-video rounded-lg overflow-hidden relative ${className}`}
+      className={`w-full rounded-lg overflow-hidden relative ${className}`}
+      style={{ aspectRatio: `${dims.width} / ${dims.height}` }}
     >
       <div
         className="absolute top-0 left-0 origin-top-left"
         style={{
-          width: 960,
-          height: 540,
+          width: dims.width,
+          height: dims.height,
           transform: "scale(var(--slide-scale, 0.25))",
         }}
       >
-        <SlideInner slide={slide} designSystem={designSystem} />
+        <SlideInner
+          slide={slide}
+          designSystem={designSystem}
+          aspectRatio={aspectRatio}
+        />
       </div>
-      <ScaleHelper targetWidth={960} />
+      <ScaleHelper targetWidth={dims.width} />
     </div>
   );
 }

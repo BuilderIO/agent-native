@@ -2,11 +2,17 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { resolveAccess } from "@agent-native/core/sharing";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  type AspectRatio,
+  getAspectRatioDims,
+} from "../shared/aspect-ratios.js";
 
 function buildStandaloneHtml(
   title: string,
   slides: Array<{ id: string; content: string; notes?: string }>,
+  aspectRatio?: AspectRatio,
 ): string {
+  const dims = getAspectRatioDims(aspectRatio);
   const slideHtmlSections = slides
     .map(
       (slide, i) =>
@@ -43,15 +49,15 @@ function buildStandaloneHtml(
     }
 
     .slide-container {
-      width: 960px;
-      height: 540px;
+      width: ${dims.width}px;
+      height: ${dims.height}px;
       position: relative;
       transform-origin: center center;
     }
 
     .slide {
-      width: 960px;
-      height: 540px;
+      width: ${dims.width}px;
+      height: ${dims.height}px;
       background: #000;
       overflow: hidden;
       position: absolute;
@@ -153,7 +159,7 @@ function buildStandaloneHtml(
       function fitSlide() {
         var vw = window.innerWidth;
         var vh = window.innerHeight;
-        var scale = Math.min(vw / 960, vh / 540);
+        var scale = Math.min(vw / ${dims.width}, vh / ${dims.height});
         container.style.transform = 'scale(' + scale + ')';
       }
 
@@ -235,12 +241,13 @@ export default defineAction({
     const row = access.resource;
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
+    const aspectRatio = deckData.aspectRatio as AspectRatio | undefined;
 
     if (slides.length === 0) {
       return { error: "Cannot export empty deck" };
     }
 
-    const html = buildStandaloneHtml(row.title, slides);
+    const html = buildStandaloneHtml(row.title, slides, aspectRatio);
 
     // Save to exports directory
     const fs = await import("fs");
