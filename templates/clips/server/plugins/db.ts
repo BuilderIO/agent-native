@@ -318,7 +318,7 @@ const migrations = runMigrations([
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
   },
-]);
+], { table: "clips_migrations" });
 
 /**
  * Idempotent sync: for every Clips `workspaces` row, ensure there's a

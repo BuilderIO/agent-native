@@ -442,7 +442,7 @@ const migrations = runMigrations([
     version: 32,
     sql: `CREATE INDEX IF NOT EXISTS idx_call_viewers_call ON call_viewers(call_id)`,
   },
-]);
+], { table: "calls_migrations" });
 
 export default async (nitroApp: any): Promise<void> => {
   await migrations(nitroApp);
