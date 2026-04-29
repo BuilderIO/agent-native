@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { getOrgSetting, putOrgSetting } from "@agent-native/core/settings";
 import {
   getRequestUserEmail,

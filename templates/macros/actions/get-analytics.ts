@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { db, schema } from "../server/db/index.js";
-import { and, gte, lte, asc, desc, eq, or, isNull } from "drizzle-orm";
+import { and, gte, lte, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 export default defineAction({

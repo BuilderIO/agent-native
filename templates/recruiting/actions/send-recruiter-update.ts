@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestOrgId } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import * as gh from "../server/lib/greenhouse-api.js";
-import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { withCredentialContext } from "../server/lib/greenhouse-api.js";
 import { getSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 import type {
@@ -15,23 +18,32 @@ type SlackConfig = {
   enabled: boolean;
 };
 
-function slackSettingsKey(orgId: string | null): string {
-  return orgId ? `org:${orgId}:slack-notifications` : "slack-notifications";
+/**
+ * SECURITY: scope by org if active, otherwise by the caller's email.
+ * Throws if neither is present — never read the unprefixed global key,
+ * which would leak one solo user's webhook to every other solo user on
+ * the same database.
+ */
+function slackSettingsKey(
+  orgId: string | null,
+  email: string | null,
+): string {
+  if (orgId) return `o:${orgId}:slack-notifications`;
+  if (email) return `u:${email.toLowerCase()}:slack-notifications`;
+  throw new Error(
+    "Slack notifications lookup requires an authenticated user (no orgId or email in context).",
+  );
 }
 
 async function getSlackConfig(
   orgId: string | null,
+  email: string | null,
 ): Promise<SlackConfig | null> {
-  const setting = await getSetting(slackSettingsKey(orgId));
+  const setting = await getSetting(slackSettingsKey(orgId, email));
   if (setting && typeof setting === "object" && "webhookUrl" in setting) {
     return setting as SlackConfig;
   }
-  if (orgId) {
-    const global = await getSetting("slack-notifications");
-    if (global && typeof global === "object" && "webhookUrl" in global) {
-      return global as SlackConfig;
-    }
-  }
+  // No fall-back to the unprefixed global key — that's the leak fix.
   return null;
 }
 
@@ -342,8 +354,14 @@ export default defineAction({
   http: false,
   run: async (args) => {
     const orgId = getRequestOrgId() || null;
+    const email = getRequestUserEmail() || null;
+    if (!orgId && !email) {
+      return {
+        error: "Sign in to send Slack notifications.",
+      };
+    }
 
-    const config = await getSlackConfig(orgId);
+    const config = await getSlackConfig(orgId, email);
     if (!config?.webhookUrl || !config.enabled) {
       return {
         error:
@@ -351,9 +369,10 @@ export default defineAction({
       };
     }
 
-    const actionItems = orgId
-      ? await withOrgContext(orgId, fetchActionItems)
-      : await fetchActionItems();
+    const actionItems = await withCredentialContext(
+      { email, orgId },
+      fetchActionItems,
+    );
 
     const blocks = buildSlackBlocks(actionItems, args.customMessage);
 

@@ -122,18 +122,38 @@ export function createTranscribeVoiceHandler() {
       ? languagePart.data.toString("utf8").trim().slice(0, 8)
       : undefined;
 
-    // Resolve provider preference from application_state.
+    // Resolve provider preference. Per-request "provider" form field takes
+    // precedence (the desktop client sends it on every dictation press),
+    // falling back to the user's stored `voice-transcription-prefs` app
+    // state for the agent sidebar composer / web clients that don't send
+    // it explicitly.
     const session = await getSession(event).catch(() => null);
     const sessionId =
       session?.email === DEV_MODE_USER_EMAIL
         ? "local"
         : (session?.email ?? "local");
     let providerPref: string | undefined;
-    try {
-      const prefs = await appStateGet(sessionId, "voice-transcription-prefs");
-      providerPref = (prefs as { provider?: string } | null)?.provider;
-    } catch {
-      /* fall through — default to openai path */
+    const providerPart = parts?.find((p) => p.name === "provider");
+    if (providerPart?.data) {
+      const v = providerPart.data.toString("utf8").trim().toLowerCase();
+      if (
+        v === "auto" ||
+        v === "browser" ||
+        v === "builder" ||
+        v === "gemini" ||
+        v === "openai" ||
+        v === "groq"
+      ) {
+        providerPref = v === "auto" ? undefined : v;
+      }
+    }
+    if (providerPref === undefined) {
+      try {
+        const prefs = await appStateGet(sessionId, "voice-transcription-prefs");
+        providerPref = (prefs as { provider?: string } | null)?.provider;
+      } catch {
+        /* fall through — default to fallback chain */
+      }
     }
 
     // Respect explicit "browser" preference — user chose Web Speech API and

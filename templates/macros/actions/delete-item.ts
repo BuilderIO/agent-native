@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { db, schema } from "../server/db/index.js";
-import { eq, and, or, isNull } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 
 export default defineAction({
@@ -16,14 +16,16 @@ export default defineAction({
   run: async (args) => {
     const id = args.id!;
     const ownerEmail = getRequestUserEmail();
-    const ownerFilter = (col: any) =>
-      ownerEmail ? or(eq(col, ownerEmail), isNull(col)) : undefined;
+    if (!ownerEmail) throw new Error("no authenticated user");
 
     if (args.type === "meal") {
       await db()
         .delete(schema.meals)
         .where(
-          and(eq(schema.meals.id, id), ownerFilter(schema.meals.owner_email)),
+          and(
+            eq(schema.meals.id, id),
+            eq(schema.meals.owner_email, ownerEmail),
+          ),
         );
     } else if (args.type === "exercise") {
       await db()
@@ -31,7 +33,7 @@ export default defineAction({
         .where(
           and(
             eq(schema.exercises.id, id),
-            ownerFilter(schema.exercises.owner_email),
+            eq(schema.exercises.owner_email, ownerEmail),
           ),
         );
     } else if (args.type === "weight") {
@@ -40,7 +42,7 @@ export default defineAction({
         .where(
           and(
             eq(schema.weights.id, id),
-            ownerFilter(schema.weights.owner_email),
+            eq(schema.weights.owner_email, ownerEmail),
           ),
         );
     }
