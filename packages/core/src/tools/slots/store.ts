@@ -62,7 +62,6 @@ export interface ToolSlotInstallRow {
   ownerEmail: string;
   orgId: string | null;
   position: number;
-  enabled: boolean;
   config: string | null;
   createdAt: string;
   updatedAt: string;
@@ -227,7 +226,6 @@ export async function installToolSlot(
     ownerEmail: userEmail,
     orgId: orgId ?? null,
     position,
-    enabled: true,
     config: opts?.config ?? null,
     createdAt: now,
     updatedAt: now,
