@@ -41,10 +41,7 @@ export function withCredentialContext<T>(
   ctx: { email: string | null; orgId: string | null },
   fn: () => T | Promise<T>,
 ): T | Promise<T> {
-  return credentialContextStore.run(
-    { email: ctx.email, orgId: ctx.orgId },
-    fn,
-  );
+  return credentialContextStore.run({ email: ctx.email, orgId: ctx.orgId }, fn);
 }
 
 /**

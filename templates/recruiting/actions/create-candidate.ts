@@ -43,8 +43,6 @@ export default defineAction({
   run: async (args) => {
     const orgId = getRequestOrgId() ?? null;
     const email = getRequestUserEmail() ?? null;
-    return withCredentialContext({ email, orgId }, () =>
-      createCandidate(args),
-    );
+    return withCredentialContext({ email, orgId }, () => createCandidate(args));
   },
 });

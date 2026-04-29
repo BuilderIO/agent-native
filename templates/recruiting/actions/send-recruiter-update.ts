@@ -24,10 +24,7 @@ type SlackConfig = {
  * which would leak one solo user's webhook to every other solo user on
  * the same database.
  */
-function slackSettingsKey(
-  orgId: string | null,
-  email: string | null,
-): string {
+function slackSettingsKey(orgId: string | null, email: string | null): string {
   if (orgId) return `o:${orgId}:slack-notifications`;
   if (email) return `u:${email.toLowerCase()}:slack-notifications`;
   throw new Error(

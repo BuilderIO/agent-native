@@ -33,8 +33,6 @@ export default defineAction({
   run: async (args) => {
     const orgId = getRequestOrgId() ?? null;
     const email = getRequestUserEmail() ?? null;
-    return withCredentialContext({ email, orgId }, () =>
-      rejectCandidate(args),
-    );
+    return withCredentialContext({ email, orgId }, () => rejectCandidate(args));
   },
 });

@@ -22,10 +22,7 @@ type SlackConfig = {
  * an org is active we scope by org, otherwise we scope by the caller's
  * email. If neither is available we throw rather than silently leak.
  */
-function slackSettingsKey(
-  orgId: string | null,
-  email: string | null,
-): string {
+function slackSettingsKey(orgId: string | null, email: string | null): string {
   if (orgId) return `o:${orgId}:slack-notifications`;
   if (email) return `u:${email.toLowerCase()}:slack-notifications`;
   throw createError({
