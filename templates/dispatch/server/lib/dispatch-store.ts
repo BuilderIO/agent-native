@@ -28,7 +28,9 @@ type DispatchApprovalRequest =
   typeof schema.dispatchApprovalRequests.$inferSelect;
 
 export function currentOwnerEmail(): string {
-  return getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
+  return email;
 }
 
 export function currentOrgId(): string | null {

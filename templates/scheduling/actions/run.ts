@@ -11,8 +11,8 @@ import { getDb, schema } from "../server/db/index.js";
 // (USER_EMAIL / ORG_ID) into the framework's AGENT_USER_EMAIL /
 // AGENT_ORG_ID so accessFilter() and assertAccess() resolve a stable
 // identity matching the CLI invocation.
-if (!process.env.AGENT_USER_EMAIL) {
-  process.env.AGENT_USER_EMAIL = process.env.USER_EMAIL ?? "local@localhost";
+if (!process.env.AGENT_USER_EMAIL && process.env.USER_EMAIL) {
+  process.env.AGENT_USER_EMAIL = process.env.USER_EMAIL;
 }
 if (!process.env.AGENT_ORG_ID && process.env.ORG_ID) {
   process.env.AGENT_ORG_ID = process.env.ORG_ID;

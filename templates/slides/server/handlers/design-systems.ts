@@ -1,4 +1,9 @@
-import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getRouterParam,
+  setResponseStatus,
+  createError,
+} from "h3";
 import { eq, desc } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { readBody } from "@agent-native/core/server";

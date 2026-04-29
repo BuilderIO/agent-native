@@ -22,7 +22,8 @@ export default defineAction({
     const builtinIds = new Set(
       getBuiltinAgents("dispatch").map((agent) => agent.id),
     );
-    const ownerEmail = getRequestUserEmail() || "local@localhost";
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
     const resources = await resourceListAccessible(ownerEmail, "agents/");
     const customById = new Map<
       string,

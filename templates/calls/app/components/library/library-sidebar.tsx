@@ -505,8 +505,8 @@ function FolderItem({
 function SidebarFooter() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { session } = useSession();
-  const email = session?.email ?? "local@localhost";
-  const initials = email.slice(0, 2).toUpperCase();
+  const email = session?.email ?? "";
+  const initials = email ? email.slice(0, 2).toUpperCase() : "??";
   const isDark = (theme === "system" ? resolvedTheme : theme) === "dark";
 
   return (
