@@ -14,6 +14,7 @@ import {
 } from "../agent/production-agent.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import { resolveEngine, createAnthropicEngine } from "../agent/engine/index.js";
+import { DEFAULT_MODEL } from "../agent/default-model.js";
 import type {
   ActionTool,
   MentionProvider,
@@ -2522,7 +2523,7 @@ export function createAgentChatPlugin(
             ? devPrompt + resources + schemaBlock
             : basePrompt + resources + schemaBlock;
 
-          const model = options?.model ?? "claude-sonnet-4-6";
+          const model = options?.model ?? DEFAULT_MODEL;
 
           // Build tools — same as interactive handler but WITHOUT call-agent
           // to prevent infinite recursive A2A loops (agent calling itself).
@@ -2660,7 +2661,7 @@ export function createAgentChatPlugin(
             engineOption: options?.engine,
             apiKey: options?.apiKey,
           });
-          const model = options?.model ?? "claude-sonnet-4-6";
+          const model = options?.model ?? DEFAULT_MODEL;
 
           // Same actions as A2A — without call-agent to prevent loops.
           // In dev mode, template actions go through shell, not native tools.
@@ -2959,7 +2960,7 @@ export function createAgentChatPlugin(
       // instead of silently falling back to Anthropic + Claude.
       let _currentRunEngine: AgentEngine | undefined;
       let _currentRunModel: string | undefined;
-      const resolvedModel = options?.model ?? "claude-sonnet-4-6";
+      const resolvedModel = options?.model ?? DEFAULT_MODEL;
 
       const teamTools = createTeamTools({
         getOwner: () => _currentRunOwner,
@@ -3116,7 +3117,7 @@ export function createAgentChatPlugin(
             basePrompt + resources + schemaBlock + extra;
           return _currentRunSystemPrompt;
         },
-        model: options?.model ?? "claude-sonnet-4-6",
+        model: options?.model ?? DEFAULT_MODEL,
         apiKey: options?.apiKey,
         skipFilesContext: leanPrompt,
         onEngineResolved: (engine, model) => {

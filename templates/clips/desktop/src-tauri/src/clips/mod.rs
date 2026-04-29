@@ -513,11 +513,12 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
 
     if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {
         // Reposition (in case the user changed display geometry between
-        // sessions) and bring it back into view. State reset is handled
-        // by the JS side emitting voice:state-change.
+        // sessions) and bring it back into view WITHOUT stealing focus
+        // from the user's foreground app. State reset is handled by the
+        // JS side emitting voice:state-change.
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
         let _ = existing.set_position(PhysicalPosition::new(x, y));
-        let _ = existing.show();
+        crate::util::show_without_activation(&existing);
         return Ok(());
     }
 

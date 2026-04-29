@@ -7,6 +7,7 @@ import type {
   IntegrationStatus,
 } from "./types.js";
 import { handleWebhook, processIntegrationTask } from "./webhook-handler.js";
+import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
   claimPendingTask,
   getPendingTask,

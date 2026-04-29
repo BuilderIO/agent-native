@@ -5,7 +5,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut}
 
 use crate::clips::toggle_popover;
 use crate::state::{DictationActive, VoiceWakePopover};
-use crate::util::is_recording_active;
+use crate::util::{is_recording_active, show_without_activation};
 
 pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // Register the global shortcut. On macOS we use Cmd+Shift+L;
@@ -126,7 +126,12 @@ fn wake_popover_for_voice(app: &tauri::AppHandle) {
     }
     let _ = window.set_position(PhysicalPosition::new(2_i32, 2_i32));
     let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(2_u32, 2_u32)));
-    let _ = window.show();
+    // Use orderFrontRegardless instead of Tauri's show() (which calls
+    // makeKeyAndOrderFront and steals focus from the user's foreground
+    // app). The popover is parked at 2x2 px just to keep its JS alive so
+    // it can receive the voice:shortcut-* events — the user should never
+    // notice it appearing.
+    show_without_activation(&window);
     let _ = app.emit("clips:popover-visible", false);
 }
 
@@ -190,13 +195,15 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                 CGEventTapLocation::HID,
                 CGEventTapPlacement::HeadInsertEventTap,
                 CGEventTapOptions::ListenOnly,
-                vec![
-                    CGEventType::FlagsChanged,
-                    // Subscribing to these is the difference between
-                    // "tap silently dies forever" and "tap revives".
-                    CGEventType::TapDisabledByTimeout,
-                    CGEventType::TapDisabledByUserInput,
-                ],
+                // ONLY include FlagsChanged in the mask. The
+                // TapDisabledByTimeout / TapDisabledByUserInput types
+                // are NOT mask-subscribable — their numeric values
+                // (0xFFFFFFFE / 0xFFFFFFFF) overflow the `1 << n` shift
+                // the rust crate uses to build the mask, panicking the
+                // tap thread on creation. Those events are still
+                // delivered to the callback automatically when the OS
+                // disables the tap; we just match on `etype` below.
+                vec![CGEventType::FlagsChanged],
                 move |_proxy, etype, event| {
                     let n = event_count_for_cb.fetch_add(1, Ordering::SeqCst) + 1;
                     if n <= 5 || n % 50 == 0 {
@@ -244,10 +251,26 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     set_dictation_active(&app_for_cb, fn_down);
                     if fn_down {
                         eprintln!("[clips-tray] Fn down — starting voice dictation");
-                        let _ = app_for_cb.emit(
-                            "voice:shortcut-start",
-                            serde_json::json!({ "source": "fn" }),
-                        );
+                        // Wake the popover (parked at 2x2, no focus) so its
+                        // JS runtime is live to receive the event. Without
+                        // this, if the popover was hidden, macOS may have
+                        // suspended its webview and the listener wouldn't
+                        // fire — manifesting as "Fn key sometimes does
+                        // nothing" depending on whether the popover happened
+                        // to be open.
+                        wake_popover_for_voice(&app_for_cb);
+                        // Small delay to give the popover JS a chance to
+                        // resume before we emit. wake_popover_for_voice
+                        // hops to the main thread internally so the actual
+                        // show happens slightly later than this line.
+                        let app_for_emit = app_for_cb.clone();
+                        thread::spawn(move || {
+                            thread::sleep(Duration::from_millis(80));
+                            let _ = app_for_emit.emit(
+                                "voice:shortcut-start",
+                                serde_json::json!({ "source": "fn" }),
+                            );
+                        });
                     } else {
                         eprintln!("[clips-tray] Fn up — stopping voice dictation");
                         let _ = app_for_cb.emit(

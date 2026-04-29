@@ -169,14 +169,27 @@ export function installDesktopVoiceDictation(
     return source === shortcut;
   };
 
-  const cleanup = (hide = true) => {
+  // Tear down any session-bound resources we still hold, then hide the
+  // overlay. CRITICAL: only touches `session` if it matches the one being
+  // cleaned up. Otherwise a late post-transcribe cleanup from a prior
+  // press (transcribe can take many seconds, especially when the dev DB
+  // is slow) would clobber the brand-new session a subsequent press just
+  // created — which manifests as "second press doesn't bring the UI back."
+  const cleanup = (target: VoiceSession | null = null, hide = true) => {
+    if (target) {
+      stopMeter(target);
+      stopTracks(target);
+    }
+    if (target && session !== target) {
+      // A new session has taken over — don't touch global state or hide
+      // its bar; it owns the UI now. Just release the old session's
+      // resources (already done above).
+      return;
+    }
     startInFlight = false;
     stopRequestedBeforeReady = false;
-    const current = session;
-    session = null;
-    if (current) {
-      stopMeter(current);
-      stopTracks(current);
+    if (target) {
+      session = null;
     }
     setFlowState("idle");
     if (hide) invoke("hide_flow_bar").catch(() => {});
@@ -212,7 +225,10 @@ export function installDesktopVoiceDictation(
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (disposed || stopRequestedBeforeReady) {
         stream.getTracks().forEach((track) => track.stop());
-        cleanup();
+        startInFlight = false;
+        stopRequestedBeforeReady = false;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
         return;
       }
       const mimeType = pickMimeType();
@@ -238,7 +254,7 @@ export function installDesktopVoiceDictation(
         stopTracks(next);
         if (session === next) session = null;
         if (disposed || next.chunks.length === 0) {
-          cleanup();
+          cleanup(next);
           return;
         }
         setFlowState("processing");
@@ -249,14 +265,14 @@ export function installDesktopVoiceDictation(
           }
           setFlowState("complete");
           window.setTimeout(() => {
-            if (!disposed) cleanup();
+            if (!disposed) cleanup(next);
           }, 550);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           console.error("[voice-dictation] transcription failed:", message);
           setFlowState("error");
           window.setTimeout(() => {
-            if (!disposed) cleanup();
+            if (!disposed) cleanup(next);
           }, 800);
         }
       };
@@ -267,9 +283,17 @@ export function installDesktopVoiceDictation(
       }
     } catch (err) {
       console.error("[voice-dictation] start failed", err);
+      // start() failed before any session was wired up. Reset flags
+      // immediately so the next Fn press isn't blocked, leave the
+      // "error" frame visible briefly, then hide the bar — but only
+      // if no new session has taken over by then.
+      startInFlight = false;
+      stopRequestedBeforeReady = false;
       setFlowState("error");
       window.setTimeout(() => {
-        if (!disposed) cleanup();
+        if (disposed || session) return;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
       }, 800);
     }
   };
@@ -295,7 +319,7 @@ export function installDesktopVoiceDictation(
     if (current.stopping) return;
     current.stopping = true;
     if (Date.now() - current.startedAt < 250) {
-      cleanup();
+      cleanup(current);
       return;
     }
     try {
@@ -304,7 +328,7 @@ export function installDesktopVoiceDictation(
       console.error("[voice-dictation] stop failed", err);
       setFlowState("error");
       window.setTimeout(() => {
-        if (!disposed) cleanup();
+        if (!disposed) cleanup(current);
       }, 800);
     }
   };
@@ -341,6 +365,6 @@ export function installDesktopVoiceDictation(
       }
     });
     unlistens.length = 0;
-    cleanup();
+    cleanup(session);
   };
 }
