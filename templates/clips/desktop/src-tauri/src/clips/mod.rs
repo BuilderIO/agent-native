@@ -493,21 +493,30 @@ pub async fn close_signin(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Show the Wispr Flow-style dictation bar centered near the lower third of
-/// the primary display. The React overlay is driven by `voice:*` events.
+/// Show the Wispr Flow-style dictation pill at the bottom-center of the
+/// primary display. The React overlay is driven by `voice:*` events.
+///
+/// Always destroys any existing flow-bar window before creating a new one
+/// so the second-press-never-comes-back failure mode (where a stale or
+/// half-closed window blocks `get_webview_window` from returning the
+/// expected fresh window) is impossible.
 #[tauri::command]
 pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_flow_bar invoked");
     if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {
-        let _ = existing.show();
-        return Ok(());
+        let _ = existing.close();
     }
 
+    // Wispr Flow's pill is a small capsule at the bottom-center of the
+    // screen. Window dimensions are physical pixels (2x logical on retina);
+    // the React content paints a 120-160 px logical pill inside, with the
+    // surrounding window space reserved for the soft drop shadow.
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    let w: u32 = 820;
-    let h: u32 = 140;
+    let w: u32 = 400;
+    let h: u32 = 120;
     let x: i32 = ((mw as i32 - w as i32) / 2).max(0);
-    let y: i32 = ((mh as f64 * 0.72) as i32 - h as i32 / 2).max(0);
+    // Bottom margin: ~14 logical px ≈ 28 physical px, matching Wispr Flow.
+    let y: i32 = (mh as i32 - h as i32 - 28).max(0);
 
     let win = WebviewWindowBuilder::new(&app, FLOW_BAR_LABEL, build_overlay_url("flow-bar"))
         .title("Voice")

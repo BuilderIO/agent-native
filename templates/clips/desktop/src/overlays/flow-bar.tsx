@@ -83,9 +83,9 @@ export function FlowBar() {
       return;
     }
 
-    const BAR_COUNT = 24;
+    const BAR_COUNT = 14;
     const BAR_WIDTH = 2;
-    const BAR_GAP = 4;
+    const BAR_GAP = 3;
 
     function draw() {
       const canvas = canvasRef.current;
@@ -95,7 +95,7 @@ export function FlowBar() {
 
       const dpr = window.devicePixelRatio || 1;
       const logicalW = BAR_COUNT * (BAR_WIDTH + BAR_GAP) - BAR_GAP;
-      const logicalH = 32;
+      const logicalH = 18;
       if (canvas.width !== logicalW * dpr || canvas.height !== logicalH * dpr) {
         canvas.width = logicalW * dpr;
         canvas.height = logicalH * dpr;
