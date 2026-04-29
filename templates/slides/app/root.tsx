@@ -11,6 +11,7 @@ import { useNavigationState } from "@/hooks/use-navigation-state";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DeckProvider } from "@/context/DeckContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/toaster";
 import {
   AgentSidebar,
   AgentToggleButton,
@@ -238,6 +239,12 @@ export default function Root() {
         <QueryClientProvider client={queryClient}>
           <TooltipProvider>
             <AppContent />
+            {/* Global Toaster — sibling of AppContent so toasts render on
+                every route (including bare /slide, /share/*, presentation
+                mode) and across both the editor and the home shell.
+                Without this mount, every toast() call queues but nothing
+                appears in the DOM (caught by browser tests TC-06–10). */}
+            <Toaster />
           </TooltipProvider>
         </QueryClientProvider>
       </ThemeProvider>

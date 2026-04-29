@@ -32,6 +32,18 @@ export function ExportMenu({
   onShareLink,
   onShareTeam,
 }: ExportMenuProps) {
+  // Programmatic anchor download — avoids the popup blocker that silently
+  // kills window.open() after an async fetch (no direct user gesture left).
+  const triggerDownload = (filename: string) => {
+    const a = document.createElement("a");
+    a.href = `/api/exports/${filename}`;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const handleExportPptx = async () => {
     try {
       const res = await fetch(`/_agent-native/actions/export-pptx`, {
@@ -41,7 +53,7 @@ export function ExportMenu({
       });
       const data = await res.json();
       if (data.filename) {
-        window.open(`/api/exports/${data.filename}`, "_blank");
+        triggerDownload(data.filename);
       } else {
         toast({
           title: "Export failed",
@@ -68,7 +80,7 @@ export function ExportMenu({
       });
       const data = await res.json();
       if (data.filename) {
-        window.open(`/api/exports/${data.filename}`, "_blank");
+        triggerDownload(data.filename);
       } else {
         toast({
           title: "Export failed",
