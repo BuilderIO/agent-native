@@ -51,10 +51,7 @@ async function hasOverride(
   // appStateGet hits the DB; on transient connection errors (flaky network /
   // Neon timeout) treat as "no override" rather than 500ing the whole route.
   try {
-    const val = await appStateGet(
-      sessionId,
-      `${OVERRIDE_KEY_PREFIX}${stepId}`,
-    );
+    const val = await appStateGet(sessionId, `${OVERRIDE_KEY_PREFIX}${stepId}`);
     return !!(val && (val as { complete?: boolean }).complete);
   } catch {
     return false;
@@ -211,9 +208,9 @@ export function createOnboardingPlugin(
           return { error: "Method not allowed" };
         }
         const sessionId = await resolveSessionId(event);
-        // The frontend polls this every ~3s. On flaky networks (or transient
-        // Neon hiccups) the DB call below can throw — return safe defaults
-        // so the poll loop doesn't surface a 500 to the user every 3s.
+        // On flaky networks (or transient Neon hiccups) the DB call below
+        // can throw — return safe defaults so a transient connection error
+        // doesn't surface as a 500 to the client.
         try {
           const value = await appStateGet(sessionId, DISMISSED_KEY);
           const dismissed = !!(

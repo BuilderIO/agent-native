@@ -102,4 +102,4 @@ export default runMigrations([
     version: 10,
     sql: `CREATE INDEX IF NOT EXISTS dashboard_views_dashboard_idx ON dashboard_views (dashboard_id)`,
   },
-]);
+], { table: "analytics_migrations" });

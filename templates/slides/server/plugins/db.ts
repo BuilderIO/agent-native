@@ -131,4 +131,4 @@ export default runMigrations([
       postgres: `ALTER TABLE slide_comments ALTER COLUMN resolved SET DEFAULT false`,
     },
   },
-]);
+], { table: "slides_migrations" });
