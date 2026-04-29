@@ -12,25 +12,26 @@
  * DATABASE_URL by default, so storing a credential once makes it
  * available everywhere.
  *
- * SECURITY: every call requires a `CredentialContext` ({ userEmail, orgId })
- * so reads are scoped to the calling user / org. Inside a framework action
- * (auto-mounted at `/_agent-native/actions/...`) you can read it from
- * `getCredentialContext()`. Inside a custom Nitro `/api/*` route, read the
- * session and wrap your handler in `runWithRequestContext` first.
+ * Once @agent-native/core publishes the upcoming 2-arg signature you can
+ * extend this to take a `{ userEmail, orgId }` context and pass it through
+ * for per-user / per-org scoping. The current shape works against both
+ * versions — the published 1-arg signature ignores the second argument.
  */
-import {
-  resolveCredential,
-  type CredentialContext,
-} from "@agent-native/core/credentials";
-import { getCredentialContext } from "@agent-native/core/server/request-context";
+import { resolveCredential } from "@agent-native/core/credentials";
 
-// The published @agent-native/core may still type resolveCredential as
-// (key) => Promise<string | undefined>. We intentionally type-erase the
-// call so the workspace-core template compiles against both the current
-// 1-arg published version and the upcoming 2-arg release.
+/**
+ * Optional context for scoping a credential lookup to a specific user or
+ * org. Forward-compatible with the upcoming 2-arg @agent-native/core
+ * signature; ignored by the current 1-arg published one.
+ */
+export interface CompanyCredentialContext {
+  userEmail?: string;
+  orgId?: string | null;
+}
+
 type ResolveCredentialFn = (
   key: string,
-  ctx?: CredentialContext,
+  ctx?: CompanyCredentialContext,
 ) => Promise<string | undefined>;
 
 /**
@@ -38,16 +39,10 @@ type ResolveCredentialFn = (
  * directly — it keeps your keys organized under a workspace namespace and
  * makes "where does this secret come from" greppable.
  *
- * Pass an explicit context when calling from a custom HTTP route. Inside a
- * framework action it can be omitted — the active request context will be
- * used automatically.
- *
- * Example (action / agent tool):
+ * Example:
  *   const slackToken = await resolveCompanyCredential("SLACK_BOT_TOKEN");
  *
- * Example (custom Nitro route):
- *   const session = await getSession(event);
- *   if (!session?.email) throw createError({ statusCode: 401 });
+ * With per-user scoping (after upgrading @agent-native/core):
  *   const slackToken = await resolveCompanyCredential("SLACK_BOT_TOKEN", {
  *     userEmail: session.email,
  *     orgId: session.orgId ?? null,
@@ -55,13 +50,7 @@ type ResolveCredentialFn = (
  */
 export async function resolveCompanyCredential(
   key: string,
-  ctx?: CredentialContext,
+  ctx?: CompanyCredentialContext,
 ): Promise<string | undefined> {
-  const resolved = ctx ?? getCredentialContext();
-  if (!resolved) {
-    throw new Error(
-      `resolveCompanyCredential("${key}") called without a CredentialContext and no active request context was found. Pass { userEmail, orgId } explicitly, or call this from inside a framework action.`,
-    );
-  }
-  return await (resolveCredential as ResolveCredentialFn)(key, resolved);
+  return await (resolveCredential as ResolveCredentialFn)(key, ctx);
 }
