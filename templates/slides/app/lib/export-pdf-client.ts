@@ -16,7 +16,7 @@ export async function exportDeckAsPdf(
   const html2canvas = (await import("html2canvas")).default;
   const { jsPDF } = await import("jspdf");
 
-  const dims = getAspectRatioDims(aspectRatio);
+  const dims = getAspectRatioDims(aspectRatio) ?? getAspectRatioDims(undefined);
   const orientation = dims.width >= dims.height ? "landscape" : "portrait";
 
   const pdf = new jsPDF({
