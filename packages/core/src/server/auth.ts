@@ -517,7 +517,18 @@ export async function runAuthGuard(
   return _authGuardFn(event);
 }
 
-const LOCAL_SESSION: AuthSession = { email: "local@localhost" };
+/**
+ * The framework's dev-mode bypass identity. When `AUTH_MODE=local` (or
+ * dev-mode falls back), `getSession()` returns `{ email: DEV_MODE_USER_EMAIL }`.
+ * Production code that needs to check whether the current request is the
+ * dev-mode user (or filter it out of mailers, dashboards, etc.) should
+ * compare against this constant instead of inlining the literal —
+ * `guard-no-localhost-fallback.mjs` blocks the literal everywhere except
+ * `auth.ts` and a handful of dev-mode helpers.
+ */
+export const DEV_MODE_USER_EMAIL = "local@localhost";
+
+const LOCAL_SESSION: AuthSession = { email: DEV_MODE_USER_EMAIL };
 
 // ---------------------------------------------------------------------------
 // Auth guard factory
