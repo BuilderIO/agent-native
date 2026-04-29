@@ -35,7 +35,11 @@ export const ANTHROPIC_SUPPORTED_MODELS = [
   "claude-haiku-4-5-20251001",
 ] as const;
 
-export const ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6";
+// Single source of truth for the framework default lives in
+// agent/default-model.ts. Engines, integrations, and the agent-chat plugin
+// all read from the same constant, so bumping the default model is a
+// one-line change.
+export { DEFAULT_MODEL as ANTHROPIC_DEFAULT_MODEL } from "../default-model.js";
 
 class AnthropicEngine implements AgentEngine {
   readonly name = "anthropic";

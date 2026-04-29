@@ -224,7 +224,6 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
     if (isConnectionError(err)) {
       _hasJobsCache = undefined; // force re-check on next successful tick
       _lastJobsCheck = 0;
-      _isRunning = false;
       return;
     }
     // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause
