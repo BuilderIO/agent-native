@@ -169,7 +169,7 @@ async function findLegacyDashboard(
       return {
         data: v,
         kind: "sql",
-        ownerEmail: ctx.email || LOCAL_EMAIL,
+        ownerEmail: ctx.email,
         orgId: ctx.orgId,
         visibility: "org",
       };
@@ -204,7 +204,7 @@ async function findLegacyDashboard(
     return {
       data: sqlGlobal,
       kind: "sql",
-      ownerEmail: ctx.email || LOCAL_EMAIL,
+      ownerEmail: ctx.email,
       orgId: null,
       visibility: "private",
     };
@@ -213,7 +213,7 @@ async function findLegacyDashboard(
     return {
       data: explorerGlobal,
       kind: "explorer",
-      ownerEmail: ctx.email || LOCAL_EMAIL,
+      ownerEmail: ctx.email,
       orgId: null,
       visibility: "private",
     };
@@ -272,7 +272,7 @@ export async function listDashboards(
     for (const [key, value] of Object.entries(all)) {
       let id: string | null = null;
       let kind: DashboardKind | null = null;
-      let ownerEmail = ctx.email || LOCAL_EMAIL;
+      let ownerEmail = ctx.email;
       let orgId: string | null = null;
       let visibility: DashboardRecord["visibility"] = "private";
       if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${SQL_PREFIX}`)) {
@@ -345,7 +345,7 @@ export async function upsertDashboard(
       kind,
       title,
       config: JSON.stringify(config),
-      ownerEmail: ctx.email || LOCAL_EMAIL,
+      ownerEmail: ctx.email,
       orgId: ctx.orgId,
       // Default to org-wide when the user is in an org, private otherwise.
       visibility: ctx.orgId ? "org" : "private",
@@ -435,7 +435,7 @@ async function findLegacyAnalysis(
     if (v)
       return {
         data: v,
-        ownerEmail: ctx.email || LOCAL_EMAIL,
+        ownerEmail: ctx.email,
         orgId: ctx.orgId,
         visibility: "org",
       };
@@ -454,7 +454,7 @@ async function findLegacyAnalysis(
   if (global)
     return {
       data: global,
-      ownerEmail: ctx.email || LOCAL_EMAIL,
+      ownerEmail: ctx.email,
       orgId: null,
       visibility: "private",
     };
@@ -536,7 +536,7 @@ export async function listAnalyses(ctx: AccessCtx): Promise<AnalysisRecord[]> {
     const all = await getAllSettings();
     for (const [key, value] of Object.entries(all)) {
       let id: string | null = null;
-      let ownerEmail = ctx.email || LOCAL_EMAIL;
+      let ownerEmail = ctx.email;
       let orgId: string | null = null;
       let visibility: AnalysisRecord["visibility"] = "private";
       if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${ANALYSIS_PREFIX}`)) {
@@ -619,8 +619,8 @@ export async function upsertAnalysis(
       dataSources: JSON.stringify(body.dataSources ?? []),
       resultMarkdown: body.resultMarkdown ?? "",
       resultData: body.resultData ? JSON.stringify(body.resultData) : null,
-      author: ctx.email || LOCAL_EMAIL,
-      ownerEmail: ctx.email || LOCAL_EMAIL,
+      author: ctx.email,
+      ownerEmail: ctx.email,
       orgId: ctx.orgId,
       visibility: ctx.orgId ? "org" : "private",
     });
