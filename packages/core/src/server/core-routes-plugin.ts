@@ -1121,7 +1121,11 @@ export function createCoreRoutesPlugin(
 
         try {
           const session = await getSession(event).catch(() => null);
-          const owner = session?.email || "local@localhost";
+          if (!session?.email) {
+            setResponseStatus(event, 401);
+            return { error: "Unauthenticated" };
+          }
+          const owner = session.email;
           const { resourceListAllOwners, SHARED_OWNER } =
             await import("../resources/store.js");
           const allResources = await resourceListAllOwners("jobs/");

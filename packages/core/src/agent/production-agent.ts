@@ -768,7 +768,8 @@ export function createProductionAgentHandler(
             parseRemoteAgentManifest,
             parseSkillMetadata,
           } = await import("../resources/metadata.js");
-          const ownerEmail = getRequestUserEmail() || "local@localhost";
+          const ownerEmail = getRequestUserEmail();
+          if (!ownerEmail) throw new Error("no authenticated user");
           const allResources = await resourceListAccessible(ownerEmail);
 
           if (allResources.length > 0) {
@@ -923,7 +924,8 @@ export function createProductionAgentHandler(
 
         // Resolve custom workspace agent mentions first.
         if (customAgentRefs.length > 0) {
-          const ownerEmail = getRequestUserEmail() || "local@localhost";
+          const ownerEmail = getRequestUserEmail();
+          if (!ownerEmail) throw new Error("no authenticated user");
           const { findAccessibleCustomAgent } =
             await import("../resources/agents.js");
           const customResults = await Promise.allSettled(
@@ -981,7 +983,11 @@ export function createProductionAgentHandler(
                 try {
                   const ownerEmail = options.resolveOwnerEmail
                     ? await options.resolveOwnerEmail(event)
-                    : getRequestUserEmail() || "local@localhost";
+                    : getRequestUserEmail();
+                  if (!ownerEmail) {
+                    // Skip usage recording for unauthenticated runs.
+                    return;
+                  }
                   const { recordUsage } = await import("../usage/store.js");
                   await recordUsage({
                     ownerEmail,
@@ -1158,9 +1164,11 @@ export function createProductionAgentHandler(
         try {
           const { resolveActiveExperimentConfig } =
             await import("../observability/experiments.js");
-          const expConfig = await resolveActiveExperimentConfig(
-            ownerEmail || "local@localhost",
-          );
+          if (!ownerEmail) {
+            // Without an authenticated owner we can't resolve user-scoped experiments.
+            throw new Error("no authenticated user");
+          }
+          const expConfig = await resolveActiveExperimentConfig(ownerEmail);
           if (expConfig) {
             if (typeof expConfig.configs.model === "string") {
               effectiveModel = expConfig.configs.model;
@@ -1195,7 +1203,7 @@ export function createProductionAgentHandler(
               loopOpts: agentLoopOpts,
               runId,
               threadId: threadId ?? null,
-              userId: ownerEmail || "local@localhost",
+              userId: ownerEmail,
               config: obsConfig,
             });
           }
@@ -1215,7 +1223,7 @@ export function createProductionAgentHandler(
         try {
           const ownerEmail = options.resolveOwnerEmail
             ? await options.resolveOwnerEmail(event)
-            : getRequestUserEmail() || "local@localhost";
+            : getRequestUserEmail();
           if (
             ownerEmail &&
             (loopUsage.inputTokens > 0 ||

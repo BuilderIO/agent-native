@@ -72,6 +72,13 @@ On 2026-04-29 the previous one-arg `resolveCredential(key)` form fell back to `p
 
 If a deploy-level value genuinely needs an env var (CI-set token, host secret), it's not a user credential — keep it out of the credentials/ secrets/ vault/ paths and the env-credentials guard won't see it.
 
+## Guards
+
+Two more CI guards (also wired into `pnpm prep`) target the 2026-04 cross-tenant leak class — request-state escaping into shared process state, and dev-mode sentinel identities used as production fallbacks.
+
+- `scripts/guard-no-env-mutation.mjs` — bans `process.env.<KEY> = …` (and bracket / compound forms) anywhere in production code. On serverless, every warm container handles many concurrent requests in one Node process, so `process.env` mutation leaks across in-flight requests (the "restore" line at the end of a handler races and never helps — most recently the Zoom webhook). Use `runWithRequestContext({ userEmail, orgId, timezone }, fn)` from `@agent-native/core/server` instead — it's AsyncLocalStorage-backed and per-request safe. Allowlisted paths: `scripts/`, `*.spec.ts` / `*.test.ts`, `packages/core/src/dev**`, `templates/*/test/`, anything under `/cli/` or `/scaffold/`. Per-line opt-out: `process.env.X = y // guard:allow-env-mutation — <reason>`.
+- `scripts/guard-no-localhost-fallback.mjs` — bans the literal `"local@localhost"` / `'local@localhost'` / `` `local@localhost` `` in production code. The bug class: `getRequestUserEmail() ?? "local@localhost"` silently pools every unauthenticated request into a single shared tenant, leaking credentials, tools, and `application_state` rows between accounts. The right behavior is to throw / 401 when there's no session. Allowlisted paths: the dev-mode auth shim (`packages/core/src/server/auth.ts`), `packages/core/src/dev**`, tests, `scripts/`, `seed/` / `seeds/`, plus a few framework helpers that intentionally inspect or migrate the dev identity. SQL DDL `DEFAULT 'local@localhost'` and the Drizzle helper `.default('local@localhost')` are skipped per-line — schema column defaults are intentional dev fixtures, not the dangerous fallback pattern. Per-line opt-out: `email ?? "local@localhost" // guard:allow-localhost-fallback — <reason>`.
+
 ## Auth
 
 - All actions are protected by the auth guard automatically.

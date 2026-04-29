@@ -2514,7 +2514,8 @@ export function createAgentChatPlugin(
           const handler = devActive && devHandler ? devHandler : prodHandler;
 
           // Build the same system prompt the interactive agent uses
-          const owner = userEmail || "local@localhost";
+          if (!userEmail) throw new Error("no authenticated user");
+          const owner = userEmail;
           const resources = await loadResourcesForPrompt(owner, lazyContext);
           const schemaBlock = lazyContext
             ? ""
@@ -2738,12 +2739,15 @@ export function createAgentChatPlugin(
 
       // Resolve owner from the H3 event's session — matches how resources are created
       const getOwnerFromEvent = async (event: any): Promise<string> => {
-        try {
-          const session = await getSession(event);
-          return session?.email || "local@localhost";
-        } catch {
-          return "local@localhost";
+        const session = await getSession(event);
+        if (!session?.email) {
+          const { createError } = await import("h3");
+          throw createError({
+            statusCode: 401,
+            statusMessage: "Unauthenticated",
+          });
         }
+        return session.email;
       };
 
       // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
