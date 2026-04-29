@@ -118,6 +118,7 @@ export {
   getRequestUserEmail,
   getRequestOrgId,
   getRequestTimezone,
+  getCredentialContext,
   type RequestContext,
 } from "./request-context.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";

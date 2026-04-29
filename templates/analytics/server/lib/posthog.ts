@@ -2,6 +2,7 @@
 // Queries events, insights, and trends
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 
 const DEFAULT_HOST = "https://app.posthog.com";
 
@@ -15,11 +16,13 @@ async function getConfig(): Promise<{
   projectId: string;
   host: string;
 }> {
-  const apiKey = await resolveCredential("POSTHOG_API_KEY");
-  const projectId = await resolveCredential("POSTHOG_PROJECT_ID");
-  const host = (await resolveCredential("POSTHOG_HOST")) ?? DEFAULT_HOST;
-  if (!apiKey) throw new Error("POSTHOG_API_KEY env var required");
-  if (!projectId) throw new Error("POSTHOG_PROJECT_ID env var required");
+  const ctx = requireRequestCredentialContext("POSTHOG_API_KEY");
+  const apiKey = await resolveCredential("POSTHOG_API_KEY", ctx);
+  const projectId = await resolveCredential("POSTHOG_PROJECT_ID", ctx);
+  const host =
+    (await resolveCredential("POSTHOG_HOST", ctx)) ?? DEFAULT_HOST;
+  if (!apiKey) throw new Error("POSTHOG_API_KEY not configured");
+  if (!projectId) throw new Error("POSTHOG_PROJECT_ID not configured");
   return { apiKey, projectId, host: host.replace(/\/$/, "") };
 }
 

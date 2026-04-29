@@ -175,13 +175,17 @@ export function createTranscribeVoiceHandler() {
 
     // ── Groq / OpenAI Whisper-compatible path ──────────────────────────
     async function resolveApiKey(key: string): Promise<string | undefined> {
-      if (!session?.email) return (await resolveCredential(key)) ?? undefined;
+      const ctx = { userEmail: session?.email };
+      if (!session?.email)
+        return (await resolveCredential(key, ctx)) ?? undefined;
       const userSecret = await readAppSecret({
         key,
         scope: "user",
         scopeId: session.email,
       }).catch(() => null);
-      return userSecret?.value || (await resolveCredential(key)) || undefined;
+      return (
+        userSecret?.value || (await resolveCredential(key, ctx)) || undefined
+      );
     }
 
     let provider: {

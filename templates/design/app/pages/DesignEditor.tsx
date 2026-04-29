@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import {
   IconArrowLeft,
@@ -13,6 +13,8 @@ import {
   IconDeviceMobile,
   IconDeviceDesktopOff,
   IconPlus,
+  IconLayoutGrid,
+  IconX,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -31,9 +33,15 @@ import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
+import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
+import { QuestionFlow } from "@/components/design/QuestionFlow";
+import { TweaksPanel } from "@/components/design/TweaksPanel";
+import { VariantGrid } from "@/components/design/VariantGrid";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useQuestionFlow } from "@/hooks/use-question-flow";
+import { useVariantFlow } from "@/hooks/use-variant-flow";
 import type {
   ElementInfo,
   DeviceFrameType,
@@ -41,6 +49,7 @@ import type {
   DrawAnnotation,
 } from "@/components/design/types";
 import { ZOOM_PRESETS } from "@/components/design/types";
+import type { TweakDefinition } from "@shared/api";
 
 const TAB_ID = generateTabId();
 
@@ -73,6 +82,7 @@ export default function DesignEditor() {
   const [mode, setMode] = useState<EditorMode>("comment");
   const [zoom, setZoom] = useState(100);
   const [deviceFrame, setDeviceFrame] = useState<DeviceFrameType>("none");
+  const [viewMode, setViewMode] = useState<"single" | "overview">("single");
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
@@ -81,13 +91,29 @@ export default function DesignEditor() {
   );
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [tweaksVisible, setTweaksVisible] = useState(false);
-  const [tweakValues, setTweakValues] = useState<Record<string, string>>({});
+  // Tweak values: keyed by tweak id while in the panel; mapped to CSS-var ->
+  // value when sent to the iframe so the design's :root block picks them up.
+  const [tweakSelections, setTweakSelections] = useState<
+    Record<string, string | number | boolean>
+  >({});
   const [drawAnnotations, setDrawAnnotations] = useState<DrawAnnotation[]>([]);
   const [showPrompt, setShowPrompt] = useState(false);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   promptAnchorRef.current = generateBtnRef.current;
   const { generating, submit: agentSubmit } = useAgentGenerating();
+
+  // Question flow + variant flow — full-canvas overlays driven by the agent.
+  const {
+    questions: pendingQuestions,
+    handleSubmit: handleQuestionsSubmit,
+    handleSkip: handleQuestionsSkip,
+  } = useQuestionFlow(id);
+  const {
+    state: pendingVariants,
+    useVariant: handleUseVariant,
+    dismiss: handleVariantsDismiss,
+  } = useVariantFlow(id);
 
   const { session } = useSession();
 
@@ -171,6 +197,56 @@ export default function DesignEditor() {
 
   // Resolve the content to render: prefer collab content, fall back to DB
   const activeContent = collabContent ?? activeFile?.content ?? "";
+
+  // Parse design.data for agent-supplied tweaks. The agent writes a JSON blob
+  // to designs.data containing { tweaks: TweakDefinition[], ... }; we surface
+  // the tweaks as live controls bound to the design's CSS custom properties.
+  const tweaks: TweakDefinition[] = useMemo(() => {
+    if (!design?.data) return [];
+    try {
+      const parsed = JSON.parse(design.data);
+      if (Array.isArray(parsed?.tweaks)) return parsed.tweaks;
+      return [];
+    } catch {
+      return [];
+    }
+  }, [design?.data]);
+
+  // Initialize tweak selections from defaults the first time we see a tweak set.
+  useEffect(() => {
+    if (tweaks.length === 0) return;
+    setTweakSelections((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const t of tweaks) {
+        if (next[t.id] === undefined) {
+          next[t.id] = t.defaultValue;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tweaks]);
+
+  // Map tweak selections (id -> value) to CSS-var assignments (--var -> value)
+  // for the iframe bridge. Toggle booleans become "1"/"0"; numbers get the
+  // unit they're declared with (px for radius, otherwise unitless).
+  const cssVarValues = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const t of tweaks) {
+      if (!t.cssVar) continue;
+      const v = tweakSelections[t.id] ?? t.defaultValue;
+      if (typeof v === "boolean") {
+        out[t.cssVar] = v ? "1" : "0";
+      } else if (typeof v === "number") {
+        const unit = t.cssVar.toLowerCase().includes("radius") ? "px" : "";
+        out[t.cssVar] = `${v}${unit}`;
+      } else {
+        out[t.cssVar] = String(v);
+      }
+    }
+    return out;
+  }, [tweaks, tweakSelections]);
 
   // Expose selection state for agent context
   useEffect(() => {
@@ -290,13 +366,30 @@ export default function DesignEditor() {
 
           <div className="w-px h-5 bg-accent mx-1" />
 
-          {/* Device frame */}
+          {/* Overview / single-screen toggle. Clicking Overview shows every
+              file in the design as a Figma-style pannable lineup. */}
+          <Button
+            variant={viewMode === "overview" ? "secondary" : "ghost"}
+            size="icon"
+            className="h-7 w-7 cursor-pointer"
+            onClick={() =>
+              setViewMode((v) => (v === "overview" ? "single" : "overview"))
+            }
+            title={viewMode === "overview" ? "Single screen" : "All screens"}
+          >
+            <IconLayoutGrid className="w-3.5 h-3.5" />
+          </Button>
+
+          <div className="w-px h-5 bg-accent mx-1" />
+
+          {/* Device frame — only meaningful in single-screen mode. */}
           <div className="flex items-center gap-0.5">
             <Button
               variant={deviceFrame === "none" ? "secondary" : "ghost"}
               size="icon"
               className="h-7 w-7 cursor-pointer"
               onClick={() => setDeviceFrame("none")}
+              disabled={viewMode === "overview"}
               title="No frame"
             >
               <IconDeviceDesktopOff className="w-3.5 h-3.5" />
@@ -306,6 +399,7 @@ export default function DesignEditor() {
               size="icon"
               className="h-7 w-7 cursor-pointer"
               onClick={() => setDeviceFrame("desktop")}
+              disabled={viewMode === "overview"}
               title="Desktop"
             >
               <IconDeviceDesktop className="w-3.5 h-3.5" />
@@ -315,6 +409,7 @@ export default function DesignEditor() {
               size="icon"
               className="h-7 w-7 cursor-pointer"
               onClick={() => setDeviceFrame("tablet")}
+              disabled={viewMode === "overview"}
               title="Tablet"
             >
               <IconDeviceTablet className="w-3.5 h-3.5" />
@@ -324,6 +419,7 @@ export default function DesignEditor() {
               size="icon"
               className="h-7 w-7 cursor-pointer"
               onClick={() => setDeviceFrame("mobile")}
+              disabled={viewMode === "overview"}
               title="Mobile"
             >
               <IconDeviceMobile className="w-3.5 h-3.5" />
@@ -397,17 +493,78 @@ export default function DesignEditor() {
 
       {/* Main canvas area */}
       <div className="flex-1 flex overflow-hidden relative">
+        {/* Question flow overlay — full canvas takeover, blocks editing while
+            the user answers. Closes itself on submit/skip. */}
+        {pendingQuestions && pendingQuestions.length > 0 && (
+          <div className="absolute inset-0 z-40 bg-background">
+            <QuestionFlow
+              questions={pendingQuestions}
+              onSubmit={handleQuestionsSubmit}
+              onSkip={handleQuestionsSkip}
+            />
+          </div>
+        )}
+
+        {/* Variant grid overlay — full canvas takeover with 2-5 candidate
+            designs. "Use this one" persists the chosen content as index.html. */}
+        {pendingVariants && (
+          <div className="absolute inset-0 z-40 flex flex-col bg-background">
+            <div className="flex h-12 items-center justify-between border-b border-border px-4">
+              <div>
+                <span className="text-sm font-medium text-foreground/90">
+                  {pendingVariants.prompt ?? "Pick a direction"}
+                </span>
+                <span className="ml-2 text-xs text-muted-foreground">
+                  {pendingVariants.variants.length} variations
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="cursor-pointer"
+                onClick={handleVariantsDismiss}
+              >
+                <IconX className="w-3.5 h-3.5" />
+                Close
+              </Button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <VariantGrid
+                variants={pendingVariants.variants}
+                onSelect={() => {}}
+                onUse={handleUseVariant}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Canvas */}
         {activeFile ? (
-          <DesignCanvas
-            content={activeContent}
-            zoom={zoom}
-            deviceFrame={deviceFrame}
-            editMode={mode === "edit"}
-            onElementSelect={handleElementSelect}
-            onElementHover={handleElementHover}
-            tweakValues={tweakValues}
-          />
+          viewMode === "overview" ? (
+            <MultiScreenCanvas
+              screens={files.map((f) => ({
+                id: f.id,
+                filename: f.filename,
+                content: f.content,
+              }))}
+              zoom={zoom}
+              activeId={activeFileId}
+              onPick={(id) => {
+                setActiveFileId(id);
+                setViewMode("single");
+              }}
+            />
+          ) : (
+            <DesignCanvas
+              content={activeContent}
+              zoom={zoom}
+              deviceFrame={deviceFrame}
+              editMode={mode === "edit"}
+              onElementSelect={handleElementSelect}
+              onElementHover={handleElementHover}
+              tweakValues={cssVarValues}
+            />
+          )
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
@@ -507,26 +664,40 @@ export default function DesignEditor() {
           </div>
         )}
 
-        {/* Tweaks panel (floating) */}
-        {tweaksVisible && (
-          <div className="absolute top-4 right-4 w-56 bg-card border border-border rounded-xl p-4 shadow-2xl z-10">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Tweaks
-              </h3>
-              <button
-                onClick={() => setTweaksVisible(false)}
-                className="text-muted-foreground/70 hover:text-muted-foreground text-xs cursor-pointer"
-              >
-                Close
-              </button>
+        {/* Tweaks panel (floating, draggable). Renders agent-defined knobs
+            (color swatches, segments, sliders, toggles) bound to CSS custom
+            properties in the design. Empty state when the design has no
+            tweak definitions. */}
+        {tweaksVisible &&
+          (tweaks.length > 0 ? (
+            <TweaksPanel
+              tweaks={tweaks}
+              values={tweakSelections}
+              onChange={(id, value) =>
+                setTweakSelections((prev) => ({ ...prev, [id]: value }))
+              }
+              visible
+            />
+          ) : (
+            <div className="absolute bottom-4 left-4 z-30 w-60 rounded-xl border border-border bg-card p-4 shadow-2xl">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Tweaks
+                </h3>
+                <button
+                  onClick={() => setTweaksVisible(false)}
+                  className="cursor-pointer text-muted-foreground/70 hover:text-muted-foreground"
+                >
+                  <IconX className="h-3 w-3" />
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground/70 leading-relaxed">
+                Ask the agent to add knobs to this design (e.g. "let me toggle
+                the accent color and density"). They'll appear here as live
+                controls.
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground/70">
-              CSS custom property overrides will appear here when the design
-              uses configurable tokens.
-            </p>
-          </div>
-        )}
+          ))}
 
         {/* Draw overlay */}
         {mode === "draw" && (

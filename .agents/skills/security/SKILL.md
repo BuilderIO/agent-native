@@ -53,9 +53,24 @@ await client.execute(`SELECT * FROM users WHERE id = '${id}'`);
 
 ## Secrets
 
-- API keys and credentials go in `.env` only (gitignored).
 - OAuth tokens go in the `oauth_tokens` store via `saveOAuthTokens()`.
 - Never store secrets in `settings`, `application_state`, source code, or action responses sent to the client.
+
+## User Credentials Are Per-User Data — Never `process.env`
+
+User credentials (API keys, third-party tokens) are per-user (or per-org) data. They MUST live in SQL, scoped per-user (`u:<email>:credential:KEY`) or per-org (`o:<orgId>:credential:KEY`). Always read with the request context:
+
+```ts
+import { resolveCredential } from "@agent-native/core/credentials";
+const apiKey = await resolveCredential("OPENAI_API_KEY", { userEmail, orgId });
+```
+
+On 2026-04-29 the previous one-arg `resolveCredential(key)` form fell back to `process.env[key]` and an unscoped global `settings` row, so every signed-in user inherited the deployment's credentials. Two guards now block this in CI (`pnpm prep`):
+
+- `scripts/guard-no-env-credentials.mjs` — bans `process.env.<KEY>` reads in `packages/core/src/credentials/`, `secrets/`, `vault/`, and `templates/*/server/{lib,routes/api}/credential*` paths, except for an explicit allowlist of deploy-level vars (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `NETLIFY_*`, etc.). Per-line opt-out: `// guard:allow-env-credential — <reason>`.
+- `scripts/guard-no-unscoped-credentials.mjs` — bans one-arg calls to `resolveCredential` / `hasCredential` / `saveCredential` / `deleteCredential`. Per-line opt-out: `// guard:allow-unscoped-credential — <reason>`.
+
+If a deploy-level value genuinely needs an env var (CI-set token, host secret), it's not a user credential — keep it out of the credentials/ secrets/ vault/ paths and the env-credentials guard won't see it.
 
 ## Auth
 

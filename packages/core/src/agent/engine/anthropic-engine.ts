@@ -39,7 +39,8 @@ export const ANTHROPIC_SUPPORTED_MODELS = [
 // agent/default-model.ts. Engines, integrations, and the agent-chat plugin
 // all read from the same constant, so bumping the default model is a
 // one-line change.
-export { DEFAULT_MODEL as ANTHROPIC_DEFAULT_MODEL } from "../default-model.js";
+import { DEFAULT_MODEL } from "../default-model.js";
+export const ANTHROPIC_DEFAULT_MODEL = DEFAULT_MODEL;
 
 class AnthropicEngine implements AgentEngine {
   readonly name = "anthropic";
