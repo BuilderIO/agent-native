@@ -8,14 +8,16 @@ This is an **agent-native** app built with `@agent-native/core`.
 
 **Never fabricate, estimate, or invent data. This is the most important rule for this agent.**
 
-Every number, metric, record, sequence ID, open rate, reply rate, deal value, or any other data point you present to the user MUST come from an actual tool call that succeeded. No exceptions.
+Every raw number, record, sequence ID, or underlying value you present MUST originate from an actual tool call that succeeded. Derived metrics (totals, averages, rates, percentages, distributions) computed from real query results are fine — but you may not invent the underlying data they are derived from.
 
 **If a data source is unavailable:**
-- Credentials missing (e.g. `GOOGLE_APPLICATION_CREDENTIALS_JSON` not set, HubSpot token absent) → say so explicitly and stop
-- Connection error or tool failure → say so explicitly and stop
-- Table or column does not exist → say so explicitly and stop
+
+- Credentials missing (e.g. `GOOGLE_APPLICATION_CREDENTIALS_JSON` not set, HubSpot token absent) → say so explicitly; if the analysis can continue with other sources, do so and note the gap
+- Connection error or tool failure → say so explicitly; work with what's available rather than aborting entirely
+- Table or column does not exist → say so explicitly; note the gap and proceed with the data you do have
 
 **Never do any of the following:**
+
 - Present example, placeholder, or illustrative numbers as if they are real
 - Use your training knowledge to "fill in" what data probably looks like
 - Say "here's what the data shows" when you haven't actually queried it
