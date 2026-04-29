@@ -14,8 +14,9 @@ import {
   sendRedirect,
   type H3Event,
 } from "h3";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../../../db/index.js";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
+import "../../../db/index.js"; // ensure registerShareableResource runs
 
 function initialsFor(title: string): string {
   const words = title.trim().split(/\s+/).filter(Boolean);
@@ -36,27 +37,39 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Missing callId" };
   }
 
-  const db = getDb();
-  const [call] = await db
-    .select({
-      thumbnailUrl: schema.calls.thumbnailUrl,
-      title: schema.calls.title,
-    })
-    .from(schema.calls)
-    .where(eq(schema.calls.id, callId))
-    .limit(1);
+  const session = await getSession(event).catch(() => null);
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    async () => {
+      let access;
+      try {
+        access = await resolveAccess("call", callId);
+      } catch (err) {
+        if (err instanceof ForbiddenError) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+        throw err;
+      }
 
-  if (!call) {
-    setResponseStatus(event, 404);
-    return { error: "Not found" };
-  }
+      if (!access) {
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }
 
-  if (call.thumbnailUrl) {
-    return sendRedirect(event, call.thumbnailUrl, 302);
-  }
+      const call = access.resource as {
+        thumbnailUrl?: string | null;
+        title?: string | null;
+      };
 
-  const initials = initialsFor(call.title ?? "Call");
-  setResponseHeader(event, "Content-Type", "image/svg+xml; charset=utf-8");
-  setResponseHeader(event, "Cache-Control", "public, max-age=3600");
-  return placeholderSvg(initials);
+      if (call.thumbnailUrl) {
+        return sendRedirect(event, call.thumbnailUrl, 302);
+      }
+
+      const initials = initialsFor(call.title ?? "Call");
+      setResponseHeader(event, "Content-Type", "image/svg+xml; charset=utf-8");
+      setResponseHeader(event, "Cache-Control", "private, max-age=3600");
+      return placeholderSvg(initials);
+    },
+  );
 });

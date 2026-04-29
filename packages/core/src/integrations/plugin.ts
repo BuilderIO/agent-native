@@ -337,6 +337,18 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 404);
             return { error: `Integration ${platform} is not enabled` };
           }
+
+          // Verify the webhook signature BEFORE parsing. We pre-parse the
+          // body here (so handleWebhook can skip its second readBody, which
+          // hangs on streaming providers), and that means handleWebhook's
+          // own verifyWebhook step is bypassed. Without this call anyone
+          // could POST a forged Slack/Telegram/email payload.
+          const isValid = await adapter.verifyWebhook(event);
+          if (!isValid) {
+            setResponseStatus(event, 401);
+            return { error: "Invalid webhook signature" };
+          }
+
           const incoming = await adapter.parseIncomingMessage(event);
           if (!incoming) {
             setResponseStatus(event, 200);
