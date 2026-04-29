@@ -192,6 +192,13 @@ export function slackAdapter(): PlatformAdapter {
           console.error("[slack] postProcessingPlaceholder error:", data.error);
           return null;
         }
+
+        // Best-effort: also flip the native AI-assistant "is thinking…"
+        // status bar in the channel input area. Only works for apps
+        // configured with `assistant:write`, otherwise silently no-ops.
+        // Mirrors the Builder.io ai-services slackbot pattern.
+        setSlackAssistantStatus(token, channelId, threadTs, "is thinking…");
+
         return { placeholderRef: data.ts };
       } catch (err) {
         console.error("[slack] postProcessingPlaceholder failed:", err);
@@ -262,6 +269,12 @@ export function slackAdapter(): PlatformAdapter {
           }
         } else {
           await postFresh(token, channelId, threadTs, baseBody);
+        }
+
+        // Clear the AI-assistant "is thinking…" status now that we've
+        // delivered the final answer. Empty status clears it.
+        if (threadTs) {
+          setSlackAssistantStatus(token, channelId, threadTs, "");
         }
 
         // Overflow chunks (rare) — post as plain follow-ups in the same thread
@@ -403,17 +416,56 @@ function markdownToSlackMrkdwn(text: string): string {
  * Block Kit payload for the "Working on it…" placeholder posted as soon as
  * the webhook arrives. Slack will swap this for the final answer via
  * `chat.update` once the agent loop completes — same message ts, no extra
- * post in the thread.
+ * post in the thread. The mrkdwn-only context block keeps it visually
+ * lightweight (no heading, no border) so the eventual final reply can swap
+ * in cleanly without the eye flicker of a layout shift.
  */
 function buildThinkingBlocks(): unknown[] {
+  // Pick a witty rotating message so two back-to-back mentions don't both
+  // say the exact same thing. Same vibe as Builder.io's ai-services slackbot.
+  const messages = [
+    "Working on it…",
+    "On it — give me a sec…",
+    "Pulling that up now…",
+    "Routing your request…",
+    "Checking with the right agent…",
+    "Almost there…",
+  ];
+  const text = messages[Math.floor(Math.random() * messages.length)];
   return [
     {
       type: "context",
       elements: [
-        { type: "mrkdwn", text: ":hourglass_flowing_sand: _Working on it…_" },
+        { type: "mrkdwn", text: `:hourglass_flowing_sand: _${text}_` },
       ],
     },
   ];
+}
+
+/**
+ * Optionally set Slack's native AI-assistant status indicator (the small
+ * "is thinking…" line under the message composer) for an app configured
+ * with the `assistant:write` scope. Pure best-effort — fails silently for
+ * apps that aren't set up as AI assistants.
+ */
+function setSlackAssistantStatus(
+  token: string,
+  channelId: string,
+  threadTs: string,
+  status: string,
+): void {
+  fetch("https://slack.com/api/assistant.threads.setStatus", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      channel_id: channelId,
+      thread_ts: threadTs,
+      status,
+    }),
+  }).catch(() => {});
 }
 
 /**

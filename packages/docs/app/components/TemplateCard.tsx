@@ -7,76 +7,52 @@ export { trackEvent };
 
 export const templates = [
   {
-    name: "Mail",
-    slug: "mail",
-    replaces: "Replaces or augments Superhuman, Gmail",
-    cliCommand: "npx @agent-native/core create my-mail-app",
-    demoUrl: "https://mail.agent-native.com",
+    name: "Clips",
+    slug: "clips",
+    replaces: "Async screen recording for teams",
+    cliCommand: "npx @agent-native/core create my-clips-app",
+    demoUrl: "https://clips.agent-native.com",
     description:
-      "Superhuman-style email client with keyboard shortcuts, AI triage, multi-account support, and email automations. Own your inbox workflow.",
-    color: "#0ea5e9",
+      "Async screen recording with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.",
+    color: "#625DF5",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
   },
   {
-    name: "Calendar",
-    slug: "calendar",
-    replaces: "Replaces or augments Google Calendar, Calendly",
-    cliCommand: "npx @agent-native/core create my-calendar-app",
-    demoUrl: "https://calendar.agent-native.com",
+    name: "Design",
+    slug: "design",
+    replaces: "Replaces or augments Figma, Canva",
+    cliCommand: "npx @agent-native/core create my-design-app",
+    demoUrl: "https://design.agent-native.com",
     description:
-      "Full calendar with Google sync, availability management, and a public booking page. The agent finds open slots, creates events, and manages your schedule.",
-    color: "#10b981",
+      "AI-native design tool. Create and edit visual designs by prompt or by hand, with the agent as your co-designer.",
+    color: "#F472B6",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
   },
   {
-    name: "Content",
-    slug: "content",
-    replaces: "Replaces or augments Notion, Google Docs",
-    cliCommand: "npx @agent-native/core create my-content-app",
-    demoUrl: "https://content.agent-native.com",
+    name: "Dispatch",
+    slug: "dispatch",
+    replaces: "Replaces or augments Slack/Telegram bots and Zapier",
+    cliCommand: "npx @agent-native/core create my-dispatch-app",
+    demoUrl: "https://dispatch.agent-native.com",
     description:
-      "Write and organize documents with a rich editor, Notion import/export, and an AI agent that drafts, rewrites, and publishes to any CMS.",
-    color: "#7928ca",
+      "Central messaging router for your agents. Talk to it from Slack or Telegram and it routes work, manages jobs, memory, approvals, and A2A delegation across every app.",
+    color: "#14B8A6",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
   },
   {
-    name: "Slides",
-    slug: "slides",
-    replaces: "Replaces or augments Google Slides, Pitch",
-    cliCommand: "npx @agent-native/core create my-slides-app",
-    demoUrl: "https://slides.agent-native.com",
+    name: "Forms",
+    slug: "forms",
+    replaces: "Replaces or augments Typeform, Google Forms",
+    cliCommand: "npx @agent-native/core create my-forms-app",
+    demoUrl: "https://forms.agent-native.com",
     description:
-      "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
-    color: "#f59e0b",
+      "AI-native form builder. Generate forms from a prompt, branch logic with the agent, and own every response in your own database.",
+    color: "#06B6D4",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800",
-  },
-  {
-    name: "Video",
-    slug: "video",
-    replaces: "Replaces or augments video editing",
-    cliCommand: "npx @agent-native/core create my-video-app",
-    demoUrl: "https://videos.agent-native.com",
-    description:
-      "Build React-based video compositions with Remotion. Keyframe animation, 30+ easing curves, camera controls, and agent-assisted editing.",
-    color: "#ec4899",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800",
-  },
-  {
-    name: "Analytics",
-    slug: "analytics",
-    replaces: "Replaces or augments Amplitude, Mixpanel, Looker",
-    cliCommand: "npx @agent-native/core create my-analytics-app",
-    demoUrl: "https://analytics.agent-native.com",
-    description:
-      "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
-    color: "var(--docs-accent)",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
   },
 ];
 
