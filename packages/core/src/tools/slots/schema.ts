@@ -31,7 +31,6 @@ export const toolSlotInstalls = table("tool_slot_installs", {
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
   position: integer("position").notNull().default(0),
-  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   config: text("config"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -64,7 +63,6 @@ export const TOOL_SLOT_INSTALLS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_sl
   owner_email TEXT NOT NULL,
   org_id TEXT,
   position INTEGER NOT NULL DEFAULT 0,
-  enabled INTEGER NOT NULL DEFAULT 1,
   config TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -77,7 +75,6 @@ export const TOOL_SLOT_INSTALLS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool
   owner_email TEXT NOT NULL,
   org_id TEXT,
   position INTEGER NOT NULL DEFAULT 0,
-  enabled BOOLEAN NOT NULL DEFAULT TRUE,
   config TEXT,
   created_at TEXT NOT NULL DEFAULT now(),
   updated_at TEXT NOT NULL DEFAULT now()
