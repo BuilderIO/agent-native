@@ -194,13 +194,17 @@ const defaultHandler: A2AHandler = async (
     };
   }
 
-  // A2A note: this message arrived from a different app, so any URL in the
-  // response must be fully-qualified — a relative path like `/deck/abc` is
-  // useless to the caller (different host). We prepend a one-line hint with
-  // this app's base URL so the agent can compose absolute URLs.
+  // A2A note: this message arrived from a different app — the caller cannot
+  // see this app's local state (open deck, selected slide, etc.). They only
+  // see whatever this agent puts into the reply text. So:
+  //   1) include any concrete result (deck/document/dashboard URL, ID, value)
+  //      explicitly in the reply — the caller can't navigate locally.
+  //   2) URLs must be fully-qualified — relative paths resolve against the
+  //      caller's host and 404.
+  // We prepend a one-line hint to the user message so the agent knows.
   const baseUrl = process.env.APP_URL || process.env.URL || "";
   const augmentedText = baseUrl
-    ? `[Cross-app A2A request: any URL you include in your reply MUST be fully-qualified (e.g. ${baseUrl}/deck/abc), never a relative path — the caller is on a different host and relative paths won't resolve.]\n\n${text}`
+    ? `[Cross-app A2A request — the caller is on a different host (${baseUrl} is yours, theirs is different). Include the concrete result (URL, ID, value) explicitly in your reply text; the caller can't see your local UI state. Any URL MUST be fully-qualified, never a relative path.]\n\n${text}`
     : text;
 
   const result = await agentChat.call(augmentedText);
