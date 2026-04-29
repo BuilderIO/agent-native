@@ -15,6 +15,7 @@ import {
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { resolveOrgIdForEmail } from "../org/context.js";
 import { createAnthropicEngine } from "../agent/engine/index.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
@@ -443,13 +444,14 @@ async function processComment(
   const tools = actionsToEngineTools(options.actions);
   const runId = `gdocs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const capturedThreadId = threadId;
+  const orgId = (await resolveOrgIdForEmail(options.ownerEmail)) ?? undefined;
 
   startRun(
     runId,
     capturedThreadId,
     async (send, signal) => {
       await runWithRequestContext(
-        { userEmail: options.ownerEmail, isIntegrationCaller: true },
+        { userEmail: options.ownerEmail, orgId, isIntegrationCaller: true },
         () =>
           runAgentLoop({
             engine,
