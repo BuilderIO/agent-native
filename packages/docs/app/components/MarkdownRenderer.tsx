@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { marked } from "marked";
+import { marked, type RendererThis, type Tokens } from "marked";
 import { codeToHtml } from "shiki";
 
 interface Props {
@@ -19,16 +19,13 @@ interface Props {
 function createRenderer() {
   const renderer = new marked.Renderer();
 
-  renderer.heading = function ({
-    tokens,
-    depth,
-  }: {
-    tokens: marked.Token[];
-    depth: number;
-  }) {
+  renderer.heading = function (
+    this: RendererThis,
+    { tokens, depth }: Tokens.Heading,
+  ) {
     // Render inline tokens to HTML so backticks, links, etc. work in headings.
     // marked v9+ passes raw markdown source as `text`; we need parseInline.
-    const rendered = (this as unknown as { parser: marked.Parser }).parser.parseInline(tokens);
+    const rendered = this.parser.parseInline(tokens);
     // Extract custom ID from {#my-id} syntax (lives in the rendered text)
     const idMatch = rendered.match(/\s*\{#([\w-]+)\}\s*$/);
     let id: string;

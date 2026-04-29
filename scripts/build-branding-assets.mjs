@@ -62,8 +62,10 @@ const TEMPLATE_DIRS = [
 ];
 
 for (const t of TEMPLATE_DIRS) {
-  const pub = join(ROOT, t, "public");
-  if (!existsSync(pub)) continue;
+  const tplDir = join(ROOT, t);
+  if (!existsSync(tplDir)) continue;
+  const pub = join(tplDir, "public");
+  mkdirSync(pub, { recursive: true });
   writeSizedSvg(join(pub, "favicon.svg"), 1024);
   writeSizedSvg(join(pub, "icon-180.svg"), 180);
   writeSizedSvg(join(pub, "icon-192.svg"), 192);
