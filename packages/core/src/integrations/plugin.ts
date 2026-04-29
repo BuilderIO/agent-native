@@ -356,6 +356,7 @@ export function createIntegrationsPlugin(
             apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
             ownerEmail: owner,
             beforeProcess: options?.beforeProcess,
+            incoming,
           });
           setResponseStatus(event, result.status);
           return result.body;
