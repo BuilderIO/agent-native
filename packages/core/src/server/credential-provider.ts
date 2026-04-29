@@ -182,6 +182,47 @@ export async function deleteBuilderCredentials(email: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Generic per-user secret resolution
+//
+// New consumers should prefer this over reading `process.env.X` directly.
+// User-pasted secrets live in `app_secrets` (encrypted, scope=user); the
+// settings UI / onboarding panels write here. Deploy-level env vars are
+// the fallback for unauthenticated/CLI/background contexts where there's
+// no user to scope by — never the silent fallback for an authenticated
+// request, since on a multi-tenant deploy that would silently identify
+// every user as whoever set the deploy-level key (KVesta Space, 2026-04).
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a per-user secret. Reads from `app_secrets` first (scoped by
+ * the current request's authenticated user); falls back to `process.env`
+ * only for unauthenticated/CLI/background contexts.
+ */
+export async function resolveSecret(key: string): Promise<string | null> {
+  const email = getRequestUserEmail();
+  if (email && email !== "local@localhost") {
+    try {
+      const { readAppSecret } = await import("../secrets/storage.js");
+      const secret = await readAppSecret({
+        key,
+        scope: "user",
+        scopeId: email,
+      });
+      if (secret?.value) return secret.value;
+    } catch {
+      // Secrets table not ready — treat as missing.
+    }
+    // Authenticated multi-tenant context: never fall back to process.env.
+    // The deploy-level value would silently impersonate the actual key
+    // owner across every tenant.
+    return null;
+  }
+  // Unauthenticated / local-dev / CLI / background context: env fallback
+  // is safe because there's no user to mis-identify.
+  return process.env[key] || null;
+}
+
+// ---------------------------------------------------------------------------
 // Synchronous helpers — env-only fallbacks for contexts where per-user
 // lookup isn't possible (sync isConfigured checks, CLI scripts).
 // ---------------------------------------------------------------------------

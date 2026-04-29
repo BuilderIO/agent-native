@@ -123,6 +123,17 @@ Options:
   }
   if (dryRun) return;
 
+  // writeAppSecret resolves its DB connection from process.env.DATABASE_URL
+  // (via getDbExec → getDatabaseUrl). When --db is passed, we read/delete
+  // from that URL but writeAppSecret would still target whatever
+  // DATABASE_URL is in the ambient env — silently writing the migrated
+  // secrets to a different DB and then deleting the originals from the
+  // source DB. Pin DATABASE_URL to the same target so all three operations
+  // hit one database.
+  if (parsed.db) {
+    process.env.DATABASE_URL = url;
+  }
+
   const { writeAppSecret } = await import("../../secrets/storage.js");
 
   let migrated = 0;

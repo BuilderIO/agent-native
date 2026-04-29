@@ -122,8 +122,8 @@ export function IntegrationCard({
 
           {!status.configured && !status.error && (
             <p className="text-[10px] text-muted-foreground">
-              Not configured. Set the required environment variables to enable
-              this integration.
+              Not configured. Set the required secrets to enable this
+              integration.
             </p>
           )}
 

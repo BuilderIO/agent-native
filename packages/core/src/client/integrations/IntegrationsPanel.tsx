@@ -213,11 +213,11 @@ function IntegrationDetail({
         </ol>
       </div>
 
-      {/* Environment variables needed */}
+      {/* Required secrets */}
       {platform.envVars.length > 0 && (
         <div className="mb-3">
           <div className="text-[10px] font-medium text-muted-foreground mb-1">
-            Required environment variables
+            Required secrets
           </div>
           <div className="space-y-0.5">
             {platform.envVars.map((v) => (
