@@ -1029,6 +1029,12 @@ export function createCoreRoutesPlugin(
       ensureToolsTables().catch(() => {});
       registerToolsShareable();
       getH3App(nitroApp).use(`${P}/tools`, createToolsHandler());
+
+      // Tool extension-point slots — sub-system of tools.
+      const { ensureSlotTables } = await import("../tools/slots/store.js");
+      const { createSlotsHandler } = await import("../tools/slots/routes.js");
+      ensureSlotTables().catch(() => {});
+      getH3App(nitroApp).use(`${P}/slots`, createSlotsHandler());
     } catch {
       // Tools module not available — skip
     }
