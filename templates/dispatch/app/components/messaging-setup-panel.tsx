@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   IconBrandSlack,
   IconBrandTelegram,
+  IconBrandWhatsapp,
   IconCheck,
   IconCopy,
   IconExternalLink,
@@ -23,6 +24,14 @@ interface EnvStatus {
   label: string;
   required: boolean;
   configured: boolean;
+  helpText?: string;
+}
+
+interface RequiredEnvKey {
+  key: string;
+  label: string;
+  required: boolean;
+  helpText?: string;
 }
 
 interface IntegrationStatus {
@@ -31,15 +40,25 @@ interface IntegrationStatus {
   enabled: boolean;
   configured: boolean;
   webhookUrl?: string;
+  requiredEnvKeys?: RequiredEnvKey[];
 }
 
 interface PlatformDefinition {
-  id: "slack" | "telegram" | "email";
+  id: "slack" | "telegram" | "email" | "whatsapp";
   label: string;
   icon: typeof IconBrandSlack;
   description: string;
-  docsUrl?: string;
+  /** Our own docs anchor — keep these on /docs/messaging so users land on
+   *  the page that explains the platform in plain English. */
+  docsUrl: string;
+  /** Optional external link (e.g. to the platform's developer console). */
+  externalUrl?: string;
+  externalLabel?: string;
   setupSteps: string[];
+  /** Fallback env keys when the adapter doesn't surface them via
+   *  `IntegrationStatus.requiredEnvKeys`. The panel prefers adapter-supplied
+   *  keys when present so optional fields (webhook secrets, etc.) appear
+   *  automatically. */
   envKeys: string[];
 }
 
@@ -49,13 +68,15 @@ const PLATFORM_DEFINITIONS: PlatformDefinition[] = [
     label: "Slack",
     icon: IconBrandSlack,
     description: "Receive mentions and DMs in one workspace-aware dispatch.",
-    docsUrl: "https://api.slack.com/apps",
+    docsUrl: "/docs/messaging#slack",
+    externalUrl: "https://api.slack.com/apps",
+    externalLabel: "Open Slack apps",
     envKeys: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
     setupSteps: [
-      "Create or open a Slack app.",
-      "Enable Event Subscriptions and paste the webhook URL below.",
-      "Subscribe to app_mention and message.im events.",
-      "Install the app and save the bot token and signing secret here.",
+      "Create or open a Slack app at api.slack.com/apps.",
+      "Save the bot token and signing secret below — the webhook URL appears once they're saved.",
+      "Back in Slack, enable Event Subscriptions and paste the webhook URL.",
+      "Subscribe to app_mention and message.im events, then install the app.",
     ],
   },
   {
@@ -63,11 +84,14 @@ const PLATFORM_DEFINITIONS: PlatformDefinition[] = [
     label: "Telegram",
     icon: IconBrandTelegram,
     description: "Chat with dispatch through a Telegram bot.",
+    docsUrl: "/docs/messaging#telegram",
+    externalUrl: "https://t.me/BotFather",
+    externalLabel: "Open BotFather",
     envKeys: ["TELEGRAM_BOT_TOKEN"],
     setupSteps: [
-      "Create a bot with @BotFather.",
-      "Save the bot token here.",
-      "Run webhook setup once to connect Telegram to this app.",
+      "Open @BotFather in Telegram and send /newbot.",
+      "Save the bot token here, then click Set up webhook below.",
+      "DM the bot in Telegram to test.",
     ],
   },
   {
@@ -76,12 +100,36 @@ const PLATFORM_DEFINITIONS: PlatformDefinition[] = [
     icon: IconMail,
     description:
       "Give your agent an email address. People can email it directly or CC it on threads.",
+    docsUrl: "/docs/messaging#email",
+    externalUrl: "https://resend.com/webhooks",
+    externalLabel: "Open Resend webhooks",
     envKeys: ["EMAIL_AGENT_ADDRESS"],
     setupSteps: [
-      "Ensure Resend or SendGrid credentials are saved.",
-      "Choose an email address (e.g., agent@yourcompany.com or use the free .resend.app address).",
-      "Add MX records for your domain (or skip for .resend.app).",
-      "Register the webhook URL below in your email provider's dashboard.",
+      "Save your Resend or SendGrid API key (Vault or onboarding).",
+      "Pick an email address — the easiest is a free <slug>.resend.app address.",
+      "If using your own domain, add MX records pointing to your provider.",
+      "Save the address here, then register the webhook URL below in Resend (event: email.received).",
+    ],
+  },
+  {
+    id: "whatsapp",
+    label: "WhatsApp",
+    icon: IconBrandWhatsapp,
+    description:
+      "Receive WhatsApp messages and reply through a Meta-managed phone number.",
+    docsUrl: "/docs/messaging#whatsapp",
+    externalUrl: "https://developers.facebook.com/apps",
+    externalLabel: "Open Meta developer console",
+    envKeys: [
+      "WHATSAPP_ACCESS_TOKEN",
+      "WHATSAPP_VERIFY_TOKEN",
+      "WHATSAPP_PHONE_NUMBER_ID",
+    ],
+    setupSteps: [
+      "Create a Meta app and add the WhatsApp product.",
+      "Save the access token, verify token, and phone number ID below.",
+      "In Meta's WhatsApp configuration, paste the webhook URL and your verify token.",
+      "Subscribe to the messages field, then enable here.",
     ],
   },
 ];
@@ -124,6 +172,20 @@ function StatusPill({
     >
       {label}
     </span>
+  );
+}
+
+/** Render a non-secret env value (e.g. EMAIL_AGENT_ADDRESS) as a copyable
+ *  text block. We can't read the actual value from the backend (env-status
+ *  only reports `configured: true|false`), so we offer a one-click reveal
+ *  that hits a server endpoint, falling back to "saved" if the value is
+ *  not exposed. For now we just render a "Saved — re-enter to change"
+ *  placeholder; a future endpoint can return the actual value. */
+function PublicValueReveal({ envKey: _envKey }: { envKey: string }) {
+  return (
+    <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+      Saved. Re-enter below to change.
+    </div>
   );
 }
 
@@ -221,8 +283,8 @@ export function MessagingSetupPanel() {
     }
   };
 
-  const saveEnvKeys = async (platform: PlatformDefinition) => {
-    const vars = platform.envKeys
+  const saveEnvKeys = async (platform: PlatformDefinition, keys: string[]) => {
+    const vars = keys
       .map((key) => ({ key, value: envValues[key]?.trim() || "" }))
       .filter((item) => item.value);
 
@@ -247,7 +309,7 @@ export function MessagingSetupPanel() {
       toast.success(`${platform.label} credentials saved`);
       setEnvValues((current) => {
         const next = { ...current };
-        for (const key of platform.envKeys) delete next[key];
+        for (const key of keys) delete next[key];
         return next;
       });
       await refreshEnvStatus();
@@ -353,9 +415,17 @@ export function MessagingSetupPanel() {
           const status = statusByPlatform.get(platform.id);
           const configured = !!status?.configured;
           const enabled = !!status?.enabled;
-          const missingKeys = platform.envKeys.filter(
-            (key) => !envStatusByKey.get(key)?.configured,
-          );
+          // Prefer adapter-supplied env keys (includes optional fields like
+          // webhook secrets); fall back to the static list.
+          const adapterKeys = status?.requiredEnvKeys;
+          const envKeys: RequiredEnvKey[] =
+            adapterKeys && adapterKeys.length > 0
+              ? adapterKeys
+              : platform.envKeys.map((key) => ({
+                  key,
+                  label: key,
+                  required: true,
+                }));
           const canEnable = configured;
 
           return (
@@ -383,17 +453,25 @@ export function MessagingSetupPanel() {
                     </p>
                   </div>
                 </div>
-                {platform.docsUrl ? (
+                <div className="flex items-center gap-3">
                   <a
                     href={platform.docsUrl}
-                    target="_blank"
-                    rel="noreferrer"
                     className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                   >
                     Docs
-                    <IconExternalLink className="h-3.5 w-3.5" />
                   </a>
-                ) : null}
+                  {platform.externalUrl ? (
+                    <a
+                      href={platform.externalUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      {platform.externalLabel ?? "Open"}
+                      <IconExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  ) : null}
+                </div>
               </div>
 
               <div className="mt-5 rounded-xl border bg-muted/20 p-4">
@@ -424,32 +502,57 @@ export function MessagingSetupPanel() {
                   ) : null}
                 </div>
                 <div className="space-y-3">
-                  {platform.envKeys.map((key) => {
-                    const envStatus = envStatusByKey.get(key);
+                  {envKeys.map((envKey) => {
+                    const envStatus = envStatusByKey.get(envKey.key);
                     const isConfigured = !!envStatus?.configured;
+                    const helpText = envKey.helpText ?? envStatus?.helpText;
+                    const label =
+                      envKey.label || envStatus?.label || envKey.key;
+                    // Email agent address is not a secret — show it plainly
+                    // so users can copy and share it.
+                    const isPublicValue = envKey.key === "EMAIL_AGENT_ADDRESS";
                     return (
-                      <div key={key} className="space-y-1.5">
+                      <div key={envKey.key} className="space-y-1.5">
                         <div className="flex items-center justify-between gap-3">
-                          <label className="text-xs font-medium text-foreground">
-                            {envStatus?.label || key}
-                          </label>
+                          <div className="flex items-center gap-1.5">
+                            <label className="text-xs font-medium text-foreground">
+                              {label}
+                              {!envKey.required ? (
+                                <span className="ml-1 text-muted-foreground">
+                                  (optional)
+                                </span>
+                              ) : null}
+                            </label>
+                            {helpText ? (
+                              <HelpTooltip content={helpText} />
+                            ) : null}
+                          </div>
                           {isConfigured ? (
                             <StatusPill tone="success" label="Saved" />
                           ) : (
-                            <StatusPill tone="neutral" label="Missing" />
+                            <StatusPill
+                              tone={envKey.required ? "neutral" : "neutral"}
+                              label={envKey.required ? "Missing" : "Not set"}
+                            />
                           )}
                         </div>
-                        {!isConfigured ? (
+                        {isConfigured && isPublicValue ? (
+                          <PublicValueReveal envKey={envKey.key} />
+                        ) : !isConfigured ? (
                           <Input
-                            type="password"
-                            value={envValues[key] || ""}
+                            type={isPublicValue ? "text" : "password"}
+                            value={envValues[envKey.key] || ""}
                             onChange={(event) =>
                               setEnvValues((current) => ({
                                 ...current,
-                                [key]: event.target.value,
+                                [envKey.key]: event.target.value,
                               }))
                             }
-                            placeholder={`Enter ${envStatus?.label || key}`}
+                            placeholder={
+                              isPublicValue
+                                ? "agent@yourcompany.com"
+                                : `Enter ${label}`
+                            }
                             autoComplete="off"
                           />
                         ) : null}
@@ -457,10 +560,15 @@ export function MessagingSetupPanel() {
                     );
                   })}
                 </div>
-                {missingKeys.length > 0 ? (
+                {envKeys.some((k) => !envStatusByKey.get(k.key)?.configured) ? (
                   <Button
                     variant="outline"
-                    onClick={() => saveEnvKeys(platform)}
+                    onClick={() =>
+                      saveEnvKeys(
+                        platform,
+                        envKeys.map((k) => k.key),
+                      )
+                    }
                     disabled={savingKeysFor === platform.id}
                   >
                     {savingKeysFor === platform.id ? (

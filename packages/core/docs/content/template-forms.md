@@ -20,7 +20,7 @@ When you open the app, you'll see a list of your forms on the left and the edito
 
 ## Why it's interesting
 
-Forms is a clear example of the [ladder](/docs/what-is-agent-native#the-ladder) rung-3 payoff. The hard part of a form builder isn't the editor UI — it's everything around it: schema evolution, response analytics, conditional logic, publishing, notifications, integrations. Most of that is just prompting the agent, because every capability is an action the agent can call.
+The hard part of a form builder isn't the editor UI — it's everything around it: changing the questions after responses are already in, analyzing what people said, adding conditional logic, publishing, notifications, hooking it into Slack or your CRM. Most of that is just asking the agent. See [What is agent-native?](/docs/what-is-agent-native) for the bigger picture.
 
 ## For developers
 
@@ -38,13 +38,14 @@ pnpm dlx @agent-native/core create my-platform  # pick Forms + other templates
 
 ### Customize it
 
-Ask the agent:
+Ask the agent for the outcome you want:
 
-- "Add a new 'signature' field type that captures a drawn signature." It adds the schema entry, renders the component, handles storage.
-- "When someone submits a form, post the response to our #signups Slack channel." It wires the webhook.
-- "Add per-form access control — some are public, some require a login." It updates the publishing flow.
+- "Add a signature field where people can draw their name."
+- "When someone submits this form, post it in our #signups Slack channel." (Connect Slack first via [Messaging](/docs/messaging).)
+- "Make some forms public and others login-only."
+- "Send everyone who scored below 5 a follow-up email asking what we could do better."
 
-See [Cloneable SaaS](/docs/cloneable-saas) for the full clone → customize → deploy flow.
+The agent figures out the schema changes, components, and storage on its own — you just describe the result you want. See [Cloneable SaaS](/docs/cloneable-saas) for the full clone, customize, deploy flow.
 
 ## What's next
 

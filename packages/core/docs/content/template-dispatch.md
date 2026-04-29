@@ -29,7 +29,20 @@ Use Dispatch when:
 
 Skip it for a single-app scaffold — use the [Starter template](/docs/template-starter) or any of the domain templates directly.
 
+## What you'll do with it {#what-youll-do}
+
+Day-to-day, Dispatch is the place admins and ops folks open to keep the workspace running:
+
+- **Connect Slack, email, and Telegram** so people can message your agent from wherever they already work. See [Messaging](/docs/messaging) for the wiring steps.
+- **Save shared secrets once.** API keys, OAuth tokens, and service credentials live in the vault and the other apps in your workspace pull from there instead of every team member juggling their own `.env`.
+- **Set up recurring jobs.** "Every Monday at 7am, ask the analytics agent for last week's signups and email me a summary." See [Recurring Jobs](/docs/recurring-jobs).
+- **Approve outbound actions before they fire.** Sending money, mass-emailing customers, or posting to a public Slack channel can be gated behind an admin OK.
+- **See who has access to what.** Per-app grants, request queue, and an audit log of who used which secret when.
+- **Route messages to the right specialist.** A Slack DM about analytics goes to the analytics agent; one about email goes to the mail agent — Dispatch picks.
+
 ## Architecture at a glance {#architecture}
+
+_How it works under the hood (for developers)._
 
 - **Orchestrator agent.** The chat is set up as a router: it reads `AGENTS.md`, `LEARNINGS.md`, and routes to specialist sub-agents or remote A2A agents.
 - **Remote agent registry.** A2A manifests live in `remote-agents/*.json` — one per app. Dispatch calls them using the `call-agent` action.

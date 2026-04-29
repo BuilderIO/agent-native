@@ -65,22 +65,22 @@ export default function HistoryPanel({
   return createPortal(
     <div
       ref={panelRef}
-      className="fixed rounded-lg border border-white/[0.08] bg-[hsl(240,5%,8%)] shadow-2xl z-[200]"
+      className="fixed rounded-lg border border-border bg-popover shadow-2xl z-[200]"
       style={{ top: rect.bottom + 6, left, width: panelWidth }}
     >
-      <div className="px-3 py-2.5 border-b border-white/[0.06] flex items-center gap-2">
+      <div className="px-3 py-2.5 border-b border-border flex items-center gap-2">
         <IconHistory className="w-4 h-4 text-[#609FF8]" />
-        <span className="text-xs font-medium text-white/80">
+        <span className="text-xs font-medium text-foreground/90">
           Edit IconHistory
         </span>
-        <span className="text-[10px] text-white/30 ml-auto">
+        <span className="text-[10px] text-muted-foreground ml-auto">
           Cmd+Z / Cmd+Shift+Z
         </span>
       </div>
 
       <div className="overflow-y-auto max-h-[50vh] p-1">
         {history.length === 0 && (
-          <p className="text-xs text-white/30 text-center py-4">
+          <p className="text-xs text-muted-foreground text-center py-4">
             No history yet
           </p>
         )}
@@ -96,7 +96,7 @@ export default function HistoryPanel({
                 onOpenChange(false);
               }}
               className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-left transition-colors ${
-                isCurrent ? "bg-[#609FF8]/10" : "hover:bg-white/[0.04]"
+                isCurrent ? "bg-[#609FF8]/10" : "hover:bg-accent"
               }`}
             >
               <div
@@ -104,15 +104,15 @@ export default function HistoryPanel({
                   isCurrent
                     ? "bg-[#609FF8]"
                     : realIdx < historyIndex
-                      ? "bg-white/20"
-                      : "bg-white/10"
+                      ? "bg-muted-foreground/40"
+                      : "bg-muted-foreground/20"
                 }`}
               />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span
                     className={`text-xs font-medium truncate ${
-                      isCurrent ? "text-[#609FF8]" : "text-white/60"
+                      isCurrent ? "text-[#609FF8]" : "text-muted-foreground"
                     }`}
                   >
                     {entry.label}
@@ -123,7 +123,7 @@ export default function HistoryPanel({
                     </span>
                   )}
                 </div>
-                <span className="text-[10px] text-white/25">
+                <span className="text-[10px] text-muted-foreground/70">
                   {timeAgo(entry.timestamp)}
                 </span>
               </div>

@@ -141,13 +141,15 @@ export default function ImageGenPanel({
     <div
       ref={panelRef}
       style={style}
-      className="w-[min(20rem,calc(100vw-24px))] bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden"
+      className="w-[min(20rem,calc(100vw-24px))] bg-popover border border-border rounded-xl shadow-2xl shadow-black/60 overflow-hidden"
     >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-white/90">Generate Image</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          Generate Image
+        </h3>
         <button
           onClick={() => onOpenChange(false)}
-          className="text-white/30 hover:text-white/60 transition-colors"
+          className="text-muted-foreground/70 hover:text-muted-foreground transition-colors"
           aria-label="Close"
         >
           <IconX className="w-4 h-4" />
@@ -166,7 +168,7 @@ export default function ImageGenPanel({
                   onClick={() => toggleDefaultRef(i)}
                   className={`relative w-10 h-10 rounded overflow-hidden border transition-all ${
                     disabled
-                      ? "border-white/[0.04] opacity-25 grayscale"
+                      ? "border-border opacity-25 grayscale"
                       : "border-[#609FF8]/40"
                   }`}
                 >
@@ -187,7 +189,7 @@ export default function ImageGenPanel({
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Describe image (optional)..."
-          className="w-full h-16 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-[#609FF8]/50 resize-none"
+          className="w-full h-16 bg-muted border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[#609FF8]/50 resize-none"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();

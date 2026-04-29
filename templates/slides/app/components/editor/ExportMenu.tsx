@@ -89,13 +89,13 @@ export function ExportMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-white/60 hover:text-white hover:bg-white/[0.06] text-xs cursor-pointer">
+        <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer">
           <IconShare2 className="w-3.5 h-3.5" />
           Share
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">
-        <DropdownMenuLabel className="text-[11px] text-white/40">
+        <DropdownMenuLabel className="text-[11px] text-muted-foreground">
           Share & Export
         </DropdownMenuLabel>
         {onShareTeam && (

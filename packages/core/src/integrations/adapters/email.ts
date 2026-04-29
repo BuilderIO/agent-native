@@ -52,21 +52,29 @@ export function emailAdapter(): PlatformAdapter {
           key: "EMAIL_AGENT_ADDRESS",
           label: "Agent Email Address",
           required: true,
+          helpText:
+            "The email address people will use to message your agent (e.g. `agent@yourcompany.com`, or pick from your `<slug>.resend.app` sandbox).",
         },
         {
           key: "RESEND_API_KEY",
-          label: "Resend API Key (or use SENDGRID_API_KEY)",
+          label: "Resend API Key",
           required: false,
+          helpText:
+            "From resend.com → API keys (starts with `re_`). Either Resend or SendGrid is required for sending and receiving mail.",
         },
         {
           key: "SENDGRID_API_KEY",
-          label: "SendGrid API Key (or use RESEND_API_KEY)",
+          label: "SendGrid API Key",
           required: false,
+          helpText:
+            "From sendgrid.com → Settings → API Keys (starts with `SG.`). Either Resend or SendGrid is required.",
         },
         {
           key: "EMAIL_INBOUND_WEBHOOK_SECRET",
           label: "Inbound Webhook Secret",
           required: false,
+          helpText:
+            "Optional. From Resend (Webhooks → Signing Secret, starts with `whsec_`) or your SendGrid Inbound Parse basic-auth password. Used to verify inbound webhooks are real.",
         },
       ];
     },

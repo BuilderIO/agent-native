@@ -54,9 +54,9 @@ export function QuestionFlow({
     });
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-[hsl(240,5%,5%)]">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-background">
       <div className="w-full max-w-2xl px-8">
-        <h2 className="mb-8 text-2xl font-semibold text-white/90">
+        <h2 className="mb-8 text-2xl font-semibold text-foreground">
           Before we begin...
         </h2>
 
@@ -81,7 +81,7 @@ export function QuestionFlow({
                 key={i}
                 className={cn(
                   "h-1.5 w-1.5 rounded-full",
-                  answered ? "bg-[#609FF8]" : "bg-white/20",
+                  answered ? "bg-[#609FF8]" : "bg-muted",
                 )}
               />
             );
@@ -94,7 +94,7 @@ export function QuestionFlow({
             variant="ghost"
             size="sm"
             onClick={onSkip}
-            className="text-white/40 hover:text-white/70"
+            className="text-muted-foreground hover:text-foreground"
           >
             Skip
           </Button>
@@ -125,12 +125,14 @@ function QuestionRenderer({
 }) {
   return (
     <div>
-      <h3 className="mb-1 text-sm font-medium text-white/90">
+      <h3 className="mb-1 text-sm font-medium text-foreground">
         {question.question}
         {question.required && <span className="ml-1 text-red-400">*</span>}
       </h3>
       {question.description && (
-        <p className="mb-3 text-xs text-white/40">{question.description}</p>
+        <p className="mb-3 text-xs text-muted-foreground">
+          {question.description}
+        </p>
       )}
 
       {question.type === "text-options" && (
@@ -167,7 +169,7 @@ function QuestionRenderer({
           value={value || ""}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Type your answer..."
-          className="min-h-[80px] resize-none border-white/[0.08] bg-white/[0.04] text-white/90 placeholder:text-white/30"
+          className="min-h-[80px] resize-none border-border bg-muted text-foreground placeholder:text-muted-foreground/70"
         />
       )}
     </div>
@@ -216,7 +218,7 @@ function TextOptions({
             "cursor-pointer rounded-lg border px-4 py-2 text-sm",
             isSelected(opt.value)
               ? "border-[#609FF8] bg-[#609FF8]/10 text-[#609FF8]"
-              : "border-white/[0.08] bg-white/[0.04] text-white/50 hover:border-white/[0.15] hover:text-white/80",
+              : "border-border bg-muted text-muted-foreground hover:border-foreground/30 hover:text-foreground",
           )}
         >
           {multiSelect && (
@@ -271,15 +273,17 @@ function ColorOptions({
             className={cn(
               "h-10 w-10 rounded-full",
               isSelected(opt.value)
-                ? "ring-2 ring-[#609FF8] ring-offset-2 ring-offset-[hsl(240,5%,5%)]"
-                : "ring-1 ring-white/[0.15] group-hover:ring-white/30",
+                ? "ring-2 ring-[#609FF8] ring-offset-2 ring-offset-background"
+                : "ring-1 ring-border group-hover:ring-foreground/30",
             )}
             style={{ backgroundColor: opt.color || opt.value }}
           />
           <span
             className={cn(
               "text-[10px]",
-              isSelected(opt.value) ? "text-white/90" : "text-white/40",
+              isSelected(opt.value)
+                ? "text-foreground"
+                : "text-muted-foreground",
             )}
           >
             {opt.label}
@@ -306,7 +310,7 @@ function SliderQuestion({
 
   return (
     <div className="flex items-center gap-4">
-      <span className="text-xs text-white/40">{min}</span>
+      <span className="text-xs text-muted-foreground">{min}</span>
       <Slider
         min={min}
         max={max}
@@ -315,8 +319,8 @@ function SliderQuestion({
         onValueChange={([v]) => onChange(v)}
         className="flex-1"
       />
-      <span className="text-xs text-white/40">{max}</span>
-      <span className="min-w-[2rem] text-right text-sm font-medium text-white/90">
+      <span className="text-xs text-muted-foreground">{max}</span>
+      <span className="min-w-[2rem] text-right text-sm font-medium text-foreground">
         {current}
       </span>
     </div>
@@ -364,11 +368,11 @@ function FileDropZone({
           "flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed p-6",
           dragOver
             ? "border-[#609FF8] bg-[#609FF8]/5"
-            : "border-white/[0.08] bg-white/[0.02] hover:border-white/[0.15]",
+            : "border-border bg-muted/50 hover:border-foreground/30",
         )}
       >
-        <IconUpload className="mb-2 h-6 w-6 text-white/40" />
-        <p className="text-sm text-white/40">
+        <IconUpload className="mb-2 h-6 w-6 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">
           Drag files here or{" "}
           <label className="cursor-pointer text-[#609FF8] hover:underline">
             browse
@@ -381,7 +385,7 @@ function FileDropZone({
             />
           </label>
         </p>
-        <p className="mt-1 text-[10px] text-white/20">
+        <p className="mt-1 text-[10px] text-muted-foreground/70">
           Images, PDFs, PPTX, DOCX
         </p>
       </div>
@@ -391,13 +395,13 @@ function FileDropZone({
           {files.map((file, i) => (
             <div
               key={i}
-              className="flex items-center gap-2 rounded bg-white/[0.04] px-2 py-1 text-xs text-white/50"
+              className="flex items-center gap-2 rounded bg-muted px-2 py-1 text-xs text-muted-foreground"
             >
               <IconCheck className="h-3 w-3 text-[#609FF8]" />
               <span className="flex-1 truncate">{file.name}</span>
               <button
                 onClick={() => removeFile(i)}
-                className="cursor-pointer text-white/30 hover:text-white/70"
+                className="cursor-pointer text-muted-foreground/70 hover:text-foreground"
               >
                 <IconX className="h-3 w-3" />
               </button>

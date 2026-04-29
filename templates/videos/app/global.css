@@ -12,47 +12,6 @@
    * tailwind.config.ts expects the following color variables to be expressed as HSL values.
   */
 :root {
-  --background: 240 6% 6%;
-  --foreground: 0 0% 95%;
-
-  --card: 240 5% 8%;
-  --card-foreground: 0 0% 95%;
-
-  --popover: 240 5% 8%;
-  --popover-foreground: 0 0% 95%;
-
-  --primary: 0 0% 75%;
-  --primary-foreground: 240 6% 6%;
-
-  --secondary: 240 4% 13%;
-  --secondary-foreground: 0 0% 90%;
-
-  --muted: 240 4% 13%;
-  --muted-foreground: 240 3% 50%;
-
-  --accent: 240 4% 14%;
-  --accent-foreground: 0 0% 90%;
-
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 100%;
-
-  --border: 240 4% 14%;
-  --input: 240 4% 14%;
-  --ring: 0 0% 50%;
-
-  --radius: 0.625rem;
-
-  --sidebar-background: 240 6% 7%;
-  --sidebar-foreground: 240 3% 55%;
-  --sidebar-primary: 0 0% 75%;
-  --sidebar-primary-foreground: 240 6% 6%;
-  --sidebar-accent: 240 4% 12%;
-  --sidebar-accent-foreground: 0 0% 80%;
-  --sidebar-border: 240 4% 12%;
-  --sidebar-ring: 0 0% 50%;
-}
-
-.light {
   --background: 0 0% 100%;
   --foreground: 240 6% 10%;
 
@@ -91,6 +50,47 @@
   --sidebar-accent-foreground: 240 6% 10%;
   --sidebar-border: 240 6% 90%;
   --sidebar-ring: 240 5% 65%;
+}
+
+.dark {
+  --background: 240 6% 6%;
+  --foreground: 0 0% 95%;
+
+  --card: 240 5% 8%;
+  --card-foreground: 0 0% 95%;
+
+  --popover: 240 5% 8%;
+  --popover-foreground: 0 0% 95%;
+
+  --primary: 0 0% 75%;
+  --primary-foreground: 240 6% 6%;
+
+  --secondary: 240 4% 13%;
+  --secondary-foreground: 0 0% 90%;
+
+  --muted: 240 4% 13%;
+  --muted-foreground: 240 3% 50%;
+
+  --accent: 240 4% 14%;
+  --accent-foreground: 0 0% 90%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 240 4% 14%;
+  --input: 240 4% 14%;
+  --ring: 0 0% 50%;
+
+  --radius: 0.625rem;
+
+  --sidebar-background: 240 6% 7%;
+  --sidebar-foreground: 240 3% 55%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 240 6% 6%;
+  --sidebar-accent: 240 4% 12%;
+  --sidebar-accent-foreground: 0 0% 80%;
+  --sidebar-border: 240 4% 12%;
+  --sidebar-ring: 0 0% 50%;
 }
 
 @layer base {

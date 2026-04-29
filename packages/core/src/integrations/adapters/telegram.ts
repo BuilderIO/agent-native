@@ -33,11 +33,15 @@ export function telegramAdapter(): PlatformAdapter {
           key: "TELEGRAM_BOT_TOKEN",
           label: "Telegram Bot Token",
           required: true,
+          helpText:
+            "From @BotFather after `/newbot` — the long token Telegram gives you (looks like `123456:ABC-DEF...`).",
         },
         {
           key: "TELEGRAM_WEBHOOK_SECRET",
           label: "Telegram Webhook Secret",
           required: false,
+          helpText:
+            "Optional. Any random string — Telegram will echo it on every webhook so dispatch can verify the request came from Telegram.",
         },
       ];
     },
