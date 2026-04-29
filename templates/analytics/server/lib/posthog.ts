@@ -19,8 +19,7 @@ async function getConfig(): Promise<{
   const ctx = requireRequestCredentialContext("POSTHOG_API_KEY");
   const apiKey = await resolveCredential("POSTHOG_API_KEY", ctx);
   const projectId = await resolveCredential("POSTHOG_PROJECT_ID", ctx);
-  const host =
-    (await resolveCredential("POSTHOG_HOST", ctx)) ?? DEFAULT_HOST;
+  const host = (await resolveCredential("POSTHOG_HOST", ctx)) ?? DEFAULT_HOST;
   if (!apiKey) throw new Error("POSTHOG_API_KEY not configured");
   if (!projectId) throw new Error("POSTHOG_PROJECT_ID not configured");
   return { apiKey, projectId, host: host.replace(/\/$/, "") };

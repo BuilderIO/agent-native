@@ -17,9 +17,7 @@ async function getAuth(): Promise<string> {
   const login = await resolveCredential("DATAFORSEO_LOGIN", ctx);
   const password = await resolveCredential("DATAFORSEO_PASSWORD", ctx);
   if (!login || !password) {
-    throw new Error(
-      "DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD not configured",
-    );
+    throw new Error("DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD not configured");
   }
   return Buffer.from(`${login}:${password}`).toString("base64");
 }

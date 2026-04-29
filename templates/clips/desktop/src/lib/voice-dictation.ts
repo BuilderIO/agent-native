@@ -32,6 +32,12 @@ interface VoiceSession {
   mimeType: string;
   startedAt: number;
   stopping: boolean;
+  // Set when transcription begins so the cancel button can abort the
+  // in-flight HTTP request and tear down immediately.
+  transcribeAbort: AbortController | null;
+  // Marks the session as user-cancelled so the recorder.onstop handler
+  // skips transcription + paste and just hides the bar.
+  cancelled: boolean;
 }
 
 function pickMimeType(): string {
@@ -112,6 +118,7 @@ async function transcribe(
   serverUrl: string,
   chunks: Blob[],
   mimeType: string,
+  controller: AbortController,
 ): Promise<string> {
   const audioBlob = new Blob(chunks, { type: mimeType });
   const form = new FormData();
@@ -121,7 +128,6 @@ async function transcribe(
       ? "ogg"
       : "webm";
   form.append("audio", audioBlob, `voice.${ext}`);
-  const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 45_000);
   try {
     const res = await fetch(
@@ -243,6 +249,8 @@ export function installDesktopVoiceDictation(
         mimeType: recorder.mimeType || mimeType,
         startedAt: Date.now(),
         stopping: false,
+        transcribeAbort: null,
+        cancelled: false,
       };
       session = next;
       startInFlight = false;
@@ -253,13 +261,26 @@ export function installDesktopVoiceDictation(
         stopMeter(next);
         stopTracks(next);
         if (session === next) session = null;
-        if (disposed || next.chunks.length === 0) {
+        if (disposed || next.cancelled || next.chunks.length === 0) {
           cleanup(next);
           return;
         }
         setFlowState("processing");
+        const controller = new AbortController();
+        next.transcribeAbort = controller;
         try {
-          const text = await transcribe(serverUrl, next.chunks, next.mimeType);
+          const text = await transcribe(
+            serverUrl,
+            next.chunks,
+            next.mimeType,
+            controller,
+          );
+          if (next.cancelled) {
+            // User cancelled while we were awaiting the response — just
+            // hide; do NOT paste the transcribed text.
+            cleanup(next);
+            return;
+          }
           if (text) {
             await invoke("complete_voice_dictation", { text });
           }
@@ -268,6 +289,14 @@ export function installDesktopVoiceDictation(
             if (!disposed) cleanup(next);
           }, 550);
         } catch (err) {
+          // AbortError from a user cancel is expected — don't show "error".
+          if (
+            next.cancelled ||
+            (err as { name?: string })?.name === "AbortError"
+          ) {
+            cleanup(next);
+            return;
+          }
           const message = err instanceof Error ? err.message : String(err);
           console.error("[voice-dictation] transcription failed:", message);
           setFlowState("error");
@@ -296,6 +325,38 @@ export function installDesktopVoiceDictation(
         invoke("hide_flow_bar").catch(() => {});
       }, 800);
     }
+  };
+
+  // User clicked the X on the flow-bar (or Esc in some future flow).
+  // Mark the session cancelled so onstop / the transcribe path skip the
+  // paste, abort any in-flight HTTP request, then tear down + hide.
+  const cancel = () => {
+    const current = session;
+    if (!current) {
+      // No active session — but start() may be in-flight, or a timeout
+      // chain may still be holding the bar open from a previous cleanup.
+      // Force-hide so the user gets immediate feedback.
+      stopRequestedBeforeReady = true;
+      invoke("hide_flow_bar").catch(() => {});
+      return;
+    }
+    current.cancelled = true;
+    // Abort an in-flight transcribe immediately (otherwise we'd wait
+    // for the 45s timeout when the server is slow).
+    current.transcribeAbort?.abort();
+    if (!current.stopping) {
+      current.stopping = true;
+      try {
+        current.recorder.stop();
+      } catch {
+        // recorder.stop can throw if not in 'recording' state — fall
+        // through to the cleanup below regardless.
+      }
+    }
+    // Hide the bar right away. onstop will still fire and call cleanup,
+    // which is now a no-op for the UI side since we set cancelled and
+    // the bar is already hidden.
+    cleanup(current);
   };
 
   const stop = () => {
@@ -347,6 +408,12 @@ export function installDesktopVoiceDictation(
     if (!acceptsShortcut(event.payload?.source)) return;
     if (mode === "toggle") return;
     stop();
+  })
+    .then((u) => unlistens.push(u))
+    .catch(() => {});
+  // Cancel button on the flow-bar emits this. Tear down without pasting.
+  listen("voice:cancel", () => {
+    cancel();
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});

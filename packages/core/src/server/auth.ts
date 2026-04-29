@@ -203,7 +203,7 @@ async function isLocalModeEnabled(): Promise<boolean> {
  * Check if we're in a development/test environment.
  * Used for cookie security settings, not for auth bypass.
  */
-function isDevEnvironment(): boolean {
+export function isDevEnvironment(): boolean {
   const env = process.env.NODE_ENV;
   return env === "development" || env === "test";
 }
@@ -1350,6 +1350,7 @@ async function mountBetterAuthRoutes(
       // sees an empty body, fails Zod validation, and returns 400 —
       // which the reset page renders as "the link may have expired".
       let resetToken: string | undefined;
+      let resetUserId: string | undefined;
       if (isResetPassword) {
         try {
           const cloned = (event.req as Request).clone();
@@ -1359,6 +1360,23 @@ async function mountBetterAuthRoutes(
           resetToken = body?.token;
         } catch {
           // ignore — Better Auth will handle validation
+        }
+        // Look up userId BEFORE calling auth.handler — Better Auth deletes
+        // the verification row as part of the reset, so by the time the
+        // handler returns 200 the row is gone and we can't recover the user.
+        if (resetToken) {
+          try {
+            const { getDbExec } = await import("../db/client.js");
+            const db = getDbExec();
+            const rows = await db.execute({
+              sql: "SELECT value FROM verification WHERE identifier = ?",
+              args: [`reset-password:${resetToken}`],
+            });
+            resetUserId = rows.rows[0]?.value as string | undefined;
+          } catch {
+            // Best-effort — if we can't read the verification row we just
+            // skip auto-verify; the user can verify normally.
+          }
         }
       }
 
@@ -1395,7 +1413,7 @@ async function mountBetterAuthRoutes(
       // resetting — that's the exact escape hatch they just used.
       if (
         isResetPassword &&
-        resetToken &&
+        resetUserId &&
         isResponse &&
         (response as Response).status >= 200 &&
         (response as Response).status < 300
@@ -1403,27 +1421,14 @@ async function mountBetterAuthRoutes(
         try {
           const { getDbExec } = await import("../db/client.js");
           const db = getDbExec();
-          // Better Auth stores reset tokens with
-          //   identifier = "reset-password:<token>"
-          //   value      = <user.id>
-          // (see better-auth/dist/api/routes/password.mjs). Earlier code
-          // here queried `WHERE value = ?` with the token, which never
-          // matched anything — so this branch was a silent no-op.
-          const rows = await db.execute({
-            sql: "SELECT value FROM verification WHERE identifier = ?",
-            args: [`reset-password:${resetToken}`],
+          // Use boolean literals for cross-dialect portability: Postgres
+          // stores `email_verified` as BOOLEAN and rejects integer 1/0,
+          // SQLite accepts TRUE/FALSE as aliases for 1/0 (since 3.23).
+          // Quote `"user"` because it's a reserved keyword in Postgres.
+          await db.execute({
+            sql: 'UPDATE "user" SET email_verified = TRUE WHERE id = ? AND (email_verified = FALSE OR email_verified IS NULL)',
+            args: [resetUserId],
           });
-          const userId = rows.rows[0]?.value as string | undefined;
-          if (userId) {
-            // Use boolean literals for cross-dialect portability: Postgres
-            // stores `email_verified` as BOOLEAN and rejects integer 1/0,
-            // SQLite accepts TRUE/FALSE as aliases for 1/0 (since 3.23).
-            // Quote `"user"` because it's a reserved keyword in Postgres.
-            await db.execute({
-              sql: 'UPDATE "user" SET email_verified = TRUE WHERE id = ? AND (email_verified = FALSE OR email_verified IS NULL)',
-              args: [userId],
-            });
-          }
         } catch {
           // Best-effort — don't block the response
         }

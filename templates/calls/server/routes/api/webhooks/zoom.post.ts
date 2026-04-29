@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { getDb, schema } from "../../../db/index.js";
 import { nanoid, resolveDefaultWorkspaceId } from "../../../lib/calls.js";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { writeAppState } from "@agent-native/core/application-state";
 
 interface ZoomPayload {
@@ -211,53 +211,53 @@ export default defineEventHandler(async (event: H3Event) => {
     return { ok: true, ignored: "auto-import-disabled" };
   }
 
-  // Resolve workspace — use the connection's owner context.
-  const originalEmail = getRequestUserEmail();
-  process.env.AGENT_USER_EMAIL = hostEmail;
-  let workspaceId: string;
-  try {
-    workspaceId = await resolveDefaultWorkspaceId();
-  } finally {
-    if (originalEmail) process.env.AGENT_USER_EMAIL = originalEmail;
-    else delete process.env.AGENT_USER_EMAIL;
-  }
+  // Resolve workspace and write the call row inside a per-request context
+  // scoped to the Zoom host. This used to mutate `process.env.AGENT_USER_EMAIL`
+  // around the await, but Node Lambdas (Netlify Functions) share the same
+  // process across concurrent webhook invocations — a second webhook for a
+  // different host would race and read the first one's email between the
+  // assignment and the finally. AsyncLocalStorage gives this call-chain its
+  // own isolated context with no cross-request bleed.
+  return runWithRequestContext({ userEmail: hostEmail, orgId: undefined }, async () => {
+    const workspaceId = await resolveDefaultWorkspaceId();
 
-  const callId = nanoid();
-  const now = new Date().toISOString();
-  await db.insert(schema.calls).values({
-    id: callId,
-    workspaceId,
-    title: obj.topic?.trim() || "Zoom recording",
-    source: "zoom-cloud",
-    sourceMeta: JSON.stringify({
-      meetingId: obj.id,
-      meetingUuid: obj.uuid,
-      hostEmail,
-      shareUrl: obj.share_url,
+    const callId = nanoid();
+    const now = new Date().toISOString();
+    await db.insert(schema.calls).values({
+      id: callId,
+      workspaceId,
+      title: obj.topic?.trim() || "Zoom recording",
+      source: "zoom-cloud",
+      sourceMeta: JSON.stringify({
+        meetingId: obj.id,
+        meetingUuid: obj.uuid,
+        hostEmail,
+        shareUrl: obj.share_url,
+        downloadToken: payload.download_token,
+        downloadUrl: picked.downloadUrl,
+      }),
+      mediaUrl: picked.downloadUrl,
+      mediaKind: picked.fileExtension === "m4a" ? "audio" : "video",
+      mediaFormat: picked.fileExtension,
+      mediaSizeBytes: picked.fileSize,
+      recordedAt: obj.start_time ?? null,
+      timezone: obj.timezone ?? null,
+      durationMs: Math.max(0, Math.round((obj.duration ?? 0) * 60 * 1000)),
+      status: "processing",
+      ownerEmail: hostEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await writeAppState(`call-transcribe-${callId}`, {
+      callId,
+      mediaUrl: picked.downloadUrl,
       downloadToken: payload.download_token,
-      downloadUrl: picked.downloadUrl,
-    }),
-    mediaUrl: picked.downloadUrl,
-    mediaKind: picked.fileExtension === "m4a" ? "audio" : "video",
-    mediaFormat: picked.fileExtension,
-    mediaSizeBytes: picked.fileSize,
-    recordedAt: obj.start_time ?? null,
-    timezone: obj.timezone ?? null,
-    durationMs: Math.max(0, Math.round((obj.duration ?? 0) * 60 * 1000)),
-    status: "processing",
-    ownerEmail: hostEmail,
-    createdAt: now,
-    updatedAt: now,
-  });
+      source: "zoom-cloud",
+      requestedAt: now,
+    });
+    await writeAppState("refresh-signal", { ts: Date.now() });
 
-  await writeAppState(`call-transcribe-${callId}`, {
-    callId,
-    mediaUrl: picked.downloadUrl,
-    downloadToken: payload.download_token,
-    source: "zoom-cloud",
-    requestedAt: now,
+    return { ok: true, callId };
   });
-  await writeAppState("refresh-signal", { ts: Date.now() });
-
-  return { ok: true, callId };
 });

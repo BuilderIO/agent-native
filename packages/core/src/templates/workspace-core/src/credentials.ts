@@ -24,6 +24,15 @@ import {
 } from "@agent-native/core/credentials";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 
+// The published @agent-native/core may still type resolveCredential as
+// (key) => Promise<string | undefined>. We intentionally type-erase the
+// call so the workspace-core template compiles against both the current
+// 1-arg published version and the upcoming 2-arg release.
+type ResolveCredentialFn = (
+  key: string,
+  ctx?: CredentialContext,
+) => Promise<string | undefined>;
+
 /**
  * Resolve a company-wide credential. Prefer this over `resolveCredential()`
  * directly — it keeps your keys organized under a workspace namespace and
@@ -54,5 +63,5 @@ export async function resolveCompanyCredential(
       `resolveCompanyCredential("${key}") called without a CredentialContext and no active request context was found. Pass { userEmail, orgId } explicitly, or call this from inside a framework action.`,
     );
   }
-  return await resolveCredential(key, resolved);
+  return await (resolveCredential as ResolveCredentialFn)(key, resolved);
 }

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { getDb, schema } from "../db/index.js";
 import {
@@ -7,6 +7,47 @@ import {
   currentOrgId,
   recordAudit,
 } from "./dispatch-store.js";
+
+/**
+ * Caller-supplied access context for vault operations.
+ *
+ * Every getSecret / updateSecret / deleteSecret / createGrant call must
+ * pass the ctx of the *current request* so the row is scoped to that
+ * caller's tenant. Looking up a vault secret by id alone is unsafe — UUIDs
+ * are not authorization. A row matches the ctx if either the caller owns
+ * it or it lives in the caller's active org.
+ */
+export interface VaultCtx {
+  ownerEmail: string;
+  orgId: string | null;
+}
+
+/**
+ * Build a VaultCtx from the current request. Throws if the request is
+ * unauthenticated — the previous behavior of falling back to "local@localhost"
+ * leaked rows across tenants when a misconfigured environment skipped auth.
+ */
+export function requireVaultCtx(): VaultCtx {
+  const ownerEmail = currentOwnerEmail();
+  if (!ownerEmail) {
+    throw new Error("Vault operation requires an authenticated user");
+  }
+  return { ownerEmail, orgId: currentOrgId() };
+}
+
+/** WHERE clause that limits a vault row to the caller's ownership scope. */
+function ctxScope(
+  table: {
+    ownerEmail: typeof schema.vaultSecrets.ownerEmail;
+    orgId: typeof schema.vaultSecrets.orgId;
+  },
+  ctx: VaultCtx,
+) {
+  return or(
+    eq(table.ownerEmail, ctx.ownerEmail),
+    ctx.orgId ? eq(table.orgId, ctx.orgId) : isNull(table.orgId),
+  );
+}
 
 function id() {
   return crypto.randomUUID();
@@ -74,32 +115,40 @@ export async function listSecrets() {
     .orderBy(desc(schema.vaultSecrets.updatedAt));
 }
 
-export async function getSecret(secretId: string) {
+export async function getSecret(secretId: string, ctx: VaultCtx) {
   const db = getDb();
   const [row] = await db
     .select()
     .from(schema.vaultSecrets)
-    .where(eq(schema.vaultSecrets.id, secretId))
+    .where(
+      and(
+        eq(schema.vaultSecrets.id, secretId),
+        ctxScope(schema.vaultSecrets, ctx),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
 
-export async function createSecret(input: {
-  credentialKey: string;
-  value: string;
-  name: string;
-  provider?: string | null;
-  description?: string | null;
-}) {
+export async function createSecret(
+  input: {
+    credentialKey: string;
+    value: string;
+    name: string;
+    provider?: string | null;
+    description?: string | null;
+  },
+  ctx: VaultCtx = requireVaultCtx(),
+) {
   const db = getDb();
   const timestamp = now();
   const secretId = id();
-  const actor = currentOwnerEmail();
+  const actor = ctx.ownerEmail;
 
   await db.insert(schema.vaultSecrets).values({
     id: secretId,
     ownerEmail: actor,
-    orgId: currentOrgId(),
+    orgId: ctx.orgId,
     name: input.name,
     credentialKey: input.credentialKey,
     value: input.value,
@@ -124,18 +173,27 @@ export async function createSecret(input: {
     summary: `Created vault secret "${input.name}" (${input.credentialKey})`,
   });
 
-  return getSecret(secretId);
+  return getSecret(secretId, ctx);
 }
 
-export async function updateSecret(secretId: string, value: string) {
+export async function updateSecret(
+  secretId: string,
+  value: string,
+  ctx: VaultCtx = requireVaultCtx(),
+) {
   const db = getDb();
-  const existing = await getSecret(secretId);
+  const existing = await getSecret(secretId, ctx);
   if (!existing) throw new Error("Secret not found");
 
   await db
     .update(schema.vaultSecrets)
     .set({ value, updatedAt: now() })
-    .where(eq(schema.vaultSecrets.id, secretId));
+    .where(
+      and(
+        eq(schema.vaultSecrets.id, secretId),
+        ctxScope(schema.vaultSecrets, ctx),
+      ),
+    );
 
   await recordVaultAudit({
     action: "secret.updated",
@@ -143,12 +201,15 @@ export async function updateSecret(secretId: string, value: string) {
     summary: `Updated value for secret "${existing.name}" (${existing.credentialKey})`,
   });
 
-  return getSecret(secretId);
+  return getSecret(secretId, ctx);
 }
 
-export async function deleteSecret(secretId: string) {
+export async function deleteSecret(
+  secretId: string,
+  ctx: VaultCtx = requireVaultCtx(),
+) {
   const db = getDb();
-  const existing = await getSecret(secretId);
+  const existing = await getSecret(secretId, ctx);
   if (!existing) throw new Error("Secret not found");
 
   // Revoke all active grants first
@@ -161,7 +222,12 @@ export async function deleteSecret(secretId: string) {
 
   await db
     .delete(schema.vaultSecrets)
-    .where(eq(schema.vaultSecrets.id, secretId));
+    .where(
+      and(
+        eq(schema.vaultSecrets.id, secretId),
+        ctxScope(schema.vaultSecrets, ctx),
+      ),
+    );
 
   await recordVaultAudit({
     action: "secret.deleted",
@@ -210,19 +276,23 @@ export async function getGrant(grantId: string) {
   return row ?? null;
 }
 
-export async function createGrant(secretId: string, appId: string) {
+export async function createGrant(
+  secretId: string,
+  appId: string,
+  ctx: VaultCtx = requireVaultCtx(),
+) {
   const db = getDb();
-  const secret = await getSecret(secretId);
+  const secret = await getSecret(secretId, ctx);
   if (!secret) throw new Error("Secret not found");
 
   const timestamp = now();
   const grantId = id();
-  const actor = currentOwnerEmail();
+  const actor = ctx.ownerEmail;
 
   await db.insert(schema.vaultGrants).values({
     id: grantId,
     ownerEmail: actor,
-    orgId: currentOrgId(),
+    orgId: ctx.orgId,
     secretId,
     appId,
     grantedBy: actor,
@@ -250,12 +320,15 @@ export async function createGrant(secretId: string, appId: string) {
   return getGrant(grantId);
 }
 
-export async function revokeGrant(grantId: string) {
+export async function revokeGrant(
+  grantId: string,
+  ctx: VaultCtx = requireVaultCtx(),
+) {
   const db = getDb();
   const grant = await getGrant(grantId);
   if (!grant) throw new Error("Grant not found");
 
-  const secret = await getSecret(grant.secretId);
+  const secret = await getSecret(grant.secretId, ctx);
 
   await db
     .update(schema.vaultGrants)
@@ -282,7 +355,10 @@ export async function revokeGrant(grantId: string) {
 
 // ─── Sync ──────────────────────────────────────────────────────
 
-export async function syncGrantsToApp(appId: string) {
+export async function syncGrantsToApp(
+  appId: string,
+  ctx: VaultCtx = requireVaultCtx(),
+) {
   const db = getDb();
   const agents = await discoverAgents("dispatch");
   const agent = agents.find((a) => a.id === appId);
@@ -297,7 +373,7 @@ export async function syncGrantsToApp(appId: string) {
   // Resolve secret values for each grant
   const vars: Array<{ key: string; value: string }> = [];
   for (const grant of activeGrants) {
-    const secret = await getSecret(grant.secretId);
+    const secret = await getSecret(grant.secretId, ctx);
     if (secret) {
       vars.push({ key: secret.credentialKey, value: secret.value });
     }
@@ -325,7 +401,7 @@ export async function syncGrantsToApp(appId: string) {
 
   // Update syncedAt on grants that were successfully pushed
   for (const grant of activeGrants) {
-    const secret = await getSecret(grant.secretId);
+    const secret = await getSecret(grant.secretId, ctx);
     if (secret && syncedKeys.includes(secret.credentialKey)) {
       await db
         .update(schema.vaultGrants)
