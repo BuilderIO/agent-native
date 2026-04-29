@@ -11,6 +11,7 @@ import {
   IconArrowUpRight,
   IconBellCog,
   IconBrandTelegram,
+  IconInfoCircle,
   IconKey,
   IconLayersSubtract,
   IconPlugConnected,
@@ -25,6 +26,11 @@ import {
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const NAV_ITEMS = [
   { to: "/overview", label: "Overview", icon: IconBroadcast },
@@ -109,7 +115,7 @@ export function DispatchShell({
   children,
 }: {
   title: string;
-  description: string;
+  description?: string;
   children: ReactNode;
 }) {
   const location = useLocation();
@@ -153,9 +159,26 @@ export function DispatchShell({
               >
                 <IconLayoutSidebar />
               </Button>
-              <div className="text-sm font-medium text-muted-foreground">
-                Workspace control plane
-              </div>
+              <h1 className="text-sm font-semibold text-foreground">{title}</h1>
+              {description ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="text-muted-foreground/60 hover:text-foreground"
+                      aria-label={`About ${title}`}
+                    >
+                      <IconInfoCircle className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="bottom"
+                    className="max-w-72 text-xs leading-relaxed"
+                  >
+                    {description}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
             </div>
             <AgentToggleButton />
           </header>
@@ -163,16 +186,8 @@ export function DispatchShell({
           <InvitationBanner />
 
           <main className="flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-              <div className="border-b pb-4">
-                <h1 className="text-2xl font-semibold text-foreground">
-                  {title}
-                </h1>
-                <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                  {description}
-                </p>
-              </div>
-              <div className="mt-5 space-y-5">{children}</div>
+            <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
+              {children}
             </div>
           </main>
         </div>
