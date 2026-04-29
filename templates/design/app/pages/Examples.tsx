@@ -65,10 +65,10 @@ export default function Examples() {
     <div className="flex-1 overflow-y-auto">
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         <div className="mb-8">
-          <h1 className="text-lg font-semibold text-white/90 mb-1">
+          <h1 className="text-lg font-semibold text-foreground mb-1">
             Starter Examples
           </h1>
-          <p className="text-sm text-white/40">
+          <p className="text-sm text-muted-foreground">
             Pick a template to get started quickly, or use it as inspiration for
             your own design.
           </p>
@@ -80,18 +80,18 @@ export default function Examples() {
             return (
               <div
                 key={example.title}
-                className="group rounded-xl border border-white/[0.06] bg-[hsl(240,5%,8%)] overflow-hidden"
+                className="group rounded-xl border border-border bg-card overflow-hidden"
               >
                 {/* Preview area */}
-                <div className="aspect-video bg-white/[0.03] flex items-center justify-center">
-                  <Icon className="w-10 h-10 text-white/10 group-hover:text-white/15" />
+                <div className="aspect-video bg-muted/50 flex items-center justify-center">
+                  <Icon className="w-10 h-10 text-muted-foreground/40 group-hover:text-muted-foreground/40" />
                 </div>
                 {/* Info */}
                 <div className="p-4">
-                  <h3 className="font-medium text-sm text-white/80 mb-1">
+                  <h3 className="font-medium text-sm text-foreground/90 mb-1">
                     {example.title}
                   </h3>
-                  <p className="text-xs text-white/40 mb-3 line-clamp-2">
+                  <p className="text-xs text-muted-foreground mb-3 line-clamp-2">
                     {example.description}
                   </p>
                   <Button

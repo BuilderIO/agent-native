@@ -189,10 +189,8 @@ export default function PromptPopover({
       )}
       <div
         ref={panelRef}
-        className={`fixed z-[200] w-[min(400px,calc(100vw-24px))] rounded-xl border bg-[hsl(240,5%,10%)] shadow-2xl shadow-black/60 overflow-hidden transition-colors ${
-          dragging
-            ? "border-[#609FF8]/50 bg-[hsl(240,5%,12%)]"
-            : "border-white/[0.1]"
+        className={`fixed z-[200] w-[min(400px,calc(100vw-24px))] rounded-xl border bg-popover shadow-2xl shadow-black/60 overflow-hidden transition-colors ${
+          dragging ? "border-[#609FF8]/50 bg-accent" : "border-border"
         }`}
         style={{ top: 0, left: 0, visibility: "visible" }}
         onDrop={handleDrop}
@@ -206,7 +204,9 @@ export default function PromptPopover({
         }}
       >
         <div className="px-3.5 pt-3 pb-1.5">
-          <span className="text-sm font-medium text-white/80">{title}</span>
+          <span className="text-sm font-medium text-foreground/90">
+            {title}
+          </span>
         </div>
 
         <div className="px-3.5 pb-2">
@@ -221,7 +221,7 @@ export default function PromptPopover({
                 Math.min(el.scrollHeight, window.innerHeight * 0.5) + "px";
             }}
             placeholder={placeholder}
-            className="w-full bg-transparent text-sm text-white/90 placeholder:text-white/30 outline-none resize-none"
+            className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 outline-none resize-none"
             rows={3}
             style={{ maxHeight: "50vh" }}
             onKeyDown={(e) => {
@@ -239,12 +239,12 @@ export default function PromptPopover({
             {files.map((file, i) => (
               <div
                 key={i}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.06] border border-white/[0.08] text-[11px] text-white/50"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent border border-border text-[11px] text-muted-foreground"
               >
                 <span className="max-w-[120px] truncate">{file.name}</span>
                 <button
                   onClick={() => removeFile(i)}
-                  className="p-0.5 rounded hover:bg-white/[0.1]"
+                  className="p-0.5 rounded hover:bg-accent"
                   aria-label={`Remove ${file.name}`}
                 >
                   <IconX className="w-2.5 h-2.5" />
@@ -255,12 +255,12 @@ export default function PromptPopover({
         )}
 
         {/* Bottom bar */}
-        <div className="px-3.5 py-2 flex items-center justify-between border-t border-white/[0.06]">
+        <div className="px-3.5 py-2 flex items-center justify-between border-t border-border">
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-1.5 rounded-md hover:bg-white/[0.06] text-white/30 hover:text-white/50 transition-colors"
+              className="p-1.5 rounded-md hover:bg-accent text-muted-foreground/70 hover:text-muted-foreground transition-colors"
               title="Attach files"
               aria-label="Attach files"
             >
@@ -276,7 +276,7 @@ export default function PromptPopover({
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="text-[10px] text-white/25">
+            <span className="text-[10px] text-muted-foreground/70">
               {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
               +Enter
             </span>
@@ -297,18 +297,18 @@ export default function PromptPopover({
               className={`p-1.5 rounded-lg transition-colors ${
                 hasContent && !busy
                   ? "bg-[#609FF8] hover:bg-[#7AB2FA] text-black"
-                  : "bg-white/[0.12] hover:bg-white/[0.18] disabled:opacity-30 disabled:cursor-not-allowed"
+                  : "bg-accent hover:bg-accent/80 disabled:opacity-30 disabled:cursor-not-allowed"
               }`}
               title="Submit"
               aria-label="Submit"
             >
               {busy ? (
                 <IconLoader2
-                  className={`w-4 h-4 animate-spin ${hasContent ? "text-black" : "text-white/70"}`}
+                  className={`w-4 h-4 animate-spin ${hasContent ? "text-black" : "text-foreground/70"}`}
                 />
               ) : (
                 <IconArrowUp
-                  className={`w-4 h-4 ${hasContent ? "text-black" : "text-white/70"}`}
+                  className={`w-4 h-4 ${hasContent ? "text-black" : "text-foreground/70"}`}
                 />
               )}
             </button>

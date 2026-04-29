@@ -62,6 +62,10 @@ export interface IntegrationStatus {
   error?: string;
   /** The webhook URL that should be configured in the platform */
   webhookUrl?: string;
+  /** The full list of env keys (required + optional) the adapter recognizes,
+   *  including UI hints. Surfaced on the integrations status endpoint so the
+   *  frontend can render fields without hard-coding them per platform. */
+  requiredEnvKeys?: import("../server/create-server.js").EnvKeyConfig[];
 }
 
 /**

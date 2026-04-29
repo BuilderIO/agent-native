@@ -46,10 +46,10 @@ export function MermaidToExcalidrawPanel({
 
   return (
     <div className="p-3 space-y-3">
-      <div className="text-xs text-white/50">
+      <div className="text-xs text-muted-foreground">
         Convert this mermaid diagram to an editable Excalidraw drawing?
       </div>
-      <pre className="text-[10px] text-white/40 bg-white/[0.03] rounded p-2 max-h-24 overflow-auto">
+      <pre className="text-[10px] text-muted-foreground bg-muted rounded p-2 max-h-24 overflow-auto">
         {mermaidDefinition.slice(0, 300)}
         {mermaidDefinition.length > 300 ? "..." : ""}
       </pre>
@@ -69,7 +69,7 @@ export function MermaidToExcalidrawPanel({
         </button>
         <button
           onClick={onCancel}
-          className="px-3 py-1.5 rounded-md text-xs text-white/50 hover:text-white/70 hover:bg-white/[0.06]"
+          className="px-3 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent"
         >
           Cancel
         </button>

@@ -123,10 +123,10 @@ export const SlashMenuUI = forwardRef<
   return createPortal(
     <div
       data-slash-menu="true"
-      className="fixed z-[9999] w-60 rounded-lg bg-[#1c1c1c] border border-white/10 shadow-2xl overflow-hidden py-1"
+      className="fixed z-[9999] w-60 rounded-lg bg-popover border border-border shadow-2xl overflow-hidden py-1"
       style={{ top: position.y, left: position.x }}
     >
-      <div className="px-2 py-1 text-[10px] font-semibold text-white/30 uppercase tracking-widest">
+      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-widest">
         Blocks
       </div>
       {filtered.map((cmd, i) => {
@@ -137,20 +137,20 @@ export const SlashMenuUI = forwardRef<
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 text-left",
               i === selectedIndex
-                ? "bg-white/10 text-white"
-                : "text-white/70 hover:bg-white/5 hover:text-white",
+                ? "bg-accent text-foreground"
+                : "text-foreground/80 hover:bg-accent/50 hover:text-foreground",
             )}
             onMouseEnter={() => setSelectedIndex(i)}
             onClick={() => onCommand(cmd)}
           >
-            <div className="w-7 h-7 rounded flex items-center justify-center bg-white/5 shrink-0">
+            <div className="w-7 h-7 rounded flex items-center justify-center bg-accent/50 shrink-0">
               <Icon size={14} stroke={2} />
             </div>
             <div>
               <div className="text-sm font-medium leading-tight">
                 {cmd.title}
               </div>
-              <div className="text-xs text-white/40 leading-tight">
+              <div className="text-xs text-muted-foreground leading-tight">
                 {cmd.description}
               </div>
             </div>

@@ -101,7 +101,7 @@ export default function ImageOverlay({
         }}
         className="image-overlay-btn"
       >
-        <IconUpload className="w-3.5 h-3.5 text-white/50" />
+        <IconUpload className="w-3.5 h-3.5 text-muted-foreground" />
         Upload
       </button>
       <button
@@ -111,7 +111,7 @@ export default function ImageOverlay({
         }}
         className="image-overlay-btn"
       >
-        <IconSearch className="w-3.5 h-3.5 text-white/50" />
+        <IconSearch className="w-3.5 h-3.5 text-muted-foreground" />
         Search
       </button>
       <button
@@ -121,15 +121,15 @@ export default function ImageOverlay({
         }}
         className="image-overlay-btn"
       >
-        <IconGlobe className="w-3.5 h-3.5 text-white/50" />
+        <IconGlobe className="w-3.5 h-3.5 text-muted-foreground" />
         Logo
       </button>
-      <div className="mx-1.5 border-t border-white/[0.08]" />
+      <div className="mx-1.5 border-t border-border" />
       <button onClick={onToggleObjectFit} className="image-overlay-btn">
         {objectFit === "cover" ? (
-          <IconMinimize className="w-3.5 h-3.5 text-white/50" />
+          <IconMinimize className="w-3.5 h-3.5 text-muted-foreground" />
         ) : (
-          <IconMaximize className="w-3.5 h-3.5 text-white/50" />
+          <IconMaximize className="w-3.5 h-3.5 text-muted-foreground" />
         )}
         Fit: {objectFit === "cover" ? "Cover" : "Contain"}
       </button>

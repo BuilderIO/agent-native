@@ -31,18 +31,18 @@ export function SpeakerNotesPanel({
   };
 
   return (
-    <div className="border-t border-white/[0.06] bg-[hsl(240,5%,6%)] flex-shrink-0">
+    <div className="border-t border-border bg-background flex-shrink-0">
       <button
         onClick={toggle}
         className="w-full flex items-center justify-between px-4 py-1.5 cursor-pointer"
       >
-        <span className="text-[10px] font-medium text-white/30 uppercase tracking-wider">
+        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
           Speaker Notes — Slide {slideIndex + 1} / {slideCount}
         </span>
         {expanded ? (
-          <IconChevronDown className="w-3 h-3 text-white/30" />
+          <IconChevronDown className="w-3 h-3 text-muted-foreground" />
         ) : (
-          <IconChevronUp className="w-3 h-3 text-white/30" />
+          <IconChevronUp className="w-3 h-3 text-muted-foreground" />
         )}
       </button>
       {expanded && (
@@ -51,7 +51,7 @@ export function SpeakerNotesPanel({
             value={notes || ""}
             onChange={(e) => onChange(e.target.value)}
             placeholder="Add speaker notes..."
-            className="w-full h-20 bg-transparent text-white/50 text-xs font-mono placeholder:text-white/20 resize-none outline-none"
+            className="w-full h-20 bg-transparent text-muted-foreground text-xs font-mono placeholder:text-muted-foreground/70 resize-none outline-none"
           />
         </div>
       )}
