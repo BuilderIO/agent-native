@@ -9,8 +9,159 @@ import type {
   Message,
   Artifact,
 } from "./types.js";
-import { createTask, getTask, updateTask } from "./task-store.js";
+import {
+  createTask,
+  getTask,
+  updateTask,
+  claimA2ATaskForProcessing,
+} from "./task-store.js";
 import { agentChat } from "../shared/agent-chat.js";
+import { signInternalToken } from "../integrations/internal-token.js";
+
+// Inlined to avoid pulling the entire core-routes-plugin (and its h3
+// transitive deps) into the a2a/handlers test boundary. Must stay in sync
+// with FRAMEWORK_ROUTE_PREFIX in `server/core-routes-plugin.ts`.
+const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task";
+
+/**
+ * Resolve the base URL we should fire the A2A processor request to. Mirrors
+ * the integration-webhook resolveBaseUrl pattern — prefer explicit env vars
+ * (most reliable on serverless), fall back to inbound request headers.
+ */
+function resolveSelfBaseUrl(event: any | undefined): string {
+  const fromEnv =
+    process.env.APP_URL ||
+    process.env.URL ||
+    process.env.DEPLOY_URL ||
+    process.env.BETTER_AUTH_URL;
+  if (fromEnv) return String(fromEnv).replace(/\/$/, "");
+
+  try {
+    const headers = event?.node?.req?.headers ?? event?.headers;
+    const get = (name: string): string | undefined => {
+      if (!headers) return undefined;
+      if (typeof headers.get === "function") {
+        return headers.get(name) ?? undefined;
+      }
+      const map = headers as Record<string, string | undefined>;
+      return map[name] ?? map[String(name).toLowerCase()];
+    };
+    const proto = get("x-forwarded-proto") || "http";
+    const host = get("host") || `localhost:${process.env.PORT || 3000}`;
+    return `${proto}://${host}`;
+  } catch {
+    return `http://localhost:${process.env.PORT || 3000}`;
+  }
+}
+
+/**
+ * Fire-and-forget POST to the A2A processor route on the same deployment.
+ * Used when an A2A send is requested in async mode — the processor runs the
+ * handler in a fresh function execution so it gets its own full timeout.
+ */
+async function fireProcessTaskDispatch(
+  event: any,
+  taskId: string,
+): Promise<void> {
+  const baseUrl = resolveSelfBaseUrl(event);
+  const url = `${baseUrl}${A2A_PROCESS_TASK_PATH}`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  try {
+    headers["Authorization"] = `Bearer ${signInternalToken(taskId)}`;
+  } catch {
+    // No A2A_SECRET configured — self-fire unsigned. The processor accepts
+    // unsigned dispatches when no secret is set (mirrors the integration
+    // webhook flow).
+  }
+  fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ taskId }),
+  }).catch((err) => {
+    console.error("[a2a] Process-task dispatch fetch failed:", err);
+  });
+}
+
+/**
+ * Process a previously-enqueued A2A task. Called by the `_process-task`
+ * route in `server.ts`, in a fresh function execution. Atomically claims the
+ * task, reconstructs the caller's request context from the task's metadata,
+ * runs the handler, and persists the outcome.
+ *
+ * Idempotent on duplicate dispatches: the atomic claim returns null if some
+ * other invocation already picked the task up, in which case we no-op.
+ */
+export async function processA2ATaskFromQueue(
+  taskId: string,
+  config: A2AConfig,
+): Promise<void> {
+  const claimed = await claimA2ATaskForProcessing(taskId);
+  if (!claimed) {
+    // Already in flight, terminal, or missing. Nothing to do.
+    return;
+  }
+
+  const message = claimed.history?.[0];
+  if (!message) {
+    await updateTask(taskId, {
+      state: "failed",
+      message: {
+        role: "agent",
+        parts: [{ type: "text", text: "Task is missing its inbound message" }],
+      },
+    });
+    return;
+  }
+
+  const meta = (claimed.metadata ?? {}) as Record<string, unknown>;
+  const processorMeta = (meta.__a2a_processor ?? {}) as Record<string, unknown>;
+  const verifiedEmail = processorMeta.verifiedEmail as string | undefined;
+  const orgDomainHint = processorMeta.orgDomainHint as string | undefined;
+  const contextId =
+    (processorMeta.contextId as string | null | undefined) ?? undefined;
+  const callerMetadata =
+    (processorMeta.callerMetadata as
+      | Record<string, unknown>
+      | null
+      | undefined) ?? undefined;
+
+  let resolvedOrgId: string | undefined;
+  if (orgDomainHint) {
+    try {
+      const { resolveOrgByDomain } = await import("../org/context.js");
+      const org = await resolveOrgByDomain(orgDomainHint);
+      if (org) resolvedOrgId = org.orgId;
+    } catch {}
+  }
+
+  const { runWithRequestContext } =
+    await import("../server/request-context.js");
+  try {
+    await runWithRequestContext(
+      { userEmail: verifiedEmail, orgId: resolvedOrgId },
+      () =>
+        runHandlerAndPersist(
+          taskId,
+          message,
+          config,
+          contextId,
+          callerMetadata,
+        ),
+    );
+  } catch (err: any) {
+    try {
+      await updateTask(taskId, {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: err?.message ?? "Handler crashed" }],
+        },
+      });
+    } catch {}
+  }
+}
 
 /**
  * Default A2A handler that delegates to agentChat.call().
@@ -154,40 +305,9 @@ async function withA2ARequestContext<T>(
 }
 
 /**
- * Best-effort "keep this promise alive after the response is sent."
- *
- * On Cloudflare Workers we have `__cf_ctx.waitUntil`. On Netlify Functions
- * (Lambda under the hood) the function instance can be frozen the moment the
- * response is flushed, so detached promises may not run to completion.
- * Netlify's Background Functions (15-min timeout) are the durable answer, but
- * for now we at least wire up the Workers path and a Netlify `context.waitUntil`
- * if/when one is exposed. Anywhere else we fall back to fire-and-forget — the
- * Node server (local dev, long-running hosts) will run it normally.
- */
-function keepAlive(event: any | undefined, p: Promise<unknown>): void {
-  try {
-    const cfCtx = (globalThis as any).__cf_ctx;
-    if (cfCtx?.waitUntil) {
-      cfCtx.waitUntil(p);
-      return;
-    }
-  } catch {}
-  try {
-    // Netlify exposes a Lambda-ish `context` object; if it ever exposes a
-    // waitUntil-style API at event.context, prefer that.
-    const ctx = event?.context;
-    if (ctx && typeof ctx.waitUntil === "function") {
-      ctx.waitUntil(p);
-      return;
-    }
-  } catch {}
-  // Fire-and-forget — fine for Node hosts, may be cut short on serverless.
-  p.catch(() => {});
-}
-
-/**
  * Run the handler against the message and persist the outcome to the task store.
- * Used both synchronously (await) and detached (in async mode).
+ * Used in sync mode (awaited inline) and in async mode (called by the
+ * `_process-task` processor route in a fresh function execution).
  */
 async function runHandlerAndPersist(
   taskId: string,
@@ -269,9 +389,13 @@ async function handleSend(
     (event && event.context?.__a2aForceAsync === true);
 
   if (asyncMode) {
-    // Resolve identity up front (cheap), then return immediately and re-enter
-    // a request context inside the detached promise so the handler still sees
-    // the caller's email/org.
+    // Resolve identity up front (cheap), bake it into the task's metadata,
+    // and dispatch the actual handler run to a SEPARATE function execution.
+    // On serverless hosts (Netlify, Vercel, Cloudflare) detached promises get
+    // killed when the response is flushed, so we self-fire a webhook to a
+    // dedicated processor route — same cross-platform pattern the integration
+    // webhook queue uses. The processor reconstructs the request context from
+    // the task metadata and runs the handler with its own full timeout.
     const verifiedEmail =
       (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
     const orgDomainHint =
@@ -279,41 +403,22 @@ async function handleSend(
       ((metadata as any)?.orgDomain as string | undefined) ??
       undefined;
 
-    const task = await createTask(message, contextId);
+    const taskMetadata: Record<string, unknown> = {
+      ...(metadata ?? {}),
+      __a2a_processor: {
+        verifiedEmail,
+        orgDomainHint,
+        contextId: contextId ?? null,
+        callerMetadata: metadata ?? null,
+      },
+    };
+    const task = await createTask(message, contextId, taskMetadata);
     const working = await updateTask(task.id, { state: "working" });
 
-    const detached = (async () => {
-      const { runWithRequestContext } =
-        await import("../server/request-context.js");
-      let resolvedOrgId: string | undefined;
-      if (orgDomainHint) {
-        try {
-          const { resolveOrgByDomain } = await import("../org/context.js");
-          const org = await resolveOrgByDomain(orgDomainHint);
-          if (org) resolvedOrgId = org.orgId;
-        } catch {}
-      }
-      try {
-        await runWithRequestContext(
-          { userEmail: verifiedEmail, orgId: resolvedOrgId },
-          () =>
-            runHandlerAndPersist(task.id, message, config, contextId, metadata),
-        );
-      } catch (err: any) {
-        try {
-          await updateTask(task.id, {
-            state: "failed",
-            message: {
-              role: "agent",
-              parts: [
-                { type: "text", text: err?.message ?? "Handler crashed" },
-              ],
-            },
-          });
-        } catch {}
-      }
-    })();
-    keepAlive(event, detached);
+    fireProcessTaskDispatch(event, task.id).catch((err) => {
+      console.error("[a2a] Failed to dispatch process-task:", err);
+    });
+
     return { ...jsonRpcResult(0, working ?? task), _id: 0 };
   }
 
