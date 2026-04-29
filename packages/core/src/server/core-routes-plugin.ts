@@ -35,6 +35,11 @@ import {
   deleteAllComposeDrafts,
 } from "../application-state/handlers.js";
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
+import {
+  getUserSetting,
+  putUserSetting,
+  deleteUserSetting,
+} from "../settings/user-settings.js";
 import { getSession } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
@@ -1145,6 +1150,61 @@ export function createCoreRoutesPlugin(
 
     // ─── Application State CRUD ──────────────────────────────────────
     // Auto-mounted so templates don't need boilerplate route files.
+
+    // ─── User-scoped settings store ────────────────────────────────────
+    // GET    /_agent-native/settings/:key   — read current user's value
+    // PUT    /_agent-native/settings/:key   — write current user's value
+    // DELETE /_agent-native/settings/:key   — clear current user's value
+    //
+    // Keys are auto-prefixed with `u:<email>:` so each user gets their
+    // own row — no leakage between sessions sharing the same DB.
+    getH3App(nitroApp).use(
+      `${P}/settings`,
+      defineEventHandler(async (event: H3Event) => {
+        const rawKey =
+          (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] || "";
+        const key = rawKey.replace(/[^a-zA-Z0-9_-]/g, "");
+        if (!key) {
+          setResponseStatus(event, 404);
+          return { error: "Settings key required" };
+        }
+
+        const session = await getSession(event);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "unauthorized" };
+        }
+
+        const method = getMethod(event);
+        const requestSource =
+          (event.node?.req?.headers?.["x-request-source"] as
+            | string
+            | undefined) || undefined;
+
+        if (method === "GET") {
+          const value = await getUserSetting(session.email, key);
+          if (!value) {
+            setResponseStatus(event, 404);
+            return { error: `No setting for ${key}` };
+          }
+          return value;
+        }
+
+        if (method === "PUT") {
+          const body = await readBody(event);
+          await putUserSetting(session.email, key, body, { requestSource });
+          return body;
+        }
+
+        if (method === "DELETE") {
+          await deleteUserSetting(session.email, key, { requestSource });
+          return { ok: true };
+        }
+
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }),
+    );
 
     // ─── Avatar routes ──────────────────────────────────────────────────
     // GET /_agent-native/avatar/:email — fetch any user's avatar (public)

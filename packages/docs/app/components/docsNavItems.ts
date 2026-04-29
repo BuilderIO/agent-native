@@ -56,14 +56,6 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: "Advanced",
-    items: [
-      { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
-      { label: "Frames", to: "/docs/frames" as const },
-      { label: "Creating Templates", to: "/docs/creating-templates" as const },
-    ],
-  },
-  {
     title: "Templates",
     items: [
       { label: "Mail", to: "/docs/template-mail" as const },
@@ -76,6 +68,14 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Design", to: "/docs/template-design" as const },
       { label: "Dispatch", to: "/docs/template-dispatch" as const },
       { label: "Forms", to: "/docs/template-forms" as const },
+    ],
+  },
+  {
+    title: "Advanced",
+    items: [
+      { label: "CLI Adapters", to: "/docs/cli-adapters" as const },
+      { label: "Frames", to: "/docs/frames" as const },
+      { label: "Creating Templates", to: "/docs/creating-templates" as const },
     ],
   },
 ];

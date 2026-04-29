@@ -119,14 +119,14 @@ export function App() {
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
   const [voiceShortcut, setVoiceShortcut] = useState<VoiceShortcutPreference>(
     () => {
-      if (!loadBool(VOICE_SHORTCUT_CONFIGURED_KEY, false)) return "both";
-      const saved = loadString(VOICE_SHORTCUT_KEY, "both");
+      if (!loadBool(VOICE_SHORTCUT_CONFIGURED_KEY, false))
+        return "cmd-shift-space";
+      const saved = loadString(VOICE_SHORTCUT_KEY, "cmd-shift-space");
       return saved === "cmd-shift-space" ||
         saved === "ctrl-shift-space" ||
-        saved === "both" ||
-        saved === "fn"
+        saved === "both"
         ? saved
-        : "fn";
+        : "cmd-shift-space";
     },
   );
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(() => {
@@ -1905,10 +1905,9 @@ function Setup({
             onVoiceShortcutChange(event.target.value as VoiceShortcutPreference)
           }
         >
-          <option value="fn">Fn</option>
           <option value="cmd-shift-space">Cmd+Shift+Space</option>
           <option value="ctrl-shift-space">Ctrl+Shift+Space</option>
-          <option value="both">All shortcuts</option>
+          <option value="both">Both</option>
         </select>
       </div>
       <div className="setup-section">

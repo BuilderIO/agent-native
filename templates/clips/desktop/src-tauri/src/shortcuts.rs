@@ -15,8 +15,6 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     let shortcut_ctrl = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyL);
     let voice_cmd_space = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space);
     let voice_ctrl_space = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
-    #[cfg(not(target_os = "macos"))]
-    let shortcut_fn = Shortcut::new(None, Code::Fn);
     let gs = app.handle().global_shortcut();
     if let Err(err) = gs.register(shortcut_cmd) {
         eprintln!("[clips-tray] failed to register Cmd+Shift+L: {err}");
@@ -30,12 +28,6 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     if let Err(err) = gs.register(voice_ctrl_space) {
         eprintln!("[clips-tray] failed to register Ctrl+Shift+Space voice shortcut: {err}");
     }
-    #[cfg(not(target_os = "macos"))]
-    if let Err(err) = gs.register(shortcut_fn) {
-        eprintln!("[clips-tray] failed to register Fn push-to-talk: {err}");
-    }
-    #[cfg(target_os = "macos")]
-    install_fn_event_tap(app.handle().clone());
 
     Ok(())
 }
@@ -49,7 +41,6 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         let is_voice_cmd_space = shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::Space);
         let is_voice_ctrl_space =
             shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::Space);
-        let is_fn = shortcut.matches(Modifiers::empty(), Code::Fn);
         if is_voice_cmd_space || is_voice_ctrl_space {
             let source = if is_voice_cmd_space {
                 "cmd-shift-space"
@@ -79,32 +70,6 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                     }
                     eprintln!("[clips-tray] {source} up — stopping voice dictation");
                     emit_voice_shortcut(app, "voice:shortcut-stop", source, false);
-                }
-            }
-            return;
-        }
-        if is_fn {
-            let active_state = app.try_state::<DictationActive>();
-            match event.state() {
-                tauri_plugin_global_shortcut::ShortcutState::Pressed => {
-                    let mut already_active = false;
-                    if let Some(state) = active_state.as_ref() {
-                        if let Ok(mut g) = state.0.lock() {
-                            already_active = *g;
-                            *g = true;
-                        }
-                    }
-                    if !already_active {
-                        emit_voice_shortcut(app, "voice:shortcut-start", "fn", true);
-                    }
-                }
-                tauri_plugin_global_shortcut::ShortcutState::Released => {
-                    if let Some(state) = active_state.as_ref() {
-                        if let Ok(mut g) = state.0.lock() {
-                            *g = false;
-                        }
-                    }
-                    emit_voice_shortcut(app, "voice:shortcut-stop", "fn", false);
                 }
             }
             return;
@@ -161,56 +126,4 @@ fn wake_popover_for_voice(app: &tauri::AppHandle) {
     let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(2_u32, 2_u32)));
     let _ = window.show();
     let _ = app.emit("clips:popover-visible", false);
-}
-
-#[cfg(target_os = "macos")]
-fn install_fn_event_tap(app: tauri::AppHandle) {
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-
-    use core_foundation::runloop::CFRunLoop;
-    use core_graphics::event::{
-        CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
-        CGEventType, CallbackResult,
-    };
-
-    let active = Arc::new(Mutex::new(false));
-    thread::spawn(move || {
-        let active = active.clone();
-        let app_for_tap = app.clone();
-        eprintln!("[clips-tray] installing macOS Fn event tap");
-        let result = CGEventTap::with_enabled(
-            CGEventTapLocation::HID,
-            CGEventTapPlacement::HeadInsertEventTap,
-            CGEventTapOptions::ListenOnly,
-            vec![CGEventType::FlagsChanged],
-            move |_proxy, _event_type, event| {
-                let is_down = event
-                    .get_flags()
-                    .contains(CGEventFlags::CGEventFlagSecondaryFn);
-                if let Ok(mut was_down) = active.lock() {
-                    if is_down && !*was_down {
-                        *was_down = true;
-                        eprintln!("[clips-tray] Fn down — starting voice dictation");
-                        let _ = app_for_tap.emit(
-                            "voice:shortcut-start",
-                            serde_json::json!({ "source": "fn" }),
-                        );
-                    } else if !is_down && *was_down {
-                        *was_down = false;
-                        eprintln!("[clips-tray] Fn up — stopping voice dictation");
-                        let _ = app_for_tap
-                            .emit("voice:shortcut-stop", serde_json::json!({ "source": "fn" }));
-                    }
-                }
-                CallbackResult::Keep
-            },
-            CFRunLoop::run_current,
-        );
-        if result.is_err() {
-            eprintln!(
-                "[clips-tray] failed to install Fn event tap; enable Accessibility/Input Monitoring for Clips or the terminal running tauri dev"
-            );
-        }
-    });
 }

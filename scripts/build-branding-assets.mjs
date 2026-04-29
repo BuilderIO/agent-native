@@ -170,7 +170,14 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
   console.log("✔ templates/clips/desktop/src-tauri/icons/{icon.png,32x32.png,128x128.png,128x128@2x.png,icon.icns,icon.ico,tray.png}");
 }
 
-// 6) Mobile app
+// 6) Slack bot icon (manual upload to api.slack.com/apps → Basic Information → Display)
+const SLACK_OUT = join(BRANDING, "slack-bot");
+mkdirSync(SLACK_OUT, { recursive: true });
+rasterize(join(BRANDING, "favicon.svg"), join(SLACK_OUT, "agent-native-512.png"), 512);
+rasterize(join(BRANDING, "favicon.svg"), join(SLACK_OUT, "agent-native-1024.png"), 1024);
+console.log("✔ packages/core/src/assets/branding/slack-bot/{agent-native-512,agent-native-1024}.png");
+
+// 7) Mobile app
 const MOBILE_ASSETS = join(ROOT, "packages/mobile-app/assets");
 if (existsSync(MOBILE_ASSETS)) {
   const tmp = join(MOBILE_ASSETS, "_branding-source.svg");
@@ -180,6 +187,13 @@ if (existsSync(MOBILE_ASSETS)) {
   rasterize(tmp, join(MOBILE_ASSETS, "favicon.png"), 64);
   rmSync(tmp);
   console.log("✔ packages/mobile-app/assets/{icon,adaptive-icon,favicon}.png");
+}
+
+// 7b) Native iOS AppIcon (Expo prebuild output — does NOT auto-regenerate)
+const IOS_APPICON = join(ROOT, "packages/mobile-app/ios/AgentNative/Images.xcassets/AppIcon.appiconset");
+if (existsSync(IOS_APPICON)) {
+  rasterize(join(BRANDING, "favicon.svg"), join(IOS_APPICON, "App-Icon-1024x1024@1x.png"), 1024);
+  console.log("✔ packages/mobile-app/ios/.../AppIcon.appiconset/App-Icon-1024x1024@1x.png");
 }
 
 console.log("\nDone.");

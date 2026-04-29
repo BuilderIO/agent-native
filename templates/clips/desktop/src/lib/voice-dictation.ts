@@ -2,14 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 
 export type VoiceShortcutPreference =
-  | "fn"
   | "cmd-shift-space"
   | "ctrl-shift-space"
   | "both";
 export type VoiceMode = "push-to-talk" | "toggle";
 
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
-type VoiceShortcutSource = "fn" | "cmd-shift-space" | "ctrl-shift-space";
+type VoiceShortcutSource = "cmd-shift-space" | "ctrl-shift-space";
 
 interface DesktopVoiceDictationOptions {
   enabled: boolean;

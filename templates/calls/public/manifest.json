@@ -1,7 +1,7 @@
 {
   "name": "Calls",
   "short_name": "Calls",
-  "description": "AI-native conversation intelligence — record, transcribe, and analyze calls.",
+  "description": "Agent-native conversation intelligence — record, transcribe, and analyze calls.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

@@ -5,19 +5,21 @@ type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
 
 /**
  * Wispr Flow-style dictation overlay — a slim dark floating panel,
- * horizontally centered. Four states driven by Tauri events:
- *
- *   1. Idle (320x40): dark glass pill, "EN" language indicator circle
- *   2. Recording (380x48): white waveform bars driven by audio levels
- *   3. Processing (380x48): "Polishing..." text with shimmer animation
- *   4. Complete: snaps back to idle
+ * horizontally centered. The bar only ever appears once the user has
+ * triggered a voice shortcut, so it mounts in "recording" state and
+ * shows the waveform immediately. State transitions arrive via Tauri
+ * events as the recorder progresses through processing → complete/error.
  *
  * Events:
  *   - `voice:state-change` { state: "idle"|"recording"|"processing"|"complete"|"error" }
  *   - `voice:audio-level` { level: number } (0-1) for waveform visualization
  */
 export function FlowBar() {
-  const [state, setState] = useState<FlowState>("idle");
+  // Default to "recording" not "idle" — there's a race between the Rust
+  // window opening and the React listener registering, so a default of
+  // "idle" caused the bar to flash an "EN" language pill that never went
+  // away if the start event was missed.
+  const [state, setState] = useState<FlowState>("recording");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const levelRef = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -43,11 +45,12 @@ export function FlowBar() {
     trackListen(
       listen<{ state: FlowState }>("voice:state-change", (ev) => {
         const next = ev.payload.state;
-        if (next === "complete") {
-          setState("idle");
-        } else {
-          setState(next);
-        }
+        // "complete" / "idle" are transitional states right before the
+        // window is closed by hide_flow_bar — don't repaint into the
+        // empty "EN" idle pill in the brief gap, just leave the
+        // previous state showing until the window goes away.
+        if (next === "complete" || next === "idle") return;
+        setState(next);
       }),
     );
 
@@ -136,12 +139,6 @@ export function FlowBar() {
   return (
     <div className="flow-bar-root">
       <div className={`flow-bar flow-bar-${state}`}>
-        {state === "idle" ? (
-          <div className="flow-bar-idle">
-            <div className="flow-bar-lang">EN</div>
-          </div>
-        ) : null}
-
         {state === "recording" ? (
           <div className="flow-bar-recording">
             <canvas ref={canvasRef} className="flow-bar-canvas" />

@@ -81,7 +81,7 @@ export const templates = [
   {
     name: "Clips",
     slug: "clips",
-    replaces: "Async screen recording for teams",
+    replaces: "Replaces or augments Loom",
     cliCommand: "npx @agent-native/core create my-clips-app",
     demoUrl: "https://clips.agent-native.com",
     description:
@@ -97,7 +97,7 @@ export const templates = [
     cliCommand: "npx @agent-native/core create my-design-app",
     demoUrl: "https://design.agent-native.com",
     description:
-      "AI-native design tool. Create and edit visual designs by prompt or by hand, with the agent as your co-designer.",
+      "Agent-native design tool. Create and edit visual designs by prompt or by hand, with the agent as your co-designer.",
     color: "#F472B6",
     screenshot: "",
   },
@@ -120,7 +120,7 @@ export const templates = [
     cliCommand: "npx @agent-native/core create my-forms-app",
     demoUrl: "https://forms.agent-native.com",
     description:
-      "AI-native form builder. Generate forms from a prompt, branch logic with the agent, and own every response in your own database.",
+      "Agent-native form builder. Generate forms from a prompt, branch logic with the agent, and own every response in your own database.",
     color: "#06B6D4",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190c3fabd51f4c1bba5aa4e091ad4e9b?format=webp&width=800",

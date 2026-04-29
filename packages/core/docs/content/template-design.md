@@ -1,6 +1,6 @@
 ---
 title: "Design"
-description: "An AI-native design tool — sketch a UI, brand kit, or marketing visual by prompt or by hand, with the agent as your co-designer."
+description: "An Agent-native design tool — sketch a UI, brand kit, or marketing visual by prompt or by hand, with the agent as your co-designer."
 ---
 
 # Design
