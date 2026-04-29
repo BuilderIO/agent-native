@@ -194,7 +194,16 @@ const defaultHandler: A2AHandler = async (
     };
   }
 
-  const result = await agentChat.call(text);
+  // A2A note: this message arrived from a different app, so any URL in the
+  // response must be fully-qualified — a relative path like `/deck/abc` is
+  // useless to the caller (different host). We prepend a one-line hint with
+  // this app's base URL so the agent can compose absolute URLs.
+  const baseUrl = process.env.APP_URL || process.env.URL || "";
+  const augmentedText = baseUrl
+    ? `[Cross-app A2A request: any URL you include in your reply MUST be fully-qualified (e.g. ${baseUrl}/deck/abc), never a relative path — the caller is on a different host and relative paths won't resolve.]\n\n${text}`
+    : text;
+
+  const result = await agentChat.call(augmentedText);
 
   const artifacts: Artifact[] = [];
   if (result.filesChanged.length > 0) {
