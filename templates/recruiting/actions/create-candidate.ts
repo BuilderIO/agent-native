@@ -41,10 +41,10 @@ export default defineAction({
     jobId: z.coerce.number().optional().describe("Job ID to apply for"),
   }),
   run: async (args) => {
-    const orgId = getRequestOrgId();
-    if (orgId) {
-      return withOrgContext(orgId, () => createCandidate(args));
-    }
-    return createCandidate(args);
+    const orgId = getRequestOrgId() ?? null;
+    const email = getRequestUserEmail() ?? null;
+    return withCredentialContext({ email, orgId }, () =>
+      createCandidate(args),
+    );
   },
 });
