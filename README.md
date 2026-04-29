@@ -100,7 +100,7 @@ Connect any data source, prompt for any chart. Build reusable dashboards, not th
 
 <a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7366585df5a545e697e254bb0138182d?format=webp&width=800" alt="Clips template" width="100%" /></a>
 
-**Async screen recording for teams**
+**Agent-Native Loom**
 
 Record your screen with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.
 

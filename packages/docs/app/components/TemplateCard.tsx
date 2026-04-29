@@ -81,7 +81,7 @@ export const templates = [
   {
     name: "Clips",
     slug: "clips",
-    replaces: "Async screen recording for teams",
+    replaces: "Replaces or augments Loom",
     cliCommand: "npx @agent-native/core create my-clips-app",
     demoUrl: "https://clips.agent-native.com",
     description:
