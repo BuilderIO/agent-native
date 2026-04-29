@@ -28,6 +28,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import PromptPopover from "@/components/editor/PromptDialog";
@@ -223,7 +224,7 @@ export default function DesignEditor() {
   if (designLoading) {
     return (
       <div className="flex-1 bg-background flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground/30" />
+        <Spinner className="size-8 text-foreground/30" />
       </div>
     );
   }

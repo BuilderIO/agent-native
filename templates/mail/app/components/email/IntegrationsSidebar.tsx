@@ -7,6 +7,7 @@ import {
   IconArrowUp,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Popover,
   PopoverTrigger,
@@ -1103,7 +1104,7 @@ function SectionHeader({
 function SectionLoading() {
   return (
     <div className="px-4 py-4 flex items-center justify-center">
-      <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
+      <Spinner className="size-4 text-foreground" />
     </div>
   );
 }

@@ -434,7 +434,6 @@ function setSlackAssistantStatus(
   }).catch(() => {});
 }
 
-/**
 function buildThinkingBlocks(): unknown[] {
   // Pick a witty rotating message so two back-to-back mentions don't both
   // say the exact same thing.
