@@ -44,6 +44,8 @@ export interface TemplateMeta {
   alwaysAvailable?: boolean;
   /** Internal workspace packages this template depends on (e.g. "scheduling") */
   requiredPackages?: string[];
+  /** Core app — featured in the CLI picker, homepage, and docs gallery */
+  core?: boolean;
 }
 
 export const TEMPLATES: TemplateMeta[] = [
@@ -57,6 +59,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8085,
     prodUrl: "https://mail.agent-native.com",
     defaultMode: "prod",
+    core: true,
   },
   {
     name: "calendar",
@@ -69,6 +72,7 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://calendar.agent-native.com",
     defaultMode: "prod",
     requiredPackages: ["scheduling"],
+    core: true,
   },
   {
     name: "content",
@@ -80,6 +84,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8083,
     prodUrl: "https://content.agent-native.com",
     defaultMode: "prod",
+    core: true,
   },
   {
     name: "slides",
@@ -91,6 +96,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8086,
     prodUrl: "https://slides.agent-native.com",
     defaultMode: "prod",
+    core: true,
   },
   {
     name: "videos",
@@ -102,6 +108,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8087,
     prodUrl: "https://videos.agent-native.com",
     defaultMode: "prod",
+    core: true,
   },
   {
     name: "analytics",
@@ -113,6 +120,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8088,
     prodUrl: "https://analytics.agent-native.com",
     defaultMode: "prod",
+    core: true,
   },
   {
     name: "dispatch",
@@ -122,7 +130,9 @@ export const TEMPLATES: TemplateMeta[] = [
     color: "#14B8A6",
     colorRgb: "20 184 166",
     devPort: 8092,
-    defaultMode: "dev",
+    prodUrl: "https://dispatch.agent-native.com",
+    defaultMode: "prod",
+    core: true,
   },
   {
     name: "forms",
@@ -134,6 +144,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8084,
     prodUrl: "https://forms.agent-native.com",
     defaultMode: "prod",
+    core: true,
   },
   {
     name: "issues",
@@ -167,17 +178,31 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8089,
     defaultMode: "prod",
     alwaysAvailable: true,
+    core: true,
   },
   {
     name: "clips",
     label: "Clips",
     hint: "Async screen recording — record, transcribe, share",
-    icon: "MonitorPlay",
+    icon: "ScreenShare",
     color: "#625DF5",
     colorRgb: "98 93 245",
     devPort: 8094,
     prodUrl: "https://clips.agent-native.com",
     defaultMode: "prod",
+    core: true,
+  },
+  {
+    name: "design",
+    label: "Design",
+    hint: "AI-native design tool — create and edit visual designs with agent assistance",
+    icon: "Brush",
+    color: "#F472B6",
+    colorRgb: "244 114 182",
+    devPort: 8099,
+    prodUrl: "https://design.agent-native.com",
+    defaultMode: "prod",
+    core: true,
   },
   {
     name: "calls",
@@ -229,6 +254,11 @@ export const TEMPLATES: TemplateMeta[] = [
 /** Return templates visible in user-facing pickers (excludes hidden). */
 export function visibleTemplates(): TemplateMeta[] {
   return TEMPLATES.filter((t) => !t.hidden);
+}
+
+/** Return core templates — the featured set shown in CLI pickers by default. */
+export function coreTemplates(): TemplateMeta[] {
+  return TEMPLATES.filter((t) => t.core);
 }
 
 /** Lookup by name. Returns undefined for unknown names. */
