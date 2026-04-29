@@ -149,9 +149,7 @@ export async function run(
         // callers run on a long-lived stream and should keep the default
         // 5-min budget. Reviewer flagged in #354 that the previous
         // unconditional cap regressed agent-chat A2A calls.
-        const callTimeoutMs = isIntegrationCallerRequest()
-          ? 18000
-          : undefined;
+        const callTimeoutMs = isIntegrationCallerRequest() ? 18000 : undefined;
         responseText = await callAgent(agent.url, message, {
           userEmail: callerEmail,
           orgDomain: callerOrgDomain,
