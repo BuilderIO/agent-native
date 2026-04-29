@@ -23,18 +23,13 @@ vi.mock("@agent-native/core/client", () => ({
 import { Sidebar } from "./Sidebar";
 
 function renderAt(path: string, ui: ReactNode) {
-  return render(
-    <MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>,
-  );
+  return render(<MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>);
 }
 
 describe("<Sidebar collapsed>", () => {
   it("renders the icon-only rail (w-12) with an Expand button", () => {
     const onToggle = vi.fn();
-    renderAt(
-      "/",
-      <Sidebar collapsed={true} onToggleCollapsed={onToggle} />,
-    );
+    renderAt("/", <Sidebar collapsed={true} onToggleCollapsed={onToggle} />);
 
     const aside = screen.getByRole("complementary");
     expect(aside.className).toContain("w-12");
@@ -49,10 +44,7 @@ describe("<Sidebar collapsed>", () => {
   });
 
   it("hides nav labels but keeps each nav item as a clickable icon with a tooltip", () => {
-    renderAt(
-      "/",
-      <Sidebar collapsed={true} onToggleCollapsed={() => {}} />,
-    );
+    renderAt("/", <Sidebar collapsed={true} onToggleCollapsed={() => {}} />);
     expect(screen.queryByText("Decks")).toBeNull();
     expect(screen.queryByText("Design Systems")).toBeNull();
     expect(screen.queryByText("Team")).toBeNull();
@@ -66,10 +58,7 @@ describe("<Sidebar collapsed>", () => {
 describe("<Sidebar expanded>", () => {
   it("renders the full sidebar (w-56) with the Collapse button and labelled nav", () => {
     const onToggle = vi.fn();
-    renderAt(
-      "/",
-      <Sidebar collapsed={false} onToggleCollapsed={onToggle} />,
-    );
+    renderAt("/", <Sidebar collapsed={false} onToggleCollapsed={onToggle} />);
 
     const aside = screen.getByRole("complementary");
     expect(aside.className).toContain("w-56");

@@ -118,7 +118,10 @@ describe("useSidebarCollapsed", () => {
   });
 
   it("rolls back (re-fetches truth) when the PUT fails", async () => {
-    const stub = stubFetch({ ok: true, body: JSON.stringify({ collapsed: false }) });
+    const stub = stubFetch({
+      ok: true,
+      body: JSON.stringify({ collapsed: false }),
+    });
     const { result } = renderHook(() => useSidebarCollapsed(), {
       wrapper: makeWrapper(),
     });
