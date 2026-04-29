@@ -68,15 +68,12 @@ export function useFolders() {
     setMemberships((prev) => prev.filter((m) => m.folderId !== folderId));
   }, []);
 
-  const addToFolder = useCallback(
-    (compositionId: string, folderId: string) => {
-      setMemberships((prev) => {
-        const filtered = prev.filter((m) => m.compositionId !== compositionId);
-        return [...filtered, { compositionId, folderId }];
-      });
-    },
-    [],
-  );
+  const addToFolder = useCallback((compositionId: string, folderId: string) => {
+    setMemberships((prev) => {
+      const filtered = prev.filter((m) => m.compositionId !== compositionId);
+      return [...filtered, { compositionId, folderId }];
+    });
+  }, []);
 
   const removeFromFolder = useCallback((compositionId: string) => {
     setMemberships((prev) =>

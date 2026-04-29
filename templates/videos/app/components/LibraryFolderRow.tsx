@@ -105,12 +105,20 @@ export function LibraryFolderRow({
     >
       {/* Folder header */}
       <div
+        role="button"
+        tabIndex={0}
         className={cn(
           "flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors select-none",
           "hover:bg-secondary/60",
           isDragOver && "bg-primary/10",
         )}
         onClick={() => !isRenaming && setExpanded((v) => !v)}
+        onKeyDown={(e) => {
+          if ((e.key === "Enter" || e.key === " ") && !isRenaming) {
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }
+        }}
         onMouseEnter={() => setShowActions(true)}
         onMouseLeave={() => setShowActions(false)}
       >
