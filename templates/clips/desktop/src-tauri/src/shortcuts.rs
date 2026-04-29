@@ -130,81 +130,175 @@ fn wake_popover_for_voice(app: &tauri::AppHandle) {
     let _ = app.emit("clips:popover-visible", false);
 }
 
-/// Listen for Fn (globe) key down/up via a CoreGraphics event tap. Tap is
-/// `ListenOnly` so we don't suppress macOS's own Fn behavior — the system
-/// shows its globe/input-source HUD on Fn unless the user disables it in
-/// System Settings → Keyboard → Press 🌐 key to: Do Nothing.
+/// Listen for Fn (globe) key down/up via a CoreGraphics event tap.
 ///
-/// Edge-triggered: `voice:shortcut-start` fires on every `false → true`
-/// transition of the Fn flag, `voice:shortcut-stop` on every `true → false`.
-/// `DictationActive` is mirrored so the long-tail `show_flow_bar` safety
-/// timeout applies to Fn-triggered dictation too.
+/// We use the lower-level `CGEventTap::new` + manual runloop registration
+/// (rather than the `with_enabled` convenience) so we can:
 ///
-/// Resilient to dropped events: if we see Fn-down while already in the
-/// "down" state (because a previous Fn-up FlagsChanged was missed by the
-/// OS), we synthesize a stop, then start fresh. This stops the Fn key
-/// from getting silently wedged after the first dictation.
+/// - Subscribe to `TapDisabledByTimeout` and `TapDisabledByUserInput`,
+///   which macOS posts when it auto-disables the tap after a slow
+///   callback or system event (sleep/wake, screen lock, Mission Control).
+///   Without this subscription the tap silently dies after the first
+///   dictation and Fn appears to "do nothing" on subsequent presses —
+///   which is the exact symptom we were hitting.
+/// - Hold a reference to the `CGEventTap` on the runloop thread and call
+///   `tap.enable()` between runloop ticks, so a disabled tap is revived
+///   automatically without the user having to relaunch the app.
+///
+/// Tap is `ListenOnly` so we don't swallow the user's real Fn behavior
+/// (the system globe/input-source HUD still appears unless the user sets
+/// System Settings → Keyboard → Press 🌐 key to: Do Nothing).
+///
+/// Edge-triggered on the SecondaryFn flag bit: `voice:shortcut-start` on
+/// `false → true`, `voice:shortcut-stop` on `true → false`. Other modifier
+/// flag changes (Cmd, Shift, Ctrl, Option) are ignored.
+///
+/// `DictationActive` is mirrored on every edge so the long-tail
+/// `show_flow_bar` safety timeout applies to Fn-triggered dictation too.
+///
+/// Pattern adapted from linespeed and handy-keys (proven open-source
+/// Tauri voice-dictation apps that ship to thousands of macOS users).
 #[cfg(target_os = "macos")]
 fn install_fn_event_tap(app: tauri::AppHandle) {
-    use std::sync::{Arc, Mutex};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::thread;
+    use std::time::Duration;
 
-    use core_foundation::runloop::CFRunLoop;
+    use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
     use core_graphics::event::{
         CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
         CGEventType, CallbackResult,
     };
 
-    let was_down = Arc::new(Mutex::new(false));
+    let prev_down = Arc::new(AtomicBool::new(false));
+    let needs_reenable = Arc::new(AtomicBool::new(false));
 
-    thread::spawn(move || {
-        let was_down = was_down.clone();
-        let app_for_tap = app.clone();
-        eprintln!("[clips-tray] installing macOS Fn event tap");
-        let result = CGEventTap::with_enabled(
-            CGEventTapLocation::HID,
-            CGEventTapPlacement::HeadInsertEventTap,
-            CGEventTapOptions::ListenOnly,
-            vec![CGEventType::FlagsChanged],
-            move |_proxy, _event_type, event| {
-                let is_down = event
-                    .get_flags()
-                    .contains(CGEventFlags::CGEventFlagSecondaryFn);
-                let prev = match was_down.lock() {
-                    Ok(mut g) => {
-                        let prev = *g;
-                        *g = is_down;
-                        prev
+    thread::Builder::new()
+        .name("clips-fn-key-tap".into())
+        .spawn(move || {
+            let app_for_cb = app.clone();
+            let prev_for_cb = prev_down.clone();
+            let needs_reenable_for_cb = needs_reenable.clone();
+
+            eprintln!("[clips-tray] installing macOS Fn event tap");
+            let tap_result = CGEventTap::new(
+                CGEventTapLocation::HID,
+                CGEventTapPlacement::HeadInsertEventTap,
+                CGEventTapOptions::ListenOnly,
+                vec![
+                    CGEventType::FlagsChanged,
+                    // Subscribing to these is the difference between
+                    // "tap silently dies forever" and "tap revives".
+                    CGEventType::TapDisabledByTimeout,
+                    CGEventType::TapDisabledByUserInput,
+                ],
+                move |_proxy, etype, event| {
+                    match etype {
+                        CGEventType::TapDisabledByTimeout => {
+                            eprintln!(
+                                "[clips-tray] Fn tap disabled by timeout — flagging for re-enable"
+                            );
+                            // Reset edge state so the next genuine Fn-down
+                            // is detected as a fresh transition (we may have
+                            // missed an up-edge while the tap was disabled).
+                            prev_for_cb.store(false, Ordering::SeqCst);
+                            needs_reenable_for_cb.store(true, Ordering::SeqCst);
+                            // Wake the runloop thread out of run_in_mode so
+                            // it can call tap.enable() before the next event.
+                            CFRunLoop::get_current().stop();
+                            return CallbackResult::Keep;
+                        }
+                        CGEventType::TapDisabledByUserInput => {
+                            eprintln!(
+                                "[clips-tray] Fn tap disabled by user input — flagging for re-enable"
+                            );
+                            prev_for_cb.store(false, Ordering::SeqCst);
+                            needs_reenable_for_cb.store(true, Ordering::SeqCst);
+                            CFRunLoop::get_current().stop();
+                            return CallbackResult::Keep;
+                        }
+                        CGEventType::FlagsChanged => {}
+                        _ => return CallbackResult::Keep,
                     }
-                    Err(_) => return CallbackResult::Keep,
-                };
-                if is_down == prev {
-                    // No transition — the modifier flags changed for some
-                    // OTHER key (Cmd, Shift, Ctrl…). Leave dictation alone.
-                    return CallbackResult::Keep;
-                }
-                set_dictation_active(&app_for_tap, is_down);
-                if is_down {
-                    eprintln!("[clips-tray] Fn down — starting voice dictation");
-                    let _ = app_for_tap.emit(
-                        "voice:shortcut-start",
-                        serde_json::json!({ "source": "fn" }),
-                    );
-                } else {
-                    eprintln!("[clips-tray] Fn up — stopping voice dictation");
-                    let _ = app_for_tap
-                        .emit("voice:shortcut-stop", serde_json::json!({ "source": "fn" }));
-                }
-                CallbackResult::Keep
-            },
-            CFRunLoop::run_current,
-        );
-        if result.is_err() {
-            eprintln!(
-                "[clips-tray] failed to install Fn event tap; enable Accessibility/Input Monitoring for Clips or the terminal running tauri dev"
+
+                    let fn_down = event
+                        .get_flags()
+                        .contains(CGEventFlags::CGEventFlagSecondaryFn);
+                    let was_down = prev_for_cb.swap(fn_down, Ordering::SeqCst);
+                    if fn_down == was_down {
+                        return CallbackResult::Keep;
+                    }
+                    set_dictation_active(&app_for_cb, fn_down);
+                    if fn_down {
+                        eprintln!("[clips-tray] Fn down — starting voice dictation");
+                        let _ = app_for_cb.emit(
+                            "voice:shortcut-start",
+                            serde_json::json!({ "source": "fn" }),
+                        );
+                    } else {
+                        eprintln!("[clips-tray] Fn up — stopping voice dictation");
+                        let _ = app_for_cb.emit(
+                            "voice:shortcut-stop",
+                            serde_json::json!({ "source": "fn" }),
+                        );
+                    }
+                    CallbackResult::Keep
+                },
             );
-        }
-    });
+
+            let tap = match tap_result {
+                Ok(t) => t,
+                Err(()) => {
+                    eprintln!(
+                        "[clips-tray] CGEventTapCreate returned NULL. Most likely cause: \
+                         Input Monitoring is not granted to Clips. Open System Settings → \
+                         Privacy & Security → Input Monitoring and enable Clips (or the \
+                         terminal running `tauri dev`). Note: Accessibility is a separate \
+                         permission and is not sufficient for ListenOnly taps."
+                    );
+                    return;
+                }
+            };
+            let source = match tap.mach_port().create_runloop_source(0) {
+                Ok(s) => s,
+                Err(()) => {
+                    eprintln!("[clips-tray] CFMachPortCreateRunLoopSource failed");
+                    return;
+                }
+            };
+            let runloop = CFRunLoop::get_current();
+            unsafe {
+                runloop.add_source(&source, kCFRunLoopCommonModes);
+            }
+            tap.enable();
+            eprintln!("[clips-tray] Fn event tap installed; entering runloop");
+
+            // Run the runloop in repeated short bursts so we can re-enable
+            // the tap if the OS disables it. We use run_current (blocks
+            // until something stops the loop) and re-enter on exit. The
+            // disable callbacks above call CFRunLoop::stop, which makes
+            // run_current return; we then call tap.enable() and re-enter.
+            // This is the handy-keys / linespeed pattern.
+            loop {
+                if needs_reenable.swap(false, Ordering::SeqCst) {
+                    eprintln!("[clips-tray] re-enabling Fn event tap");
+                    tap.enable();
+                }
+                CFRunLoop::run_current();
+                // run_current returned — either we asked it to (disable
+                // event), or something else removed our source. In the
+                // latter case avoid a tight spin and try to recover.
+                if !needs_reenable.load(Ordering::SeqCst) {
+                    thread::sleep(Duration::from_millis(50));
+                    if !tap.is_enabled() {
+                        eprintln!("[clips-tray] Fn tap reports disabled on runloop exit — re-enabling");
+                        needs_reenable.store(true, Ordering::SeqCst);
+                    }
+                }
+            }
+        })
+        .expect("spawn clips-fn-key-tap thread");
 }
 
 #[cfg(target_os = "macos")]

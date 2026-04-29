@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import {
   useIsFetching,
@@ -6,11 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import {
-  AgentSidebar,
-  AgentToggleButton,
-  getCallbackOrigin,
-} from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { FeedbackButton } from "@agent-native/core/client";
 import { apiFetch } from "@/lib/api";
@@ -20,9 +16,10 @@ import {
   IconLoader2,
   IconChartBar,
   IconSettings,
-  IconMenu2,
 } from "@tabler/icons-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
 
 const navItems = [
   { icon: IconFlame, label: "Entry", href: "/" },
@@ -37,7 +34,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const isEntry = location.pathname === "/" || location.pathname === "/entry";
   const isAnalytics = location.pathname === "/analytics";
 
   // Auto-close sidebar on route change (mobile)
@@ -89,52 +85,43 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }, [navCommand, navigate, queryClient]);
 
   return (
-    <AgentSidebar
-      position="right"
-      defaultOpen={false}
-      animateMobile
-      emptyStateText="Just tell me what you ate — I'll estimate the macros"
-      suggestions={[
-        "Fried chicken dinner, 600 cal",
-        "Oatmeal with banana for breakfast",
-        "What are my macros today?",
-        "Protein shake after gym",
-      ]}
-    >
-      <div className="flex flex-1 overflow-hidden">
-        {/* Desktop sidebar */}
-        <aside className="hidden md:flex w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
-          <SidebarContent pathname={location.pathname} />
-        </aside>
-
-        {/* Mobile sidebar sheet */}
-        <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-          <SheetContent side="left" className="w-56 p-0">
-            <SheetTitle className="sr-only">Navigation</SheetTitle>
+    <HeaderActionsProvider>
+      <AgentSidebar
+        position="right"
+        defaultOpen={false}
+        animateMobile
+        emptyStateText="Just tell me what you ate — I'll estimate the macros"
+        suggestions={[
+          "Fried chicken dinner, 600 cal",
+          "Oatmeal with banana for breakfast",
+          "What are my macros today?",
+          "Protein shake after gym",
+        ]}
+      >
+        <div className="flex flex-1 overflow-hidden">
+          {/* Desktop sidebar */}
+          <aside className="hidden md:flex w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
             <SidebarContent pathname={location.pathname} />
-          </SheetContent>
-        </Sheet>
+          </aside>
 
-        {/* Page content */}
-        <main className="flex-1 overflow-y-auto">
-          <div className="flex h-12 items-center px-4 md:hidden border-b border-border bg-background">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
-            >
-              <IconMenu2 className="h-5 w-5" />
-            </button>
-            <span className="flex-1 text-center font-logo font-bold tracking-tight text-sm text-foreground">
-              Macros
-            </span>
-            <AgentToggleButton />
+          {/* Mobile sidebar sheet */}
+          <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+            <SheetContent side="left" className="w-56 p-0">
+              <SheetTitle className="sr-only">Navigation</SheetTitle>
+              <SidebarContent pathname={location.pathname} />
+            </SheetContent>
+          </Sheet>
+
+          {/* Page content */}
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <Header onOpenSidebar={() => setSidebarOpen(true)} />
+            <main className="flex-1 overflow-y-auto">{children}</main>
           </div>
-          {children}
-        </main>
-        <AgentActionOptimisticUpdates />
-        <SyncIndicator />
-      </div>
-    </AgentSidebar>
+          <AgentActionOptimisticUpdates />
+          <SyncIndicator />
+        </div>
+      </AgentSidebar>
+    </HeaderActionsProvider>
   );
 }
 
