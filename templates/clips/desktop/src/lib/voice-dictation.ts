@@ -282,10 +282,7 @@ export function installDesktopVoiceDictation(
    * gracefully to the browser path.
    */
   const refreshProviderStatus = async (): Promise<ProviderStatus> => {
-    if (
-      providerStatus &&
-      Date.now() - providerStatusFetchedAt < 60_000
-    ) {
+    if (providerStatus && Date.now() - providerStatusFetchedAt < 60_000) {
       return providerStatus;
     }
     try {
@@ -680,11 +677,29 @@ export function installDesktopVoiceDictation(
     if (current.stopping) return;
     current.stopping = true;
     if (Date.now() - current.startedAt < 250) {
+      // Too brief to be a deliberate dictation — tear down without
+      // running the transcription path. Treat it as a cancel so onend
+      // for browser sessions also skips the paste.
+      current.cancelled = true;
+      if (current.kind === "browser") {
+        try {
+          current.recognition?.abort();
+        } catch {
+          // ignore
+        }
+      }
       cleanup(current);
       return;
     }
     try {
-      current.recorder.stop();
+      if (current.kind === "server") {
+        current.recorder?.stop();
+      } else {
+        // recognition.stop() lets pending interim results finalize
+        // before firing onend (where we paste). abort() would discard
+        // them — we want stop().
+        current.recognition?.stop();
+      }
     } catch (err) {
       console.error("[voice-dictation] stop failed", err);
       setFlowState("error");
@@ -693,6 +708,11 @@ export function installDesktopVoiceDictation(
       }, 800);
     }
   };
+
+  // Prime the provider-status cache in the background so the first Fn
+  // press doesn't pay a round-trip latency to figure out which provider
+  // to use.
+  refreshProviderStatus().catch(() => {});
 
   listen<VoiceShortcutEvent>("voice:shortcut-start", (event) => {
     if (!acceptsShortcut(event.payload?.source)) return;
@@ -724,6 +744,7 @@ export function installDesktopVoiceDictation(
     serverUrl = "";
     shortcut = "both";
     mode = "push-to-talk";
+    provider = "auto";
     unlistens.forEach((u) => {
       try {
         u();

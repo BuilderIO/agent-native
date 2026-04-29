@@ -223,7 +223,7 @@ export async function deleteSecret(
   const grants = await listGrants({ secretId });
   for (const grant of grants) {
     if (grant.status === "active") {
-      await revokeGrant(grant.id);
+      await revokeGrant(grant.id, ctx);
     }
   }
 
@@ -340,7 +340,7 @@ export async function revokeGrant(
   ctx: VaultCtx = requireVaultCtx(),
 ) {
   const db = getDb();
-  const grant = await getGrant(grantId);
+  const grant = await getGrant(grantId, ctx);
   if (!grant) throw new Error("Grant not found");
 
   const secret = await getSecret(grant.secretId, ctx);
@@ -348,7 +348,12 @@ export async function revokeGrant(
   await db
     .update(schema.vaultGrants)
     .set({ status: "revoked", updatedAt: now() })
-    .where(eq(schema.vaultGrants.id, grantId));
+    .where(
+      and(
+        eq(schema.vaultGrants.id, grantId),
+        ctxScope(schema.vaultGrants, ctx),
+      ),
+    );
 
   await recordVaultAudit({
     action: "grant.revoked",
@@ -365,7 +370,7 @@ export async function revokeGrant(
     summary: `Revoked vault secret "${secret?.name || grant.secretId}" from ${grant.appId}`,
   });
 
-  return getGrant(grantId);
+  return getGrant(grantId, ctx);
 }
 
 // ─── Sync ──────────────────────────────────────────────────────
@@ -450,12 +455,20 @@ export async function listRequests(filter?: { status?: string }) {
     .orderBy(desc(schema.vaultRequests.updatedAt));
 }
 
-export async function getRequest(requestId: string) {
+export async function getRequest(
+  requestId: string,
+  ctx: VaultCtx = requireVaultCtx(),
+) {
   const db = getDb();
   const [row] = await db
     .select()
     .from(schema.vaultRequests)
-    .where(eq(schema.vaultRequests.id, requestId))
+    .where(
+      and(
+        eq(schema.vaultRequests.id, requestId),
+        ctxScope(schema.vaultRequests, ctx),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
@@ -501,18 +514,19 @@ export async function approveRequest(
   requestId: string,
   secretValue: string,
   secretName?: string,
+  ctx: VaultCtx = requireVaultCtx(),
 ) {
   const db = getDb();
-  const request = await getRequest(requestId);
+  const request = await getRequest(requestId, ctx);
   if (!request) throw new Error("Request not found");
   if (request.status !== "pending") {
     throw new Error("Only pending requests can be approved");
   }
 
   const timestamp = now();
-  const reviewer = currentOwnerEmail();
+  const reviewer = ctx.ownerEmail;
 
-  // Update request status
+  // Update request status — scoped to caller's tenant.
   await db
     .update(schema.vaultRequests)
     .set({
@@ -521,24 +535,43 @@ export async function approveRequest(
       reviewedAt: timestamp,
       updatedAt: timestamp,
     })
-    .where(eq(schema.vaultRequests.id, requestId));
+    .where(
+      and(
+        eq(schema.vaultRequests.id, requestId),
+        ctxScope(schema.vaultRequests, ctx),
+      ),
+    );
 
-  // Check if secret already exists for this credential key
-  const secrets = await listSecrets();
-  let secret = secrets.find((s) => s.credentialKey === request.credentialKey);
+  // Secret + grant must land in the REQUEST's tenant, not the approver's
+  // (the approver may be acting on behalf of another user in the same org).
+  const requestCtx = ctxForRow(request);
+
+  // Check if secret already exists in the request's tenant for this key.
+  const existingSecrets = await db
+    .select()
+    .from(schema.vaultSecrets)
+    .where(
+      and(
+        eq(schema.vaultSecrets.credentialKey, request.credentialKey),
+        ctxScope(schema.vaultSecrets, requestCtx),
+      ),
+    );
+  let secret = existingSecrets[0] ?? null;
 
   if (!secret) {
-    // Create the secret
-    secret = await createSecret({
-      credentialKey: request.credentialKey,
-      value: secretValue,
-      name: secretName || request.credentialKey,
-    });
+    secret = await createSecret(
+      {
+        credentialKey: request.credentialKey,
+        value: secretValue,
+        name: secretName || request.credentialKey,
+      },
+      requestCtx,
+    );
   }
 
   if (secret) {
-    // Create the grant
-    await createGrant(secret.id, request.appId);
+    // Create the grant in the request's tenant as well.
+    await createGrant(secret.id, request.appId, requestCtx);
   }
 
   await recordVaultAudit({
@@ -548,19 +581,23 @@ export async function approveRequest(
     metadata: { requestId, reviewer },
   });
 
-  return getRequest(requestId);
+  return getRequest(requestId, ctx);
 }
 
-export async function denyRequest(requestId: string, reason?: string | null) {
+export async function denyRequest(
+  requestId: string,
+  reason?: string | null,
+  ctx: VaultCtx = requireVaultCtx(),
+) {
   const db = getDb();
-  const request = await getRequest(requestId);
+  const request = await getRequest(requestId, ctx);
   if (!request) throw new Error("Request not found");
   if (request.status !== "pending") {
     throw new Error("Only pending requests can be denied");
   }
 
   const timestamp = now();
-  const reviewer = currentOwnerEmail();
+  const reviewer = ctx.ownerEmail;
 
   await db
     .update(schema.vaultRequests)
@@ -570,7 +607,12 @@ export async function denyRequest(requestId: string, reason?: string | null) {
       reviewedAt: timestamp,
       updatedAt: timestamp,
     })
-    .where(eq(schema.vaultRequests.id, requestId));
+    .where(
+      and(
+        eq(schema.vaultRequests.id, requestId),
+        ctxScope(schema.vaultRequests, ctx),
+      ),
+    );
 
   await recordVaultAudit({
     action: "request.denied",
@@ -579,7 +621,7 @@ export async function denyRequest(requestId: string, reason?: string | null) {
     metadata: { requestId, reviewer, reason },
   });
 
-  return getRequest(requestId);
+  return getRequest(requestId, ctx);
 }
 
 // ─── Integrations Catalog ────────────────────────────────────────
