@@ -44,6 +44,11 @@ import { defineEventHandler } from "h3";
       }
     }
   } catch (err) {
+    // node-pty not installed → stay silent here; createTerminalPlugin emits
+    // the "install node-pty" message when the PTY server actually fails to
+    // start. Logging twice for the same root cause just adds noise.
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND") return;
     console.warn(
       "[terminal] Could not verify node-pty spawn-helper permissions:",
       (err as Error).message,
@@ -198,17 +203,34 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
     } catch (err) {
       // Clear the running flag so a retry can spawn a fresh server
       delete process.env.__AGENT_TERMINAL_RUNNING;
-      console.error("[terminal] Failed to start PTY server:", err);
-      console.error(
-        "[terminal] Make sure node-pty is installed: pnpm add node-pty",
-      );
+
+      // Distinguish "node-pty not installed" (expected when the user opts
+      // out of the terminal feature) from real failures (port conflict,
+      // native binding mismatch). Native deps are optional — log as info
+      // so the dev console isn't filled with red noise.
+      const code = (err as NodeJS.ErrnoException)?.code;
+      const missingPty =
+        code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND";
+      if (missingPty) {
+        console.log(
+          "[terminal] node-pty not installed — embedded terminal disabled. " +
+            "Install with `pnpm add node-pty` to enable.",
+        );
+      } else {
+        console.error("[terminal] Failed to start PTY server:", err);
+        console.error(
+          "[terminal] If node-pty is installed but PTY fails to spawn, " +
+            "try `pnpm rebuild node-pty` (common after switching Node " +
+            "versions via fnm/nvm).",
+        );
+      }
 
       // Mount a fallback info endpoint
       getH3App(nitroApp).use(
         "/_agent-native/agent-terminal-info",
         defineEventHandler(() => ({
           available: false,
-          error: "PTY server failed to start",
+          error: missingPty ? "node-pty not installed" : "PTY server failed",
         })),
       );
     }

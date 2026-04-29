@@ -194,6 +194,9 @@ importers:
       isbot:
         specifier: ^5
         version: 5.1.37
+      jiti:
+        specifier: ^2.6.1
+        version: 2.6.1
       jose:
         specifier: ^6.2.2
         version: 6.2.2
