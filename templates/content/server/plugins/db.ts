@@ -121,4 +121,4 @@ export default runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
   },
-]);
+], { table: "content_migrations" });

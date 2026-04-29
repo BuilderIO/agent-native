@@ -103,4 +103,4 @@ export default runMigrations([
       `,
     },
   },
-]);
+], { table: "calendar_migrations" });
