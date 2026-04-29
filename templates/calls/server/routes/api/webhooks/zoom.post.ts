@@ -218,46 +218,49 @@ export default defineEventHandler(async (event: H3Event) => {
   // different host would race and read the first one's email between the
   // assignment and the finally. AsyncLocalStorage gives this call-chain its
   // own isolated context with no cross-request bleed.
-  return runWithRequestContext({ userEmail: hostEmail, orgId: undefined }, async () => {
-    const workspaceId = await resolveDefaultWorkspaceId();
+  return runWithRequestContext(
+    { userEmail: hostEmail, orgId: undefined },
+    async () => {
+      const workspaceId = await resolveDefaultWorkspaceId();
 
-    const callId = nanoid();
-    const now = new Date().toISOString();
-    await db.insert(schema.calls).values({
-      id: callId,
-      workspaceId,
-      title: obj.topic?.trim() || "Zoom recording",
-      source: "zoom-cloud",
-      sourceMeta: JSON.stringify({
-        meetingId: obj.id,
-        meetingUuid: obj.uuid,
-        hostEmail,
-        shareUrl: obj.share_url,
+      const callId = nanoid();
+      const now = new Date().toISOString();
+      await db.insert(schema.calls).values({
+        id: callId,
+        workspaceId,
+        title: obj.topic?.trim() || "Zoom recording",
+        source: "zoom-cloud",
+        sourceMeta: JSON.stringify({
+          meetingId: obj.id,
+          meetingUuid: obj.uuid,
+          hostEmail,
+          shareUrl: obj.share_url,
+          downloadToken: payload.download_token,
+          downloadUrl: picked.downloadUrl,
+        }),
+        mediaUrl: picked.downloadUrl,
+        mediaKind: picked.fileExtension === "m4a" ? "audio" : "video",
+        mediaFormat: picked.fileExtension,
+        mediaSizeBytes: picked.fileSize,
+        recordedAt: obj.start_time ?? null,
+        timezone: obj.timezone ?? null,
+        durationMs: Math.max(0, Math.round((obj.duration ?? 0) * 60 * 1000)),
+        status: "processing",
+        ownerEmail: hostEmail,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await writeAppState(`call-transcribe-${callId}`, {
+        callId,
+        mediaUrl: picked.downloadUrl,
         downloadToken: payload.download_token,
-        downloadUrl: picked.downloadUrl,
-      }),
-      mediaUrl: picked.downloadUrl,
-      mediaKind: picked.fileExtension === "m4a" ? "audio" : "video",
-      mediaFormat: picked.fileExtension,
-      mediaSizeBytes: picked.fileSize,
-      recordedAt: obj.start_time ?? null,
-      timezone: obj.timezone ?? null,
-      durationMs: Math.max(0, Math.round((obj.duration ?? 0) * 60 * 1000)),
-      status: "processing",
-      ownerEmail: hostEmail,
-      createdAt: now,
-      updatedAt: now,
-    });
+        source: "zoom-cloud",
+        requestedAt: now,
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
 
-    await writeAppState(`call-transcribe-${callId}`, {
-      callId,
-      mediaUrl: picked.downloadUrl,
-      downloadToken: payload.download_token,
-      source: "zoom-cloud",
-      requestedAt: now,
-    });
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    return { ok: true, callId };
-  });
+      return { ok: true, callId };
+    },
+  );
 });

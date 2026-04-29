@@ -120,8 +120,7 @@ const ALLOWED_PATH_PREDICATES = [
   (rel) => rel === "packages/core/src/oauth-tokens/store.ts",
 ];
 
-const OPT_OUT_MARKER =
-  /\/\/\s*guard:allow-localhost-fallback\b[^\n]*/;
+const OPT_OUT_MARKER = /\/\/\s*guard:allow-localhost-fallback\b[^\n]*/;
 const OPT_OUT_REQUIRES_REASON =
   /\/\/\s*guard:allow-localhost-fallback\s*[—-]\s*\S/;
 
@@ -234,13 +233,11 @@ if (violations.length > 0) {
   console.error(
     "`local@localhost` is the framework's DEV-mode bypass identity. Using",
   );
-  console.error(
-    "it as a fallback in production paths — patterns like",
-  );
+  console.error("it as a fallback in production paths — patterns like");
   console.error("");
-  console.error("    const owner = session?.email ?? \"local@localhost\";");
+  console.error('    const owner = session?.email ?? "local@localhost";');
   console.error(
-    "    const userEmail = getRequestUserEmail() || \"local@localhost\";",
+    '    const userEmail = getRequestUserEmail() || "local@localhost";',
   );
   console.error("");
   console.error(
@@ -262,7 +259,9 @@ if (violations.length > 0) {
   console.error("");
   console.error("  - In production paths, throw/401 when there's no session:");
   console.error("      const session = await getSession(event);");
-  console.error("      if (!session?.email) throw createError({ statusCode: 401 });");
+  console.error(
+    "      if (!session?.email) throw createError({ statusCode: 401 });",
+  );
   console.error("      const owner = session.email;");
   console.error(
     "  - Inside an action / auto-mounted route the framework already",

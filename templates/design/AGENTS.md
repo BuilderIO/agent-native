@@ -151,12 +151,12 @@ Every design starts from this skeleton:
 
 Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
 
-| State Key         | Purpose                                                 | Direction                  |
-| ----------------- | ------------------------------------------------------- | -------------------------- |
-| `navigation`      | Current view, design ID                                 | UI -> Agent (read-only)    |
-| `navigate`        | Navigate command (one-shot, auto-deleted)               | Agent -> UI (auto-deleted) |
-| `show-questions`  | Trigger pre-generation question overlay                 | Agent -> UI (auto-deleted) |
-| `design-variants` | 2-5 candidate designs the user picks between in a grid  | Agent -> UI (auto-deleted) |
+| State Key         | Purpose                                                | Direction                  |
+| ----------------- | ------------------------------------------------------ | -------------------------- |
+| `navigation`      | Current view, design ID                                | UI -> Agent (read-only)    |
+| `navigate`        | Navigate command (one-shot, auto-deleted)              | Agent -> UI (auto-deleted) |
+| `show-questions`  | Trigger pre-generation question overlay                | Agent -> UI (auto-deleted) |
+| `design-variants` | 2-5 candidate designs the user picks between in a grid | Agent -> UI (auto-deleted) |
 
 ### Navigation state (read what the user sees)
 
@@ -391,7 +391,11 @@ For new designs, default to **three** variations side-by-side. Don't skip straig
   "designId": "<the design id>",
   "prompt": "Pick a direction",
   "variants": [
-    { "id": "a", "label": "Editorial Serif", "content": "<!DOCTYPE html>...full self-contained HTML..." },
+    {
+      "id": "a",
+      "label": "Editorial Serif",
+      "content": "<!DOCTYPE html>...full self-contained HTML..."
+    },
     { "id": "b", "label": "Bold Brutalist", "content": "<!DOCTYPE html>..." },
     { "id": "c", "label": "Soft & Spacious", "content": "<!DOCTYPE html>..." }
   ]

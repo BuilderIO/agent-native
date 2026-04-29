@@ -111,8 +111,7 @@ const ALLOWED_PATH_PREDICATES = [
 ];
 
 const OPT_OUT_MARKER = /\/\/\s*guard:allow-env-mutation\b[^\n]*/;
-const OPT_OUT_REQUIRES_REASON =
-  /\/\/\s*guard:allow-env-mutation\s*[—-]\s*\S/;
+const OPT_OUT_REQUIRES_REASON = /\/\/\s*guard:allow-env-mutation\s*[—-]\s*\S/;
 
 // Mutation forms:
 //   process.env.NAME =
