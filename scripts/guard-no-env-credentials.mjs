@@ -73,6 +73,7 @@ const ALLOWLIST_EXACT = new Set([
   // Node / CI runtime
   "NODE_ENV",
   "CI",
+  "DEBUG",
   // Better-auth
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",
@@ -81,6 +82,11 @@ const ALLOWLIST_EXACT = new Set([
   // Server bind
   "PORT",
   "HOST",
+  // Deploy-level master key for the per-user secrets vault.
+  // NOT a user credential — it's the symmetric key the vault uses to
+  // encrypt user secrets at rest. Rotating it invalidates the entire
+  // vault, so it lives at deployment scope.
+  "SECRETS_ENCRYPTION_KEY",
 ]);
 
 const ALLOWLIST_PREFIX = [

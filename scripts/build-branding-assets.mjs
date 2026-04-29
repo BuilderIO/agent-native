@@ -114,8 +114,14 @@ if (existsSync(DOCS_PUBLIC)) {
   );
 }
 
-// 4) Electron desktop app icon
+// 4) Electron desktop app icon — Liquid Glass on macOS Tahoe via .icon → Assets.car,
+// plus a Liquid-Glass-rendered .icns fallback for older macOS via Icon Composer's
+// `ictool` (PNG output already includes shine + shadow, then iconutil packs to .icns).
 const DESKTOP_BUILD = join(ROOT, "packages/desktop-app/build");
+const ICON_BUNDLE = join(BRANDING, "agent-native.icon");
+const ICTOOL =
+  "/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool";
+const HAS_ICTOOL = existsSync(ICTOOL) && existsSync(ICON_BUNDLE);
 if (existsSync(DESKTOP_BUILD)) {
   writeFileSync(join(DESKTOP_BUILD, "icon.svg"), sized(FAVICON_SVG, 1024));
   rasterize(
@@ -139,15 +145,35 @@ if (existsSync(DESKTOP_BUILD)) {
     [512, "icon_512x512.png"],
     [1024, "icon_512x512@2x.png"],
   ];
-  for (const [size, name] of sizes) {
-    rasterize(join(DESKTOP_BUILD, "icon.svg"), join(ICONSET, name), size);
+  if (HAS_ICTOOL) {
+    // Render Liquid-Glass-styled PNGs (with specular highlight + shadow baked in).
+    for (const [size, name] of sizes) {
+      execSync(
+        `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(ICONSET, name)}" --platform macOS --rendition Default --width ${size} --height ${size} --scale 1`,
+        { stdio: ["ignore", "ignore", "inherit"] },
+      );
+    }
+  } else {
+    for (const [size, name] of sizes) {
+      rasterize(join(DESKTOP_BUILD, "icon.svg"), join(ICONSET, name), size);
+    }
   }
   execSync(
     `iconutil -c icns -o "${join(DESKTOP_BUILD, "icon.icns")}" "${ICONSET}"`,
     { stdio: "inherit" },
   );
+
+  // Compile .icon → Assets.car for native macOS Tahoe Liquid Glass treatment.
+  if (HAS_ICTOOL) {
+    rmSync(join(DESKTOP_BUILD, "Assets.car"), { force: true });
+    rmSync(join(DESKTOP_BUILD, "_actool.plist"), { force: true });
+    execSync(
+      `xcrun actool "${ICON_BUNDLE}" --compile "${DESKTOP_BUILD}" --include-all-app-icons --enable-on-demand-resources NO --enable-icon-stack-fallback-generation NO --development-region en --target-device mac --platform macosx --minimum-deployment-target 11.0 --app-icon agent-native --output-partial-info-plist "${join(DESKTOP_BUILD, "_actool.plist")}" --output-format human-readable-text --notices --warnings --errors`,
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+  }
   console.log(
-    "✔ packages/desktop-app/build/{icon.svg,icon.png,icon.iconset,icon.icns}",
+    "✔ packages/desktop-app/build/{icon.svg,icon.png,icon.iconset,icon.icns,Assets.car}",
   );
 }
 

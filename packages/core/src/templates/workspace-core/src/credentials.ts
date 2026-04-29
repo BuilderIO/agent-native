@@ -7,23 +7,52 @@
  * them here so there's a single place to update when a key rotates.
  *
  * Under the hood this is a thin wrapper over @agent-native/core's
- * `resolveCredential()`, which reads `process.env.<KEY>` first and
- * falls back to `credential:<KEY>` in the shared settings table.
- * Apps inside the workspace share the same DATABASE_URL by default,
- * so storing a credential once makes it available everywhere.
+ * `resolveCredential()`, which reads per-user / per-org rows in the
+ * shared SQL settings table. Apps inside the workspace share the same
+ * DATABASE_URL by default, so storing a credential once makes it
+ * available everywhere.
+ *
+ * SECURITY: every call requires a `CredentialContext` ({ userEmail, orgId })
+ * so reads are scoped to the calling user / org. Inside a framework action
+ * (auto-mounted at `/_agent-native/actions/...`) you can read it from
+ * `getCredentialContext()`. Inside a custom Nitro `/api/*` route, read the
+ * session and wrap your handler in `runWithRequestContext` first.
  */
-import { resolveCredential } from "@agent-native/core/credentials";
+import {
+  resolveCredential,
+  type CredentialContext,
+} from "@agent-native/core/credentials";
+import { getCredentialContext } from "@agent-native/core/server/request-context";
 
 /**
  * Resolve a company-wide credential. Prefer this over `resolveCredential()`
  * directly — it keeps your keys organized under a workspace namespace and
  * makes "where does this secret come from" greppable.
  *
- * Example:
+ * Pass an explicit context when calling from a custom HTTP route. Inside a
+ * framework action it can be omitted — the active request context will be
+ * used automatically.
+ *
+ * Example (action / agent tool):
  *   const slackToken = await resolveCompanyCredential("SLACK_BOT_TOKEN");
+ *
+ * Example (custom Nitro route):
+ *   const session = await getSession(event);
+ *   if (!session?.email) throw createError({ statusCode: 401 });
+ *   const slackToken = await resolveCompanyCredential("SLACK_BOT_TOKEN", {
+ *     userEmail: session.email,
+ *     orgId: session.orgId ?? null,
+ *   });
  */
 export async function resolveCompanyCredential(
   key: string,
+  ctx?: CredentialContext,
 ): Promise<string | undefined> {
-  return await resolveCredential(key);
+  const resolved = ctx ?? getCredentialContext();
+  if (!resolved) {
+    throw new Error(
+      `resolveCompanyCredential("${key}") called without a CredentialContext and no active request context was found. Pass { userEmail, orgId } explicitly, or call this from inside a framework action.`,
+    );
+  }
+  return await resolveCredential(key, resolved);
 }

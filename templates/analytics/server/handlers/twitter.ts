@@ -1,6 +1,9 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { requireCredential, resolveCredential } from "../lib/credentials";
-import { withRequestContextFromEvent } from "../lib/credentials";
+import {
+  withRequestContextFromEvent,
+  getCredentialContextFromEvent,
+} from "../lib/credentials";
 import { createHash } from "crypto";
 
 // ─── In-memory cache (TTL-based) ───────────────────────────────────────
@@ -176,6 +179,13 @@ export const handleTwitterMulti = defineEventHandler(async (event) => {
     "Twitter",
   );
   if (missing) return missing;
+
+  const ctx = await getCredentialContextFromEvent(event);
+  if (!ctx) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to query Twitter" };
+  }
+
   const { userNames: userNamesParam, pages: pagesParam } = getQuery(event);
   const userNames = ((userNamesParam as string) || "")
     .split(",")
@@ -199,7 +209,7 @@ export const handleTwitterMulti = defineEventHandler(async (event) => {
     return { error: "Max 10 usernames at a time" };
   }
 
-  const apiKey = await resolveCredential("TWITTER_API_KEY");
+  const apiKey = await resolveCredential("TWITTER_API_KEY", ctx);
   console.log("[Twitter Multi] API key present:", !!apiKey);
   if (!apiKey) {
     console.error("[Twitter Multi] TWITTER_API_KEY not configured");

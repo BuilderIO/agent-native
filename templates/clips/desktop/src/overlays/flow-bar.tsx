@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
+import { IconX } from "@tabler/icons-react";
 
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
 
@@ -136,6 +137,13 @@ export function FlowBar() {
     };
   }, [state]);
 
+  const handleCancel = () => {
+    // Broadcast to the popover webview where voice-dictation.ts lives —
+    // it will abort any in-flight transcribe, stop recording, and hide
+    // the bar without pasting text.
+    emit("voice:cancel").catch(() => {});
+  };
+
   return (
     <div className="flow-bar-root">
       <div className={`flow-bar flow-bar-${state}`}>
@@ -156,6 +164,18 @@ export function FlowBar() {
             <span className="flow-bar-error">Could not transcribe</span>
           </div>
         ) : null}
+
+        {(state === "recording" || state === "processing") && (
+          <button
+            type="button"
+            className="flow-bar-cancel"
+            onClick={handleCancel}
+            aria-label="Cancel dictation"
+            title="Cancel"
+          >
+            <IconX size={12} stroke={2.5} />
+          </button>
+        )}
       </div>
     </div>
   );

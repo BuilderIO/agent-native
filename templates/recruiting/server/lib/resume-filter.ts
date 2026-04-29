@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { PDFParse } from "pdf-parse";
 import type { GreenhouseCandidate } from "@shared/types";
 import { getApiKey } from "./greenhouse-api.js";
-import { DEFAULT_MODEL } from "@agent-native/core/agent";
+import { DEFAULT_MODEL } from "@agent-native/core";
 
 export type FilterResult = {
   candidateId: number;
