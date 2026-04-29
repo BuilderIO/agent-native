@@ -230,14 +230,14 @@ export default function EditorToolbar({
         <IconArrowLeft className="w-4 h-4 text-muted-foreground" />
       </Link>
 
-      {/* Sidebar toggle */}
+      {/* Slide-list toggle (mobile only — desktop uses the app sidebar rail) */}
       <button
         onClick={onToggleSidebar}
-        className={`p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 ${
+        className={`md:hidden p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 ${
           sidebarOpen ? "text-muted-foreground" : "text-muted-foreground/70"
         }`}
-        title="Toggle sidebar"
-        aria-label="Toggle sidebar"
+        title="Toggle slide list"
+        aria-label="Toggle slide list"
       >
         <IconLayoutSidebar className="w-4 h-4" />
       </button>

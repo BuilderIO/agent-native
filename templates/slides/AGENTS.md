@@ -28,11 +28,12 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
 
-| State Key        | Purpose                                   | Direction                  |
-| ---------------- | ----------------------------------------- | -------------------------- |
-| `navigation`     | Current view, deck ID, slide index        | UI -> Agent (read-only)    |
-| `navigate`       | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
-| `show-questions` | Trigger question flow overlay in the UI   | Agent -> UI                |
+| State Key          | Purpose                                                                                    | Direction                  |
+| ------------------ | ------------------------------------------------------------------------------------------ | -------------------------- |
+| `navigation`       | Current view, deck ID, slide index                                                         | UI -> Agent (read-only)    |
+| `navigate`         | Navigate command (one-shot, auto-deleted)                                                  | Agent -> UI (auto-deleted) |
+| `show-questions`   | Trigger question flow overlay in the UI                                                    | Agent -> UI                |
+| `sidebarCollapsed` | Whether the left sidebar is collapsed (icon rail). Value: `{ "collapsed": true \| false }` | UI <-> Agent (both write)  |
 
 ### Navigation state (read what the user sees)
 

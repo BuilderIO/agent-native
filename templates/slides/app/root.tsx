@@ -8,6 +8,7 @@ import {
 } from "react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DeckProvider } from "@/context/DeckContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -128,6 +129,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function AppContent() {
   useExitSelectionOnOutsideClick();
   useNavigationState();
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
+    useSidebarCollapsed();
   const { theme, setTheme } = useTheme();
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
@@ -189,7 +192,10 @@ function AppContent() {
                   : "-translate-x-full md:translate-x-0",
               )}
             >
-              <Sidebar />
+              <Sidebar
+                collapsed={sidebarCollapsed && !sidebarOpen}
+                onToggleCollapsed={() => setSidebarCollapsed(!sidebarCollapsed)}
+              />
             </div>
             <div className="flex h-full flex-1 flex-col overflow-hidden">
               {(() => {
