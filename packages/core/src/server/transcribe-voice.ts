@@ -38,6 +38,14 @@ const GROQ_MODEL = "whisper-large-v3-turbo";
 const OPENAI_MODEL = "whisper-1";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper hard limit.
 
+// Gemini Flash Lite — fastest path when GEMINI_API_KEY is configured.
+// Gemini accepts inline audio; we just give it the bytes and a "transcribe
+// this" prompt and it replies with text. 2.5x faster TTFT than 2.5 Flash
+// per Google's release notes, and noticeably snappier than the Whisper
+// round-trip even on a fast connection.
+const GEMINI_MODEL = "gemini-3.1-flash-lite-preview";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
 /**
  * Reject cross-site POSTs. Cookies are `SameSite=None; Secure` over HTTPS so
  * the browser would otherwise attach the session to a forged form submission
@@ -149,6 +157,55 @@ export function createTranscribeVoiceHandler() {
 
     let builderError: string | null = null;
 
+    // Per-user-or-fallback API key resolution. Hoisted up so the Gemini
+    // path below can use it without duplicating logic.
+    async function resolveApiKey(key: string): Promise<string | undefined> {
+      const ctx = { userEmail: session?.email };
+      if (!session?.email)
+        return (await resolveCredential(key, ctx)) ?? undefined;
+      const userSecret = await readAppSecret({
+        key,
+        scope: "user",
+        scopeId: session.email,
+      }).catch(() => null);
+      return (
+        userSecret?.value || (await resolveCredential(key, ctx)) || undefined
+      );
+    }
+
+    // ── Gemini Flash Lite path (fastest) ────────────────────────────────
+    // First-priority when a Gemini key is configured. The provider-pref
+    // "openai" still forces Whisper; otherwise we try Gemini before
+    // Builder / Groq / OpenAI Whisper because it's reliably faster.
+    if (providerPref !== "openai") {
+      const geminiKey = await resolveApiKey("GEMINI_API_KEY");
+      if (geminiKey) {
+        try {
+          const text = await transcribeWithGemini({
+            audioBytes,
+            mimeType: mime,
+            apiKey: geminiKey,
+            language: language || undefined,
+          });
+          const trimmed = text.trim();
+          if (trimmed) {
+            console.log(
+              `[transcribe-voice] Gemini → ${trimmed.length} chars`,
+            );
+            return { text: trimmed };
+          }
+          console.warn(
+            "[transcribe-voice] Gemini returned empty text — falling through to next provider",
+          );
+        } catch (err) {
+          console.warn(
+            "[transcribe-voice] Gemini path failed, falling through:",
+            (err as Error)?.message ?? err,
+          );
+        }
+      }
+    }
+
     // ── Builder proxy path ──────────────────────────────────────────────
     if (providerPref !== "openai" && (await resolveHasBuilderPrivateKey())) {
       try {
@@ -174,19 +231,7 @@ export function createTranscribeVoiceHandler() {
     // hard-failing. This mirrors Clips' batch transcription path.
 
     // ── Groq / OpenAI Whisper-compatible path ──────────────────────────
-    async function resolveApiKey(key: string): Promise<string | undefined> {
-      const ctx = { userEmail: session?.email };
-      if (!session?.email)
-        return (await resolveCredential(key, ctx)) ?? undefined;
-      const userSecret = await readAppSecret({
-        key,
-        scope: "user",
-        scopeId: session.email,
-      }).catch(() => null);
-      return (
-        userSecret?.value || (await resolveCredential(key, ctx)) || undefined
-      );
-    }
+    // (resolveApiKey is hoisted above so the Gemini path can use it too.)
 
     let provider: {
       name: "groq" | "openai";
@@ -278,4 +323,102 @@ function pickExtension(mime: string): string {
   if (lower.includes("ogg")) return "ogg";
   if (lower.includes("wav")) return "wav";
   return "webm";
+}
+
+/**
+ * Transcribe audio via Gemini Flash Lite.
+ *
+ * Gemini accepts the audio inline as base64 alongside a text prompt; we
+ * ask for just the transcript with no preamble. 30s timeout — Gemini is
+ * fast and we'd rather fall through to Whisper than wait longer.
+ *
+ * Gemini's documented audio formats are WAV / MP3 / AIFF / AAC / OGG /
+ * FLAC — webm/opus is not officially supported but in practice it
+ * accepts webm too. If Gemini rejects it the caller falls through.
+ */
+async function transcribeWithGemini({
+  audioBytes,
+  mimeType,
+  apiKey,
+  language,
+}: {
+  audioBytes: Uint8Array;
+  mimeType: string;
+  apiKey: string;
+  language?: string;
+}): Promise<string> {
+  const base64 = uint8ArrayToBase64(audioBytes);
+  const prompt = language
+    ? `Transcribe the speech in this audio (language: ${language}). Output only the transcript text — no preamble, no quotes, no formatting.`
+    : "Transcribe the speech in this audio. Output only the transcript text — no preamble, no quotes, no formatting.";
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(GEMINI_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType: normalizeAudioMimeForGemini(mimeType),
+                  data: base64,
+                },
+              },
+            ],
+          },
+        ],
+        // Keep generation tight — we want the transcript verbatim, no
+        // creative reinterpretation.
+        generationConfig: { temperature: 0 },
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Gemini ${res.status}: ${body.slice(0, 300)}`);
+    }
+    const data = (await res.json()) as {
+      candidates?: Array<{
+        content?: { parts?: Array<{ text?: string }> };
+      }>;
+    };
+    const text = data.candidates?.[0]?.content?.parts
+      ?.map((p) => p.text ?? "")
+      .join("")
+      .trim();
+    return text ?? "";
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function normalizeAudioMimeForGemini(mime: string): string {
+  // Strip codec parameters — Gemini doesn't need them and some variants
+  // (e.g. "audio/webm;codecs=opus") are rejected as unknown.
+  const lower = mime.toLowerCase().split(";")[0].trim();
+  if (!lower) return "audio/webm";
+  return lower;
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes).toString("base64");
+  }
+  // Fallback for non-Node runtimes — chunk to avoid stack overflow.
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(i, Math.min(i + chunk, bytes.length)),
+    );
+  }
+  return btoa(binary);
 }

@@ -282,7 +282,15 @@ export function installDesktopVoiceDictation(
             return;
           }
           if (text) {
+            console.log(
+              `[voice-dictation] transcribed (${text.length} chars):`,
+              text.slice(0, 120),
+            );
             await invoke("complete_voice_dictation", { text });
+          } else {
+            console.warn(
+              "[voice-dictation] transcribe returned empty text — nothing to paste",
+            );
           }
           setFlowState("complete");
           window.setTimeout(() => {
