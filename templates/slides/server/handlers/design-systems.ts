@@ -80,7 +80,13 @@ export const createDesignSystem = defineEventHandler(async (event) => {
           : JSON.stringify(body.assets)
         : null,
     isDefault: body.isDefault ?? false,
-    ownerEmail: body.ownerEmail ?? "local@localhost",
+    ownerEmail: (() => {
+      if (body.ownerEmail) return body.ownerEmail as string;
+      throw createError({
+        statusCode: 401,
+        statusMessage: "ownerEmail required",
+      });
+    })(),
     orgId: body.orgId ?? null,
     createdAt: now,
     updatedAt: now,
