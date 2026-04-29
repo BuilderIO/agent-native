@@ -166,10 +166,14 @@ export function IntegrationsSidebar({
   email,
   displayName,
   recentEmails,
+  threadId,
+  focusedEmailId,
 }: {
   email: string;
   displayName: string;
   recentEmails: { id: string; subject: string }[];
+  threadId?: string;
+  focusedEmailId?: string;
 }) {
   const statuses = useAllIntegrations();
   const anyConnected =
@@ -225,7 +229,12 @@ export function IntegrationsSidebar({
       {/* Tool extension-point slot — user-installed widgets render here */}
       <ExtensionSlot
         id="mail.contact-sidebar.bottom"
-        context={{ contactEmail: email, contactName: displayName }}
+        context={{
+          contactEmail: email,
+          contactName: displayName,
+          threadId,
+          focusedEmailId,
+        }}
         showEmptyAffordance
       />
 

@@ -1,15 +1,7 @@
-import {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  lazy,
-  Suspense,
-} from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import {
   IconArrowLeft,
-  IconPlayerPlay,
   IconPencil,
   IconMessage,
   IconBrush,
@@ -24,25 +16,23 @@ import {
 } from "@tabler/icons-react";
 import {
   useActionQuery,
-  sendToAgentChat,
   useSession,
   useCollaborativeDoc,
   generateTabId,
   emailToColor,
   emailToName,
   PresenceBar,
+  AgentToggleButton,
   type CollabUser,
 } from "@agent-native/core/client";
 
-const Pinpoint = lazy(() =>
-  import("@agent-native/pinpoint/react").then((m) => ({
-    default: m.Pinpoint,
-  })),
-);
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
+import PromptPopover from "@/components/editor/PromptDialog";
+import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import type {
   ElementInfo,
   DeviceFrameType,
@@ -92,6 +82,11 @@ export default function DesignEditor() {
   const [tweaksVisible, setTweaksVisible] = useState(false);
   const [tweakValues, setTweakValues] = useState<Record<string, string>>({});
   const [drawAnnotations, setDrawAnnotations] = useState<DrawAnnotation[]>([]);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const generateBtnRef = useRef<HTMLButtonElement | null>(null);
+  const promptAnchorRef = useRef<HTMLElement | null>(null);
+  promptAnchorRef.current = generateBtnRef.current;
+  const { generating, submit: agentSubmit } = useAgentGenerating();
 
   const { session } = useSession();
 
@@ -371,20 +366,12 @@ export default function DesignEditor() {
           >
             <IconSettings className="w-3.5 h-3.5" />
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1 cursor-pointer"
-            onClick={() => navigate(`/present/${id}`)}
-          >
-            <IconPlayerPlay className="w-3.5 h-3.5" />
-            Present
-          </Button>
           <PresenceBar
             activeUsers={activeUsers}
             agentActive={agentActive}
             currentUserEmail={session?.email}
           />
+          <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
         </div>
       </header>
 
@@ -427,14 +414,11 @@ export default function DesignEditor() {
                 No files yet. Ask the agent to generate a design.
               </p>
               <Button
+                ref={generateBtnRef}
                 variant="outline"
                 size="sm"
                 className="cursor-pointer"
-                onClick={() => {
-                  sendToAgentChat({
-                    message: `Generate the initial design files for the "${design.title}" project.`,
-                  });
-                }}
+                onClick={() => setShowPrompt(true)}
               >
                 <IconPlus className="w-3.5 h-3.5" />
                 Generate Design
@@ -542,14 +526,6 @@ export default function DesignEditor() {
             </p>
           </div>
         )}
-
-        <Suspense>
-          <Pinpoint
-            author={session?.email || "anonymous"}
-            colorScheme="dark"
-            compactPopup
-          />
-        </Suspense>
 
         {/* Draw overlay */}
         {mode === "draw" && (
