@@ -141,6 +141,9 @@ export async function run(
       // but the receiving agent's full response still surfaces via the
       // tool_result event below.
       try {
+        console.log(
+          `[call-agent] dispatching to ${agent.name} url=${agent.url} caller=${callerEmail} orgDomain=${callerOrgDomain} hasOrgSecret=${!!callerOrgSecret} hasEnvSecret=${!!process.env.A2A_SECRET}`,
+        );
         responseText = await callAgent(agent.url, message, {
           userEmail: callerEmail,
           orgDomain: callerOrgDomain,
@@ -149,6 +152,14 @@ export async function run(
         // Mirror the response into the streaming UI so the user sees it.
         if (responseText) emitNewText(responseText);
       } catch (pollErr: any) {
+        // Verbose log so we can see what actually broke when this returns
+        // the "didn't reply in time" fallback. errors of cause:
+        //   * fetch failed → network/DNS/TLS — log .cause for details
+        //   * 401/403 → JWT mismatch, look at sign secret vs receiver env
+        //   * timeout/Inactivity → analytics handler exceeded poll budget
+        console.error(
+          `[call-agent] dispatch to ${agent.name} failed: name=${pollErr?.name} message=${pollErr?.message} cause=${JSON.stringify(pollErr?.cause)?.substring(0, 300)} stack=${pollErr?.stack?.substring(0, 500)}`,
+        );
         const reason = pollErr?.message ?? "unknown error";
         responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
       }
