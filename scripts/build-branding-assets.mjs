@@ -183,10 +183,35 @@ const CLIPS_TAURI_ICONS = join(CLIPS_TAURI_DIR, "icons");
 if (existsSync(CLIPS_TAURI_ICONS)) {
   const tmpFav = join(CLIPS_TAURI_ICONS, "_branding-source.svg");
   writeFileSync(tmpFav, sized(FAVICON_SVG, 1024));
-  rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "icon.png"), 1024);
-  rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "32x32.png"), 32);
-  rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "128x128.png"), 128);
-  rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "128x128@2x.png"), 256);
+  // Render the standalone PNGs Tauri references in tauri.conf.json with
+  // the same `ictool` pipeline Electron uses, so the dock icon gets the
+  // proper macOS template (correct safe-area + Liquid Glass shine) and
+  // matches the size of every other app's dock icon. Without this the
+  // PNG is a raw SVG rasterization that fills the whole 1024 canvas
+  // and ends up visibly larger than every neighbouring app.
+  if (HAS_ICTOOL) {
+    execSync(
+      `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(CLIPS_TAURI_ICONS, "icon.png")}" --platform macOS --rendition Default --width 1024 --height 1024 --scale 1`,
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+    execSync(
+      `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(CLIPS_TAURI_ICONS, "32x32.png")}" --platform macOS --rendition Default --width 32 --height 32 --scale 1`,
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+    execSync(
+      `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(CLIPS_TAURI_ICONS, "128x128.png")}" --platform macOS --rendition Default --width 128 --height 128 --scale 1`,
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+    execSync(
+      `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(CLIPS_TAURI_ICONS, "128x128@2x.png")}" --platform macOS --rendition Default --width 256 --height 256 --scale 1`,
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+  } else {
+    rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "icon.png"), 1024);
+    rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "32x32.png"), 32);
+    rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "128x128.png"), 128);
+    rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "128x128@2x.png"), 256);
+  }
 
   // Build .icns from a fresh iconset — render via ictool when available so the
   // Liquid Glass shine is baked in for older macOS versions.
