@@ -74,6 +74,7 @@ export function OrgSwitcher({ className, hideWhenSingle }: OrgSwitcherProps) {
     }
   }, [open]);
 
+  // guard:allow-localhost-fallback — client-side check that hides the org switcher in dev/local mode; not a session-pooling fallback
   if (!org || org.email === "local@localhost") return null;
 
   const orgs = org.orgs ?? [];

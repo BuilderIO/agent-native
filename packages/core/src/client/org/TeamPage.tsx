@@ -903,7 +903,7 @@ function useMigrateLocalDataOnSignIn(
   });
 
   useEffect(() => {
-    if (!email || email === "local@localhost") return;
+    if (!email || email === "local@localhost") return; // guard:allow-localhost-fallback — client-side check that skips the local→real-account migration when still in dev mode
     let flag: string | null = null;
     try {
       flag = localStorage.getItem(MIGRATE_FLAG_KEY);

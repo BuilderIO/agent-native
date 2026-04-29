@@ -4,6 +4,7 @@ import {
   setResponseStatus,
   getMethod,
 } from "h3";
+import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
 import type { EventHandler as H3EventHandler } from "h3";
 import type {
   ActionTool,
@@ -58,7 +59,7 @@ export async function getOwnerApiKey(
   provider: string,
   ownerEmail: string | null | undefined,
 ): Promise<string | undefined> {
-  if (!ownerEmail || ownerEmail === "local@localhost") return undefined;
+  if (!ownerEmail || ownerEmail === DEV_MODE_USER_EMAIL) return undefined;
   const secretKey =
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   try {
@@ -658,7 +659,7 @@ export function createProductionAgentHandler(
       options.trackUsage &&
       options.resolveOwnerEmail &&
       ownerEmail &&
-      ownerEmail !== "local@localhost"
+      ownerEmail !== DEV_MODE_USER_EMAIL
     ) {
       try {
         const { checkUsageLimit } = await import("../usage/store.js");

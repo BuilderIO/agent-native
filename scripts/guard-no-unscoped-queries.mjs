@@ -535,6 +535,48 @@ function walkBackToChainHead(contents, idx) {
   return 0;
 }
 
+/**
+ * Return the text of `block` with all nested sub-blocks (children) that
+ * do NOT contain `queryOffset` replaced by whitespace. This is the
+ * "direct" content of the block — sibling sub-blocks are stripped so
+ * their access-control statements don't accidentally defuse a buggy
+ * sibling. The sub-block that DOES contain the query is left in place
+ * (so its inline `.where(accessFilter(...))` still counts).
+ */
+function directBlockText(contents, block, blocks, queryOffset) {
+  const childBlocks = blocks.filter(
+    (b) =>
+      b.open > block.open &&
+      b.close < block.close &&
+      // Only direct children — exclude nested grandchildren.
+      !blocks.some(
+        (p) =>
+          p !== b &&
+          p !== block &&
+          p.open > block.open &&
+          p.close < block.close &&
+          p.open < b.open &&
+          p.close > b.close,
+      ),
+  );
+  let result = contents.slice(block.open, block.close + 1);
+  // Replace the contents of each sibling child (one that doesn't contain
+  // queryOffset) with whitespace, preserving line counts.
+  // We process from the END of the block backward so offsets remain
+  // stable for earlier replacements.
+  const sortedChildren = [...childBlocks].sort((a, b) => b.open - a.open);
+  for (const child of sortedChildren) {
+    if (child.open <= queryOffset && child.close >= queryOffset) continue;
+    const start = child.open - block.open;
+    const end = child.close - block.open;
+    const inner = result.slice(start + 1, end);
+    // Preserve newlines so line numbers in error messages stay sane.
+    const blanked = inner.replace(/[^\n]/g, " ");
+    result = result.slice(0, start + 1) + blanked + result.slice(end);
+  }
+  return result;
+}
+
 function blockHasAccessControl(blockText) {
   if (ACCESS_CONTROL_HELPERS.some((re) => re.test(blockText))) return true;
   // Drizzle-style explicit ownership filters anywhere in the block also
@@ -670,50 +712,60 @@ async function scanFiles(ownablesByDir) {
     if (statements.length === 0) continue;
 
     const blocks = buildBlockTree(contents);
+    const accessControlBindings = collectAccessControlBindings(contents);
 
     const fileViolations = [];
     for (const stmt of statements) {
       // 1) Inline check on the chain itself.
       if (statementHasInlineAccessControl(stmt)) continue;
 
-      // 2) Block-scoped check: walk outward from innermost block and see
-      //    if any enclosing block contains an access-control helper or
-      //    an opt-out marker, AND see whether that helper is "tied" to
-      //    this query (i.e. the .where(...) of this query mentions a
-      //    variable that was assigned an access-control expression in
-      //    the block).
+      // 2) Block-scoped check: climb out to enclosing blocks looking for
+      //    access control DIRECTLY in the block (not buried inside a
+      //    nested sibling block that doesn't itself contain the query).
+      //    This is the forms-bug fix — the buggy `if (nav?.formId)`
+      //    block does NOT contain accessFilter; the sibling
+      //    `if (nav?.view === "forms")` does. Sibling content does not
+      //    defuse a sibling.
       let scoped = false;
       let cur = innermostBlock(blocks, stmt.queryStart, contents.length);
-      // We climb at most a few enclosing levels so a top-of-file
-      // accessFilter import doesn't defuse a buggy statement nested
-      // deep inside an unrelated function.
       let levels = 0;
-      while (cur && levels < 6) {
-        const blockText = contents.slice(cur.open, cur.close + 1);
-        if (isOptedOutWithinBlock(blockText)) {
+      while (cur && levels < 8) {
+        // Build the block's "direct" text — everything inside `cur`,
+        // minus nested child blocks that don't contain the query.
+        const directText = directBlockText(
+          contents,
+          cur,
+          blocks,
+          stmt.queryStart,
+        );
+        if (isOptedOutWithinBlock(directText)) {
           scoped = true;
           break;
         }
-        if (blockHasAccessControl(blockText)) {
-          // An accessFilter in the same block defuses, but only if the
-          // helper appears on a different line than the query OR it's
-          // bound to a variable used in the query's .where(...).
-          // For simplicity and to err on the side of fewer false
-          // positives in the existing codebase: any access helper in
-          // the immediate enclosing block defuses. The forms bug is
-          // still caught because its enclosing block is the inner
-          // `if (nav?.formId) { try { ... } }` which does NOT contain
-          // accessFilter (the sibling block does).
+        if (blockHasAccessControl(directText)) {
+          scoped = true;
+          break;
+        }
+        // Also accept if a variable that was bound to access control is
+        // referenced inside the query's chain.
+        if (
+          accessControlBindings.size > 0 &&
+          [...accessControlBindings].some((name) =>
+            new RegExp(`\\b${name}\\b`).test(stmt.snippet),
+          )
+        ) {
           scoped = true;
           break;
         }
         // Climb to the parent block.
-        const parent = innermostBlock(
-          blocks.filter((b) => b.open < cur.open && b.close > cur.close),
-          stmt.queryStart,
-          contents.length,
+        const parents = blocks.filter(
+          (b) => b.open < cur.open && b.close > cur.close,
         );
-        if (parent === cur) break;
+        const parent =
+          parents.length > 0
+            ? parents.reduce((a, b) => (a.open > b.open ? a : b))
+            : null;
+        if (!parent) break;
         cur = parent;
         levels++;
       }
