@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { format } from "date-fns";
 import {
@@ -28,6 +28,7 @@ import {
 } from "@/hooks/use-forms";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +55,19 @@ export function FormsListPage() {
       { onSuccess: (form) => navigate(`/forms/${form.id}`) },
     );
   }
+
+  const headerActions = useMemo(
+    () => (
+      <Button onClick={handleCreate} className="gap-2 shrink-0 cursor-pointer">
+        <IconPlus className="h-4 w-4" />
+        <span className="hidden sm:inline">New Form</span>
+        <span className="sm:hidden">New</span>
+      </Button>
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  useSetHeaderActions(headerActions);
 
   function handleDuplicate(form: (typeof forms)[0]) {
     createForm.mutate(
@@ -100,14 +114,7 @@ export function FormsListPage() {
 
   if (isLoading) {
     return (
-      <div className="p-3 pt-14 sm:p-6 sm:pt-6 max-w-5xl mx-auto md:pt-6">
-        <div className="flex items-center justify-between mb-6 sm:mb-8 gap-3">
-          <div className="space-y-2">
-            <Skeleton className="h-7 w-24" />
-            <Skeleton className="h-4 w-44" />
-          </div>
-          <Skeleton className="h-9 w-24 shrink-0" />
-        </div>
+      <div className="p-3 sm:p-6 max-w-5xl mx-auto">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
@@ -153,21 +160,7 @@ export function FormsListPage() {
   }
 
   return (
-    <div className="p-3 pt-14 sm:p-6 sm:pt-6 max-w-5xl mx-auto md:pt-6">
-      <div className="flex items-center justify-between mb-6 sm:mb-8 gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Forms</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Create and manage your forms
-          </p>
-        </div>
-        <Button onClick={handleCreate} className="gap-2 shrink-0">
-          <IconPlus className="h-4 w-4" />
-          <span className="hidden sm:inline">New Form</span>
-          <span className="sm:hidden">New</span>
-        </Button>
-      </div>
-
+    <div className="p-3 sm:p-6 max-w-5xl mx-auto">
       {forms.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border rounded-xl">
           <h3 className="font-medium mb-1">No forms yet</h3>

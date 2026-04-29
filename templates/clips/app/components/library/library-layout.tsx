@@ -11,7 +11,11 @@ import {
   IconX,
   IconMenu2,
 } from "@tabler/icons-react";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  FeedbackButton,
+} from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -35,6 +39,7 @@ import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { SearchBar } from "./search-bar";
 import { OrganizationSwitcher } from "./organization-switcher";
+import { PageHeaderSlotProvider } from "./page-header";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { toast } from "sonner";
 
@@ -75,6 +80,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   );
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -267,21 +273,32 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 </div>
               </div>
 
+              <div className="border-t border-border px-3 py-2">
+                <SearchBar />
+              </div>
+
               <div className="border-t border-border px-2 py-1">
                 <ToolsSidebarSection />
+              </div>
+
+              <div className="border-t border-border px-3 py-2">
+                <FeedbackButton />
               </div>
             </aside>
 
             {/* Main content area */}
             <div className="flex min-w-0 flex-1 flex-col">
-              <header className="flex items-center gap-3 border-b border-border px-5 py-2">
+              <header className="flex min-h-[52px] items-center gap-3 border-b border-border px-5 py-2">
                 <button
                   onClick={() => setSidebarOpen(true)}
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground md:hidden"
                 >
                   <IconMenu2 className="h-4 w-4" />
                 </button>
-                <SearchBar />
+                <div
+                  ref={setHeaderSlot}
+                  className="flex min-w-0 flex-1 flex-wrap items-center gap-3"
+                />
                 <div className="ml-auto flex items-center gap-2">
                   <AgentToggleButton />
                 </div>
@@ -312,7 +329,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 </div>
               )}
               <main className="flex flex-1 flex-col min-h-0 overflow-y-auto">
-                {children}
+                <PageHeaderSlotProvider slot={headerSlot}>
+                  {children}
+                </PageHeaderSlotProvider>
               </main>
             </div>
           </div>

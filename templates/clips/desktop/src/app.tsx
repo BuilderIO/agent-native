@@ -121,12 +121,12 @@ export function App() {
     () => {
       if (!loadBool(VOICE_SHORTCUT_CONFIGURED_KEY, false)) return "both";
       const saved = loadString(VOICE_SHORTCUT_KEY, "both");
-      return saved === "cmd-shift-space" ||
+      return saved === "fn" ||
+        saved === "cmd-shift-space" ||
         saved === "ctrl-shift-space" ||
-        saved === "both" ||
-        saved === "fn"
+        saved === "both"
         ? saved
-        : "fn";
+        : "both";
     },
   );
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(() => {
@@ -1905,7 +1905,7 @@ function Setup({
             onVoiceShortcutChange(event.target.value as VoiceShortcutPreference)
           }
         >
-          <option value="fn">Fn</option>
+          <option value="fn">Fn (hold to dictate)</option>
           <option value="cmd-shift-space">Cmd+Shift+Space</option>
           <option value="ctrl-shift-space">Ctrl+Shift+Space</option>
           <option value="both">All shortcuts</option>

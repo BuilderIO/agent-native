@@ -46,7 +46,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "mail",
     label: "Mail",
-    hint: "AI-native Superhuman — email client with keyboard shortcuts and AI triage",
+    hint: "Agent-native Superhuman — email client with keyboard shortcuts and AI triage",
     icon: "Mail",
     color: "#3B82F6",
     colorRgb: "59 130 246",
@@ -58,7 +58,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "calendar",
     label: "Calendar",
-    hint: "AI-native Google Calendar — manage events, sync, and public booking",
+    hint: "Agent-native Google Calendar — manage events, sync, and public booking",
     icon: "CalendarDays",
     color: "#8B5CF6",
     colorRgb: "139 92 246",
@@ -81,7 +81,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "content",
     label: "Content",
-    hint: "AI-native Notion/Google Docs — write and organize with agent assistance",
+    hint: "Agent-native Notion/Google Docs — write and organize with agent assistance",
     icon: "FileText",
     color: "#10B981",
     colorRgb: "16 185 129",
@@ -93,7 +93,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "slides",
     label: "Slides",
-    hint: "AI-native Google Slides — generate and edit React presentations",
+    hint: "Agent-native Google Slides — generate and edit React presentations",
     icon: "GalleryHorizontal",
     color: "#EC4899",
     colorRgb: "236 72 153",
@@ -105,7 +105,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "videos",
     label: "Video",
-    hint: "AI-native video editing with Remotion",
+    hint: "Agent-native video editing with Remotion",
     icon: "Video",
     color: "#EF4444",
     colorRgb: "239 68 68",
@@ -129,7 +129,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "calls",
     label: "Calls",
-    hint: "AI-native Gong — record, transcribe, and analyze sales calls",
+    hint: "Agent-native Gong — record, transcribe, and analyze sales calls",
     icon: "Phone",
     color: "#111111",
     colorRgb: "17 17 17",
@@ -162,7 +162,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "analytics",
     label: "Analytics",
-    hint: "AI-native Amplitude/Mixpanel — connect data sources, prompt for charts",
+    hint: "Agent-native Amplitude/Mixpanel — connect data sources, prompt for charts",
     icon: "BarChart2",
     color: "#F59E0B",
     colorRgb: "245 158 11",
@@ -186,7 +186,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "forms",
     label: "Forms",
-    hint: "AI-native form builder — create, edit, and manage forms",
+    hint: "Agent-native form builder — create, edit, and manage forms",
     icon: "ClipboardList",
     color: "#06B6D4",
     colorRgb: "6 182 212",
@@ -198,7 +198,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "issues",
     label: "Issues",
-    hint: "AI-native Jira — project management and issue tracking",
+    hint: "Agent-native Jira — project management and issue tracking",
     icon: "BrandJira",
     color: "#6366F1",
     colorRgb: "99 102 241",
@@ -209,7 +209,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "recruiting",
     label: "Recruiting",
-    hint: "AI-native Greenhouse — manage candidates and recruiting pipelines",
+    hint: "Agent-native Greenhouse — manage candidates and recruiting pipelines",
     icon: "Users",
     color: "#16A34A",
     colorRgb: "22 163 74",
@@ -220,7 +220,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "design",
     label: "Design",
-    hint: "AI-native design tool — create and edit visual designs with agent assistance",
+    hint: "Agent-native design tool — create and edit visual designs with agent assistance",
     icon: "Brush",
     color: "#F472B6",
     colorRgb: "244 114 182",

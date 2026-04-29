@@ -1,6 +1,7 @@
 import { IconBell } from "@tabler/icons-react";
 import { useActionQuery } from "@agent-native/core/client";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 export function meta() {
   return [{ title: "Notifications · Calls" }];
@@ -24,18 +25,15 @@ export default function NotificationsRoute() {
   );
   const items = data?.items ?? [];
 
+  useSetPageTitle(
+    <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2 truncate">
+      <IconBell className="h-5 w-5 text-[#625DF5]" />
+      Notifications
+    </h1>,
+  );
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      <header className="px-6 py-4 border-b border-border shrink-0">
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <IconBell className="h-6 w-6 text-[#625DF5]" />
-          Notifications
-        </h1>
-        <p className="text-xs text-muted-foreground">
-          Comments, reactions, mentions, and shares on your calls
-        </p>
-      </header>
-
       <div className="flex-1 min-h-0 overflow-y-auto p-6">
         {isLoading ? (
           <div className="space-y-2">

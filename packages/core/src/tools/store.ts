@@ -274,6 +274,8 @@ export async function deleteTool(id: string): Promise<boolean> {
     sql: `DELETE FROM tool_data WHERE tool_id = ?`,
     args: [id],
   });
+  const { cascadeDeleteToolSlots } = await import("./slots/store.js");
+  await cascadeDeleteToolSlots(id);
   await db.delete(tools).where(eq(tools.id, id));
   return true;
 }

@@ -1,11 +1,12 @@
-import { useState, useRef, useCallback } from "react";
-import { useNavigate, Link } from "react-router";
+import { useState, useRef, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router";
 import { IconPlus, IconStack2 } from "@tabler/icons-react";
 import { useDecks } from "@/context/DeckContext";
 import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 
 import { Button } from "@/components/ui/button";
 
@@ -65,12 +66,24 @@ export default function Index() {
     }
   };
 
+  // Inject "New Deck" into the global header actions slot.
+  useSetHeaderActions(
+    useMemo(
+      () => (
+        <Button onClick={openNewDeck} size="sm" className="cursor-pointer">
+          <IconPlus className="w-3.5 h-3.5" />
+          New Deck
+        </Button>
+      ),
+      [openNewDeck],
+    ),
+  );
+
   return (
     <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-10">
       {loading ? (
         <>
-          <div className="flex items-center justify-between mb-6">
-            <div className="h-5 w-32 rounded-md bg-muted animate-pulse" />
+          <div className="flex items-center justify-end mb-4">
             <div className="h-3 w-16 rounded bg-muted animate-pulse" />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -92,19 +105,10 @@ export default function Index() {
         <EmptyState onCreateDeck={openNewDeck} />
       ) : (
         <>
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-lg font-semibold text-foreground">
-              Your Decks
-            </h1>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground/70">
-                {decks.length} deck{decks.length !== 1 ? "s" : ""}
-              </span>
-              <Button onClick={openNewDeck} size="sm">
-                <IconPlus className="w-3.5 h-3.5" />
-                New Deck
-              </Button>
-            </div>
+          <div className="flex items-center justify-end mb-4">
+            <span className="text-xs text-muted-foreground/70">
+              {decks.length} deck{decks.length !== 1 ? "s" : ""}
+            </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {/* New deck card */}

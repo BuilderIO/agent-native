@@ -40,11 +40,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
-        <link
-          rel="icon"
-          type="image/svg+xml"
-          href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='18' rx='2' /><path d='M16 2v4M8 2v4M3 10h18' /></svg>"
-        />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <meta
           name="theme-color"
           content="#ffffff"

@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { AgentToggleButton } from "@agent-native/core/client";
 import { useSprints, useSprintIssues } from "@/hooks/use-boards";
 import { IssueList } from "@/components/issues/IssueList";
 import { IssueDetail } from "@/components/issues/IssueDetail";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 interface SprintPageProps {
   boardId: string;
@@ -32,6 +32,12 @@ export function SprintPage({
 
   const isLoading = sprintsLoading || issuesLoading;
 
+  useSetPageTitle(
+    <h1 className="truncate text-sm font-semibold text-foreground">
+      Sprint Planning
+    </h1>,
+  );
+
   return (
     <div className="flex h-full w-full min-w-0">
       <div
@@ -42,13 +48,6 @@ export function SprintPage({
             : "min-w-0 flex-1",
         )}
       >
-        <div className="flex min-w-0 items-center gap-2 border-b border-border px-3 py-3">
-          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-            Sprint Planning
-          </h1>
-          <AgentToggleButton className="h-9 w-9 shrink-0 rounded-md border border-border bg-background" />
-        </div>
-
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
             <div>

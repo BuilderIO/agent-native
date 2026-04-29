@@ -888,7 +888,13 @@ const MessageActionsContext = React.createContext<{
   onForkChat?: () => void;
 } | null>(null);
 
-function MessageActionsMenu() {
+function MessageActionsMenu({
+  showRevert,
+  onRevert,
+}: {
+  showRevert?: boolean;
+  onRevert?: () => void;
+} = {}) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
@@ -936,6 +942,11 @@ function MessageActionsMenu() {
     actionsCtx?.onForkChat?.();
   }, [actionsCtx]);
 
+  const handleRevert = useCallback(() => {
+    setOpen(false);
+    onRevert?.();
+  }, [onRevert]);
+
   return (
     <div className="relative" ref={menuRef}>
       <button
@@ -982,6 +993,15 @@ function MessageActionsMenu() {
               )}
               {copied === "id" ? "Copied!" : "Copy Request ID"}
             </button>
+            {showRevert && (
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+                onClick={handleRevert}
+              >
+                <IconArrowBackUp className="h-3.5 w-3.5" />
+                Revert to here
+              </button>
+            )}
           </div>
         </>
       )}
@@ -1064,28 +1084,11 @@ function AssistantMessage() {
       </div>
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">
-          <MessageActionsMenu />
-          <React.Suspense fallback={null}>
-            <ThumbsFeedbackLazy
-              threadId={cpCtx?.threadId ?? ""}
-              runId={
-                ((messageRuntime.getState().metadata as any)?.runId as
-                  | string
-                  | undefined) ?? ""
-              }
-              messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
-            />
-          </React.Suspense>
-          {showRestore && restoreState === "idle" && (
-            <button
-              onClick={handleRestore}
-              title="Restore project files to this point"
-              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <IconArrowBackUp className="h-3 w-3" />
-            </button>
-          )}
-          {showRestore && restoreState === "confirming" && (
+          <MessageActionsMenu
+            showRevert={showRestore && restoreState === "idle"}
+            onRevert={handleRestore}
+          />
+          {showRestore && restoreState === "confirming" ? (
             <div className="flex items-center gap-1 text-xs">
               <button
                 onClick={handleRestore}
@@ -1100,12 +1103,23 @@ function AssistantMessage() {
                 Cancel
               </button>
             </div>
-          )}
-          {showRestore && restoreState === "restoring" && (
+          ) : showRestore && restoreState === "restoring" ? (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <IconLoader2 className="h-3 w-3 animate-spin" />
               Restoring...
             </span>
+          ) : (
+            <React.Suspense fallback={null}>
+              <ThumbsFeedbackLazy
+                threadId={cpCtx?.threadId ?? ""}
+                runId={
+                  ((messageRuntime.getState().metadata as any)?.runId as
+                    | string
+                    | undefined) ?? ""
+                }
+                messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
+              />
+            </React.Suspense>
           )}
         </div>
       )}

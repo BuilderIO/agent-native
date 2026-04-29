@@ -15,6 +15,7 @@ import {
 import { RecordingCard } from "@/components/library/recording-card";
 import { EmptyState } from "@/components/library/empty-state";
 import { SortMenu, type SortKey } from "@/components/library/sort-menu";
+import { PageHeader } from "@/components/library/page-header";
 import { useRecordings, type RecordingSummary } from "@/hooks/use-library";
 import { useActionMutation } from "@agent-native/core/client";
 
@@ -89,7 +90,7 @@ export default function TrashRoute() {
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
-      <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3">
+      <PageHeader>
         <div>
           <h1 className="text-base font-semibold text-foreground">Trash</h1>
           <p className="text-xs text-muted-foreground">
@@ -119,7 +120,7 @@ export default function TrashRoute() {
           )}
           <SortMenu value={sort} onChange={setSort} />
         </div>
-      </div>
+      </PageHeader>
 
       <div className="flex-1 overflow-y-auto p-5">
         {isLoading ? (

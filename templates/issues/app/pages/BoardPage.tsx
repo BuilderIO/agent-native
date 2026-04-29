@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router";
-import { AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { useBoardConfig } from "@/hooks/use-boards";
 import { useIssues } from "@/hooks/use-issues";
@@ -8,6 +7,7 @@ import { useTransitionIssue } from "@/hooks/use-transitions";
 import { IssueDetail } from "@/components/issues/IssueDetail";
 import { KanbanBoard } from "@/components/board/KanbanBoard";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 interface BoardPageProps {
   boardId: string;
@@ -70,6 +70,12 @@ export function BoardPage({
 
   const isLoading = configLoading || issuesLoading;
 
+  useSetPageTitle(
+    <h1 className="truncate text-sm font-semibold text-foreground">
+      {boardConfig?.name || "Board"}
+    </h1>,
+  );
+
   return (
     <div className="flex h-full w-full min-w-0">
       <div
@@ -80,13 +86,6 @@ export function BoardPage({
             : "min-w-0 flex-1",
         )}
       >
-        <div className="flex min-w-0 items-center gap-2 border-b border-border px-3 py-3">
-          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-            {boardConfig?.name || "Board"}
-          </h1>
-          <AgentToggleButton className="h-9 w-9 shrink-0 rounded-md border border-border bg-background" />
-        </div>
-
         <div className="flex-1 overflow-x-auto overflow-y-hidden p-3 sm:p-4">
           {isLoading ? (
             <div className="flex h-full gap-3">

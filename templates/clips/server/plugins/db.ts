@@ -61,13 +61,14 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
   }
 }
 
-const migrations = runMigrations([
-  // ---------------------------------------------------------------------------
-  // Workspaces & members
-  // ---------------------------------------------------------------------------
-  {
-    version: 1,
-    sql: `CREATE TABLE IF NOT EXISTS workspaces (
+const migrations = runMigrations(
+  [
+    // ---------------------------------------------------------------------------
+    // Workspaces & members
+    // ---------------------------------------------------------------------------
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL DEFAULT 'My Workspace',
       slug TEXT NOT NULL,
@@ -80,10 +81,10 @@ const migrations = runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 2,
-    sql: `CREATE TABLE IF NOT EXISTS workspace_members (
+    },
+    {
+      version: 2,
+      sql: `CREATE TABLE IF NOT EXISTS workspace_members (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       email TEXT NOT NULL,
@@ -91,10 +92,10 @@ const migrations = runMigrations([
       invited_at TEXT,
       joined_at TEXT
     )`,
-  },
-  {
-    version: 3,
-    sql: `CREATE TABLE IF NOT EXISTS invites (
+    },
+    {
+      version: 3,
+      sql: `CREATE TABLE IF NOT EXISTS invites (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       email TEXT NOT NULL,
@@ -105,13 +106,13 @@ const migrations = runMigrations([
       accepted_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Spaces & folders
-  // ---------------------------------------------------------------------------
-  {
-    version: 4,
-    sql: `CREATE TABLE IF NOT EXISTS spaces (
+    },
+    // ---------------------------------------------------------------------------
+    // Spaces & folders
+    // ---------------------------------------------------------------------------
+    {
+      version: 4,
+      sql: `CREATE TABLE IF NOT EXISTS spaces (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -120,19 +121,19 @@ const migrations = runMigrations([
       is_all_company BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 5,
-    sql: `CREATE TABLE IF NOT EXISTS space_members (
+    },
+    {
+      version: 5,
+      sql: `CREATE TABLE IF NOT EXISTS space_members (
       id TEXT PRIMARY KEY,
       space_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'contributor'
     )`,
-  },
-  {
-    version: 6,
-    sql: `CREATE TABLE IF NOT EXISTS folders (
+    },
+    {
+      version: 6,
+      sql: `CREATE TABLE IF NOT EXISTS folders (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       parent_id TEXT,
@@ -142,13 +143,13 @@ const migrations = runMigrations([
       position INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Recordings — the core resource
-  // ---------------------------------------------------------------------------
-  {
-    version: 7,
-    sql: `CREATE TABLE IF NOT EXISTS recordings (
+    },
+    // ---------------------------------------------------------------------------
+    // Recordings — the core resource
+    // ---------------------------------------------------------------------------
+    {
+      version: 7,
+      sql: `CREATE TABLE IF NOT EXISTS recordings (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL,
       folder_id TEXT,
@@ -185,10 +186,10 @@ const migrations = runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 8,
-    sql: `CREATE TABLE IF NOT EXISTS recording_shares (
+    },
+    {
+      version: 8,
+      sql: `CREATE TABLE IF NOT EXISTS recording_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -197,22 +198,22 @@ const migrations = runMigrations([
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Tags, transcripts, CTAs
-  // ---------------------------------------------------------------------------
-  {
-    version: 9,
-    sql: `CREATE TABLE IF NOT EXISTS recording_tags (
+    },
+    // ---------------------------------------------------------------------------
+    // Tags, transcripts, CTAs
+    // ---------------------------------------------------------------------------
+    {
+      version: 9,
+      sql: `CREATE TABLE IF NOT EXISTS recording_tags (
       id TEXT PRIMARY KEY,
       recording_id TEXT NOT NULL,
       workspace_id TEXT NOT NULL,
       tag TEXT NOT NULL
     )`,
-  },
-  {
-    version: 10,
-    sql: `CREATE TABLE IF NOT EXISTS recording_transcripts (
+    },
+    {
+      version: 10,
+      sql: `CREATE TABLE IF NOT EXISTS recording_transcripts (
       recording_id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       language TEXT NOT NULL DEFAULT 'en',
@@ -223,10 +224,10 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 11,
-    sql: `CREATE TABLE IF NOT EXISTS recording_ctas (
+    },
+    {
+      version: 11,
+      sql: `CREATE TABLE IF NOT EXISTS recording_ctas (
       id TEXT PRIMARY KEY,
       recording_id TEXT NOT NULL,
       label TEXT NOT NULL,
@@ -235,13 +236,13 @@ const migrations = runMigrations([
       placement TEXT NOT NULL DEFAULT 'throughout',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Comments & reactions
-  // ---------------------------------------------------------------------------
-  {
-    version: 12,
-    sql: `CREATE TABLE IF NOT EXISTS recording_comments (
+    },
+    // ---------------------------------------------------------------------------
+    // Comments & reactions
+    // ---------------------------------------------------------------------------
+    {
+      version: 12,
+      sql: `CREATE TABLE IF NOT EXISTS recording_comments (
       id TEXT PRIMARY KEY,
       recording_id TEXT NOT NULL,
       workspace_id TEXT NOT NULL,
@@ -256,10 +257,10 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  {
-    version: 13,
-    sql: `CREATE TABLE IF NOT EXISTS recording_reactions (
+    },
+    {
+      version: 13,
+      sql: `CREATE TABLE IF NOT EXISTS recording_reactions (
       id TEXT PRIMARY KEY,
       recording_id TEXT NOT NULL,
       viewer_email TEXT,
@@ -268,13 +269,13 @@ const migrations = runMigrations([
       video_timestamp_ms INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Analytics
-  // ---------------------------------------------------------------------------
-  {
-    version: 14,
-    sql: `CREATE TABLE IF NOT EXISTS recording_viewers (
+    },
+    // ---------------------------------------------------------------------------
+    // Analytics
+    // ---------------------------------------------------------------------------
+    {
+      version: 14,
+      sql: `CREATE TABLE IF NOT EXISTS recording_viewers (
       id TEXT PRIMARY KEY,
       recording_id TEXT NOT NULL,
       viewer_email TEXT,
@@ -286,10 +287,10 @@ const migrations = runMigrations([
       counted_view BOOLEAN NOT NULL DEFAULT FALSE,
       cta_clicked BOOLEAN NOT NULL DEFAULT FALSE
     )`,
-  },
-  {
-    version: 15,
-    sql: `CREATE TABLE IF NOT EXISTS recording_events (
+    },
+    {
+      version: 15,
+      sql: `CREATE TABLE IF NOT EXISTS recording_events (
       id TEXT PRIMARY KEY,
       recording_id TEXT NOT NULL,
       viewer_id TEXT,
@@ -298,18 +299,18 @@ const migrations = runMigrations([
       payload TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-  // ---------------------------------------------------------------------------
-  // Organization settings — Clips-specific sidecar to better-auth `organization`
-  //
-  // One row per organization. Brand color + logo + default visibility live
-  // here; membership and invitations live in better-auth's tables. This
-  // replaces `workspaces.brand_color` / `.brand_logo_url` / `.default_visibility`
-  // once callsites migrate.
-  // ---------------------------------------------------------------------------
-  {
-    version: 16,
-    sql: `CREATE TABLE IF NOT EXISTS organization_settings (
+    },
+    // ---------------------------------------------------------------------------
+    // Organization settings — Clips-specific sidecar to better-auth `organization`
+    //
+    // One row per organization. Brand color + logo + default visibility live
+    // here; membership and invitations live in better-auth's tables. This
+    // replaces `workspaces.brand_color` / `.brand_logo_url` / `.default_visibility`
+    // once callsites migrate.
+    // ---------------------------------------------------------------------------
+    {
+      version: 16,
+      sql: `CREATE TABLE IF NOT EXISTS organization_settings (
       organization_id TEXT PRIMARY KEY,
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
@@ -317,8 +318,10 @@ const migrations = runMigrations([
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
-]);
+    },
+  ],
+  { table: "clips_migrations" },
+);
 
 /**
  * Idempotent sync: for every Clips `workspaces` row, ensure there's a

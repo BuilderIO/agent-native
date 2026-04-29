@@ -379,9 +379,10 @@ const styles: Record<string, React.CSSProperties> = {
     position: "fixed",
     top: 16,
     right: 16,
-    bottom: 16,
     width: 380,
     maxWidth: "calc(100vw - 32px)",
+    // Sized to content; capped so it never spills off-screen on small windows.
+    maxHeight: "calc(100vh - 32px)",
     background: "rgba(20, 20, 23, 0.96)",
     color: "#f4f4f5",
     border: "1px solid rgba(255,255,255,0.08)",

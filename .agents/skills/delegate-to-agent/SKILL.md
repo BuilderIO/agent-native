@@ -70,6 +70,59 @@ sendToAgentChat({
 });
 ```
 
+## Capture user input first when generating from a prompt
+
+Buttons that produce new content ("New Design", "Create Dashboard", "Make Deck", "Generate Form") need the user's prompt as input. **Never hardcode a generic message** — the result will be a generic generation the user didn't actually ask for.
+
+**Bad** — auto-submits a placeholder message; the user never said what they wanted:
+
+```tsx
+<Button
+  onClick={() =>
+    sendToAgentChat({ message: "make a design", submit: true })
+  }
+>
+  New Design
+</Button>
+```
+
+**Good** — Popover anchored to the button captures the prompt, then submits it:
+
+```tsx
+<Popover open={open} onOpenChange={setOpen}>
+  <PopoverTrigger asChild>
+    <Button>New Design</Button>
+  </PopoverTrigger>
+  <PopoverContent className="w-96">
+    <Textarea
+      autoFocus
+      value={prompt}
+      onChange={(e) => setPrompt(e.target.value)}
+      placeholder="What do you want to design?"
+    />
+    <Button
+      onClick={() => {
+        sendToAgentChat({ message: prompt, submit: true });
+        setOpen(false);
+        setPrompt("");
+      }}
+    >
+      Create
+    </Button>
+  </PopoverContent>
+</Popover>
+```
+
+**Always ask for input first when** the output depends on a prompt the user must provide — "design what?", "deck about what?", "dashboard for which metric?", "form for which use case?".
+
+**Auto-submit without input is fine when intent is unambiguous:**
+
+- "Try to fix" on a tool error — submits the error details with a clear fix instruction
+- "Retry the last operation" after a transient failure
+- Single-purpose buttons where there is nothing meaningful for the user to add
+
+If you find yourself writing `submit: true` with a hardcoded creative verb (`"design a..."`, `"write a..."`, `"build a..."`), stop and add a Popover.
+
 ## Don't
 
 - Don't `import Anthropic from "@anthropic-ai/sdk"` in client or server code
@@ -77,6 +130,7 @@ sendToAgentChat({
 - Don't make direct API calls to any LLM provider
 - Don't use AI SDK functions like `generateText()`, `streamText()`, etc.
 - Don't build "AI features" that bypass the agent chat
+- Don't auto-submit a hardcoded prompt for generative actions — capture user input first (see above)
 
 ## Exception
 

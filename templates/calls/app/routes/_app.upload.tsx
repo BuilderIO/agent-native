@@ -8,6 +8,7 @@ import { UploadDropzone } from "@/components/upload/upload-dropzone";
 import { InBrowserRecorder } from "@/components/upload/in-browser-recorder";
 import { RecallIntegrationCard } from "@/components/upload/recall-integration-card";
 import { ZoomOauthCard } from "@/components/upload/zoom-oauth-card";
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 export function meta() {
   return [{ title: "Upload · Calls" }];
@@ -27,18 +28,15 @@ export default function UploadRoute() {
   );
   const deepgramMissing = data && data.deepgramConfigured === false;
 
+  useSetPageTitle(
+    <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2 truncate">
+      <IconUpload className="h-5 w-5 text-[#625DF5]" />
+      Upload a call
+    </h1>,
+  );
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      <header className="px-6 py-4 border-b border-border shrink-0">
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <IconUpload className="h-6 w-6 text-[#625DF5]" />
-          Upload a call
-        </h1>
-        <p className="text-xs text-muted-foreground">
-          Drop in a file, record in-browser, or pull from your meeting platform
-        </p>
-      </header>
-
       <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6 max-w-4xl w-full mx-auto">
         {deepgramMissing ? (
           <Alert>

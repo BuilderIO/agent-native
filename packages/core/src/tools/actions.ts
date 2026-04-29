@@ -1,5 +1,12 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import { createTool, getTool, updateTool, updateToolContent } from "./store.js";
+import {
+  addToolSlotTarget,
+  installToolSlot,
+  uninstallToolSlot,
+  listToolsForSlot,
+  listSlotsForTool,
+} from "./slots/store.js";
 
 type ToolPatch = { find: string; replace: string };
 
@@ -130,6 +137,147 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
         if (!result) result = await getTool(id);
         if (!result) return `Error: tool not found: ${id}`;
         return { ok: true, tool: result };
+      },
+    },
+
+    "add-tool-slot-target": {
+      tool: {
+        description:
+          'Declare that a tool can render in a UI extension-point slot of an app (e.g. "mail.contact-sidebar.bottom"). Apps drop ExtensionSlot components in their UI; this action registers a tool as installable into one of those slots. Slot IDs follow the convention <app>.<area>.<position>. Caller must have editor access to the tool.',
+        parameters: {
+          type: "object",
+          properties: {
+            toolId: { type: "string", description: "Tool id." },
+            slotId: {
+              type: "string",
+              description:
+                'Slot identifier — e.g. "mail.contact-sidebar.bottom".',
+            },
+            config: {
+              type: "string",
+              description:
+                "Optional JSON string with slot-specific config (defaults, hints, etc.).",
+            },
+          },
+          required: ["toolId", "slotId"],
+        },
+      },
+      run: async (args) => {
+        const toolId = String(args?.toolId ?? "").trim();
+        const slotId = String(args?.slotId ?? "").trim();
+        if (!toolId) return "Error: toolId is required.";
+        if (!slotId) return "Error: slotId is required.";
+        const row = await addToolSlotTarget(
+          toolId,
+          slotId,
+          args?.config ? String(args.config) : undefined,
+        );
+        return { ok: true, slot: row };
+      },
+    },
+
+    "install-extension": {
+      tool: {
+        description:
+          "Install a tool as a widget in an extension-point slot for the current user. The tool must already declare the slot via add-tool-slot-target. Per-user installation — only affects the calling user's view. Use after creating a tool that targets a slot, or when the user asks to add an existing widget to a slot.",
+        parameters: {
+          type: "object",
+          properties: {
+            toolId: { type: "string", description: "Tool id to install." },
+            slotId: {
+              type: "string",
+              description:
+                'Slot identifier — e.g. "mail.contact-sidebar.bottom".',
+            },
+            position: {
+              type: "number",
+              description:
+                "Optional integer position within the slot (lower = earlier). Defaults to end.",
+            },
+            config: {
+              type: "string",
+              description:
+                "Optional JSON string with per-install config (overrides, settings).",
+            },
+          },
+          required: ["toolId", "slotId"],
+        },
+      },
+      run: async (args) => {
+        const toolId = String(args?.toolId ?? "").trim();
+        const slotId = String(args?.slotId ?? "").trim();
+        if (!toolId) return "Error: toolId is required.";
+        if (!slotId) return "Error: slotId is required.";
+        const position =
+          args?.position !== undefined && args.position !== null
+            ? Number(args.position)
+            : undefined;
+        const row = await installToolSlot(toolId, slotId, {
+          position: Number.isFinite(position as number) ? position : undefined,
+          config: args?.config ? String(args.config) : undefined,
+        });
+        return { ok: true, install: row };
+      },
+    },
+
+    "uninstall-extension": {
+      tool: {
+        description:
+          "Remove a tool from an extension-point slot for the current user. Does not delete the tool itself.",
+        parameters: {
+          type: "object",
+          properties: {
+            toolId: { type: "string", description: "Tool id." },
+            slotId: { type: "string", description: "Slot identifier." },
+          },
+          required: ["toolId", "slotId"],
+        },
+      },
+      run: async (args) => {
+        const toolId = String(args?.toolId ?? "").trim();
+        const slotId = String(args?.slotId ?? "").trim();
+        if (!toolId) return "Error: toolId is required.";
+        if (!slotId) return "Error: slotId is required.";
+        await uninstallToolSlot(toolId, slotId);
+        return { ok: true };
+      },
+    },
+
+    "list-tools-for-slot": {
+      tool: {
+        description:
+          "List tools the current user has access to that declare a given extension-point slot. Use to discover what's available to install into a slot the user mentioned.",
+        parameters: {
+          type: "object",
+          properties: {
+            slotId: { type: "string", description: "Slot identifier." },
+          },
+          required: ["slotId"],
+        },
+      },
+      run: async (args) => {
+        const slotId = String(args?.slotId ?? "").trim();
+        if (!slotId) return "Error: slotId is required.";
+        return { tools: await listToolsForSlot(slotId) };
+      },
+    },
+
+    "list-tool-slots": {
+      tool: {
+        description:
+          "List the extension-point slots a specific tool declares it can render in. Caller must have viewer access to the tool.",
+        parameters: {
+          type: "object",
+          properties: {
+            toolId: { type: "string", description: "Tool id." },
+          },
+          required: ["toolId"],
+        },
+      },
+      run: async (args) => {
+        const toolId = String(args?.toolId ?? "").trim();
+        if (!toolId) return "Error: toolId is required.";
+        return { slots: await listSlotsForTool(toolId) };
       },
     },
   };

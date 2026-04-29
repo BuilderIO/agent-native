@@ -6,7 +6,6 @@ import {
   IconHistory,
   IconListTree,
 } from "@tabler/icons-react";
-import { AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { useIssue } from "@/hooks/use-issues";
 import { IssueProperties } from "./IssueProperties";
@@ -82,7 +81,6 @@ export function IssueDetail({ issueKey, closePath }: IssueDetailProps) {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <AgentToggleButton className="h-9 w-9 rounded-md border border-border bg-background" />
           <Link
             to={closePath}
             className="hidden h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground lg:flex"

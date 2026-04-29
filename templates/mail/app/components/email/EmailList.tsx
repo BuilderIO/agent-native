@@ -18,6 +18,7 @@ import {
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { Spinner } from "@/components/ui/spinner";
 import type { EmailMessage } from "@shared/types";
 
 type EmailsPage = { emails: EmailMessage[]; nextPageToken?: string };
@@ -891,7 +892,7 @@ export function EmailList({
           >
             {isFetchingNextPage && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <div className="h-3 w-3 rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground animate-spin" />
+                <Spinner className="size-3 text-muted-foreground" />
                 Loading more...
               </div>
             )}

@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { marked } from "marked";
+import { marked, type RendererThis, type Tokens } from "marked";
 import { codeToHtml } from "shiki";
 
 interface Props {
@@ -19,24 +19,30 @@ interface Props {
 function createRenderer() {
   const renderer = new marked.Renderer();
 
-  renderer.heading = ({ text, depth }: { text: string; depth: number }) => {
-    // Extract custom ID from {#my-id} syntax
-    const idMatch = text.match(/\s*\{#([\w-]+)\}\s*$/);
+  renderer.heading = function (
+    this: RendererThis,
+    { tokens, depth }: Tokens.Heading,
+  ) {
+    // Render inline tokens to HTML so backticks, links, etc. work in headings.
+    // marked v9+ passes raw markdown source as `text`; we need parseInline.
+    const rendered = this.parser.parseInline(tokens);
+    // Extract custom ID from {#my-id} syntax (lives in the rendered text)
+    const idMatch = rendered.match(/\s*\{#([\w-]+)\}\s*$/);
     let id: string;
-    let displayText: string;
+    let displayHtml: string;
     if (idMatch) {
       id = idMatch[1];
-      displayText = text.replace(/\s*\{#[\w-]+\}\s*$/, "");
+      displayHtml = rendered.replace(/\s*\{#[\w-]+\}\s*$/, "");
     } else {
-      displayText = text;
-      const plain = text.replace(/<[^>]+>/g, "").replace(/`([^`]+)`/g, "$1");
+      displayHtml = rendered;
+      const plain = rendered.replace(/<[^>]+>/g, "");
       id = plain
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "");
     }
     const tag = `h${depth}`;
-    return `<${tag} id="${id}">${displayText}</${tag}>\n`;
+    return `<${tag} id="${id}">${displayHtml}</${tag}>\n`;
   };
 
   return renderer;

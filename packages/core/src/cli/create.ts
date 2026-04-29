@@ -5,7 +5,7 @@ import { execFileSync } from "child_process";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
 import {
-  visibleTemplates,
+  coreTemplates,
   getTemplate,
   allTemplateNames,
   type TemplateMeta,
@@ -321,7 +321,7 @@ async function createStandaloneApp(
     const picked = await clack.select({
       message: "Which template would you like to use?",
       options: [
-        ...visibleTemplates().map((t) => ({
+        ...coreTemplates().map((t) => ({
           value: t.name,
           label: t.label,
           hint: t.hint,
@@ -632,7 +632,7 @@ async function promptTemplatePicker(
   opts?: { excludeNames?: string[]; message?: string },
 ): Promise<string[]> {
   const excluded = new Set(opts?.excludeNames ?? []);
-  const options = visibleTemplates()
+  const options = coreTemplates()
     .filter((t) => !excluded.has(t.name))
     .map((t) => ({
       value: t.name,

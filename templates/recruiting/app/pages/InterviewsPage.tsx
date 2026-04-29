@@ -2,6 +2,7 @@ import { useInterviews } from "@/hooks/use-greenhouse";
 import { groupByDate, cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { IconLoader2, IconCalendar } from "@tabler/icons-react";
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 export function InterviewsPage() {
   const { data: interviews = [], isLoading, error } = useInterviews();
@@ -23,18 +24,17 @@ export function InterviewsPage() {
     })),
   );
 
+  useSetPageTitle(
+    <div className="flex items-center gap-2">
+      <h1 className="text-sm font-semibold text-foreground">Interviews</h1>
+      <span className="text-xs text-muted-foreground">
+        {upcoming.length} upcoming
+      </span>
+    </div>,
+  );
+
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="flex items-center border-b border-border px-4 h-14 flex-shrink-0 sm:px-6">
-        <h1 className="text-sm font-semibold text-foreground pl-10 md:pl-0">
-          Interviews
-        </h1>
-        <span className="ml-2 text-xs text-muted-foreground">
-          {upcoming.length} upcoming
-        </span>
-      </div>
-
       {/* Content */}
       <div className="flex-1 overflow-auto">
         {isLoading ? (
