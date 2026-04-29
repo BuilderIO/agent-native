@@ -1342,12 +1342,20 @@ async function mountBetterAuthRoutes(
       const isResetPassword =
         reqPath.includes("reset-password") && getMethod(event) === "POST";
 
-      // Pre-read the body for reset-password so we can extract the
-      // token after Better Auth consumes the stream.
+      // Pre-read the body for reset-password so we can auto-verify the
+      // user's email after they save the new password. CRUCIAL: clone
+      // the Request first — h3 v2 `event.req` is the live web Request,
+      // and `.text()`/`.json()` consume the stream. The same `event.req`
+      // is handed to Better Auth below; without the clone, Better Auth
+      // sees an empty body, fails Zod validation, and returns 400 —
+      // which the reset page renders as "the link may have expired".
       let resetToken: string | undefined;
       if (isResetPassword) {
         try {
-          const body = await readBody(event);
+          const cloned = (event.req as Request).clone();
+          const body = (await cloned.json().catch(() => undefined)) as
+            | { token?: string }
+            | undefined;
           resetToken = body?.token;
         } catch {
           // ignore — Better Auth will handle validation
@@ -1360,8 +1368,14 @@ async function mountBetterAuthRoutes(
         typeof (response as any).status === "number" &&
         typeof (response as any).headers?.get === "function";
 
-      // After email verification, add ?verified to the redirect so the
-      // login page can show a "Email verified!" success message.
+      // After email verification, add ?verified=1 to the redirect so the
+      // login page can show "Email verified!". MUTATE the response in
+      // place — `new Response(null, { headers: new Headers(response.headers) })`
+      // collapses multiple Set-Cookie headers into one comma-joined value,
+      // which browsers reject. With `autoSignInAfterVerification: true`
+      // Better Auth emits 2–3 Set-Cookie headers (session token + cookie
+      // cache + dontRememberToken); losing them strands the user on the
+      // login page even though verification succeeded.
       if (
         reqPath.includes("verify-email") &&
         isResponse &&
@@ -1371,17 +1385,14 @@ async function mountBetterAuthRoutes(
         const loc = response.headers.get("location");
         if (loc && !/[?&]verified=/.test(loc)) {
           const sep = loc.includes("?") ? "&" : "?";
-          const newResponse = new Response(null, {
-            status: response.status,
-            headers: new Headers(response.headers),
-          });
-          newResponse.headers.set("location", loc + sep + "verified=1");
-          return newResponse;
+          response.headers.set("location", loc + sep + "verified=1");
         }
       }
 
       // Auto-verify email after a successful password reset. The user
-      // proved email ownership by receiving and using the reset link.
+      // proved email ownership by receiving and using the reset link, so
+      // we don't want them stuck behind `requireEmailVerification` after
+      // resetting — that's the exact escape hatch they just used.
       if (
         isResetPassword &&
         resetToken &&
@@ -1392,19 +1403,25 @@ async function mountBetterAuthRoutes(
         try {
           const { getDbExec } = await import("../db/client.js");
           const db = getDbExec();
-          // Better Auth stores the reset token in its `verification`
-          // table with the user's identifier. Look up the user via the
-          // token and mark their email as verified — they proved
-          // ownership by receiving and using the email-delivered link.
+          // Better Auth stores reset tokens with
+          //   identifier = "reset-password:<token>"
+          //   value      = <user.id>
+          // (see better-auth/dist/api/routes/password.mjs). Earlier code
+          // here queried `WHERE value = ?` with the token, which never
+          // matched anything — so this branch was a silent no-op.
           const rows = await db.execute({
-            sql: "SELECT identifier FROM verification WHERE value = ?",
-            args: [resetToken],
+            sql: "SELECT value FROM verification WHERE identifier = ?",
+            args: [`reset-password:${resetToken}`],
           });
-          const email = rows.rows[0]?.identifier as string | undefined;
-          if (email) {
+          const userId = rows.rows[0]?.value as string | undefined;
+          if (userId) {
+            // Use boolean literals for cross-dialect portability: Postgres
+            // stores `email_verified` as BOOLEAN and rejects integer 1/0,
+            // SQLite accepts TRUE/FALSE as aliases for 1/0 (since 3.23).
+            // Quote `"user"` because it's a reserved keyword in Postgres.
             await db.execute({
-              sql: "UPDATE user SET email_verified = 1 WHERE email = ? AND (email_verified = 0 OR email_verified IS NULL)",
-              args: [email],
+              sql: 'UPDATE "user" SET email_verified = TRUE WHERE id = ? AND (email_verified = FALSE OR email_verified IS NULL)',
+              args: [userId],
             });
           }
         } catch {

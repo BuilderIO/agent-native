@@ -78,7 +78,7 @@ export function useVariantFlow(designId: string | undefined) {
       // agent's own action endpoint. We keep the agent informed via chat so
       // subsequent edits target the picked direction.
       try {
-        await fetch("/_agent-native/actions/generate-design", {
+        const res = await fetch("/_agent-native/actions/generate-design", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -93,8 +93,17 @@ export function useVariantFlow(designId: string | undefined) {
             ],
           }),
         });
+        if (!res.ok) {
+          // Surface the failure rather than telling the agent the variant was
+          // saved when the server actually rejected it. The picker still
+          // clears so the user isn't stuck — they can re-pick after retrying.
+          console.warn(
+            `[use-variant-flow] generate-design returned ${res.status}; variant not persisted`,
+          );
+        }
       } catch {
-        // Even if the persist fails, clear the picker so the user isn't stuck.
+        // Network error: clear the picker anyway so the user isn't stuck;
+        // the agent message below records that they made a choice.
       }
 
       sendToAgentChat({
