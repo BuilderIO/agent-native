@@ -360,6 +360,22 @@ export function createCoreRoutesPlugin(
           } catch {
             // DB not reachable — fall back to env-only status.
           }
+          // For authenticated non-local users who have no per-user credentials,
+          // explicitly return not-configured rather than deploy-level env keys.
+          // This is consistent with resolveBuilderCredential()'s design which
+          // refuses the env fallback for authenticated users to prevent
+          // cross-tenant credential leakage in shared-DB deployments.
+          if (userEmail && userEmail !== "local@localhost") {
+            return {
+              ...envStatus,
+              configured: false,
+              privateKeyConfigured: false,
+              publicKeyConfigured: false,
+              userId: undefined,
+              orgName: undefined,
+              orgKind: undefined,
+            };
+          }
           return envStatus;
         });
       }),
