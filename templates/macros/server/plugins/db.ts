@@ -93,4 +93,4 @@ export default runMigrations([
       return `SELECT 1`;
     },
   },
-]);
+], { table: "macros_migrations" });

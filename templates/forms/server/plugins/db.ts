@@ -67,4 +67,4 @@ CREATE TABLE IF NOT EXISTS form_shares (
 )`,
     },
   },
-]);
+], { table: "forms_migrations" });

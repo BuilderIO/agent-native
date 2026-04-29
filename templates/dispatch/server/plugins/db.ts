@@ -164,4 +164,4 @@ export default runMigrations([
       );
     `,
   },
-]);
+], { table: "dispatch_migrations" });
