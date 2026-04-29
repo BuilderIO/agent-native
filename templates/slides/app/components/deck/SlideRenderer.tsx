@@ -218,6 +218,7 @@ export function SlideInner({
       <div
         className={`relative ${bgClass}`}
         style={{ ...sizeStyle, ...bgStyle, ...dsStyle }}
+        data-slide-canvas={slide.id}
       >
         <ExcalidrawThumbnail data={slide.excalidrawData} />
       </div>
@@ -252,6 +253,7 @@ export function SlideInner({
       <div
         className={`relative ${bgClass} ${layoutClasses[slide.layout]}`}
         style={{ ...sizeStyle, ...bgStyle, ...dsStyle, textAlign: "left" }}
+        data-slide-canvas={slide.id}
       >
         {imageLoadingOverlay}
         <div className="slide-content text-white/90">
@@ -279,6 +281,7 @@ export function SlideInner({
       <div
         className={`${bgClass} ${layoutClasses.blank}`}
         style={{ ...sizeStyle, ...bgStyle, ...dsStyle }}
+        data-slide-canvas={slide.id}
       >
         <BlankSlideContent content={content} />
       </div>
@@ -294,6 +297,7 @@ export function SlideInner({
         ...dsStyle,
         textAlign: isCentered ? "center" : "left",
       }}
+      data-slide-canvas={slide.id}
     >
       {imageLoadingOverlay}
       <div className="slide-content text-white/90 w-full">

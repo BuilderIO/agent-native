@@ -52,6 +52,7 @@ import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
+import { toast } from "@/hooks/use-toast";
 const Pinpoint = lazy(() =>
   import("@agent-native/pinpoint/react").then((m) => ({
     default: m.Pinpoint,
@@ -523,11 +524,25 @@ export default function DeckEditor() {
           }
         }}
         onExportPdf={async () => {
-          const els = Array.from(
-            document.querySelectorAll(".slide-content"),
-          ) as HTMLElement[];
-          if (els.length > 0) {
-            await exportDeckAsPdf(deck.title, els, deck.aspectRatio);
+          try {
+            const slideIds = deck.slides.map((s) => s.id);
+            if (slideIds.length === 0) {
+              toast({
+                title: "Export failed",
+                description: "Deck has no slides.",
+                variant: "destructive",
+              });
+              return;
+            }
+            await exportDeckAsPdf(deck.title, slideIds, deck.aspectRatio);
+          } catch (err) {
+            console.error("[pdf-export] failed:", err);
+            toast({
+              title: "Export failed",
+              description:
+                err instanceof Error ? err.message : "Could not render PDF.",
+              variant: "destructive",
+            });
           }
         }}
         aspectRatio={deck.aspectRatio}
