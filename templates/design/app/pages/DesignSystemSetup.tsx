@@ -787,7 +787,7 @@ export default function DesignSystemSetup() {
           </div>
         </main>
       </div>
-    </AgentSidebar>
+    </>
   );
 }
 

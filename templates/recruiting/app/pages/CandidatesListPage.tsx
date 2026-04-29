@@ -18,6 +18,7 @@ import {
   IconMinus,
 } from "@tabler/icons-react";
 import type { FilterResult } from "@shared/types";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 
 export function CandidatesListPage() {
   const [search, setSearch] = useState("");
@@ -69,25 +70,21 @@ export function CandidatesListPage() {
       })
     : candidates;
 
+  useSetHeaderActions(
+    <div className="relative">
+      <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => handleSearch(e.target.value)}
+        placeholder="Search..."
+        className="h-8 w-40 rounded-md border border-border bg-background pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-ring sm:w-56"
+      />
+    </div>,
+  );
+
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 border-b border-border px-4 h-14 flex-shrink-0 sm:px-6">
-        <h1 className="text-sm font-semibold text-foreground flex-shrink-0 pl-10 md:pl-0">
-          Candidates
-        </h1>
-        <div className="relative">
-          <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => handleSearch(e.target.value)}
-            placeholder="Search..."
-            className="h-8 w-40 rounded-md border border-border bg-background pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-ring sm:w-64 sm:placeholder:content-['Search_candidates...']"
-          />
-        </div>
-      </div>
-
       {/* AI Filter bar */}
       <div className="border-b border-border px-4 py-3 sm:px-6">
         <div className="flex items-start gap-2">
