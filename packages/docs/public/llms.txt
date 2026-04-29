@@ -48,7 +48,7 @@ All documentation pages are available as raw markdown by appending `.md` to any 
 - [A2A Protocol](https://agent-native.com/docs/a2a-protocol.md)
 - [Real-Time Collaboration](https://agent-native.com/docs/real-time-collaboration.md)
 - [Agent Mentions](https://agent-native.com/docs/agent-mentions.md)
-- [Integrations](https://agent-native.com/docs/integrations.md)
+- [Messaging](https://agent-native.com/docs/messaging.md)
 - [Authentication](https://agent-native.com/docs/authentication.md)
 - [Security & Data Scoping](https://agent-native.com/docs/security.md)
 - [Server](https://agent-native.com/docs/server.md)

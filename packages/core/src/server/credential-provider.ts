@@ -65,7 +65,18 @@ export async function resolveBuilderCredential(
       });
       if (secret) return secret.value;
     } catch {
-      // Secrets table not ready — fall through to env
+      // Secrets table not ready — fall through to the env-fallback decision below
+    }
+    // Refuse the deploy-level env fallback for authenticated users in a
+    // multi-tenant context. In a hosted shared-DB deploy `process.env.BUILDER_*`
+    // would silently identify every user as whoever set the deploy-level keys —
+    // exactly the cross-tenant leak we hit on the analytics demo (KVesta Space,
+    // 2026-04). Per-user creds live in `app_secrets`; users without their own
+    // connection get null here and see the "Connect Builder" prompt. The
+    // local-dev session (`local@localhost`) is the only authenticated context
+    // where the env fallback is safe — it identifies a single-user dev box.
+    if (email !== "local@localhost") {
+      return null;
     }
   }
   return process.env[key] || null;

@@ -196,9 +196,9 @@ See [Agent Mentions](/docs/agent-mentions) for details on how mentions work, how
 
 ## Messaging integrations {#messaging-integrations}
 
-Agents can also be reached from external messaging platforms like Slack, Telegram, and WhatsApp. Users send messages on those platforms and the agent responds in the same thread, using the same tools and actions as the web chat.
+Agents can also be reached from external messaging platforms like Slack, email, Telegram, and WhatsApp. Users send messages on those platforms and the agent responds in the same thread, using the same tools and actions as the web chat.
 
-See [Integrations](/docs/integrations) for setup details on each platform.
+See [Messaging](/docs/messaging) for setup details on each platform.
 
 ## Example: cross-agent query {#example}
 

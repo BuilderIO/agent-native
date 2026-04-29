@@ -43,9 +43,22 @@ export function telegramAdapter(): PlatformAdapter {
     },
 
     async handleVerification(
-      _event: H3Event,
+      event: H3Event,
     ): Promise<{ handled: boolean; response?: unknown }> {
-      // Telegram doesn't have a verification challenge — webhook is set via API call
+      // Pre-read the raw body once and cache on the event context. h3 v2's
+      // request body stream can only be consumed once; without this, the
+      // later `parseIncomingMessage` call throws "Body has already been read"
+      // because something upstream (signature check, dedupe, etc.) drains it.
+      // Mirrors the Slack adapter's pattern.
+      try {
+        if (!event.context.__rawBody) {
+          const body = await readBody(event);
+          event.context.__rawBody = body;
+        }
+      } catch {
+        // If we can't pre-read, parseIncomingMessage will surface the error
+      }
+      // Telegram has no challenge; we never short-circuit.
       return { handled: false };
     },
 
@@ -74,7 +87,9 @@ export function telegramAdapter(): PlatformAdapter {
     async parseIncomingMessage(
       event: H3Event,
     ): Promise<IncomingMessage | null> {
-      const body = await readBody(event);
+      // Use the pre-cached raw body if available (set by handleVerification).
+      // Falls back to readBody for paths that bypass handleVerification.
+      const body = (event.context.__rawBody as any) ?? (await readBody(event));
       if (!body) return null;
 
       // Handle regular messages
