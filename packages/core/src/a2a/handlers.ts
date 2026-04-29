@@ -194,7 +194,20 @@ const defaultHandler: A2AHandler = async (
     };
   }
 
-  const result = await agentChat.call(text);
+  // A2A note: this message arrived from a different app — the caller cannot
+  // see this app's local state (open deck, selected slide, etc.). They only
+  // see whatever this agent puts into the reply text. So:
+  //   1) include any concrete result (deck/document/dashboard URL, ID, value)
+  //      explicitly in the reply — the caller can't navigate locally.
+  //   2) URLs must be fully-qualified — relative paths resolve against the
+  //      caller's host and 404.
+  // We prepend a one-line hint to the user message so the agent knows.
+  const baseUrl = process.env.APP_URL || process.env.URL || "";
+  const augmentedText = baseUrl
+    ? `[Cross-app A2A request — the caller is on a different host (${baseUrl} is yours, theirs is different). Include the concrete result (URL, ID, value) explicitly in your reply text; the caller can't see your local UI state. Any URL MUST be fully-qualified, never a relative path.]\n\n${text}`
+    : text;
+
+  const result = await agentChat.call(augmentedText);
 
   const artifacts: Artifact[] = [];
   if (result.filesChanged.length > 0) {

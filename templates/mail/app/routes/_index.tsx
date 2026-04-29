@@ -24,7 +24,7 @@ export function clientLoader() {
 export function HydrateFallback() {
   return (
     <div className="flex items-center justify-center h-screen w-full">
-      <Spinner />
+      <Spinner className="size-8" />
     </div>
   );
 }

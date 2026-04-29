@@ -1,4 +1,5 @@
 import DesignSystems from "@/pages/DesignSystems";
+import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [{ title: "Design Systems — Videos" }];
@@ -7,7 +8,7 @@ export function meta() {
 export function HydrateFallback() {
   return (
     <div className="flex items-center justify-center h-screen w-full">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+      <Spinner className="size-8 text-foreground" />
     </div>
   );
 }

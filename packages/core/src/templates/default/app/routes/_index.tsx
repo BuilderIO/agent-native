@@ -1,4 +1,5 @@
 import { useTheme } from "next-themes";
+import { IconLoader2 } from "@tabler/icons-react";
 
 export function meta() {
   return [{ title: "{{APP_TITLE}}" }];
@@ -7,7 +8,11 @@ export function meta() {
 export function HydrateFallback() {
   return (
     <div className="flex items-center justify-center h-screen">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+      <IconLoader2
+        className="size-8 animate-spin text-foreground"
+        role="status"
+        aria-label="Loading"
+      />
     </div>
   );
 }

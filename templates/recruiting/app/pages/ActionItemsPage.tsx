@@ -24,6 +24,10 @@ import {
   IconBrandSlack,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
 
 function RecommendationBadge({ rec }: { rec: string }) {
   const config: Record<
@@ -99,6 +103,44 @@ export function ActionItemsPage() {
     }
   };
 
+  const totalActionItems = data?.summary?.totalActionItems ?? 0;
+  useSetPageTitle(
+    <div className="flex items-center gap-2">
+      <h1 className="text-sm font-semibold text-foreground">Action Items</h1>
+      {totalActionItems > 0 && (
+        <span className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-600">
+          {totalActionItems}
+        </span>
+      )}
+    </div>,
+  );
+
+  useSetHeaderActions(
+    <div className="flex items-center gap-2">
+      {notifStatus?.configured && notifStatus.enabled && (
+        <button
+          onClick={handleSendUpdate}
+          disabled={sendUpdate.isPending}
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:opacity-50"
+        >
+          {sendUpdate.isPending ? (
+            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <IconBrandSlack className="h-3.5 w-3.5" />
+          )}
+          <span className="hidden sm:inline">Send Recruiter Update</span>
+          <span className="sm:hidden">Send</span>
+        </button>
+      )}
+      <button
+        onClick={() => refetch()}
+        className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50"
+      >
+        Refresh
+      </button>
+    </div>,
+  );
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -132,43 +174,6 @@ export function ActionItemsPage() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 min-h-14 py-2 flex-shrink-0 sm:px-6 sm:flex-nowrap">
-        <div className="flex items-center gap-3">
-          <h1 className="text-sm font-semibold text-foreground pl-10 md:pl-0">
-            Action Items
-          </h1>
-          {summary.totalActionItems > 0 && (
-            <span className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-600">
-              {summary.totalActionItems}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {notifStatus?.configured && notifStatus.enabled && (
-            <button
-              onClick={handleSendUpdate}
-              disabled={sendUpdate.isPending}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:opacity-50"
-            >
-              {sendUpdate.isPending ? (
-                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <IconBrandSlack className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden sm:inline">Send Recruiter Update</span>
-              <span className="sm:hidden">Send</span>
-            </button>
-          )}
-          <button
-            onClick={() => refetch()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50"
-          >
-            Refresh
-          </button>
-        </div>
-      </div>
-
       {/* Content */}
       <div className="flex-1 overflow-auto">
         <div className="max-w-4xl mx-auto px-4 py-6 space-y-6 sm:px-6">

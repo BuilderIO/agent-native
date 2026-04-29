@@ -7,6 +7,7 @@ import {
   IconArrowUp,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Popover,
   PopoverTrigger,
@@ -19,6 +20,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { useSendToAgentChat } from "@agent-native/core/client";
+import { ExtensionSlot } from "@agent-native/core/client/tools";
 import {
   useIntegration,
   useAllIntegrations,
@@ -165,10 +167,14 @@ export function IntegrationsSidebar({
   email,
   displayName,
   recentEmails,
+  threadId,
+  focusedEmailId,
 }: {
   email: string;
   displayName: string;
   recentEmails: { id: string; subject: string }[];
+  threadId?: string;
+  focusedEmailId?: string;
 }) {
   const statuses = useAllIntegrations();
   const anyConnected =
@@ -220,6 +226,18 @@ export function IntegrationsSidebar({
           </div>
         </>
       )}
+
+      {/* Tool extension-point slot — user-installed widgets render here */}
+      <ExtensionSlot
+        id="mail.contact-sidebar.bottom"
+        context={{
+          contactEmail: email,
+          contactName: displayName,
+          threadId,
+          focusedEmailId,
+        }}
+        showEmptyAffordance
+      />
 
       {/* Integration setup */}
       <div className="h-px bg-border/30 mx-4" />
@@ -1086,7 +1104,7 @@ function SectionHeader({
 function SectionLoading() {
   return (
     <div className="px-4 py-4 flex items-center justify-center">
-      <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
+      <Spinner className="size-4 text-foreground" />
     </div>
   );
 }

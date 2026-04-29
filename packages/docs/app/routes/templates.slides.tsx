@@ -3,7 +3,7 @@ import { useState } from "react";
 import { templates, trackEvent } from "../components/TemplateCard";
 
 export const meta = () => [
-  { title: "AI-Native Slides — Open Source AI Presentation Builder" },
+  { title: "Agent-Native Slides — Open Source AI Presentation Builder" },
   {
     name: "description",
     content:
@@ -11,7 +11,7 @@ export const meta = () => [
   },
   {
     property: "og:title",
-    content: "AI-Native Slides — Open Source AI Presentation Builder",
+    content: "Agent-Native Slides — Open Source AI Presentation Builder",
   },
   {
     property: "og:description",
@@ -113,7 +113,7 @@ export default function SlidesTemplate() {
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
               />
-              {template.replaces}
+              Agent-Native {template.name}
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">

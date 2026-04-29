@@ -4,6 +4,7 @@ import { useDesignSystems } from "@/hooks/use-design-systems";
 import { DesignSystemCard } from "@/components/design-system/DesignSystemCard";
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
 import { Button } from "@/components/ui/button";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import type { DesignSystemData } from "../../shared/api";
 
 export default function DesignSystems() {
@@ -48,25 +49,23 @@ export default function DesignSystems() {
     }
   };
 
+  useSetHeaderActions(
+    <Button
+      size="sm"
+      onClick={() => {
+        setEditingId(null);
+        setShowSetup(true);
+      }}
+      className="cursor-pointer"
+    >
+      <IconPlus className="w-3.5 h-3.5" />
+      New Design System
+    </Button>,
+  );
+
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex-1">
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-lg font-semibold text-foreground/90">
-            Design Systems
-          </h1>
-          <Button
-            size="sm"
-            onClick={() => {
-              setEditingId(null);
-              setShowSetup(true);
-            }}
-            className="cursor-pointer"
-          >
-            <IconPlus className="w-3.5 h-3.5" />
-            New Design System
-          </Button>
-        </div>
         {isLoading ? (
           <>
             <div className="flex items-center justify-between mb-6">

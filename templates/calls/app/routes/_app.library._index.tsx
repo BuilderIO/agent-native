@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { useActionQuery } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -61,25 +62,19 @@ export default function LibraryIndexRoute() {
 
   const calls = data?.calls ?? [];
 
+  useSetHeaderActions(
+    <Button
+      onClick={() => navigate("/upload")}
+      className="gap-1.5 cursor-pointer"
+      size="sm"
+    >
+      <IconUpload className="h-4 w-4" />
+      New call
+    </Button>,
+  );
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      <header className="flex items-center gap-3 px-6 py-4 border-b border-border shrink-0">
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-semibold">Library</h1>
-          <p className="text-xs text-muted-foreground">
-            Your sales calls, recordings, and meetings
-          </p>
-        </div>
-        <Button
-          onClick={() => navigate("/upload")}
-          className="gap-1.5"
-          size="sm"
-        >
-          <IconUpload className="h-4 w-4" />
-          New call
-        </Button>
-      </header>
-
       <div className="px-6 py-3 border-b border-border shrink-0 flex items-center gap-3 flex-wrap">
         <FilterBar value={filters} onChange={setFilters} />
         <div className="ml-auto flex items-center gap-2">

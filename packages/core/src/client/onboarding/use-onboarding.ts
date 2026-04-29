@@ -1,8 +1,10 @@
 /**
  * `useOnboarding` — client hook for the framework onboarding system.
  *
- * Polls `/_agent-native/onboarding/steps` every ~3s (matching the existing
- * poll cadence used by `useDbSync`) and exposes completion helpers.
+ * Fetches `/_agent-native/onboarding/steps` on mount, after any user-initiated
+ * mutation (complete / dismiss / reopen), and when the tab regains focus.
+ * No polling — onboarding state changes are user-driven, so a poll loop just
+ * burns the DB and amplifies transient network errors.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -33,12 +35,9 @@ export interface UseOnboardingResult {
   reopen: () => Promise<void>;
 }
 
-const DEFAULT_POLL_MS = 3000;
-
 export function useOnboarding(
-  options: { intervalMs?: number; preview?: boolean } = {},
+  options: { preview?: boolean } = {},
 ): UseOnboardingResult {
-  const intervalMs = options.intervalMs ?? DEFAULT_POLL_MS;
   const preview = options.preview === true;
   const [steps, setSteps] = useState<OnboardingStepStatus[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,12 +80,20 @@ export function useOnboarding(
   useEffect(() => {
     mountedRef.current = true;
     fetchAll();
-    const t = setInterval(fetchAll, intervalMs);
+    // Refetch when the tab regains focus — picks up any changes the agent
+    // made while the user was away (or that another tab made).
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") fetchAll();
+    };
+    const onFocus = () => fetchAll();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
     return () => {
       mountedRef.current = false;
-      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
     };
-  }, [fetchAll, intervalMs]);
+  }, [fetchAll]);
 
   const complete = useCallback(
     async (id: string) => {

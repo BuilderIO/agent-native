@@ -21,6 +21,10 @@ import {
   IconFileDescription,
   IconUsers,
 } from "@tabler/icons-react";
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
 
 export function CandidateDetailPage() {
   const { candidateId } = useParams();
@@ -29,6 +33,45 @@ export function CandidateDetailPage() {
   const { data: candidate, isLoading } = useCandidate(id);
   const { data: notes = [] } = useNotes(id);
   const deleteNote = useDeleteNote();
+
+  const candidateName = candidate
+    ? `${candidate.first_name} ${candidate.last_name}`
+    : "Candidate";
+  const activeApp = candidate
+    ? (candidate.applications || []).find((a) => a.status === "active")
+    : undefined;
+
+  useSetPageTitle(
+    <div className="flex min-w-0 items-center gap-3">
+      <button
+        onClick={() => navigate("/candidates")}
+        aria-label="Back to candidates"
+        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground flex-shrink-0"
+      >
+        <IconArrowLeft className="h-4 w-4" />
+      </button>
+      <h1 className="truncate text-sm font-semibold text-foreground">
+        {candidateName}
+      </h1>
+    </div>,
+  );
+
+  useSetHeaderActions(
+    activeApp?.status ? (
+      <span
+        className={cn(
+          "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+          activeApp.status === "active"
+            ? "bg-green-500/10 text-green-600"
+            : activeApp.status === "hired"
+              ? "bg-blue-500/10 text-blue-600"
+              : "bg-red-500/10 text-red-600",
+        )}
+      >
+        {activeApp.status}
+      </span>
+    ) : null,
+  );
 
   if (isLoading) {
     return (
@@ -64,38 +107,9 @@ export function CandidateDetailPage() {
   const color = getAvatarColor(name);
   const email = (candidate.emails || [])[0]?.value;
   const phone = (candidate.phone_numbers || [])[0]?.value;
-  const activeApp = (candidate.applications || []).find(
-    (a) => a.status === "active",
-  );
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="flex items-center gap-3 border-b border-border px-4 h-14 flex-shrink-0 sm:px-6">
-        <button
-          onClick={() => navigate("/candidates")}
-          aria-label="Back to candidates"
-          className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground flex-shrink-0"
-        >
-          <IconArrowLeft className="h-4 w-4" />
-        </button>
-        <h1 className="text-sm font-semibold text-foreground">{name}</h1>
-        {activeApp?.status && (
-          <span
-            className={cn(
-              "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-              activeApp.status === "active"
-                ? "bg-green-500/10 text-green-600"
-                : activeApp.status === "hired"
-                  ? "bg-blue-500/10 text-blue-600"
-                  : "bg-red-500/10 text-red-600",
-            )}
-          >
-            {activeApp.status}
-          </span>
-        )}
-      </div>
-
       <div className="flex-1 overflow-auto">
         <div className="max-w-4xl mx-auto px-4 py-6 sm:px-6">
           <div className="grid grid-cols-1 gap-6 md:grid-cols-3 md:gap-8">

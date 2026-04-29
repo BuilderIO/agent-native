@@ -44,24 +44,27 @@ export interface TemplateMeta {
   alwaysAvailable?: boolean;
   /** Internal workspace packages this template depends on (e.g. "scheduling") */
   requiredPackages?: string[];
+  /** Core app — featured in the CLI picker, homepage, and docs gallery */
+  core?: boolean;
 }
 
 export const TEMPLATES: TemplateMeta[] = [
   {
     name: "mail",
     label: "Mail",
-    hint: "AI-native Superhuman — email client with keyboard shortcuts and AI triage",
+    hint: "Agent-native Superhuman — email client with keyboard shortcuts and AI triage",
     icon: "Mail",
     color: "#3B82F6",
     colorRgb: "59 130 246",
     devPort: 8085,
     prodUrl: "https://mail.agent-native.com",
     defaultMode: "prod",
+    core: true,
   },
   {
     name: "calendar",
     label: "Calendar",
-    hint: "AI-native Google Calendar — manage events, sync, and public booking",
+    hint: "Agent-native Google Calendar — manage events, sync, and public booking",
     icon: "CalendarDays",
     color: "#8B5CF6",
     colorRgb: "139 92 246",
@@ -69,50 +72,55 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://calendar.agent-native.com",
     defaultMode: "prod",
     requiredPackages: ["scheduling"],
+    core: true,
   },
   {
     name: "content",
     label: "Content",
-    hint: "AI-native Notion/Google Docs — write and organize with agent assistance",
+    hint: "Agent-native Notion/Google Docs — write and organize with agent assistance",
     icon: "FileText",
     color: "#10B981",
     colorRgb: "16 185 129",
     devPort: 8083,
     prodUrl: "https://content.agent-native.com",
     defaultMode: "prod",
+    core: true,
   },
   {
     name: "slides",
     label: "Slides",
-    hint: "AI-native Google Slides — generate and edit React presentations",
+    hint: "Agent-native Google Slides — generate and edit React presentations",
     icon: "GalleryHorizontal",
     color: "#EC4899",
     colorRgb: "236 72 153",
     devPort: 8086,
     prodUrl: "https://slides.agent-native.com",
     defaultMode: "prod",
+    core: true,
   },
   {
     name: "videos",
     label: "Video",
-    hint: "AI-native video editing with Remotion",
+    hint: "Agent-native video editing with Remotion",
     icon: "Video",
     color: "#EF4444",
     colorRgb: "239 68 68",
     devPort: 8087,
     prodUrl: "https://videos.agent-native.com",
     defaultMode: "prod",
+    core: true,
   },
   {
     name: "analytics",
     label: "Analytics",
-    hint: "AI-native Amplitude/Mixpanel — connect data sources, prompt for charts",
+    hint: "Agent-native Amplitude/Mixpanel — connect data sources, prompt for charts",
     icon: "BarChart2",
     color: "#F59E0B",
     colorRgb: "245 158 11",
     devPort: 8088,
     prodUrl: "https://analytics.agent-native.com",
     defaultMode: "prod",
+    core: true,
   },
   {
     name: "dispatch",
@@ -122,23 +130,26 @@ export const TEMPLATES: TemplateMeta[] = [
     color: "#14B8A6",
     colorRgb: "20 184 166",
     devPort: 8092,
-    defaultMode: "dev",
+    prodUrl: "https://dispatch.agent-native.com",
+    defaultMode: "prod",
+    core: true,
   },
   {
     name: "forms",
     label: "Forms",
-    hint: "AI-native form builder — create, edit, and manage forms",
+    hint: "Agent-native form builder — create, edit, and manage forms",
     icon: "ClipboardList",
     color: "#06B6D4",
     colorRgb: "6 182 212",
     devPort: 8084,
     prodUrl: "https://forms.agent-native.com",
     defaultMode: "prod",
+    core: true,
   },
   {
     name: "issues",
     label: "Issues",
-    hint: "AI-native Jira — project management and issue tracking",
+    hint: "Agent-native Jira — project management and issue tracking",
     icon: "BrandJira",
     color: "#6366F1",
     colorRgb: "99 102 241",
@@ -149,7 +160,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "recruiting",
     label: "Recruiting",
-    hint: "AI-native Greenhouse — manage candidates and recruiting pipelines",
+    hint: "Agent-native Greenhouse — manage candidates and recruiting pipelines",
     icon: "Users",
     color: "#16A34A",
     colorRgb: "22 163 74",
@@ -167,22 +178,36 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8089,
     defaultMode: "prod",
     alwaysAvailable: true,
+    core: true,
   },
   {
     name: "clips",
     label: "Clips",
     hint: "Async screen recording — record, transcribe, share",
-    icon: "MonitorPlay",
+    icon: "ScreenShare",
     color: "#625DF5",
     colorRgb: "98 93 245",
     devPort: 8094,
     prodUrl: "https://clips.agent-native.com",
     defaultMode: "prod",
+    core: true,
+  },
+  {
+    name: "design",
+    label: "Design",
+    hint: "Agent-native design tool — create and edit visual designs with agent assistance",
+    icon: "Brush",
+    color: "#F472B6",
+    colorRgb: "244 114 182",
+    devPort: 8099,
+    prodUrl: "https://design.agent-native.com",
+    defaultMode: "prod",
+    core: true,
   },
   {
     name: "calls",
     label: "Calls",
-    hint: "AI-native Gong — record, transcribe, and analyze sales calls",
+    hint: "Agent-native Gong — record, transcribe, and analyze sales calls",
     icon: "Phone",
     color: "#111111",
     colorRgb: "17 17 17",
@@ -229,6 +254,11 @@ export const TEMPLATES: TemplateMeta[] = [
 /** Return templates visible in user-facing pickers (excludes hidden). */
 export function visibleTemplates(): TemplateMeta[] {
   return TEMPLATES.filter((t) => !t.hidden);
+}
+
+/** Return core templates — the featured set shown in CLI pickers by default. */
+export function coreTemplates(): TemplateMeta[] {
+  return TEMPLATES.filter((t) => t.core);
 }
 
 /** Lookup by name. Returns undefined for unknown names. */

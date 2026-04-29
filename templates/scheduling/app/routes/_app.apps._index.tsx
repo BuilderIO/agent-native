@@ -21,6 +21,7 @@ import {
   IconSearch,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 
 type Category = "all" | "calendars" | "video";
 
@@ -94,30 +95,21 @@ export default function IntegrationsPage() {
     );
   }, [filter, q]);
 
+  useSetHeaderActions(
+    <div className="relative">
+      <IconSearch className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        type="search"
+        placeholder="Search integrations"
+        value={q}
+        onChange={(e) => setQ(e.currentTarget.value)}
+        className="w-64 pl-9 h-8"
+      />
+    </div>,
+  );
+
   return (
     <div className="mx-auto max-w-5xl p-6 lg:p-8">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Integrations
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Connect calendars, conferencing, and other services to your
-            Scheduling account.
-          </p>
-        </div>
-        <div className="relative">
-          <IconSearch className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Search integrations"
-            value={q}
-            onChange={(e) => setQ(e.currentTarget.value)}
-            className="w-64 pl-9"
-          />
-        </div>
-      </header>
-
       <nav className="mb-5 flex flex-wrap items-center gap-1">
         {CATEGORIES.map((c) => (
           <button

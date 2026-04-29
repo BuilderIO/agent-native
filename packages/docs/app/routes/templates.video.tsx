@@ -4,7 +4,7 @@ import { templates, trackEvent } from "../components/TemplateCard";
 
 export const meta = () => [
   {
-    title: "AI-Native Video — Open Source AI Video Editor & Remotion Studio",
+    title: "Agent-Native Video — Open Source AI Video Editor & Remotion Studio",
   },
   {
     name: "description",
@@ -13,7 +13,8 @@ export const meta = () => [
   },
   {
     property: "og:title",
-    content: "AI-Native Video — Open Source AI Video Editor & Remotion Studio",
+    content:
+      "Agent-Native Video — Open Source AI Video Editor & Remotion Studio",
   },
   {
     property: "og:description",
@@ -115,11 +116,11 @@ export default function VideoTemplate() {
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
               />
-              {template.replaces}
+              Agent-Native {template.name}
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-              An open-source, AI-native video editor
+              An open-source, Agent-native video editor
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">

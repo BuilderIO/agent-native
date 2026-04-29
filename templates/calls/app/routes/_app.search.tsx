@@ -9,6 +9,7 @@ import {
   EMPTY_FILTER,
   type FilterState,
 } from "@/components/library/filter-bar";
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 export function meta() {
   return [{ title: "Search · Calls" }];
@@ -94,10 +95,13 @@ export default function SearchRoute() {
 
   const results = data?.results ?? [];
 
+  useSetPageTitle(
+    <h1 className="text-lg font-semibold tracking-tight truncate">Search</h1>,
+  );
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      <header className="px-6 py-4 border-b border-border shrink-0 space-y-3">
-        <h1 className="text-2xl font-semibold">Search</h1>
+      <div className="px-6 py-3 border-b border-border shrink-0 space-y-3">
         <div className="relative">
           <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -110,7 +114,7 @@ export default function SearchRoute() {
           />
         </div>
         <FilterBar value={filters} onChange={setFilters} />
-      </header>
+      </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto p-6">
         {!enabled ? (

@@ -4,7 +4,7 @@ import { templates, trackEvent } from "../components/TemplateCard";
 
 export const meta = () => [
   {
-    title: "AI-Native Dispatch — Open Source Slack & Telegram Agent Router",
+    title: "Agent-Native Dispatch — Open Source Slack & Telegram Agent Router",
   },
   {
     name: "description",
@@ -13,7 +13,8 @@ export const meta = () => [
   },
   {
     property: "og:title",
-    content: "AI-Native Dispatch — Open Source Slack & Telegram Agent Router",
+    content:
+      "Agent-Native Dispatch — Open Source Slack & Telegram Agent Router",
   },
   {
     property: "og:description",
@@ -115,7 +116,7 @@ export default function DispatchTemplate() {
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
               />
-              {template.replaces}
+              Agent-Native {template.name}
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">

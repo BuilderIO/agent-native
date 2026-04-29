@@ -11,6 +11,10 @@ import {
 } from "@/components/ui/dialog";
 import { TrackerLibrary } from "@/components/trackers/tracker-library";
 import { TrackerEditor } from "@/components/trackers/tracker-editor";
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
 
 export function meta() {
   return [{ title: "Trackers · Calls" }];
@@ -43,28 +47,26 @@ export default function TrackersRoute() {
     setEditorOpen(true);
   }
 
+  useSetPageTitle(
+    <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2 truncate">
+      <IconTarget className="h-5 w-5 text-[#625DF5]" />
+      Trackers
+    </h1>,
+  );
+
+  useSetHeaderActions(
+    <Button
+      onClick={openNew}
+      className="bg-[#625DF5] hover:bg-[#5049d9] text-white gap-1.5 cursor-pointer"
+      size="sm"
+    >
+      <IconPlus className="h-4 w-4" />
+      New tracker
+    </Button>,
+  );
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      <header className="flex items-center gap-3 px-6 py-4 border-b border-border shrink-0">
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <IconTarget className="h-6 w-6 text-[#625DF5]" />
-            Trackers
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            Watch for keywords and topics across every call
-          </p>
-        </div>
-        <Button
-          onClick={openNew}
-          className="bg-[#625DF5] hover:bg-[#5049d9] text-white gap-1.5"
-          size="sm"
-        >
-          <IconPlus className="h-4 w-4" />
-          New tracker
-        </Button>
-      </header>
-
       <div className="flex-1 min-h-0 overflow-y-auto p-6">
         {isLoading ? (
           <div className="space-y-2">

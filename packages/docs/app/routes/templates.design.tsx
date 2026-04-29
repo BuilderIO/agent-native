@@ -4,7 +4,8 @@ import { templates, trackEvent } from "../components/TemplateCard";
 
 export const meta = () => [
   {
-    title: "AI-Native Design — Open Source AI Design Tool & Figma Alternative",
+    title:
+      "Agent-Native Design — Open Source AI Design Tool & Figma Alternative",
   },
   {
     name: "description",
@@ -14,12 +15,12 @@ export const meta = () => [
   {
     property: "og:title",
     content:
-      "AI-Native Design — Open Source AI Design Tool & Figma Alternative",
+      "Agent-Native Design — Open Source AI Design Tool & Figma Alternative",
   },
   {
     property: "og:description",
     content:
-      "An AI-native design tool. Generate, edit, and refine designs conversationally — built on an agent you own.",
+      "An Agent-native design tool. Generate, edit, and refine designs conversationally — built on an agent you own.",
   },
   {
     name: "keywords",
@@ -116,7 +117,7 @@ export default function DesignTemplate() {
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
               />
-              {template.replaces}
+              Agent-Native {template.name}
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">

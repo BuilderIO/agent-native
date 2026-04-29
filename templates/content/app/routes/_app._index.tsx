@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { useDocuments } from "@/hooks/use-documents";
 
 export function meta() {
@@ -11,7 +12,7 @@ export function meta() {
 export function HydrateFallback() {
   return (
     <div className="flex items-center justify-center h-screen w-full">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+      <Spinner className="size-8 text-foreground" />
     </div>
   );
 }

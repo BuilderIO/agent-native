@@ -1,4 +1,5 @@
 import SharedPresentation from "@/pages/SharedPresentation";
+import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [{ title: "Shared Presentation" }];
@@ -7,7 +8,7 @@ export function meta() {
 export function HydrateFallback() {
   return (
     <div className="flex items-center justify-center h-screen w-full bg-black">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
+      <Spinner className="size-8 text-white" />
     </div>
   );
 }

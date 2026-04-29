@@ -9,6 +9,7 @@ import {
   IconCalendar,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { useActionQuery } from "@agent-native/core/client";
 import { postNavigate, isInAgentEmbed } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
@@ -173,7 +174,7 @@ export default function EventPreviewRoute() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="h-6 w-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+        <Spinner className="size-6 text-primary" />
       </div>
     );
   }

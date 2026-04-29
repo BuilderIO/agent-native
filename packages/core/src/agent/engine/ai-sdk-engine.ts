@@ -278,7 +278,7 @@ class AISDKEngine implements AgentEngine {
         system: opts.systemPrompt,
         messages,
         tools: aiSdkTools,
-        maxOutputTokens: opts.maxOutputTokens ?? 16384,
+        maxOutputTokens: opts.maxOutputTokens ?? 32768,
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }
           : {}),

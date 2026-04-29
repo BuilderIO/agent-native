@@ -2,11 +2,6 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -17,11 +12,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import {
-  IconExternalLink,
-  IconInfoCircle,
-  IconTrash,
-} from "@tabler/icons-react";
+import { IconExternalLink, IconTrash } from "@tabler/icons-react";
 
 export interface ConnectedAgent {
   id: string;
@@ -33,24 +24,6 @@ export interface ConnectedAgent {
   resourceId?: string;
   path?: string;
   scope?: "shared" | "personal";
-}
-
-function HelpTooltip({ content }: { content: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className="text-muted-foreground/60 hover:text-foreground"
-        >
-          <IconInfoCircle className="h-3.5 w-3.5" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-64 text-xs leading-relaxed">
-        {content}
-      </TooltipContent>
-    </Tooltip>
-  );
 }
 
 export function AgentsPanel({
@@ -120,12 +93,7 @@ export function AgentsPanel({
 
   return (
     <section className="rounded-2xl border bg-card p-5">
-      <div className="flex items-center gap-2">
-        <h2 className="text-lg font-semibold text-foreground">Agents</h2>
-        <HelpTooltip content="Dispatch can delegate to the built-in app suite over A2A by default. Add extra agents here only if you want to route work to apps outside that built-in set." />
-      </div>
-
-      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
           <div>
             <div className="text-sm font-medium text-foreground">

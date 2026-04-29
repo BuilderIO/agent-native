@@ -4,7 +4,7 @@ import { templates, trackEvent } from "../components/TemplateCard";
 
 export const meta = () => [
   {
-    title: "AI-Native Clips — Open Source Async Screen Recording",
+    title: "Agent-Native Clips — Open Source Async Screen Recording",
   },
   {
     name: "description",
@@ -13,7 +13,7 @@ export const meta = () => [
   },
   {
     property: "og:title",
-    content: "AI-Native Clips — Open Source Async Screen Recording",
+    content: "Agent-Native Clips — Open Source Async Screen Recording",
   },
   {
     property: "og:description",
@@ -115,11 +115,11 @@ export default function ClipsTemplate() {
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
               />
-              {template.replaces}
+              Agent-Native {template.name}
             </div>
 
             <h1 className="mb-4 text-4xl font-bold tracking-tight md:text-5xl">
-              The open-source alternative to async screen recording
+              The open-source alternative to Loom
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
