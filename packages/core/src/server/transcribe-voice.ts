@@ -189,9 +189,7 @@ export function createTranscribeVoiceHandler() {
           });
           const trimmed = text.trim();
           if (trimmed) {
-            console.log(
-              `[transcribe-voice] Gemini → ${trimmed.length} chars`,
-            );
+            console.log(`[transcribe-voice] Gemini → ${trimmed.length} chars`);
             return { text: trimmed };
           }
           console.warn(

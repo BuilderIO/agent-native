@@ -327,7 +327,11 @@ export default function DesignEditor() {
   }));
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-background">
+    // h-full not flex-1: the parent <main> uses overflow-y-auto, not flex,
+    // so flex-1 on the child doesn't resolve to the available height. h-full
+    // works because main itself has a definite height (flex-1 inside a
+    // flex-col page shell). Without this the canvas collapses to ~150px.
+    <div className="h-full flex flex-col overflow-hidden bg-background">
       {/* Toolbar */}
       <header className="h-12 border-b border-border flex items-center justify-between px-3 shrink-0">
         <div className="flex items-center gap-2">

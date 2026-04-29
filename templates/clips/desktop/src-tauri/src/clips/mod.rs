@@ -597,10 +597,11 @@ pub async fn hide_flow_bar(app: AppHandle) -> Result<(), String> {
 pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<(), String> {
     let trimmed = text.trim().to_string();
     if trimmed.is_empty() {
+        eprintln!("[clips-tray] complete_voice_dictation: empty text — nothing to paste");
         return Ok(());
     }
-    dlog!(
-        "[clips-tray] complete_voice_dictation chars={}",
+    eprintln!(
+        "[clips-tray] complete_voice_dictation: writing {} chars to clipboard + Cmd+V",
         trimmed.chars().count()
     );
     if let Some(last) = app.try_state::<LastTranscript>() {
