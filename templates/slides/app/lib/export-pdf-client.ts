@@ -47,8 +47,8 @@ export async function exportDeckAsPdf(
     format: [dims.width, dims.height],
   });
 
-  let pageIndex = 0;
-  for (const slideId of slideIds) {
+  for (let i = 0; i < slideIds.length; i++) {
+    const slideId = slideIds[i];
     // A given slide can appear multiple times (sidebar thumbnail + active
     // editor canvas); pick the one with the largest natural width so we
     // capture full-resolution pixels even when the visible copy is scaled
@@ -58,7 +58,13 @@ export async function exportDeckAsPdf(
         `[data-slide-canvas="${CSS.escape(slideId)}"]`,
       ),
     );
-    if (candidates.length === 0) continue;
+    // Don't silently drop missing slides — a collapsed sidebar (mobile
+    // default) would otherwise produce a partial PDF with no warning.
+    if (candidates.length === 0) {
+      throw new Error(
+        `Slide ${i + 1} of ${slideIds.length} is not currently rendered. Open the slide sidebar and try again.`,
+      );
+    }
     const source = candidates.reduce((best, el) =>
       el.offsetWidth > best.offsetWidth ? el : best,
     );
@@ -71,13 +77,8 @@ export async function exportDeckAsPdf(
       quality: 0.92,
     });
 
-    if (pageIndex > 0) pdf.addPage([dims.width, dims.height], orientation);
+    if (i > 0) pdf.addPage([dims.width, dims.height], orientation);
     pdf.addImage(dataUrl, "JPEG", 0, 0, dims.width, dims.height);
-    pageIndex++;
-  }
-
-  if (pageIndex === 0) {
-    throw new Error("No slide canvases found to render.");
   }
 
   const safeName = deckTitle.replace(/[^a-zA-Z0-9]/g, "-");
