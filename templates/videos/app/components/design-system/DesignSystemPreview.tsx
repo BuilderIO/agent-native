@@ -37,7 +37,9 @@ export function DesignSystemPreview({
                 className="w-8 h-8 rounded-full border border-border"
                 style={{ background: s.color }}
               />
-              <span className="text-[10px] text-muted-foreground/70">{s.label}</span>
+              <span className="text-[10px] text-muted-foreground/70">
+                {s.label}
+              </span>
             </div>
           ))}
         </div>

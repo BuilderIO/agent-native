@@ -24,8 +24,8 @@ export function meta() {
 
 export function HydrateFallback() {
   return (
-    <div className="flex items-center justify-center h-screen w-full bg-black">
-      <Spinner className="h-8 w-8 text-white/70" />
+    <div className="flex items-center justify-center h-screen w-full bg-background">
+      <Spinner className="h-8 w-8 text-muted-foreground" />
     </div>
   );
 }
@@ -148,8 +148,8 @@ export default function ShareRoute() {
 
   if (dataQ.isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen w-full bg-black">
-        <Spinner className="h-8 w-8 text-white/70" />
+      <div className="flex items-center justify-center h-screen w-full bg-background">
+        <Spinner className="h-8 w-8 text-muted-foreground" />
       </div>
     );
   }
@@ -204,7 +204,7 @@ export default function ShareRoute() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
         {!explicitFailure ? (
-          <Spinner className="h-8 w-8 mb-4 text-white/70" />
+          <Spinner className="h-8 w-8 mb-4 text-muted-foreground" />
         ) : null}
         <h1 className="text-lg font-semibold mb-1">{label}</h1>
         <p className="text-sm text-muted-foreground mb-4 max-w-md text-center">
@@ -272,7 +272,7 @@ export default function ShareRoute() {
             <div className="flex-1 min-w-0">
               <h1 className="text-xl font-semibold">{recording.title}</h1>
               {recording.description ? (
-                <p className="text-sm text-white/70 mt-1 whitespace-pre-wrap">
+                <p className="text-sm text-foreground/70 mt-1 whitespace-pre-wrap">
                   {recording.description}
                 </p>
               ) : null}
@@ -316,7 +316,7 @@ export default function ShareRoute() {
 
         <aside className="min-w-0">
           <Tabs defaultValue="transcript" className="flex flex-col">
-            <TabsList className="w-full bg-white/5">
+            <TabsList className="w-full bg-muted/50">
               <TabsTrigger value="transcript" className="flex-1">
                 Transcript
               </TabsTrigger>
@@ -327,7 +327,7 @@ export default function ShareRoute() {
               ) : null}
             </TabsList>
             <TabsContent value="transcript" className="mt-3">
-              <div className="rounded-lg border border-white/10 bg-white/5 h-[600px] overflow-hidden">
+              <div className="rounded-lg border border-border bg-muted/50 h-[600px] overflow-hidden">
                 <TranscriptPanel
                   segments={transcriptSegments}
                   currentMs={currentMs}
@@ -340,7 +340,7 @@ export default function ShareRoute() {
             </TabsContent>
             {recording.enableComments ? (
               <TabsContent value="comments" className="mt-3">
-                <div className="rounded-lg border border-white/10 bg-white/5 h-[600px] overflow-hidden">
+                <div className="rounded-lg border border-border bg-muted/50 h-[600px] overflow-hidden">
                   <CommentsPanel
                     recordingId={recording.id}
                     comments={comments}
@@ -384,9 +384,9 @@ function sanitizeFilename(name: string): string {
 
 function EndState({ title, message }: { title: string; message: string }) {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-[#0a0a0a] text-white px-6">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
       <h1 className="text-2xl font-semibold mb-2">{title}</h1>
-      <p className="text-sm text-white/60 mb-6">{message}</p>
+      <p className="text-sm text-muted-foreground mb-6">{message}</p>
       <a href="/" className="text-sm text-primary hover:underline">
         Go home
       </a>

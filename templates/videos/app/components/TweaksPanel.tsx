@@ -183,7 +183,9 @@ function TweakControl({
 }) {
   return (
     <div>
-      <div className="mb-1.5 text-[11px] text-muted-foreground">{tweak.label}</div>
+      <div className="mb-1.5 text-[11px] text-muted-foreground">
+        {tweak.label}
+      </div>
 
       {tweak.type === "color-swatches" && (
         <div className="flex gap-2">
