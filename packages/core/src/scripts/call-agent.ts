@@ -55,6 +55,17 @@ export async function run(
     return `Error: Agent "${agentIdOrName}" not found. Available agents: ${available || "(none)"}`;
   }
 
+  // Append a small cross-app hint to the outgoing message so the receiving
+  // agent (which may be on an older deploy without the receiver-side hint
+  // in handlers.ts) still emits fully-qualified URLs. This is belt-and-
+  // suspenders with the receiver hint — but it works against any current
+  // deployment, no redeploy required.
+  const messageWithHint =
+    `${message}\n\n` +
+    `[Note: this request comes from another app via A2A. The caller cannot see your local UI, deck list, or navigation — only the literal text you put in your reply. ` +
+    `If you create or reference a deck/document/dashboard, include its FULLY-QUALIFIED URL (e.g. ${agent.url}/deck/<id>) in your reply, not a relative path. ` +
+    `Use only IDs returned by your own actions — never invent slugs or hosts.]`;
+
   try {
     // If we have a send context, use streaming so the UI shows progressive text
     if (context?.send) {
@@ -164,7 +175,7 @@ export async function run(
         );
         const callTimeoutMs =
           onServerlessHost && isIntegrationCallerRequest() ? 18000 : undefined;
-        responseText = await callAgent(agent.url, message, {
+        responseText = await callAgent(agent.url, messageWithHint, {
           userEmail: callerEmail,
           orgDomain: callerOrgDomain,
           orgSecret: callerOrgSecret,
@@ -205,7 +216,7 @@ export async function run(
         orgSecret = (await getOrgA2ASecret(currentOrgId)) ?? undefined;
       } catch {}
     }
-    const response = await callAgent(agent.url, message, {
+    const response = await callAgent(agent.url, messageWithHint, {
       userEmail: email,
       orgDomain: domain,
       orgSecret,
