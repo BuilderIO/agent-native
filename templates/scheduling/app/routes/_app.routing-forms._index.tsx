@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { callAction } from "@/lib/api";
 import { toast } from "sonner";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import {
   IconCopy,
   IconDotsVertical,
@@ -73,25 +74,17 @@ export default function RoutingFormsIndex() {
     rv.revalidate();
   };
 
+  useSetHeaderActions(
+    <Button onClick={() => setOpen(true)} className="cursor-pointer">
+      <IconPlus className="mr-1.5 h-4 w-4" />
+      New
+    </Button>,
+  );
+
   return (
     <div className="mx-auto max-w-4xl p-6 lg:p-8">
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Routing Forms
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Route visitors to the right event type based on their answers.
-          </p>
-        </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <IconPlus className="mr-1.5 h-4 w-4" />
-              New
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
             <DialogHeader>
               <DialogTitle>Add a new routing form</DialogTitle>
               <DialogDescription>

@@ -72,7 +72,6 @@ export function JobsListPage() {
 
   return (
     <div className="h-full flex flex-col">
-
       {/* Table */}
       <div className="flex-1 overflow-auto">
         {isLoading ? (

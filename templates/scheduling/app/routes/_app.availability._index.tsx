@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { callAction } from "@/lib/api";
 import { toast } from "sonner";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import {
   IconClock,
   IconDotsVertical,
@@ -69,25 +70,17 @@ export default function AvailabilityList() {
     rv.revalidate();
   };
 
+  useSetHeaderActions(
+    <Button onClick={() => setOpen(true)} className="cursor-pointer">
+      <IconPlus className="mr-1.5 h-4 w-4" />
+      New
+    </Button>,
+  );
+
   return (
     <div className="mx-auto max-w-4xl p-6 lg:p-8">
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Availability
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Configure times when you are available for bookings.
-          </p>
-        </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <IconPlus className="mr-1.5 h-4 w-4" />
-              New
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
             <DialogHeader>
               <DialogTitle>Add a new schedule</DialogTitle>
               <DialogDescription>
@@ -117,17 +110,16 @@ export default function AvailabilityList() {
                 />
               </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={create} disabled={!form.name}>
-                Continue
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </header>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={create} disabled={!form.name}>
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {schedules.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border p-16 text-center">
