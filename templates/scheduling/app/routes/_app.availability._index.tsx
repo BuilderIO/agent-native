@@ -81,35 +81,35 @@ export default function AvailabilityList() {
     <div className="mx-auto max-w-4xl p-6 lg:p-8">
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add a new schedule</DialogTitle>
-              <DialogDescription>
-                Create a new schedule for your availability.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="s-name">Name</Label>
-                <Input
-                  id="s-name"
-                  placeholder="Working hours"
-                  value={form.name}
-                  onChange={(e) =>
-                    setForm({ ...form, name: e.currentTarget.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="s-tz">Timezone</Label>
-                <Input
-                  id="s-tz"
-                  value={form.timezone}
-                  onChange={(e) =>
-                    setForm({ ...form, timezone: e.currentTarget.value })
-                  }
-                />
-              </div>
+          <DialogHeader>
+            <DialogTitle>Add a new schedule</DialogTitle>
+            <DialogDescription>
+              Create a new schedule for your availability.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="s-name">Name</Label>
+              <Input
+                id="s-name"
+                placeholder="Working hours"
+                value={form.name}
+                onChange={(e) =>
+                  setForm({ ...form, name: e.currentTarget.value })
+                }
+              />
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="s-tz">Timezone</Label>
+              <Input
+                id="s-tz"
+                value={form.timezone}
+                onChange={(e) =>
+                  setForm({ ...form, timezone: e.currentTarget.value })
+                }
+              />
+            </div>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel

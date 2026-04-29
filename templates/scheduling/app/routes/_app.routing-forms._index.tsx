@@ -85,45 +85,44 @@ export default function RoutingFormsIndex() {
     <div className="mx-auto max-w-4xl p-6 lg:p-8">
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add a new routing form</DialogTitle>
-              <DialogDescription>
-                Give your form a name. You'll add fields and rules next.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label>Name</Label>
-                <Input
-                  placeholder="Prospect intake"
-                  value={form.name}
-                  onChange={(e) =>
-                    setForm({ ...form, name: e.currentTarget.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Description</Label>
-                <Input
-                  placeholder="Shown to visitors on the form page"
-                  value={form.description}
-                  onChange={(e) =>
-                    setForm({ ...form, description: e.currentTarget.value })
-                  }
-                />
-              </div>
+          <DialogHeader>
+            <DialogTitle>Add a new routing form</DialogTitle>
+            <DialogDescription>
+              Give your form a name. You'll add fields and rules next.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Name</Label>
+              <Input
+                placeholder="Prospect intake"
+                value={form.name}
+                onChange={(e) =>
+                  setForm({ ...form, name: e.currentTarget.value })
+                }
+              />
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={create} disabled={!form.name}>
-                Continue
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </header>
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Input
+                placeholder="Shown to visitors on the form page"
+                value={form.description}
+                onChange={(e) =>
+                  setForm({ ...form, description: e.currentTarget.value })
+                }
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={create} disabled={!form.name}>
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {forms.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border p-16 text-center">
