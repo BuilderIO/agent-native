@@ -1,14 +1,16 @@
-import { LoaderCircle } from "lucide-react";
+import { IconLoader2 } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
 
 export function Spinner({
   className,
   ...props
-}: React.ComponentProps<typeof LoaderCircle>) {
+}: React.ComponentProps<typeof IconLoader2>) {
   return (
-    <LoaderCircle
-      className={cn("h-6 w-6 animate-spin text-muted-foreground/50", className)}
+    <IconLoader2
+      role="status"
+      aria-label="Loading"
+      className={cn("size-4 animate-spin", className)}
       {...props}
     />
   );

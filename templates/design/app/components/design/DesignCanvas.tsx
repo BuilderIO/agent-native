@@ -242,17 +242,32 @@ export function DesignCanvas({
         }}
       />
 
-      {/* Canvas area */}
-      <div className="relative flex items-center justify-center min-h-full p-8">
-        <div
-          style={{
-            transform: `scale(${zoom / 100})`,
-            transformOrigin: "center center",
-          }}
-        >
-          {wrappedContent}
+      {/* Canvas area. "none" mode fills the canvas (responsive preview);
+          framed modes are centered inside the dot-grid with zoom applied. */}
+      {deviceFrame === "none" ? (
+        <div className="relative h-full w-full p-8">
+          <div
+            className="h-full w-full"
+            style={{
+              transform: `scale(${zoom / 100})`,
+              transformOrigin: "top left",
+            }}
+          >
+            {wrappedContent}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="relative flex items-center justify-center min-h-full p-8">
+          <div
+            style={{
+              transform: `scale(${zoom / 100})`,
+              transformOrigin: "center center",
+            }}
+          >
+            {wrappedContent}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

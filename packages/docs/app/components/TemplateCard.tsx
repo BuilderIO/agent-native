@@ -9,54 +9,6 @@ export const templates = [
   {
     name: "Clips",
     slug: "clips",
-    replaces: "Async screen recording for teams",
-    cliCommand: "npx @agent-native/core create my-clips-app",
-    demoUrl: "https://clips.agent-native.com",
-    description:
-      "Async screen recording with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.",
-    color: "#625DF5",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
-  },
-  {
-    name: "Design",
-    slug: "design",
-    replaces: "Replaces or augments Figma, Canva",
-    cliCommand: "npx @agent-native/core create my-design-app",
-    demoUrl: "https://design.agent-native.com",
-    description:
-      "AI-native design tool. Create and edit visual designs by prompt or by hand, with the agent as your co-designer.",
-    color: "#F472B6",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
-  },
-  {
-    name: "Dispatch",
-    slug: "dispatch",
-    replaces: "Replaces or augments Slack/Telegram bots and Zapier",
-    cliCommand: "npx @agent-native/core create my-dispatch-app",
-    demoUrl: "https://dispatch.agent-native.com",
-    description:
-      "Central messaging router for your agents. Talk to it from Slack or Telegram and it routes work, manages jobs, memory, approvals, and A2A delegation across every app.",
-    color: "#14B8A6",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
-  },
-  {
-    name: "Forms",
-    slug: "forms",
-    replaces: "Replaces or augments Typeform, Google Forms",
-    cliCommand: "npx @agent-native/core create my-forms-app",
-    demoUrl: "https://forms.agent-native.com",
-    description:
-      "AI-native form builder. Generate forms from a prompt, branch logic with the agent, and own every response in your own database.",
-    color: "#06B6D4",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
-  },
-  {
-    name: "Clips",
-    slug: "clips",
     replaces: "Replaces or augments Loom",
     cliCommand: "npx @agent-native/core create my-clips-app",
     demoUrl: "https://clips.agent-native.com",
@@ -75,7 +27,8 @@ export const templates = [
     description:
       "Agent-native design tool. Create and edit visual designs by prompt or by hand, with the agent as your co-designer.",
     color: "#F472B6",
-    screenshot: "",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800",
   },
   {
     name: "Dispatch",
