@@ -6,7 +6,17 @@ import {
 } from "h3";
 import { eq, desc } from "drizzle-orm";
 import { getDb, schema } from "../db";
-import { readBody } from "@agent-native/core/server";
+import {
+  readBody,
+  getSession,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import {
+  accessFilter,
+  resolveAccess,
+  assertAccess,
+  ForbiddenError,
+} from "@agent-native/core/sharing";
 
 // --- SSE for change notifications ---
 type SSEPush = (data: string) => void;
@@ -53,8 +63,46 @@ export function notifyClients(deckId: string, type = "deck-changed") {
   }
 }
 
-// SSE endpoint — client subscribes for real-time change notifications
-export const deckEvents = defineEventHandler((event) => {
+/**
+ * Resolve the caller's auth context from the request and run `fn` inside a
+ * `runWithRequestContext` scope so `accessFilter` / `resolveAccess` /
+ * `assertAccess` can read it. ALL `/api/decks/*` handlers MUST go through
+ * this — querying ownable tables without a request context is how data
+ * leaks across users (see #SLI-2026-04-28).
+ */
+async function withAuth<T>(
+  event: any,
+  fn: (session: { email?: string; orgId?: string }) => Promise<T>,
+): Promise<T> {
+  const session = await getSession(event).catch(() => null);
+  const ctx = {
+    userEmail: session?.email,
+    orgId: session?.orgId,
+  };
+  return runWithRequestContext(ctx, () =>
+    fn({ email: ctx.userEmail, orgId: ctx.orgId }),
+  );
+}
+
+function handleForbidden(event: any, err: unknown): { error: string } {
+  if (err instanceof ForbiddenError) {
+    setResponseStatus(event, err.statusCode);
+    return { error: err.message };
+  }
+  throw err;
+}
+
+// SSE endpoint — client subscribes for real-time change notifications.
+// Per-deckId notifications carry only the id, no row contents, so we don't
+// gate this — but we do require an authenticated session so anonymous
+// callers can't tail the stream. (The agent path runs server-side and is
+// not affected.)
+export const deckEvents = defineEventHandler(async (event) => {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
   const eventStream = createEventStream(event);
 
   // Send initial connected event
@@ -73,30 +121,33 @@ export const deckEvents = defineEventHandler((event) => {
   return eventStream.send();
 });
 
-// GET /api/decks — list all decks
-export const listDecks = defineEventHandler(async (_event) => {
-  const db = getDb();
-  const rows = await db
-    .select()
-    .from(schema.decks)
-    .orderBy(desc(schema.decks.updatedAt));
+// GET /api/decks — list decks the caller can see (own + shared + visibility match)
+export const listDecks = defineEventHandler(async (event) => {
+  return withAuth(event, async () => {
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(schema.decks)
+      .where(accessFilter(schema.decks, schema.deckShares))
+      .orderBy(desc(schema.decks.updatedAt));
 
-  return rows.map((row) => {
-    let deck: Record<string, unknown> = {};
-    try {
-      if (row.data) deck = JSON.parse(row.data);
-    } catch {}
-    return {
-      ...deck,
-      id: row.id,
-      title: row.title,
-      visibility: row.visibility,
-      slides: deck.slides || [],
-    };
+    return rows.map((row) => {
+      let deck: Record<string, unknown> = {};
+      try {
+        if (row.data) deck = JSON.parse(row.data);
+      } catch {}
+      return {
+        ...deck,
+        id: row.id,
+        title: row.title,
+        visibility: row.visibility,
+        slides: deck.slides || [],
+      };
+    });
   });
 });
 
-// GET /api/decks/:id — get a specific deck
+// GET /api/decks/:id — get a specific deck (caller must have viewer+ access)
 export const getDeck = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
   if (!id) {
@@ -104,28 +155,30 @@ export const getDeck = defineEventHandler(async (event) => {
     return { error: "Deck id is required" };
   }
 
-  const db = getDb();
-  const rows = await db
-    .select()
-    .from(schema.decks)
-    .where(eq(schema.decks.id, id))
-    .limit(1);
-
-  if (rows.length > 0) {
-    const deck = JSON.parse(rows[0].data);
-    return {
-      ...deck,
-      id: rows[0].id,
-      title: rows[0].title,
-      visibility: rows[0].visibility,
-    };
-  }
-
-  setResponseStatus(event, 404);
-  return { error: "Deck not found" };
+  return withAuth(event, async () => {
+    try {
+      const access = await assertAccess("deck", id, "viewer");
+      const row = access.resource;
+      const deck = JSON.parse(row.data);
+      return {
+        ...deck,
+        id: row.id,
+        title: row.title,
+        visibility: row.visibility,
+      };
+    } catch (err) {
+      if (err instanceof ForbiddenError) {
+        // Return 404 (not 403) so we don't leak the existence of decks
+        // the caller has no access to.
+        setResponseStatus(event, 404);
+        return { error: "Deck not found" };
+      }
+      throw err;
+    }
+  });
 });
 
-// PUT /api/decks/:id — create or update a deck
+// PUT /api/decks/:id — create or update a deck (must have editor+ access)
 export const updateDeck = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
   if (!id) {
@@ -139,35 +192,62 @@ export const updateDeck = defineEventHandler(async (event) => {
     return { error: "Invalid deck data" };
   }
 
-  deck.id = id;
-  deck.updatedAt = new Date().toISOString();
+  return withAuth(event, async ({ email, orgId }) => {
+    const db = getDb();
+    const now = new Date().toISOString();
 
-  const db = getDb();
-  const title = deck.title || "Untitled";
-  const now = new Date().toISOString();
+    // Does the row already exist?
+    const existing = await db
+      .select()
+      .from(schema.decks)
+      .where(eq(schema.decks.id, id))
+      .limit(1);
 
-  await db
-    .insert(schema.decks)
-    .values({
-      id,
-      title,
-      data: JSON.stringify(deck),
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: schema.decks.id,
-      set: {
+    deck.id = id;
+    deck.updatedAt = now;
+    const title = deck.title || "Untitled";
+
+    if (existing.length === 0) {
+      // Create new deck — owner is the caller. Anonymous callers cannot
+      // create decks: requiring an email here keeps the table free of
+      // ownerless rows (the source of the legacy leak).
+      if (!email) {
+        return handleForbidden(
+          event,
+          new ForbiddenError("Sign in to create a deck"),
+        );
+      }
+      await db.insert(schema.decks).values({
+        id,
         title,
         data: JSON.stringify(deck),
+        ownerEmail: email,
+        orgId: orgId ?? null,
+        createdAt: now,
         updatedAt: now,
-      },
-    });
+      });
+    } else {
+      try {
+        await assertAccess("deck", id, "editor");
+      } catch (err) {
+        return handleForbidden(event, err);
+      }
+      await db
+        .update(schema.decks)
+        .set({
+          title,
+          data: JSON.stringify(deck),
+          updatedAt: now,
+        })
+        .where(eq(schema.decks.id, id));
+    }
 
-  notifyClients(id);
-  return deck;
+    notifyClients(id);
+    return deck;
+  });
 });
 
-// POST /api/decks — create a new deck
+// POST /api/decks — create a new deck owned by the caller
 export const createDeck = defineEventHandler(async (event) => {
   const deck = await readBody(event);
 
@@ -176,26 +256,36 @@ export const createDeck = defineEventHandler(async (event) => {
     return { error: "Deck must have an id" };
   }
 
-  deck.createdAt = deck.createdAt || new Date().toISOString();
-  deck.updatedAt = new Date().toISOString();
+  return withAuth(event, async ({ email, orgId }) => {
+    if (!email) {
+      return handleForbidden(
+        event,
+        new ForbiddenError("Sign in to create a deck"),
+      );
+    }
+    deck.createdAt = deck.createdAt || new Date().toISOString();
+    deck.updatedAt = new Date().toISOString();
 
-  const db = getDb();
-  const now = new Date().toISOString();
+    const db = getDb();
+    const now = new Date().toISOString();
 
-  await db.insert(schema.decks).values({
-    id: deck.id,
-    title: deck.title || "Untitled",
-    data: JSON.stringify(deck),
-    createdAt: now,
-    updatedAt: now,
+    await db.insert(schema.decks).values({
+      id: deck.id,
+      title: deck.title || "Untitled",
+      data: JSON.stringify(deck),
+      ownerEmail: email,
+      orgId: orgId ?? null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    setResponseStatus(event, 201);
+    notifyClients(deck.id);
+    return deck;
   });
-
-  setResponseStatus(event, 201);
-  notifyClients(deck.id);
-  return deck;
 });
 
-// DELETE /api/decks/:id — delete a deck
+// DELETE /api/decks/:id — delete a deck (admin or owner only)
 export const deleteDeck = defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
   if (!id) {
@@ -203,17 +293,29 @@ export const deleteDeck = defineEventHandler(async (event) => {
     return { error: "Deck id is required" };
   }
 
-  const db = getDb();
-  const result = await db
-    .delete(schema.decks)
-    .where(eq(schema.decks.id, id))
-    .returning();
+  return withAuth(event, async () => {
+    try {
+      await assertAccess("deck", id, "admin");
+    } catch (err) {
+      if (err instanceof ForbiddenError) {
+        // 404 to avoid leaking existence
+        setResponseStatus(event, 404);
+        return { error: "Deck not found" };
+      }
+      throw err;
+    }
 
-  if (result.length > 0) {
-    notifyClients(id, "deck-deleted");
-    return { success: true };
-  } else {
+    const db = getDb();
+    const result = await db
+      .delete(schema.decks)
+      .where(eq(schema.decks.id, id))
+      .returning();
+
+    if (result.length > 0) {
+      notifyClients(id, "deck-deleted");
+      return { success: true };
+    }
     setResponseStatus(event, 404);
     return { error: "Deck not found" };
-  }
+  });
 });
