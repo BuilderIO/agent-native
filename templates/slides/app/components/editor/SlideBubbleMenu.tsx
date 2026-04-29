@@ -69,7 +69,7 @@ function HexInput({
   return (
     <div className="flex items-center gap-1 mt-1">
       <div
-        className="w-4 h-4 rounded-sm flex-shrink-0 border border-white/20"
+        className="w-4 h-4 rounded-sm flex-shrink-0 border border-border"
         style={{ background: isValid ? val : "transparent" }}
       />
       <input
@@ -82,18 +82,21 @@ function HexInput({
         }}
         placeholder="#000000"
         maxLength={7}
-        className="flex-1 bg-transparent text-white text-xs outline-none placeholder-white/30 border-b border-white/20 pb-0.5 w-20"
+        className="flex-1 bg-transparent text-foreground text-xs outline-none placeholder-muted-foreground/70 border-b border-border pb-0.5 w-20"
         autoFocus
       />
       {isValid && (
         <button
           onClick={() => onAdd(val)}
-          className="text-[#00E5FF] hover:text-white"
+          className="text-[#00E5FF] hover:text-foreground"
         >
           <IconCheck size={12} />
         </button>
       )}
-      <button onClick={onCancel} className="text-white/40 hover:text-white/80">
+      <button
+        onClick={onCancel}
+        className="text-muted-foreground hover:text-foreground"
+      >
         <IconX size={12} />
       </button>
     </div>
@@ -141,14 +144,16 @@ function ColorPicker({
   return (
     <div className="w-[180px]">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] font-semibold text-white/50 uppercase tracking-wider">
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
           Brand Colors
         </span>
         <button
           onClick={() => setEditMode((v) => !v)}
           className={cn(
             "p-0.5 rounded",
-            editMode ? "text-[#00E5FF]" : "text-white/40 hover:text-white/70",
+            editMode
+              ? "text-[#00E5FF]"
+              : "text-muted-foreground hover:text-foreground",
           )}
           title="Edit palette"
         >
@@ -165,15 +170,15 @@ function ColorPicker({
               className={cn(
                 "w-6 h-6 rounded-md border transition-transform",
                 currentColor?.toLowerCase() === color.toLowerCase()
-                  ? "border-white scale-110"
-                  : "border-white/20 hover:scale-110",
+                  ? "border-foreground scale-110"
+                  : "border-border hover:scale-110",
               )}
               style={{ background: color }}
             />
             {editMode && (
               <button
                 onClick={() => removeFromPalette(color)}
-                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-[#1c1c1c] border border-white/20 flex items-center justify-center text-white/60 hover:text-white hover:border-white/50"
+                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-popover border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-foreground/50"
               >
                 <IconX size={8} />
               </button>
@@ -185,7 +190,7 @@ function ColorPicker({
         {!addingColor && (
           <button
             onClick={() => setAddingColor(true)}
-            className="w-6 h-6 rounded-md border border-dashed border-white/25 flex items-center justify-center text-white/40 hover:text-white/70 hover:border-white/40"
+            className="w-6 h-6 rounded-md border border-dashed border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-foreground/40"
             title="Add color"
           >
             <IconPlus size={10} />
@@ -197,10 +202,10 @@ function ColorPicker({
         <HexInput onAdd={addTopalette} onCancel={() => setAddingColor(false)} />
       )}
 
-      <div className="mt-2 pt-2 border-t border-white/10">
+      <div className="mt-2 pt-2 border-t border-border">
         <button
           onClick={removeColor}
-          className="flex items-center gap-1.5 text-xs text-white/50 hover:text-white/80 w-full"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground w-full"
         >
           <IconX size={11} />
           Remove color
@@ -316,7 +321,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
     <BubbleMenu editor={editor}>
       <div
         data-bubble-menu="true"
-        className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-[#1c1c1c] border border-white/10 shadow-xl"
+        className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-popover border border-border shadow-xl"
       >
         {showLinkInput ? (
           <div className="flex items-center gap-1.5 px-1">
@@ -332,7 +337,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                 }
               }}
               placeholder="Paste URL..."
-              className="w-48 bg-transparent text-white text-sm outline-none placeholder-white/30 border-b border-white/20 pb-0.5"
+              className="w-48 bg-transparent text-foreground text-sm outline-none placeholder-muted-foreground/70 border-b border-border pb-0.5"
               autoFocus
             />
             <button
@@ -346,7 +351,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                 setShowLinkInput(false);
                 setLinkUrl("");
               }}
-              className="text-xs text-white/50 hover:text-white/80"
+              className="text-xs text-muted-foreground hover:text-foreground"
             >
               Cancel
             </button>
@@ -355,7 +360,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
           <>
             {buttons.map((item, i) => {
               if (item.type === "divider") {
-                return <div key={i} className="w-px h-4 bg-white/15 mx-0.5" />;
+                return <div key={i} className="w-px h-4 bg-border mx-0.5" />;
               }
               const btn = item as ButtonItem;
               const Icon = btn.icon;
@@ -368,8 +373,8 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                   className={cn(
                     "p-1.5 rounded",
                     active
-                      ? "bg-white/20 text-white"
-                      : "text-white/70 hover:text-white hover:bg-white/10",
+                      ? "bg-accent text-foreground"
+                      : "text-foreground/80 hover:text-foreground hover:bg-accent",
                   )}
                 >
                   <Icon size={14} stroke={2} />
@@ -378,7 +383,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
             })}
 
             {/* Color picker */}
-            <div className="w-px h-4 bg-white/15 mx-0.5" />
+            <div className="w-px h-4 bg-border mx-0.5" />
             <Popover open={colorOpen} onOpenChange={setColorOpen}>
               <PopoverTrigger asChild>
                 <button
@@ -386,8 +391,8 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                   className={cn(
                     "p-1.5 rounded relative",
                     colorOpen
-                      ? "bg-white/20 text-white"
-                      : "text-white/70 hover:text-white hover:bg-white/10",
+                      ? "bg-accent text-foreground"
+                      : "text-foreground/80 hover:text-foreground hover:bg-accent",
                   )}
                 >
                   <IconPalette size={14} stroke={2} />
@@ -398,7 +403,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                       background: currentColor ?? "transparent",
                       border: currentColor
                         ? "none"
-                        : "1px solid rgba(255,255,255,0.2)",
+                        : "1px solid hsl(var(--border))",
                     }}
                   />
                 </button>
@@ -407,13 +412,13 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                 side="bottom"
                 align="end"
                 sideOffset={6}
-                className="bg-[#1c1c1c] border-white/10 text-white p-3 w-auto"
+                className="bg-popover border-border text-foreground p-3 w-auto"
               >
                 <ColorPicker
                   editor={editor}
                   onClose={() => setColorOpen(false)}
                 />
-                <div className="mt-2 pt-2 border-t border-white/10 flex gap-2 text-[10px] text-white/35">
+                <div className="mt-2 pt-2 border-t border-border flex gap-2 text-[10px] text-muted-foreground">
                   <span>⌘⌥C copy style</span>
                   <span>⌘⌥V paste style</span>
                 </div>
@@ -422,7 +427,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
 
             {hasCommentBtn && (
               <>
-                <div className="w-px h-4 bg-white/15 mx-0.5" />
+                <div className="w-px h-4 bg-border mx-0.5" />
                 <button
                   title="Comment"
                   onClick={() => {
@@ -434,7 +439,7 @@ export function SlideBubbleMenu({ editor, onComment }: SlideBubbleMenuProps) {
                     );
                     onComment!(quotedText);
                   }}
-                  className="p-1.5 rounded text-white/70 hover:text-white hover:bg-white/10"
+                  className="p-1.5 rounded text-foreground/80 hover:text-foreground hover:bg-accent"
                 >
                   <IconMessageCircle size={14} stroke={2} />
                 </button>

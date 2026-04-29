@@ -64,17 +64,17 @@ function CommentItem({
       <Avatar email={comment.author_email} name={comment.author_name} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1">
-          <span className="text-[11px] font-medium text-white/70 truncate">
+          <span className="text-[11px] font-medium text-foreground/80 truncate">
             {comment.author_name || comment.author_email.split("@")[0]}
           </span>
           <div className="flex items-center gap-1 flex-shrink-0">
-            <span className="text-[10px] text-white/30">
+            <span className="text-[10px] text-muted-foreground">
               {formatRelativeTime(comment.created_at)}
             </span>
             {hovered && (
               <button
                 onClick={onDelete}
-                className="p-0.5 rounded text-white/30 hover:text-red-400"
+                className="p-0.5 rounded text-muted-foreground hover:text-red-400"
                 title="Delete comment"
               >
                 <IconTrash size={11} />
@@ -82,7 +82,7 @@ function CommentItem({
             )}
           </div>
         </div>
-        <p className="text-[12px] text-white/80 mt-0.5 break-words leading-relaxed">
+        <p className="text-[12px] text-foreground/90 mt-0.5 break-words leading-relaxed">
           {comment.content}
         </p>
       </div>
@@ -126,9 +126,9 @@ function PendingCommentInput({
   };
 
   return (
-    <div className="border border-white/10 rounded-lg overflow-hidden bg-white/[0.03]">
+    <div className="border border-border rounded-lg overflow-hidden bg-accent">
       {quotedText && (
-        <div className="px-3 pt-2.5 pb-1.5 border-l-2 border-[#609FF8] mx-3 mt-2.5 mb-1 bg-[#609FF8]/5 rounded-r text-[11px] text-white/40 italic truncate">
+        <div className="px-3 pt-2.5 pb-1.5 border-l-2 border-[#609FF8] mx-3 mt-2.5 mb-1 bg-[#609FF8]/5 rounded-r text-[11px] text-muted-foreground italic truncate">
           "{quotedText}"
         </div>
       )}
@@ -142,12 +142,12 @@ function PendingCommentInput({
         }}
         placeholder="Add a comment..."
         rows={3}
-        className="w-full bg-transparent text-white/80 text-[12px] px-3 py-2 outline-none resize-none placeholder-white/25"
+        className="w-full bg-transparent text-foreground/90 text-[12px] px-3 py-2 outline-none resize-none placeholder:text-muted-foreground"
       />
       <div className="flex justify-end gap-1.5 px-3 pb-2">
         <button
           onClick={onCancel}
-          className="text-[11px] text-white/40 hover:text-white/70 px-2 py-1 rounded"
+          className="text-[11px] text-muted-foreground hover:text-foreground/80 px-2 py-1 rounded"
         >
           Cancel
         </button>
@@ -197,7 +197,7 @@ function ReplyInput({
   };
 
   return (
-    <div className="mt-2 border border-white/10 rounded-lg overflow-hidden bg-white/[0.03]">
+    <div className="mt-2 border border-border rounded-lg overflow-hidden bg-accent">
       <textarea
         ref={textareaRef}
         value={text}
@@ -208,12 +208,12 @@ function ReplyInput({
         }}
         placeholder="Reply..."
         rows={2}
-        className="w-full bg-transparent text-white/80 text-[12px] px-3 py-2 outline-none resize-none placeholder-white/25"
+        className="w-full bg-transparent text-foreground/90 text-[12px] px-3 py-2 outline-none resize-none placeholder:text-muted-foreground"
       />
       <div className="flex justify-end gap-1.5 px-3 pb-2">
         <button
           onClick={onDone}
-          className="text-[11px] text-white/40 hover:text-white/70 px-2 py-1 rounded"
+          className="text-[11px] text-muted-foreground hover:text-foreground/80 px-2 py-1 rounded"
         >
           Cancel
         </button>
@@ -252,13 +252,13 @@ function ThreadCard({
 
   return (
     <div
-      className={`border rounded-lg px-3 py-2.5 ${thread.resolved ? "border-white/[0.04] opacity-50" : "border-white/[0.08] bg-white/[0.02]"}`}
+      className={`border rounded-lg px-3 py-2.5 ${thread.resolved ? "border-border/60 opacity-50" : "border-border bg-card"}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {/* Quoted text */}
       {thread.quotedText && (
-        <div className="border-l-2 border-[#609FF8]/50 pl-2 mb-2 text-[11px] text-white/35 italic truncate">
+        <div className="border-l-2 border-[#609FF8]/50 pl-2 mb-2 text-[11px] text-muted-foreground italic truncate">
           "{thread.quotedText}"
         </div>
       )}
@@ -271,12 +271,12 @@ function ThreadCard({
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-1">
-            <span className="text-[11px] font-medium text-white/70 truncate">
+            <span className="text-[11px] font-medium text-foreground/80 truncate">
               {rootComment.author_name ||
                 rootComment.author_email.split("@")[0]}
             </span>
             <div className="flex items-center gap-1 flex-shrink-0">
-              <span className="text-[10px] text-white/30">
+              <span className="text-[10px] text-muted-foreground">
                 {formatRelativeTime(rootComment.created_at)}
               </span>
               {hovered && !thread.resolved && (
@@ -285,14 +285,14 @@ function ThreadCard({
                     onClick={() =>
                       resolveComment.mutate({ id: rootComment.id })
                     }
-                    className="p-0.5 rounded text-white/30 hover:text-green-400"
+                    className="p-0.5 rounded text-muted-foreground hover:text-green-400"
                     title="Resolve thread"
                   >
                     <IconCheck size={11} />
                   </button>
                   <button
                     onClick={() => deleteComment.mutate({ id: rootComment.id })}
-                    className="p-0.5 rounded text-white/30 hover:text-red-400"
+                    className="p-0.5 rounded text-muted-foreground hover:text-red-400"
                     title="Delete comment"
                   >
                     <IconTrash size={11} />
@@ -301,7 +301,7 @@ function ThreadCard({
               )}
             </div>
           </div>
-          <p className="text-[12px] text-white/80 mt-0.5 break-words leading-relaxed">
+          <p className="text-[12px] text-foreground/90 mt-0.5 break-words leading-relaxed">
             {rootComment.content}
           </p>
         </div>
@@ -311,7 +311,7 @@ function ThreadCard({
       {replies.length > 0 && (
         <button
           onClick={() => setShowReplies(!showReplies)}
-          className="mt-2 flex items-center gap-1 text-[11px] text-white/35 hover:text-white/60 ml-7"
+          className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground/80 ml-7"
         >
           <IconChevronDown
             size={11}
@@ -341,7 +341,7 @@ function ThreadCard({
           {!replyOpen && (
             <button
               onClick={() => setReplyOpen(true)}
-              className="text-[11px] text-white/35 hover:text-white/60"
+              className="text-[11px] text-muted-foreground hover:text-foreground/80"
             >
               Reply
             </button>
@@ -386,15 +386,17 @@ export function SlideCommentsPanel({
   const showInput = pendingComment || addingComment;
 
   return (
-    <div className="w-72 flex-shrink-0 border-l border-white/[0.06] bg-[#080808] flex flex-col h-full">
+    <div className="w-72 flex-shrink-0 border-l border-border bg-background flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] flex-shrink-0">
-        <span className="text-[13px] font-medium text-white/70">Comments</span>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
+        <span className="text-[13px] font-medium text-foreground/80">
+          Comments
+        </span>
         <div className="flex items-center gap-1">
           {!showInput && deckId && slideId && (
             <button
               onClick={() => setAddingComment(true)}
-              className="p-1 rounded text-white/30 hover:text-white/60 hover:bg-white/[0.06]"
+              className="p-1 rounded text-muted-foreground hover:text-foreground/80 hover:bg-accent"
               title="Add comment"
             >
               <IconMessageCircle size={14} />
@@ -402,7 +404,7 @@ export function SlideCommentsPanel({
           )}
           <button
             onClick={onClose}
-            className="p-1 rounded text-white/30 hover:text-white/60 hover:bg-white/[0.06]"
+            className="p-1 rounded text-muted-foreground hover:text-foreground/80 hover:bg-accent"
             title="Close"
           >
             <IconX size={14} />
@@ -443,7 +445,7 @@ export function SlideCommentsPanel({
         {resolvedThreads.length > 0 && (
           <button
             onClick={() => setShowResolved(!showResolved)}
-            className="w-full text-[11px] text-white/25 hover:text-white/50 py-1"
+            className="w-full text-[11px] text-muted-foreground hover:text-foreground/70 py-1"
           >
             {showResolved
               ? "Hide resolved"
@@ -456,11 +458,11 @@ export function SlideCommentsPanel({
           <div className="text-center py-10">
             <IconMessageCircle
               size={28}
-              className="mx-auto mb-2 text-white/15"
+              className="mx-auto mb-2 text-muted-foreground/60"
             />
-            <p className="text-[12px] text-white/25">No comments yet</p>
-            <p className="text-[11px] text-white/15 mt-1">
-              Select text and click 💬 to add one
+            <p className="text-[12px] text-muted-foreground">No comments yet</p>
+            <p className="text-[11px] text-muted-foreground/70 mt-1">
+              Select text and click the comment icon to add one
             </p>
           </div>
         )}

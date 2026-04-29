@@ -270,7 +270,7 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
       )}
 
       {/* Bottom toolbar */}
-      <div className="absolute bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-white/[0.06] bg-[hsl(240,5%,8%)] px-3 py-2 shadow-2xl backdrop-blur-sm">
+      <div className="absolute bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-2xl backdrop-blur-sm">
         {/* Color picker */}
         <div className="flex gap-1">
           {PRESET_COLORS.map((preset) => (
@@ -289,7 +289,7 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
           ))}
         </div>
 
-        <div className="mx-1 h-4 w-px bg-white/10" />
+        <div className="mx-1 h-4 w-px bg-accent" />
 
         {/* Line widths */}
         <div className="flex gap-1">
@@ -300,8 +300,8 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
               className={cn(
                 "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
                 lineWidth === lw.value
-                  ? "bg-white/10 text-white"
-                  : "text-white/30 hover:text-white/50",
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground/70 hover:text-muted-foreground",
               )}
               title={lw.label}
             >
@@ -313,7 +313,7 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
           ))}
         </div>
 
-        <div className="mx-1 h-4 w-px bg-white/10" />
+        <div className="mx-1 h-4 w-px bg-accent" />
 
         {/* Text mode toggle */}
         <button
@@ -321,8 +321,8 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
           className={cn(
             "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
             textMode
-              ? "bg-white/10 text-white"
-              : "text-white/30 hover:text-white/50",
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground/70 hover:text-muted-foreground",
           )}
           title="Type anywhere"
         >
@@ -333,7 +333,7 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
         <button
           onClick={undo}
           disabled={strokes.length === 0}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-white/30 hover:text-white/50 disabled:cursor-default disabled:opacity-30"
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground/70 hover:text-muted-foreground disabled:cursor-default disabled:opacity-30"
           title="Undo"
         >
           <IconArrowBackUp className="h-3.5 w-3.5" />
@@ -343,17 +343,17 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
         <button
           onClick={clear}
           disabled={strokes.length === 0}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-white/30 hover:text-white/50 disabled:cursor-default disabled:opacity-30"
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground/70 hover:text-muted-foreground disabled:cursor-default disabled:opacity-30"
           title="Clear"
         >
           <IconEraser className="h-3.5 w-3.5" />
         </button>
 
-        <div className="mx-1 h-4 w-px bg-white/10" />
+        <div className="mx-1 h-4 w-px bg-accent" />
 
         {/* Queue counter */}
         {totalQueued > 0 && (
-          <span className="text-[10px] text-white/40">
+          <span className="text-[10px] text-muted-foreground">
             {pathCount > 0 && `Draw x${pathCount}`}
             {pathCount > 0 && textCount > 0 && " / "}
             {textCount > 0 && `Click x${textCount}`}
@@ -364,7 +364,7 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 gap-1 px-2 text-[11px] text-white/50 hover:text-white"
+          className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
           onClick={queueDrawing}
           disabled={strokes.length === 0}
         >
