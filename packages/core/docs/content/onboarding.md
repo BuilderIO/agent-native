@@ -26,11 +26,11 @@ Steps offer one or more **methods** — different ways to satisfy the same
 requirement. The recommended option is highlighted in blue; alternatives sit
 below it.
 
-- **Connect a service (one click)** — e.g. *Connect Builder* for the managed
+- **Connect a service (one click)** — e.g. _Connect Builder_ for the managed
   AI gateway. Click the button, a window opens, you sign in, the window closes,
   and the step is marked complete. No keys to copy.
-- **Paste an API key or fill a form** — e.g. *Use your Anthropic API key*,
-  *Use Resend* for email. Click the method, paste the value(s), click **Save**.
+- **Paste an API key or fill a form** — e.g. _Use your Anthropic API key_,
+  _Use Resend_ for email. Click the method, paste the value(s), click **Save**.
   Secret fields use a password input so the value isn't shown on screen. Saved
   values go into your local `.env` (or workspace settings) — see
   [Secrets](/docs/secrets) for where they live.
