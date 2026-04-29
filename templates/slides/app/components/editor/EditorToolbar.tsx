@@ -28,6 +28,7 @@ import {
 import ShareDialog from "./ShareDialog";
 import { ExportMenu } from "./ExportMenu";
 import { ImportButton } from "./ImportButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 import {
   AgentToggleButton,
@@ -663,6 +664,7 @@ graph TD
         <IconPlayerPlay className="w-3 h-3" />
         <span className="hidden sm:inline">Present</span>
       </Link>
+      <ThemeToggle className="flex-shrink-0" />
       <AgentToggleButton className="flex-shrink-0 text-muted-foreground hover:text-foreground/70 hover:bg-accent" />
     </div>
   );
