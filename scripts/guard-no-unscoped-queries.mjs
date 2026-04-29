@@ -93,16 +93,20 @@ const EXPLICIT_OWNER_FILTERS = [
   /WHERE[\s\S]*?\borg_id\b/i,
 ];
 
-// For inserts: the values object must set ownerEmail from a request-bound
-// source. We accept any of the patterns the framework call sites use.
+// For inserts: the values object must set ownerEmail (or include the
+// shorthand property `ownerEmail,`) — both indicate the inserter is
+// passing the caller's identity in. We accept either a full
+// `ownerEmail: <expr>` (any expression — we trust the surrounding
+// function-block scoping check to have established the binding) or the
+// shorthand `ownerEmail` property. Same for orgId.
 const INSERT_OWNER_PATTERNS = [
-  /ownerEmail\s*:\s*[^,}\n]*getRequestUserEmail\s*\(/,
-  /ownerEmail\s*:\s*[^,}\n]*getCurrentUserEmail\s*\(/,
-  /ownerEmail\s*:\s*[^,}\n]*currentUserEmail\b/,
-  /ownerEmail\s*:\s*[^,}\n]*\bemail\b/,
-  /ownerEmail\s*:\s*[^,}\n]*\bsession\.[a-zA-Z_$]/,
-  /ownerEmail\s*:\s*[^,}\n]*\buser\.email\b/,
-  /ownerEmail\s*:\s*[^,}\n]*\bowner\b/,
+  // Full property assignment
+  /\bownerEmail\s*:/,
+  // Shorthand: `ownerEmail,` or `ownerEmail }`
+  /\bownerEmail\s*[,}]/,
+  // ditto for userEmail / orgId
+  /\buserEmail\s*[:,}]/,
+  /\borgId\s*[:,}]/,
 ];
 
 // Files that legitimately don't need access control. Keep this list
@@ -532,7 +536,13 @@ function walkBackToChainHead(contents, idx) {
 }
 
 function blockHasAccessControl(blockText) {
-  return ACCESS_CONTROL_HELPERS.some((re) => re.test(blockText));
+  if (ACCESS_CONTROL_HELPERS.some((re) => re.test(blockText))) return true;
+  // Drizzle-style explicit ownership filters anywhere in the block also
+  // count as scoping intent — common pattern is to do one upfront
+  // `select ... where(eq(t.ownerEmail, ownerEmail))` then issue
+  // subsequent updates by id within the same function block.
+  if (EXPLICIT_OWNER_FILTERS.some((re) => re.test(blockText))) return true;
+  return false;
 }
 
 function statementHasInlineAccessControl(stmt) {

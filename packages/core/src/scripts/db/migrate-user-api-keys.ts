@@ -131,7 +131,7 @@ Options:
   // source DB. Pin DATABASE_URL to the same target so all three operations
   // hit one database.
   if (parsed.db) {
-    process.env.DATABASE_URL = url;
+    process.env.DATABASE_URL = url; // guard:allow-env-mutation — CLI migration script pinning DB URL for downstream secret writers; runs as its own short-lived process
   }
 
   const { writeAppSecret } = await import("../../secrets/storage.js");

@@ -2482,7 +2482,7 @@ export function createAgentChatPlugin(
           }
 
           if (userEmail) {
-            process.env.AGENT_USER_EMAIL = userEmail;
+            process.env.AGENT_USER_EMAIL = userEmail; // guard:allow-env-mutation — back-compat for legacy CLI scripts/integration handlers that still read process.env directly; per-request truth lives in runWithRequestContext
           }
 
           const text = message.parts
@@ -4231,9 +4231,9 @@ export function createAgentChatPlugin(
           }
 
           // Also set process.env for backwards compat (CLI scripts, legacy readers)
-          process.env.AGENT_USER_EMAIL = owner;
+          process.env.AGENT_USER_EMAIL = owner; // guard:allow-env-mutation — back-compat for legacy CLI scripts/readers; per-request truth lives in runWithRequestContext below
           if (resolvedOrgId) {
-            process.env.AGENT_ORG_ID = resolvedOrgId;
+            process.env.AGENT_ORG_ID = resolvedOrgId; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext below
           } else {
             delete process.env.AGENT_ORG_ID;
           }
@@ -4248,7 +4248,7 @@ export function createAgentChatPlugin(
             tzRaw.trim().length < 64
               ? tzRaw.trim()
               : undefined;
-          if (timezone) process.env.AGENT_USER_TIMEZONE = timezone;
+          if (timezone) process.env.AGENT_USER_TIMEZONE = timezone; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext below
 
           return runWithRequestContext(
             { userEmail: owner, orgId: resolvedOrgId, timezone },

@@ -74,13 +74,13 @@ function resolveAuthSecret(): string {
     const envLocalPath = path.resolve(process.cwd(), ".env.local");
     const existing = readEnvLocalSecret(envLocalPath);
     if (existing) {
-      process.env.BETTER_AUTH_SECRET = existing;
+      process.env.BETTER_AUTH_SECRET = existing; // guard:allow-env-mutation — boot-time secret resolution from .env.local, runs once at module init
       return existing;
     }
 
     const generated = crypto.randomBytes(32).toString("hex");
     appendEnvLocalSecret(envLocalPath, generated);
-    process.env.BETTER_AUTH_SECRET = generated;
+    process.env.BETTER_AUTH_SECRET = generated; // guard:allow-env-mutation — boot-time secret generation, runs once at module init before any request
     console.log(
       "[agent-native] Generated a persistent BETTER_AUTH_SECRET in .env.local. " +
         "Sessions will now survive dev-server restarts. " +

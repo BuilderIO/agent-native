@@ -1075,7 +1075,7 @@ async function setAuthModeLocal(): Promise<boolean> {
     const fs = await getFs();
     fs.mkdirSync(path.dirname(LOCAL_MODE_MARKER_PATH), { recursive: true });
     fs.writeFileSync(LOCAL_MODE_MARKER_PATH, "local\n", "utf-8");
-    process.env.AUTH_MODE = "local";
+    process.env.AUTH_MODE = "local"; // guard:allow-env-mutation — escape-hatch writes the local-mode marker file; mirrored into env so the in-flight process honors the change without restart
     return true;
   } catch {
     return false;
