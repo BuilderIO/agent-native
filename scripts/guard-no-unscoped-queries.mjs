@@ -545,6 +545,51 @@ function blockHasAccessControl(blockText) {
   return false;
 }
 
+/**
+ * Find all variable names bound to access-control expressions in the
+ * file. Returns a Set of names like ["whereClauses", "guard", ...] that
+ * the user can interpolate into a query's where(...) clause.
+ *
+ * Patterns matched:
+ *   const X = accessFilter(...)
+ *   const X = [accessFilter(...), ...]
+ *   const X = and(accessFilter(...), ...)
+ *   let   X: ... = accessFilter(...)
+ *   X.push(accessFilter(...))   // tracks X
+ *   const X = await resolveAccess(...)
+ *   const X = await assertAccess(...)
+ */
+function collectAccessControlBindings(contents) {
+  const names = new Set();
+  // Direct const/let/var assignment.
+  const bindRe =
+    /\b(?:const|let|var)\s+([a-zA-Z_$][\w$]*)\s*(?::[^=]+)?\s*=\s*([\s\S]{0,400}?)(?:;|\n\s*(?:const|let|var|if|return|await|function|export|}|\/\/))/g;
+  let m;
+  while ((m = bindRe.exec(contents)) !== null) {
+    const name = m[1];
+    const rhs = m[2];
+    if (
+      ACCESS_CONTROL_HELPERS.some((re) => re.test(rhs)) ||
+      EXPLICIT_OWNER_FILTERS.some((re) => re.test(rhs))
+    ) {
+      names.add(name);
+    }
+  }
+  // Push-style: `X.push(accessFilter(...))` or `X.push(eq(t.ownerEmail, ...))`.
+  const pushRe = /\b([a-zA-Z_$][\w$]*)\.push\s*\(([^;]{0,400})\)/g;
+  while ((m = pushRe.exec(contents)) !== null) {
+    const name = m[1];
+    const arg = m[2];
+    if (
+      ACCESS_CONTROL_HELPERS.some((re) => re.test(arg)) ||
+      EXPLICIT_OWNER_FILTERS.some((re) => re.test(arg))
+    ) {
+      names.add(name);
+    }
+  }
+  return names;
+}
+
 function statementHasInlineAccessControl(stmt) {
   const snippet = stmt.snippet;
   if (ACCESS_CONTROL_HELPERS.some((re) => re.test(snippet))) return true;
