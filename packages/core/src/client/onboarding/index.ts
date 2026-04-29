@@ -5,6 +5,10 @@
  */
 
 export { useOnboarding, type UseOnboardingResult } from "./use-onboarding.js";
+export {
+  useOnboardingPreviewMode,
+  ONBOARDING_PREVIEW_STORAGE_KEY,
+} from "./use-preview-mode.js";
 export { OnboardingPanel } from "./OnboardingPanel.js";
 export { OnboardingBanner } from "./OnboardingBanner.js";
 export { SetupButton } from "./SetupButton.js";

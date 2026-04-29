@@ -162,6 +162,13 @@ export function createIntegrationsPlugin(
           const config = await getIntegrationConfig(adapter.platform);
           status.enabled = !!config?.configData?.enabled;
           status.webhookUrl = `${baseUrl}${P}/${adapter.platform}/webhook`;
+          if (!status.requiredEnvKeys) {
+            try {
+              status.requiredEnvKeys = adapter.getRequiredEnvKeys();
+            } catch {
+              status.requiredEnvKeys = [];
+            }
+          }
           statuses.push(status);
         }
         return statuses;
@@ -311,6 +318,13 @@ export function createIntegrationsPlugin(
           const config = await getIntegrationConfig(platform);
           status.enabled = !!config?.configData?.enabled;
           status.webhookUrl = `${baseUrl}${P}/${platform}/webhook`;
+          if (!status.requiredEnvKeys) {
+            try {
+              status.requiredEnvKeys = adapter.getRequiredEnvKeys();
+            } catch {
+              status.requiredEnvKeys = [];
+            }
+          }
           return status;
         }
 

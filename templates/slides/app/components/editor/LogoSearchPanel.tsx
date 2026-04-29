@@ -122,16 +122,16 @@ export default function LogoSearchPanel({
         transform: "translate(-50%, -50%)",
         zIndex: 9999,
       }}
-      className="w-[min(460px,calc(100vw-24px))] max-h-[560px] bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
+      className="w-[min(460px,calc(100vw-24px))] max-h-[560px] bg-popover border border-border rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
     >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
-        <h3 className="text-sm font-semibold text-white/90">
+        <h3 className="text-sm font-semibold text-foreground">
           {selectedDomain ? (
             <button
               onClick={() => setSelectedDomain(null)}
-              className="flex items-center gap-1.5 hover:text-white transition-colors"
+              className="flex items-center gap-1.5 hover:text-foreground transition-colors"
             >
-              <span className="text-white/40">&larr;</span>
+              <span className="text-muted-foreground">&larr;</span>
               {selectedDomain}
             </button>
           ) : (
@@ -140,7 +140,7 @@ export default function LogoSearchPanel({
         </h3>
         <button
           onClick={() => onOpenChange(false)}
-          className="text-white/30 hover:text-white/60 transition-colors"
+          className="text-muted-foreground/70 hover:text-muted-foreground transition-colors"
           aria-label="Close"
         >
           <IconX className="w-4 h-4" />
@@ -151,7 +151,7 @@ export default function LogoSearchPanel({
         <div className="px-4 pb-3 flex-shrink-0">
           <div className="flex gap-2">
             <div className="flex-1 relative">
-              <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+              <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
               <input
                 ref={inputRef}
                 type="text"
@@ -161,7 +161,7 @@ export default function LogoSearchPanel({
                   if (e.key === "Enter") handleSearch();
                 }}
                 placeholder="Search company name (e.g. Intuit)"
-                className="w-full pl-8 pr-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-[#609FF8]/50"
+                className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[#609FF8]/50"
               />
             </div>
             <button
@@ -188,14 +188,14 @@ export default function LogoSearchPanel({
 
         {/* IconSearch results */}
         {!selectedDomain && !loading && results.length === 0 && !error && (
-          <div className="text-center py-6 text-white/30 text-xs">
+          <div className="text-center py-6 text-muted-foreground text-xs">
             Search for a company to find their logo
           </div>
         )}
 
         {!selectedDomain && loading && (
           <div className="flex items-center justify-center py-8">
-            <IconLoader2 className="w-4 h-4 text-white/30 animate-spin" />
+            <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
           </div>
         )}
 
@@ -205,7 +205,7 @@ export default function LogoSearchPanel({
               <button
                 key={r.domain}
                 onClick={() => setSelectedDomain(r.domain)}
-                className="w-full flex items-center gap-3 p-2.5 rounded-lg border border-white/[0.08] bg-white/[0.02] hover:ring-2 hover:ring-[#609FF8]/50 transition-all text-left"
+                className="w-full flex items-center gap-3 p-2.5 rounded-lg border border-border bg-muted hover:ring-2 hover:ring-[#609FF8]/50 transition-all text-left"
               >
                 <LogoPreview
                   src={`https://cdn.brandfetch.io/${r.domain}/icon.png`}
@@ -213,12 +213,16 @@ export default function LogoSearchPanel({
                   className="w-10 h-10"
                 />
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs text-white/80 font-medium">
+                  <div className="text-xs text-foreground/90 font-medium">
                     {r.name}
                   </div>
-                  <div className="text-[10px] text-white/30">{r.domain}</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {r.domain}
+                  </div>
                 </div>
-                <span className="text-[10px] text-white/20">&rsaquo;</span>
+                <span className="text-[10px] text-muted-foreground/70">
+                  &rsaquo;
+                </span>
               </button>
             ))}
           </div>
@@ -229,7 +233,7 @@ export default function LogoSearchPanel({
           <div className="space-y-3">
             {variations.map((group) => (
               <div key={group.label}>
-                <div className="text-[10px] text-white/30 uppercase tracking-wider mb-1.5 px-0.5">
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 px-0.5">
                   {group.label}
                 </div>
                 <div className="grid grid-cols-3 gap-1.5">
@@ -237,7 +241,7 @@ export default function LogoSearchPanel({
                     <button
                       key={v.label}
                       onClick={() => handleSelect(v.url)}
-                      className="flex flex-col items-center gap-1.5 p-2 rounded-lg border border-white/[0.08] hover:ring-2 hover:ring-[#609FF8]/50 transition-all"
+                      className="flex flex-col items-center gap-1.5 p-2 rounded-lg border border-border hover:ring-2 hover:ring-[#609FF8]/50 transition-all"
                       style={{ backgroundColor: v.bg }}
                     >
                       <div
@@ -255,7 +259,7 @@ export default function LogoSearchPanel({
                           }}
                         />
                       </div>
-                      <span className="text-[9px] text-white/40 leading-tight text-center">
+                      <span className="text-[9px] text-muted-foreground leading-tight text-center">
                         {v.label}
                       </span>
                     </button>
@@ -283,7 +287,7 @@ function LogoPreview({
 }) {
   return (
     <div
-      className={`flex-shrink-0 rounded-md bg-white/[0.06] flex items-center justify-center overflow-hidden ${className}`}
+      className={`flex-shrink-0 rounded-md bg-accent flex items-center justify-center overflow-hidden ${className}`}
     >
       <img
         src={src}

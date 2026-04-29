@@ -301,13 +301,13 @@ export function DesignSystemSetup({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] p-0 bg-[hsl(240,5%,8%)] border-white/[0.08]">
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] p-0 bg-card border-border">
         <DialogHeader className="px-6 pt-6 pb-0">
-          <DialogTitle className="text-white/90 flex items-center gap-2">
+          <DialogTitle className="text-foreground flex items-center gap-2">
             <IconPalette className="w-5 h-5 text-[#609FF8]" />
             {editingId ? "Edit Design System" : "New Design System"}
           </DialogTitle>
-          <DialogDescription className="text-white/40">
+          <DialogDescription className="text-muted-foreground">
             {editingId
               ? "Update your brand identity."
               : "Provide any combination of sources — the more context, the better the result."}
@@ -318,12 +318,12 @@ export function DesignSystemSetup({
           <div className="space-y-5 py-4">
             {/* Company Name */}
             <div className="space-y-2">
-              <Label className="text-white/70">Company / Brand</Label>
+              <Label className="text-foreground/80">Company / Brand</Label>
               <Input
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
                 placeholder="Acme Inc. — We build developer tools..."
-                className="bg-white/[0.04] border-white/[0.08] text-white/90 placeholder:text-white/25"
+                className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
               />
             </div>
 
@@ -331,7 +331,7 @@ export function DesignSystemSetup({
               <>
                 {/* Website URL */}
                 <div className="space-y-2">
-                  <Label className="text-white/70 flex items-center gap-1.5">
+                  <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconWorld className="w-3.5 h-3.5" />
                     Website URL
                   </Label>
@@ -340,7 +340,7 @@ export function DesignSystemSetup({
                       value={websiteUrl}
                       onChange={(e) => setWebsiteUrl(e.target.value)}
                       placeholder="https://example.com"
-                      className="bg-white/[0.04] border-white/[0.08] text-white/90 placeholder:text-white/25"
+                      className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
                       onKeyDown={(e) => {
                         if (e.key === "Enter") addWebsiteUrl();
                       }}
@@ -364,7 +364,7 @@ export function DesignSystemSetup({
 
                 {/* GitHub */}
                 <div className="space-y-2">
-                  <Label className="text-white/70 flex items-center gap-1.5">
+                  <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconBrandGithub className="w-3.5 h-3.5" />
                     GitHub Repository
                   </Label>
@@ -373,7 +373,7 @@ export function DesignSystemSetup({
                       value={githubUrl}
                       onChange={(e) => setGithubUrl(e.target.value)}
                       placeholder="https://github.com/org/repo"
-                      className="bg-white/[0.04] border-white/[0.08] text-white/90 placeholder:text-white/25"
+                      className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
                       onKeyDown={(e) => {
                         if (e.key === "Enter") addGithubLink();
                       }}
@@ -397,7 +397,7 @@ export function DesignSystemSetup({
 
                 {/* Code Files */}
                 <div className="space-y-2">
-                  <Label className="text-white/70 flex items-center gap-1.5">
+                  <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconFolder className="w-3.5 h-3.5" />
                     Code Files
                   </Label>
@@ -409,9 +409,9 @@ export function DesignSystemSetup({
                         readTextFiles(e.dataTransfer.files, setCodeFiles);
                     }}
                     onDragOver={(e) => e.preventDefault()}
-                    className="w-full border border-dashed border-white/[0.08] rounded-lg p-4 text-center hover:border-white/[0.15] cursor-pointer"
+                    className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
                   >
-                    <p className="text-xs text-white/30">
+                    <p className="text-xs text-muted-foreground">
                       CSS, Tailwind config, theme files — drop or click
                     </p>
                   </button>
@@ -437,15 +437,15 @@ export function DesignSystemSetup({
 
                 {/* Documents */}
                 <div className="space-y-2">
-                  <Label className="text-white/70 flex items-center gap-1.5">
+                  <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconFileDescription className="w-3.5 h-3.5" />
                     Documents & Presentations
                   </Label>
                   <button
                     onClick={() => docInputRef.current?.click()}
-                    className="w-full border border-dashed border-white/[0.08] rounded-lg p-4 text-center hover:border-white/[0.15] cursor-pointer"
+                    className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
                   >
-                    <p className="text-xs text-white/30">
+                    <p className="text-xs text-muted-foreground">
                       PPTX, DOCX, PDF — brand guides, pitch decks
                     </p>
                   </button>
@@ -477,15 +477,15 @@ export function DesignSystemSetup({
 
                 {/* Images */}
                 <div className="space-y-2">
-                  <Label className="text-white/70 flex items-center gap-1.5">
+                  <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconPhoto className="w-3.5 h-3.5" />
                     Screenshots & Visual References
                   </Label>
                   <button
                     onClick={() => imageInputRef.current?.click()}
-                    className="w-full border border-dashed border-white/[0.08] rounded-lg p-4 text-center hover:border-white/[0.15] cursor-pointer"
+                    className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
                   >
-                    <p className="text-xs text-white/30">
+                    <p className="text-xs text-muted-foreground">
                       Product screenshots, mood boards, logos
                     </p>
                   </button>
@@ -518,7 +518,7 @@ export function DesignSystemSetup({
                 {/* Fork existing */}
                 {existingSystems.length > 0 && (
                   <div className="space-y-2">
-                    <Label className="text-white/70">
+                    <Label className="text-foreground/80">
                       Fork an existing design system
                     </Label>
                     <div className="grid grid-cols-2 gap-2">
@@ -535,12 +535,12 @@ export function DesignSystemSetup({
                             className={`text-left p-3 rounded-lg border cursor-pointer ${
                               selectedSystemId === ds.id
                                 ? "border-[#609FF8]/40 bg-[#609FF8]/5"
-                                : "border-white/[0.06] bg-white/[0.03] hover:border-white/[0.12]"
+                                : "border-border bg-accent hover:border-foreground/20"
                             }`}
                           >
                             <div className="flex items-center gap-2">
-                              <IconPalette className="w-3.5 h-3.5 text-white/40" />
-                              <span className="text-sm text-white/70 truncate">
+                              <IconPalette className="w-3.5 h-3.5 text-muted-foreground" />
+                              <span className="text-sm text-foreground/80 truncate">
                                 {ds.title}
                               </span>
                             </div>
@@ -554,7 +554,7 @@ export function DesignSystemSetup({
 
             {/* Brand Notes */}
             <div className="space-y-2">
-              <Label className="text-white/70">
+              <Label className="text-foreground/80">
                 {editingId ? "Brand Notes" : "Additional Notes"}
               </Label>
               <Textarea
@@ -562,19 +562,19 @@ export function DesignSystemSetup({
                 onChange={(e) => setBrandNotes(e.target.value)}
                 placeholder="Design preferences, constraints, brand guidelines..."
                 rows={3}
-                className="bg-white/[0.04] border-white/[0.08] text-white/90 placeholder:text-white/25 resize-none"
+                className="bg-accent border-border text-foreground placeholder:text-muted-foreground resize-none"
               />
             </div>
           </div>
         </ScrollArea>
 
         {/* Actions */}
-        <div className="flex justify-end gap-3 px-6 pb-6 pt-2 border-t border-white/[0.06]">
+        <div className="flex justify-end gap-3 px-6 pb-6 pt-2 border-t border-border">
           <Button
             variant="ghost"
             onClick={onClose}
             disabled={generating}
-            className="text-white/50 hover:text-white/80 cursor-pointer"
+            className="text-muted-foreground hover:text-foreground cursor-pointer"
           >
             Cancel
           </Button>
@@ -613,13 +613,13 @@ function TagList({
       {items.map((item, i) => (
         <div
           key={i}
-          className="flex items-center gap-2 text-sm text-white/60 bg-white/[0.03] rounded-md px-3 py-1.5"
+          className="flex items-center gap-2 text-sm text-foreground/80 bg-accent rounded-md px-3 py-1.5"
         >
-          <IconCheck className="w-3.5 h-3.5 text-green-400/60 shrink-0" />
+          <IconCheck className="w-3.5 h-3.5 text-green-500/70 shrink-0" />
           <span className="truncate flex-1">{item}</span>
           <button
             onClick={() => onRemove(i)}
-            className="text-white/30 hover:text-white/50 shrink-0 cursor-pointer"
+            className="text-muted-foreground hover:text-foreground/70 shrink-0 cursor-pointer"
           >
             <IconX className="w-3.5 h-3.5" />
           </button>
@@ -642,16 +642,16 @@ function FileList({
       {files.map((f) => (
         <div
           key={f.id}
-          className="flex items-center gap-2 text-sm text-white/60 bg-white/[0.03] rounded-md px-3 py-1.5"
+          className="flex items-center gap-2 text-sm text-foreground/80 bg-accent rounded-md px-3 py-1.5"
         >
-          <IconCheck className="w-3.5 h-3.5 text-green-400/60 shrink-0" />
+          <IconCheck className="w-3.5 h-3.5 text-green-500/70 shrink-0" />
           <span className="truncate flex-1">{f.name}</span>
-          <span className="text-[10px] text-white/20 shrink-0">
+          <span className="text-[10px] text-muted-foreground shrink-0">
             {formatSize(f.size)}
           </span>
           <button
             onClick={() => onRemove(f.id)}
-            className="text-white/30 hover:text-white/50 shrink-0 cursor-pointer"
+            className="text-muted-foreground hover:text-foreground/70 shrink-0 cursor-pointer"
           >
             <IconX className="w-3.5 h-3.5" />
           </button>

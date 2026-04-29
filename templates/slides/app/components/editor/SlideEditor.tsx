@@ -494,14 +494,14 @@ export default function SlideEditor({
       <div className="flex-1 overflow-hidden">
         {activeTab === "visual" ? (
           slide.excalidrawData ? (
-            <div className="h-full bg-[hsl(240,5%,5%)]">
+            <div className="h-full bg-muted">
               <ExcalidrawSlide
                 initialData={slide.excalidrawData}
                 onChange={(data) => onUpdateSlide({ excalidrawData: data })}
               />
             </div>
           ) : (
-            <div className="h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-[hsl(240,5%,5%)]">
+            <div className="h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-muted">
               <div ref={containerRef} className="w-full max-w-4xl">
                 <div
                   className="slide-image-clickable relative"

@@ -19,6 +19,8 @@ export interface EnvKeyConfig {
   label: string;
   /** Whether this key is required for the app to function */
   required?: boolean;
+  /** Optional UI hint shown next to the field describing where to find this value. */
+  helpText?: string;
 }
 
 export interface CreateServerOptions {
@@ -220,6 +222,7 @@ export function createServer(
           label: cfg.label,
           required: cfg.required ?? false,
           configured: !!process.env[cfg.key],
+          ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
         }));
       }),
     );

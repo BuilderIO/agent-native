@@ -36,9 +36,10 @@ export interface UseOnboardingResult {
 const DEFAULT_POLL_MS = 3000;
 
 export function useOnboarding(
-  options: { intervalMs?: number } = {},
+  options: { intervalMs?: number; preview?: boolean } = {},
 ): UseOnboardingResult {
   const intervalMs = options.intervalMs ?? DEFAULT_POLL_MS;
+  const preview = options.preview === true;
   const [steps, setSteps] = useState<OnboardingStepStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,8 +48,11 @@ export function useOnboarding(
 
   const fetchAll = useCallback(async () => {
     try {
+      const stepsUrl = preview
+        ? "/_agent-native/onboarding/steps?preview=1"
+        : "/_agent-native/onboarding/steps";
       const [stepsRes, dismissRes] = await Promise.all([
-        fetch("/_agent-native/onboarding/steps"),
+        fetch(stepsUrl),
         fetch("/_agent-native/onboarding/dismissed"),
       ]);
       if (!mountedRef.current) return;
@@ -72,7 +76,7 @@ export function useOnboarding(
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [preview]);
 
   useEffect(() => {
     mountedRef.current = true;

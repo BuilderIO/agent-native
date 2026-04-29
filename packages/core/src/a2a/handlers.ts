@@ -75,13 +75,21 @@ async function fireProcessTaskDispatch(
     // unsigned dispatches when no secret is set (mirrors the integration
     // webhook flow).
   }
-  fetch(url, {
+  // Race the fetch against a short timer. On Netlify Lambda, returning
+  // immediately can freeze the function before the outbound TCP handshake
+  // starts, leaving the request stuck. This gives it ~250ms to leave the
+  // box at the cost of slightly higher response latency on async A2A sends.
+  const dispatchPromise = fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({ taskId }),
   }).catch((err) => {
     console.error("[a2a] Process-task dispatch fetch failed:", err);
   });
+  await Promise.race([
+    dispatchPromise,
+    new Promise<void>((resolve) => setTimeout(resolve, 250)),
+  ]);
 }
 
 /**

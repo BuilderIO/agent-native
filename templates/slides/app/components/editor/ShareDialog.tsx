@@ -77,7 +77,7 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-[420px] bg-[hsl(240,5%,8%)] border-white/[0.08] p-4"
+        className="w-[420px] bg-card border-border p-4"
       >
         {showCloudUpgrade || isLocal ? (
           <CloudUpgrade
@@ -91,11 +91,11 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
         ) : (
           <>
             <div className="mb-3">
-              <div className="text-white/90 flex items-center gap-2 text-sm font-semibold">
+              <div className="text-foreground flex items-center gap-2 text-sm font-semibold">
                 <IconShare2 className="w-4 h-4 text-[#609FF8]" />
                 Share Presentation
               </div>
-              <div className="text-white/50 text-xs mt-0.5">
+              <div className="text-muted-foreground text-xs mt-0.5">
                 Create a shareable link for "{deck.title}". Only this
                 presentation will be accessible — no other decks.
               </div>
@@ -104,21 +104,21 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
             <div className="space-y-4">
               {!shareUrl ? (
                 <>
-                  <div className="bg-white/[0.03] rounded-lg p-3 border border-white/[0.06]">
-                    <h4 className="text-sm font-medium text-white/80 mb-2">
+                  <div className="bg-muted/50 rounded-lg p-3 border border-border">
+                    <h4 className="text-sm font-medium text-foreground/90 mb-2">
                       What gets shared:
                     </h4>
-                    <ul className="text-xs text-white/50 space-y-1">
+                    <ul className="text-xs text-muted-foreground space-y-1">
                       <li>
                         - Slide content and layouts ({deck.slides.length}{" "}
                         slides)
                       </li>
                       <li>- Presentation view (fullscreen)</li>
                     </ul>
-                    <h4 className="text-sm font-medium text-white/80 mt-3 mb-2">
+                    <h4 className="text-sm font-medium text-foreground/90 mt-3 mb-2">
                       What stays private:
                     </h4>
-                    <ul className="text-xs text-white/50 space-y-1">
+                    <ul className="text-xs text-muted-foreground space-y-1">
                       <li>- Speaker notes</li>
                       <li>- Other presentations</li>
                       <li>- Editing access</li>
@@ -155,18 +155,18 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
                     <input
                       readOnly
                       value={shareUrl}
-                      className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white/80 outline-none"
+                      className="flex-1 bg-accent/50 border border-border rounded-lg px-3 py-2 text-sm text-foreground/90 outline-none"
                     />
                     <button
                       onClick={handleCopy}
-                      className="flex-shrink-0 p-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] transition-colors"
+                      className="flex-shrink-0 p-2 rounded-lg bg-accent hover:bg-accent border border-border transition-colors"
                       title="Copy link"
                       aria-label="Copy link"
                     >
                       {copied ? (
                         <IconCheck className="w-4 h-4 text-green-400" />
                       ) : (
-                        <IconCopy className="w-4 h-4 text-white/60" />
+                        <IconCopy className="w-4 h-4 text-muted-foreground" />
                       )}
                     </button>
                   </div>
@@ -175,13 +175,13 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
                     href={shareUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] text-white/70 text-sm transition-colors"
+                    className="flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg bg-accent hover:bg-accent border border-border text-foreground/70 text-sm transition-colors"
                   >
                     <IconExternalLink className="w-3.5 h-3.5" />
                     Open shared link
                   </a>
 
-                  <p className="text-[11px] text-white/30 text-center">
+                  <p className="text-[11px] text-muted-foreground/70 text-center">
                     Anyone with this link can view this presentation.
                   </p>
                 </>

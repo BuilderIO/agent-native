@@ -12,6 +12,12 @@ export interface BuilderStatus {
   userId?: string;
   orgName?: string;
   orgKind?: string;
+  /**
+   * Set when the OAuth callback ran but failed to persist credentials.
+   * Surfaced as a one-shot row by the server so the connect-flow polling
+   * can stop with a clear message instead of timing out at 5min.
+   */
+  connectError?: { message: string; at: number };
 }
 
 /**
@@ -139,6 +145,7 @@ export function useBuilderConnectFlow(
       return (await r.json()) as {
         configured: boolean;
         orgName?: string | null;
+        connectError?: { message: string; at: number };
       };
     } catch {
       return null;
@@ -217,6 +224,14 @@ export function useBuilderConnectFlow(
           // Consumer's callback failed; we've already flipped the UI state
           // to connected. Swallow so we don't re-arm the flow.
         }
+      } else if (s?.connectError?.message) {
+        // OAuth callback ran but writeBuilderCredentials threw — surface the
+        // real error instead of letting the user wait 5 minutes for timeout.
+        stopPoll();
+        setConnecting(false);
+        setError(
+          `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
+        );
       } else if (Date.now() - started > POLL_TIMEOUT_MS) {
         stopPoll();
         setConnecting(false);
@@ -226,6 +241,23 @@ export function useBuilderConnectFlow(
       }
     }, POLL_INTERVAL_MS);
   }, [fetchStatus, popupUrl, stopPoll]);
+
+  // Popup-side fast path: the error page postMessages us so we stop polling
+  // immediately rather than waiting for the next 2s tick (and so we still
+  // surface the error if the settings-row write also failed).
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      const data = e.data as { type?: string; message?: string } | undefined;
+      if (data?.type !== "builder-connect-error") return;
+      if (typeof data.message !== "string" || !data.message) return;
+      stopPoll();
+      setConnecting(false);
+      setError(`Couldn't save Builder credentials: ${data.message}.`);
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [stopPoll]);
 
   return { configured, orgName, connecting, error, hasFetchedStatus, start };
 }

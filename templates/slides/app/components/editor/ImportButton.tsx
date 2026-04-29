@@ -50,7 +50,7 @@ export function ImportButton({ deckId, onImportComplete }: ImportButtonProps) {
       <TooltipTrigger asChild>
         <button
           onClick={() => fileRef.current?.click()}
-          className="p-1.5 rounded text-white/40 hover:text-white/70 hover:bg-white/[0.06] cursor-pointer"
+          className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
         >
           <IconUpload className="w-4 h-4" />
           <input
