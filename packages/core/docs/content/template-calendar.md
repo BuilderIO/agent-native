@@ -1,26 +1,61 @@
 ---
-title: "Calendar Template"
-description: "AI-native calendar with Google Calendar sync and a Calendly-style public booking page."
+title: "Calendar"
+description: "An agent-powered calendar with Google Calendar sync and Calendly-style booking links. Schedule, find slots, and manage availability through plain English."
 ---
 
-# Calendar Template
+# Calendar
 
-The Calendar template is a complete scheduling app: a full calendar UI on top of Google Calendar, plus Calendly-style public booking links, all driven by an agent that can schedule, search, and manage availability on your behalf. It replaces the Google Calendar + Calendly combo with something you own and can extend.
+An agent-powered calendar app. Connect your Google Calendar and the agent can read your schedule, find free slots, create events, and manage Calendly-style booking links — all in plain English. It replaces the Google Calendar + Calendly combo with one app you own.
 
-## Overview {#overview}
+When you open the app, you'll see your calendar in the middle and the agent in the sidebar. The agent always knows which day, week, or event you're looking at, so you can say "schedule a 30-minute call with Alex on this day" without spelling everything out.
 
-Calendar is for anyone who currently juggles Google Calendar for their own schedule and Calendly (or similar) for letting other people book time. It gives you:
+## What you can do with it
 
-- Day, week, and month calendar views backed by the Google Calendar API.
-- Multi-account Google OAuth, so several calendars can overlay in one view.
-- External ICS calendar subscriptions (webcal feeds).
-- Configurable weekly availability with timezone support.
-- Public booking links at `/book/{slug}` or `/meet/{username}/{slug}` with custom durations, custom fields, and meeting-link options.
-- An agent that can answer schedule questions, create events, find free slots, and manage booking links through natural language.
+- **See your real Google Calendar** in day, week, or month view, with multiple accounts overlayed.
+- **Subscribe to ICS feeds** (HR time off, conference schedules, team calendars) — read-only, mixed into the same view.
+- **Set weekly availability** with timezone support — the agent uses this when finding free slots.
+- **Create public booking links** at `/book/{slug}` for things like "15-minute intro" or "30-minute demo." Configure durations, custom fields, and which conferencing tool to use.
+- **Ask the agent anything schedule-related**: "Am I free Thursday afternoon?" "Find a 1-hour slot next week and put 'Planning with Alex' on it." "Pause my demo booking link."
+- **Share booking links** with teammates so they can manage them too.
 
-Events themselves are not copied into the local database. The app reads them from Google Calendar on every request. Bookings, booking links, and settings live in SQL.
+## Getting started
 
-## Quick start {#quick-start}
+Live demo: [calendar.agent-native.com](https://calendar.agent-native.com).
+
+When you first open the app:
+
+1. Click **Settings**.
+2. Click **Connect Google Calendar** and approve.
+3. (Optional) Connect more Google accounts if you want personal + work overlayed.
+4. Open the main view — your real calendar will load.
+
+To create your first booking link:
+
+1. Click **Booking Links** in the sidebar.
+2. Click **New booking link**, set a title and duration.
+3. Share the public URL — visitors pick from your available slots.
+
+Or just ask the agent: "Create a 15-minute intro booking link with a name field."
+
+### Useful prompts
+
+- "What is on my calendar today?"
+- "Am I free Thursday afternoon for 30 minutes?"
+- "Find a 1-hour slot next week and put 'Planning with Alex' on it."
+- "Reschedule this event to Friday at 2pm." (when an event is selected)
+- "Switch to day view and jump to next Monday."
+- "Create a booking link called '15 min intro' at 15 minutes with a note field."
+- "Pause my '30 min demo' booking link."
+- "Block Friday afternoons on my availability."
+- "What meetings do I have about 'launch' this month?"
+
+The agent will query Google Calendar live for any schedule question — it never guesses.
+
+## For developers
+
+The rest of this doc is for anyone forking the Calendar template or extending it.
+
+### Quick start
 
 Create a new workspace with the Calendar template:
 
@@ -33,29 +68,17 @@ pnpm dev
 
 Open `http://localhost:8082` (the default Calendar dev port).
 
-Live demo: [https://calendar.agent-native.com](https://calendar.agent-native.com).
+To connect Google Calendar in dev, open the Settings view, paste a `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from [Google Cloud Console](https://console.cloud.google.com/), and click "Connect Google Calendar". The OAuth redirect URI is `http://localhost:8082/_agent-native/google/callback` in dev. Tokens are stored in the `oauth_tokens` SQL table and refresh automatically.
 
-To connect Google Calendar, open the Settings view, paste a `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from [Google Cloud Console](https://console.cloud.google.com/), and click "Connect Google Calendar". The OAuth redirect URI is `http://localhost:8082/_agent-native/google/callback` in dev. Tokens are stored in the `oauth_tokens` SQL table and refresh automatically.
+### Key features (technical)
 
-## Key features {#key-features}
+**Calendar views.** The main view at `/` (route `app/routes/_app._index.tsx`) renders the calendar in day, week, or month mode. Switch views from the toolbar, or ask the agent to switch for you. Events are fetched live from Google Calendar — no local sync step is required to see the latest state.
 
-### Calendar views
+**Multi-account Google Calendar sync.** Connect as many Google accounts as you like. Each connection appears in Settings, and events from every connected calendar overlay in the main view. Sync is pull-based, so no webhooks or background workers are required. The `sync-google-calendar` action refetches a date range on demand. Supporting actions: `list-events`, `search-events`, `get-event`, `create-event`, `sync-google-calendar`.
 
-The main view at `/` (route `app/routes/_app._index.tsx`) renders the calendar in day, week, or month mode. Switch views from the toolbar, or ask the agent to switch for you. Events are fetched live from Google Calendar — no local sync step is required to see the latest state.
+**External calendars (ICS subscriptions).** Subscribe to read-only ICS or `webcal://` feeds — useful for HR time off, conference schedules, or shared team calendars. Feeds are added in Settings and stored per user. Relevant actions: `add-external-calendar`, `list-external-calendars`, `remove-external-calendar`, `update-external-calendars`.
 
-### Multi-account Google Calendar sync
-
-Connect as many Google accounts as you like. Each connection appears in Settings, and events from every connected calendar overlay in the main view. Sync is pull-based, so no webhooks or background workers are required. The `sync-google-calendar` action refetches a date range on demand.
-
-Supporting actions: `list-events`, `search-events`, `get-event`, `create-event`, `sync-google-calendar`.
-
-### External calendars (ICS subscriptions)
-
-Subscribe to read-only ICS or `webcal://` feeds — useful for HR time off, conference schedules, or shared team calendars. Feeds are added in Settings and stored per user. Relevant actions: `add-external-calendar`, `list-external-calendars`, `remove-external-calendar`, `update-external-calendars`.
-
-### Availability rules
-
-Availability is a weekly schedule of time windows per day, plus a timezone. It is stored in the settings table under the key `calendar-availability`:
+**Availability rules.** Availability is a weekly schedule of time windows per day, plus a timezone. It is stored in the settings table under the key `calendar-availability`:
 
 ```json
 {
@@ -77,9 +100,7 @@ Availability is a weekly schedule of time windows per day, plus a timezone. It i
 
 Edit it at `/availability` (`app/routes/_app.availability.tsx`) or via the `update-availability` action. The `check-availability` action reads this schedule, subtracts your existing Google Calendar events, and returns free slots of the requested duration.
 
-### Public booking pages
-
-Booking links are the Calendly replacement. Create one in the UI at `/booking-links` (`app/routes/_app.booking-links._index.tsx`), configure it in the editor at `/booking-links/{id}`, and share the public URL.
+**Public booking pages.** Booking links are the Calendly replacement. Create one in the UI at `/booking-links` (`app/routes/_app.booking-links._index.tsx`), configure it in the editor at `/booking-links/{id}`, and share the public URL.
 
 Every link has:
 
@@ -93,9 +114,7 @@ Visitors land on the public page, pick a date and time from the available slots,
 
 There is also a per-user public URL at `/meet/{username}/{slug}` for clean personal sharing.
 
-### Sharing booking links with teammates
-
-Booking links are private by default — only the creator can edit or delete them. To let a teammate manage a link, either change the link's visibility or grant explicit access. The framework ships these actions, auto-mounted for any `booking-link` resource:
+**Sharing booking links with teammates.** Booking links are private by default — only the creator can edit or delete them. To let a teammate manage a link, either change the link's visibility or grant explicit access. The framework ships these actions, auto-mounted for any `booking-link` resource:
 
 - `share-resource` — grant a user or org `viewer`, `editor`, or `admin` access.
 - `unshare-resource` — revoke a grant.
@@ -104,29 +123,15 @@ Booking links are private by default — only the creator can edit or delete the
 
 Sharing only controls who can manage the link. The public booking URL always accepts bookings from unauthenticated visitors as long as `isActive` is true.
 
-### Inline event previews in chat
+**Inline event previews in chat.** The `/event` route (`app/routes/event.tsx`) renders a compact, chromeless event card that the agent can embed in chat when you ask about a specific event. Title, time, location, attendees, and a description snippet are shown with a button to jump into the main calendar.
 
-The `/event` route (`app/routes/event.tsx`) renders a compact, chromeless event card that the agent can embed in chat when you ask about a specific event. Title, time, location, attendees, and a description snippet are shown with a button to jump into the main calendar.
-
-## Working with the agent {#working-with-the-agent}
+### Working with the agent
 
 The agent sees what you are looking at. The current calendar view, the selected date, and the selected event are included in every message as a `current-screen` block, so you can say "this event" or "this day" and it resolves correctly.
 
-Example prompts:
-
-- "What is on my calendar today?"
-- "Am I free Thursday afternoon for 30 minutes?"
-- "Find a 1-hour slot next week and put 'Planning with Alex' on it."
-- "Reschedule this event to Friday at 2pm." (when an event is selected)
-- "Switch to day view and jump to next Monday."
-- "Create a booking link called '15 min intro' at 15 minutes with a note field."
-- "Pause my '30 min demo' booking link."
-- "Block Friday afternoons on my availability."
-- "What meetings do I have about 'launch' this month?"
-
 Under the hood the agent calls actions like `list-events`, `check-availability`, `create-event`, `navigate`, and `update-availability`. Because events live in Google Calendar, the agent always queries the API instead of guessing — it will not return empty results without running a script first.
 
-## Data model {#data-model}
+### Data model
 
 Defined in `templates/calendar/server/db/schema.ts`. Only non-event data is stored locally:
 
@@ -137,7 +142,7 @@ Defined in `templates/calendar/server/db/schema.ts`. Only non-event data is stor
 
 Availability rules and per-user configuration live in the settings table, keyed by `calendar-availability`. Google OAuth tokens live in the framework `oauth_tokens` table. Ephemeral UI state (current view, date, selected event) lives in `application_state` under the `navigation` key.
 
-## Customizing it {#customizing-it}
+### Customizing it
 
 Every part of the app is editable source. Start here:
 

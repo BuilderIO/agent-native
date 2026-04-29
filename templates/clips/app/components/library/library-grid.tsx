@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -7,6 +7,7 @@ import {
   useTrashRecording,
   useArchiveRecording,
   useRestoreRecording,
+  useRenameRecording,
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
@@ -16,6 +17,14 @@ import { SortMenu, type SortKey } from "./sort-menu";
 import { FilterChips, type FilterChip } from "./filter-chips";
 import { BulkActionToolbar } from "./bulk-action-toolbar";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { IconChecks } from "@tabler/icons-react";
 
 interface LibraryGridProps {
@@ -57,6 +66,10 @@ export function LibraryGrid({
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
+  const [renamingRec, setRenamingRec] = useState<RecordingSummary | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const [isBulkPending, setIsBulkPending] = useState(false);
 
   const args: ListRecordingsArgs = useMemo(
     () => ({
@@ -76,6 +89,7 @@ export function LibraryGrid({
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
   const restoreRecording = useRestoreRecording();
+  const renameRecording = useRenameRecording();
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -89,6 +103,32 @@ export function LibraryGrid({
   const clearSelection = () => {
     setSelected(new Set());
     setSelectionMode(false);
+  };
+
+  const openRenameDialog = (rec: RecordingSummary) => {
+    setRenamingRec(rec);
+    setRenameValue(rec.title ?? "");
+    // Focus the input after dialog opens
+    setTimeout(() => renameInputRef.current?.select(), 50);
+  };
+
+  const submitRename = () => {
+    if (!renamingRec) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      toast.error("Title cannot be empty");
+      return;
+    }
+    renameRecording.mutate(
+      { id: renamingRec.id, title: trimmed },
+      {
+        onSuccess: () => {
+          toast.success("Clip renamed");
+          setRenamingRec(null);
+        },
+        onError: () => toast.error("Failed to rename clip"),
+      },
+    );
   };
 
   const chips: FilterChip[] = [];
@@ -115,6 +155,46 @@ export function LibraryGrid({
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
+      {/* Rename dialog */}
+      <Dialog
+        open={!!renamingRec}
+        onOpenChange={(open) => {
+          if (!open) setRenamingRec(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename clip</DialogTitle>
+          </DialogHeader>
+          <Input
+            ref={renameInputRef}
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submitRename();
+            }}
+            placeholder="Clip title"
+            className="mt-1"
+            autoFocus
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRenamingRec(null)}
+              disabled={renameRecording.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={submitRename}
+              disabled={renameRecording.isPending || !renameValue.trim()}
+            >
+              {renameRecording.isPending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Header */}
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3">
         <div className="min-w-0">
@@ -175,6 +255,7 @@ export function LibraryGrid({
                   selected={selected.has(r.id)}
                   selectionMode={selectionMode}
                   onToggleSelect={toggleSelect}
+                  onRename={openRenameDialog}
                   onMove={(rec) => {
                     moveRecording.mutate(
                       { id: rec.id, folderId: null },
@@ -226,13 +307,68 @@ export function LibraryGrid({
                   toast.info("Add to space: implement via shadcn dialog")
                 }
                 onTag={() => toast.info("Tag: implement via shadcn dialog")}
-                onArchive={() =>
-                  toast.info("Archive: wire to archive-recording action")
-                }
-                onTrash={() =>
-                  toast.info("Trash: wire to trash-recording action")
-                }
+                onArchive={async () => {
+                  setIsBulkPending(true);
+                  try {
+                    const ids = Array.from(selected);
+                    const results = await Promise.allSettled(
+                      ids.map((id) => archiveRecording.mutateAsync({ id })),
+                    );
+                    const succeededIds = ids.filter(
+                      (_, i) => results[i].status === "fulfilled",
+                    );
+                    const failed = ids.length - succeededIds.length;
+                    if (succeededIds.length > 0) {
+                      toast.success(
+                        `${succeededIds.length} clip${succeededIds.length === 1 ? "" : "s"} archived`,
+                      );
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        succeededIds.forEach((id) => next.delete(id));
+                        return next;
+                      });
+                    }
+                    if (failed > 0) {
+                      toast.error(
+                        `${failed} clip${failed === 1 ? "" : "s"} could not be archived`,
+                      );
+                    }
+                  } finally {
+                    setIsBulkPending(false);
+                  }
+                }}
+                onTrash={async () => {
+                  setIsBulkPending(true);
+                  try {
+                    const ids = Array.from(selected);
+                    const results = await Promise.allSettled(
+                      ids.map((id) => trashRecording.mutateAsync({ id })),
+                    );
+                    const succeededIds = ids.filter(
+                      (_, i) => results[i].status === "fulfilled",
+                    );
+                    const failed = ids.length - succeededIds.length;
+                    if (succeededIds.length > 0) {
+                      toast.success(
+                        `${succeededIds.length} clip${succeededIds.length === 1 ? "" : "s"} moved to trash`,
+                      );
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        succeededIds.forEach((id) => next.delete(id));
+                        return next;
+                      });
+                    }
+                    if (failed > 0) {
+                      toast.error(
+                        `${failed} clip${failed === 1 ? "" : "s"} could not be moved to trash`,
+                      );
+                    }
+                  } finally {
+                    setIsBulkPending(false);
+                  }
+                }}
                 onClear={clearSelection}
+                isPending={isBulkPending}
               />
             </div>
           </div>

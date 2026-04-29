@@ -47,6 +47,7 @@ function taskFromRow(row: any): Task {
 export async function createTask(
   message: Message,
   contextId?: string,
+  metadata?: Record<string, unknown>,
 ): Promise<Task> {
   await ensureTable();
   const client = getDbExec();
@@ -60,10 +61,11 @@ export async function createTask(
     status: { state: "submitted", timestamp },
     history: [message],
     artifacts: [],
+    metadata,
   };
 
   await client.execute({
-    sql: `INSERT INTO a2a_tasks (id, context_id, status_state, status_timestamp, history, artifacts, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO a2a_tasks (id, context_id, status_state, status_timestamp, history, artifacts, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       contextId ?? null,
@@ -71,12 +73,50 @@ export async function createTask(
       timestamp,
       JSON.stringify([message]),
       "[]",
+      metadata ? JSON.stringify(metadata) : null,
       now,
       now,
     ],
   });
 
   return task;
+}
+
+/**
+ * Atomically claim a task for processing. Only succeeds when the task is in
+ * state 'submitted' or 'working' — flipping it to 'processing' so concurrent
+ * processors can't pick it up twice. Returns the task if claimed, null if it
+ * was already claimed/completed/missing.
+ *
+ * Used by the cross-platform async processor (`_process-task` route) to avoid
+ * duplicate handler runs when retries fire.
+ */
+export async function claimA2ATaskForProcessing(
+  id: string,
+): Promise<Task | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  const timestamp = new Date().toISOString();
+
+  const result = await client.execute({
+    sql: `UPDATE a2a_tasks
+            SET status_state = 'processing',
+                status_timestamp = ?,
+                updated_at = ?
+          WHERE id = ?
+            AND status_state IN ('submitted', 'working')`,
+    args: [timestamp, now, id],
+  });
+  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
+  if (affected === 0) return null;
+
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
+    args: [id],
+  });
+  if (rows.length === 0) return null;
+  return taskFromRow(rows[0]);
 }
 
 export async function getTask(id: string): Promise<Task | null> {

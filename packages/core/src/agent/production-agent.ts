@@ -47,19 +47,37 @@ export { PROVIDER_TO_ENV };
  * Look up a user's persisted API key for the given provider. Returns
  * `undefined` for unauthenticated/local callers so the shared platform key
  * is never keyed off `local@localhost` in multi-tenant deployments.
+ *
+ * Read order:
+ *   1. `app_secrets` — encrypted, scope=user, current source of truth.
+ *   2. Legacy `user-api-key:<provider>:<email>` settings row — pre-migration
+ *      data that hasn't been backfilled yet. Surfaced for compat only;
+ *      writes always go to app_secrets now.
  */
 export async function getOwnerApiKey(
   provider: string,
   ownerEmail: string | null | undefined,
 ): Promise<string | undefined> {
   if (!ownerEmail || ownerEmail === "local@localhost") return undefined;
+  const secretKey =
+    PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
+  try {
+    const { readAppSecret } = await import("../secrets/storage.js");
+    const fromSecrets = await readAppSecret({
+      key: secretKey,
+      scope: "user",
+      scopeId: ownerEmail,
+    });
+    if (fromSecrets?.value) return fromSecrets.value;
+  } catch {
+    // app_secrets table not ready — fall through to legacy lookup.
+  }
   try {
     const { getSetting } = await import("../settings/store.js");
     const stored = await getSetting(`user-api-key:${provider}:${ownerEmail}`);
     const key =
       stored && typeof stored.key === "string" ? stored.key.trim() : "";
     if (key) return key;
-    // Backward compat: check legacy Anthropic key format
     if (provider === "anthropic") {
       const legacy = await getSetting(`user-anthropic-api-key:${ownerEmail}`);
       const legacyKey =

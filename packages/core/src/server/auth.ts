@@ -397,10 +397,19 @@ let _authGuardConfig: AuthGuardConfig | null = null;
 // Desktop OAuth exchange store — holds session tokens keyed by a unique flow
 // ID so native apps (Tauri, Electron) that open OAuth in the system browser
 // can retrieve the token after the callback completes on the server.
+//
+// Primary: in-memory Map (fast, works for single-instance dev/preview builds).
+// Fallback: sessions table with a "dex:" prefixed key for cross-instance
+// durability (Cloudflare Workers, multi-region deployments). The value stored
+// in the `email` column is "{realToken}::{userEmail}" so both can be recovered
+// from a single DB lookup.
 const _desktopExchanges = new Map<
   string,
   { token: string; email: string; expiresAt: number }
 >();
+
+// 5-minute TTL for exchange entries (short — single-use tokens).
+const DESKTOP_EXCHANGE_TTL_MS = 5 * 60 * 1000;
 
 export function setDesktopExchange(
   flowId: string,
@@ -410,9 +419,64 @@ export function setDesktopExchange(
   _desktopExchanges.set(flowId, {
     token,
     email,
-    expiresAt: Date.now() + 5 * 60 * 1000,
+    expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
   });
+  // Persist to DB so the token survives cross-instance routing (e.g. when
+  // templates call this helper directly instead of going through the OAuth
+  // callback path).
+  void persistDesktopExchangeToDB(flowId, token, email);
 }
+
+/**
+ * Persist a desktop exchange entry to the sessions table so it survives
+ * cross-instance routing (e.g. Cloudflare Workers). Stored under a synthetic
+ * token key "dex:{flowId}"; the `email` column packs both the real session
+ * token and the user email so they can be recovered in one query.
+ * Non-fatal — if the DB isn't ready yet the in-memory Map still works for
+ * same-instance requests.
+ */
+async function persistDesktopExchangeToDB(
+  flowId: string,
+  token: string,
+  email: string,
+): Promise<void> {
+  try {
+    await addSession(`dex:${flowId}`, `${token}::${email}`);
+  } catch {
+    // non-fatal — in-memory Map is the primary path
+  }
+}
+
+/**
+ * Retrieve and consume a desktop exchange entry from the DB fallback.
+ * Returns null if not found or already consumed.
+ */
+async function consumeDesktopExchangeFromDB(
+  flowId: string,
+): Promise<{ token: string; email: string } | null> {
+  try {
+    // Atomic DELETE...RETURNING prevents token replay: two concurrent polls
+    // cannot both retrieve the token because only one DELETE will match the row.
+    // SQLite ≥3.35 and PostgreSQL both support this syntax.
+    // The created_at predicate enforces the 5-minute TTL so stale DB entries
+    // (e.g. the desktop app never polled) are rejected rather than silently
+    // redeemed with the session table's default 30-day TTL.
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? RETURNING email`,
+      args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
+    });
+    if (rows.length === 0) return null;
+    const packed = (rows[0].email ?? rows[0][0]) as string | null;
+    if (!packed) return null;
+    const sepIdx = packed.indexOf("::");
+    if (sepIdx === -1) return null;
+    return { token: packed.slice(0, sepIdx), email: packed.slice(sepIdx + 2) };
+  } catch {
+    return null;
+  }
+}
+
 setInterval(() => {
   const now = Date.now();
   for (const [k, v] of _desktopExchanges) {
@@ -561,6 +625,16 @@ function createAuthGuardFn(): (
     // A2A endpoint verifies authenticity via JWT signed with the org's A2A
     // secret (or the global A2A_SECRET fallback), not via session cookies.
     if (p === "/_agent-native/a2a") {
+      return;
+    }
+
+    // Internal processor endpoint for the A2A async-mode fanout. Mirrors the
+    // integration webhook fanout: when `message/send` is called with
+    // `async: true`, the JSON-RPC handler enqueues to a2a_tasks and self-
+    // fires a POST here so the handler runs in a fresh function execution.
+    // Authenticity is verified via an HMAC token signed with A2A_SECRET
+    // (same scheme as /_agent-native/integrations/process-task).
+    if (p === "/_agent-native/a2a/_process-task") {
       return;
     }
 
@@ -1195,8 +1269,12 @@ async function mountBetterAuthRoutes(
             _desktopExchanges.set(flowId, {
               token: sessionToken,
               email,
-              expiresAt: Date.now() + 5 * 60 * 1000,
+              expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
             });
+            // Also persist to DB for cross-instance durability (Cloudflare
+            // Workers, multi-region). Fire-and-forget — in-memory Map is
+            // still the primary fast path for same-instance requests.
+            void persistDesktopExchangeToDB(flowId, sessionToken, email);
           }
 
           return oauthCallbackResponse(event, email, {
@@ -1218,7 +1296,7 @@ async function mountBetterAuthRoutes(
   // afterwards since they don't share a cookie jar with the browser.
   app.use(
     "/_agent-native/auth/desktop-exchange",
-    defineEventHandler((event) => {
+    defineEventHandler(async (event) => {
       if (getMethod(event) !== "GET") {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -1228,11 +1306,25 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
       }
-      const entry = _desktopExchanges.get(flowId);
+      let entry = _desktopExchanges.get(flowId);
       if (!entry || entry.expiresAt < Date.now()) {
-        return { pending: true };
+        // In-memory miss — fall back to the DB-persisted entry. This handles
+        // cross-instance routing (Cloudflare Workers, multi-region) where the
+        // OAuth callback and the polling request may hit different isolates.
+        const fromDb = await consumeDesktopExchangeFromDB(flowId);
+        if (!fromDb) {
+          return { pending: true };
+        }
+        entry = {
+          token: fromDb.token,
+          email: fromDb.email,
+          expiresAt: Date.now() + 1, // already consumed from DB
+        };
       }
       _desktopExchanges.delete(flowId);
+      // Also wipe the DB-persisted entry so it cannot be replayed via the
+      // DB fallback path after in-memory consumption.
+      void removeSession(`dex:${flowId}`);
       return { token: entry.token, email: entry.email };
     }),
   );

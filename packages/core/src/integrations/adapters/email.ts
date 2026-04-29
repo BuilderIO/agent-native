@@ -203,13 +203,20 @@ export function emailAdapter(): PlatformAdapter {
       const displayName =
         (config?.configData?.displayName as string) || "Dispatch Agent";
 
+      // EMAIL_FROM overrides the from-address — required when the receiving
+      // address is on a sub-domain that can't be a verified sender (e.g.
+      // *.resend.app). Inbound and outbound addresses can differ.
+      const fromAddress = process.env.EMAIL_FROM
+        ? process.env.EMAIL_FROM
+        : `${displayName} <${agentAddress}>`;
+
       const subject = context.platformContext.subject as string;
       const reSubject = subject.startsWith("Re: ") ? subject : `Re: ${subject}`;
 
       try {
         await sendEmail({
           to: context.senderId!,
-          from: `${displayName} <${agentAddress}>`,
+          from: fromAddress,
           subject: reSubject,
           html: message.text,
           text: stripHtmlForPlainText(message.text),

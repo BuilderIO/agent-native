@@ -17,6 +17,7 @@ interface BulkActionToolbarProps {
   onArchive?: () => void;
   onTrash?: () => void;
   onClear?: () => void;
+  isPending?: boolean;
 }
 
 export function BulkActionToolbar({
@@ -27,6 +28,7 @@ export function BulkActionToolbar({
   onArchive,
   onTrash,
   onClear,
+  isPending = false,
 }: BulkActionToolbarProps) {
   if (count === 0) return null;
   return (
@@ -64,6 +66,7 @@ export function BulkActionToolbar({
         size="sm"
         className="h-8 gap-1.5"
         onClick={onArchive}
+        disabled={isPending}
       >
         <IconArchive className="h-3.5 w-3.5" /> Archive
       </Button>
@@ -72,6 +75,7 @@ export function BulkActionToolbar({
         size="sm"
         className="h-8 gap-1.5 text-destructive hover:text-destructive"
         onClick={onTrash}
+        disabled={isPending}
       >
         <IconTrash className="h-3.5 w-3.5" /> Trash
       </Button>

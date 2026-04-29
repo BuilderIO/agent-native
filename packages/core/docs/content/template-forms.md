@@ -5,24 +5,26 @@ description: "Agent-native form builder — create, edit, and analyze forms thro
 
 # Forms
 
-Forms is an agent-native form builder with a simple premise: everything the GUI can do, the agent can do, and vice versa. You can drag fields around in the editor, or you can type "add a 'how did you hear about us' dropdown with five options and make it required" — same result, same underlying data.
+A form builder where the form builder _is_ the agent. Drag fields around in the editor, or just say "add a 'how did you hear about us' dropdown with five options and make it required" — same result, same underlying data. Think Typeform, but you can build, edit, and analyze forms by talking to the agent.
 
-Think Typeform, but the form builder _is_ the agent.
+When you open the app, you'll see a list of your forms on the left and the editor in the middle. Open a form and you can click any field to fine-tune it, or ask the agent to make changes for you.
 
-## What it does {#what-it-does}
+## What you can do with it
 
-- **Build forms conversationally.** "Create a contact form," "add a NPS score question," "make the email field required." The agent updates the schema; the preview updates live.
+- **Build forms conversationally.** "Create a contact form," "add an NPS score question," "make the email field required." The agent updates the schema and the preview updates live.
 - **Click-to-edit fine-tuning.** Every field in the preview is editable in place — label, placeholder, validation, conditional logic — with the usual GUI controls.
-- **Field types** out of the box: short text, long text, email, phone, URL, number, date, single-select, multi-select, rating, file upload, section header, conditional branch.
-- **Responses dashboard.** Per-response view + an aggregate dashboard the agent can pivot on request: "show me signups from the last 30 days grouped by source."
+- **Field types out of the box:** short text, long text, email, phone, URL, number, date, single-select, multi-select, rating, file upload, section header, conditional branch.
+- **Responses dashboard.** Per-response view plus an aggregate dashboard the agent can pivot on request: "show me signups from the last 30 days grouped by source."
 - **Agent-driven analysis.** Ask the agent to cluster free-text responses, extract sentiments, or draft a reply to everyone who scored the NPS below 7.
-- **Publishing.** Public share link with embed snippet, branded thank-you page, webhook on submit.
+- **Publish anywhere.** Public share link, embed snippet, branded thank-you page, webhook on submit.
 
-## Why it's interesting {#why}
+## Why it's interesting
 
-Forms is a clear example of the [ladder](/docs/what-is-agent-native#the-ladder) rung 3 payoff. The hard part of a form builder isn't the editor UI — it's everything around it: schema evolution, response analytics, conditional logic, publishing, notifications, integrations. Most of that is just prompting the agent, because every capability is an action the agent can call.
+Forms is a clear example of the [ladder](/docs/what-is-agent-native#the-ladder) rung-3 payoff. The hard part of a form builder isn't the editor UI — it's everything around it: schema evolution, response analytics, conditional logic, publishing, notifications, integrations. Most of that is just prompting the agent, because every capability is an action the agent can call.
 
-## Scaffolding {#scaffolding}
+## For developers
+
+### Scaffolding
 
 ```bash
 pnpm dlx @agent-native/core create my-forms --template forms --standalone
@@ -34,7 +36,7 @@ For a workspace with forms alongside other apps:
 pnpm dlx @agent-native/core create my-platform  # pick Forms + other templates
 ```
 
-## Customize it {#customize}
+### Customize it
 
 Ask the agent:
 
