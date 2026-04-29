@@ -230,6 +230,12 @@ export const updateDeck = defineEventHandler(async (event) => {
       try {
         await assertAccess("deck", id, "editor");
       } catch (err) {
+        if (err instanceof ForbiddenError) {
+          // Return 404 (not 403) so we don't leak the existence of decks
+          // the caller has no access to — same pattern as getDeck/deleteDeck.
+          setResponseStatus(event, 404);
+          return { error: "Deck not found" };
+        }
         return handleForbidden(event, err);
       }
       await db

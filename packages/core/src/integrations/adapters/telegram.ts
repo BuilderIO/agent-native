@@ -226,7 +226,8 @@ export function telegramAdapter(): PlatformAdapter {
     formatAgentResponse(text: string): OutgoingMessage {
       // Telegram's legacy Markdown uses single asterisks for bold, not double.
       // `[text](url)` is already supported natively.
-      const normalized = text.replace(/\*\*(.+?)\*\*/g, "*$1*");
+      // 's' flag (dotAll) so `.` matches newlines — bold text can span lines.
+      const normalized = text.replace(/\*\*(.+?)\*\*/gs, "*$1*");
       return { text: normalized, platformContext: { parse_mode: "Markdown" } };
     },
 
