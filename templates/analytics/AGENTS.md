@@ -215,28 +215,28 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 
 ### Data Source Scripts
 
-| Action               | Args / Flags                | Use For                         |
-| -------------------- | --------------------------- | ------------------------------- |
-| `github-prs`         | `--org`, `--query`          | PR & issue search               |
-| `hubspot-deals`      | `--grep`, `--fields`        | CRM deals, pipelines            |
-| `hubspot-metrics`    |                             | CRM metrics summary             |
-| `hubspot-pipelines`  |                             | Pipeline stages                 |
-| `jira-search`        | `--jql`, `--fields`         | Ticket search                   |
-| `jira-analytics`     |                             | Sprint tracking, velocity       |
-| `pylon-issues`       | `--account`, `--state`      | Support tickets                 |
-| `gong-calls`         | `--company`, `--days`       | Sales call recordings           |
-| `apollo-search`      | `--query`                   | Contact/company enrichment      |
-| `seo-top-keywords`   | `--grep`, `--fields`        | Keyword rankings                |
-| `seo-page-keywords`  | `--url`                     | Keywords for a specific page    |
-| `seo-blog-pages`     |                             | Blog page SEO metrics           |
-| `ga4-report`         | `--metrics`, `--dimensions` | Google Analytics reports        |
-| `bigquery`           | `--sql`                     | Ad-hoc BigQuery queries         |
-| `mixpanel-events`    |                             | Mixpanel event data             |
-| `posthog-events`     |                             | PostHog event data              |
-| `amplitude-events`   |                             | Amplitude event data            |
-| `commonroom-members` | `--grep`                    | Community member lookup         |
-| `twitter-tweets`     |                             | Tweet engagement                |
-| `generate-chart`     | `--type`, `--data`          | Generate inline charts for chat |
+| Action               | Args / Flags                | Use For                                                                                                                     |
+| -------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `github-prs`         | `--org`, `--query`          | PR & issue search                                                                                                           |
+| `hubspot-deals`      | `--grep`, `--fields`        | CRM deals, pipelines                                                                                                        |
+| `hubspot-metrics`    |                             | CRM metrics summary                                                                                                         |
+| `hubspot-pipelines`  |                             | Pipeline stages                                                                                                             |
+| `jira-search`        | `--jql`, `--fields`         | Ticket search                                                                                                               |
+| `jira-analytics`     |                             | Sprint tracking, velocity                                                                                                   |
+| `pylon-issues`       | `--account`, `--state`      | Support tickets                                                                                                             |
+| `gong-calls`         | `--company`, `--days`       | Sales call recordings                                                                                                       |
+| `apollo-search`      | `--query`                   | Contact/company enrichment                                                                                                  |
+| `seo-top-keywords`   | `--grep`, `--fields`        | Keyword rankings                                                                                                            |
+| `seo-page-keywords`  | `--url`                     | Keywords for a specific page                                                                                                |
+| `seo-blog-pages`     |                             | Blog page SEO metrics                                                                                                       |
+| `ga4-report`         | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                    |
+| `bigquery`           | `--sql`                     | Ad-hoc BigQuery queries (**also available as a native callable agent tool** — call it directly; don't use HTTP workarounds) |
+| `mixpanel-events`    |                             | Mixpanel event data                                                                                                         |
+| `posthog-events`     |                             | PostHog event data                                                                                                          |
+| `amplitude-events`   |                             | Amplitude event data                                                                                                        |
+| `commonroom-members` | `--grep`                    | Community member lookup                                                                                                     |
+| `twitter-tweets`     |                             | Tweet engagement                                                                                                            |
+| `generate-chart`     | `--type`, `--data`          | Generate inline charts for chat                                                                                             |
 
 ### Built-in Filtering
 

@@ -19,6 +19,14 @@
  * not metering.
  */
 
+// guard:allow-unscoped — anonymous analytics sink. The bare existence
+// check on snippets/calls is by design: the viewer may not be signed in,
+// and we only need to confirm the id is real before recording analytics.
+// Visibility/access is enforced upstream by the share-link / playback
+// route the viewer arrived from. If you ever return resource content
+// (title, body, transcript) from this endpoint, drop this marker and
+// switch to `resolveAccess`.
+
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";

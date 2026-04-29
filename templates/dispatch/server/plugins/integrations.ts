@@ -18,6 +18,7 @@ Default posture:
 
 When a user asks for something:
 - If it belongs to analytics, content, slides, videos, etc., delegate via call-agent — do not re-implement the domain logic in dispatch.
+- After call-agent returns an answer, RELAY IT DIRECTLY to the user with at most a one-line preface — do not rephrase, summarize, or add commentary. The downstream agent already crafted the answer; your job is delivery, not editing. This minimizes round-trips and keeps the user-visible reply fast.
 - For digests, reminders, or saved behavior, prefer recurring jobs, resources, or destinations over chat replies.
 - Keep responses concise and operational — messaging platforms have character limits.
 - Use markdown sparingly (bold and lists are fine, avoid complex formatting).
@@ -29,4 +30,9 @@ export default createIntegrationsPlugin({
   resolveOwner: resolveDispatchOwner,
   beforeProcess: beforeDispatchProcess,
   systemPrompt: DISPATCH_INTEGRATION_SYSTEM_PROMPT,
+  // Use Haiku for the dispatch routing layer — it's a thin shim that mostly
+  // delegates to specialized agents, and Sonnet's extra latency pushes the
+  // total round-trip past the 26s function timeout for delegations that
+  // include a slow downstream call (e.g. BigQuery via analytics).
+  model: "claude-haiku-4-5-20251001",
 });

@@ -306,8 +306,9 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
       const ws = await getWorkspaceCoreExports(cwd);
       if (ws && Object.keys(ws.plugins).length > 0) {
         try {
-          const wsServerModule = await import(
-            /* @vite-ignore */ `${ws.packageName}/server`
+          const wsServerModule = await loadWorkspaceCoreServer(
+            ws.packageName,
+            ws.packageDir,
           );
           for (const [slot, exportName] of Object.entries(ws.plugins)) {
             if (!exportName) continue;
@@ -322,9 +323,20 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
             );
           }
         } catch (e) {
+          const msg = (e as Error).message ?? "";
+          // Common cause: workspace-core's package.json points "./server"
+          // at a TS source file (the scaffold default), but Node can't
+          // resolve relative `.js` imports inside it without a TS loader.
+          // Tell the user to compile to dist/ rather than just dumping the
+          // raw resolution error.
+          const tsLoadHint = /\.js' imported from .*\.ts/.test(msg)
+            ? " — workspace-core src is TypeScript but isn't being compiled. " +
+              "Run `pnpm --filter " +
+              ws.packageName +
+              " build` and point its `./server` export at dist/server/index.js."
+            : "";
           console.warn(
-            `[agent-native] Failed to load workspace core ${ws.packageName}/server:`,
-            (e as Error).message,
+            `[agent-native] Failed to load workspace core ${ws.packageName}/server: ${msg}${tsLoadHint}`,
           );
         }
       }
@@ -354,6 +366,55 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     }
   } finally {
     IN_BOOTSTRAP.delete(nitroApp);
+  }
+}
+
+/**
+ * Load a workspace-core's `/server` entry, transparently handling TS source.
+ *
+ * The scaffolded workspace-core template ships TS sources without a build
+ * step (exports point at `./src/server/index.ts`), so plain `await import()`
+ * blows up the moment Node hits a relative `.js` import inside (the standard
+ * TS ESM convention) — and even before that, Node may resolve the package
+ * relative to the framework's own location rather than the user's monorepo.
+ *
+ * We try Node's plain `import()` first (fastest path when the user has
+ * compiled to dist/) and fall through to jiti on any error. jiti is anchored
+ * to a real file inside the workspace-core's directory, so its module
+ * resolution starts in the right node_modules tree (handles pnpm hoisting
+ * and linked workspaces) AND handles TS source files + `.js` → `.ts` ESM
+ * extension remapping.
+ *
+ * Edge runtimes without `fs` won't be able to load jiti at all; the outer
+ * try/catch silently falls through to framework defaults in that case.
+ */
+export async function loadWorkspaceCoreServer(
+  packageName: string,
+  packageDir: string,
+): Promise<any> {
+  let firstErr: unknown;
+  try {
+    return await import(/* @vite-ignore */ `${packageName}/server`);
+  } catch (e) {
+    firstErr = e;
+  }
+
+  try {
+    const { createJiti } = await import("jiti");
+    const { pathToFileURL } = await import("node:url");
+    const path = await import("node:path");
+    // Anchor jiti to a real file inside the workspace-core package so its
+    // module resolution starts in the right node_modules tree (handles pnpm
+    // hoisting and linked workspaces).
+    const anchor = pathToFileURL(
+      path.join(packageDir, "package.json"),
+    ).toString();
+    const jiti = createJiti(anchor, { interopDefault: true });
+    return await jiti.import(`${packageName}/server`);
+  } catch (jitiErr) {
+    // jiti also failed — rethrow the original Node error since it's usually
+    // more informative about *why* the package wasn't resolvable.
+    throw firstErr ?? jitiErr;
   }
 }
 

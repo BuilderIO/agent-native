@@ -17,7 +17,11 @@ vi.mock("./task-store.js", () => {
   let tasks: Record<string, any> = {};
   let counter = 0;
   return {
-    async createTask(message: Message, contextId?: string) {
+    async createTask(
+      message: Message,
+      contextId?: string,
+      metadata?: Record<string, unknown>,
+    ) {
       const id = `task-${++counter}`;
       const task = {
         id,
@@ -25,6 +29,7 @@ vi.mock("./task-store.js", () => {
         status: { state: "submitted", timestamp: new Date().toISOString() },
         history: [message],
         artifacts: [],
+        metadata,
       };
       tasks[id] = task;
       return task;
@@ -50,8 +55,27 @@ vi.mock("./task-store.js", () => {
       }
       return task;
     },
+    async claimA2ATaskForProcessing(id: string) {
+      const task = tasks[id];
+      if (!task) return null;
+      if (!["submitted", "working"].includes(task.status.state)) return null;
+      task.status = {
+        state: "processing",
+        message: task.status.message,
+        timestamp: new Date().toISOString(),
+      };
+      return task;
+    },
   };
 });
+
+// Mock the integrations/internal-token import so the a2a handler tests don't
+// require A2A_SECRET to be set in the test environment for sign().
+vi.mock("../integrations/internal-token.js", () => ({
+  signInternalToken: () => "test-token",
+  verifyInternalToken: () => true,
+  extractBearerToken: (h?: string) => h?.replace(/^Bearer\s+/i, "") ?? null,
+}));
 
 // Mock agentChat.call for default handler tests
 vi.mock("../shared/agent-chat.js", () => ({
@@ -247,7 +271,7 @@ describe("handleJsonRpc", () => {
     expect(result.error.code).toBe(-32602);
   });
 
-  it("async message/send returns immediately and processes in background", async () => {
+  it("async message/send returns immediately and processor runs in fresh execution", async () => {
     // Handler resolves only when we let it — so if the response came back
     // synchronously the task could not yet be 'completed'.
     let release: (v: unknown) => void = () => {};
@@ -285,14 +309,21 @@ describe("handleJsonRpc", () => {
       slowConfig,
     );
 
-    // Returned immediately, before the handler resolved
+    // Returned immediately, before the handler resolved. The dispatcher
+    // self-fires a POST to /_process-task on the same deployment — in the
+    // real wire-up `mountA2A` mounts that route and calls
+    // `processA2ATaskFromQueue` in a fresh function execution. Here we
+    // invoke it directly to simulate that next request.
     expect(result.error).toBeUndefined();
     expect(result.result.status.state).toBe("working");
     const taskId = result.result.id;
 
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    const processorPromise = processA2ATaskFromQueue(taskId, slowConfig);
+
     // Now let the handler finish, and verify the task progresses to completed
     release(undefined);
-    await new Promise((r) => setTimeout(r, 10));
+    await processorPromise;
     const followup = await handleJsonRpc(
       {
         jsonrpc: "2.0",
