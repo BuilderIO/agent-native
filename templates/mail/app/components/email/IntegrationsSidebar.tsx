@@ -19,6 +19,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { useSendToAgentChat } from "@agent-native/core/client";
+import { ExtensionSlot } from "@agent-native/core/client/tools";
 import {
   useIntegration,
   useAllIntegrations,
@@ -220,6 +221,13 @@ export function IntegrationsSidebar({
           </div>
         </>
       )}
+
+      {/* Tool extension-point slot — user-installed widgets render here */}
+      <ExtensionSlot
+        id="mail.contact-sidebar.bottom"
+        context={{ contactEmail: email, contactName: displayName }}
+        showEmptyAffordance
+      />
 
       {/* Integration setup */}
       <div className="h-px bg-border/30 mx-4" />
