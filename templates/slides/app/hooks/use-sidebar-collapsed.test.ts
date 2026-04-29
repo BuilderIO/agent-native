@@ -117,6 +117,47 @@ describe("useSidebarCollapsed", () => {
     });
   });
 
+  it("does not let an in-flight poll overwrite the optimistic update", async () => {
+    // Initial fetch: server says collapsed=false.
+    const stub = stubFetch({
+      ok: true,
+      body: JSON.stringify({ collapsed: false }),
+    });
+    const { result } = renderHook(() => useSidebarCollapsed(), {
+      wrapper: makeWrapper(),
+    });
+    await waitFor(() => expect(result.current.collapsed).toBe(false));
+
+    // Make the *next* GET deliberately slow so it's still in flight when
+    // the user toggles. Without cancelQueries, this stale response would
+    // arrive after the optimistic write and snap collapsed back to false.
+    let releaseSlowGet: (() => void) | null = null;
+    const slowGet = new Promise<void>((resolve) => {
+      releaseSlowGet = resolve;
+    });
+    stub.fetchMock.mockImplementationOnce(async () => {
+      await slowGet;
+      return new Response(JSON.stringify({ collapsed: false }), {
+        status: 200,
+      });
+    });
+
+    // Manually invalidate to kick off the slow GET (simulates a poll firing).
+    // Then immediately call setCollapsed(true).
+    await act(async () => {
+      await result.current.setCollapsed(true);
+    });
+
+    // Optimistic update committed.
+    expect(result.current.collapsed).toBe(true);
+
+    // Now release the stale poll — it should NOT overwrite the optimistic
+    // value because cancelQueries aborted it.
+    releaseSlowGet!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(result.current.collapsed).toBe(true);
+  });
+
   it("rolls back (re-fetches truth) when the PUT fails", async () => {
     const stub = stubFetch({
       ok: true,

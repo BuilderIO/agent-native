@@ -64,7 +64,15 @@ export function Layout({ children }: LayoutProps) {
           >
             <Sidebar
               collapsed={sidebarCollapsed && !sidebarOpen}
-              onToggleCollapsed={() => setSidebarCollapsed(!sidebarCollapsed)}
+              // In the mobile drawer the sidebar is forced expanded, so the
+              // desktop collapse toggle would be a silent no-op (worse: it'd
+              // mutate the desktop preference). Hide it while the drawer is
+              // open.
+              onToggleCollapsed={
+                sidebarOpen
+                  ? undefined
+                  : () => setSidebarCollapsed(!sidebarCollapsed)
+              }
             />
           </div>
           <div className="flex h-full flex-1 flex-col overflow-hidden">
