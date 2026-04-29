@@ -155,6 +155,12 @@ export function slackAdapter(): PlatformAdapter {
     async postProcessingPlaceholder(
       incoming: IncomingMessage,
     ): Promise<{ placeholderRef: string } | null> {
+      // We deliberately do NOT post a "thinking…" placeholder message into
+      // the thread anymore — Slack's native assistant status bar (the small
+      // "agent-native is thinking…" indicator below the composer) is a
+      // cleaner loading affordance and doesn't add a visual chunk that we
+      // then have to overwrite. We just set the status and return null so
+      // sendResponse posts the final reply as a fresh message.
       const token = process.env.SLACK_BOT_TOKEN;
       if (!token) return null;
 
@@ -162,48 +168,11 @@ export function slackAdapter(): PlatformAdapter {
       const threadTs = incoming.platformContext.threadTs as string;
       if (!channelId || !threadTs) return null;
 
-      const blocks = buildThinkingBlocks();
-      try {
-        const res = await fetch("https://slack.com/api/chat.postMessage", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            channel: channelId,
-            thread_ts: threadTs,
-            text: "Working on it…",
-            blocks,
-            // Suppress URL unfurl previews — the agent's reply often includes
-            // a deep-link to the dispatch UI and we want a clean section
-            // block, not Slack's auto-generated card.
-            unfurl_links: false,
-            unfurl_media: false,
-            mrkdwn: true,
-          }),
-        });
-        const data = (await res.json()) as {
-          ok: boolean;
-          ts?: string;
-          error?: string;
-        };
-        if (!data.ok || !data.ts) {
-          console.error("[slack] postProcessingPlaceholder error:", data.error);
-          return null;
-        }
-
-        // Best-effort: also flip the native AI-assistant "is thinking…"
-        // status bar in the channel input area. Only works for apps
-        // configured with `assistant:write`, otherwise silently no-ops.
-        // Mirrors the Builder.io ai-services slackbot pattern.
-        setSlackAssistantStatus(token, channelId, threadTs, "is thinking…");
-
-        return { placeholderRef: data.ts };
-      } catch (err) {
-        console.error("[slack] postProcessingPlaceholder failed:", err);
-        return null;
-      }
+      // Best-effort: flip the native AI-assistant "is thinking…" status bar
+      // in the channel input area. Requires `assistant:write` scope on the
+      // app — otherwise silently no-ops.
+      setSlackAssistantStatus(token, channelId, threadTs, "is thinking…");
+      return null;
     },
 
     async sendResponse(
@@ -410,36 +379,6 @@ function markdownToSlackMrkdwn(text: string): string {
       // 's' flag (dotAll) so `.` matches newlines — bold text can span lines.
       .replace(/\*\*(.+?)\*\*/gs, "*$1*")
   );
-}
-
-/**
- * Block Kit payload for the "Working on it…" placeholder posted as soon as
- * the webhook arrives. Slack will swap this for the final answer via
- * `chat.update` once the agent loop completes — same message ts, no extra
- * post in the thread. The mrkdwn-only context block keeps it visually
- * lightweight (no heading, no border) so the eventual final reply can swap
- * in cleanly without the eye flicker of a layout shift.
- */
-function buildThinkingBlocks(): unknown[] {
-  // Pick a witty rotating message so two back-to-back mentions don't both
-  // say the exact same thing. Same vibe as Builder.io's ai-services slackbot.
-  const messages = [
-    "Working on it…",
-    "On it — give me a sec…",
-    "Pulling that up now…",
-    "Routing your request…",
-    "Checking with the right agent…",
-    "Almost there…",
-  ];
-  const text = messages[Math.floor(Math.random() * messages.length)];
-  return [
-    {
-      type: "context",
-      elements: [
-        { type: "mrkdwn", text: `:hourglass_flowing_sand: _${text}_` },
-      ],
-    },
-  ];
 }
 
 /**
