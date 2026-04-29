@@ -77,7 +77,7 @@ export const TOOL_SLOT_INSTALLS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool
   owner_email TEXT NOT NULL,
   org_id TEXT,
   position INTEGER NOT NULL DEFAULT 0,
-  enabled INTEGER NOT NULL DEFAULT 1,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
   config TEXT,
   created_at TEXT NOT NULL DEFAULT now(),
   updated_at TEXT NOT NULL DEFAULT now()
