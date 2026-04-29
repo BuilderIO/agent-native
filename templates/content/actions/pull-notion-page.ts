@@ -16,7 +16,8 @@ export default defineAction({
       throw new Error("Usage: pnpm action pull-notion-page --documentId <id>");
     }
 
-    const owner = getRequestUserEmail() || "local@localhost";
+    const owner = getRequestUserEmail();
+    if (!owner) throw new Error("no authenticated user");
     return pullDocumentFromNotion(owner, documentId);
   },
 });

@@ -5,7 +5,9 @@ import { readAppState } from "@agent-native/core/application-state";
 import { isPostgres } from "@agent-native/core/db";
 
 export function getCurrentOwnerEmail(): string {
-  return getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
+  return email;
 }
 
 /**
