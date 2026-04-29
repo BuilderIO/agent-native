@@ -53,7 +53,6 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8085,
     prodUrl: "https://mail.agent-native.com",
     defaultMode: "prod",
-    core: true,
   },
   {
     name: "calendar",
@@ -65,7 +64,6 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8082,
     prodUrl: "https://calendar.agent-native.com",
     defaultMode: "prod",
-    core: true,
   },
   {
     name: "scheduling",
@@ -88,7 +86,6 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8083,
     prodUrl: "https://content.agent-native.com",
     defaultMode: "prod",
-    core: true,
   },
   {
     name: "slides",
@@ -100,7 +97,6 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8086,
     prodUrl: "https://slides.agent-native.com",
     defaultMode: "prod",
-    core: true,
   },
   {
     name: "videos",
@@ -112,7 +108,6 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8087,
     prodUrl: "https://videos.agent-native.com",
     defaultMode: "prod",
-    core: true,
   },
   {
     name: "clips",
@@ -169,7 +164,6 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8088,
     prodUrl: "https://analytics.agent-native.com",
     defaultMode: "prod",
-    core: true,
   },
   {
     name: "dispatch",
