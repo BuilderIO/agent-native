@@ -21,6 +21,14 @@ export interface RequestContext {
   userEmail?: string;
   orgId?: string;
   timezone?: string;
+  /**
+   * True when this request is being processed by an integration-platform
+   * webhook (Slack, Telegram, etc.) where the function timeout is the
+   * binding constraint (~26s on Netlify Pro). Code that calls slow remote
+   * APIs can use this to apply tighter budgets on this path while leaving
+   * normal agent-chat callers (5+ min budget) unaffected.
+   */
+  isIntegrationCaller?: boolean;
 }
 
 const als = new AsyncLocalStorage<RequestContext>();
@@ -61,4 +69,15 @@ export function getRequestOrgId(): string | undefined {
  */
 export function getRequestTimezone(): string | undefined {
   return als.getStore()?.timezone ?? process.env.AGENT_USER_TIMEZONE;
+}
+
+/**
+ * Returns true when this request is on an integration-platform path (Slack,
+ * Telegram, etc.) — i.e. we're inside the integration plugin's processor
+ * function and the platform's deliver-by deadline plus the host's function
+ * timeout are the binding budget. Non-integration callers (CLI, normal
+ * agent chat) should treat this as `false`.
+ */
+export function isIntegrationCallerRequest(): boolean {
+  return als.getStore()?.isIntegrationCaller === true;
 }

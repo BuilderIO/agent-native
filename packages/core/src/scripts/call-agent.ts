@@ -5,6 +5,7 @@ import { A2AClient, callAgent, signA2AToken } from "../a2a/client.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  isIntegrationCallerRequest,
 } from "../server/request-context.js";
 import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
 
@@ -141,19 +142,19 @@ export async function run(
       // but the receiving agent's full response still surfaces via the
       // tool_result event below.
       try {
-        // Cap the polling budget at 18s so dispatch always returns something
-        // within Netlify's 26s function-timeout window. The remaining ~8s is
-        // budget for Haiku to format and post the response to Slack. Without
-        // this cap, a slow analytics handler (~25s+) would kill dispatch's
-        // lambda mid-poll and leave the integration task stuck "processing"
-        // for ~5min until the retry sweep resets it. Better UX: tell the
-        // user we couldn't reach the agent in time so they can retry, while
-        // the underlying A2A task may still complete in the background.
+        // Apply the 18s polling cap ONLY when this call is from an
+        // integration-platform path (Slack/Telegram/etc.) where the host's
+        // function timeout (~26s on Netlify Pro) plus the platform's
+        // deliver-by deadline are the binding budget. Normal agent-chat
+        // callers run on a long-lived stream and should keep the default
+        // 5-min budget. Reviewer flagged in #354 that the previous
+        // unconditional cap regressed agent-chat A2A calls.
+        const callTimeoutMs = isIntegrationCallerRequest() ? 18000 : undefined;
         responseText = await callAgent(agent.url, message, {
           userEmail: callerEmail,
           orgDomain: callerOrgDomain,
           orgSecret: callerOrgSecret,
-          timeoutMs: 18000,
+          ...(callTimeoutMs ? { timeoutMs: callTimeoutMs } : {}),
         });
         // Mirror the response into the streaming UI so the user sees it.
         if (responseText) emitNewText(responseText);
