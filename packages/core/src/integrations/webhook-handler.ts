@@ -404,7 +404,14 @@ async function processIncomingMessage(
       threadId,
       async (send, signal) => {
         await runWithRequestContext(
-          { userEmail: ownerEmail, orgId: orgId ?? undefined },
+          {
+            userEmail: ownerEmail,
+            orgId: orgId ?? undefined,
+            // Lets downstream callers (call-agent script) apply tighter
+            // budgets on integration paths without affecting normal
+            // agent-chat. See `isIntegrationCallerRequest()`.
+            isIntegrationCaller: true,
+          },
           () =>
             runAgentLoop({
               engine,
