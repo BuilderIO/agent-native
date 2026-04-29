@@ -160,7 +160,7 @@ fn wake_popover_for_voice(app: &tauri::AppHandle) {
 /// Tauri voice-dictation apps that ship to thousands of macOS users).
 #[cfg(target_os = "macos")]
 fn install_fn_event_tap(app: tauri::AppHandle) {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
@@ -173,6 +173,9 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
 
     let prev_down = Arc::new(AtomicBool::new(false));
     let needs_reenable = Arc::new(AtomicBool::new(false));
+    let event_count = Arc::new(AtomicU64::new(0));
+
+    eprintln!("[clips-tray][fn-tap] install_fn_event_tap called — spawning listener thread");
 
     thread::Builder::new()
         .name("clips-fn-key-tap".into())
@@ -180,8 +183,9 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
             let app_for_cb = app.clone();
             let prev_for_cb = prev_down.clone();
             let needs_reenable_for_cb = needs_reenable.clone();
+            let event_count_for_cb = event_count.clone();
 
-            eprintln!("[clips-tray] installing macOS Fn event tap");
+            eprintln!("[clips-tray][fn-tap] thread started; about to call CGEventTap::new");
             let tap_result = CGEventTap::new(
                 CGEventTapLocation::HID,
                 CGEventTapPlacement::HeadInsertEventTap,
@@ -194,6 +198,14 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     CGEventType::TapDisabledByUserInput,
                 ],
                 move |_proxy, etype, event| {
+                    let n = event_count_for_cb.fetch_add(1, Ordering::SeqCst) + 1;
+                    if n <= 5 || n % 50 == 0 {
+                        eprintln!(
+                            "[clips-tray][fn-tap] event #{n} type={:?} flags={:?}",
+                            etype,
+                            event.get_flags()
+                        );
+                    }
                     match etype {
                         CGEventType::TapDisabledByTimeout => {
                             eprintln!(
@@ -248,10 +260,13 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
             );
 
             let tap = match tap_result {
-                Ok(t) => t,
+                Ok(t) => {
+                    eprintln!("[clips-tray][fn-tap] CGEventTap::new succeeded");
+                    t
+                }
                 Err(()) => {
                     eprintln!(
-                        "[clips-tray] CGEventTapCreate returned NULL. Most likely cause: \
+                        "[clips-tray][fn-tap] CGEventTapCreate returned NULL. Most likely cause: \
                          Input Monitoring is not granted to Clips. Open System Settings → \
                          Privacy & Security → Input Monitoring and enable Clips (or the \
                          terminal running `tauri dev`). Note: Accessibility is a separate \
@@ -261,16 +276,21 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                 }
             };
             let source = match tap.mach_port().create_runloop_source(0) {
-                Ok(s) => s,
+                Ok(s) => {
+                    eprintln!("[clips-tray][fn-tap] runloop source created");
+                    s
+                }
                 Err(()) => {
-                    eprintln!("[clips-tray] CFMachPortCreateRunLoopSource failed");
+                    eprintln!("[clips-tray][fn-tap] CFMachPortCreateRunLoopSource failed");
                     return;
                 }
             };
             let runloop = CFRunLoop::get_current();
             runloop.add_source(&source, unsafe { kCFRunLoopCommonModes });
             tap.enable();
-            eprintln!("[clips-tray] Fn event tap installed; entering runloop");
+            eprintln!(
+                "[clips-tray][fn-tap] tap enabled; entering runloop — press Fn now to test"
+            );
 
             // Run the runloop in repeated short bursts so we can re-enable
             // the tap if the OS disables it. We use run_current (blocks
