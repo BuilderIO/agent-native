@@ -541,7 +541,7 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     let _ = win.set_position(PhysicalPosition::new(x, y));
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
-    let _ = win.show();
+    crate::util::show_without_activation(&win);
     let app_for_timeout = app.clone();
     thread::spawn(move || {
         // Long-tail safety net: if the JS cleanup path doesn't reach
