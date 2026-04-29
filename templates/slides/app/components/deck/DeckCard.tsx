@@ -22,7 +22,7 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
     <div className="group relative">
       <Link
         to={`/deck/${deck.id}`}
-        className="block rounded-xl border border-white/[0.06] bg-[hsl(240,5%,8%)] hover:border-white/[0.12] transition-all duration-200 overflow-hidden hover:shadow-lg hover:shadow-[#609FF8]/5"
+        className="block rounded-xl border border-border bg-card hover:border-border transition-all duration-200 overflow-hidden hover:shadow-lg hover:shadow-[#609FF8]/5"
       >
         {/* Slide Preview */}
         <div className="overflow-hidden relative">
@@ -39,12 +39,12 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
         {/* Info */}
         <div className="p-4">
           <div className="flex items-center gap-2 min-w-0">
-            <h3 className="font-medium text-sm text-white/90 truncate flex-1">
+            <h3 className="font-medium text-sm text-foreground truncate flex-1">
               {deck.title}
             </h3>
             <VisibilityBadge visibility={deck.visibility} />
           </div>
-          <div className="text-xs text-white/40 mt-1">
+          <div className="text-xs text-muted-foreground mt-1">
             {deck.slides.length} slide{deck.slides.length !== 1 ? "s" : ""}
           </div>
         </div>
@@ -59,10 +59,10 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
                 e.preventDefault();
                 e.stopPropagation();
               }}
-              className="p-2 sm:p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
+              className="p-2 sm:p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-border hover:bg-black/80"
               aria-label="Deck options"
             >
-              <IconDots className="w-3.5 h-3.5 text-white/70" />
+              <IconDots className="w-3.5 h-3.5 text-foreground/70" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-36">

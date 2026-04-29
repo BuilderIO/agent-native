@@ -41,7 +41,9 @@ export function FilterChips({ chips, className }: FilterChipsProps) {
               }}
               className={cn(
                 "rounded-full hover:opacity-80",
-                chip.active ? "text-white/80" : "text-muted-foreground",
+                chip.active
+                  ? "text-primary-foreground/80"
+                  : "text-muted-foreground",
               )}
             >
               <IconX className="h-3 w-3" />

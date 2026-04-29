@@ -127,13 +127,13 @@ export default function AssetLibraryPanel({
     <div
       ref={panelRef}
       style={style}
-      className="w-[min(20rem,calc(100vw-24px))] max-h-[420px] bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
+      className="w-[min(20rem,calc(100vw-24px))] max-h-[420px] bg-popover border border-border rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
     >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
-        <h3 className="text-sm font-semibold text-white/90">Asset Library</h3>
+        <h3 className="text-sm font-semibold text-foreground">Asset Library</h3>
         <button
           onClick={() => onOpenChange(false)}
-          className="text-white/30 hover:text-white/60 transition-colors"
+          className="text-muted-foreground/70 hover:text-muted-foreground transition-colors"
           aria-label="Close"
         >
           <IconX className="w-4 h-4" />
@@ -142,13 +142,13 @@ export default function AssetLibraryPanel({
 
       <div className="px-4 pb-4 space-y-3 overflow-y-auto flex-1">
         {/* Upload */}
-        <label className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg border border-dashed border-white/[0.1] hover:border-[#609FF8]/40 hover:bg-white/[0.02] cursor-pointer transition-all">
+        <label className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg border border-dashed border-border hover:border-[#609FF8]/40 hover:bg-accent cursor-pointer transition-all">
           {uploading ? (
-            <IconLoader2 className="w-3.5 h-3.5 text-white/50 animate-spin" />
+            <IconLoader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
           ) : (
-            <IconUpload className="w-3.5 h-3.5 text-white/50" />
+            <IconUpload className="w-3.5 h-3.5 text-muted-foreground" />
           )}
-          <span className="text-xs text-white/50">
+          <span className="text-xs text-muted-foreground">
             {uploading ? "Uploading..." : "Upload images"}
           </span>
           <input
@@ -164,10 +164,10 @@ export default function AssetLibraryPanel({
         {/* Grid */}
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <IconLoader2 className="w-4 h-4 text-white/30 animate-spin" />
+            <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
           </div>
         ) : assets.length === 0 ? (
-          <div className="text-center py-8 text-white/30 text-xs">
+          <div className="text-center py-8 text-muted-foreground text-xs">
             No assets yet.
           </div>
         ) : (
@@ -175,7 +175,7 @@ export default function AssetLibraryPanel({
             {assets.map((asset) => (
               <div
                 key={asset.filename}
-                className="group relative aspect-square rounded-md overflow-hidden border border-white/[0.08] bg-white/[0.02]"
+                className="group relative aspect-square rounded-md overflow-hidden border border-border bg-muted"
               >
                 <button
                   onClick={

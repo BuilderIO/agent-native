@@ -92,10 +92,10 @@ function PresenceAvatarTip({
           )}
         </div>
         <div className="flex flex-col min-w-0">
-          <span className="text-[12px] font-medium text-white leading-tight">
+          <span className="text-[12px] font-medium text-foreground leading-tight">
             {user.name}
           </span>
-          <span className="text-[10px] text-white/50 truncate">
+          <span className="text-[10px] text-muted-foreground truncate">
             {user.email}
           </span>
         </div>
@@ -145,9 +145,7 @@ function SortableSlideThumb({
       <button
         onClick={onSelect}
         className={`w-full text-left flex items-start gap-2 p-2 rounded-lg transition-all duration-150 ${
-          isActive
-            ? "bg-white/[0.08] ring-1 ring-[#609FF8]/50"
-            : "hover:bg-white/[0.04]"
+          isActive ? "bg-accent ring-1 ring-[#609FF8]/50" : "hover:bg-accent"
         }`}
       >
         {/* Drag handle */}
@@ -156,11 +154,11 @@ function SortableSlideThumb({
           {...listeners}
           className="flex-shrink-0 mt-2 cursor-grab active:cursor-grabbing sm:opacity-0 sm:group-hover:opacity-100"
         >
-          <IconGripVertical className="w-3.5 h-3.5 text-white/30" />
+          <IconGripVertical className="w-3.5 h-3.5 text-muted-foreground/70" />
         </div>
 
         {/* Index */}
-        <span className="flex-shrink-0 w-5 mt-2 text-[10px] font-medium text-white/30">
+        <span className="flex-shrink-0 w-5 mt-2 text-[10px] font-medium text-muted-foreground/70">
           {index + 1}
         </span>
 
@@ -184,7 +182,7 @@ function SortableSlideThumb({
                 <PresenceAvatarTip key={i} user={u} size={16} />
               ))}
               {presenceUsers.length > 4 && (
-                <span className="text-[9px] text-white/30 ml-0.5">
+                <span className="text-[9px] text-muted-foreground/70 ml-0.5">
                   +{presenceUsers.length - 4}
                 </span>
               )}
@@ -368,10 +366,8 @@ function AddSlidePopover({
   return createPortal(
     <div
       ref={panelRef}
-      className={`fixed w-[min(24rem,calc(100vw-24px))] rounded-xl border bg-[hsl(240,5%,10%)] shadow-2xl shadow-black/60 z-[200] overflow-hidden transition-colors ${
-        dragging
-          ? "border-[#609FF8]/50 bg-[hsl(240,5%,12%)]"
-          : "border-white/[0.1]"
+      className={`fixed w-[min(24rem,calc(100vw-24px))] rounded-xl border bg-popover shadow-2xl shadow-black/60 z-[200] overflow-hidden transition-colors ${
+        dragging ? "border-[#609FF8]/50 bg-accent" : "border-border"
       }`}
       style={{
         top: rect.bottom + 8,
@@ -399,7 +395,7 @@ function AddSlidePopover({
               Math.min(el.scrollHeight, window.innerHeight * 0.5) + "px";
           }}
           placeholder="Describe the slides you want..."
-          className="w-full bg-transparent text-sm text-white/90 placeholder:text-white/30 outline-none resize-none"
+          className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 outline-none resize-none"
           rows={3}
           style={{ maxHeight: "50vh" }}
           onKeyDown={(e) => {
@@ -417,12 +413,12 @@ function AddSlidePopover({
           {files.map((file, i) => (
             <div
               key={i}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.06] border border-white/[0.08] text-[11px] text-white/50"
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent border border-border text-[11px] text-muted-foreground"
             >
               <span className="max-w-[100px] truncate">{file.name}</span>
               <button
                 onClick={() => removeFile(i)}
-                className="p-0.5 rounded hover:bg-white/[0.1]"
+                className="p-0.5 rounded hover:bg-accent"
                 aria-label={`Remove ${file.name}`}
               >
                 <IconX className="w-2.5 h-2.5" />
@@ -433,11 +429,11 @@ function AddSlidePopover({
       )}
 
       {/* Bottom bar */}
-      <div className="px-3.5 py-2 flex items-center justify-between border-t border-white/[0.06]">
+      <div className="px-3.5 py-2 flex items-center justify-between border-t border-border">
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="p-2 rounded-md hover:bg-white/[0.06] text-white/30 hover:text-white/50"
+          className="p-2 rounded-md hover:bg-accent text-muted-foreground/70 hover:text-foreground"
           title="Attach files"
           aria-label="Attach files"
         >
@@ -454,14 +450,14 @@ function AddSlidePopover({
         <button
           onClick={handleSubmit}
           disabled={busy}
-          className="p-2 rounded-lg bg-white/[0.12] hover:bg-white/[0.18] disabled:opacity-30 disabled:cursor-not-allowed"
+          className="p-2 rounded-lg bg-accent hover:bg-accent/80 disabled:opacity-30 disabled:cursor-not-allowed"
           title="Generate"
           aria-label="Generate slides"
         >
           {busy ? (
-            <IconLoader2 className="w-4 h-4 text-white/70 animate-spin" />
+            <IconLoader2 className="w-4 h-4 text-foreground/90 animate-spin" />
           ) : (
-            <IconArrowUp className="w-4 h-4 text-white/70" />
+            <IconArrowUp className="w-4 h-4 text-foreground/90" />
           )}
         </button>
       </div>
@@ -524,22 +520,22 @@ export default function EditorSidebar({
   }, [slides, activeSlideId, onSelectSlide]);
 
   return (
-    <div className="w-56 sm:w-64 flex-shrink-0 border-r border-white/[0.06] bg-[hsl(240,5%,6%)] flex flex-col h-full">
-      <div className="p-3 border-b border-white/[0.06] flex items-center justify-between">
-        <span className="text-xs font-medium text-white/50 uppercase tracking-wider">
+    <div className="w-56 sm:w-64 flex-shrink-0 border-r border-border bg-background flex flex-col h-full">
+      <div className="p-3 border-b border-border flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           Slides
         </span>
         {addSlideGenerating ? (
-          <IconLoader2 className="w-4 h-4 text-white/40 animate-spin" />
+          <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
         ) : (
           <button
             ref={headerAddRef}
             onClick={() => setAddOpen(!addOpen)}
-            className="p-2 rounded-md hover:bg-white/[0.06] transition-colors"
+            className="p-2 rounded-md hover:bg-accent transition-colors"
             title="Add slides"
             aria-label="Add slides"
           >
-            <IconPlus className="w-4 h-4 text-white/50" />
+            <IconPlus className="w-4 h-4 text-muted-foreground" />
           </button>
         )}
       </div>
@@ -564,7 +560,7 @@ export default function EditorSidebar({
           ))}
         </SortableContext>
 
-        <div className="border-t border-white/[0.06] mt-2 pt-1">
+        <div className="border-t border-border mt-2 pt-1">
           <ToolsSidebarSection />
         </div>
       </div>

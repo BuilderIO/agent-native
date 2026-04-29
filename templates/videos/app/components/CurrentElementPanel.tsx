@@ -541,7 +541,7 @@ export const CurrentElementPanel: React.FC = () => {
                     handleUpdateDuration(animation.id, numValue);
                   }
                 }}
-                className="h-8 text-xs text-white w-full bg-background border border-input rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                className="h-8 text-xs text-foreground w-full bg-background border border-input rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 min="0.01"
                 max="10"
                 step="0.1"

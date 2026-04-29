@@ -161,7 +161,7 @@ function ToolbarPopover({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed rounded-lg border border-white/[0.08] bg-[hsl(240,5%,10%)] shadow-xl z-[200] max-h-[80vh] overflow-y-auto"
+      className="fixed rounded-lg border border-border bg-popover shadow-xl z-[200] max-h-[80vh] overflow-y-auto"
       style={{ top: rect.bottom + 4, left, width: Math.min(width, vw - 16) }}
     >
       {children}
@@ -219,22 +219,22 @@ export default function EditorToolbar({
   };
 
   return (
-    <div className="h-12 border-b border-white/[0.06] bg-[hsl(240,5%,6%)] flex items-center px-1 sm:px-3 gap-1 sm:gap-2 overflow-x-auto">
+    <div className="h-12 border-b border-border bg-background flex items-center px-1 sm:px-3 gap-1 sm:gap-2 overflow-x-auto">
       {/* Back button */}
       <Link
         to="/"
-        className="p-2.5 sm:p-1.5 rounded-md hover:bg-white/[0.06] transition-colors flex-shrink-0"
+        className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0"
         title="Back to decks"
         aria-label="Back to decks"
       >
-        <IconArrowLeft className="w-4 h-4 text-white/60" />
+        <IconArrowLeft className="w-4 h-4 text-muted-foreground" />
       </Link>
 
       {/* Sidebar toggle */}
       <button
         onClick={onToggleSidebar}
-        className={`p-2.5 sm:p-1.5 rounded-md hover:bg-white/[0.06] transition-colors flex-shrink-0 ${
-          sidebarOpen ? "text-white/60" : "text-white/30"
+        className={`p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 ${
+          sidebarOpen ? "text-muted-foreground" : "text-muted-foreground/70"
         }`}
         title="Toggle sidebar"
         aria-label="Toggle sidebar"
@@ -247,12 +247,12 @@ export default function EditorToolbar({
         type="text"
         value={deckTitle}
         onChange={(e) => onTitleChange(e.target.value)}
-        className="bg-transparent text-sm font-medium text-white/80 border-none outline-none focus:text-white min-w-0 w-24 sm:w-auto flex-shrink"
+        className="bg-transparent text-sm font-medium text-foreground/90 border-none outline-none focus:text-foreground min-w-0 w-24 sm:w-auto flex-shrink"
         spellCheck={false}
       />
 
       {/* Slide counter */}
-      <span className="text-xs text-white/30 flex-shrink-0 hidden sm:inline">
+      <span className="text-xs text-muted-foreground/70 flex-shrink-0 hidden sm:inline">
         {currentSlideIndex + 1}/{slideCount}
       </span>
 
@@ -270,8 +270,8 @@ export default function EditorToolbar({
             }}
             className={`flex items-center gap-1 p-2.5 sm:px-2 sm:py-1.5 rounded-md text-xs transition-colors flex-shrink-0 ${
               layoutOpen
-                ? "text-white/80 bg-white/[0.06]"
-                : "text-white/50 hover:text-white/70 hover:bg-white/[0.06]"
+                ? "text-foreground/90 bg-accent"
+                : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
             }`}
             title="Slide settings"
             aria-label="Slide settings"
@@ -286,7 +286,7 @@ export default function EditorToolbar({
           >
             <div className="py-1.5">
               {/* Layout section */}
-              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
                 Layout
               </div>
               {slideLayoutOptions.map((opt) => (
@@ -297,8 +297,8 @@ export default function EditorToolbar({
                   }}
                   className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
                     currentSlide.layout === opt.value
-                      ? "text-[#609FF8] bg-white/[0.04]"
-                      : "text-white/60 hover:text-white hover:bg-white/[0.04]"
+                      ? "text-[#609FF8] bg-accent/50"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                   }`}
                 >
                   <IconLayout className="w-3 h-3" />
@@ -307,8 +307,8 @@ export default function EditorToolbar({
               ))}
 
               {/* Background section */}
-              <div className="mx-2 my-1.5 border-t border-white/[0.06]" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+              <div className="mx-2 my-1.5 border-t border-border" />
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
                 Background
               </div>
               <div className="px-3 pb-2">
@@ -322,7 +322,7 @@ export default function EditorToolbar({
                       className={`w-10 h-7 rounded-md border transition-all ${bg} ${
                         currentSlide.background === bg
                           ? "border-[#609FF8] ring-1 ring-[#609FF8]/30"
-                          : "border-white/[0.08] hover:border-white/[0.2]"
+                          : "border-border hover:border-foreground/20"
                       }`}
                     />
                   ))}
@@ -330,8 +330,8 @@ export default function EditorToolbar({
               </div>
 
               {/* Image & Assets section */}
-              <div className="mx-2 my-1.5 border-t border-white/[0.06]" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+              <div className="mx-2 my-1.5 border-t border-border" />
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
                 Media
               </div>
               <button
@@ -340,7 +340,7 @@ export default function EditorToolbar({
                   onGenerateImage();
                   setLayoutOpen(false);
                 }}
-                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors"
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
               >
                 <IconPhoto className="w-3 h-3" />
                 Generate Image
@@ -351,15 +351,15 @@ export default function EditorToolbar({
                   onOpenAssetLibrary();
                   setLayoutOpen(false);
                 }}
-                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors"
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
               >
                 <IconFolderOpen className="w-3 h-3" />
                 Asset Library
               </button>
 
               {/* Diagrams section */}
-              <div className="mx-2 my-1.5 border-t border-white/[0.06]" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+              <div className="mx-2 my-1.5 border-t border-border" />
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
                 Diagrams
               </div>
               <button
@@ -381,7 +381,7 @@ graph TD
                   });
                   setLayoutOpen(false);
                 }}
-                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors"
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
               >
                 <IconSchema className="w-3 h-3" />
                 Insert Mermaid Diagram
@@ -398,7 +398,7 @@ graph TD
                   });
                   setLayoutOpen(false);
                 }}
-                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors"
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
               >
                 <IconPencil className="w-3 h-3" />
                 Excalidraw Canvas
@@ -424,7 +424,7 @@ graph TD
                         console.error("Mermaid to Excalidraw failed:", err);
                       }
                     }}
-                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#00E5FF]/80 hover:text-[#00E5FF] hover:bg-white/[0.04] transition-colors"
+                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#00E5FF]/80 hover:text-[#00E5FF] hover:bg-accent/50 transition-colors"
                   >
                     <IconTransform className="w-3 h-3" />
                     Convert Mermaid → Excalidraw
@@ -437,7 +437,7 @@ graph TD
                     onUpdateSlide({ excalidrawData: undefined });
                     setLayoutOpen(false);
                   }}
-                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-white/40 hover:text-white/60 hover:bg-white/[0.04] transition-colors"
+                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-muted-foreground hover:text-muted-foreground hover:bg-accent/50 transition-colors"
                 >
                   <IconPencil className="w-3 h-3" />
                   Remove Excalidraw Canvas
@@ -445,8 +445,8 @@ graph TD
               )}
 
               {/* Transitions section */}
-              <div className="mx-2 my-1.5 border-t border-white/[0.06]" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+              <div className="mx-2 my-1.5 border-t border-border" />
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
                 Transition
               </div>
               <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">
@@ -464,7 +464,7 @@ graph TD
                       className={`px-1.5 py-1 rounded text-[10px] font-medium capitalize border ${
                         active
                           ? "bg-[#609FF8]/20 text-[#609FF8] border-[#609FF8]/30"
-                          : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent"
+                          : "text-muted-foreground hover:text-foreground/70 hover:bg-accent/50 border-transparent"
                       }`}
                     >
                       {t.charAt(0).toUpperCase() + t.slice(1)}
@@ -513,7 +513,7 @@ graph TD
           className={`p-2.5 sm:p-1.5 rounded-md cursor-pointer flex-shrink-0 ${
             animationsOpen
               ? "text-[#609FF8] bg-[#609FF8]/10"
-              : "text-white/40 hover:text-white/70 hover:bg-white/[0.06]"
+              : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
           }`}
           title="Element animations"
           aria-label="Element animations"
@@ -528,7 +528,7 @@ graph TD
           <TooltipTrigger asChild>
             <button
               onClick={onToggleTweaks}
-              className={`p-1.5 rounded cursor-pointer ${tweaksOpen ? "bg-white/10 text-white" : "text-white/40 hover:text-white/70 hover:bg-white/[0.06]"}`}
+              className={`p-1.5 rounded cursor-pointer ${tweaksOpen ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"}`}
             >
               <IconAdjustments className="w-4 h-4" />
             </button>
@@ -541,27 +541,27 @@ graph TD
       <ImportButton deckId={deckId} />
 
       {/* Separator */}
-      <div className="w-px h-5 bg-white/[0.08] flex-shrink-0 hidden sm:block" />
+      <div className="w-px h-5 bg-accent flex-shrink-0 hidden sm:block" />
 
       {/* Undo/Redo */}
       <div className="flex items-center flex-shrink-0">
         <button
           onClick={onUndo}
           disabled={!canUndo}
-          className="p-2.5 sm:p-1.5 rounded-md hover:bg-white/[0.06] disabled:opacity-20 transition-colors"
+          className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
           title="Undo (Cmd+Z)"
           aria-label="Undo"
         >
-          <IconArrowBackUp className="w-3.5 h-3.5 text-white/60" />
+          <IconArrowBackUp className="w-3.5 h-3.5 text-muted-foreground" />
         </button>
         <button
           onClick={onRedo}
           disabled={!canRedo}
-          className="p-2.5 sm:p-1.5 rounded-md hover:bg-white/[0.06] disabled:opacity-20 transition-colors"
+          className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
           title="Redo (Cmd+Shift+Z)"
           aria-label="Redo"
         >
-          <IconArrowForwardUp className="w-3.5 h-3.5 text-white/60" />
+          <IconArrowForwardUp className="w-3.5 h-3.5 text-muted-foreground" />
         </button>
       </div>
 
@@ -569,10 +569,10 @@ graph TD
       <button
         ref={historyButtonRef}
         onClick={onShowHistory}
-        className={`p-2.5 sm:p-1.5 rounded-md hover:bg-white/[0.06] transition-colors flex-shrink-0 hidden sm:block ${
+        className={`p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 hidden sm:block ${
           historyOpen
-            ? "text-white/80 bg-white/[0.06]"
-            : "text-white/40 hover:text-white/70"
+            ? "text-foreground/90 bg-accent"
+            : "text-muted-foreground hover:text-foreground/70"
         }`}
         title="Edit history"
         aria-label="Edit history"
@@ -581,16 +581,16 @@ graph TD
       </button>
 
       {/* Separator */}
-      <div className="w-px h-5 bg-white/[0.08] flex-shrink-0 hidden sm:block" />
+      <div className="w-px h-5 bg-accent flex-shrink-0 hidden sm:block" />
 
       {/* Edit mode tabs */}
-      <div className="flex items-center rounded-md border border-white/[0.08] overflow-hidden flex-shrink-0">
+      <div className="flex items-center rounded-md border border-border overflow-hidden flex-shrink-0">
         <button
           onClick={() => onTabChange("visual")}
           className={`px-3 py-2 sm:py-1.5 text-xs font-medium transition-colors ${
             activeTab === "visual"
-              ? "bg-white/[0.08] text-white/90"
-              : "text-white/40 hover:text-white/60"
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:text-muted-foreground"
           }`}
         >
           Preview
@@ -599,8 +599,8 @@ graph TD
           onClick={() => onTabChange("code")}
           className={`px-3 py-2 sm:py-1.5 text-xs font-medium transition-colors ${
             activeTab === "code"
-              ? "bg-white/[0.08] text-white/90"
-              : "text-white/40 hover:text-white/60"
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:text-muted-foreground"
           }`}
         >
           Code
@@ -622,8 +622,8 @@ graph TD
           onClick={onToggleComments}
           className={`relative p-2.5 sm:p-1.5 rounded-md transition-colors flex-shrink-0 ${
             commentsOpen
-              ? "text-white/90 bg-white/[0.08]"
-              : "text-white/40 hover:text-white/70 hover:bg-white/[0.06]"
+              ? "text-foreground bg-accent"
+              : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
           }`}
           title="Comments"
           aria-label="Comments"
@@ -663,7 +663,7 @@ graph TD
         <IconPlayerPlay className="w-3 h-3" />
         <span className="hidden sm:inline">Present</span>
       </Link>
-      <AgentToggleButton className="flex-shrink-0 text-white/40 hover:text-white/70 hover:bg-white/[0.06]" />
+      <AgentToggleButton className="flex-shrink-0 text-muted-foreground hover:text-foreground/70 hover:bg-accent" />
     </div>
   );
 }

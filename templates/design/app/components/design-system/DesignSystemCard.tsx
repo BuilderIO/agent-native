@@ -28,7 +28,7 @@ export function DesignSystemCard({
 
   return (
     <div
-      className="group relative rounded-xl border border-white/[0.06] bg-[hsl(240,5%,8%)] hover:border-white/[0.12] overflow-hidden cursor-pointer"
+      className="group relative rounded-xl border border-border bg-card hover:border-border overflow-hidden cursor-pointer"
       onClick={onClick}
     >
       <div
@@ -39,7 +39,7 @@ export function DesignSystemCard({
           {swatchColors.map((s) => (
             <div
               key={s.label}
-              className="w-6 h-6 rounded-full border border-white/10 shrink-0"
+              className="w-6 h-6 rounded-full border border-border shrink-0"
               style={{ background: s.color }}
               title={s.label}
             />
@@ -75,16 +75,16 @@ export function DesignSystemCard({
       <div className="p-4 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <IconPalette className="w-3.5 h-3.5 text-white/30 shrink-0" />
-            <h3 className="font-medium text-sm text-white/90 truncate">
+            <IconPalette className="w-3.5 h-3.5 text-muted-foreground/70 shrink-0" />
+            <h3 className="font-medium text-sm text-foreground truncate">
               {title}
             </h3>
           </div>
-          <div className="text-xs text-white/30 mt-1 flex items-center gap-2">
+          <div className="text-xs text-muted-foreground/70 mt-1 flex items-center gap-2">
             <span>{data.typography.headingFont}</span>
             {data.typography.headingFont !== data.typography.bodyFont && (
               <>
-                <span className="text-white/10">|</span>
+                <span className="text-muted-foreground/40">|</span>
                 <span>{data.typography.bodyFont}</span>
               </>
             )}
@@ -101,13 +101,13 @@ export function DesignSystemCard({
             e.stopPropagation();
             onSetDefault();
           }}
-          className="shrink-0 p-1 rounded hover:bg-white/[0.06] cursor-pointer"
+          className="shrink-0 p-1 rounded hover:bg-accent cursor-pointer"
           title={isDefault ? "Default design system" : "Set as default"}
         >
           {isDefault ? (
             <IconStarFilled className="w-4 h-4 text-[#609FF8]" />
           ) : (
-            <IconStar className="w-4 h-4 text-white/20 group-hover:text-white/40" />
+            <IconStar className="w-4 h-4 text-muted-foreground/60 group-hover:text-muted-foreground" />
           )}
         </button>
       </div>
