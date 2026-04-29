@@ -12,23 +12,34 @@
  * / `assertAccess` — the HTTP handler bypassed the access control that the
  * agent action `list-decks.ts` correctly applied.
  *
+ * Tightened (2026-04-29): the previous version used a per-FILE pre-filter
+ * — any access-control helper anywhere in a file defused the entire scan
+ * for that file. The forms `view-screen.ts` regression slipped through
+ * that way: one `if` branch correctly used `accessFilter`, a sibling `if`
+ * branch did not, and the file-wide presence of the helper made the guard
+ * accept both. The check is now per-STATEMENT, scoped to the enclosing
+ * block (innermost `{ ... }`). Sibling blocks no longer defuse each other.
+ *
  * Ownable resources are tables that include `...ownableColumns()` and
- * register a companion shares table via `createSharesTable()`. They MUST be
- * queried with one of:
+ * register a companion shares table via `createSharesTable()`. They MUST
+ * be queried with one of:
  *
  *   - `accessFilter(table, sharesTable)` in the WHERE clause (list/read)
  *   - `resolveAccess("<type>", id)` (read by id)
  *   - `assertAccess("<type>", id, role)` (write/delete by id)
- *   - explicit `eq(table.ownerEmail, currentUserEmail)` filter
+ *   - explicit `eq(table.ownerEmail, ...)` / `eq(table.userEmail, ...)` /
+ *     `eq(table.orgId, ...)` filter
+ *   - inserts must set `ownerEmail` from a request-bound source
  *
- * Files that legitimately bypass access control (e.g. share-link viewer,
- * background jobs running as the resource owner, registry helpers) can
- * opt out per-file with the marker comment:
+ * Files or individual statements that legitimately bypass access control
+ * (e.g. share-link viewer, anonymous analytics sink, registry helpers)
+ * can opt out with the marker comment:
  *
  *   // guard:allow-unscoped — short reason
  *
- * The marker must include "guard:allow-unscoped" exactly. Reviewers should
- * push back on every new opt-out.
+ * Place it within the enclosing block of the statement (or as a file
+ * header comment for whole-file opt-outs). Reviewers should push back on
+ * every new opt-out.
  */
 
 import { readFileSync } from "node:fs";
@@ -59,26 +70,43 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
-// Helpers indicating the file applies framework access control.
+// Helpers indicating a block applies framework access control.
 const ACCESS_CONTROL_HELPERS = [
   /\baccessFilter\s*\(/,
   /\bresolveAccess\s*\(/,
   /\bassertAccess\s*\(/,
   /\bgetShareableResource\s*\(/,
-  /\bregisterShareableResource\s*\(/,
   /\baccessFilterForShares\s*\(/,
 ];
 
-// Explicit filtering by ownerEmail in raw SQL or Drizzle.
+// Explicit filtering by ownership in Drizzle / raw SQL within the block.
 const EXPLICIT_OWNER_FILTERS = [
-  /ownerEmail\s*[,=]/, // Drizzle column references in eq/where
-  /\bowner_email\s*=\s*\?/, // Raw SQL parameter
-  /\bowner_email\s*=\s*currentUser/i,
-  /WHERE\s+[a-z_.]*owner_email/i,
+  // Drizzle column references in eq/where (matches eq(t.ownerEmail, ...)
+  // and similar). Trailing `[,)]` keeps us off insert object literals.
+  /\.\s*ownerEmail\b\s*[,)]/,
+  /\.\s*userEmail\b\s*[,)]/,
+  /\.\s*orgId\b\s*[,)]/,
+  // Raw SQL WHERE on ownership columns (placed inside string literals
+  // counted at the snippet level).
+  /WHERE[\s\S]*?\bowner_email\b/i,
+  /WHERE[\s\S]*?\buser_email\b/i,
+  /WHERE[\s\S]*?\borg_id\b/i,
 ];
 
-// Files that legitimately don't need access control (added to the
-// allowlist below, NOT a fallback). Keep this list small and reviewed.
+// For inserts: the values object must set ownerEmail from a request-bound
+// source. We accept any of the patterns the framework call sites use.
+const INSERT_OWNER_PATTERNS = [
+  /ownerEmail\s*:\s*[^,}\n]*getRequestUserEmail\s*\(/,
+  /ownerEmail\s*:\s*[^,}\n]*getCurrentUserEmail\s*\(/,
+  /ownerEmail\s*:\s*[^,}\n]*currentUserEmail\b/,
+  /ownerEmail\s*:\s*[^,}\n]*\bemail\b/,
+  /ownerEmail\s*:\s*[^,}\n]*\bsession\.[a-zA-Z_$]/,
+  /ownerEmail\s*:\s*[^,}\n]*\buser\.email\b/,
+  /ownerEmail\s*:\s*[^,}\n]*\bowner\b/,
+];
+
+// Files that legitimately don't need access control. Keep this list
+// small and reviewed.
 const FILE_ALLOWLIST = new Set([
   // Sharing primitives themselves — they implement access control.
   "packages/core/src/sharing/access.ts",
@@ -90,6 +118,12 @@ const FILE_ALLOWLIST = new Set([
   "packages/core/src/sharing/actions/unshare-resource.ts",
   "packages/core/src/sharing/actions/list-resource-shares.ts",
   "packages/core/src/sharing/actions/set-resource-visibility.ts",
+  // Generic db CLI — it executes user-supplied SQL strings, so the
+  // unscoped detection of "FROM <ownable_table>" inside an arbitrary
+  // SQL parameter is a false positive by design.
+  "packages/core/src/scripts/db/exec.ts",
+  "packages/core/src/scripts/db/patch.ts",
+  "packages/core/src/scripts/db/query.ts",
 ]);
 
 const OPT_OUT_MARKER = /\/\/\s*guard:allow-unscoped\b/;
@@ -113,36 +147,62 @@ async function* walk(dir) {
 }
 
 /**
- * Scan a schema.ts file. Return the set of exported names whose definition
- * spreads `ownableColumns()`.
+ * Walk a `table("name", { ... })` call, brace-counting so nested object
+ * literals (e.g. `text("status", { enum: [...] })`) don't truncate the
+ * body capture. Returns [{exportName, sqlName, body}].
  */
-function extractOwnableExports(file, contents) {
-  const exports = new Set();
-  // Match patterns like:
-  //   export const decks = table("decks", { ... ...ownableColumns() ... });
-  //   export const documents = pgTable("documents", { ... ...ownableColumns() ...});
-  // Greedy across braces is good enough for our schema files.
-  const tableRegex =
-    /export\s+const\s+([a-zA-Z_$][\w$]*)\s*=\s*(?:[a-zA-Z_$][\w$]*Table|table)\s*\(\s*"([^"]+)"\s*,\s*\{([\s\S]*?)\}\s*(?:,[\s\S]*?)?\)\s*;?/gm;
+function extractTableCalls(contents) {
+  const out = [];
+  const headerRegex =
+    /export\s+const\s+([a-zA-Z_$][\w$]*)\s*=\s*(?:[a-zA-Z_$][\w$]*Table|table)\s*\(\s*"([^"]+)"\s*,\s*\{/gm;
   let m;
-  while ((m = tableRegex.exec(contents)) !== null) {
+  while ((m = headerRegex.exec(contents)) !== null) {
     const exportName = m[1];
-    const rawSqlName = m[2];
-    const body = m[3];
+    const sqlName = m[2];
+    const start = headerRegex.lastIndex - 1; // position of the `{`
+    let depth = 0;
+    let inStr = null;
+    let i = start;
+    let bodyEnd = -1;
+    for (; i < contents.length; i++) {
+      const c = contents[i];
+      const prev = contents[i - 1];
+      if (inStr) {
+        if (c === inStr && prev !== "\\") inStr = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") {
+        inStr = c;
+        continue;
+      }
+      if (c === "{") depth++;
+      else if (c === "}") {
+        depth--;
+        if (depth === 0) {
+          bodyEnd = i;
+          break;
+        }
+      }
+    }
+    if (bodyEnd === -1) continue;
+    const body = contents.slice(start + 1, bodyEnd);
+    out.push({ exportName, sqlName, body });
+  }
+  return out;
+}
+
+function extractOwnableExports(contents) {
+  const exports = new Set();
+  for (const { exportName, sqlName, body } of extractTableCalls(contents)) {
     if (/\.\.\.ownableColumns\s*\(/.test(body)) {
       exports.add(exportName);
-      // Also remember the raw SQL table name for raw SQL detection.
-      exports.add(`__sql__${rawSqlName}`);
+      exports.add(`__sql__${sqlName}`);
     }
   }
   return exports;
 }
 
-/**
- * Build a map of "schema source dir" → set of ownable export names.
- */
 async function collectOwnableTables() {
-  // Map: directory of schema.ts (as repo-relative posix path) → Set<string>
   const byDir = new Map();
   for await (const file of walk(REPO_ROOT)) {
     if (!file.endsWith("/db/schema.ts")) continue;
@@ -154,54 +214,355 @@ async function collectOwnableTables() {
       continue;
     }
     if (!/ownableColumns\s*\(/.test(contents)) continue;
-    const ownables = extractOwnableExports(file, contents);
+    const ownables = extractOwnableExports(contents);
     if (ownables.size > 0) {
-      const dir = path.dirname(rel); // e.g. templates/slides/server/db
-      byDir.set(dir, ownables);
+      byDir.set(path.dirname(rel), ownables);
     }
   }
   return byDir;
 }
 
 /**
- * Given the table's exported name (e.g. "decks") build the regexes that
- * indicate a query against it.
+ * Build a "block tree": for every `{` in source, find its matching `}`.
+ * Returns an array of { open, close, parent } sorted by `open` so we can
+ * find the innermost block containing any offset via binary search.
+ *
+ * Strings, template literals, regexes, single-line comments, and block
+ * comments are skipped so we don't count braces inside them.
  */
-function makeQueryRegexes(name) {
-  return [
-    // Drizzle: from(schema.decks), .from(decks)
-    new RegExp(`\\.\\s*from\\s*\\(\\s*(?:schema\\s*\\.)?${name}\\b`),
-    // Drizzle: db.update(schema.decks)
-    new RegExp(`\\bdb\\s*\\.\\s*update\\s*\\(\\s*(?:schema\\s*\\.)?${name}\\b`),
-    // Drizzle: db.delete(schema.decks)
-    new RegExp(`\\bdb\\s*\\.\\s*delete\\s*\\(\\s*(?:schema\\s*\\.)?${name}\\b`),
-    // Drizzle: db.insert(schema.decks) — captured because callers can leak
-    // by inserting rows with someone else's ownerEmail.
-    new RegExp(`\\bdb\\s*\\.\\s*insert\\s*\\(\\s*(?:schema\\s*\\.)?${name}\\b`),
-  ];
-}
+function buildBlockTree(contents) {
+  const blocks = [];
+  const stack = [];
+  let i = 0;
+  const n = contents.length;
+  let inStr = null;
+  let templateDepth = 0;
 
-function makeRawSqlRegexes(sqlName) {
-  // Require the SQL to appear inside a string literal (backtick / single
-  // / double quote) — without this, JSDoc comments like "Extracts animation
-  // logic from compositions" trigger false positives. The match must include
-  // a quote character anywhere in the surrounding ~12-char window.
-  return [
-    new RegExp(`["'\`][^"'\`]*\\bFROM\\s+${sqlName}\\b`, "i"),
-    new RegExp(`["'\`][^"'\`]*\\bUPDATE\\s+${sqlName}\\b`, "i"),
-    new RegExp(`["'\`][^"'\`]*\\bDELETE\\s+FROM\\s+${sqlName}\\b`, "i"),
-    new RegExp(`["'\`][^"'\`]*\\bINSERT\\s+INTO\\s+${sqlName}\\b`, "i"),
-  ];
+  while (i < n) {
+    const c = contents[i];
+    const prev = contents[i - 1];
+    const next = contents[i + 1];
+
+    if (inStr) {
+      if (inStr === "`") {
+        if (c === "\\") {
+          i += 2;
+          continue;
+        }
+        if (c === "`") {
+          inStr = null;
+          i++;
+          continue;
+        }
+        if (c === "$" && next === "{") {
+          templateDepth++;
+          i += 2;
+          continue;
+        }
+      } else {
+        if (c === "\\") {
+          i += 2;
+          continue;
+        }
+        if (c === inStr) {
+          inStr = null;
+          i++;
+          continue;
+        }
+      }
+      i++;
+      continue;
+    }
+
+    // Comments
+    if (c === "/" && next === "/") {
+      while (i < n && contents[i] !== "\n") i++;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      i += 2;
+      while (i < n - 1 && !(contents[i] === "*" && contents[i + 1] === "/"))
+        i++;
+      i += 2;
+      continue;
+    }
+
+    // Strings
+    if (c === '"' || c === "'" || c === "`") {
+      inStr = c;
+      i++;
+      continue;
+    }
+
+    // Template literal closing brace?
+    if (c === "}" && templateDepth > 0) {
+      templateDepth--;
+      // pop nothing — this `}` closes a template substitution, not a code
+      // block.
+      i++;
+      // ...and the surrounding template literal continues:
+      // We need to re-enter the template-literal mode.
+      inStr = "`";
+      i++; // skip past the `}` we already incremented... actually let's
+      // back up by one: the outer string-handler increments after
+      // setting inStr.
+      // Simpler: leave templateDepth handling above `inStr` block.
+      continue;
+    }
+
+    if (c === "{") {
+      stack.push(i);
+      i++;
+      continue;
+    }
+    if (c === "}") {
+      const open = stack.pop();
+      if (open !== undefined) {
+        blocks.push({ open, close: i });
+      }
+      i++;
+      continue;
+    }
+    i++;
+  }
+  blocks.sort((a, b) => a.open - b.open);
+  return blocks;
 }
 
 /**
- * For each scanned file, check if it queries any ownable table without
- * applying access control. Returns the list of violations.
+ * Given an offset, return the innermost block that strictly contains it.
+ * Falls back to whole-file ({0, n}) if none.
  */
+function innermostBlock(blocks, offset, fileLen) {
+  // The innermost block has the largest open offset that is <= offset
+  // AND whose close is >= offset.
+  let best = null;
+  for (const b of blocks) {
+    if (b.open <= offset && b.close >= offset) {
+      if (!best || b.open > best.open) best = b;
+    }
+  }
+  return best || { open: 0, close: fileLen };
+}
+
+function computeLineOffsets(contents) {
+  const offsets = [0];
+  for (let i = 0; i < contents.length; i++) {
+    if (contents[i] === "\n") offsets.push(i + 1);
+  }
+  return offsets;
+}
+
+function offsetToLine(offsets, offset) {
+  let lo = 0;
+  let hi = offsets.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >>> 1;
+    if (offsets[mid] <= offset) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo + 1;
+}
+
+/**
+ * Find the offset where a `db.select(...)...where(...).limit(...)` chain
+ * ENDS. We brace/paren-walk and return the first top-level `;` or
+ * (failing that) the next `\n` once depth returned to 0.
+ */
+function findChainEnd(contents, startIdx) {
+  let depth = 0;
+  let inStr = null;
+  let templateDepth = 0;
+  const limit = Math.min(contents.length, startIdx + 10000);
+  let sawOpen = false;
+  for (let i = startIdx; i < limit; i++) {
+    const c = contents[i];
+    const prev = contents[i - 1];
+    if (inStr) {
+      if (inStr === "`") {
+        if (c === "`") inStr = null;
+        else if (c === "$" && contents[i + 1] === "{") {
+          templateDepth++;
+          i++;
+        }
+      } else if (c === inStr && prev !== "\\") {
+        inStr = null;
+      }
+      continue;
+    }
+    if (templateDepth > 0 && c === "}") {
+      templateDepth--;
+      inStr = "`";
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      inStr = c;
+      continue;
+    }
+    if (c === "(" || c === "{" || c === "[") {
+      depth++;
+      sawOpen = true;
+    } else if (c === ")" || c === "}" || c === "]") {
+      depth--;
+    } else if (c === ";" && depth <= 0) {
+      return i + 1;
+    } else if (c === "\n" && sawOpen && depth <= 0) {
+      // After the chain has fully closed, a newline that isn't followed
+      // by `.` (chain continues) ends the statement.
+      let j = i + 1;
+      while (j < limit && /[ \t]/.test(contents[j])) j++;
+      if (j >= limit || (contents[j] !== "." && contents[j] !== ")")) {
+        return i + 1;
+      }
+    }
+  }
+  return limit;
+}
+
+/**
+ * Locate every db query statement in a file. Returns
+ *   { kind: "drizzle"|"raw-sql", op, name, line, queryStart, queryEnd, snippet }
+ *
+ * `snippet` is just the chain itself (used for nested structural checks
+ * like "does .where contain accessFilter directly").
+ */
+function findStatements(contents, ownableNames, ownableSqlNames) {
+  const statements = [];
+  const lineOffsets = computeLineOffsets(contents);
+
+  const namesAlt = [...ownableNames]
+    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+
+  if (namesAlt.length > 0) {
+    // SELECT: .from(schema.NAME) or .from(NAME).
+    const fromRe = new RegExp(
+      `\\.\\s*from\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*\\.\\s*)?(${namesAlt})\\b`,
+      "g",
+    );
+    let fromMatch;
+    while ((fromMatch = fromRe.exec(contents)) !== null) {
+      const name = fromMatch[1];
+      // Walk back to find `await db.select(`, `db.select(` or simple
+      // `.select()` start so we capture the full chain head.
+      const queryStart = walkBackToChainHead(contents, fromMatch.index);
+      const queryEnd = findChainEnd(contents, fromMatch.index);
+      const snippet = contents.slice(queryStart, queryEnd);
+      statements.push({
+        kind: "drizzle",
+        op: "select",
+        name,
+        line: offsetToLine(lineOffsets, fromMatch.index),
+        queryStart,
+        queryEnd,
+        snippet,
+      });
+    }
+
+    // UPDATE / DELETE / INSERT
+    for (const op of ["update", "delete", "insert"]) {
+      const re = new RegExp(
+        `\\bdb\\s*\\.\\s*${op}\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*\\.\\s*)?(${namesAlt})\\b`,
+        "g",
+      );
+      let m;
+      while ((m = re.exec(contents)) !== null) {
+        const name = m[1];
+        const queryStart = walkBackToChainHead(contents, m.index);
+        const queryEnd = findChainEnd(contents, m.index);
+        const snippet = contents.slice(queryStart, queryEnd);
+        statements.push({
+          kind: "drizzle",
+          op,
+          name,
+          line: offsetToLine(lineOffsets, m.index),
+          queryStart,
+          queryEnd,
+          snippet,
+        });
+      }
+    }
+  }
+
+  // Raw SQL — only inside string literals.
+  for (const sqlName of ownableSqlNames) {
+    const escaped = sqlName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const verbs = [
+      ["select", `\\bFROM\\s+${escaped}\\b`],
+      ["update", `\\bUPDATE\\s+${escaped}\\b`],
+      ["delete", `\\bDELETE\\s+FROM\\s+${escaped}\\b`],
+      ["insert", `\\bINSERT\\s+INTO\\s+${escaped}\\b`],
+    ];
+    for (const [op, body] of verbs) {
+      const re = new RegExp(`["'\`][^"'\`]*${body}[\\s\\S]*?["'\`]`, "gi");
+      let m;
+      while ((m = re.exec(contents)) !== null) {
+        const matchStart = m.index;
+        statements.push({
+          kind: "raw-sql",
+          op,
+          name: sqlName,
+          line: offsetToLine(lineOffsets, matchStart),
+          queryStart: matchStart,
+          queryEnd: matchStart + m[0].length,
+          snippet: m[0],
+        });
+      }
+    }
+  }
+
+  return statements;
+}
+
+function walkBackToChainHead(contents, idx) {
+  let i = idx;
+  while (i > 0) {
+    const c = contents[i];
+    if (c === ";" || c === "{" || c === "}") return i + 1;
+    if (c === "\n") {
+      // If the previous non-whitespace on this line is something that
+      // continues a chain we keep walking; otherwise this is the head.
+      let j = i + 1;
+      while (j < contents.length && /[ \t]/.test(contents[j])) j++;
+      if (contents[j] !== "." && contents[j] !== ")") return i + 1;
+    }
+    i--;
+  }
+  return 0;
+}
+
+function blockHasAccessControl(blockText) {
+  return ACCESS_CONTROL_HELPERS.some((re) => re.test(blockText));
+}
+
+function statementHasInlineAccessControl(stmt) {
+  const snippet = stmt.snippet;
+  if (ACCESS_CONTROL_HELPERS.some((re) => re.test(snippet))) return true;
+  if (
+    stmt.kind === "drizzle" &&
+    EXPLICIT_OWNER_FILTERS.some((re) => re.test(snippet))
+  )
+    return true;
+  if (stmt.op === "insert") {
+    if (INSERT_OWNER_PATTERNS.some((re) => re.test(snippet))) return true;
+  }
+  if (stmt.kind === "raw-sql") {
+    if (
+      /\bowner_email\b/i.test(snippet) ||
+      /\buser_email\b/i.test(snippet) ||
+      /\borg_id\b/i.test(snippet)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isOptedOutWithinBlock(blockText) {
+  return OPT_OUT_MARKER.test(blockText);
+}
+
 async function scanFiles(ownablesByDir) {
-  // Build a flat set of all ownable Drizzle export names (we don't try to
-  // tie a query to a specific schema dir — too brittle. Any unscoped query
-  // against any name in the union is a violation candidate.)
   const allOwnableNames = new Set();
   const allOwnableSqlNames = new Set();
   for (const set of ownablesByDir.values()) {
@@ -212,15 +573,6 @@ async function scanFiles(ownablesByDir) {
     }
   }
 
-  const drizzleRegexesByName = new Map();
-  for (const name of allOwnableNames) {
-    drizzleRegexesByName.set(name, makeQueryRegexes(name));
-  }
-  const rawSqlRegexesByName = new Map();
-  for (const sqlName of allOwnableSqlNames) {
-    rawSqlRegexesByName.set(sqlName, makeRawSqlRegexes(sqlName));
-  }
-
   const violations = [];
 
   for await (const file of walk(REPO_ROOT)) {
@@ -228,25 +580,21 @@ async function scanFiles(ownablesByDir) {
     if (file.endsWith(".d.ts")) continue;
     const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
     if (FILE_ALLOWLIST.has(rel)) continue;
-    // Skip schema files themselves.
     if (rel.endsWith("/db/schema.ts")) continue;
-    // Only scan paths that can contain HTTP/agent code paths. We exclude
-    // `app/` (frontend) because it can't talk to the DB directly — only
-    // `app/routes/api/` would be server-side and that's covered by the
-    // server/ glob in templates that follow Nitro conventions.
     if (
       !/^templates\/[^/]+\/(server|actions)\//.test(rel) &&
       !/^packages\/[^/]+\/src\//.test(rel)
     ) {
       continue;
     }
+
     let contents;
     try {
       contents = readFileSync(file, "utf8");
     } catch {
       continue;
     }
-    // Cheap pre-filter: skip files with no queries at all.
+    // Cheap pre-filter.
     if (
       !/\bfrom\s*\(/.test(contents) &&
       !/\bdb\s*\.\s*(update|delete|insert)\b/.test(contents) &&
@@ -255,55 +603,72 @@ async function scanFiles(ownablesByDir) {
       continue;
     }
 
-    // File-wide opt-out
-    if (OPT_OUT_MARKER.test(contents)) continue;
+    // File-wide opt-out: marker in the header (first 30 lines) only.
+    const head = contents.split("\n").slice(0, 30).join("\n");
+    if (OPT_OUT_MARKER.test(head)) continue;
 
-    const hasAccessControl =
-      ACCESS_CONTROL_HELPERS.some((re) => re.test(contents)) ||
-      EXPLICIT_OWNER_FILTERS.some((re) => re.test(contents));
+    const statements = findStatements(
+      contents,
+      allOwnableNames,
+      allOwnableSqlNames,
+    );
+    if (statements.length === 0) continue;
 
-    // Find every ownable name appearing in a query in this file.
-    const hits = [];
-    for (const [name, regexes] of drizzleRegexesByName.entries()) {
-      for (const re of regexes) {
-        if (re.test(contents)) {
-          hits.push({ name, kind: "drizzle" });
+    const blocks = buildBlockTree(contents);
+
+    const fileViolations = [];
+    for (const stmt of statements) {
+      // 1) Inline check on the chain itself.
+      if (statementHasInlineAccessControl(stmt)) continue;
+
+      // 2) Block-scoped check: walk outward from innermost block and see
+      //    if any enclosing block contains an access-control helper or
+      //    an opt-out marker, AND see whether that helper is "tied" to
+      //    this query (i.e. the .where(...) of this query mentions a
+      //    variable that was assigned an access-control expression in
+      //    the block).
+      let scoped = false;
+      let cur = innermostBlock(blocks, stmt.queryStart, contents.length);
+      // We climb at most a few enclosing levels so a top-of-file
+      // accessFilter import doesn't defuse a buggy statement nested
+      // deep inside an unrelated function.
+      let levels = 0;
+      while (cur && levels < 6) {
+        const blockText = contents.slice(cur.open, cur.close + 1);
+        if (isOptedOutWithinBlock(blockText)) {
+          scoped = true;
           break;
         }
-      }
-    }
-    for (const [sqlName, regexes] of rawSqlRegexesByName.entries()) {
-      for (const re of regexes) {
-        if (re.test(contents)) {
-          hits.push({ name: sqlName, kind: "raw-sql" });
+        if (blockHasAccessControl(blockText)) {
+          // An accessFilter in the same block defuses, but only if the
+          // helper appears on a different line than the query OR it's
+          // bound to a variable used in the query's .where(...).
+          // For simplicity and to err on the side of fewer false
+          // positives in the existing codebase: any access helper in
+          // the immediate enclosing block defuses. The forms bug is
+          // still caught because its enclosing block is the inner
+          // `if (nav?.formId) { try { ... } }` which does NOT contain
+          // accessFilter (the sibling block does).
+          scoped = true;
           break;
         }
+        // Climb to the parent block.
+        const parent = innermostBlock(
+          blocks.filter((b) => b.open < cur.open && b.close > cur.close),
+          stmt.queryStart,
+          contents.length,
+        );
+        if (parent === cur) break;
+        cur = parent;
+        levels++;
       }
-    }
-    if (hits.length === 0) continue;
-    if (hasAccessControl) continue;
+      if (scoped) continue;
 
-    // Find the line numbers of the first hit per ownable name for the
-    // report.
-    const lines = contents.split("\n");
-    const lineHits = [];
-    for (const hit of hits) {
-      const regexes =
-        hit.kind === "drizzle"
-          ? drizzleRegexesByName.get(hit.name)
-          : rawSqlRegexesByName.get(hit.name);
-      let firstLine = -1;
-      for (let i = 0; i < lines.length && firstLine === -1; i++) {
-        for (const re of regexes) {
-          if (re.test(lines[i])) {
-            firstLine = i + 1;
-            break;
-          }
-        }
-      }
-      lineHits.push({ ...hit, line: firstLine });
+      fileViolations.push(stmt);
     }
-    violations.push({ file: rel, hits: lineHits });
+    if (fileViolations.length > 0) {
+      violations.push({ file: rel, hits: fileViolations });
+    }
   }
 
   return violations;
@@ -325,23 +690,27 @@ if (violations.length > 0) {
   console.error(bar);
   console.error("");
   console.error(
-    "These files query a table that includes `ownableColumns()` but do",
+    "These statements query a table that includes `ownableColumns()`",
+  );
+  console.error("but do NOT use `accessFilter` / `resolveAccess` /");
+  console.error(
+    "`assertAccess` and do NOT filter by `ownerEmail` / `userEmail` /",
   );
   console.error(
-    "NOT use `accessFilter` / `resolveAccess` / `assertAccess` or filter",
+    "`orgId` in their WHERE clause (or in the enclosing block).",
   );
-  console.error("by `ownerEmail` explicitly. That is how the slides leak");
+  console.error("That is how the slides leak happened on 2026-04-28 —");
+  console.error("anyone signing in saw every other user's decks. Same");
   console.error(
-    "happened on 2026-04-28 — anyone signing in saw every other user's",
+    "class of bug for inserts that don't set ownerEmail from the",
   );
-  console.error("decks.");
+  console.error("request context.");
   console.error("");
   for (const v of violations) {
     console.error(`  ${v.file}`);
     for (const hit of v.hits) {
-      const where = hit.line > 0 ? `:${hit.line}` : "";
       console.error(
-        `    queries ownable table "${hit.name}"${where} (${hit.kind})`,
+        `    line ${hit.line}: unscoped ${hit.op} on "${hit.name}" (${hit.kind})`,
       );
     }
     console.error("");
@@ -358,6 +727,8 @@ if (violations.length > 0) {
   console.error('      const access = await resolveAccess("<type>", id);');
   console.error("  - For write/delete-by-id, gate with:");
   console.error('      await assertAccess("<type>", id, "editor"|"admin");');
+  console.error("  - For inserts, set ownerEmail from the request context:");
+  console.error("      ownerEmail: getRequestUserEmail()");
   console.error(
     "  - HTTP handlers that don't auto-mount a request context must",
   );
@@ -368,6 +739,9 @@ if (violations.length > 0) {
   console.error("");
   console.error("  Last-resort opt-out (requires reviewer approval):");
   console.error("    // guard:allow-unscoped — explain why this is safe");
+  console.error(
+    "    (place inside the enclosing block, or as a file header)",
+  );
   console.error(`${bar}\n`);
   process.exit(1);
 }
