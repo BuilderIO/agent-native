@@ -103,11 +103,11 @@ export const templates = [
   {
     name: "Dispatch",
     slug: "dispatch",
-    replaces: "Replaces or augments Slack/Telegram bots and Zapier",
+    replaces: "Mission control for your agent-native apps",
     cliCommand: "npx @agent-native/core create my-dispatch-app",
     demoUrl: "https://dispatch.agent-native.com",
     description:
-      "Central messaging router for your agents. Talk to it from Slack or Telegram and it routes work, manages jobs, memory, approvals, and A2A delegation across every app.",
+      "Centralized messaging and management for every agent in your stack. Talk to your agents from Slack, Telegram, or the web; route jobs, hold memory, approve actions, and delegate across apps over A2A.",
     color: "#14B8A6",
     screenshot: "",
   },

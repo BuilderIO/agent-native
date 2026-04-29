@@ -100,7 +100,7 @@ Connect any data source, prompt for any chart. Build reusable dashboards, not th
 
 <a href="https://agent-native.com/templates/clips"><img src="https://placehold.co/800x600/625DF5/FFFFFF?text=Clips" alt="Clips template" width="100%" /></a>
 
-**Async screen recording for teams**
+**AI-native async screen recording**
 
 Record your screen with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.
 
@@ -122,9 +122,9 @@ Create and edit visual designs by prompt or by hand, with the agent as your co-d
 
 <a href="https://agent-native.com/templates/dispatch"><img src="https://placehold.co/800x600/14B8A6/FFFFFF?text=Dispatch" alt="Dispatch template" width="100%" /></a>
 
-**Central agent router**
+**Mission control for agent-native apps**
 
-Talk to your agents from Slack or Telegram. Dispatch routes work, manages jobs, memory, approvals, and A2A delegation across every app.
+Centralized messaging and management for every agent in your stack. Talk to your agents from Slack, Telegram, or the web; route jobs, hold memory, approve actions, and delegate across apps.
 
 </td>
 </tr>
