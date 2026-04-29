@@ -435,7 +435,9 @@ function buildThinkingBlocks(): unknown[] {
   return [
     {
       type: "context",
-      elements: [{ type: "mrkdwn", text: `:hourglass_flowing_sand: _${text}_` }],
+      elements: [
+        { type: "mrkdwn", text: `:hourglass_flowing_sand: _${text}_` },
+      ],
     },
   ];
 }
