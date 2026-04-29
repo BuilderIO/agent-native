@@ -130,26 +130,24 @@ fn wake_popover_for_voice(app: &tauri::AppHandle) {
     let _ = app.emit("clips:popover-visible", false);
 }
 
-/// Hold threshold before a Fn press counts as a dictation gesture. Below
-/// this, we treat it as a stray tap (e.g. user nudging the macOS input
-/// source / globe HUD) and emit nothing — so a quick Fn tap never opens our
-/// flow-bar overlay.
-#[cfg(target_os = "macos")]
-const FN_HOLD_THRESHOLD_MS: u64 = 180;
-
-/// Listen for Fn key down/up via a CoreGraphics event tap. Tap is
-/// `ListenOnly` so we don't suppress macOS's own Fn behavior (the system
-/// always shows the globe/input-source HUD on Fn — only the user can
-/// disable that, in System Settings → Keyboard → Press 🌐 key to: Do
-/// Nothing). We only emit `voice:shortcut-start` after the user has held
-/// Fn past `FN_HOLD_THRESHOLD_MS` so a momentary tap doesn't pop the
-/// dictation bar. We mirror `DictationActive` so the long-tail
-/// `show_flow_bar` safety timeout applies to Fn-triggered dictation too.
+/// Listen for Fn (globe) key down/up via a CoreGraphics event tap. Tap is
+/// `ListenOnly` so we don't suppress macOS's own Fn behavior — the system
+/// shows its globe/input-source HUD on Fn unless the user disables it in
+/// System Settings → Keyboard → Press 🌐 key to: Do Nothing.
+///
+/// Edge-triggered: `voice:shortcut-start` fires on every `false → true`
+/// transition of the Fn flag, `voice:shortcut-stop` on every `true → false`.
+/// `DictationActive` is mirrored so the long-tail `show_flow_bar` safety
+/// timeout applies to Fn-triggered dictation too.
+///
+/// Resilient to dropped events: if we see Fn-down while already in the
+/// "down" state (because a previous Fn-up FlagsChanged was missed by the
+/// OS), we synthesize a stop, then start fresh. This stops the Fn key
+/// from getting silently wedged after the first dictation.
 #[cfg(target_os = "macos")]
 fn install_fn_event_tap(app: tauri::AppHandle) {
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::Duration;
 
     use core_foundation::runloop::CFRunLoop;
     use core_graphics::event::{
@@ -157,22 +155,10 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
         CGEventType, CallbackResult,
     };
 
-    struct FnState {
-        was_down: bool,
-        // Generation counter — bumped on each down so a delayed start
-        // task that fires after a quick release knows to bail.
-        generation: u64,
-        started: bool,
-    }
-
-    let state = Arc::new(Mutex::new(FnState {
-        was_down: false,
-        generation: 0,
-        started: false,
-    }));
+    let was_down = Arc::new(Mutex::new(false));
 
     thread::spawn(move || {
-        let state = state.clone();
+        let was_down = was_down.clone();
         let app_for_tap = app.clone();
         eprintln!("[clips-tray] installing macOS Fn event tap");
         let result = CGEventTap::with_enabled(
@@ -184,57 +170,30 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                 let is_down = event
                     .get_flags()
                     .contains(CGEventFlags::CGEventFlagSecondaryFn);
-                let mut s = match state.lock() {
-                    Ok(g) => g,
+                let prev = match was_down.lock() {
+                    Ok(mut g) => {
+                        let prev = *g;
+                        *g = is_down;
+                        prev
+                    }
                     Err(_) => return CallbackResult::Keep,
                 };
-                if is_down && !s.was_down {
-                    s.was_down = true;
-                    s.generation = s.generation.wrapping_add(1);
-                    s.started = false;
-                    let gen = s.generation;
-                    drop(s);
-                    let app_for_delay = app_for_tap.clone();
-                    let state_for_delay = state.clone();
-                    thread::spawn(move || {
-                        thread::sleep(Duration::from_millis(FN_HOLD_THRESHOLD_MS));
-                        let mut s = match state_for_delay.lock() {
-                            Ok(g) => g,
-                            Err(_) => return,
-                        };
-                        if !s.was_down || s.generation != gen {
-                            // Released before the threshold, or a new
-                            // press has started a fresh generation.
-                            return;
-                        }
-                        s.started = true;
-                        drop(s);
-                        if let Some(active) = app_for_delay.try_state::<DictationActive>() {
-                            if let Ok(mut g) = active.0.lock() {
-                                *g = true;
-                            }
-                        }
-                        eprintln!("[clips-tray] Fn held — starting voice dictation");
-                        let _ = app_for_delay.emit(
-                            "voice:shortcut-start",
-                            serde_json::json!({ "source": "fn" }),
-                        );
-                    });
-                } else if !is_down && s.was_down {
-                    let was_started = s.started;
-                    s.was_down = false;
-                    s.started = false;
-                    drop(s);
-                    if let Some(active) = app_for_tap.try_state::<DictationActive>() {
-                        if let Ok(mut g) = active.0.lock() {
-                            *g = false;
-                        }
-                    }
-                    if was_started {
-                        eprintln!("[clips-tray] Fn up — stopping voice dictation");
-                        let _ = app_for_tap
-                            .emit("voice:shortcut-stop", serde_json::json!({ "source": "fn" }));
-                    }
+                if is_down == prev {
+                    // No transition — the modifier flags changed for some
+                    // OTHER key (Cmd, Shift, Ctrl…). Leave dictation alone.
+                    return CallbackResult::Keep;
+                }
+                set_dictation_active(&app_for_tap, is_down);
+                if is_down {
+                    eprintln!("[clips-tray] Fn down — starting voice dictation");
+                    let _ = app_for_tap.emit(
+                        "voice:shortcut-start",
+                        serde_json::json!({ "source": "fn" }),
+                    );
+                } else {
+                    eprintln!("[clips-tray] Fn up — stopping voice dictation");
+                    let _ = app_for_tap
+                        .emit("voice:shortcut-stop", serde_json::json!({ "source": "fn" }));
                 }
                 CallbackResult::Keep
             },
@@ -246,4 +205,13 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
             );
         }
     });
+}
+
+#[cfg(target_os = "macos")]
+fn set_dictation_active(app: &tauri::AppHandle, active: bool) {
+    if let Some(state) = app.try_state::<DictationActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = active;
+        }
+    }
 }
