@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router";
-import { AgentToggleButton } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { useBoardConfig } from "@/hooks/use-boards";
 import { useIssues } from "@/hooks/use-issues";
@@ -8,6 +7,7 @@ import { useTransitionIssue } from "@/hooks/use-transitions";
 import { IssueDetail } from "@/components/issues/IssueDetail";
 import { KanbanBoard } from "@/components/board/KanbanBoard";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 interface BoardPageProps {
   boardId: string;
