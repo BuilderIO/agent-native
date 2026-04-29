@@ -43,6 +43,7 @@
     "@agent-native/core": "^0.7.10"
   },
   "devDependencies": {
+    "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",
     "react": "^19.2.5",
     "typescript": "^6.0.3"
