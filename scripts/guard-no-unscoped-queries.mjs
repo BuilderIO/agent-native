@@ -760,6 +760,23 @@ async function scanFiles(ownablesByDir) {
     );
     if (statements.length === 0) continue;
 
+    // Per-file gate. The new per-statement check kicks in ONLY for files
+    // that already use access control somewhere — those are the files
+    // where the forms `view-screen` regression class lives (one branch
+    // scoped, sibling branch missed). Files with no access control at
+    // all (anonymous webhook handlers, public read routes, third-party
+    // signed callbacks) are left to existing review processes — the
+    // OLD scanner missed them too, and bulk-flagging them now would
+    // break `pnpm prep` for parallel agents fixing other things.
+    //
+    // To opt a previously-unprotected file IN to the strict check, just
+    // add an access-control helper anywhere (or, conversely, add the
+    // header opt-out marker for the legitimate cases).
+    const fileHasAccessControl =
+      ACCESS_CONTROL_HELPERS.some((re) => re.test(contents)) ||
+      EXPLICIT_OWNER_FILTERS.some((re) => re.test(contents));
+    if (!fileHasAccessControl) continue;
+
     const blocks = buildBlockTree(contents);
     const accessControlBindings = collectAccessControlBindings(contents);
 

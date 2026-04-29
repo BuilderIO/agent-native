@@ -207,6 +207,7 @@ async function transcribe(
   serverUrl: string,
   chunks: Blob[],
   mimeType: string,
+  providerPref: "auto" | "builder" | "gemini" | "openai" | "groq",
   controller: AbortController,
 ): Promise<string> {
   const audioBlob = new Blob(chunks, { type: mimeType });
@@ -217,6 +218,10 @@ async function transcribe(
       ? "ogg"
       : "webm";
   form.append("audio", audioBlob, `voice.${ext}`);
+  // Tells the server which provider to use. "auto" matches the existing
+  // server default (Gemini → Builder → Groq → OpenAI fallback chain),
+  // anything else pins to that one provider with no fallback.
+  form.append("provider", providerPref);
   const timeout = window.setTimeout(() => controller.abort(), 45_000);
   try {
     const res = await fetch(
@@ -372,13 +377,6 @@ export function installDesktopVoiceDictation(
 
   const start = async () => {
     if (disposed || !enabled) return;
-    if (
-      !navigator.mediaDevices?.getUserMedia ||
-      typeof MediaRecorder === "undefined"
-    ) {
-      console.error("[voice-dictation] MediaRecorder unavailable");
-      return;
-    }
     // Wait briefly for any in-flight start() or stopping session to
     // settle so a fast-repeat Fn press isn't dropped in the tear-down
     // window of the previous one.
@@ -392,6 +390,30 @@ export function installDesktopVoiceDictation(
     }
     if (disposed || session || startInFlight) return;
 
+    const resolved = await resolveProvider();
+    if (resolved.kind === "browser") {
+      await startBrowser();
+    } else {
+      await startServer(resolved.providerPref);
+    }
+  };
+
+  /**
+   * Server-path: capture audio with MediaRecorder, POST it to the
+   * transcribe-voice endpoint on Fn-up, paste the response text. The
+   * "Polishing..." processing state is shown while we wait for the
+   * remote transcription.
+   */
+  const startServer = async (
+    providerPref: "auto" | "builder" | "gemini" | "openai" | "groq",
+  ) => {
+    if (
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof MediaRecorder === "undefined"
+    ) {
+      console.error("[voice-dictation] MediaRecorder unavailable");
+      return;
+    }
     try {
       startInFlight = true;
       stopRequestedBeforeReady = false;
@@ -409,6 +431,7 @@ export function installDesktopVoiceDictation(
       const mimeType = pickMimeType();
       const recorder = new MediaRecorder(stream, { mimeType });
       const next: VoiceSession = {
+        kind: "server",
         stream,
         recorder,
         chunks: [],
@@ -416,6 +439,8 @@ export function installDesktopVoiceDictation(
         analyser: null,
         raf: null,
         mimeType: recorder.mimeType || mimeType,
+        recognition: null,
+        browserTranscript: "",
         startedAt: Date.now(),
         stopping: false,
         transcribeAbort: null,
@@ -442,11 +467,10 @@ export function installDesktopVoiceDictation(
             serverUrl,
             next.chunks,
             next.mimeType,
+            providerPref,
             controller,
           );
           if (next.cancelled) {
-            // User cancelled while we were awaiting the response — just
-            // hide; do NOT paste the transcribed text.
             cleanup(next);
             return;
           }
@@ -466,7 +490,6 @@ export function installDesktopVoiceDictation(
             if (!disposed) cleanup(next);
           }, 550);
         } catch (err) {
-          // AbortError from a user cancel is expected — don't show "error".
           if (
             next.cancelled ||
             (err as { name?: string })?.name === "AbortError"
@@ -488,11 +511,7 @@ export function installDesktopVoiceDictation(
         stop();
       }
     } catch (err) {
-      console.error("[voice-dictation] start failed", err);
-      // start() failed before any session was wired up. Reset flags
-      // immediately so the next Fn press isn't blocked, leave the
-      // "error" frame visible briefly, then hide the bar — but only
-      // if no new session has taken over by then.
+      console.error("[voice-dictation] startServer failed", err);
       startInFlight = false;
       stopRequestedBeforeReady = false;
       setFlowState("error");
@@ -504,35 +523,139 @@ export function installDesktopVoiceDictation(
     }
   };
 
-  // User clicked the X on the flow-bar (or Esc in some future flow).
-  // Mark the session cancelled so onstop / the transcribe path skip the
-  // paste, abort any in-flight HTTP request, then tear down + hide.
+  /**
+   * Browser-path: real-time on-device transcription via WKWebView's
+   * webkitSpeechRecognition. No server round-trip — text is ready the
+   * moment we stop the recognizer, so we paste immediately and skip
+   * the "Polishing..." state entirely.
+   */
+  const startBrowser = async () => {
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor) {
+      console.error(
+        "[voice-dictation] webkitSpeechRecognition unavailable — falling back to server path",
+      );
+      // Force a server attempt as a last resort. If that fails too, the
+      // user gets the "no provider" error in the bar.
+      await startServer("auto");
+      return;
+    }
+    try {
+      startInFlight = true;
+      stopRequestedBeforeReady = false;
+      await invoke("show_flow_bar");
+      setFlowState("recording");
+      const recognition = new Ctor();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || "en-US";
+      recognition.maxAlternatives = 1;
+      const next: VoiceSession = {
+        kind: "browser",
+        stream: null,
+        recorder: null,
+        chunks: [],
+        audioContext: null,
+        analyser: null,
+        raf: null,
+        mimeType: "",
+        recognition,
+        browserTranscript: "",
+        startedAt: Date.now(),
+        stopping: false,
+        transcribeAbort: null,
+        cancelled: false,
+      };
+      recognition.onresult = (ev) => {
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          const r = ev.results[i];
+          if (r.isFinal) {
+            next.browserTranscript += r[0].transcript;
+          }
+        }
+      };
+      recognition.onerror = (ev) => {
+        // "no-speech" / "aborted" are normal in push-to-talk; only log
+        // the genuinely unexpected ones.
+        if (ev.error !== "no-speech" && ev.error !== "aborted") {
+          console.warn(
+            "[voice-dictation] webkitSpeechRecognition error:",
+            ev.error,
+          );
+        }
+      };
+      recognition.onend = async () => {
+        stopMeter(next);
+        if (session === next) session = null;
+        const text = next.browserTranscript.trim();
+        if (disposed || next.cancelled || !text) {
+          cleanup(next);
+          return;
+        }
+        try {
+          console.log(
+            `[voice-dictation] browser transcribed (${text.length} chars):`,
+            text.slice(0, 120),
+          );
+          await invoke("complete_voice_dictation", { text });
+        } catch (err) {
+          console.error(
+            "[voice-dictation] complete_voice_dictation failed:",
+            err,
+          );
+        }
+        // No "Polishing..." for the browser path — text is already final
+        // when onend fires. Just dismiss.
+        cleanup(next);
+      };
+      session = next;
+      startInFlight = false;
+      startSyntheticMeter(next);
+      recognition.start();
+      if (stopRequestedBeforeReady) {
+        stop();
+      }
+    } catch (err) {
+      console.error("[voice-dictation] startBrowser failed", err);
+      startInFlight = false;
+      stopRequestedBeforeReady = false;
+      setFlowState("error");
+      window.setTimeout(() => {
+        if (disposed || session) return;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+      }, 800);
+    }
+  };
+
+  // User clicked the X on the flow-bar. Mark cancelled (skips paste),
+  // abort any in-flight HTTP, stop the recognizer / recorder, hide.
   const cancel = () => {
     const current = session;
     if (!current) {
-      // No active session — but start() may be in-flight, or a timeout
-      // chain may still be holding the bar open from a previous cleanup.
-      // Force-hide so the user gets immediate feedback.
       stopRequestedBeforeReady = true;
       invoke("hide_flow_bar").catch(() => {});
       return;
     }
     current.cancelled = true;
-    // Abort an in-flight transcribe immediately (otherwise we'd wait
-    // for the 45s timeout when the server is slow).
     current.transcribeAbort?.abort();
     if (!current.stopping) {
       current.stopping = true;
-      try {
-        current.recorder.stop();
-      } catch {
-        // recorder.stop can throw if not in 'recording' state — fall
-        // through to the cleanup below regardless.
+      if (current.kind === "server") {
+        try {
+          current.recorder?.stop();
+        } catch {
+          // recorder.stop can throw if not in 'recording' state — fall
+          // through to the cleanup below regardless.
+        }
+      } else {
+        try {
+          current.recognition?.abort();
+        } catch {
+          // ignore
+        }
       }
     }
-    // Hide the bar right away. onstop will still fire and call cleanup,
-    // which is now a no-op for the UI side since we set cancelled and
-    // the bar is already hidden.
     cleanup(current);
   };
 
