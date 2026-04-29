@@ -16,6 +16,7 @@ import {
   BUILDER_ENV_KEYS,
   BUILDER_STATE_PARAM,
   buildBuilderCliAuthUrl,
+  createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
   getBuilderBrowserStatusForEvent,
   resolveSafePreviewUrl,
@@ -300,6 +301,34 @@ export function createCoreRoutesPlugin(
         } catch {
           // Secrets table not ready — fall through to env status
         }
+        // Surface a recent OAuth callback failure so the parent's polling
+        // stops with a clear message instead of timing out at 5min. The
+        // callback handler writes a `builder-connect-error:<email>` row
+        // when `writeBuilderCredentials` throws; this read self-clears so
+        // the message only fires once.
+        try {
+          const session = await getSession(event).catch(() => null);
+          if (session?.email) {
+            const errKey = `builder-connect-error:${session.email}`;
+            const errRow = await getSetting(errKey);
+            if (errRow && typeof errRow.message === "string") {
+              await deleteSetting(errKey).catch(() => {});
+              return {
+                ...envStatus,
+                configured: false,
+                connectError: {
+                  message: errRow.message as string,
+                  at:
+                    typeof errRow.at === "number"
+                      ? (errRow.at as number)
+                      : Date.now(),
+                },
+              };
+            }
+          }
+        } catch {
+          // settings store unavailable — fall through to legacy/env status
+        }
         // Honor legacy disconnect flag for existing deployments.
         try {
           const disconnected = await getSetting("builder-disconnected");
@@ -456,6 +485,15 @@ export function createCoreRoutesPlugin(
         // Store per-user in app_secrets so each user's Builder connection
         // is independent. No more shared env vars that the last connector
         // overwrites.
+        //
+        // Failure handling: a silent catch here (returning the success page
+        // anyway) was Midhun's bug on 2026-04-28 — popup said "yay", parent
+        // window polled `/builder/status` for 5 minutes seeing
+        // configured:false, never got a real error. Now we surface the
+        // failure two ways: (a) a settings row that the next /builder/status
+        // poll picks up, and (b) postMessage from the error page itself,
+        // wired into the popup HTML, so the parent stops polling immediately.
+        let writeError: string | null = null;
         try {
           const { writeBuilderCredentials } =
             await import("./credential-provider.js");
@@ -467,17 +505,44 @@ export function createCoreRoutesPlugin(
             orgKind,
           });
         } catch (err) {
-          console.warn(
-            "[builder] Failed to write per-user credentials:",
-            (err as Error)?.message ?? err,
+          writeError = (err as Error)?.message ?? String(err);
+          console.error(
+            "[builder] Failed to persist per-user credentials:",
+            writeError,
           );
         }
 
-        // Clear any legacy disconnect flag.
+        if (writeError) {
+          // Best-effort signal to /builder/status. If putSetting also fails
+          // (entire DB unreachable) the popup's postMessage still notifies
+          // the parent. If both fail the parent times out at 5min as today.
+          try {
+            await putSetting(`builder-connect-error:${session.email}`, {
+              message: writeError,
+              at: Date.now(),
+            });
+          } catch (settingsErr) {
+            console.error(
+              "[builder] Couldn't even record connect-error to settings:",
+              (settingsErr as Error)?.message ?? settingsErr,
+            );
+          }
+          setResponseStatus(event, 500);
+          setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+          return createBuilderBrowserCallbackErrorPage(writeError);
+        }
+
+        // Clear any legacy disconnect flag and any prior connect-error row
+        // (so a successful retry doesn't surface the previous failure).
         try {
           await deleteSetting("builder-disconnected");
         } catch {
           // DB not ready — proceed
+        }
+        try {
+          await deleteSetting(`builder-connect-error:${session.email}`);
+        } catch {
+          // No prior error row — fine
         }
 
         const previewUrl = resolveSafePreviewUrl(
