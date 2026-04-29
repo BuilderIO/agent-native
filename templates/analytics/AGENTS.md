@@ -230,7 +230,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `seo-page-keywords`  | `--url`                     | Keywords for a specific page    |
 | `seo-blog-pages`     |                             | Blog page SEO metrics           |
 | `ga4-report`         | `--metrics`, `--dimensions` | Google Analytics reports        |
-| `bigquery`           | `--sql`                     | Ad-hoc BigQuery queries         |
+| `bigquery`           | `--sql`                     | Ad-hoc BigQuery queries (**also available as a native callable agent tool** — call it directly; don't use HTTP workarounds) |
 | `mixpanel-events`    |                             | Mixpanel event data             |
 | `posthog-events`     |                             | PostHog event data              |
 | `amplitude-events`   |                             | Amplitude event data            |
