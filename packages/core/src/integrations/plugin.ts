@@ -111,7 +111,14 @@ export function createIntegrationsPlugin(
     }
 
     const model = options?.model ?? "claude-sonnet-4-6";
-    const apiKey = options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "";
+    // Read the API key at REQUEST time, not plugin-init time. On Netlify
+    // Lambda the plugin module loads in a context where env vars from the
+    // site's runtime config may not yet be populated, so capturing at
+    // init can leave us with an empty string forever. The getter
+    // re-resolves on every webhook so freshly-set secrets work without
+    // a redeploy.
+    const getApiKey = () =>
+      options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "";
 
     // Build the system prompt
     const baseSystemPrompt = options?.systemPrompt ?? INTEGRATION_SYSTEM_PROMPT;
@@ -240,7 +247,7 @@ export function createIntegrationsPlugin(
             systemPrompt: baseSystemPrompt,
             actions,
             model,
-            apiKey,
+            apiKey: getApiKey(),
             ownerEmail: task.ownerEmail,
           });
           await markTaskCompleted(taskId);
@@ -330,6 +337,18 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 404);
             return { error: `Integration ${platform} is not enabled` };
           }
+
+          // Verify the webhook signature BEFORE parsing. We pre-parse the
+          // body here (so handleWebhook can skip its second readBody, which
+          // hangs on streaming providers), and that means handleWebhook's
+          // own verifyWebhook step is bypassed. Without this call anyone
+          // could POST a forged Slack/Telegram/email payload.
+          const isValid = await adapter.verifyWebhook(event);
+          if (!isValid) {
+            setResponseStatus(event, 401);
+            return { error: "Invalid webhook signature" };
+          }
+
           const incoming = await adapter.parseIncomingMessage(event);
           if (!incoming) {
             setResponseStatus(event, 200);
@@ -353,9 +372,10 @@ export function createIntegrationsPlugin(
             systemPrompt,
             actions,
             model,
-            apiKey: options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "",
+            apiKey: getApiKey(),
             ownerEmail: owner,
             beforeProcess: options?.beforeProcess,
+            incoming,
           });
           setResponseStatus(event, result.status);
           return result.body;
@@ -434,7 +454,7 @@ export function createIntegrationsPlugin(
           systemPrompt: baseSystemPrompt,
           actions,
           model,
-          apiKey,
+          apiKey: getApiKey(),
           ownerEmail: "integration@google-docs",
           webhookUrl,
         });

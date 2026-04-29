@@ -133,6 +133,9 @@ export default function RecordRoute() {
   const engineRef = useRef<RecorderEngine | null>(null);
   const pendingRef = useRef<PendingRecording | null>(null);
   const confettiRef = useRef<ConfettiHandle>(null);
+  // Stable ref to doStop so engine callbacks created during startFlow always
+  // call the latest version (avoids stale-closure problems with useCallback deps).
+  const doStopRef = useRef<() => Promise<void>>(async () => {});
   // Tracks whether opening the stop-confirm dialog auto-paused a live
   // recording — so closing the dialog without choosing an action resumes
   // it, but doesn't unpause a recording the user had paused themselves.
@@ -257,6 +260,7 @@ export default function RecordRoute() {
             console.error("[recorder] error:", err);
             toast.error(err.message);
             setError(err.message);
+            setUiState("error");
           },
           onChunk: ({ index, bytes }) => {
             void writeAppState(`recording-upload-${info.id}`, {
@@ -266,6 +270,14 @@ export default function RecordRoute() {
               lastChunkBytes: bytes,
               updatedAt: new Date().toISOString(),
             }).catch(() => {});
+          },
+          // When the user clicks the browser's native "Stop sharing" button,
+          // delegate to doStop() so the UI runs its full stop flow: thumbnail
+          // capture, transcription flush, state updates, and navigation.
+          // Using a ref so we always call the latest version of doStop even
+          // though startFlow itself has empty deps.
+          onDisplayTrackEnded: () => {
+            void doStopRef.current();
           },
         });
         engineRef.current = engine;
@@ -319,6 +331,16 @@ export default function RecordRoute() {
     const engine = engineRef.current;
     const pending = pendingRef.current;
     if (!engine || !pending) return;
+    // Guard against concurrent calls (e.g. browser "Stop sharing" fires at the
+    // same time the user also clicks the in-app stop button).
+    const engineState = engine.getState();
+    if (
+      engineState === "stopping" ||
+      engineState === "uploading" ||
+      engineState === "complete"
+    ) {
+      return;
+    }
     setUiState("uploading");
     try {
       // Capture a still-frame thumbnail from the preview while the stream is
@@ -343,6 +365,10 @@ export default function RecordRoute() {
       }
 
       await engine.stop();
+      // Recording is fully saved — clear refs so that if anything below throws
+      // and the user clicks "Try again", doCancel() won't trash a good recording.
+      pendingRef.current = null;
+      engineRef.current = null;
       setCameraStream(null);
       setPreviewStream(null);
       setUiState("complete");
@@ -362,6 +388,9 @@ export default function RecordRoute() {
       toast.error(message);
     }
   }, [navigate, liveTranscription]);
+
+  // Keep the ref current so engine callbacks always invoke the latest doStop.
+  doStopRef.current = doStop;
 
   const requestStop = useCallback(() => {
     setIsDrawing(false);
@@ -458,6 +487,11 @@ export default function RecordRoute() {
       if (e.key === "Escape") {
         if (!showStopConfirm && uiState === "recording") {
           e.preventDefault();
+          // Stop propagation so the same Esc keydown doesn't also trigger
+          // the AlertDialog's built-in Esc-to-close handler, which would
+          // immediately dismiss the dialog the moment it opens — leaving
+          // the user trapped in recording state with a flickering dialog.
+          e.stopPropagation();
           requestStop();
           return;
         }
@@ -729,8 +763,7 @@ export default function RecordRoute() {
                 <Button
                   variant="outline"
                   onClick={() => {
-                    setError(null);
-                    setUiState("idle");
+                    void doCancel();
                   }}
                 >
                   Try again

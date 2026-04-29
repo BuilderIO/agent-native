@@ -7,6 +7,17 @@ description: >
 
 # BigQuery Integration
 
+## CRITICAL: BigQuery is a Native Agent Tool
+
+**`bigquery` is available directly in the agent's tool list as a native callable tool.**
+
+- If you see `bigquery` in your available tools — **call it directly with your SQL**. Do not use HTTP workarounds, web-request hacks, or scripts as a substitute.
+- The `server/lib/bigquery.ts` description below is the *underlying implementation*. It does **not** mean BigQuery is only accessible via terminal commands or scripts.
+- **When uncertain if the tool works, call it — don't reason your way to "it won't work".** Empirically test by calling the tool.
+- Scripts (`pnpm action`) and the server lib are for dashboard UI code and CLI use. The agent calls BigQuery directly via its native tool.
+
+> **Behavioral rule**: "When uncertain if a tool works, call it — don't reason your way to 'it won't work'." Escalating to HTTP/web-request hacks before verifying the simple path fails is a bug in agent behavior.
+
 ## Connection
 
 - **Client**: `@google-cloud/bigquery` Node.js client

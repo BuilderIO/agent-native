@@ -1,19 +1,58 @@
 ---
-title: "Video Template"
-description: "A Remotion-based animation studio where compositions are React components, animations are timeline tracks, and the agent edits alongside you."
+title: "Video"
+description: "A programmatic video studio for motion graphics, product demos, and kinetic text. Generate animations from a prompt and tune them on a timeline."
 ---
 
-# Video Template
+# Video
 
-The Video template is a programmatic video studio built on [Remotion](https://remotion.dev). Compositions are React components, animations are tracks on a timeline, and renders output to MP4 or WebM. It replaces point-and-click editors like After Effects, Premiere, and Veed for the kind of motion graphics, product demos, and kinetic text videos that are a pain to keyframe by hand.
+A programmatic video studio for the kind of motion graphics, product demos, and kinetic-text videos that are a pain to keyframe by hand. Ask the agent for "a 6-second logo reveal that fades in at 2 seconds" and it builds the animation. Tune timing, easing, and camera moves on a timeline, then render to MP4 or WebM.
 
-## Overview {#overview}
+When you open the studio, you'll see a list of compositions on the home screen. Click into one and you get a player on top, a timeline at the bottom, and a properties panel on the right. The agent always knows which composition you have open.
+
+## What you can do with it
+
+- **Generate animations from a prompt.** "Add a title card that fades in at 2 seconds and holds until 5." The agent edits the composition.
+- **Tune timing on a timeline.** Drag and resize animation tracks, scrub through frames, set easing curves visually.
+- **Animate the camera.** Pan, zoom, and tilt with on-screen tools. Click the tool, drag in the preview, and a keyframe is auto-created.
+- **Built-in compositions to start from.** Twelve examples ship: kinetic text, logo reveals, particle bursts, interactive UI demos, slideshows.
+- **Edit easing curves visually.** 30+ curves shipped — power, back, bounce, circ, elastic, expo, sine, plus spring physics.
+- **Render to MP4 or WebM** at 1x, 2x, or 3x supersampling for crisp text and vectors during camera zoom.
+
+This is more of a developer-flavored tool than other templates — compositions are React components, so power users (or the agent) can write whole new animation types from scratch. But everyday tweaks ("make the typing slower," "drop the particle count to 12") are just chat.
+
+## Getting started
+
+Live demo: [videos.agent-native.com](https://videos.agent-native.com).
+
+When you open the studio:
+
+1. Pick a composition from the home screen.
+2. Try the agent: "add a logo reveal that fades in at 2 seconds." Watch the timeline update.
+3. Drag tracks to retime, click the camera tool, scrub the player.
+
+### Useful prompts
+
+- "Add a title card that fades in at 2 seconds and holds until 5."
+- "Change the camera to zoom 2x on the logo between frames 60 and 90."
+- "Make the typing reveal slower — 40% longer."
+- "The particle burst is too dense. Drop the count to 12."
+- "Create a new composition called intro-loop, 1080x1080, 6 seconds."
+- "Add a click animation on the button zone and animate the cursor to it."
+- "Give this track a spring easing instead of ease-out."
+
+If you select a track in the timeline and hit Cmd+I, the agent picks up that selection — "make this one snappier" just works.
+
+## For developers
+
+The rest of this doc is for anyone forking the Video template or extending it. This template is more code-forward than the others — every composition is a React component and every animation is data on a track.
+
+### Architecture
 
 Everything you see in the studio is code. A composition is a `CompositionEntry` in `app/remotion/registry.ts` that points at a React component in `app/remotion/compositions/`. Every animation in that component reads from an `AnimationTrack` so users can drag, resize, and retime it in the timeline UI. The agent can create new compositions, add tracks, tune easing, and write whole React components that plug into the registry.
 
 The studio runs on Remotion's `<Player>` for preview and the Remotion CLI for final render. Output defaults to 1920x1080 at 30fps.
 
-## Quick start {#quick-start}
+### Quick start
 
 Create a workspace with the Video app scaffolded:
 
@@ -33,7 +72,7 @@ Open the studio in your browser and pick a composition from the home screen. Ask
 
 Live demo: [videos.agent-native.com](https://videos.agent-native.com).
 
-## Key features {#key-features}
+### Key features (technical)
 
 ### React-based compositions
 
@@ -81,25 +120,13 @@ Composition size, fps, and render quality are per-composition in the Properties 
 
 User edits (track values, parameter values, prop overrides, composition settings) persist to localStorage per composition. The **Save** button in the top-right of the composition view writes the current state back to `app/remotion/registry.ts` as TypeScript — so new users and sessions pick up the changes.
 
-## Working with the agent {#working-with-the-agent}
+### Working with the agent
 
 The agent always knows which composition you have open. Navigation state (`{ view, compositionId }`) is written to the framework's `application_state` table, and the `view-screen` action returns it plus a hint pointing at `app/remotion/registry.ts`. You don't have to tell the agent which composition you're on — ask it to act on "this one" and it will.
 
-Example prompts:
-
-- "Add a title card that fades in at 2 seconds and holds until 5."
-- "Change the camera to zoom 2x on the logo between frames 60 and 90."
-- "Make the typing reveal slower — 40% longer."
-- "The particle burst is too dense. Drop the count to 12."
-- "Create a new composition called intro-loop, 1080x1080, 6 seconds."
-- "Add a click animation on the button zone and animate the cursor to it."
-- "Give this track a spring easing instead of ease-out."
-
 Under the hood the agent calls actions like `navigate`, `create-composition`, `generate-animated-component`, and edits `app/remotion/registry.ts` and `app/remotion/compositions/*.tsx` directly. Every change shows up in the timeline.
 
-If you select a track in the UI and hit Cmd+I to focus the agent, it sees which track you've selected — "make this one snappier" just works.
-
-## Data model {#data-model}
+### Data model
 
 Server-side schema is in `templates/videos/server/db/schema.ts`:
 
@@ -116,7 +143,7 @@ Core TypeScript shapes (`app/types.ts`):
 
 Compositions are private by default. Visibility can be `private`, `org`, or `public`, and share grants give `viewer`, `editor`, or `admin` roles — wired through the framework's sharing primitive.
 
-## Customizing it {#customizing-it}
+### Customizing it
 
 The template folder is `templates/videos/` (the user-facing slug is `video`, but the folder is plural).
 

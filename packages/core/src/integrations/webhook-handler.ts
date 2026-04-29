@@ -58,6 +58,13 @@ export interface WebhookHandlerOptions {
   apiKey: string;
   /** Thread owner for personal/shared resource loading */
   ownerEmail: string;
+  /**
+   * Pre-parsed incoming message. When provided, handleWebhook skips its own
+   * verification + parsing steps. Required when the caller has already read
+   * the request body (h3 doesn't reliably cache parsed bodies, so re-parsing
+   * the same event hangs on streaming providers).
+   */
+  incoming?: IncomingMessage;
   /** Optional hook to intercept inbound commands before agent execution */
   beforeProcess?: (
     incoming: IncomingMessage,
@@ -94,23 +101,30 @@ export async function handleWebhook(
 ): Promise<{ status: number; body: unknown }> {
   const { adapter, beforeProcess } = options;
 
-  // Step 1: Handle platform-specific verification challenges
-  const verification = await adapter.handleVerification(event);
-  if (verification.handled) {
-    return { status: 200, body: verification.response ?? "ok" };
-  }
+  let incoming: IncomingMessage | null = options.incoming ?? null;
 
-  // Step 2: Verify webhook signature
-  const isValid = await adapter.verifyWebhook(event);
-  if (!isValid) {
-    return { status: 401, body: { error: "Invalid webhook signature" } };
-  }
-
-  // Step 3: Parse the incoming message
-  const incoming = await adapter.parseIncomingMessage(event);
+  // When the caller didn't pre-parse, run the full verify + parse pipeline.
+  // Otherwise skip it — h3's body stream has already been consumed and a
+  // second readBody call hangs on streaming providers.
   if (!incoming) {
-    // Not a user message (bot message, edit, reaction, etc.) — acknowledge silently
-    return { status: 200, body: "ok" };
+    // Step 1: Handle platform-specific verification challenges
+    const verification = await adapter.handleVerification(event);
+    if (verification.handled) {
+      return { status: 200, body: verification.response ?? "ok" };
+    }
+
+    // Step 2: Verify webhook signature
+    const isValid = await adapter.verifyWebhook(event);
+    if (!isValid) {
+      return { status: 401, body: { error: "Invalid webhook signature" } };
+    }
+
+    // Step 3: Parse the incoming message
+    incoming = await adapter.parseIncomingMessage(event);
+    if (!incoming) {
+      // Not a user message (bot message, edit, reaction, etc.) — acknowledge silently
+      return { status: 200, body: "ok" };
+    }
   }
 
   // Deduplicate (platforms retry on timeout)

@@ -11,7 +11,7 @@ If you're running an [multi-app workspace](/docs/multi-app-workspace) with many 
 
 ## What it does {#what-it-does}
 
-- **Central inbox.** Slack DMs, Telegram messages, email notifications, A2A requests from other agents — all land in one place. The Dispatch agent triages and either handles them itself or delegates.
+- **Central inbox.** Slack DMs, Telegram messages, email notifications, A2A requests from other agents — all land in one place. The Dispatch agent triages and either handles them itself or delegates. See [Messaging](/docs/messaging) for how to wire Slack, email, and Telegram into your workspace.
 - **Orchestrator, not specialist.** Dispatch does _not_ try to be the email app or the analytics app. When someone asks "summarize last week's signups," Dispatch calls the analytics agent over A2A and returns the answer. When someone asks "draft a reply to Alice," Dispatch calls the mail agent.
 - **Secrets vault.** A central store for API keys, OAuth tokens, and shared credentials. Apps in the workspace resolve secrets from Dispatch instead of duplicating them in every `.env`. Requests + approvals for sensitive access.
 - **Integrations catalog.** One page showing every third-party integration — Slack, Telegram, SendGrid, Apollo, etc. — with a "configured / not configured / pending approval" status per app.
@@ -52,6 +52,7 @@ Dispatch is a full cloneable SaaS like any other template — see [Cloneable Saa
 
 ## What's next
 
+- [**Messaging**](/docs/messaging) — connecting Slack, email, and Telegram so you can talk to your agent from anywhere
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — running Dispatch alongside multiple apps
 - [**A2A Protocol**](/docs/a2a-protocol) — how Dispatch delegates to specialist agents
 - [**MCP Clients — Hub Mode**](/docs/mcp-clients#hub) — sharing MCP servers across the workspace

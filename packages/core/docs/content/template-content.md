@@ -1,19 +1,43 @@
 ---
-title: "Content Template"
-description: "A Notion-style document editor with an AI agent that can read, write, organize, and publish your pages."
+title: "Content"
+description: "A Notion-style document editor with an AI agent that can read, write, reorganize, and publish your pages — all in plain English."
 ---
 
-# Content Template
+# Content
 
-A hierarchical document editor in the style of Notion or Google Docs. The AI agent has full parity with the UI — it can create pages, edit selections, reorganize the tree, and sync with Notion, all while seeing exactly what you see.
+A Notion-style document workspace where the agent can read, write, reorganize, and publish pages for you. Open a doc, ask "rewrite this paragraph to be more concise" or "create a page called Q4 Planning with sub-pages for Goals, Metrics, and Risks" — same result whether you do it yourself or ask.
 
-## Overview {#overview}
+When you open the app, you'll see a sidebar tree of pages on the left, the editor in the middle, and the agent in the sidebar on the right. The agent always knows which page you're viewing and what text you have selected.
 
-The Content template is a rich-text document workspace with a sidebar tree, a Tiptap-based editor, and an agent panel. Pages live in a nested tree, content is stored as markdown in SQL, and the agent uses the same actions the UI calls for every operation.
+## What you can do with it
 
-Everything lives in one database (SQLite, Postgres, Turso — anything Drizzle supports) and the agent sees your current view, so you can say "rewrite this paragraph" or "add a sub-page for Q4 planning" and it knows what you mean without you pasting anything.
+- **Write rich text** with headings, lists, tables, code blocks, images, and links. Slash commands (`/`) insert blocks; selecting text pops up a formatting toolbar.
+- **Organize pages in a tree** — nest infinitely, drag to reorder, favorite pages you use often.
+- **Search across everything** with full-text search across titles and content.
+- **Sync with Notion.** Link a local doc to a Notion page and pull or push content in either direction. Comments sync both ways too.
+- **Collaborate in real time.** Multiple people (and the agent) can edit the same doc at the same time.
+- **Share docs** with teammates or make them public — private by default, with viewer / editor / admin roles.
+- **Ask the agent for anything**: "Rewrite this paragraph." "Add a TL;DR at the top." "Find all my meeting notes from last week." "Make this tone more formal."
 
-## Quick start {#quick-start}
+## Getting started
+
+Live demo: [content.agent-native.com](https://content.agent-native.com).
+
+When you open the app, click **+ New page** in the sidebar, give it a title, and start writing. To use the agent, type in the sidebar:
+
+- "Create a page called Onboarding and add three sub-pages under it."
+- "Rewrite this paragraph to be more concise." (with a page open)
+- "Add a section about pricing with three bullet points."
+- "Summarize this doc into a TL;DR at the top."
+- "Pull the latest from Notion." (after linking a Notion page)
+
+Select text and hit Cmd+I to focus the agent with that selection pre-loaded — "make this punchier" then operates on exactly what you highlighted.
+
+## For developers
+
+The rest of this doc is for anyone forking the Content template or extending it.
+
+### Quick start
 
 Scaffold a new workspace with the Content template:
 
@@ -26,9 +50,7 @@ pnpm dev
 
 Open `http://localhost:8080` and create your first page. The agent panel is on the right — try asking it to "create a page called Onboarding and add three sub-pages under it".
 
-Live demo: https://content.agent-native.com
-
-## Key features {#key-features}
+### Key features (technical) {#key-features}
 
 ### Hierarchical pages
 
@@ -92,27 +114,15 @@ See the `sharing` skill.
 
 A dedicated team page at `/team` (see `app/routes/_app.team.tsx`) uses the framework's `TeamPage` component for creating orgs and managing members.
 
-## Working with the agent {#working-with-the-agent}
+### Working with the agent
 
 Because the agent sees your current screen, most prompts don't need you to reference a document explicitly. When you have a page open, "this" means that page.
-
-Example prompts:
-
-- "Rewrite this paragraph to be more concise."
-- "Add a section about pricing with three bullet points."
-- "Create a page called Q4 Planning with sub-pages for Goals, Metrics, and Risks."
-- "Summarize this doc into a TL;DR at the top."
-- "Find all my meeting notes from last week."
-- "Change the tone of this page to be more formal."
-- "Pull the latest from Notion."
-- "Share this doc with hbikna@gmail.com as an editor."
-- "Move this page under Onboarding."
 
 For small edits, the agent uses `edit-document --find ... --replace ...` so only the changed text flows through Yjs — you'll see the diff applied in place rather than the whole page re-render. For bigger rewrites it uses `update-document --content ...`.
 
 If you select text and press Cmd+I (or focus the agent panel), the selection travels with your next message as context, so "make this punchier" operates on exactly what you highlighted.
 
-## Data model {#data-model}
+### Data model
 
 Four core tables, all defined in `server/db/schema.ts`:
 
@@ -126,7 +136,7 @@ Content is stored as markdown. The editor converts to and from the Tiptap JSON m
 
 All ownable tables include `owner_email` and `org_id` via `ownableColumns()`, so a local-mode workspace (`local@localhost`) can be upgraded to a real account without losing history.
 
-## Customizing it {#customizing-it}
+### Customizing it
 
 The four places to look when changing behavior:
 

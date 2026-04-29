@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.7.13",
+  "version": "0.7.14",
   "type": "module",
   "description": "Framework for agent-native application development — where AI agents and UI share state via files",
   "license": "MIT",
@@ -125,6 +125,7 @@
     "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
+    "jiti": "^2.6.1",
     "jose": "^6.2.2",
     "minimatch": "^10.0.0",
     "nanoid": "^5.1.9",
