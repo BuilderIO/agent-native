@@ -159,7 +159,9 @@ export default function GenerateSlidesDialog({
               />
             </button>
             <div>
-              <span className="text-sm text-foreground/90">Generate images</span>
+              <span className="text-sm text-foreground/90">
+                Generate images
+              </span>
               <p className="text-xs text-muted-foreground">
                 AI will generate images for visual slides using Gemini
               </p>

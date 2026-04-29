@@ -283,10 +283,7 @@ export function MessagingSetupPanel() {
     }
   };
 
-  const saveEnvKeys = async (
-    platform: PlatformDefinition,
-    keys: string[],
-  ) => {
+  const saveEnvKeys = async (platform: PlatformDefinition, keys: string[]) => {
     const vars = keys
       .map((key) => ({ key, value: envValues[key]?.trim() || "" }))
       .filter((item) => item.value);
@@ -509,7 +506,8 @@ export function MessagingSetupPanel() {
                     const envStatus = envStatusByKey.get(envKey.key);
                     const isConfigured = !!envStatus?.configured;
                     const helpText = envKey.helpText ?? envStatus?.helpText;
-                    const label = envKey.label || envStatus?.label || envKey.key;
+                    const label =
+                      envKey.label || envStatus?.label || envKey.key;
                     // Email agent address is not a secret — show it plainly
                     // so users can copy and share it.
                     const isPublicValue = envKey.key === "EMAIL_AGENT_ADDRESS";
@@ -525,7 +523,9 @@ export function MessagingSetupPanel() {
                                 </span>
                               ) : null}
                             </label>
-                            {helpText ? <HelpTooltip content={helpText} /> : null}
+                            {helpText ? (
+                              <HelpTooltip content={helpText} />
+                            ) : null}
                           </div>
                           {isConfigured ? (
                             <StatusPill tone="success" label="Saved" />
@@ -560,9 +560,7 @@ export function MessagingSetupPanel() {
                     );
                   })}
                 </div>
-                {envKeys.some(
-                  (k) => !envStatusByKey.get(k.key)?.configured,
-                ) ? (
+                {envKeys.some((k) => !envStatusByKey.get(k.key)?.configured) ? (
                   <Button
                     variant="outline"
                     onClick={() =>

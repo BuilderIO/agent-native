@@ -21,31 +21,31 @@ export function DesignSystemPreview({
   return (
     <div
       className={cn(
-        "rounded-xl border border-white/[0.06] bg-[hsl(240,5%,8%)] overflow-hidden",
+        "rounded-xl border border-border bg-card overflow-hidden",
         className,
       )}
     >
       {/* Color swatches */}
-      <div className="p-4 border-b border-white/[0.06]">
-        <div className="text-[10px] font-medium uppercase tracking-wider text-white/30 mb-3">
+      <div className="p-4 border-b border-border">
+        <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-3">
           Colors
         </div>
         <div className="flex items-center gap-3">
           {swatches.map((s) => (
             <div key={s.label} className="flex flex-col items-center gap-1.5">
               <div
-                className="w-8 h-8 rounded-full border border-white/10"
+                className="w-8 h-8 rounded-full border border-border"
                 style={{ background: s.color }}
               />
-              <span className="text-[10px] text-white/30">{s.label}</span>
+              <span className="text-[10px] text-muted-foreground/70">{s.label}</span>
             </div>
           ))}
         </div>
       </div>
 
       {/* Typography sample */}
-      <div className="p-4 border-b border-white/[0.06]">
-        <div className="text-[10px] font-medium uppercase tracking-wider text-white/30 mb-3">
+      <div className="p-4 border-b border-border">
+        <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-3">
           Typography
         </div>
         <div
@@ -77,7 +77,7 @@ export function DesignSystemPreview({
 
       {/* Mini composition preview */}
       <div className="p-4">
-        <div className="text-[10px] font-medium uppercase tracking-wider text-white/30 mb-3">
+        <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-3">
           Composition Preview
         </div>
         <div
@@ -146,15 +146,15 @@ export function DesignSystemPreview({
 
       {/* Logos */}
       {data.logos.length > 0 && (
-        <div className="p-4 border-t border-white/[0.06]">
-          <div className="text-[10px] font-medium uppercase tracking-wider text-white/30 mb-3">
+        <div className="p-4 border-t border-border">
+          <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-3">
             Logos
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             {data.logos.map((logo, i) => (
               <div
                 key={`${logo.name}-${i}`}
-                className="w-10 h-10 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center overflow-hidden"
+                className="w-10 h-10 rounded-lg bg-accent/50 border border-border flex items-center justify-center overflow-hidden"
               >
                 <img
                   src={logo.url}
