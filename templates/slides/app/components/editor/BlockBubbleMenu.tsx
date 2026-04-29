@@ -146,7 +146,7 @@ export function BlockBubbleMenu({ editingEl, onChange }: BlockBubbleMenuProps) {
   return createPortal(
     <div
       data-block-bubble-menu="true"
-      className="fixed z-[60] -translate-x-1/2 -translate-y-full flex items-center gap-0.5 p-1 rounded-lg bg-[#1a1a1a] border border-white/[0.08] shadow-2xl shadow-black/60"
+      className="fixed z-[60] -translate-x-1/2 -translate-y-full flex items-center gap-0.5 p-1 rounded-lg bg-popover border border-border shadow-2xl shadow-black/60"
       style={{ top: pos.top, left: pos.left }}
       onMouseDown={(e) => {
         // Prevent blur on the editing element when clicking menu buttons
@@ -173,7 +173,7 @@ export function BlockBubbleMenu({ editingEl, onChange }: BlockBubbleMenuProps) {
         title="Strikethrough"
         onClick={() => runCommand("strikeThrough")}
       />
-      <div className="w-px h-4 bg-white/[0.08] mx-0.5" />
+      <div className="w-px h-4 bg-border mx-0.5" />
       <div className="relative">
         <ToolbarButton
           icon={IconPalette}
@@ -185,14 +185,14 @@ export function BlockBubbleMenu({ editingEl, onChange }: BlockBubbleMenuProps) {
           active={showColors}
         />
         {showColors && (
-          <div className="absolute top-full left-0 mt-1 p-2 rounded-lg bg-[#1a1a1a] border border-white/[0.08] shadow-2xl shadow-black/60 grid grid-cols-6 gap-1">
+          <div className="absolute top-full left-0 mt-1 p-2 rounded-lg bg-popover border border-border shadow-2xl shadow-black/60 grid grid-cols-6 gap-1">
             {COLORS.map((c) => (
               <button
                 key={c}
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => applyColor(c)}
-                className="w-5 h-5 rounded border border-white/[0.12] hover:scale-110 transition-transform"
+                className="w-5 h-5 rounded border border-border hover:scale-110 transition-transform"
                 style={{ background: c }}
                 title={c}
                 aria-label={`Set color ${c}`}
@@ -211,7 +211,7 @@ export function BlockBubbleMenu({ editingEl, onChange }: BlockBubbleMenuProps) {
         active={showLinkInput}
       />
       {showLinkInput && (
-        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 flex items-center gap-1 p-1 rounded-lg bg-[#1a1a1a] border border-white/[0.08] shadow-2xl shadow-black/60">
+        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 flex items-center gap-1 p-1 rounded-lg bg-popover border border-border shadow-2xl shadow-black/60">
           <input
             type="text"
             value={linkValue}
@@ -226,14 +226,14 @@ export function BlockBubbleMenu({ editingEl, onChange }: BlockBubbleMenuProps) {
               }
             }}
             placeholder="Paste URL"
-            className="px-2 py-1 text-xs bg-black/40 rounded text-white/90 outline-none border border-white/[0.06] focus:border-white/[0.2] w-40"
+            className="px-2 py-1 text-xs bg-muted rounded text-foreground outline-none border border-border focus:border-ring w-40"
             autoFocus
           />
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={applyLink}
-            className="p-1 rounded hover:bg-white/[0.06] text-[#609FF8]"
+            className="p-1 rounded hover:bg-accent text-[#609FF8]"
             title="Apply"
           >
             <IconCheck className="w-3.5 h-3.5" />
@@ -242,7 +242,7 @@ export function BlockBubbleMenu({ editingEl, onChange }: BlockBubbleMenuProps) {
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={removeLink}
-            className="p-1 rounded hover:bg-white/[0.06] text-white/50"
+            className="p-1 rounded hover:bg-accent text-muted-foreground"
             title="Remove link"
           >
             <IconX className="w-3.5 h-3.5" />
@@ -276,7 +276,7 @@ function ToolbarButton({
       className={`p-1.5 rounded transition-colors ${
         active
           ? "bg-[#609FF8]/20 text-[#609FF8]"
-          : "text-white/70 hover:bg-white/[0.08] hover:text-white"
+          : "text-foreground/80 hover:bg-accent hover:text-foreground"
       }`}
     >
       <Icon className="w-3.5 h-3.5" />

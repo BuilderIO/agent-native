@@ -631,6 +631,7 @@ export function createCoreRoutesPlugin(
             label: cfg.label,
             required: cfg.required ?? false,
             configured: !!process.env[cfg.key],
+            ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
           })),
         ),
       );

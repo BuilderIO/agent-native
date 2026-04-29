@@ -349,12 +349,12 @@ export default function DesignSystemSetup() {
         "Set up a dark theme design system",
       ]}
     >
-      <div className="min-h-screen bg-[hsl(240,6%,4%)]">
-        <header className="border-b border-white/[0.06]">
+      <div className="min-h-screen bg-background">
+        <header className="border-b border-border">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
             <button
               onClick={() => navigate("/design-systems")}
-              className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white/80 cursor-pointer"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground/90 cursor-pointer"
             >
               <IconArrowLeft className="w-4 h-4" />
               Back
@@ -372,10 +372,10 @@ export default function DesignSystemSetup() {
 
         <main className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
           <div className="mb-8">
-            <h1 className="text-2xl font-bold text-white/90 mb-2">
+            <h1 className="text-2xl font-bold text-foreground mb-2">
               Set up your design system
             </h1>
-            <p className="text-sm text-white/40">
+            <p className="text-sm text-muted-foreground">
               Provide any combination of sources. The more context you give, the
               more accurate the extracted design system will be.
             </p>
@@ -392,19 +392,21 @@ export default function DesignSystemSetup() {
                 onChange={(e) => setCompanyInfo(e.target.value)}
                 placeholder="e.g. Acme Corp — We build developer tools for modern teams..."
                 rows={3}
-                className="bg-white/[0.04] border-white/[0.06]"
+                className="bg-accent/50 border-border"
               />
               <div className="mt-3">
                 <div className="flex items-center gap-2 mb-2">
-                  <IconWorld className="w-4 h-4 text-white/40" />
-                  <span className="text-sm text-white/50">Website URL</span>
+                  <IconWorld className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    Website URL
+                  </span>
                 </div>
                 <div className="flex gap-2">
                   <Input
                     value={websiteUrl}
                     onChange={(e) => setWebsiteUrl(e.target.value)}
                     placeholder="https://example.com"
-                    className="bg-white/[0.04] border-white/[0.06]"
+                    className="bg-accent/50 border-border"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") addWebsiteUrl();
                     }}
@@ -423,7 +425,7 @@ export default function DesignSystemSetup() {
                     {websiteUrls.map((url, i) => (
                       <div
                         key={i}
-                        className="flex items-center gap-2 text-sm text-white/60 bg-white/[0.03] rounded-md px-3 py-1.5"
+                        className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-1.5"
                       >
                         <IconCheck className="w-3.5 h-3.5 text-green-400/60 shrink-0" />
                         <span className="truncate flex-1">{url}</span>
@@ -433,7 +435,7 @@ export default function DesignSystemSetup() {
                               prev.filter((_, j) => j !== i),
                             )
                           }
-                          className="text-white/30 hover:text-white/50 shrink-0 cursor-pointer"
+                          className="text-muted-foreground/70 hover:text-muted-foreground shrink-0 cursor-pointer"
                         >
                           <IconX className="w-3.5 h-3.5" />
                         </button>
@@ -452,8 +454,8 @@ export default function DesignSystemSetup() {
               {/* GitHub */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <IconBrandGithub className="w-4 h-4 text-white/40" />
-                  <span className="text-sm text-white/50">
+                  <IconBrandGithub className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
                     GitHub repository
                   </span>
                 </div>
@@ -462,7 +464,7 @@ export default function DesignSystemSetup() {
                     value={githubUrl}
                     onChange={(e) => setGithubUrl(e.target.value)}
                     placeholder="https://github.com/org/repo"
-                    className="bg-white/[0.04] border-white/[0.06]"
+                    className="bg-accent/50 border-border"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") addGithubLink();
                     }}
@@ -481,13 +483,13 @@ export default function DesignSystemSetup() {
                     {githubLinks.map((link) => (
                       <div
                         key={link.id}
-                        className="flex items-center gap-2 text-sm text-white/60 bg-white/[0.03] rounded-md px-3 py-1.5"
+                        className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-1.5"
                       >
                         <IconCheck className="w-3.5 h-3.5 text-green-400/60 shrink-0" />
                         <span className="truncate flex-1">{link.url}</span>
                         <button
                           onClick={() => removeGithubLink(link.id)}
-                          className="text-white/30 hover:text-white/50 shrink-0 cursor-pointer"
+                          className="text-muted-foreground/70 hover:text-muted-foreground shrink-0 cursor-pointer"
                         >
                           <IconX className="w-3.5 h-3.5" />
                         </button>
@@ -500,8 +502,8 @@ export default function DesignSystemSetup() {
               {/* Local code folder */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <IconFolder className="w-4 h-4 text-white/40" />
-                  <span className="text-sm text-white/50">
+                  <IconFolder className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
                     Local code files
                   </span>
                 </div>
@@ -512,13 +514,13 @@ export default function DesignSystemSetup() {
                     e.stopPropagation();
                   }}
                   onClick={() => codeInputRef.current?.click()}
-                  className="border border-dashed border-white/[0.08] rounded-lg p-6 text-center hover:border-white/[0.15] cursor-pointer"
+                  className="border border-dashed border-border rounded-lg p-6 text-center hover:border-foreground/15 cursor-pointer"
                 >
-                  <p className="text-xs text-white/30">
+                  <p className="text-xs text-muted-foreground/70">
                     Drop CSS, Tailwind config, theme files here — or click to
                     browse
                   </p>
-                  <p className="text-[10px] text-white/20 mt-1">
+                  <p className="text-[10px] text-muted-foreground/60 mt-1">
                     .css, .scss, tailwind.config.*, theme.*, tokens.*,
                     package.json
                   </p>
@@ -536,13 +538,13 @@ export default function DesignSystemSetup() {
                     {codeFiles.map((f) => (
                       <div
                         key={f.id}
-                        className="flex items-center gap-2 text-sm text-white/60 bg-white/[0.03] rounded-md px-3 py-1.5"
+                        className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-1.5"
                       >
                         <IconCheck className="w-3.5 h-3.5 text-green-400/60 shrink-0" />
                         <span className="truncate flex-1">
                           {f.name}
                           {f.textContent ? (
-                            <span className="text-white/20 ml-1">
+                            <span className="text-muted-foreground/60 ml-1">
                               ({formatSize(f.textContent.length)})
                             </span>
                           ) : null}
@@ -553,7 +555,7 @@ export default function DesignSystemSetup() {
                               prev.filter((c) => c.id !== f.id),
                             )
                           }
-                          className="text-white/30 hover:text-white/50 shrink-0 cursor-pointer"
+                          className="text-muted-foreground/70 hover:text-muted-foreground shrink-0 cursor-pointer"
                         >
                           <IconX className="w-3.5 h-3.5" />
                         </button>
@@ -572,14 +574,18 @@ export default function DesignSystemSetup() {
               {/* Figma */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <IconUpload className="w-4 h-4 text-white/40" />
-                  <span className="text-sm text-white/50">Figma files</span>
+                  <IconUpload className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    Figma files
+                  </span>
                 </div>
                 <button
                   onClick={() => figInputRef.current?.click()}
-                  className="w-full border border-dashed border-white/[0.08] rounded-lg p-4 text-center hover:border-white/[0.15] cursor-pointer"
+                  className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
-                  <p className="text-xs text-white/30">Upload .fig files</p>
+                  <p className="text-xs text-muted-foreground/70">
+                    Upload .fig files
+                  </p>
                 </button>
                 <input
                   ref={figInputRef}
@@ -600,16 +606,16 @@ export default function DesignSystemSetup() {
               {/* Documents */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <IconFileDescription className="w-4 h-4 text-white/40" />
-                  <span className="text-sm text-white/50">
+                  <IconFileDescription className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
                     Documents & presentations
                   </span>
                 </div>
                 <button
                   onClick={() => docInputRef.current?.click()}
-                  className="w-full border border-dashed border-white/[0.08] rounded-lg p-4 text-center hover:border-white/[0.15] cursor-pointer"
+                  className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
-                  <p className="text-xs text-white/30">
+                  <p className="text-xs text-muted-foreground/70">
                     PPTX, DOCX, PDF, XLSX — brand guides, pitch decks, style
                     docs
                   </p>
@@ -633,16 +639,16 @@ export default function DesignSystemSetup() {
               {/* Images / screenshots */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <IconPhoto className="w-4 h-4 text-white/40" />
-                  <span className="text-sm text-white/50">
+                  <IconPhoto className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
                     Screenshots & visual references
                   </span>
                 </div>
                 <button
                   onClick={() => imageInputRef.current?.click()}
-                  className="w-full border border-dashed border-white/[0.08] rounded-lg p-4 text-center hover:border-white/[0.15] cursor-pointer"
+                  className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
-                  <p className="text-xs text-white/30">
+                  <p className="text-xs text-muted-foreground/70">
                     Product screenshots, mood boards, inspiration images
                   </p>
                 </button>
@@ -665,16 +671,16 @@ export default function DesignSystemSetup() {
               {/* Brand assets */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <IconUpload className="w-4 h-4 text-white/40" />
-                  <span className="text-sm text-white/50">
+                  <IconUpload className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
                     Logos, fonts & other assets
                   </span>
                 </div>
                 <button
                   onClick={() => assetInputRef.current?.click()}
-                  className="w-full border border-dashed border-white/[0.08] rounded-lg p-4 text-center hover:border-white/[0.15] cursor-pointer"
+                  className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
-                  <p className="text-xs text-white/30">
+                  <p className="text-xs text-muted-foreground/70">
                     SVG logos, .woff2 fonts, brand asset files
                   </p>
                 </button>
@@ -712,16 +718,16 @@ export default function DesignSystemSetup() {
                       className={`text-left p-3 rounded-lg border cursor-pointer ${
                         selectedProjectId === ds.id
                           ? "border-[#609FF8]/40 bg-[#609FF8]/5"
-                          : "border-white/[0.06] bg-white/[0.03] hover:border-white/[0.12]"
+                          : "border-border bg-muted/50 hover:border-border"
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <IconPalette className="w-3.5 h-3.5 text-white/40" />
-                        <span className="text-sm text-white/70 truncate">
+                        <IconPalette className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span className="text-sm text-foreground/70 truncate">
                           {ds.title}
                         </span>
                       </div>
-                      <span className="text-[10px] text-white/30 mt-0.5 block">
+                      <span className="text-[10px] text-muted-foreground/70 mt-0.5 block">
                         Design system
                       </span>
                     </button>
@@ -737,13 +743,13 @@ export default function DesignSystemSetup() {
                       className={`text-left p-3 rounded-lg border cursor-pointer ${
                         selectedProjectId === p.id
                           ? "border-[#609FF8]/40 bg-[#609FF8]/5"
-                          : "border-white/[0.06] bg-white/[0.03] hover:border-white/[0.12]"
+                          : "border-border bg-muted/50 hover:border-border"
                       }`}
                     >
-                      <span className="text-sm text-white/70 truncate block">
+                      <span className="text-sm text-foreground/70 truncate block">
                         {p.title}
                       </span>
-                      <span className="text-[10px] text-white/30 mt-0.5 block">
+                      <span className="text-[10px] text-muted-foreground/70 mt-0.5 block">
                         Design project
                       </span>
                     </button>
@@ -762,7 +768,7 @@ export default function DesignSystemSetup() {
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="e.g. We prefer a dark theme with high contrast. Our brand uses Poppins for headings and DM Sans for body. Keep corners rounded at 12px..."
                 rows={3}
-                className="bg-white/[0.04] border-white/[0.06]"
+                className="bg-accent/50 border-border"
               />
             </Section>
 
@@ -796,8 +802,8 @@ function Section({
   return (
     <section>
       <div className="mb-3">
-        <h2 className="text-sm font-medium text-white/70">{title}</h2>
-        <p className="text-xs text-white/30 mt-0.5">{description}</p>
+        <h2 className="text-sm font-medium text-foreground/70">{title}</h2>
+        <p className="text-xs text-muted-foreground/70 mt-0.5">{description}</p>
       </div>
       {children}
     </section>
@@ -817,16 +823,16 @@ function FileList({
       {files.map((f) => (
         <div
           key={f.id}
-          className="flex items-center gap-2 text-sm text-white/60 bg-white/[0.03] rounded-md px-3 py-1.5"
+          className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-1.5"
         >
           <IconCheck className="w-3.5 h-3.5 text-green-400/60 shrink-0" />
           <span className="truncate flex-1">{f.name}</span>
-          <span className="text-[10px] text-white/20 shrink-0">
+          <span className="text-[10px] text-muted-foreground/60 shrink-0">
             {formatSize(f.size)}
           </span>
           <button
             onClick={() => onRemove(f.id)}
-            className="text-white/30 hover:text-white/50 shrink-0 cursor-pointer"
+            className="text-muted-foreground/70 hover:text-muted-foreground shrink-0 cursor-pointer"
           >
             <IconX className="w-3.5 h-3.5" />
           </button>

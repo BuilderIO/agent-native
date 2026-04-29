@@ -77,14 +77,12 @@ export function ExcalidrawSlide({
   }, []);
 
   if (!mounted) {
-    return <Skeleton className="w-full h-full bg-white/[0.06]" />;
+    return <Skeleton className="w-full h-full bg-accent" />;
   }
 
   return (
     <div className="w-full h-full" style={{ minHeight: 200 }}>
-      <Suspense
-        fallback={<Skeleton className="w-full h-full bg-white/[0.06]" />}
-      >
+      <Suspense fallback={<Skeleton className="w-full h-full bg-accent" />}>
         <Excalidraw
           excalidrawAPI={(api: any) => {
             excalidrawRef.current = api;

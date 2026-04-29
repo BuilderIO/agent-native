@@ -227,16 +227,16 @@ export default function DesignEditor() {
 
   if (designLoading) {
     return (
-      <div className="flex-1 bg-[hsl(240,5%,5%)] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white/30" />
+      <div className="flex-1 bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground/30" />
       </div>
     );
   }
 
   if (!design) {
     return (
-      <div className="flex-1 bg-[hsl(240,5%,5%)] flex flex-col items-center justify-center gap-4">
-        <p className="text-white/50">Design not found</p>
+      <div className="flex-1 bg-background flex flex-col items-center justify-center gap-4">
+        <p className="text-muted-foreground">Design not found</p>
         <Button
           variant="outline"
           onClick={() => navigate("/")}
@@ -255,17 +255,17 @@ export default function DesignEditor() {
   }));
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[hsl(240,5%,5%)]">
+    <div className="flex-1 flex flex-col overflow-hidden bg-background">
       {/* Toolbar */}
-      <header className="h-12 border-b border-white/[0.06] flex items-center justify-between px-3 shrink-0">
+      <header className="h-12 border-b border-border flex items-center justify-between px-3 shrink-0">
         <div className="flex items-center gap-2">
           <Link
             to="/"
-            className="flex items-center gap-1 text-sm text-white/50 hover:text-white/80"
+            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground/90"
           >
             <IconArrowLeft className="w-4 h-4" />
           </Link>
-          <span className="text-sm font-medium text-white/80 truncate max-w-[200px]">
+          <span className="text-sm font-medium text-foreground/90 truncate max-w-[200px]">
             {design.title}
           </span>
           <Badge variant="secondary" className="text-[10px]">
@@ -292,7 +292,7 @@ export default function DesignEditor() {
             </TabsList>
           </Tabs>
 
-          <div className="w-px h-5 bg-white/[0.06] mx-1" />
+          <div className="w-px h-5 bg-accent mx-1" />
 
           {/* Device frame */}
           <div className="flex items-center gap-0.5">
@@ -334,7 +334,7 @@ export default function DesignEditor() {
             </Button>
           </div>
 
-          <div className="w-px h-5 bg-white/[0.06] mx-1" />
+          <div className="w-px h-5 bg-accent mx-1" />
 
           {/* Zoom */}
           <div className="flex items-center gap-0.5">
@@ -346,7 +346,7 @@ export default function DesignEditor() {
             >
               <IconZoomOut className="w-3.5 h-3.5" />
             </Button>
-            <span className="text-xs text-white/50 w-10 text-center tabular-nums">
+            <span className="text-xs text-muted-foreground w-10 text-center tabular-nums">
               {zoom}%
             </span>
             <Button
@@ -359,7 +359,7 @@ export default function DesignEditor() {
             </Button>
           </div>
 
-          <div className="w-px h-5 bg-white/[0.06] mx-1" />
+          <div className="w-px h-5 bg-accent mx-1" />
 
           {/* Actions */}
           <Button
@@ -390,15 +390,15 @@ export default function DesignEditor() {
 
       {/* Viewport tabs */}
       {viewportTabs.length > 1 && (
-        <div className="h-8 border-b border-white/[0.06] flex items-center gap-1 px-3 shrink-0">
+        <div className="h-8 border-b border-border flex items-center gap-1 px-3 shrink-0">
           {viewportTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveFileId(tab.id)}
               className={`px-2.5 py-1 rounded text-xs cursor-pointer ${
                 tab.id === activeFileId
-                  ? "bg-white/[0.08] text-white/80"
-                  : "text-white/40 hover:text-white/60"
+                  ? "bg-accent text-foreground/90"
+                  : "text-muted-foreground hover:text-muted-foreground"
               }`}
             >
               {tab.filename}
@@ -423,7 +423,7 @@ export default function DesignEditor() {
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <p className="text-sm text-white/40 mb-3">
+              <p className="text-sm text-muted-foreground mb-3">
                 No files yet. Ask the agent to generate a design.
               </p>
               <Button
@@ -445,49 +445,51 @@ export default function DesignEditor() {
 
         {/* Edit panel (right side) */}
         {mode === "edit" && selectedElement && (
-          <div className="w-64 border-l border-white/[0.06] bg-[hsl(240,5%,6%)] p-4 overflow-y-auto shrink-0">
-            <h3 className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-3">
+          <div className="w-64 border-l border-border bg-background p-4 overflow-y-auto shrink-0">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
               Element
             </h3>
             <div className="space-y-3">
               <div>
-                <span className="text-[10px] text-white/40 uppercase">Tag</span>
-                <p className="text-sm text-white/80 font-mono">
+                <span className="text-[10px] text-muted-foreground uppercase">
+                  Tag
+                </span>
+                <p className="text-sm text-foreground/90 font-mono">
                   {selectedElement.tagName}
                   {selectedElement.id ? `#${selectedElement.id}` : ""}
                 </p>
               </div>
               {selectedElement.classes.length > 0 && (
                 <div>
-                  <span className="text-[10px] text-white/40 uppercase">
+                  <span className="text-[10px] text-muted-foreground uppercase">
                     Classes
                   </span>
-                  <p className="text-xs text-white/60 font-mono break-all">
+                  <p className="text-xs text-muted-foreground font-mono break-all">
                     {selectedElement.classes.join(" ")}
                   </p>
                 </div>
               )}
               {selectedElement.textContent && (
                 <div>
-                  <span className="text-[10px] text-white/40 uppercase">
+                  <span className="text-[10px] text-muted-foreground uppercase">
                     Text
                   </span>
-                  <p className="text-xs text-white/60 line-clamp-3">
+                  <p className="text-xs text-muted-foreground line-clamp-3">
                     {selectedElement.textContent}
                   </p>
                 </div>
               )}
               <div>
-                <span className="text-[10px] text-white/40 uppercase">
+                <span className="text-[10px] text-muted-foreground uppercase">
                   Size
                 </span>
-                <p className="text-xs text-white/60">
+                <p className="text-xs text-muted-foreground">
                   {Math.round(selectedElement.boundingRect.width)} x{" "}
                   {Math.round(selectedElement.boundingRect.height)}
                 </p>
               </div>
               <div>
-                <span className="text-[10px] text-white/40 uppercase">
+                <span className="text-[10px] text-muted-foreground uppercase">
                   Styles
                 </span>
                 <div className="space-y-1 mt-1">
@@ -506,8 +508,10 @@ export default function DesignEditor() {
                         key={key}
                         className="flex items-center justify-between text-[10px]"
                       >
-                        <span className="text-white/40 font-mono">{key}</span>
-                        <span className="text-white/60 font-mono truncate ml-2 max-w-[120px]">
+                        <span className="text-muted-foreground font-mono">
+                          {key}
+                        </span>
+                        <span className="text-muted-foreground font-mono truncate ml-2 max-w-[120px]">
                           {value}
                         </span>
                       </div>
@@ -520,19 +524,19 @@ export default function DesignEditor() {
 
         {/* Tweaks panel (floating) */}
         {tweaksVisible && (
-          <div className="absolute top-4 right-4 w-56 bg-[hsl(240,5%,8%)] border border-white/[0.08] rounded-xl p-4 shadow-2xl z-10">
+          <div className="absolute top-4 right-4 w-56 bg-card border border-border rounded-xl p-4 shadow-2xl z-10">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-semibold text-white/60 uppercase tracking-wider">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Tweaks
               </h3>
               <button
                 onClick={() => setTweaksVisible(false)}
-                className="text-white/30 hover:text-white/50 text-xs cursor-pointer"
+                className="text-muted-foreground/70 hover:text-muted-foreground text-xs cursor-pointer"
               >
                 Close
               </button>
             </div>
-            <p className="text-xs text-white/30">
+            <p className="text-xs text-muted-foreground/70">
               CSS custom property overrides will appear here when the design
               uses configurable tokens.
             </p>

@@ -32,11 +32,15 @@ export function slackAdapter(): PlatformAdapter {
           key: "SLACK_BOT_TOKEN",
           label: "Slack Bot Token",
           required: true,
+          helpText:
+            "In your Slack app's left nav: OAuth & Permissions → Bot User OAuth Token (starts with `xoxb-`).",
         },
         {
           key: "SLACK_SIGNING_SECRET",
           label: "Slack Signing Secret",
           required: true,
+          helpText:
+            "In your Slack app's left nav: Basic Information → App Credentials → Signing Secret.",
         },
       ];
     },
