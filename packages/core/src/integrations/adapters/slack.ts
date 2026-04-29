@@ -294,8 +294,10 @@ function splitMessage(text: string, maxLength: number): string[] {
  * - `**bold**` → `*bold*` (Slack uses single asterisks for bold)
  */
 function markdownToSlackMrkdwn(text: string): string {
-  return text
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "<$2|$1>")
-    // 's' flag (dotAll) so `.` matches newlines — bold text can span lines.
-    .replace(/\*\*(.+?)\*\*/gs, "*$1*");
+  return (
+    text
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "<$2|$1>")
+      // 's' flag (dotAll) so `.` matches newlines — bold text can span lines.
+      .replace(/\*\*(.+?)\*\*/gs, "*$1*")
+  );
 }

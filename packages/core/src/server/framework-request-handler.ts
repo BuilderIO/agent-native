@@ -375,28 +375,31 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
  * The scaffolded workspace-core template ships TS sources without a build
  * step (exports point at `./src/server/index.ts`), so plain `await import()`
  * blows up the moment Node hits a relative `.js` import inside (the standard
- * TS ESM convention). Try Node's plain `import()` first — fastest path when
- * the user has compiled to dist/ — then fall back to jiti, which handles TS
- * source files and re-maps the `.js` ESM extension convention back to `.ts`
- * at resolve time.
+ * TS ESM convention) — and even before that, Node may resolve the package
+ * relative to the framework's own location rather than the user's monorepo.
+ *
+ * We try Node's plain `import()` first (fastest path when the user has
+ * compiled to dist/) and fall through to jiti on any error. jiti is anchored
+ * to a real file inside the workspace-core's directory, so its module
+ * resolution starts in the right node_modules tree (handles pnpm hoisting
+ * and linked workspaces) AND handles TS source files + `.js` → `.ts` ESM
+ * extension remapping.
  *
  * Edge runtimes without `fs` won't be able to load jiti at all; the outer
  * try/catch silently falls through to framework defaults in that case.
  */
-async function loadWorkspaceCoreServer(
+export async function loadWorkspaceCoreServer(
   packageName: string,
   packageDir: string,
 ): Promise<any> {
+  let firstErr: unknown;
   try {
     return await import(/* @vite-ignore */ `${packageName}/server`);
-  } catch (firstErr) {
-    const msg = (firstErr as Error)?.message ?? "";
-    const looksLikeTsResolution =
-      /\.js' imported from .*\.ts/.test(msg) ||
-      /Cannot find module .*\.js' imported/.test(msg) ||
-      /Unknown file extension "\.ts"/.test(msg);
-    if (!looksLikeTsResolution) throw firstErr;
+  } catch (e) {
+    firstErr = e;
+  }
 
+  try {
     const { createJiti } = await import("jiti");
     const { pathToFileURL } = await import("node:url");
     const path = await import("node:path");
@@ -408,6 +411,10 @@ async function loadWorkspaceCoreServer(
     ).toString();
     const jiti = createJiti(anchor, { interopDefault: true });
     return await jiti.import(`${packageName}/server`);
+  } catch (jitiErr) {
+    // jiti also failed — rethrow the original Node error since it's usually
+    // more informative about *why* the package wasn't resolvable.
+    throw firstErr ?? jitiErr;
   }
 }
 
