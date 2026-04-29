@@ -5,6 +5,7 @@ import "../server/db/index.js"; // ensure registerShareableResource runs
 import {
   type AspectRatio,
   getAspectRatioDims,
+  ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
 
 function buildStandaloneHtml(
@@ -241,7 +242,12 @@ export default defineAction({
     const row = access.resource;
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
-    const aspectRatio = deckData.aspectRatio as AspectRatio | undefined;
+    const rawAspectRatio = deckData.aspectRatio;
+    const aspectRatio: AspectRatio | undefined = ASPECT_RATIO_VALUES.includes(
+      rawAspectRatio,
+    )
+      ? rawAspectRatio
+      : undefined;
 
     if (slides.length === 0) {
       return { error: "Cannot export empty deck" };
