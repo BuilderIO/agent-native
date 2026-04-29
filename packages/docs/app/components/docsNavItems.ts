@@ -35,7 +35,7 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       { label: "Agent Mentions", to: "/docs/agent-mentions" as const },
       { label: "Pure-Agent Apps", to: "/docs/pure-agent-apps" as const },
-      { label: "Integrations", to: "/docs/integrations" as const },
+      { label: "Messaging", to: "/docs/messaging" as const },
       { label: "Tools", to: "/docs/tools" as const },
     ],
   },
