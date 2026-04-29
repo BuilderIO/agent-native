@@ -496,27 +496,30 @@ pub async fn close_signin(app: AppHandle) -> Result<(), String> {
 /// Show the Wispr Flow-style dictation pill at the bottom-center of the
 /// primary display. The React overlay is driven by `voice:*` events.
 ///
-/// Always destroys any existing flow-bar window before creating a new one
-/// so the second-press-never-comes-back failure mode (where a stale or
-/// half-closed window blocks `get_webview_window` from returning the
-/// expected fresh window) is impossible.
+/// Reuses an existing flow-bar window if one is alive (just repositions
+/// and shows it), so back-to-back Fn presses don't pay the ~200ms WebKit
+/// spin-up cost on every press. The React component listens for
+/// `voice:state-change` to reset its visual state.
 #[tauri::command]
 pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_flow_bar invoked");
-    if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {
-        let _ = existing.close();
-    }
 
-    // Wispr Flow's pill is a small capsule at the bottom-center of the
-    // screen. Window dimensions are physical pixels (2x logical on retina);
-    // the React content paints a 120-160 px logical pill inside, with the
-    // surrounding window space reserved for the soft drop shadow.
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
     let w: u32 = 400;
     let h: u32 = 120;
     let x: i32 = ((mw as i32 - w as i32) / 2).max(0);
     // Bottom margin: ~14 logical px ≈ 28 physical px, matching Wispr Flow.
     let y: i32 = (mh as i32 - h as i32 - 28).max(0);
+
+    if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {
+        // Reposition (in case the user changed display geometry between
+        // sessions) and bring it back into view. State reset is handled
+        // by the JS side emitting voice:state-change.
+        let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
+        let _ = existing.set_position(PhysicalPosition::new(x, y));
+        let _ = existing.show();
+        return Ok(());
+    }
 
     let win = WebviewWindowBuilder::new(&app, FLOW_BAR_LABEL, build_overlay_url("flow-bar"))
         .title("Voice")
@@ -554,8 +557,8 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
             .unwrap_or(false);
         if !dictating {
             if let Some(w) = app_for_timeout.get_webview_window(FLOW_BAR_LABEL) {
-                eprintln!("[clips-tray] closing stale voice overlay after timeout");
-                let _ = w.close();
+                eprintln!("[clips-tray] hiding stale voice overlay after timeout");
+                let _ = w.hide();
             }
         }
     });
@@ -564,8 +567,11 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn hide_flow_bar(app: AppHandle) -> Result<(), String> {
+    // Hide (don't close) so the next show_flow_bar can reuse the window
+    // and avoid the ~200ms WebKit cold-start that creates the stutter
+    // on second/third Fn presses.
     if let Some(w) = app.get_webview_window(FLOW_BAR_LABEL) {
-        let _ = w.close();
+        let _ = w.hide();
     }
     let should_hide_wake_popover = app
         .try_state::<VoiceWakePopover>()

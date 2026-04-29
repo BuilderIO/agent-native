@@ -101,9 +101,7 @@ export function Sidebar() {
               to={item.href}
               className={cn(
                 "flex items-center rounded-lg text-sm",
-                collapsed
-                  ? "h-9 w-9 justify-center"
-                  : "gap-3 px-3 py-2",
+                collapsed ? "h-9 w-9 justify-center" : "gap-3 px-3 py-2",
                 isActive
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
                   : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
