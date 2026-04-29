@@ -45,6 +45,19 @@ export function useFolders() {
     localStorage.setItem(MEMBERSHIPS_KEY, JSON.stringify(memberships));
   }, [memberships]);
 
+  // Sync changes from other tabs via storage event (mirrors CompositionContext / TimelineContext pattern)
+  useEffect(() => {
+    function handleStorageChange(e: StorageEvent) {
+      if (e.key === FOLDERS_KEY) {
+        setFolders(loadFolders());
+      } else if (e.key === MEMBERSHIPS_KEY) {
+        setMemberships(loadMemberships());
+      }
+    }
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
+
   const createFolder = useCallback((name: string): VideoFolder => {
     const folder: VideoFolder = {
       id: `folder-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,

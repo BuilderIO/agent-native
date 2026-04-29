@@ -357,8 +357,8 @@ export function Sidebar({
                 );
               })}
 
-              {/* Divider when folders exist and there are uncategorized compositions */}
-              {folders.length > 0 && uncategorizedCompositions.length > 0 && (
+              {/* Divider when folders exist */}
+              {folders.length > 0 && (
                 <div className="flex items-center gap-2 px-1 py-0.5">
                   <div className="flex-1 h-px bg-border/40" />
                   <span className="text-[9px] uppercase tracking-wider text-muted-foreground/40 font-medium">
@@ -368,45 +368,55 @@ export function Sidebar({
                 </div>
               )}
 
-              {/* Uncategorized compositions — also a drop target to remove from folder */}
-              <div
-                className={cn(
-                  "rounded-lg space-y-0.5 transition-all",
-                  isDragOverUncategorized &&
-                    "ring-2 ring-dashed ring-border bg-secondary/20 p-1",
-                )}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setIsDragOverUncategorized(true);
-                }}
-                onDragLeave={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              {/* Uncategorized compositions — also a drop target to remove from folder.
+                  Always rendered when folders exist so there's a reachable drop zone
+                  even when every composition has been placed in a folder. */}
+              {(folders.length > 0 || uncategorizedCompositions.length > 0) && (
+                <div
+                  className={cn(
+                    "rounded-lg space-y-0.5 transition-all",
+                    folders.length > 0 &&
+                      uncategorizedCompositions.length === 0 &&
+                      "min-h-[36px] flex items-center justify-center border border-dashed border-border/30 rounded-lg",
+                    isDragOverUncategorized &&
+                      "ring-2 ring-dashed ring-border bg-secondary/20 p-1",
+                  )}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragOverUncategorized(true);
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setIsDragOverUncategorized(false);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
                     setIsDragOverUncategorized(false);
-                  }
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setIsDragOverUncategorized(false);
-                  const compId = e.dataTransfer.getData("text/composition-id");
-                  if (compId) removeFromFolder(compId);
-                }}
-              >
-                {uncategorizedCompositions.map((comp) => (
-                  <CompositionCard
-                    key={comp.id}
-                    composition={comp}
-                    isSelected={comp.id === compositionId}
-                    onClick={() => onNavigate(`/c/${comp.id}`)}
-                    onDelete={onDelete}
-                    draggable
-                  />
-                ))}
-                {isDragOverUncategorized && (
-                  <p className="text-[10px] text-center text-muted-foreground/50 py-1">
-                    Drop to remove from folder
-                  </p>
-                )}
-              </div>
+                    const compId = e.dataTransfer.getData(
+                      "text/composition-id",
+                    );
+                    if (compId) removeFromFolder(compId);
+                  }}
+                >
+                  {uncategorizedCompositions.map((comp) => (
+                    <CompositionCard
+                      key={comp.id}
+                      composition={comp}
+                      isSelected={comp.id === compositionId}
+                      onClick={() => onNavigate(`/c/${comp.id}`)}
+                      onDelete={onDelete}
+                      draggable
+                    />
+                  ))}
+                  {folders.length > 0 &&
+                    uncategorizedCompositions.length === 0 && (
+                      <p className="text-[10px] text-center text-muted-foreground/40">
+                        Drop here to remove from folder
+                      </p>
+                    )}
+                </div>
+              )}
             </div>
           </TabsContent>
 
