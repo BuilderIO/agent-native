@@ -30,10 +30,6 @@ Three things make Clips a good showcase of what agent-native enables:
 
 The rest of this doc is for anyone forking the Clips template or extending it.
 
-### Naming note
-
-In the template, always say **"Clip"** in user-facing strings and agent messages. Internal table / variable names (`recordings`, `recording_transcripts`, etc.) stay as-is.
-
 ### Scaffolding
 
 ```bash
@@ -44,13 +40,15 @@ Clips is a larger template with a native recorder (it ships a desktop companion 
 
 ### Customize it
 
-Ask the agent:
+Clips is a full cloneable SaaS — fork it and ask the agent to extend it. Some examples:
 
-- "Add a 'filler word removal' button that strips ums and uhs from the transcript and re-stitches the video." It edits the transcript processor and wires the UI.
-- "Auto-post a new clip to Slack #eng-demos when I record one." It adds the hook.
-- "Group the library by project — detect the project from the first words of each transcript." It updates the list view.
+- "Add a filler-word removal button that strips ums and uhs from the transcript and re-stitches the video."
+- "Auto-post a new clip to Slack #eng-demos whenever I finish a recording." (Connect Slack first via [Messaging](/docs/messaging).)
+- "Group the library by project — detect the project from the first words of each transcript."
+- "Add a 'Generate blog post from this clip' button that drafts a post from the transcript and saves it as a draft."
+- "Let viewers leave timestamped reactions on a shared clip."
 
-See [Cloneable SaaS](/docs/cloneable-saas) for the full clone → customize → deploy flow.
+The agent edits routes, components, the transcript pipeline, and the schema as needed. See [Cloneable SaaS](/docs/cloneable-saas) for the full clone, customize, deploy flow, and [Getting Started](/docs/getting-started) if this is your first agent-native template.
 
 ## What's next
 

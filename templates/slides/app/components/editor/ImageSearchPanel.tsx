@@ -87,13 +87,13 @@ export default function ImageSearchPanel({
         transform: "translate(-50%, -50%)",
         zIndex: 9999,
       }}
-      className="w-[min(24rem,calc(100vw-24px))] max-h-[480px] bg-[hsl(240,5%,10%)] border border-white/[0.1] rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
+      className="w-[min(24rem,calc(100vw-24px))] max-h-[480px] bg-popover border border-border rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
     >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
-        <h3 className="text-sm font-semibold text-white/90">Search Images</h3>
+        <h3 className="text-sm font-semibold text-foreground">Search Images</h3>
         <button
           onClick={() => onOpenChange(false)}
-          className="text-white/30 hover:text-white/60 transition-colors"
+          className="text-muted-foreground/70 hover:text-muted-foreground transition-colors"
           aria-label="Close"
         >
           <IconX className="w-4 h-4" />
@@ -103,7 +103,7 @@ export default function ImageSearchPanel({
       <div className="px-4 pb-3 flex-shrink-0">
         <div className="flex gap-2">
           <div className="flex-1 relative">
-            <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+            <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
             <input
               ref={inputRef}
               type="text"
@@ -113,7 +113,7 @@ export default function ImageSearchPanel({
                 if (e.key === "Enter") handleSearch();
               }}
               placeholder="Search for images..."
-              className="w-full pl-8 pr-3 py-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-[#609FF8]/50"
+              className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[#609FF8]/50"
             />
           </div>
           <button
@@ -137,13 +137,13 @@ export default function ImageSearchPanel({
           </div>
         )}
         {!loading && results.length === 0 && !error && (
-          <div className="text-center py-8 text-white/30 text-xs">
+          <div className="text-center py-8 text-muted-foreground text-xs">
             Search for logos, images, icons...
           </div>
         )}
         {loading && (
           <div className="flex items-center justify-center py-8">
-            <IconLoader2 className="w-4 h-4 text-white/30 animate-spin" />
+            <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
           </div>
         )}
         {results.length > 0 && (
@@ -152,7 +152,7 @@ export default function ImageSearchPanel({
               <button
                 key={i}
                 onClick={() => handleSelect(result.url)}
-                className="aspect-square rounded-md overflow-hidden border border-white/[0.08] bg-white/[0.02] hover:ring-2 hover:ring-[#609FF8]/50 transition-all"
+                className="aspect-square rounded-md overflow-hidden border border-border bg-muted hover:ring-2 hover:ring-[#609FF8]/50 transition-all"
                 title={result.title}
               >
                 <img

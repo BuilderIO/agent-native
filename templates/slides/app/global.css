@@ -101,7 +101,7 @@ button[title="Open agent sidebar"] {
     white-space: pre;
   }
 
-  /* Custom scrollbar for dark theme */
+  /* Custom scrollbar */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -110,11 +110,11 @@ button[title="Open agent sidebar"] {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: hsl(240 4% 20%);
+    background: hsl(var(--muted-foreground) / 0.3);
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(240 4% 28%);
+    background: hsl(var(--muted-foreground) / 0.5);
   }
 }
 
@@ -810,8 +810,8 @@ button[title="Open agent sidebar"] {
 .image-overlay-menu {
   position: fixed;
   z-index: 300;
-  background: hsl(240, 5%, 10%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
   border-radius: 12px;
   padding: 6px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
@@ -840,7 +840,7 @@ button[title="Open agent sidebar"] {
   border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.8);
+  color: hsl(var(--popover-foreground) / 0.8);
   background: transparent;
   border: none;
   cursor: pointer;
@@ -849,8 +849,8 @@ button[title="Open agent sidebar"] {
 }
 
 .image-overlay-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background: hsl(var(--accent));
+  color: hsl(var(--popover-foreground));
 }
 
 /* ─── Inline Slide Editor (TipTap) ─── */

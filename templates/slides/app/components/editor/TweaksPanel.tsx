@@ -15,14 +15,14 @@ export function TweaksPanel({
   onClose,
 }: TweaksPanelProps) {
   return (
-    <div className="absolute bottom-4 right-4 w-64 rounded-xl border border-white/[0.08] bg-[hsl(240,5%,8%)] shadow-2xl z-20">
+    <div className="absolute bottom-4 right-4 w-64 rounded-xl border border-border bg-card shadow-2xl z-20">
       <div className="flex items-center justify-between px-4 pt-3 pb-2">
-        <span className="text-[11px] font-semibold text-white/40 uppercase tracking-wider">
+        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
           Tweaks
         </span>
         <button
           onClick={onClose}
-          className="text-white/30 hover:text-white/60 cursor-pointer"
+          className="text-muted-foreground/70 hover:text-muted-foreground cursor-pointer"
         >
           <IconX className="w-3.5 h-3.5" />
         </button>
@@ -52,7 +52,9 @@ function TweakControl({
 }) {
   return (
     <div>
-      <div className="text-[11px] text-white/40 mb-2">{tweak.label}</div>
+      <div className="text-[11px] text-muted-foreground mb-2">
+        {tweak.label}
+      </div>
       {tweak.type === "color-swatches" && (
         <div className="flex gap-2">
           {tweak.options?.map((opt) => (
@@ -61,7 +63,7 @@ function TweakControl({
               onClick={() => onChange(opt.value)}
               className={`w-7 h-7 rounded-full cursor-pointer ${
                 value === opt.value
-                  ? "ring-2 ring-white ring-offset-2 ring-offset-[hsl(240,5%,8%)]"
+                  ? "ring-2 ring-foreground ring-offset-2 ring-offset-card"
                   : ""
               }`}
               style={{ backgroundColor: opt.color || opt.value }}
@@ -71,15 +73,15 @@ function TweakControl({
         </div>
       )}
       {tweak.type === "segment" && (
-        <div className="flex rounded-lg overflow-hidden border border-white/[0.08]">
+        <div className="flex rounded-lg overflow-hidden border border-border">
           {tweak.options?.map((opt) => (
             <button
               key={opt.value}
               onClick={() => onChange(opt.value)}
               className={`flex-1 px-3 py-1 text-[11px] font-medium cursor-pointer ${
                 value === opt.value
-                  ? "bg-white/10 text-white"
-                  : "text-white/30 hover:text-white/50"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground/70 hover:text-muted-foreground"
               }`}
             >
               {opt.label}
@@ -91,11 +93,11 @@ function TweakControl({
         <button
           onClick={() => onChange(!value)}
           className={`w-9 h-5 rounded-full cursor-pointer ${
-            value ? "bg-white/20" : "bg-white/[0.06]"
+            value ? "bg-primary/30" : "bg-accent"
           } relative`}
         >
           <span
-            className={`block w-3.5 h-3.5 rounded-full bg-white absolute top-0.5 ${
+            className={`block w-3.5 h-3.5 rounded-full bg-foreground absolute top-0.5 ${
               value ? "right-0.5" : "left-0.5"
             }`}
           />

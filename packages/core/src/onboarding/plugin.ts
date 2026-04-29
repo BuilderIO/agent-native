@@ -11,6 +11,7 @@
 import {
   defineEventHandler,
   getMethod,
+  getQuery,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -54,21 +55,27 @@ async function hasOverride(
 /**
  * Serialise every registered onboarding step (awaiting `isComplete()`).
  * Honours the per-session "manual override" flag in application-state.
+ *
+ * `preview` short-circuits both the resolver and the override lookup so the
+ * dev overlay can render the new-user flow without touching real state.
  */
 async function serializeSteps(
   sessionId: string,
+  options: { preview?: boolean } = {},
 ): Promise<OnboardingStepStatus[]> {
   const steps = listOnboardingSteps();
   const out: OnboardingStepStatus[] = [];
   for (const step of steps) {
     let complete = false;
-    try {
-      complete = (await step.isComplete()) === true;
-    } catch {
-      complete = false;
-    }
-    if (!complete) {
-      complete = await hasOverride(sessionId, step.id);
+    if (!options.preview) {
+      try {
+        complete = (await step.isComplete()) === true;
+      } catch {
+        complete = false;
+      }
+      if (!complete) {
+        complete = await hasOverride(sessionId, step.id);
+      }
     }
     out.push({
       id: step.id,
@@ -117,7 +124,9 @@ export function createOnboardingPlugin(
             return { error: "Method not allowed" };
           }
           const sessionId = await resolveSessionId(event);
-          return serializeSteps(sessionId);
+          const query = getQuery(event) as Record<string, unknown>;
+          const preview = query.preview === "1" || query.preview === 1;
+          return serializeSteps(sessionId, { preview });
         }
 
         // Override endpoint — POST /steps/:id/complete

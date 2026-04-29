@@ -34,21 +34,29 @@ export function whatsappAdapter(): PlatformAdapter {
           key: "WHATSAPP_ACCESS_TOKEN",
           label: "WhatsApp Access Token",
           required: true,
+          helpText:
+            "From your Meta app → WhatsApp → API Setup → Permanent access token. Generate one under System Users for production use.",
         },
         {
           key: "WHATSAPP_VERIFY_TOKEN",
           label: "WhatsApp Verify Token",
           required: true,
+          helpText:
+            "Any random string you choose. You'll paste the same value into Meta's webhook configuration so Meta can confirm dispatch owns the URL.",
         },
         {
           key: "WHATSAPP_PHONE_NUMBER_ID",
           label: "WhatsApp Phone Number ID",
           required: true,
+          helpText:
+            "From your Meta app → WhatsApp → API Setup. The numeric Phone number ID (not the actual phone number).",
         },
         {
           key: "WHATSAPP_APP_SECRET",
           label: "WhatsApp App Secret",
           required: false,
+          helpText:
+            "Optional. From Meta App Dashboard → Basic Settings → App Secret. Enables HMAC signature verification on inbound webhooks.",
         },
       ];
     },

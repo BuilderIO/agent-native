@@ -128,6 +128,26 @@ export {
   type CommandShortcutProps,
 } from "./CommandMenu.js";
 export {
+  DevOverlay,
+  useDevOverlayShortcut,
+  registerDevPanel,
+  unregisterDevPanel,
+  listDevPanels,
+  subscribeDevPanels,
+  useDevOption,
+  clearAllDevOverlayStorage,
+  devOptionKey,
+  DEV_OVERLAY_STORAGE_PREFIX,
+  type DevOverlayProps,
+  type DevPanel,
+  type DevOption,
+  type DevBooleanOption,
+  type DevSelectOption,
+  type DevStringOption,
+  type DevActionOption,
+  type DevOptionValue,
+} from "./dev-overlay/index.js";
+export {
   useActionQuery,
   useActionMutation,
   type ActionRegistry,

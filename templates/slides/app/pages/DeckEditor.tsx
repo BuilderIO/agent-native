@@ -456,7 +456,7 @@ export default function DeckEditor() {
     (t) => !t.resolved,
   ).length;
 
-  if (loading) return <div className="h-screen bg-[hsl(240,5%,5%)]" />;
+  if (loading) return <div className="h-screen bg-background" />;
   if (!deck || !id) return <Navigate to="/" replace />;
 
   const currentSlide =
@@ -465,7 +465,7 @@ export default function DeckEditor() {
   currentSlideRef.current = currentSlide;
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[hsl(240,5%,5%)]">
+    <div className="flex-1 flex flex-col overflow-hidden bg-background">
       <EditorToolbar
         deck={deck}
         deckId={id}
