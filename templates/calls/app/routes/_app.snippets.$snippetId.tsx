@@ -5,6 +5,10 @@ import { useActionQuery } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CallPlayer } from "@/components/player/call-player";
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
 
 export function meta({ params }: { params: { snippetId?: string } }) {
   return [{ title: `Snippet · ${params.snippetId ?? ""}` }];
