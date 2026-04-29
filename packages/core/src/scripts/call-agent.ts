@@ -141,10 +141,19 @@ export async function run(
       // but the receiving agent's full response still surfaces via the
       // tool_result event below.
       try {
+        // Cap the polling budget at 18s so dispatch always returns something
+        // within Netlify's 26s function-timeout window. The remaining ~8s is
+        // budget for Haiku to format and post the response to Slack. Without
+        // this cap, a slow analytics handler (~25s+) would kill dispatch's
+        // lambda mid-poll and leave the integration task stuck "processing"
+        // for ~5min until the retry sweep resets it. Better UX: tell the
+        // user we couldn't reach the agent in time so they can retry, while
+        // the underlying A2A task may still complete in the background.
         responseText = await callAgent(agent.url, message, {
           userEmail: callerEmail,
           orgDomain: callerOrgDomain,
           orgSecret: callerOrgSecret,
+          timeoutMs: 18000,
         });
         // Mirror the response into the streaming UI so the user sees it.
         if (responseText) emitNewText(responseText);
