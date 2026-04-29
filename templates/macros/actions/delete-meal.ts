@@ -17,10 +17,7 @@ export default defineAction({
     await db()
       .delete(schema.meals)
       .where(
-        and(
-          eq(schema.meals.id, id),
-          eq(schema.meals.owner_email, ownerEmail),
-        ),
+        and(eq(schema.meals.id, id), eq(schema.meals.owner_email, ownerEmail)),
       );
     return { success: true };
   },

@@ -35,10 +35,7 @@ export default defineAction({
         notes: args.notes ?? null,
       })
       .where(
-        and(
-          eq(schema.meals.id, id),
-          eq(schema.meals.owner_email, ownerEmail),
-        ),
+        and(eq(schema.meals.id, id), eq(schema.meals.owner_email, ownerEmail)),
       )
       .returning();
 

@@ -581,8 +581,7 @@ function directBlockText(contents, block, blocks, queryOffset) {
     .filter(
       (b) =>
         !candidates.some(
-          (p) =>
-            p !== b && p.open < b.open && p.close > b.close,
+          (p) => p !== b && p.open < b.open && p.close > b.close,
         ),
     )
     .sort((a, b) => b.open - a.open);
@@ -856,14 +855,10 @@ if (violations.length > 0) {
   console.error(
     "`assertAccess` and do NOT filter by `ownerEmail` / `userEmail` /",
   );
-  console.error(
-    "`orgId` in their WHERE clause (or in the enclosing block).",
-  );
+  console.error("`orgId` in their WHERE clause (or in the enclosing block).");
   console.error("That is how the slides leak happened on 2026-04-28 —");
   console.error("anyone signing in saw every other user's decks. Same");
-  console.error(
-    "class of bug for inserts that don't set ownerEmail from the",
-  );
+  console.error("class of bug for inserts that don't set ownerEmail from the");
   console.error("request context.");
   console.error("");
   for (const v of violations) {
@@ -899,9 +894,7 @@ if (violations.length > 0) {
   console.error("");
   console.error("  Last-resort opt-out (requires reviewer approval):");
   console.error("    // guard:allow-unscoped — explain why this is safe");
-  console.error(
-    "    (place inside the enclosing block, or as a file header)",
-  );
+  console.error("    (place inside the enclosing block, or as a file header)");
   console.error(`${bar}\n`);
   process.exit(1);
 }

@@ -271,9 +271,7 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
   rasterize(tmpTray, join(CLIPS_TAURI_ICONS, "tray.png"), 44);
   rmSync(tmpTray);
 
-  console.log(
-    "✔ templates/clips/desktop/src-tauri/{icons/*,Assets.car}",
-  );
+  console.log("✔ templates/clips/desktop/src-tauri/{icons/*,Assets.car}");
 }
 
 // 6) Slack bot icon (manual upload to api.slack.com/apps → Basic Information → Display)

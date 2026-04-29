@@ -49,7 +49,10 @@ function ctxScope<T extends { ownerEmail: any; orgId: any }>(
 /** Build a ctx that scopes to a specific row's owner/org (used when a
  * request approver acts on behalf of the original requester so the
  * created secret lands in the request's org). */
-function ctxForRow(row: { ownerEmail: string; orgId: string | null }): VaultCtx {
+function ctxForRow(row: {
+  ownerEmail: string;
+  orgId: string | null;
+}): VaultCtx {
   return { ownerEmail: row.ownerEmail, orgId: row.orgId };
 }
 
