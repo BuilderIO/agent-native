@@ -9,8 +9,12 @@ import {
 } from "h3";
 import type { A2AConfig } from "./types.js";
 import { generateAgentCard } from "./agent-card.js";
-import { handleJsonRpcH3 } from "./handlers.js";
+import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  extractBearerToken,
+  verifyInternalToken,
+} from "../integrations/internal-token.js";
 
 /**
  * Verify an inbound A2A JWT signed with the shared A2A_SECRET.
@@ -167,6 +171,55 @@ export function mountA2A(
 
       const body = await readBody(event);
       return handleJsonRpcH3(body, event, config);
+    }),
+  );
+
+  // Async-mode processor route. When `message/send` is called with
+  // `async: true`, the JSON-RPC handler enqueues the task and self-fires a
+  // POST to this route on the same deployment so the actual handler runs in
+  // a fresh function execution (its own full timeout). Authenticated with an
+  // HMAC token bound to the task id (5-minute lifetime, signed with
+  // A2A_SECRET — the same scheme the integration webhook queue uses).
+  getH3App(nitroApp).use(
+    `${routePrefix}/a2a/_process-task`,
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+
+      const body = (await readBody(event)) as { taskId?: unknown } | null;
+      const taskId = body && typeof body.taskId === "string" ? body.taskId : "";
+      if (!taskId) {
+        setResponseStatus(event, 400);
+        return { error: "taskId required" };
+      }
+
+      // When A2A_SECRET is set, require a valid HMAC token bound to this
+      // taskId. Without a secret, accept unsigned dispatches — the task store
+      // claim is atomic and the body only carries an opaque task id, so an
+      // unsigned dispatch is bounded in damage to re-running already-queued
+      // work that the original sender already approved.
+      if (process.env.A2A_SECRET) {
+        const auth = getRequestHeader(event, "authorization");
+        const token = extractBearerToken(auth);
+        if (!verifyInternalToken(taskId, token)) {
+          setResponseStatus(event, 401);
+          return { error: "Invalid or expired processor token" };
+        }
+      }
+
+      // Run the handler in this fresh function execution. We await so any
+      // exception surfaces in logs, but the response body is just an
+      // acknowledgement — the actual result lives on the task row.
+      try {
+        await processA2ATaskFromQueue(taskId, config);
+        return { ok: true };
+      } catch (err: any) {
+        console.error("[a2a] process-task failed:", err);
+        setResponseStatus(event, 500);
+        return { error: err?.message ?? "process-task failed" };
+      }
     }),
   );
 }

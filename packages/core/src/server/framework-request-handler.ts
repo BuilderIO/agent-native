@@ -306,8 +306,9 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
       const ws = await getWorkspaceCoreExports(cwd);
       if (ws && Object.keys(ws.plugins).length > 0) {
         try {
-          const wsServerModule = await import(
-            /* @vite-ignore */ `${ws.packageName}/server`
+          const wsServerModule = await loadWorkspaceCoreServer(
+            ws.packageName,
+            ws.packageDir,
           );
           for (const [slot, exportName] of Object.entries(ws.plugins)) {
             if (!exportName) continue;
@@ -354,6 +355,48 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     }
   } finally {
     IN_BOOTSTRAP.delete(nitroApp);
+  }
+}
+
+/**
+ * Load a workspace-core's `/server` entry, transparently handling TS source.
+ *
+ * The scaffolded workspace-core template ships TS sources without a build
+ * step (exports point at `./src/server/index.ts`), so plain `await import()`
+ * blows up the moment Node hits a relative `.js` import inside (the standard
+ * TS ESM convention). Try Node's plain `import()` first — fastest path when
+ * the user has compiled to dist/ — then fall back to jiti, which handles TS
+ * source files and re-maps the `.js` ESM extension convention back to `.ts`
+ * at resolve time.
+ *
+ * Edge runtimes without `fs` won't be able to load jiti at all; the outer
+ * try/catch silently falls through to framework defaults in that case.
+ */
+async function loadWorkspaceCoreServer(
+  packageName: string,
+  packageDir: string,
+): Promise<any> {
+  try {
+    return await import(/* @vite-ignore */ `${packageName}/server`);
+  } catch (firstErr) {
+    const msg = (firstErr as Error)?.message ?? "";
+    const looksLikeTsResolution =
+      /\.js' imported from .*\.ts/.test(msg) ||
+      /Cannot find module .*\.js' imported/.test(msg) ||
+      /Unknown file extension "\.ts"/.test(msg);
+    if (!looksLikeTsResolution) throw firstErr;
+
+    const { createJiti } = await import("jiti");
+    const { pathToFileURL } = await import("node:url");
+    const path = await import("node:path");
+    // Anchor jiti to a real file inside the workspace-core package so its
+    // module resolution starts in the right node_modules tree (handles pnpm
+    // hoisting and linked workspaces).
+    const anchor = pathToFileURL(
+      path.join(packageDir, "package.json"),
+    ).toString();
+    const jiti = createJiti(anchor, { interopDefault: true });
+    return await jiti.import(`${packageName}/server`);
   }
 }
 

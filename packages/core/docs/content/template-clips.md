@@ -1,36 +1,40 @@
 ---
-title: "Clips Template"
-description: "Agent-native screen recording with AI transcription, auto-titles, summaries, chapter markers, and full-text search across every clip."
+title: "Clips"
+description: "Record your screen, get an AI-generated title, summary, and chapter markers automatically, and search across every recording you've ever made."
 ---
 
 # Clips
 
-Clips is an agent-native screen-recording app. The user records a video, the app transcribes it, and the agent takes over: suggests titles, writes summaries, builds chapters, finds the exact moment someone said X, opens the right recording, shares it with the right teammate, drafts replies to comments.
+A screen-recording app where the agent does the post-production work for you. Record your screen, and Clips transcribes it, suggests a title and summary, builds chapter markers, and tags the content automatically. Ask "find the clip where we discussed the rollout plan" and the agent searches across every transcript you've ever made.
 
-Think Loom, but the agent is a first-class editor — and the recordings are yours, not a SaaS vendor's.
+Think along the lines of products that record short async videos for your team — but the agent is a first-class editor, and the recordings are yours, not a SaaS vendor's.
 
-## What it does {#what-it-does}
+## What you can do with it
 
-- **Record your screen.** Built-in recorder with webcam overlay, audio capture, and pause/trim.
-- **Auto-transcribe.** Every recording is transcribed on upload. Speaker turns, timestamps, searchable.
-- **Agent-generated metadata.** Titles, summaries, chapter markers, tags — the agent fills them in and keeps them current.
-- **Full-text search.** Query across every transcript in your library. "Find the clip where we discussed the rollout plan."
-- **Share links.** Per-clip permissions (public, team, private), link tracking, comments threaded with the agent in the loop.
-- **Smart library.** Group by project, filter by speaker, auto-tag based on content.
+- **Record your screen** with a built-in recorder, webcam overlay, audio capture, and pause/trim.
+- **Get an auto-generated title, summary, and chapter markers** for every recording — the agent fills them in and keeps them current.
+- **Search across every transcript** with full-text search. "Find the clip where we discussed the rollout plan."
+- **Share clips** with per-clip permissions (public, team, private). Link tracking and threaded comments work too.
+- **Smart library views.** Group by project, filter by speaker, auto-tag based on content.
+- **Edit the transcript through chat.** "Fix the mis-transcribed word at 1:42." "Pull three quotes for a blog post." The agent edits the transcript and the UI updates live.
 
-## Why it's interesting {#why}
+## Why it's interesting
 
-Three things make the Clips template a good showcase of what agent-native enables:
+Three things make Clips a good showcase of what agent-native enables:
 
 1. **The agent edits the transcript.** Fix a mis-transcribed word, generate chapter timestamps, pull quotes for a blog post — all in natural language, in the chat, with the UI updating live via polling.
 2. **Context awareness on recordings.** When you're viewing a clip, the agent knows the clip id, the current playhead, and the selected transcript range. Ask "summarize from here to the end" and it understands what "here" means.
-3. **Clips you own, not a vendor.** Unlike Loom, the recordings live in your storage, the transcripts live in your SQL, and the agent is yours. Fork the template, change how chapters get built, wire it to your own CDN — it's your code.
+3. **Clips you own, not a vendor.** The recordings live in your storage, the transcripts live in your SQL, and the agent is yours. Fork the template, change how chapters get built, wire it to your own CDN — it's your code.
 
-## Naming note {#naming-note}
+## For developers
 
-In the template, always say **"Clip"** in user-facing strings and agent messages — never "Loom." Internal table / variable names (`recordings`, `recording_transcripts`, etc.) stay as-is.
+The rest of this doc is for anyone forking the Clips template or extending it.
 
-## Scaffolding {#scaffolding}
+### Naming note
+
+In the template, always say **"Clip"** in user-facing strings and agent messages. Internal table / variable names (`recordings`, `recording_transcripts`, etc.) stay as-is.
+
+### Scaffolding
 
 ```bash
 pnpm dlx @agent-native/core create my-clips --template clips --standalone
@@ -38,7 +42,7 @@ pnpm dlx @agent-native/core create my-clips --template clips --standalone
 
 Clips is a larger template with a native recorder (it ships a desktop companion for local capture). See the template `README.md` for setup specifics around screen-capture permissions and storage configuration.
 
-## Customize it {#customize}
+### Customize it
 
 Ask the agent:
 
