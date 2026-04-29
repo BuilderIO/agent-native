@@ -18,8 +18,6 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title: "Concepts",
     items: [
-      { label: "Drop-in Agent", to: "/docs/drop-in-agent" as const },
-      { label: "Workspace", to: "/docs/workspace" as const },
       { label: "Context Awareness", to: "/docs/context-awareness" as const },
       { label: "Skills Guide", to: "/docs/skills-guide" as const },
       { label: "Agent Teams", to: "/docs/agent-teams" as const },
@@ -37,6 +35,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Pure-Agent Apps", to: "/docs/pure-agent-apps" as const },
       { label: "Messaging", to: "/docs/messaging" as const },
       { label: "Tools", to: "/docs/tools" as const },
+      { label: "Drop-in Agent", to: "/docs/drop-in-agent" as const },
+      { label: "Workspace", to: "/docs/workspace" as const },
     ],
   },
   {
