@@ -36,11 +36,8 @@ export function requireVaultCtx(): VaultCtx {
 }
 
 /** WHERE clause that limits a vault row to the caller's ownership scope. */
-function ctxScope(
-  table: {
-    ownerEmail: typeof schema.vaultSecrets.ownerEmail;
-    orgId: typeof schema.vaultSecrets.orgId;
-  },
+function ctxScope<T extends { ownerEmail: any; orgId: any }>(
+  table: T,
   ctx: VaultCtx,
 ) {
   return or(

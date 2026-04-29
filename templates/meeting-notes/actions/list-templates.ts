@@ -29,6 +29,9 @@ export default defineAction({
     // ("no orgId means list everything") leaked another tenant's templates.
     let rows;
     if (orgId) {
+      // guard:allow-unscoped — explicitly tenanted via organization_id (a
+      // tenant FK distinct from the ownable's `org_id`). The orgId is
+      // resolved server-side from org_members for the request email.
       rows = await db
         .select()
         .from(schema.meetingTemplates)

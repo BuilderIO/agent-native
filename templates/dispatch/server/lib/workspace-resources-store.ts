@@ -26,11 +26,8 @@ export function requireWorkspaceResourceCtx(): WorkspaceResourceCtx {
 }
 
 /** WHERE clause that limits a workspace-resource row to the caller's scope. */
-function ctxScope(
-  table: {
-    ownerEmail: typeof schema.workspaceResources.ownerEmail;
-    orgId: typeof schema.workspaceResources.orgId;
-  },
+function ctxScope<T extends { ownerEmail: any; orgId: any }>(
+  table: T,
   ctx: WorkspaceResourceCtx,
 ) {
   return or(

@@ -52,11 +52,8 @@ export function requireDispatchCtx(): DispatchCtx {
   return { ownerEmail: currentOwnerEmail(), orgId: currentOrgId() };
 }
 
-function ctxScope(
-  table: {
-    ownerEmail: typeof schema.dispatchDestinations.ownerEmail;
-    orgId: typeof schema.dispatchDestinations.orgId;
-  },
+function ctxScope<T extends { ownerEmail: any; orgId: any }>(
+  table: T,
   ctx: DispatchCtx,
 ) {
   return or(
