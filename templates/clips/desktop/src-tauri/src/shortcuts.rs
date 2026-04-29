@@ -1,11 +1,15 @@
 use std::thread;
 use std::time::Duration;
-use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
+use tauri::{Emitter, Listener, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
 use crate::clips::toggle_popover;
 use crate::state::{DictationActive, VoiceWakePopover};
 use crate::util::{is_recording_active, show_without_activation};
+
+fn escape_shortcut() -> Shortcut {
+    Shortcut::new(None, Code::Escape)
+}
 
 pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // Register the global shortcut. On macOS we use Cmd+Shift+L;
@@ -34,6 +38,29 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
+/// Globally intercept Escape while the popover is visible so it dismisses even
+/// when another app is focused — Loom-style. We register/unregister on every
+/// `clips:popover-visible` toggle so Escape stays a normal key everywhere
+/// else. The "parked offscreen" voice-dictation state emits visible=false, so
+/// Escape is correctly inactive then too.
+pub fn install_popover_dismiss_handler(app: &tauri::App) {
+    let handle = app.handle().clone();
+    app.listen("clips:popover-visible", move |event| {
+        let visible: bool = serde_json::from_str(event.payload()).unwrap_or(false);
+        let shortcut = escape_shortcut();
+        let gs = handle.global_shortcut();
+        if visible {
+            if !gs.is_registered(shortcut) {
+                if let Err(err) = gs.register(shortcut) {
+                    eprintln!("[clips-tray] failed to register Escape: {err}");
+                }
+            }
+        } else if gs.is_registered(shortcut) {
+            let _ = gs.unregister(shortcut);
+        }
+    });
+}
+
 /// Build the global shortcut plugin with its handler. Called from `run()` to
 /// register the plugin before `.build()`.
 pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::Wry> {
@@ -43,6 +70,22 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
         let is_voice_cmd_space = shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::Space);
         let is_voice_ctrl_space =
             shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::Space);
+        let is_escape = shortcut.matches(Modifiers::empty(), Code::Escape);
+        if is_escape {
+            if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                return;
+            }
+            // Don't dismiss mid-recording — same guard as the React-side Esc
+            // handler. The user would lose the recorder handle.
+            if is_recording_active(app) {
+                return;
+            }
+            if let Some(window) = app.get_webview_window("popover") {
+                let _ = window.hide();
+            }
+            let _ = app.emit("clips:popover-visible", false);
+            return;
+        }
         if is_voice_cmd_space || is_voice_ctrl_space {
             let source = if is_voice_cmd_space {
                 "cmd-shift-space"
