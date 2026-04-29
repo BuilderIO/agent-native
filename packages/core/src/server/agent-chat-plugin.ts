@@ -3569,6 +3569,24 @@ export function createAgentChatPlugin(
             return { error: "Method not allowed" };
           }
 
+          // Resolve the caller and run the entire stream inside a request
+          // context so custom mention providers can use `accessFilter` /
+          // `resolveAccess` when querying ownable tables. Without this,
+          // a provider that searches `decks` (or any sharable resource)
+          // would see every row regardless of ownership.
+          const mentionsOwner = await getOwnerFromEvent(event).catch(
+            () => undefined,
+          );
+          let mentionsOrgId: string | undefined;
+          if (options?.resolveOrgId) {
+            try {
+              const resolved = await options.resolveOrgId(event);
+              mentionsOrgId = resolved ?? undefined;
+            } catch {
+              mentionsOrgId = undefined;
+            }
+          }
+
           const query = getQuery(event);
           const q = typeof query.q === "string" ? query.q.toLowerCase() : "";
 
@@ -3596,7 +3614,25 @@ export function createAgentChatPlugin(
           setResponseHeader(event, "Cache-Control", "no-cache");
 
           const stream = new ReadableStream({
-            async start(controller) {
+            start(controller) {
+              return runWithRequestContext(
+                {
+                  userEmail: mentionsOwner,
+                  orgId: mentionsOrgId,
+                },
+                () => mentionsStreamWork(controller),
+              );
+            },
+            cancel() {
+              // Client disconnected — stop enqueuing
+            },
+          });
+
+          return stream;
+
+          async function mentionsStreamWork(
+            controller: ReadableStreamDefaultController<Uint8Array>,
+          ) {
               const MAX_RESULTS = 50;
               let totalSent = 0;
               let cancelled = false;
@@ -3764,13 +3800,7 @@ export function createAgentChatPlugin(
 
               await Promise.all(sources);
               if (!cancelled) controller.close();
-            },
-            cancel() {
-              // Client disconnected — stop enqueuing
-            },
-          });
-
-          return stream;
+            }
         }),
       );
 
