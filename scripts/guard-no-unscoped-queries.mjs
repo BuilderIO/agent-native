@@ -321,9 +321,7 @@ const violations = await scanFiles(ownablesByDir);
 if (violations.length > 0) {
   const bar = "=".repeat(72);
   console.error(`\n${bar}`);
-  console.error(
-    "ERROR: unscoped query against an ownable resource table.",
-  );
+  console.error("ERROR: unscoped query against an ownable resource table.");
   console.error(bar);
   console.error("");
   console.error(
@@ -342,7 +340,9 @@ if (violations.length > 0) {
     console.error(`  ${v.file}`);
     for (const hit of v.hits) {
       const where = hit.line > 0 ? `:${hit.line}` : "";
-      console.error(`    queries ownable table "${hit.name}"${where} (${hit.kind})`);
+      console.error(
+        `    queries ownable table "${hit.name}"${where} (${hit.kind})`,
+      );
     }
     console.error("");
   }
@@ -353,9 +353,7 @@ if (violations.length > 0) {
   console.error(
     "      .where(accessFilter(schema.<table>, schema.<table>Shares))",
   );
-  console.error(
-    '      from "@agent-native/core/sharing"',
-  );
+  console.error('      from "@agent-native/core/sharing"');
   console.error("  - For read-by-id, replace the manual select with:");
   console.error('      const access = await resolveAccess("<type>", id);');
   console.error("  - For write/delete-by-id, gate with:");
@@ -366,9 +364,7 @@ if (violations.length > 0) {
   console.error(
     "    wrap the call with `runWithRequestContext({ userEmail, orgId },",
   );
-  console.error(
-    "    fn)` after reading the session via `getSession(event)`.",
-  );
+  console.error("    fn)` after reading the session via `getSession(event)`.");
   console.error("");
   console.error("  Last-resort opt-out (requires reviewer approval):");
   console.error("    // guard:allow-unscoped — explain why this is safe");
