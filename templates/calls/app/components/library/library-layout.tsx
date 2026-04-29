@@ -15,11 +15,12 @@ interface LibraryLayoutProps {
   children: ReactNode;
 }
 
-function LibraryHeader({
-  onOpenSidebar,
-}: {
-  onOpenSidebar: () => void;
-}) {
+// Routes whose page renders its own custom toolbar (with AgentToggleButton).
+// Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
+// there's no double-header.
+const NO_HEADER_PREFIXES = ["/calls/"];
+
+function LibraryHeader({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const title = useHeaderTitle();
   const actions = useHeaderActions();
 
@@ -49,6 +50,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
+
+  const showHeader = !NO_HEADER_PREFIXES.some((prefix) =>
+    location.pathname.startsWith(prefix),
+  );
 
   return (
     <HeaderActionsProvider>
@@ -81,7 +86,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               <LibrarySidebar />
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
-              <LibraryHeader onOpenSidebar={() => setSidebarOpen(true)} />
+              {showHeader ? (
+                <LibraryHeader onOpenSidebar={() => setSidebarOpen(true)} />
+              ) : null}
               <main className="flex flex-1 flex-col min-h-0 overflow-hidden">
                 {children}
               </main>
