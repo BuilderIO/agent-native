@@ -143,6 +143,7 @@ function stopMeter(session: VoiceSession): void {
 }
 
 function stopTracks(session: VoiceSession): void {
+  if (!session.stream) return;
   session.stream.getTracks().forEach((track) => {
     try {
       track.stop();
@@ -153,6 +154,7 @@ function stopTracks(session: VoiceSession): void {
 }
 
 function startMeter(session: VoiceSession): void {
+  if (!session.stream) return; // browser-path sessions don't expose a stream
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioCtx) return;
@@ -181,6 +183,24 @@ function startMeter(session: VoiceSession): void {
   } catch (err) {
     console.warn("[voice-dictation] audio meter unavailable", err);
   }
+}
+
+/**
+ * Browser-path: we don't have a real audio meter (Web Speech API doesn't
+ * expose the raw stream), but the flow-bar's waveform looks dead without
+ * any motion. Drive it with a low-amplitude synthetic level that pulses
+ * gently so the bar still reads as "listening." Matches Wispr Flow's
+ * fallback behavior.
+ */
+function startSyntheticMeter(session: VoiceSession): void {
+  const tick = () => {
+    if (session.cancelled || session.stopping) return;
+    const t = (Date.now() - session.startedAt) / 1000;
+    const level = 0.18 + 0.08 * Math.sin(t * 4);
+    emit("voice:audio-level", { level }).catch(() => {});
+    session.raf = requestAnimationFrame(tick);
+  };
+  session.raf = requestAnimationFrame(tick);
 }
 
 async function transcribe(
@@ -234,14 +254,94 @@ export function installDesktopVoiceDictation(
   let enabled = options.enabled;
   let shortcut = options.shortcut;
   let mode = options.mode;
+  let provider = options.provider;
   let startInFlight = false;
   let stopRequestedBeforeReady = false;
+  // Cached provider availability fetched once at install time. Used by
+  // resolveProvider() so an "auto" preference can pick browser when no
+  // server-side provider is configured. Refreshed lazily when start()
+  // sees a stale cache.
+  let providerStatus: ProviderStatus | null = null;
+  let providerStatusFetchedAt = 0;
   const unlistens: Array<() => void> = [];
 
   const acceptsShortcut = (source: VoiceShortcutSource | undefined) => {
     if (!source) return shortcut === "both";
     if (shortcut === "both") return true;
     return source === shortcut;
+  };
+
+  /**
+   * Fetch /voice-providers/status, refreshing at most every 60s. Resilient:
+   * any error treated as "no server providers available" so we degrade
+   * gracefully to the browser path.
+   */
+  const refreshProviderStatus = async (): Promise<ProviderStatus> => {
+    if (
+      providerStatus &&
+      Date.now() - providerStatusFetchedAt < 60_000
+    ) {
+      return providerStatus;
+    }
+    try {
+      const res = await fetch(
+        `${serverUrl.replace(/\/+$/, "")}/_agent-native/voice-providers/status`,
+        { credentials: "include" },
+      );
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const data = (await res.json()) as Partial<ProviderStatus>;
+      providerStatus = {
+        builder: !!data.builder,
+        gemini: !!data.gemini,
+        openai: !!data.openai,
+        groq: !!data.groq,
+        browser: true,
+      };
+    } catch (err) {
+      console.warn(
+        "[voice-dictation] provider status fetch failed, defaulting to browser-only:",
+        err,
+      );
+      providerStatus = {
+        builder: false,
+        gemini: false,
+        openai: false,
+        groq: false,
+        browser: true,
+      };
+    }
+    providerStatusFetchedAt = Date.now();
+    return providerStatus;
+  };
+
+  /**
+   * Resolve the user's `provider` preference into the actual path we'll
+   * take this session: "browser" (Web Speech API in WKWebView) or
+   * "server" with a specific providerPref string.
+   *
+   * "auto" picks the highest-quality server provider that's actually
+   * configured, falling through to browser if nothing is set up.
+   */
+  const resolveProvider = async (): Promise<
+    | { kind: "browser" }
+    | {
+        kind: "server";
+        providerPref: "auto" | "builder" | "gemini" | "openai" | "groq";
+      }
+  > => {
+    if (provider === "browser") return { kind: "browser" };
+    if (provider !== "auto") {
+      // User picked a specific server provider — honor it even if the
+      // status check says it's not configured. The server will return a
+      // clear error which surfaces the misconfiguration.
+      return { kind: "server", providerPref: provider };
+    }
+    const status = await refreshProviderStatus();
+    if (status.gemini) return { kind: "server", providerPref: "gemini" };
+    if (status.builder) return { kind: "server", providerPref: "builder" };
+    if (status.groq) return { kind: "server", providerPref: "groq" };
+    if (status.openai) return { kind: "server", providerPref: "openai" };
+    return { kind: "browser" };
   };
 
   // Tear down any session-bound resources we still hold, then hide the

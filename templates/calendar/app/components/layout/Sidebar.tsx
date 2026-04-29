@@ -474,7 +474,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const removeExternal = useRemoveExternalCalendar();
   const updateExternalColor = useUpdateExternalCalendarColor();
   const isConnected = googleStatus.data?.connected ?? false;
-  const isLocalMode = session?.email === "local@localhost";
+  const isLocalMode = session?.email === DEV_MODE_USER_EMAIL;
 
   return (
     <>

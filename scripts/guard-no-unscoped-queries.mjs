@@ -536,33 +536,66 @@ function walkBackToChainHead(contents, idx) {
 }
 
 /**
- * Return the text of `block` with EVERY descendant sub-block that does
- * NOT contain `queryOffset` replaced by whitespace. This is the "direct
- * scope" content of the block — every branch that doesn't lead to the
- * query is stripped so sibling branches can't defuse a buggy branch.
- * Branches that lead to the query are kept (so their inline access
- * control still counts).
+ * Return the text of `block` with control-flow descendant sub-blocks
+ * (if/else/for/while/try/catch/switch bodies) that do NOT contain
+ * `queryOffset` replaced by whitespace. This is the "direct scope"
+ * content — sibling branches that don't lead to the query are stripped
+ * so they can't defuse the query. Object literals, function/arrow
+ * bodies passed as arguments, and other non-control-flow blocks are
+ * left intact (those carry signal — e.g. an upfront
+ * `db.insert(t).values({ ownerEmail: ... })` establishes ownership
+ * context for subsequent reads in the same function).
  */
+function isControlFlowBlock(contents, block) {
+  // Look at the characters immediately before `{`, skipping whitespace.
+  let i = block.open - 1;
+  while (i > 0 && /[ \t\n\r]/.test(contents[i])) i--;
+  // Common control-flow openings end with `)` from the condition (if,
+  // for, while, switch, catch) or with the keyword `else`, `try`, `do`.
+  if (contents[i] === ")") {
+    // Walk back through the matching `(...)` and check the token before.
+    let depth = 1;
+    let j = i - 1;
+    while (j > 0 && depth > 0) {
+      if (contents[j] === ")") depth++;
+      else if (contents[j] === "(") depth--;
+      if (depth === 0) break;
+      j--;
+    }
+    // Skip whitespace before `(`.
+    j--;
+    while (j > 0 && /[ \t\n\r]/.test(contents[j])) j--;
+    // Read identifier ending at j.
+    let end = j + 1;
+    while (j > 0 && /[a-zA-Z_$]/.test(contents[j])) j--;
+    const word = contents.slice(j + 1, end);
+    return ["if", "for", "while", "switch", "catch"].includes(word);
+  }
+  // Match `else {`, `try {`, `do {`, `finally {`.
+  let end = i + 1;
+  while (i > 0 && /[a-zA-Z_$]/.test(contents[i])) i--;
+  const word = contents.slice(i + 1, end);
+  return ["else", "try", "do", "finally"].includes(word);
+}
+
 function directBlockText(contents, block, blocks, queryOffset) {
-  // Collect every descendant of `block` that does NOT contain
-  // queryOffset. Process from the END backwards so byte offsets remain
-  // stable.
-  const descendants = blocks
-    .filter((b) => b.open > block.open && b.close < block.close)
-    .filter((b) => !(b.open <= queryOffset && b.close >= queryOffset))
-    // Keep only "outermost" non-containing descendants so we don't blank
-    // the same range twice.
+  // Collect descendants that:
+  //   1. Don't contain queryOffset
+  //   2. Are control-flow branches (if/else/for/while/try/catch)
+  //   3. Are outermost (no non-query control-flow ancestor inside `block`)
+  const candidates = blocks.filter(
+    (b) =>
+      b.open > block.open &&
+      b.close < block.close &&
+      !(b.open <= queryOffset && b.close >= queryOffset) &&
+      isControlFlowBlock(contents, b),
+  );
+  const descendants = candidates
     .filter(
       (b) =>
-        !blocks.some(
+        !candidates.some(
           (p) =>
-            p !== b &&
-            p !== block &&
-            p.open > block.open &&
-            p.close < block.close &&
-            p.open < b.open &&
-            p.close > b.close &&
-            !(p.open <= queryOffset && p.close >= queryOffset),
+            p !== b && p.open < b.open && p.close > b.close,
         ),
     )
     .sort((a, b) => b.open - a.open);
@@ -579,6 +612,19 @@ function directBlockText(contents, block, blocks, queryOffset) {
   return result;
 }
 
+// Additional softer signals that a block establishes ownership context
+// — used by `blockHasAccessControl`, NOT by `statementHasInlineAccessControl`.
+// These say "this scope has the caller's identity in hand, so subsequent
+// `eq(t.id, x)` reads/writes are reaching into rows the caller created
+// or already verified ownership of".
+const BLOCK_OWNERSHIP_SIGNALS = [
+  /\bgetRequestUserEmail\s*\(/,
+  /\bgetRequestOrgId\s*\(/,
+  /\bgetCurrentUserEmail\s*\(/,
+  /\bgetCurrentOwnerEmail\s*\(/,
+  /\brunWithRequestContext\s*\(/,
+];
+
 function blockHasAccessControl(blockText) {
   if (ACCESS_CONTROL_HELPERS.some((re) => re.test(blockText))) return true;
   // Drizzle-style explicit ownership filters anywhere in the block also
@@ -586,6 +632,7 @@ function blockHasAccessControl(blockText) {
   // `select ... where(eq(t.ownerEmail, ownerEmail))` then issue
   // subsequent updates by id within the same function block.
   if (EXPLICIT_OWNER_FILTERS.some((re) => re.test(blockText))) return true;
+  if (BLOCK_OWNERSHIP_SIGNALS.some((re) => re.test(blockText))) return true;
   return false;
 }
 

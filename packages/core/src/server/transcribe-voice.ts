@@ -173,6 +173,94 @@ export function createTranscribeVoiceHandler() {
       );
     }
 
+    // ── Strict per-provider preferences ─────────────────────────────────
+    // When the user explicitly picks a single provider (gemini / builder /
+    // groq), we only try that provider and surface its error rather than
+    // silently falling through. "auto" / undefined keeps the existing
+    // fallback chain below. "openai" is handled by the chain (it skips
+    // earlier providers and lands on the Whisper path).
+
+    if (providerPref === "gemini") {
+      const geminiKey = await resolveApiKey("GEMINI_API_KEY");
+      if (!geminiKey) {
+        setResponseStatus(event, 400);
+        return {
+          error:
+            "Gemini is selected but GEMINI_API_KEY is not configured. Add it in Settings → API Keys, or change the provider preference.",
+        };
+      }
+      try {
+        const text = await transcribeWithGemini({
+          audioBytes,
+          mimeType: mime,
+          apiKey: geminiKey,
+          language: language || undefined,
+        });
+        const trimmed = text.trim();
+        if (!trimmed) {
+          setResponseStatus(event, 502);
+          return { error: "Gemini returned an empty transcript." };
+        }
+        return { text: trimmed };
+      } catch (err) {
+        setResponseStatus(event, 502);
+        return {
+          error: `Gemini transcription failed: ${(err as Error)?.message ?? String(err)}`,
+        };
+      }
+    }
+
+    if (providerPref === "builder") {
+      if (!(await resolveHasBuilderPrivateKey())) {
+        setResponseStatus(event, 400);
+        return {
+          error:
+            "Builder is selected but is not connected. Connect Builder.io in Settings, or change the provider preference.",
+        };
+      }
+      try {
+        const result = await transcribeWithBuilder({
+          audioBytes,
+          mimeType: mime,
+          language: language || undefined,
+        });
+        return { text: (result.text ?? "").trim() };
+      } catch (err) {
+        const message = (err as Error)?.message ?? String(err);
+        if (message.includes("credits exhausted")) {
+          setResponseStatus(event, 402);
+          return { error: message };
+        }
+        setResponseStatus(event, 502);
+        return { error: `Builder transcription failed: ${message}` };
+      }
+    }
+
+    if (providerPref === "groq") {
+      const groqKey = await resolveApiKey("GROQ_API_KEY");
+      if (!groqKey) {
+        setResponseStatus(event, 400);
+        return {
+          error:
+            "Groq is selected but GROQ_API_KEY is not configured. Add it in Settings → API Keys, or change the provider preference.",
+        };
+      }
+      return await callWhisperCompat({
+        event,
+        provider: {
+          name: "groq",
+          endpoint: GROQ_URL,
+          model: GROQ_MODEL,
+          apiKey: groqKey,
+        },
+        audioBytes,
+        mime,
+        language,
+      });
+    }
+
+    // ── Auto / undefined / openai fallback chain ────────────────────────
+
     // ── Gemini Flash Lite path (fastest) ────────────────────────────────
     // First-priority when a Gemini key is configured. The provider-pref
     // "openai" still forces Whisper; otherwise we try Gemini before
@@ -270,48 +358,86 @@ export function createTranscribeVoiceHandler() {
       };
     }
 
-    const ext = pickExtension(mime);
-    const filename = `composer-voice.${ext}`;
+    return await callWhisperCompat({
+      event,
+      provider,
+      audioBytes,
+      mime,
+      language,
+    });
+  });
+}
 
-    const form = new FormData();
-    form.append("file", new Blob([audioBytes], { type: mime }), filename);
-    form.append("model", provider.model);
-    form.append("response_format", "json");
-    if (language) form.append("language", language);
+/**
+ * Posts the audio to a Whisper-compatible OpenAI-style endpoint (Groq or
+ * OpenAI itself) and returns `{ text }` / `{ error }` shaped like the
+ * other branches in `createTranscribeVoiceHandler`. Hoisted so the
+ * strict-Groq preference path and the auto fallback chain share one
+ * implementation.
+ */
+async function callWhisperCompat({
+  event,
+  provider,
+  audioBytes,
+  mime,
+  language,
+}: {
+  event: H3Event;
+  provider: {
+    name: "groq" | "openai";
+    endpoint: string;
+    model: string;
+    apiKey: string;
+  };
+  audioBytes: Uint8Array;
+  mime: string;
+  language?: string;
+}): Promise<{ text: string } | { error: string }> {
+  const ext = pickExtension(mime);
+  const filename = `composer-voice.${ext}`;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45_000);
-    try {
-      const res = await fetch(provider.endpoint, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${provider.apiKey}` },
-        body: form,
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        setResponseStatus(event, res.status === 401 ? 401 : 502);
-        return {
-          error:
-            res.status === 401
-              ? `${provider.name} rejected the API key. Update it in Settings → API Keys.`
-              : `${provider.name} transcription error ${res.status}: ${text.slice(0, 300)}`,
-        };
-      }
-      const data = (await res.json()) as { text?: string };
-      return { text: (data.text ?? "").trim() };
-    } catch (err) {
-      setResponseStatus(event, 502);
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([audioBytes as BlobPart], { type: mime }),
+    filename,
+  );
+  form.append("model", provider.model);
+  form.append("response_format", "json");
+  if (language) form.append("language", language);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  try {
+    const res = await fetch(provider.endpoint, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${provider.apiKey}` },
+      body: form,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      setResponseStatus(event, res.status === 401 ? 401 : 502);
       return {
         error:
-          (err as Error)?.name === "AbortError"
-            ? `${provider.name} transcription timed out after 45 seconds.`
-            : `Could not reach ${provider.name}: ${(err as Error)?.message ?? err}`,
+          res.status === 401
+            ? `${provider.name} rejected the API key. Update it in Settings → API Keys.`
+            : `${provider.name} transcription error ${res.status}: ${text.slice(0, 300)}`,
       };
-    } finally {
-      clearTimeout(timeout);
     }
-  });
+    const data = (await res.json()) as { text?: string };
+    return { text: (data.text ?? "").trim() };
+  } catch (err) {
+    setResponseStatus(event, 502);
+    return {
+      error:
+        (err as Error)?.name === "AbortError"
+          ? `${provider.name} transcription timed out after 45 seconds.`
+          : `Could not reach ${provider.name}: ${(err as Error)?.message ?? err}`,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function pickExtension(mime: string): string {

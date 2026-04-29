@@ -1179,11 +1179,14 @@ export function App() {
       {showSettings ? (
         <Setup
           initial={serverUrl}
+          serverUrl={serverUrl}
           signedInAs={signedInAs}
           voiceShortcut={voiceShortcut}
           voiceMode={voiceMode}
+          voiceProvider={voiceProvider}
           onVoiceShortcutChange={updateVoiceShortcut}
           onVoiceModeChange={setVoiceMode}
+          onVoiceProviderChange={setVoiceProvider}
           onSignOut={signOut}
           onConnect={(url) => {
             saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
