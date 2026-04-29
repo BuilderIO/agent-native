@@ -18,7 +18,9 @@ const navItems = [
 
 interface SidebarProps {
   collapsed: boolean;
-  onToggleCollapsed: () => void;
+  /** Omit to hide the collapse/expand toggle (e.g. inside the mobile drawer,
+   * where toggling the desktop preference is meaningless). */
+  onToggleCollapsed?: () => void;
 }
 
 export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
@@ -32,13 +34,16 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   if (collapsed) {
     return (
       <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r border-border bg-sidebar py-2 text-sidebar-foreground">
-        <button
-          onClick={onToggleCollapsed}
-          title="Expand sidebar"
-          className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-        >
-          <IconLayoutSidebarLeftExpand className="h-4 w-4" />
-        </button>
+        {onToggleCollapsed && (
+          <button
+            onClick={onToggleCollapsed}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+            className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+          >
+            <IconLayoutSidebarLeftExpand className="h-4 w-4" />
+          </button>
+        )}
         <nav className="flex flex-1 flex-col items-center gap-1 pt-1">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -48,6 +53,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                 key={item.href}
                 to={item.href}
                 title={item.label}
+                aria-label={item.label}
                 className={cn(
                   "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
                   isActive
@@ -68,13 +74,16 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
     <aside className="flex h-full w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 items-center justify-between border-b border-border px-4">
         <span className="text-sm font-semibold tracking-tight">Slides</span>
-        <button
-          onClick={onToggleCollapsed}
-          title="Collapse sidebar"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-        >
-          <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
-        </button>
+        {onToggleCollapsed && (
+          <button
+            onClick={onToggleCollapsed}
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+          >
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">

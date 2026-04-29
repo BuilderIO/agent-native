@@ -88,3 +88,34 @@ describe("<Sidebar expanded>", () => {
     expect(decks.classList.contains("bg-sidebar-accent")).toBe(false);
   });
 });
+
+describe("<Sidebar> without onToggleCollapsed (mobile drawer)", () => {
+  it("hides the Collapse button in the expanded layout", () => {
+    renderAt("/", <Sidebar collapsed={false} />);
+    expect(screen.queryByTitle("Collapse sidebar")).toBeNull();
+    // Nav still renders.
+    expect(screen.getByText("Decks")).toBeDefined();
+  });
+
+  it("hides the Expand button in the collapsed layout", () => {
+    renderAt("/", <Sidebar collapsed={true} />);
+    expect(screen.queryByTitle("Expand sidebar")).toBeNull();
+    // Nav icons still render.
+    expect(screen.getByTitle("Decks")).toBeDefined();
+  });
+});
+
+describe("<Sidebar> accessibility", () => {
+  it("gives icon-only controls aria-labels", () => {
+    renderAt("/", <Sidebar collapsed={true} onToggleCollapsed={() => {}} />);
+    expect(screen.getByLabelText("Expand sidebar")).toBeDefined();
+    expect(screen.getByLabelText("Decks")).toBeDefined();
+    expect(screen.getByLabelText("Design Systems")).toBeDefined();
+    expect(screen.getByLabelText("Team")).toBeDefined();
+  });
+
+  it("labels the Collapse button in the expanded layout", () => {
+    renderAt("/", <Sidebar collapsed={false} onToggleCollapsed={() => {}} />);
+    expect(screen.getByLabelText("Collapse sidebar")).toBeDefined();
+  });
+});
