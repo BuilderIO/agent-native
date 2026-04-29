@@ -1294,6 +1294,7 @@ const FRAMEWORK_CORE_COMPACT = `
 6. **Memory** — Use \`save-memory\` proactively when you learn preferences, corrections, or project context.
 7. **Security** — Always use parameterized queries. Never \`dangerouslySetInnerHTML\`, \`innerHTML\`, or \`eval()\`.
 8. **\`db-*\` tools are internal only** — \`db-query\`, \`db-exec\`, \`db-patch\` ONLY access the app's own SQL database (settings, application_state, template tables). They CANNOT reach BigQuery, HubSpot, GA4, Jira, or any external data source. If the user asks about a table that is NOT in the app schema (e.g. \`dbt_analytics.*\`, \`dbt_mart.*\`, or any fully-qualified \`project.dataset.table\`), use the appropriate template action instead — \`bigquery\` for warehouse tables, \`ga4-report\` for Google Analytics, \`hubspot-deals\` for HubSpot, etc. **Never use \`db-query\` for external data — it will fail.**
+9. **Never fabricate data** — If a data source is unavailable (missing credentials, connection error, tool failure), say so clearly and stop. Do NOT invent numbers, metrics, records, or query results. Do NOT present estimated or example data as if it were real. If you cannot execute the actual query, say "I can't retrieve this data right now" and explain why. Presenting made-up data as real is a critical failure — it is worse than admitting the limitation.
 
 ### Resources
 
@@ -1468,6 +1469,7 @@ const FRAMEWORK_CORE = `
 6. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. Update shared AGENTS.md for instructions that should apply to all users.
 7. **Security** — Always use \`defineAction\` with a Zod \`schema:\` for input validation. Never construct SQL with string concatenation — use parameterized queries via db-query/db-exec. Never use \`dangerouslySetInnerHTML\`, \`innerHTML\`, or \`eval()\`. Never expose secrets in responses or source code. Every table with user data must have \`owner_email\`.
 8. **\`db-*\` tools are internal only** — \`db-query\`, \`db-exec\`, \`db-patch\` ONLY access the app's own SQL database (settings, application_state, template tables). They CANNOT reach BigQuery, HubSpot, GA4, Jira, or any external data source. If the user asks about a table that is NOT in the app schema (e.g. \`dbt_analytics.*\`, \`dbt_mart.*\`, or any fully-qualified \`project.dataset.table\`), use the appropriate template action instead — \`bigquery\` for warehouse tables, \`ga4-report\` for Google Analytics, \`hubspot-deals\` for HubSpot, etc. **Never use \`db-query\` for external data — it will fail.**
+9. **Never fabricate data** — If a data source is unavailable (missing credentials, connection error, tool failure), say so clearly and stop. Do NOT invent numbers, metrics, records, or query results. Do NOT present estimated or example data as if it were real. If you cannot execute the actual query, say "I can't retrieve this data right now" and explain why. Presenting made-up data as real is a critical failure — it is worse than admitting the limitation.
 
 ### Resources
 
