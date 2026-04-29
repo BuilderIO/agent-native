@@ -338,7 +338,7 @@ export default function SlideRenderer({
         <ScaleHelper
           targetWidth={dims.width}
           targetHeight={dims.height}
-          mode="fill"
+          mode="contain"
         />
       </div>
     );
@@ -377,7 +377,7 @@ function ScaleHelper({
 }: {
   targetWidth?: number;
   targetHeight?: number;
-  mode?: "fill";
+  mode?: "contain";
 }) {
   return (
     <div
@@ -390,9 +390,9 @@ function ScaleHelper({
         const updateScale = () => {
           const w = parent.offsetWidth;
           const h = parent.offsetHeight;
-          if (mode === "fill" && targetHeight) {
-            // Scale to fill both dimensions
-            const scale = Math.max(w / targetWidth, h / targetHeight);
+          if (mode === "contain" && targetHeight) {
+            // Scale to contain both dimensions (no cropping)
+            const scale = Math.min(w / targetWidth, h / targetHeight);
             parent.style.setProperty("--slide-scale", String(scale));
           } else {
             // Scale to fit width
