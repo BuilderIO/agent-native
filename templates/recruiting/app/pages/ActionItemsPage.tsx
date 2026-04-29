@@ -103,6 +103,44 @@ export function ActionItemsPage() {
     }
   };
 
+  const totalActionItems = data?.summary?.totalActionItems ?? 0;
+  useSetPageTitle(
+    <div className="flex items-center gap-2">
+      <h1 className="text-sm font-semibold text-foreground">Action Items</h1>
+      {totalActionItems > 0 && (
+        <span className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-600">
+          {totalActionItems}
+        </span>
+      )}
+    </div>,
+  );
+
+  useSetHeaderActions(
+    <div className="flex items-center gap-2">
+      {notifStatus?.configured && notifStatus.enabled && (
+        <button
+          onClick={handleSendUpdate}
+          disabled={sendUpdate.isPending}
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50 disabled:opacity-50"
+        >
+          {sendUpdate.isPending ? (
+            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <IconBrandSlack className="h-3.5 w-3.5" />
+          )}
+          <span className="hidden sm:inline">Send Recruiter Update</span>
+          <span className="sm:hidden">Send</span>
+        </button>
+      )}
+      <button
+        onClick={() => refetch()}
+        className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent/50"
+      >
+        Refresh
+      </button>
+    </div>,
+  );
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center">

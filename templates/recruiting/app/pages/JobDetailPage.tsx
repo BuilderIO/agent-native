@@ -14,6 +14,10 @@ import {
   IconBriefcase,
 } from "@tabler/icons-react";
 import type { PipelineStage, GreenhouseApplication } from "@shared/types";
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
 
 export function JobDetailPage() {
   const { jobId } = useParams();
@@ -63,6 +67,40 @@ export function JobDetailPage() {
     });
     setDragState(null);
   };
+
+  useSetPageTitle(
+    <div className="flex min-w-0 items-center gap-3">
+      <button
+        onClick={() => navigate("/jobs")}
+        aria-label="Back to jobs"
+        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground flex-shrink-0"
+      >
+        <IconArrowLeft className="h-4 w-4" />
+      </button>
+      <div className="min-w-0">
+        <h1 className="truncate text-sm font-semibold text-foreground">
+          {job?.name || "Job"}
+        </h1>
+      </div>
+    </div>,
+  );
+
+  useSetHeaderActions(
+    job ? (
+      <span
+        className={cn(
+          "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium flex-shrink-0",
+          job.status === "open"
+            ? "bg-green-500/10 text-green-600"
+            : job.status === "closed"
+              ? "bg-red-500/10 text-red-600"
+              : "bg-yellow-500/10 text-yellow-600",
+        )}
+      >
+        {job.status}
+      </span>
+    ) : null,
+  );
 
   if (isLoading) {
     return (
