@@ -219,15 +219,24 @@ async function enqueueAndDispatch(
     // No A2A_SECRET — proceed without a signed token. See note above.
   }
 
-  // Fire-and-forget: do NOT await. The dispatched request runs on its own
-  // function execution, freed from the current handler's timeout.
-  fetch(processUrl, {
+  // Fire-and-forget: do NOT await the full response (the processor's run
+  // takes minutes — we don't want to block the caller). BUT on Netlify
+  // Lambda, when we return immediately, the runtime can freeze the function
+  // before the outbound TCP handshake even starts, which leaves the dispatch
+  // request stuck waiting for the 60s retry-sweep job. Race the fetch
+  // against a short timer so the request gets at least ~250ms to leave the
+  // box; the trade-off is at most ~250ms of added webhook latency.
+  const dispatchPromise = fetch(processUrl, {
     method: "POST",
     headers,
     body: JSON.stringify({ taskId }),
   }).catch((err) => {
     console.error("[integrations] Failed to dispatch processor request:", err);
   });
+  await Promise.race([
+    dispatchPromise,
+    new Promise<void>((resolve) => setTimeout(resolve, 250)),
+  ]);
 }
 
 /**
