@@ -3,9 +3,7 @@
  * `DevOverlay.tsx` so any app that mounts the overlay gets these for free.
  */
 
-import { createElement } from "react";
 import { registerDevPanel } from "./registry.js";
-import { OnboardingPreview } from "./OnboardingPreview.js";
 
 let registered = false;
 
@@ -21,21 +19,14 @@ function registerBuiltins() {
     order: 10,
     options: [
       {
-        id: "reopen",
-        label: "Reopen onboarding",
-        description: "Un-dismiss the setup checklist for the current session.",
-        type: "action",
-        buttonLabel: "Reopen",
-        onClick: async () => {
-          await fetch("/_agent-native/onboarding/reopen", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{}",
-          });
-        },
+        id: "show-as-new-user",
+        label: "Show onboarding as new user",
+        description:
+          "Renders the real onboarding panel with all steps incomplete.",
+        type: "boolean",
+        default: false,
       },
     ],
-    render: () => createElement(OnboardingPreview),
   });
 }
 
