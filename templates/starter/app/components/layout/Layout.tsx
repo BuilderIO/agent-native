@@ -4,7 +4,7 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 interface LayoutProps {
@@ -53,7 +53,6 @@ export function Layout({ children }: LayoutProps) {
           ]}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">
-            {/* Mobile-only top bar — gives a hamburger when no page toolbar is shown */}
             {ownsToolbar ? (
               <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
                 <button
@@ -66,19 +65,7 @@ export function Layout({ children }: LayoutProps) {
                 </button>
               </div>
             ) : (
-              <header className="flex h-12 items-center gap-3 border-b border-border bg-background px-4 lg:px-6 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setMobileSidebarOpen(true)}
-                  aria-label="Open navigation"
-                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent md:hidden"
-                >
-                  <IconMenu2 className="h-4 w-4" />
-                </button>
-                <div className="flex flex-1 min-w-0">
-                  <Header />
-                </div>
-              </header>
+              <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
             )}
             <main className="flex-1 overflow-y-auto">{children}</main>
           </div>
@@ -87,9 +74,3 @@ export function Layout({ children }: LayoutProps) {
     </HeaderActionsProvider>
   );
 }
-
-/**
- * Renders just the AgentToggleButton — exported so other custom toolbars
- * (none in starter today) could mount it consistently.
- */
-export { AgentToggleButton };

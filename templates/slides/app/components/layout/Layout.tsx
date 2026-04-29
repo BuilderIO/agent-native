@@ -16,7 +16,9 @@ interface LayoutProps {
  * (sidebar + AgentSidebar wrapper) but skips its own Header. */
 function pageHasOwnToolbar(pathname: string): boolean {
   if (pathname.startsWith("/deck/")) return true;
-  if (pathname.startsWith("/tools/")) return true;
+  // /tools (list) and /tools/<id> (viewer) both render their own headers
+  // from @agent-native/core/client/tools.
+  if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
   return false;
 }
 

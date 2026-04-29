@@ -282,7 +282,6 @@ export async function listSlotInstallsForUser(slotId: string): Promise<
       and(
         eq(toolSlotInstalls.ownerEmail, userEmail),
         eq(toolSlotInstalls.slotId, slotId),
-        eq(toolSlotInstalls.enabled, true),
       ),
     );
   if (installs.length === 0) return [];

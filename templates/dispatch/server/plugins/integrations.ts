@@ -30,12 +30,8 @@ export default createIntegrationsPlugin({
   resolveOwner: resolveDispatchOwner,
   beforeProcess: beforeDispatchProcess,
   systemPrompt: DISPATCH_INTEGRATION_SYSTEM_PROMPT,
-  // Use Sonnet for the dispatch routing layer. Haiku was attractive for
-  // latency, but in practice it hallucinated URLs/IDs after delegated
-  // call-agent results — e.g. inventing `https://slides.workspace.com/deck/builder-io-deck-2024`
-  // when slides didn't return one. Sonnet follows the "do not invent URLs"
-  // and "copy verbatim" instructions reliably; the latency cost is worth
-  // the accuracy. The 26s function timeout is now mitigated by the host-aware
-  // 18s polling cap on serverless hosts (call-agent.ts).
-  model: "claude-sonnet-4-6",
+  // Inherit the framework default (claude-sonnet-4-6 from
+  // packages/core/src/integrations/plugin.ts). Haiku was tried for latency
+  // but hallucinated URLs/IDs after delegated call-agent results
+  // (e.g. inventing `https://slides.workspace.com/deck/builder-io-deck-2024`).
 });

@@ -4,9 +4,8 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  useLocation,
 } from "react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   QueryClient,
@@ -16,19 +15,16 @@ import {
 import { ThemeProvider } from "next-themes";
 import { useDbSync } from "@agent-native/core";
 import {
-  AgentSidebar,
-  AgentToggleButton,
   ClientOnly,
   CommandMenu,
   DefaultSpinner,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
-import { IconMenu2, IconSun, IconMoon } from "@tabler/icons-react";
+import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { cn } from "@/lib/utils";
+import { Layout as AppLayout } from "@/components/layout/Layout";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -89,12 +85,7 @@ function DbSyncSetup() {
 
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, setTheme } = useTheme();
-  const location = useLocation();
-  useEffect(() => {
-    setSidebarOpen(false);
-  }, [location.pathname]);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
@@ -112,59 +103,9 @@ function AppContent() {
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
-      <AgentSidebar
-        position="right"
-        defaultOpen
-        emptyStateText="How can I help?"
-        suggestions={[
-          "What can you do?",
-          "Show me the database schema",
-          "Create something cool",
-        ]}
-      >
-        <div className="flex h-screen w-full overflow-hidden">
-          {sidebarOpen && (
-            <div
-              className="fixed inset-0 z-40 bg-black/50 md:hidden"
-              onClick={() => setSidebarOpen(false)}
-            />
-          )}
-          <div
-            className={cn(
-              "fixed inset-y-0 left-0 z-50 md:static md:z-auto",
-              sidebarOpen
-                ? "translate-x-0"
-                : "-translate-x-full md:translate-x-0",
-            )}
-          >
-            <Sidebar />
-          </div>
-          <div className="flex h-full flex-1 flex-col overflow-hidden">
-            {(() => {
-              const hasOwnToolbar = location.pathname.startsWith("/tools");
-              return (
-                <header
-                  className={cn(
-                    "flex h-12 items-center justify-between border-b border-border px-4 shrink-0",
-                    hasOwnToolbar && "md:hidden",
-                  )}
-                >
-                  <button
-                    onClick={() => setSidebarOpen(true)}
-                    className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground md:hidden"
-                  >
-                    <IconMenu2 className="h-4 w-4" />
-                  </button>
-                  {!hasOwnToolbar && (
-                    <AgentToggleButton className="ml-auto h-8 w-8 rounded-md hover:bg-accent" />
-                  )}
-                </header>
-              );
-            })()}
-            <Outlet />
-          </div>
-        </div>
-      </AgentSidebar>
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
       <Toaster position="bottom-left" />
     </>
   );
