@@ -133,6 +133,9 @@ export default function RecordRoute() {
   const engineRef = useRef<RecorderEngine | null>(null);
   const pendingRef = useRef<PendingRecording | null>(null);
   const confettiRef = useRef<ConfettiHandle>(null);
+  // Stable ref to doStop so engine callbacks created during startFlow always
+  // call the latest version (avoids stale-closure problems with useCallback deps).
+  const doStopRef = useRef<() => Promise<void>>(async () => {});
   // Tracks whether opening the stop-confirm dialog auto-paused a live
   // recording — so closing the dialog without choosing an action resumes
   // it, but doesn't unpause a recording the user had paused themselves.
@@ -268,6 +271,14 @@ export default function RecordRoute() {
               updatedAt: new Date().toISOString(),
             }).catch(() => {});
           },
+          // When the user clicks the browser's native "Stop sharing" button,
+          // delegate to doStop() so the UI runs its full stop flow: thumbnail
+          // capture, transcription flush, state updates, and navigation.
+          // Using a ref so we always call the latest version of doStop even
+          // though startFlow itself has empty deps.
+          onDisplayTrackEnded: () => {
+            void doStopRef.current();
+          },
         });
         engineRef.current = engine;
 
@@ -320,6 +331,16 @@ export default function RecordRoute() {
     const engine = engineRef.current;
     const pending = pendingRef.current;
     if (!engine || !pending) return;
+    // Guard against concurrent calls (e.g. browser "Stop sharing" fires at the
+    // same time the user also clicks the in-app stop button).
+    const engineState = engine.getState();
+    if (
+      engineState === "stopping" ||
+      engineState === "uploading" ||
+      engineState === "complete"
+    ) {
+      return;
+    }
     setUiState("uploading");
     try {
       // Capture a still-frame thumbnail from the preview while the stream is
@@ -367,6 +388,9 @@ export default function RecordRoute() {
       toast.error(message);
     }
   }, [navigate, liveTranscription]);
+
+  // Keep the ref current so engine callbacks always invoke the latest doStop.
+  doStopRef.current = doStop;
 
   const requestStop = useCallback(() => {
     setIsDrawing(false);

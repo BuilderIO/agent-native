@@ -45,6 +45,14 @@ export interface RecorderEngineOptions {
   }) => void;
   /** Fired on any error. */
   onError?: (err: Error) => void;
+  /**
+   * Called when the display stream's video track ends because the user clicked
+   * the browser's native "Stop sharing" button. When provided, the engine
+   * delegates the stop flow to this callback instead of calling `stop()`
+   * internally — so the UI can run its own side-effects (thumbnail capture,
+   * transcription flush, navigation) before the MediaRecorder is finalized.
+   */
+  onDisplayTrackEnded?: () => void;
 }
 
 export interface RecorderStartResult {
@@ -190,11 +198,20 @@ export class RecorderEngine {
 
       // If the display stream's video track ends (user hit "Stop sharing" in
       // browser chrome) we want to end the recording gracefully.
+      //
+      // When `onDisplayTrackEnded` is provided the UI handles the stop flow
+      // (thumbnail capture, transcription flush, state updates, navigation).
+      // Without it we fall back to stopping the engine directly — but this
+      // bypasses all UI side-effects, so always provide the callback.
       if (this.displayStream) {
         for (const track of this.displayStream.getVideoTracks()) {
           track.addEventListener("ended", () => {
             if (this.state === "recording" || this.state === "paused") {
-              void this.stop();
+              if (this.opts.onDisplayTrackEnded) {
+                this.opts.onDisplayTrackEnded();
+              } else {
+                void this.stop();
+              }
             }
           });
         }
@@ -322,8 +339,52 @@ export class RecorderEngine {
       }
     }
 
+    // The MediaRecorder may have auto-stopped if all its tracks ended (e.g.
+    // display-only mode with no mic). Different browsers dispatch `dataavailable`
+    // either before or after state transitions to `inactive`. Yielding one
+    // macrotask (setTimeout 0) ensures any still-pending `dataavailable` event
+    // runs first and gets queued by our start()-time listener before we drain
+    // the chunk queue and send the isFinal=1 sentinel.
     if (this.recorder.state === "inactive") {
-      throw new Error("Recorder already stopped");
+      this.transition("stopping");
+      // Yield to the event loop so any pending dataavailable event from the
+      // auto-stop can fire and be queued before we drain chunkQueue.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      await this.chunkQueue.catch(() => {});
+      const dimensions = this.readDimensions();
+      const durationMs = Math.round(this.getElapsedMs());
+      const hasAudio = this.hasAudioTrack();
+      const hasCamera = !!this.cameraStream;
+      this.transition("uploading", { progress: 100 });
+      let result: Record<string, unknown> | undefined;
+      try {
+        result = await this.uploadChunk(
+          new Blob([], { type: this.mimeType }),
+          this.chunkIndex++,
+          {
+            isFinal: true,
+            total: this.chunkIndex,
+            mimeType: this.mimeType,
+            durationMs,
+            width: dimensions.width,
+            height: dimensions.height,
+            hasAudio,
+            hasCamera,
+          },
+        );
+      } finally {
+        // Always release hardware resources, even if the final upload failed.
+        this.cleanupTracks();
+      }
+      this.transition("complete");
+      return {
+        videoUrl: (result?.videoUrl as string | undefined) ?? null,
+        durationMs,
+        width: dimensions.width,
+        height: dimensions.height,
+        hasAudio,
+        hasCamera,
+      };
     }
 
     this.transition("stopping");
