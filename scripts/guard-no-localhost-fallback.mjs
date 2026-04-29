@@ -58,6 +58,13 @@
  *
  * Comments (lines starting with `*`, `//`, or `/*`) are skipped — the
  * literal often appears in JSDoc explaining the dev-mode behavior.
+ *
+ * SQL DDL `DEFAULT 'local@localhost'` (and the Drizzle helper
+ * `.default('local@localhost')`) is also skipped — schema column defaults
+ * are intentional dev fixtures: they let dev-mode inserts succeed before
+ * a session is established, and they're shadowed in production by the
+ * framework's per-request `owner_email` injection. Those are not the
+ * dangerous fallback pattern.
  */
 
 import { readFileSync } from "node:fs";
@@ -127,6 +134,14 @@ const OPT_OUT_REQUIRES_REASON =
 // Match any of the three quoted forms. The flag `g` so we can iterate;
 // the offset gives us the line.
 const LITERAL_RE = /(?:"local@localhost"|'local@localhost'|`local@localhost`)/g;
+
+// SQL DDL `DEFAULT 'local@localhost'` (case-insensitive, any whitespace) is
+// a legitimate schema column default. Drizzle's helper form
+// `.default('local@localhost')` / `.default("local@localhost")` is the same
+// idea expressed in TypeScript — both are intentional dev fixtures, not
+// the dangerous "fallback identity for missing sessions" pattern.
+const SQL_DEFAULT_RE = /\bDEFAULT\s+['"`]local@localhost['"`]/i;
+const DRIZZLE_DEFAULT_RE = /\.default\s*\(\s*['"`]local@localhost['"`]\s*\)/;
 
 async function* walk(dir) {
   let entries;
@@ -208,6 +223,12 @@ async function scan() {
       const lineText = lines[line - 1] ?? "";
       // Skip matches inside comments.
       if (isCommentLine(lineText)) continue;
+      // Skip SQL DDL `DEFAULT 'local@localhost'` and the Drizzle
+      // `.default('local@localhost')` helper — schema column defaults are
+      // intentional dev fixtures, not the fallback pattern this guard
+      // targets.
+      if (SQL_DEFAULT_RE.test(lineText)) continue;
+      if (DRIZZLE_DEFAULT_RE.test(lineText)) continue;
       if (hasValidOptOut(lines, line - 1)) continue;
       violations.push({
         file: rel,

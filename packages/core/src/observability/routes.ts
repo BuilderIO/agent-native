@@ -61,7 +61,11 @@ function nanoid(size = 21): string {
 
 async function resolveOwner(event: H3Event): Promise<string> {
   const session = await getSession(event).catch(() => null);
-  return session?.email || "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return session.email;
 }
 
 function parseSince(q: Record<string, any>): number {

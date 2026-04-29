@@ -20,7 +20,9 @@ import { getRequestUserEmail } from "../server/request-context.js";
 
 function getOwner(shared?: boolean): string {
   if (shared) return SHARED_OWNER;
-  return getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
+  return email;
 }
 
 export async function readResource(
@@ -60,6 +62,7 @@ export async function listResources(
 export async function listAllResources(
   prefix?: string,
 ): Promise<ResourceMeta[]> {
-  const userEmail = getRequestUserEmail() || "local@localhost";
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) throw new Error("no authenticated user");
   return resourceListAccessible(userEmail, prefix);
 }

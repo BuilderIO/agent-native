@@ -182,7 +182,8 @@ export interface CreateToolData {
 export async function createTool(data: CreateToolData): Promise<ToolRow> {
   await ensureToolsTables();
   const db = getDb();
-  const userEmail = getRequestUserEmail() || "local@localhost";
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) throw new Error("no authenticated user");
   const orgId = getRequestOrgId();
   const id = randomUUID();
   const now = new Date().toISOString();

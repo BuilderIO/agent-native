@@ -65,7 +65,6 @@ interface AccessCtx {
   orgId: string | null;
 }
 
-const LOCAL_EMAIL = "local@localhost";
 const SQL_PREFIX = "sql-dashboard-";
 const EXPLORER_PREFIX = "dashboard-";
 const ANALYSIS_PREFIX = "adhoc-analysis-";
