@@ -921,8 +921,13 @@ export function createCoreRoutesPlugin(
         } catch {
           // fall back to env check above
         }
+        // builderConfigured already resolved via resolveBuilderPrivateKey() above,
+        // which reads from app_secrets (DB) as well as process.env. We need to
+        // include it in `configured` so the recorder's startFlow doesn't throw
+        // "No video storage configured" for users who connected Builder via OAuth
+        // (where the key lives in DB, not process.env).
         return {
-          configured: !!active,
+          configured: !!active || builderConfigured,
           activeProvider: active ? { id: active.id, name: active.name } : null,
           providers: listFileUploadProviders().map((p) => ({
             id: p.id,

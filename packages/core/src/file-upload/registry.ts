@@ -53,6 +53,17 @@ export async function uploadFile(
   if (provider) {
     return provider.upload(input);
   }
+  // getActiveFileUploadProvider() uses the synchronous isConfigured() which only
+  // checks process.env.BUILDER_PRIVATE_KEY. When the user connected Builder via
+  // OAuth, credentials live in app_secrets (DB) and resolveBuilderPrivateKey()
+  // finds them — but isConfigured() misses them. Try the Builder provider's async
+  // upload() directly as a last resort before falling back to SQL storage.
+  try {
+    const result = await builderFileUploadProvider.upload(input);
+    if (result) return result;
+  } catch {
+    // No Builder credentials in env or DB — fall through to SQL fallback.
+  }
   if (!warnedFallback) {
     warnedFallback = true;
     console.warn(
