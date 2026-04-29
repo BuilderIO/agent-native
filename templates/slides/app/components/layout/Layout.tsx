@@ -33,6 +33,14 @@ export function Layout({ children }: LayoutProps) {
     setSidebarOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth >= 768) setSidebarOpen(false);
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   const ownToolbar = pageHasOwnToolbar(location.pathname);
 
   return (
@@ -71,7 +79,7 @@ export function Layout({ children }: LayoutProps) {
               onToggleCollapsed={
                 sidebarOpen
                   ? undefined
-                  : () => setSidebarCollapsed(!sidebarCollapsed)
+                  : () => setSidebarCollapsed((prev) => !prev)
               }
             />
           </div>

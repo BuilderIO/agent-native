@@ -34,17 +34,20 @@ export function useSidebarCollapsed() {
   const collapsed = data?.collapsed ?? false;
 
   const setCollapsed = useCallback(
-    async (next: boolean) => {
+    async (next: boolean | ((prev: boolean) => boolean)) => {
       // Cancel any in-flight poll so its response can't overwrite the
       // optimistic update we're about to commit (otherwise the UI snaps back
       // when a stale 2s poll lands after the click).
       await qc.cancelQueries({ queryKey: QUERY_KEY });
-      qc.setQueryData<SidebarCollapsedState>(QUERY_KEY, { collapsed: next });
+      const prev =
+        qc.getQueryData<SidebarCollapsedState>(QUERY_KEY)?.collapsed ?? false;
+      const nextVal = typeof next === "function" ? next(prev) : next;
+      qc.setQueryData<SidebarCollapsedState>(QUERY_KEY, { collapsed: nextVal });
       fetch(URL, {
         method: "PUT",
         keepalive: true,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ collapsed: next }),
+        body: JSON.stringify({ collapsed: nextVal }),
       }).catch(() => {
         qc.invalidateQueries({ queryKey: QUERY_KEY });
       });
