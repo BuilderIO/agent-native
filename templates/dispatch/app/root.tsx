@@ -19,6 +19,7 @@ import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Layout as AppLayout } from "@/components/layout/Layout";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -159,7 +160,9 @@ export default function Root() {
                 <ThemeToggleItem />
               </CommandMenu.Group>
             </CommandMenu>
-            <Outlet />
+            <AppLayout>
+              <Outlet />
+            </AppLayout>
             <Toaster position="bottom-left" />
           </TooltipProvider>
         </QueryClientProvider>
