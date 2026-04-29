@@ -1,31 +1,69 @@
 ---
-title: "Analytics Template"
-description: "AI-native analytics dashboards — connect data sources, prompt for charts, build reusable SQL dashboards and ad-hoc analyses."
+title: "Analytics"
+description: "Ask analytics questions in plain English, get charts and dashboards back. An open-source replacement for Amplitude, Mixpanel, and Looker."
 ---
 
-# Analytics Template
+# Analytics
 
-An open-source analytics app where the agent writes the SQL, builds the dashboards, and maintains the metric catalog. Replaces Amplitude, Mixpanel, and Looker for teams that want to own the code and the data.
+Ask analytics questions in plain English, get charts and dashboards back. The agent connects to BigQuery, GA4, your app database, HubSpot, Jira, and a dozen other sources, writes the SQL for you, validates it, and renders the answer as a chart, table, or saved dashboard panel.
 
-## Overview {#overview}
+It's an open-source replacement for Amplitude, Mixpanel, and Looker — for teams that want to own the code, the queries, and the data.
 
-The Analytics template is a dashboard app built on `@agent-native/core`. You ask a data question in chat, the agent queries the underlying source (BigQuery, GA4, the app database), and the answer appears as a chart, a table, or a saved dashboard panel. The agent sees the same screen the user sees and edits the same dashboards the user edits.
+## What you can do with it
 
-Three primary surfaces:
+- **Ask data questions in plain English.** "What percent of signups last month converted to paid?" or "Show me weekly active users for the past 6 months." The agent picks the right source, writes the SQL, and renders the chart.
+- **Build reusable SQL dashboards** with filters, saved views, and parametric queries.
+- **Run ad-hoc analyses** that cross-reference multiple data sources — saved as re-runnable investigations with the original question, instructions, and findings.
+- **Maintain a living data dictionary** of metrics, tables, and SQL recipes so the agent uses the right column names every time (no more guessed `is_closed` when it's actually `hs_is_closed`).
+- **Share dashboards** with your team — private by default, shareable per-user or per-org with viewer / editor / admin roles.
+- **Connect to many sources** out of the box: BigQuery, GA4, Mixpanel, Amplitude, PostHog, HubSpot, Jira, Apollo, Pylon, Gong, Common Room, Twitter, plus app-specific SEO sources.
 
-- **SQL Dashboards** — reusable panels with filters, saved views, and parametric SQL.
-- **Ad-hoc Analyses** — long-form investigations that pull from multiple sources and save re-run instructions.
-- **Data Dictionary** — a canonical catalog of metrics, tables, columns, and SQL recipes that the agent consults before writing any SQL.
+## Getting started
 
-## Quick start {#quick-start}
+Live demo: [analytics.agent-native.com](https://analytics.agent-native.com).
+
+When you first open the app:
+
+1. Sign in with Google.
+2. Open the **Data Sources** page from the sidebar.
+3. Each source has a walkthrough — connect the ones you need (start with one, like BigQuery or your app DB).
+4. Open a new chat with the agent and ask a question: "How many signups did we get last week?"
+
+The first question is enough to confirm the connection works. From there, ask the agent to "save this as a dashboard" or "build a 4-panel overview dashboard for our key metrics."
+
+### Useful prompts
+
+- "Build a dashboard showing weekly active users for the past 6 months."
+- "What percent of signups last month converted to paid?"
+- "Add a chart comparing revenue by plan to this dashboard."
+- "Reorder the panels on this dashboard so the MRR metric comes first."
+- "Analyze our closed-lost deals from Q1 and save the analysis."
+- "Re-run the churn analysis with this month's data."
+- "Document this metric in the data dictionary."
+
+The agent always knows what you're looking at — current dashboard, filters, view — so you can say "this dashboard" or "that panel" without being explicit.
+
+## Three things to know
+
+The app has three primary surfaces you'll spend time in:
+
+- **SQL Dashboards** — reusable panels with filters and saved views. Best for metrics you check regularly.
+- **Ad-hoc Analyses** — long-form investigations that pull from multiple sources, with re-run instructions saved alongside. Best for one-off questions you might want to revisit.
+- **Data Dictionary** — the canonical catalog of metrics, tables, columns, and SQL recipes. The agent consults it before writing any SQL, so it uses real warehouse column names and knows about caveats like "excludes internal emails".
+
+The dictionary is seeded by asking the agent: "import our dbt definitions" or "pull the metrics from our Notion handbook" and it does the work.
+
+## For developers
+
+The rest of this doc is for anyone forking the Analytics template or extending it.
+
+### Quick start
 
 Create a new Analytics app from the CLI:
 
 ```bash
 npx @agent-native/cli create analytics
 ```
-
-Or try the hosted demo: [analytics.agent-native.com](https://analytics.agent-native.com).
 
 Local dev:
 
@@ -37,15 +75,11 @@ pnpm dev
 
 The app runs at `http://localhost:3000`. Sign in with Google, then open the **Data Sources** page to connect BigQuery, HubSpot, Jira, and the rest.
 
-## Key features {#key-features}
+### Key features (technical)
 
-### Natural-language chart generation
+**Natural-language chart generation.** Ask the agent in plain English. It picks the right data source, writes the SQL, validates it against the warehouse, and renders the chart inline in chat or as a saved panel. Chart types: `line`, `area`, `bar`, `metric`, `table`, `pie`.
 
-Ask the agent in plain English. It picks the right data source, writes the SQL, validates it against the warehouse, and renders the chart inline in chat or as a saved panel. Chart types: `line`, `area`, `bar`, `metric`, `table`, `pie`.
-
-### Reusable SQL dashboards
-
-Dashboards are a named config with an array of panels. Each panel has an `id`, `title`, `sql`, `source` (`bigquery` / `app-db` / `ga4`), `chartType`, and `width` (1 or 2 columns). See the full shape in `templates/analytics/app/pages/adhoc/sql-dashboard/types.ts`.
+**Reusable SQL dashboards.** Dashboards are a named config with an array of panels. Each panel has an `id`, `title`, `sql`, `source` (`bigquery` / `app-db` / `ga4`), `chartType`, and `width` (1 or 2 columns). See the full shape in `templates/analytics/app/pages/adhoc/sql-dashboard/types.ts`.
 
 Dashboards support:
 
@@ -54,25 +88,13 @@ Dashboards support:
 - **Resizable panels** — 1- or 2-column width per panel; the grid fills the rest.
 - **Sharing** — private by default, share with users or orgs (`viewer` / `editor` / `admin`).
 
-### Ad-hoc analyses
+**Ad-hoc analyses.** Long-form investigations that cross-reference sources. An analysis saves the original question, step-by-step re-run instructions, the data sources it touched, and the full findings in Markdown. Anyone with access can re-run it against fresh data. Stored in the `analyses` table (see `templates/analytics/server/db/schema.ts`).
 
-Long-form investigations that cross-reference sources. An analysis saves the original question, step-by-step re-run instructions, the data sources it touched, and the full findings in Markdown. Anyone with access can re-run it against fresh data.
+**Living data dictionary.** Canonical catalog of metrics — metric name, definition, table, columns, SQL template, known gotchas, owner, and data lag. The agent reads it before writing any SQL, so it uses the real warehouse column names (`hs_is_closed`, not guessed `is_closed`) and knows about caveats like "excludes internal emails". Seeded by asking the agent to import definitions from an existing source (dbt descriptions, a Notion page, a team wiki).
 
-Stored in the `analyses` table (see `templates/analytics/server/db/schema.ts`).
+**SQL query explorer.** Direct SQL against BigQuery or the app DB from the **Ad-hoc** view. Useful for iterating on a query before saving it as a dashboard panel.
 
-### Living data dictionary
-
-The dictionary is the canonical catalog of metrics used by the org — metric name, definition, table, columns, SQL template, known gotchas, owner, and data lag. The agent reads it before writing any SQL, so it uses the real warehouse column names (`hs_is_closed`, not guessed `is_closed`) and knows about caveats like "excludes internal emails".
-
-The dictionary is seeded by asking the agent to import definitions from an existing source (dbt descriptions, a Notion page, a team wiki).
-
-### SQL query explorer
-
-Direct SQL against BigQuery or the app DB from the **Ad-hoc** view. Useful for iterating on a query before saving it as a dashboard panel.
-
-### Multiple data connectors
-
-Built-in actions for common sources:
+**Multiple data connectors.** Built-in actions for common sources:
 
 | Category      | Actions                                                                  |
 | ------------- | ------------------------------------------------------------------------ |
@@ -86,44 +108,28 @@ Built-in actions for common sources:
 
 Full list lives in `templates/analytics/actions/`. New sources are added by dropping a new action file — the agent picks them up automatically.
 
-### Organizations and sharing
+**Organizations and sharing.** Multi-org deployments are wired up by default via `@agent-native/core/org`. Dashboards and analyses are scoped to the active org. The `/team` route manages members and invitations. See `templates/analytics/app/routes/team.tsx`. Sharing uses the framework's `share-resource` primitive. Coarse visibility is `private` / `org` / `public`; fine-grained grants are per-principal with `viewer` / `editor` / `admin` roles.
 
-Multi-org deployments are wired up by default via `@agent-native/core/org`. Dashboards and analyses are scoped to the active org. The `/team` route manages members and invitations. See `templates/analytics/app/routes/team.tsx`.
-
-Sharing uses the framework's `share-resource` primitive. Coarse visibility is `private` / `org` / `public`; fine-grained grants are per-principal with `viewer` / `editor` / `admin` roles.
-
-## Working with the agent {#working-with-the-agent}
+### Working with the agent
 
 The agent always knows what you're looking at. The current screen state is injected into every message as a `<current-screen>` block — it contains the active view, the open dashboard or analysis, and any selected filters.
 
-Useful prompts:
-
-- "Build a dashboard showing weekly active users for the past 6 months."
-- "What percent of signups last month converted to paid?"
-- "Add a chart comparing revenue by plan to this dashboard."
-- "Reorder the panels on this dashboard so the MRR metric comes first."
-- "Analyze our closed-lost deals from Q1 and save the analysis."
-- "Re-run the churn analysis with this month's data."
-- "Document this metric in the data dictionary."
-
 The agent's system prompt gets an injected `<data-dictionary>` block with the approved metric entries for the active org. When you ask for a dashboard, the agent consults the dictionary first and uses the documented `table` / `columns` / `queryTemplate` verbatim — it does not guess column names.
 
-### Context it has automatically
+**Context it has automatically:**
 
 - **Current view** — `overview`, `adhoc` (with `dashboardId`), `analyses` (with `analysisId`), `data-dictionary`, `data-sources`, or `settings`.
 - **Active org** — scopes all queries and writes.
 - **Approved dictionary entries** — for the active workspace.
 
-### Dashboard edits
-
-The agent uses the `update-dashboard` action to edit dashboards. It supports two modes:
+**Dashboard edits.** The agent uses the `update-dashboard` action to edit dashboards. It supports two modes:
 
 - `ops` — JSON-Pointer patches for surgical edits (move a panel, replace one SQL string, remove a filter).
 - `config` — full replacement of the dashboard config.
 
 Every BigQuery panel's SQL is dry-run against the warehouse before the dashboard saves. If a column is wrong, the save is rejected with the BigQuery error — the agent fixes the SQL and retries instead of persisting broken panels.
 
-## Connecting data sources {#connecting-data-sources}
+### Connecting data sources
 
 Open the **Data Sources** page (`/data-sources`) to connect providers. Each source exposes an env-key list, a walkthrough, and a **Test Connection** button. The page calls `/api/credential-status`, `/api/credentials`, and `/api/test-connection`.
 
@@ -142,7 +148,7 @@ Provider-specific keys (HubSpot, Jira, Gong, Pylon, etc.) are documented in each
 
 Note: the BigQuery OAuth credential for Google sign-in is a **separate** credential from the BigQuery service account JSON. Create the sign-in client at GCP Console → APIs & Services → Credentials → OAuth client ID.
 
-## Data model {#data-model}
+### Data model
 
 Core tables (see `templates/analytics/server/db/schema.ts`):
 
@@ -157,7 +163,7 @@ Plus the org tables (`organizations`, `org_members`, `org_invitations`) provided
 
 The data dictionary lives in the framework's `settings` table under scoped keys; see the `list-data-dictionary` and `save-data-dictionary-entry` actions for the full shape.
 
-## Customizing it {#customizing-it}
+### Customizing it
 
 The Analytics template is meant to be forked and extended. Everything lives in `templates/analytics/`:
 

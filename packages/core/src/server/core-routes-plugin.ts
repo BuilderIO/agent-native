@@ -119,15 +119,44 @@ export function createCoreRoutesPlugin(
     // writes don't persist across invocations — the DB is the durable
     // store. Only set keys that are currently empty so explicit env
     // vars (Netlify dashboard, process-level) always win.
+    //
+    // BUILDER_* keys are explicitly skipped and scrubbed from the row.
+    // The pre-migration OAuth callback wrote one user's Builder creds
+    // into this unscoped row, which then rehydrated into process.env on
+    // every cold start and leaked across tenants on shared-DB hosted
+    // templates. Per-user Builder creds now live in app_secrets; this
+    // global row must never carry them again. The scrub below is a
+    // one-shot self-heal: idempotent, no-op once the row is clean.
     try {
       const persisted = (await getSetting("persisted-env-vars")) as Record<
         string,
         string
       > | null;
       if (persisted) {
+        const builderKeys = new Set<string>(BUILDER_ENV_KEYS);
+        let scrubbed = 0;
         for (const [k, v] of Object.entries(persisted)) {
+          if (builderKeys.has(k)) {
+            scrubbed++;
+            continue;
+          }
           if (typeof v === "string" && !process.env[k]) {
             process.env[k] = v;
+          }
+        }
+        if (scrubbed > 0) {
+          try {
+            const cleaned: Record<string, string> = {};
+            for (const [k, v] of Object.entries(persisted)) {
+              if (!builderKeys.has(k)) cleaned[k] = v;
+            }
+            await putSetting("persisted-env-vars", cleaned);
+            console.warn(
+              `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars (cross-tenant leak fix).`,
+            );
+          } catch {
+            // Couldn't rewrite the row — the skip-on-rehydrate above
+            // is the load-bearing protection. We'll try again next boot.
           }
         }
       }

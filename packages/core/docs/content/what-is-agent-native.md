@@ -1,108 +1,73 @@
 ---
 title: "What Is Agent-Native?"
-description: "The ladder from a naked llm() call to a full agent-native app — and why every agent needs a UI (and every app benefits from an agent)."
+description: "Why most AI apps feel half-built, what makes an app truly agent-native, and what your day-to-day experience looks like as a result."
 ---
 
 # What Is Agent-Native?
 
 Agent-native is a way of building software where the AI agent and the UI are **equal partners**. Everything the agent can do, the UI can do. Everything the UI can do, the agent can do. They share the same database, the same state, and they stay in sync.
 
-If you only remember one thing from this page, remember this: most AI apps today stop at the first rung of the ladder, and it's the biggest mistake in the space right now.
+If you only remember one thing from this page, remember this: most AI apps today stop one step short of being useful, and that gap is the biggest mistake in the space right now.
 
-## The ladder {#the-ladder}
+## What it looks like as a user {#what-it-looks-like}
 
-Here's the progression. Most teams stop at rung 1. Agent-native is rung 3.
+Picture your inbox, calendar, or analytics dashboard. Now picture an agent panel docked on the right side of that app. You can:
+
+- **Click anything you'd normally click.** All the buttons, lists, dashboards, keyboard shortcuts — they all still work. This is a real app, not a chat window pretending to be one.
+- **Or just ask.** Type "reply to the email from Sara saying I'll be there by 3" into the agent. It opens the right thread, drafts the reply, and shows it to you for approval — exactly as if you'd done it by hand.
+- **See what it sees.** Open an email, and the agent knows which one. Select a chart, and the agent knows which chart. Highlight a paragraph and hit Cmd+I, and the agent acts on just that paragraph.
+- **Watch it work.** As the agent does things — opens views, edits drafts, runs reports — the UI updates in real time. You can stop it, redirect it, or take over with the mouse at any moment.
+- **Steer it like a teammate.** Give feedback, queue another task, edit its instructions, audit what it did yesterday. It remembers, and it gets better at your workflows over time.
+
+That's the experience agent-native is designed for. Now here's why most products don't get there.
+
+## Why most "AI apps" fall short {#the-ladder}
+
+There's a progression most teams climb, and most stop one rung too early.
 
 ### Rung 1 — a single LLM call (the anti-pattern) {#rung-one}
 
-```ts
-const output = await llm(prompt);
-```
+A text box sends a prompt, the AI returns a string, and you display it. Maybe with a spinner. There's no way for the user to course-correct, no way for the AI to take action, no way to see what happened or why.
 
-A text box sends a prompt, you get a string back, maybe you parse it, and you render it. There's no way for the user to course-correct, no way for the LLM to take action, no way to inspect what happened. Non-deterministic output → deterministic pipeline. It breaks the moment reality gets messy.
+You see this everywhere: "AI features" that are basically a "Summarize" button bolted onto a SaaS product. They look impressive in demos and break the moment reality gets messy. That's not a product; that's a toy.
 
-You see this everywhere: "AI features" bolted onto SaaS that are basically `fetch('/summarize')` with a spinner. That's not AI product; that's a toy.
+### Rung 2 — a chat with tools {#rung-two}
 
-### Rung 2 — tools and a loop {#rung-two}
+Now the AI can _do things_. It has tools — "draft email," "search contacts," "run query" — and a chat interface where it works in front of you, showing tool calls and results as it goes. This is what Claude, ChatGPT, and Cursor look like under the hood.
 
-```ts
-const loop = query({ prompt, tools });
-for await (const msg of loop) {
-  if (msg.type === "tool_use") {
-    // run the tool, feed the result back into the loop
-  }
-  if (msg.type === "result") {
-    output = msg.text;
-  }
-}
-```
+This is a real step up. But on its own, it's still a chat window. There's no proper UI. No dashboards, no lists, no forms, no keyboard shortcuts, no team collaboration. If the AI gets confused, you're stuck retyping rather than just clicking the right button. Non-developers struggle to get real work done in this format.
 
-Now the LLM can _do things_. You give it tools (`draftEmail`, `searchEmails`, `queryData`) and run a loop: LLM requests a tool → your code runs it → result goes back → loop continues until the task is done. This is what Claude Code, Codex, and the Anthropic/OpenAI agent SDKs all do under the hood.
+### Rung 3 — agent + UI as equal partners {#rung-three}
 
-This is a real step up. But on its own it still assumes the agent is correct. When it's not, the user has no steering wheel.
+This is agent-native. You add a real, full-featured app around the agent — and crucially, every action the agent can take is also a button in the UI, and every button the user clicks runs the same logic the agent uses. One implementation, two ways in.
 
-So the next move is obvious: stream the agent's work into a chat UI where the user can watch, interrupt, give feedback, queue the next message. That's the state of the art today — and it's still not enough for a real product.
+Three things change when you reach rung 3:
 
-### Rung 3 — `<Agent />` + actions + workspace {#rung-three}
-
-```tsx
-// actions/reply-to-email.ts
-import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-
-export default defineAction({
-  description: "Reply to an email thread",
-  schema: z.object({
-    emailId: z.string(),
-    body: z.string(),
-  }),
-  run: async ({ emailId, body }) => {
-    await db.replies.insert({ emailId, body });
-  },
-});
-```
-
-```tsx
-// Anywhere in your React app
-import { AgentSidebar } from "@agent-native/core/client";
-
-<AgentSidebar />;
-```
-
-```tsx
-// The same action, typesafe, from a button
-const { mutate } = useActionMutation("replyToEmail");
-
-<Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
-  Send Reply
-</Button>;
-```
-
-One action. The agent calls it as a tool. The UI calls it as an HTTP endpoint. External agents call it over [A2A](/docs/a2a-protocol). Claude Desktop calls it as an [MCP server](/docs/mcp-protocol). Four surfaces, one implementation.
-
-And you didn't just add buttons to a chatbot — you added an agent to an app. The user has a real UI with dashboards, lists, forms, and keyboard shortcuts. The agent has real tools, real memory, and real context. Both write to the same database; both see the same state.
+- **You stopped adding buttons to a chatbot. You added an agent to an app.** That's a much higher-quality product on both sides.
+- **The agent has real context.** It sees what you're looking at, what you've selected, what you just did. It writes to the same database the UI reads from, so its work shows up immediately.
+- **External agents can use it too.** Other agent-native apps can call this one's actions over the [A2A protocol](/docs/a2a-protocol). Tools like Claude Desktop can drive it as an [MCP server](/docs/mcp-protocol). One app, many entry points.
 
 That's rung 3. That's agent-native.
 
 ## Why every agent needs a UI {#why-every-agent-needs-a-ui}
 
-The hot take floating around right now is "apps are dead, agents will replace UIs, everyone will just text an agent in Telegram." That's wrong.
+The hot take in 2026 is "apps are dead, agents will replace UIs, everyone will just text an agent in Telegram." That's wrong.
 
-Every agent eventually needs a UI. Even if the agent does all the _work_, humans still need to:
+Even when the agent does all the heavy lifting, humans still need to:
 
-- **See what it's doing** — progress, tool calls, intermediate output
+- **See what it's doing** — progress, intermediate output, what it touched
 - **Steer it** — give feedback, interrupt, queue the next task
 - **Manage it** — edit its instructions, skills, memory, scheduled jobs, connected accounts
-- **Inspect its work** — review drafts, audit trails, rollbacks
-- **Share its output** — dashboards, reports, forms, links
+- **Inspect its work** — review drafts, audit history, roll back mistakes
+- **Share its output** — dashboards, reports, forms, links to send to teammates
 
-At minimum, "a UI for the agent" is an observability + management interface. At maximum, it's a full SaaS app with an agent embedded in it. Both ends of that spectrum are agent-native — see [Pure-Agent Apps](/docs/pure-agent-apps) for the minimal end and [Cloneable SaaS](/docs/cloneable-saas) for the maximal end.
+At minimum, "a UI for the agent" is an observability and management dashboard. At maximum, it's a full SaaS app with the agent embedded as a co-pilot. Both ends count as agent-native — see [Pure-Agent Apps](/docs/pure-agent-apps) for the minimal end and [Cloneable SaaS](/docs/cloneable-saas) for the maximal end.
 
 ## Why every app benefits from an agent {#why-every-app-benefits-from-an-agent}
 
-The flip side is equally important. Existing SaaS products hit a wall: 80% of what you need, and 20% you can't change. Bolting a sidebar chat onto a SaaS app rarely works because the chat can't actually _do_ the things the UI can.
+The flip side is just as important. Existing SaaS products keep hitting the same wall: 80% of what you need works great, and 20% you just can't change. Adding a chat sidebar rarely fixes that — the chat usually can't actually _do_ the things the UI can.
 
-Agent-native flips that. Because every action in the app is defined once and exposed as both a UI handler and an agent tool, the agent can do everything the buttons can — and a lot more — without a separate "AI world" to maintain. Natural language becomes a first-class input alongside clicks.
+Agent-native flips that. Because every action in the app is defined once and exposed as both a button and an agent tool, the agent can do everything the buttons can — and more — without a separate "AI world" to maintain. Natural language becomes a first-class input alongside clicks.
 
 The argument isn't "agents replace UI." It's "**agents belong inside applications, with a UI on top, as equal partners**." Neither can stand alone.
 
@@ -114,22 +79,22 @@ This is the defining principle.
 >
 > **From the agent** — natural language, other agents via A2A, Slack, Telegram. The agent writes to the database; the UI updates automatically.
 
-When the agent creates a draft email, it appears in the UI. When the user clicks "Send," the agent knows it was sent. There's no separate "agent world" and "UI world" — it's one system. See [Key Concepts](/docs/key-concepts) for the architecture that makes this work.
+When the agent creates a draft email, it appears in the UI. When you click "Send," the agent knows it was sent. There's no separate "agent world" and "UI world" — it's one system. See [Key Concepts](/docs/key-concepts) for the architecture that makes this work.
 
-## Customization that's usually reserved for Claude Code {#workspace-customization}
+## Customization usually reserved for power tools {#workspace-customization}
 
-The reason tools like Claude Code and Codex are so powerful isn't the model — it's the **customization layer**: per-project instructions, skills, memory files, sub-agents, connected MCP servers. You can shape the agent to your codebase, your preferences, your team.
+The reason tools like Claude Code feel so powerful isn't the model — it's the **customization layer**: per-project instructions, skills, memory, sub-agents, connected services. You can shape the agent to your codebase, your preferences, your team.
 
-Agent-native ships the same customization layer as a first-class part of every app — the **workspace**. Each app includes:
+Agent-native gives every user that same customization layer — without ever leaving the app. Each app comes with a personal **workspace** where you (or anyone on your team) can:
 
-- `AGENTS.md` — team-wide rules (shared)
-- `learnings.md` — per-user memory the agent writes to automatically (personal)
-- `skills/` — reusable how-to guides (`/slash` commands)
-- `agents/` — custom sub-agent profiles (invoked with `@mentions`)
-- `jobs/` — scheduled tasks that run on a cron
-- MCP servers — local _or_ remote, per-user or per-org
+- Edit team-wide rules everyone's agent reads
+- Let the agent remember preferences automatically as you correct it
+- Write reusable how-to guides as `/slash` commands
+- Keep custom sub-agents for specific tasks (invoked with `@mentions`)
+- Schedule jobs to run on a cron (e.g. "every Monday morning, summarize last week")
+- Connect external services (Gmail, Stripe, Slack, internal APIs) via per-user MCP servers
 
-The twist: it's **SQL-backed, not filesystem-backed.** There's no dev-box to spin up, no container per user, no files to sync. Every user gets their own full workspace — personal memory, personal MCP servers, personal skills — for essentially free, because it's all rows in a database. That makes this model viable for real SaaS: multi-tenant, deployable to any serverless or edge host, with Claude-Code-level flexibility per user.
+The twist: it's all stored in the database, not the filesystem. There's no dev environment to spin up, no container per user. Every user gets their own full workspace — personal memory, personal connections, personal skills — for essentially free, because it's all rows in a table. That's what makes Claude-Code-level flexibility viable inside a real multi-tenant SaaS product.
 
 See [Workspace](/docs/workspace) for the full concept.
 
@@ -142,39 +107,22 @@ See [Workspace](/docs/workspace) for the full concept.
 | **Claude Code / Codex for SaaS**       | Great for devs on their own machines. Doesn't translate to multi-tenant SaaS — one codebase per user on a dev-box doesn't scale.       |
 | **Agent-native apps**                  | The agent is a first-class citizen. It shares the same database, the same state, and can do everything the UI can do — and vice versa. |
 
-## What is agent-native development? {#what-is-agent-native-development}
-
-Agent-native development means building with agents first. Projects are structured so any AI coding tool — Claude Code, Codex, Cursor, Windsurf, Builder.io — reads the same instructions and follows the same patterns.
-
-The payoff: the agent tends to do _better_ than a human developer because you can encode rules like "when you add a feature, also add a skill for it" — the kind of thing humans skip when they're tired or rushed.
-
-## Agents as first-class developers {#agents-as-first-class-developers}
-
-In an agent-native project:
-
-- **AGENTS.md** gives every AI coding tool the same instructions — Claude Code, Cursor, Windsurf, and others all read the same file
-- **Skills** teach the agent patterns for specific tasks — adding features, storing data, wiring real-time sync
-- **Agent PR reviewers** validate the four-area checklist, that skills were updated, and that code matches conventions
-- **Auto-maintained docs and tests** — agents are instructed to keep docs current and tests passing
-
-This is the shift from desktop-first to mobile-first applied to development. Mobile-first didn't mean "no desktop" — it meant designing for mobile constraints first. Agent-native development means designing for agent workflows first, then ensuring humans work effectively too.
-
 ## Whole-team development {#whole-team-development}
 
-Agent-native development isn't just for developers:
+Agent-native isn't just for developers. Because the agent can edit the app's own code, evolving an app stops being a developer-only activity:
 
-- **Designers** update designs directly in the code through the agent
-- **Product managers** update functionalities and requirements
-- **QA** tests and prompts for fixes
+- **Designers** update designs directly in the running app through the agent
+- **Product managers** add functionality and update flows by describing them
+- **QA** tests the app and asks the agent to fix what's broken
 - **Anyone on the team** contributes through natural language
 
-The vision: reduce handoffs, enable one-person-to-full-team productivity.
+The vision: fewer handoffs, one person doing the work of a small team.
 
 ## Fork and customize {#fork-and-customize}
 
 Agent-native apps follow a fork-and-customize model. You start from a **cloneable SaaS** template — Mail, Calendar, Analytics, Slides, Clips, Forms, Dispatch — and make it yours:
 
-1. Pick a template on [agent-native.com](/templates)
+1. Pick a template on [agent-native.com/templates](/templates)
 2. Use it immediately as a hosted app (e.g. mail.agent-native.com)
 3. Fork it when you want to customize — "connect our Stripe account," "add a cohort chart"
 4. The agent modifies the code to match your needs
@@ -184,14 +132,50 @@ Because it's _your_ app, not shared infrastructure, the agent can safely evolve 
 
 ## Composable agents {#composable-agents}
 
-Agent-native apps talk to each other over the [A2A protocol](/docs/a2a-protocol). From the mail app, you can tag the analytics agent to query data and include the results in a draft email. Agents discover what other agents are available, call them over the protocol, and show results in the UI.
+Agent-native apps can talk to each other. From inside the mail app, you can tag the analytics agent to query data and include the result in a draft email. The agents discover what other agents are available, hand off work between each other, and surface the results in the UI you're already in.
 
-Every action you define is also a tool exposed over A2A _and_ as an MCP server, so external tools like Claude Desktop can drive your app directly. Same definition, four surfaces.
+This is powered by [A2A](/docs/a2a-protocol) and [MCP](/docs/mcp-protocol) under the hood — same definition, multiple surfaces — but as a user, all you have to know is "I can ask any of my apps for help with anything any of them can do."
 
-## What's next
+## What does this look like in code? {#what-does-it-look-like-in-code}
 
+If you're building or extending an agent-native app, here's the central pattern: every operation in the app is an **action** — defined once, available to both the agent and the UI.
+
+```ts
+// actions/reply-to-email.ts
+import { defineAction } from "@agent-native/core";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Reply to an email thread",
+  schema: z.object({ emailId: z.string(), body: z.string() }),
+  run: async ({ emailId, body }) => {
+    await db.replies.insert({ emailId, body });
+  },
+});
+```
+
+```tsx
+// In any React component — same action, called from a button
+const { mutate } = useActionMutation("replyToEmail");
+
+<Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
+  Send Reply
+</Button>;
+```
+
+```tsx
+// And the agent panel mounted anywhere in your app
+import { AgentSidebar } from "@agent-native/core/client";
+
+<AgentSidebar />;
+```
+
+One action, four surfaces: the agent calls it as a tool, the UI calls it as a typesafe mutation, external agents reach it over [A2A](/docs/a2a-protocol), and tools like Claude Desktop talk to it as an [MCP server](/docs/mcp-protocol). See [Actions](/docs/actions) for the full reference.
+
+## What's next {#whats-next}
+
+- [**Getting Started**](/docs) — pick a template and run it
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, context awareness, portability
 - [**Cloneable SaaS**](/docs/cloneable-saas) — templates as complete products you own
 - [**Workspace**](/docs/workspace) — the per-user customization layer (skills, memory, instructions, MCP)
 - [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentPanel>` into any React app
-- [**Getting Started**](/docs) — scaffold your first app

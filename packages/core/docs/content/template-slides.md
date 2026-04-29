@@ -1,25 +1,51 @@
 ---
-title: "Slides Template"
-description: "Agent-native presentation editor — generate decks from a prompt, edit visually, and present in full-screen."
+title: "Slides"
+description: "Generate decks from a prompt, edit visually, and present full-screen. An open-source replacement for Google Slides, Pitch, and PowerPoint."
 ---
 
-# Slides Template
+# Slides
 
-An open-source, agent-native presentation editor built on `@agent-native/core`. It replaces Google Slides, Pitch, and PowerPoint with a deck you can author in three ways at once — by talking to the agent, by clicking the canvas, or by editing HTML.
+Generate full presentation decks from a prompt, edit slides visually, and present full-screen. Ask the agent for "a 10-slide pitch deck for a coffee subscription service" and watch it stream slide-by-slide into the editor in seconds. An open-source replacement for Google Slides, Pitch, and PowerPoint.
 
-## Overview {#overview}
+When you open the app, you'll see your deck list. Click into a deck and you get a slide editor in the middle, a sidebar of slides on the left, and the agent on the right.
 
-The Slides template is a full presentation studio:
+## What you can do with it
 
-- Generate complete decks from a prompt, one slide at a time.
-- Edit slides visually or drop into raw HTML for full control.
-- Generate images with Gemini, search stock photos, and look up company logos.
-- Present full-screen with keyboard navigation and speaker notes.
-- Comment, share, and collaborate in real time over Yjs.
+- **Generate decks from a prompt.** "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors."
+- **Edit slides visually** — double-click text to edit, click a block for the bubble menu, use `/` for the slash menu to insert blocks.
+- **Generate images with AI.** Hero images, product mockups, illustrations — generated with Gemini, multiple variations per request.
+- **Search stock photos and company logos.** "Find the logo for stripe.com and add it to slide 2."
+- **Present full-screen** with keyboard navigation, auto-hiding controls, and speaker notes.
+- **Comment, collaborate, and share.** Multiple people can edit the same deck in real time. Generate a public read-only URL or share with specific teammates.
+- **Import from PDF.** Turn a PDF into a starter deck — the agent parses it and lays out the content.
 
-Every operation the UI does — creating a deck, adding a slide, swapping an image — is exposed as an action the agent can call too. The agent and UI always stay in sync because they read and write the same SQL database.
+## Getting started
 
-## Quick start {#quick-start}
+Live demo: [slides.agent-native.com](https://slides.agent-native.com).
+
+When you open the app:
+
+1. Click **New deck**.
+2. In the agent sidebar, ask: "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors."
+3. Watch slides stream in. Click any slide to edit, or keep asking the agent to refine.
+
+### Useful prompts
+
+- "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors."
+- "Add a pricing slide after slide 3."
+- "Make the title on this slide bigger and change the accent color to green."
+- "Generate a hero image for the current slide — dark, minimal, cinematic."
+- "Find the logo for stripe.com and add it to slide 2."
+- "Replace the word 'customers' with 'members' everywhere in this deck."
+- "Summarize this PDF as a 6-slide deck." (attach the PDF)
+
+Select text on a slide and hit Cmd+I to focus the agent with that selection — it'll act only on what you selected.
+
+## For developers
+
+The rest of this doc is for anyone forking the Slides template or extending it.
+
+### Quick start
 
 Create a new Slides app from the CLI:
 
@@ -29,11 +55,7 @@ cd my-slides
 pnpm dev
 ```
 
-Or try the hosted demo at [slides.agent-native.com](https://slides.agent-native.com).
-
-Once running, open the app, click "New deck", and ask the agent in the sidebar: "Generate a 10-slide pitch deck for a coffee subscription service."
-
-## Key features {#key-features}
+### Key features (technical) {#key-features}
 
 ### Prompt-to-deck generation
 
@@ -91,19 +113,9 @@ Cmd+Z and Cmd+Shift+Z work across the whole deck, with a labeled history panel (
 
 Turn a PDF into a starter deck. The `extract-pdf` action parses the file and hands the content to the agent for layout.
 
-## Working with the agent {#working-with-the-agent}
+### Working with the agent
 
 The agent chat lives in the sidebar. It can create decks, edit individual slides, generate images, search logos, and navigate the UI — all using the same actions you'd run from the CLI.
-
-### Example prompts
-
-- "Generate a 10-slide pitch deck for a coffee subscription service, audience is investors."
-- "Add a pricing slide after slide 3."
-- "Make the title on this slide bigger and change the accent color to green."
-- "Generate a hero image for the current slide — dark, minimal, cinematic."
-- "Find the logo for stripe.com and add it to slide 2."
-- "Replace the word 'customers' with 'members' everywhere in this deck."
-- "Summarize this PDF as a 6-slide deck." (attach the PDF)
 
 ### What the agent sees
 
@@ -123,7 +135,7 @@ Select text on a slide and hit Cmd+I to focus the agent with that selection pre-
 
 The agent can embed a live slide preview directly in a chat reply using the framework's embed fence. It renders a chromeless iframe via `app/routes/slide.tsx` so you can see the result without leaving the conversation.
 
-## Data model {#data-model}
+### Data model
 
 All deck data lives in SQL via Drizzle ORM. Schema: `templates/slides/server/db/schema.ts`.
 
@@ -169,7 +181,7 @@ Each slide inside `decks.data` is:
 
 `content` is raw HTML — the renderer (`app/components/deck/SlideRenderer.tsx`) provides the black background and fixed aspect ratio, and the HTML provides everything inside. Rich embedding is supported too: Excalidraw diagrams via `ExcalidrawSlide.tsx` and Mermaid charts via `MermaidRenderer.tsx`.
 
-## Customizing it {#customizing-it}
+### Customizing it
 
 The Slides template is fully forkable. Key places to look when extending it:
 

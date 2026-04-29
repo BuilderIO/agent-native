@@ -128,6 +128,7 @@ export async function run(
         responseText = newText;
       };
 
+      let streamErr: any = null;
       try {
         for await (const task of client.stream(
           {
@@ -147,23 +148,28 @@ export async function run(
               ?.join("") ?? "";
           emitNewText(newText);
         }
-      } catch (streamErr: any) {
-        // Streaming failed (often a serverless gateway timeout on long
-        // LLM-driven calls). Fall back to async + poll so we don't hit the
-        // ~30s Netlify gateway limit on a single request.
-        if (!responseText) {
-          try {
-            responseText = await callAgent(agent.url, message, {
-              userEmail: callerEmail,
-              orgDomain: callerOrgDomain,
-              orgSecret: callerOrgSecret,
-            });
-          } catch (pollErr: any) {
-            // Surface a friendly message rather than a raw fetch error.
-            const reason =
-              pollErr?.message ?? streamErr?.message ?? "unknown error";
-            responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
-          }
+      } catch (err: any) {
+        streamErr = err;
+      }
+
+      // Fall back to sync send if streaming threw OR yielded nothing. The
+      // "yielded nothing" case happens on Netlify because the receiving
+      // function has no node response stream available, so the streaming
+      // endpoint replies with a JSON-RPC error body in a single 200 response
+      // that our SSE parser silently skips (no `data: ` lines).
+      if (!responseText) {
+        try {
+          responseText = await callAgent(agent.url, message, {
+            userEmail: callerEmail,
+            orgDomain: callerOrgDomain,
+            orgSecret: callerOrgSecret,
+          });
+          // Mirror the response into the streaming UI so the user sees it.
+          if (responseText) emitNewText(responseText);
+        } catch (pollErr: any) {
+          const reason =
+            pollErr?.message ?? streamErr?.message ?? "unknown error";
+          responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
         }
       }
 

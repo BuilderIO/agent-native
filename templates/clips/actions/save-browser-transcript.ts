@@ -6,6 +6,10 @@
  * Higher-quality backends (Groq Whisper, OpenAI Whisper) can refine this
  * later via `request-transcript`, silently replacing the browser draft.
  *
+ * After saving, if the recording still has the default title we queue a
+ * title-generation delegation so the agent can produce a real title from
+ * the transcript even before Whisper runs (or when Whisper isn't configured).
+ *
  * Usage:
  *   pnpm action save-browser-transcript --recordingId=<id> --fullText="..."
  */
@@ -15,6 +19,14 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import regenerateTitle from "./regenerate-title.js";
+
+const DEFAULT_TITLE = "Untitled recording";
+
+function isDefaultTitle(title: string | null | undefined): boolean {
+  const trimmed = (title ?? "").trim();
+  return !trimmed || trimmed === DEFAULT_TITLE;
+}
 
 export default defineAction({
   description:
@@ -93,6 +105,26 @@ export default defineAction({
     console.log(
       `[clips] Browser transcript saved for ${args.recordingId} (${args.fullText.trim().length} chars)`,
     );
+
+    // Queue a title-generation delegation if the clip still has the default
+    // title. This fires even when no Whisper provider is configured so that
+    // browser-only recordings always get a real title.
+    const [rec] = await db
+      .select({ title: schema.recordings.title })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, args.recordingId))
+      .limit(1);
+
+    if (rec && isDefaultTitle(rec.title)) {
+      try {
+        await regenerateTitle.run({ recordingId: args.recordingId });
+      } catch (err) {
+        console.warn(
+          `[clips] auto-title delegation failed for ${args.recordingId}:`,
+          (err as Error).message,
+        );
+      }
+    }
 
     return {
       recordingId: args.recordingId,

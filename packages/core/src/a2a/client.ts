@@ -320,11 +320,12 @@ export async function callAgent(
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
 
-  // Default to synchronous mode — async mode requires the receiving server to
-  // run detached promises after sending the response, which doesn't work
-  // reliably on Netlify Functions (the runtime kills the function once the
-  // response is flushed). Callers that want async polling can opt in.
-  const useAsync = opts?.async ?? false;
+  // Default to async + poll. The receiving A2A server's `_process-task` route
+  // runs the handler in a fresh function execution (cross-platform queue
+  // pattern), so async mode now works on every host instead of relying on
+  // detached promises that get killed on Netlify/Vercel. Callers that
+  // explicitly want a single-shot blocking POST can pass `async: false`.
+  const useAsync = opts?.async ?? true;
   const message: Message = {
     role: "user",
     parts: [{ type: "text", text }],
