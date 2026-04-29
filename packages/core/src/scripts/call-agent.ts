@@ -157,22 +157,24 @@ export async function run(
       // tool_result event below.
       try {
         // Apply the 18s polling cap ONLY when we're on a serverless host
-        // (Netlify / Vercel / AWS Lambda / Cloudflare Pages) AND the call
-        // is from an integration-platform path. On those hosts the function
-        // timeout (~26s on Netlify Pro) plus the platform's deliver-by
-        // deadline are the binding budget, so dispatch must bail before
-        // the lambda dies. On long-running hosts (local Node dev,
-        // self-hosted Node, Docker) the budget is effectively infinite,
-        // so the cap would just truncate slow-but-valid answers (a
-        // ~30-50s slides deck-creation comes back fine on a long-running
-        // host but tripped the cap and showed "didn't respond in time"
-        // even though analytics/slides finished).
-        const onServerlessHost = !!(
-          process.env.NETLIFY ||
-          process.env.AWS_LAMBDA_FUNCTION_NAME ||
-          process.env.VERCEL ||
-          process.env.CF_PAGES
-        );
+        // (Netlify / Vercel / AWS Lambda / Cloudflare Workers) AND the
+        // call is from an integration-platform path. On those hosts the
+        // function timeout (~26s on Netlify Pro) plus the platform's
+        // deliver-by deadline are the binding budget, so dispatch must
+        // bail before the lambda dies. On long-running hosts (local Node
+        // dev, self-hosted Node, Docker containers) the budget is
+        // effectively infinite, so the cap would just truncate
+        // slow-but-valid answers.
+        //
+        // Detection mirrors db/migrations.ts:297-301. On Cloudflare
+        // Workers/Pages, `process.env` is shimmed and CF_PAGES isn't
+        // reliably populated at runtime — the canonical signal is the
+        // `__cf_env` global injected by the workerd runtime.
+        const onServerlessHost =
+          !!process.env.NETLIFY ||
+          !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+          !!process.env.VERCEL ||
+          "__cf_env" in globalThis;
         const callTimeoutMs =
           onServerlessHost && isIntegrationCallerRequest() ? 18000 : undefined;
         responseText = await callAgent(agent.url, messageWithHint, {
