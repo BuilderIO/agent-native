@@ -600,4 +600,4 @@ export default runMigrations([
     version: 47,
     sql: `CREATE INDEX IF NOT EXISTS idx_scheduled_reminders_due ON scheduled_reminders(sent, failed, scheduled_for)`,
   },
-]);
+], { table: "scheduling_migrations" });

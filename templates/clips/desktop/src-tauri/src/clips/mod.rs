@@ -531,7 +531,14 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     let _ = win.show();
     let app_for_timeout = app.clone();
     thread::spawn(move || {
-        thread::sleep(Duration::from_secs(70));
+        // Long-tail safety net: if the JS cleanup path doesn't reach
+        // hide_flow_bar (hung getUserMedia, missed listener, network
+        // stall during transcription), force-close the overlay so the
+        // user is never stuck staring at it. 15s is past any realistic
+        // Whisper round-trip and well past the recording / processing
+        // happy paths. Re-checks DictationActive so we don't kill the
+        // bar while the user is still holding the shortcut.
+        thread::sleep(Duration::from_secs(15));
         let dictating = app_for_timeout
             .try_state::<DictationActive>()
             .and_then(|state| state.0.lock().ok().map(|g| *g))

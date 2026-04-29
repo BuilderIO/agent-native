@@ -2,13 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 
 export type VoiceShortcutPreference =
+  | "fn"
   | "cmd-shift-space"
   | "ctrl-shift-space"
   | "both";
 export type VoiceMode = "push-to-talk" | "toggle";
 
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
-type VoiceShortcutSource = "cmd-shift-space" | "ctrl-shift-space";
+type VoiceShortcutSource = "fn" | "cmd-shift-space" | "ctrl-shift-space";
 
 interface DesktopVoiceDictationOptions {
   enabled: boolean;
@@ -264,7 +265,19 @@ export function installDesktopVoiceDictation(
   const stop = () => {
     const current = session;
     if (!current) {
-      if (startInFlight) stopRequestedBeforeReady = true;
+      if (startInFlight) {
+        stopRequestedBeforeReady = true;
+        // If start() hangs (e.g. getUserMedia awaiting a permission
+        // dialog the user dismissed), the cleanup path that hides the
+        // flow-bar may never run. Force-hide after a short wait so the
+        // bar can't get stranded.
+        window.setTimeout(() => {
+          if (disposed) return;
+          if (!session && startInFlight) {
+            invoke("hide_flow_bar").catch(() => {});
+          }
+        }, 1500);
+      }
       return;
     }
     if (current.stopping) return;

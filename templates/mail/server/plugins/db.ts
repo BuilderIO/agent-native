@@ -83,4 +83,4 @@ export default runMigrations([
     version: 10,
     sql: `CREATE INDEX IF NOT EXISTS idx_email_link_tracking_pixel_token ON email_link_tracking(pixel_token)`,
   },
-]);
+], { table: "mail_migrations" });
