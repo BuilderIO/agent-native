@@ -239,40 +239,39 @@ function buildBlockTree(contents) {
   const stack = [];
   let i = 0;
   const n = contents.length;
-  let inStr = null;
-  let templateDepth = 0;
+  let inStr = null; // '"' | "'" | "`"
+  // Stack of "where each `${...}` substitution sits inside the template
+  // literal stack" — each entry is the template-quote kind to return to.
+  const templateStack = [];
 
   while (i < n) {
     const c = contents[i];
-    const prev = contents[i - 1];
     const next = contents[i + 1];
 
     if (inStr) {
+      if (c === "\\") {
+        i += 2;
+        continue;
+      }
       if (inStr === "`") {
-        if (c === "\\") {
-          i += 2;
-          continue;
-        }
         if (c === "`") {
           inStr = null;
           i++;
           continue;
         }
         if (c === "$" && next === "{") {
-          templateDepth++;
-          i += 2;
-          continue;
-        }
-      } else {
-        if (c === "\\") {
-          i += 2;
-          continue;
-        }
-        if (c === inStr) {
+          // Enter a `${...}` substitution — code mode resumes until
+          // we see the matching `}`.
+          templateStack.push("`");
           inStr = null;
-          i++;
+          stack.push(-1 - templateStack.length); // marker: not a real block
+          i += 2;
           continue;
         }
+      } else if (c === inStr) {
+        inStr = null;
+        i++;
+        continue;
       }
       i++;
       continue;
@@ -298,22 +297,6 @@ function buildBlockTree(contents) {
       continue;
     }
 
-    // Template literal closing brace?
-    if (c === "}" && templateDepth > 0) {
-      templateDepth--;
-      // pop nothing — this `}` closes a template substitution, not a code
-      // block.
-      i++;
-      // ...and the surrounding template literal continues:
-      // We need to re-enter the template-literal mode.
-      inStr = "`";
-      i++; // skip past the `}` we already incremented... actually let's
-      // back up by one: the outer string-handler increments after
-      // setting inStr.
-      // Simpler: leave templateDepth handling above `inStr` block.
-      continue;
-    }
-
     if (c === "{") {
       stack.push(i);
       i++;
@@ -321,8 +304,12 @@ function buildBlockTree(contents) {
     }
     if (c === "}") {
       const open = stack.pop();
-      if (open !== undefined) {
+      if (open !== undefined && open >= 0) {
         blocks.push({ open, close: i });
+      } else if (open !== undefined && open < 0) {
+        // Closing a `${...}` substitution — pop back into template literal.
+        const kind = templateStack.pop();
+        inStr = kind;
       }
       i++;
       continue;
