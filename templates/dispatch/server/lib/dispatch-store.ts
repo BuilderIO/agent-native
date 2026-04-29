@@ -37,6 +37,34 @@ export function currentOrgId(): string | null {
   return getRequestOrgId() || null;
 }
 
+/**
+ * Caller-supplied access context for dispatch operations that work by
+ * id (destinations, etc.). Looking up a row by id alone is unsafe —
+ * UUIDs are not authorization. A row matches the ctx if either the
+ * caller owns it or it lives in the caller's active org.
+ */
+export interface DispatchCtx {
+  ownerEmail: string;
+  orgId: string | null;
+}
+
+export function requireDispatchCtx(): DispatchCtx {
+  return { ownerEmail: currentOwnerEmail(), orgId: currentOrgId() };
+}
+
+function ctxScope(
+  table: {
+    ownerEmail: typeof schema.dispatchDestinations.ownerEmail;
+    orgId: typeof schema.dispatchDestinations.orgId;
+  },
+  ctx: DispatchCtx,
+) {
+  return or(
+    eq(table.ownerEmail, ctx.ownerEmail),
+    ctx.orgId ? eq(table.orgId, ctx.orgId) : isNull(table.orgId),
+  );
+}
+
 function id() {
   return crypto.randomUUID();
 }
@@ -146,12 +174,20 @@ export async function listDestinations() {
     .orderBy(desc(schema.dispatchDestinations.updatedAt));
 }
 
-export async function getDestinationById(destinationId: string) {
+export async function getDestinationById(
+  destinationId: string,
+  ctx: DispatchCtx = requireDispatchCtx(),
+) {
   const db = getDb();
   const [row] = await db
     .select()
     .from(schema.dispatchDestinations)
-    .where(eq(schema.dispatchDestinations.id, destinationId))
+    .where(
+      and(
+        eq(schema.dispatchDestinations.id, destinationId),
+        ctxScope(schema.dispatchDestinations, ctx),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
@@ -159,11 +195,12 @@ export async function getDestinationById(destinationId: string) {
 async function applyDestinationUpsert(
   input: DispatchDestinationInput,
   actor = currentOwnerEmail(),
+  ctx: DispatchCtx = requireDispatchCtx(),
 ) {
   const db = getDb();
   const timestamp = now();
   const destinationId = input.id || id();
-  const existing = input.id ? await getDestinationById(input.id) : null;
+  const existing = input.id ? await getDestinationById(input.id, ctx) : null;
 
   if (existing) {
     await db
@@ -176,12 +213,17 @@ async function applyDestinationUpsert(
         notes: input.notes || null,
         updatedAt: timestamp,
       })
-      .where(eq(schema.dispatchDestinations.id, destinationId));
+      .where(
+        and(
+          eq(schema.dispatchDestinations.id, destinationId),
+          ctxScope(schema.dispatchDestinations, ctx),
+        ),
+      );
   } else {
     await db.insert(schema.dispatchDestinations).values({
       id: destinationId,
-      ownerEmail: currentOwnerEmail(),
-      orgId: currentOrgId(),
+      ownerEmail: ctx.ownerEmail,
+      orgId: ctx.orgId,
       name: input.name,
       platform: input.platform,
       destination: input.destination,
@@ -202,21 +244,27 @@ async function applyDestinationUpsert(
     metadata: input,
   });
 
-  return getDestinationById(destinationId);
+  return getDestinationById(destinationId, ctx);
 }
 
 async function applyDestinationDelete(
   destinationId: string,
   actor = currentOwnerEmail(),
+  ctx: DispatchCtx = requireDispatchCtx(),
 ) {
   const db = getDb();
-  const existing = await getDestinationById(destinationId);
+  const existing = await getDestinationById(destinationId, ctx);
   if (!existing) {
     throw new Error("Destination not found");
   }
   await db
     .delete(schema.dispatchDestinations)
-    .where(eq(schema.dispatchDestinations.id, destinationId));
+    .where(
+      and(
+        eq(schema.dispatchDestinations.id, destinationId),
+        ctxScope(schema.dispatchDestinations, ctx),
+      ),
+    );
   await recordAudit({
     actor,
     action: "destination.deleted",
