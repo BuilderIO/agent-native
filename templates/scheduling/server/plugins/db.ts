@@ -16,11 +16,12 @@
  */
 import { runMigrations } from "@agent-native/core/db";
 
-export default runMigrations([
-  // ---------- Event types ----------
-  {
-    version: 1,
-    sql: `CREATE TABLE IF NOT EXISTS event_types (
+export default runMigrations(
+  [
+    // ---------- Event types ----------
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS event_types (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       slug TEXT NOT NULL,
@@ -59,10 +60,10 @@ export default runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 2,
-    sql: `CREATE TABLE IF NOT EXISTS event_type_hosts (
+    },
+    {
+      version: 2,
+      sql: `CREATE TABLE IF NOT EXISTS event_type_hosts (
       event_type_id TEXT NOT NULL,
       user_email TEXT NOT NULL,
       is_fixed INTEGER NOT NULL DEFAULT 0,
@@ -73,28 +74,28 @@ export default runMigrations([
       created_at TEXT NOT NULL,
       PRIMARY KEY (event_type_id, user_email)
     )`,
-  },
-  {
-    version: 3,
-    sql: `CREATE TABLE IF NOT EXISTS event_type_host_groups (
+    },
+    {
+      version: 3,
+      sql: `CREATE TABLE IF NOT EXISTS event_type_host_groups (
       id TEXT PRIMARY KEY,
       event_type_id TEXT NOT NULL,
       name TEXT NOT NULL,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 4,
-    sql: `CREATE TABLE IF NOT EXISTS event_type_slug_redirects (
+    },
+    {
+      version: 4,
+      sql: `CREATE TABLE IF NOT EXISTS event_type_slug_redirects (
       old_key TEXT PRIMARY KEY,
       new_key TEXT NOT NULL,
       event_type_id TEXT,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 5,
-    sql: `CREATE TABLE IF NOT EXISTS hashed_links (
+    },
+    {
+      version: 5,
+      sql: `CREATE TABLE IF NOT EXISTS hashed_links (
       id TEXT PRIMARY KEY,
       hash TEXT NOT NULL UNIQUE,
       event_type_id TEXT NOT NULL,
@@ -103,10 +104,10 @@ export default runMigrations([
       used_at TEXT,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 6,
-    sql: `CREATE TABLE IF NOT EXISTS event_type_shares (
+    },
+    {
+      version: 6,
+      sql: `CREATE TABLE IF NOT EXISTS event_type_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -115,12 +116,12 @@ export default runMigrations([
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
+    },
 
-  // ---------- Schedules ----------
-  {
-    version: 7,
-    sql: `CREATE TABLE IF NOT EXISTS schedules (
+    // ---------- Schedules ----------
+    {
+      version: 7,
+      sql: `CREATE TABLE IF NOT EXISTS schedules (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       timezone TEXT NOT NULL DEFAULT 'UTC',
@@ -131,10 +132,10 @@ export default runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 8,
-    sql: `CREATE TABLE IF NOT EXISTS schedule_availability (
+    },
+    {
+      version: 8,
+      sql: `CREATE TABLE IF NOT EXISTS schedule_availability (
       id TEXT PRIMARY KEY,
       schedule_id TEXT NOT NULL,
       day INTEGER NOT NULL,
@@ -142,20 +143,20 @@ export default runMigrations([
       end_time TEXT NOT NULL,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 9,
-    sql: `CREATE TABLE IF NOT EXISTS date_overrides (
+    },
+    {
+      version: 9,
+      sql: `CREATE TABLE IF NOT EXISTS date_overrides (
       id TEXT PRIMARY KEY,
       schedule_id TEXT NOT NULL,
       date TEXT NOT NULL,
       intervals TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 10,
-    sql: `CREATE TABLE IF NOT EXISTS travel_schedules (
+    },
+    {
+      version: 10,
+      sql: `CREATE TABLE IF NOT EXISTS travel_schedules (
       id TEXT PRIMARY KEY,
       user_email TEXT NOT NULL,
       start_date TEXT NOT NULL,
@@ -163,10 +164,10 @@ export default runMigrations([
       timezone TEXT NOT NULL,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 11,
-    sql: `CREATE TABLE IF NOT EXISTS out_of_office_entries (
+    },
+    {
+      version: 11,
+      sql: `CREATE TABLE IF NOT EXISTS out_of_office_entries (
       id TEXT PRIMARY KEY,
       user_email TEXT NOT NULL,
       start_date TEXT NOT NULL,
@@ -176,10 +177,10 @@ export default runMigrations([
       redirect_user_email TEXT,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 12,
-    sql: `CREATE TABLE IF NOT EXISTS schedule_shares (
+    },
+    {
+      version: 12,
+      sql: `CREATE TABLE IF NOT EXISTS schedule_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -188,12 +189,12 @@ export default runMigrations([
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
+    },
 
-  // ---------- Bookings ----------
-  {
-    version: 13,
-    sql: `CREATE TABLE IF NOT EXISTS bookings (
+    // ---------- Bookings ----------
+    {
+      version: 13,
+      sql: `CREATE TABLE IF NOT EXISTS bookings (
       id TEXT PRIMARY KEY,
       uid TEXT NOT NULL UNIQUE,
       event_type_id TEXT NOT NULL,
@@ -223,10 +224,10 @@ export default runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 14,
-    sql: `CREATE TABLE IF NOT EXISTS booking_attendees (
+    },
+    {
+      version: 14,
+      sql: `CREATE TABLE IF NOT EXISTS booking_attendees (
       id TEXT PRIMARY KEY,
       booking_id TEXT NOT NULL,
       email TEXT NOT NULL,
@@ -236,10 +237,10 @@ export default runMigrations([
       no_show INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 15,
-    sql: `CREATE TABLE IF NOT EXISTS booking_references (
+    },
+    {
+      version: 15,
+      sql: `CREATE TABLE IF NOT EXISTS booking_references (
       id TEXT PRIMARY KEY,
       booking_id TEXT NOT NULL,
       type TEXT NOT NULL,
@@ -249,30 +250,30 @@ export default runMigrations([
       credential_id TEXT,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 16,
-    sql: `CREATE TABLE IF NOT EXISTS booking_seats (
+    },
+    {
+      version: 16,
+      sql: `CREATE TABLE IF NOT EXISTS booking_seats (
       id TEXT PRIMARY KEY,
       booking_id TEXT NOT NULL,
       attendee_id TEXT NOT NULL,
       reference_uid TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 17,
-    sql: `CREATE TABLE IF NOT EXISTS booking_notes (
+    },
+    {
+      version: 17,
+      sql: `CREATE TABLE IF NOT EXISTS booking_notes (
       id TEXT PRIMARY KEY,
       booking_id TEXT NOT NULL,
       author_email TEXT NOT NULL,
       content TEXT NOT NULL,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 18,
-    sql: `CREATE TABLE IF NOT EXISTS booking_shares (
+    },
+    {
+      version: 18,
+      sql: `CREATE TABLE IF NOT EXISTS booking_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -281,12 +282,12 @@ export default runMigrations([
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
+    },
 
-  // ---------- Teams ----------
-  {
-    version: 19,
-    sql: `CREATE TABLE IF NOT EXISTS teams (
+    // ---------- Teams ----------
+    {
+      version: 19,
+      sql: `CREATE TABLE IF NOT EXISTS teams (
       id TEXT PRIMARY KEY,
       slug TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
@@ -302,10 +303,10 @@ export default runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 20,
-    sql: `CREATE TABLE IF NOT EXISTS team_members (
+    },
+    {
+      version: 20,
+      sql: `CREATE TABLE IF NOT EXISTS team_members (
       id TEXT PRIMARY KEY,
       team_id TEXT NOT NULL,
       user_email TEXT NOT NULL,
@@ -315,10 +316,10 @@ export default runMigrations([
       invited_at TEXT NOT NULL,
       joined_at TEXT
     )`,
-  },
-  {
-    version: 21,
-    sql: `CREATE TABLE IF NOT EXISTS team_shares (
+    },
+    {
+      version: 21,
+      sql: `CREATE TABLE IF NOT EXISTS team_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -327,12 +328,12 @@ export default runMigrations([
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
+    },
 
-  // ---------- Credentials & integrations ----------
-  {
-    version: 22,
-    sql: `CREATE TABLE IF NOT EXISTS scheduling_credentials (
+    // ---------- Credentials & integrations ----------
+    {
+      version: 22,
+      sql: `CREATE TABLE IF NOT EXISTS scheduling_credentials (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
       user_email TEXT,
@@ -346,10 +347,10 @@ export default runMigrations([
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 23,
-    sql: `CREATE TABLE IF NOT EXISTS selected_calendars (
+    },
+    {
+      version: 23,
+      sql: `CREATE TABLE IF NOT EXISTS selected_calendars (
       id TEXT PRIMARY KEY,
       credential_id TEXT NOT NULL,
       user_email TEXT NOT NULL,
@@ -358,10 +359,10 @@ export default runMigrations([
       event_type_id TEXT,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 24,
-    sql: `CREATE TABLE IF NOT EXISTS destination_calendars (
+    },
+    {
+      version: 24,
+      sql: `CREATE TABLE IF NOT EXISTS destination_calendars (
       id TEXT PRIMARY KEY,
       credential_id TEXT NOT NULL,
       user_email TEXT NOT NULL,
@@ -371,30 +372,30 @@ export default runMigrations([
       event_type_id TEXT,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 25,
-    sql: `CREATE TABLE IF NOT EXISTS verified_emails (
+    },
+    {
+      version: 25,
+      sql: `CREATE TABLE IF NOT EXISTS verified_emails (
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL,
       user_email TEXT,
       team_id TEXT,
       verified_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 26,
-    sql: `CREATE TABLE IF NOT EXISTS verified_numbers (
+    },
+    {
+      version: 26,
+      sql: `CREATE TABLE IF NOT EXISTS verified_numbers (
       id TEXT PRIMARY KEY,
       phone_number TEXT NOT NULL,
       user_email TEXT,
       team_id TEXT,
       verified_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 27,
-    sql: `CREATE TABLE IF NOT EXISTS calendar_cache (
+    },
+    {
+      version: 27,
+      sql: `CREATE TABLE IF NOT EXISTS calendar_cache (
       id TEXT PRIMARY KEY,
       credential_id TEXT NOT NULL,
       cache_key TEXT NOT NULL UNIQUE,
@@ -404,12 +405,12 @@ export default runMigrations([
       expires_at TEXT NOT NULL,
       created_at TEXT NOT NULL
     )`,
-  },
+    },
 
-  // ---------- Workflows ----------
-  {
-    version: 28,
-    sql: `CREATE TABLE IF NOT EXISTS workflows (
+    // ---------- Workflows ----------
+    {
+      version: 28,
+      sql: `CREATE TABLE IF NOT EXISTS workflows (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       trigger TEXT NOT NULL,
@@ -422,10 +423,10 @@ export default runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 29,
-    sql: `CREATE TABLE IF NOT EXISTS workflow_steps (
+    },
+    {
+      version: 29,
+      sql: `CREATE TABLE IF NOT EXISTS workflow_steps (
       id TEXT PRIMARY KEY,
       workflow_id TEXT NOT NULL,
       "order" INTEGER NOT NULL DEFAULT 0,
@@ -439,10 +440,10 @@ export default runMigrations([
       template TEXT,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 30,
-    sql: `CREATE TABLE IF NOT EXISTS scheduled_reminders (
+    },
+    {
+      version: 30,
+      sql: `CREATE TABLE IF NOT EXISTS scheduled_reminders (
       id TEXT PRIMARY KEY,
       booking_id TEXT NOT NULL,
       workflow_step_id TEXT NOT NULL,
@@ -455,10 +456,10 @@ export default runMigrations([
       attempts INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 31,
-    sql: `CREATE TABLE IF NOT EXISTS webhooks (
+    },
+    {
+      version: 31,
+      sql: `CREATE TABLE IF NOT EXISTS webhooks (
       id TEXT PRIMARY KEY,
       name TEXT,
       subscriber_url TEXT NOT NULL,
@@ -473,10 +474,10 @@ export default runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 32,
-    sql: `CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    },
+    {
+      version: 32,
+      sql: `CREATE TABLE IF NOT EXISTS webhook_deliveries (
       id TEXT PRIMARY KEY,
       webhook_id TEXT NOT NULL,
       triggered_at TEXT NOT NULL,
@@ -486,10 +487,10 @@ export default runMigrations([
       success INTEGER NOT NULL DEFAULT 0,
       attempts INTEGER NOT NULL DEFAULT 0
     )`,
-  },
-  {
-    version: 33,
-    sql: `CREATE TABLE IF NOT EXISTS api_keys (
+    },
+    {
+      version: 33,
+      sql: `CREATE TABLE IF NOT EXISTS api_keys (
       id TEXT PRIMARY KEY,
       hashed_key TEXT NOT NULL UNIQUE,
       note TEXT,
@@ -499,10 +500,10 @@ export default runMigrations([
       last_used_at TEXT,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 34,
-    sql: `CREATE TABLE IF NOT EXISTS workflow_shares (
+    },
+    {
+      version: 34,
+      sql: `CREATE TABLE IF NOT EXISTS workflow_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -511,12 +512,12 @@ export default runMigrations([
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
+    },
 
-  // ---------- Routing forms ----------
-  {
-    version: 35,
-    sql: `CREATE TABLE IF NOT EXISTS routing_forms (
+    // ---------- Routing forms ----------
+    {
+      version: 35,
+      sql: `CREATE TABLE IF NOT EXISTS routing_forms (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT,
@@ -531,10 +532,10 @@ export default runMigrations([
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
     )`,
-  },
-  {
-    version: 36,
-    sql: `CREATE TABLE IF NOT EXISTS routing_form_responses (
+    },
+    {
+      version: 36,
+      sql: `CREATE TABLE IF NOT EXISTS routing_form_responses (
       id TEXT PRIMARY KEY,
       form_id TEXT NOT NULL,
       response TEXT NOT NULL,
@@ -545,10 +546,10 @@ export default runMigrations([
       submitter_ip TEXT,
       created_at TEXT NOT NULL
     )`,
-  },
-  {
-    version: 37,
-    sql: `CREATE TABLE IF NOT EXISTS routing_form_shares (
+    },
+    {
+      version: 37,
+      sql: `CREATE TABLE IF NOT EXISTS routing_form_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
       principal_type TEXT NOT NULL,
@@ -557,47 +558,49 @@ export default runMigrations([
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
-  },
+    },
 
-  // ---------- Indexes ----------
-  {
-    version: 38,
-    sql: `CREATE INDEX IF NOT EXISTS idx_event_types_owner ON event_types(owner_email)`,
-  },
-  {
-    version: 39,
-    sql: `CREATE INDEX IF NOT EXISTS idx_event_types_slug ON event_types(owner_email, slug)`,
-  },
-  {
-    version: 40,
-    sql: `CREATE INDEX IF NOT EXISTS idx_schedules_owner ON schedules(owner_email)`,
-  },
-  {
-    version: 41,
-    sql: `CREATE INDEX IF NOT EXISTS idx_schedule_availability_schedule ON schedule_availability(schedule_id)`,
-  },
-  {
-    version: 42,
-    sql: `CREATE INDEX IF NOT EXISTS idx_date_overrides_schedule ON date_overrides(schedule_id)`,
-  },
-  {
-    version: 43,
-    sql: `CREATE INDEX IF NOT EXISTS idx_bookings_host ON bookings(host_email)`,
-  },
-  {
-    version: 44,
-    sql: `CREATE INDEX IF NOT EXISTS idx_bookings_event_type ON bookings(event_type_id)`,
-  },
-  {
-    version: 45,
-    sql: `CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status)`,
-  },
-  {
-    version: 46,
-    sql: `CREATE INDEX IF NOT EXISTS idx_booking_attendees_booking ON booking_attendees(booking_id)`,
-  },
-  {
-    version: 47,
-    sql: `CREATE INDEX IF NOT EXISTS idx_scheduled_reminders_due ON scheduled_reminders(sent, failed, scheduled_for)`,
-  },
-], { table: "scheduling_migrations" });
+    // ---------- Indexes ----------
+    {
+      version: 38,
+      sql: `CREATE INDEX IF NOT EXISTS idx_event_types_owner ON event_types(owner_email)`,
+    },
+    {
+      version: 39,
+      sql: `CREATE INDEX IF NOT EXISTS idx_event_types_slug ON event_types(owner_email, slug)`,
+    },
+    {
+      version: 40,
+      sql: `CREATE INDEX IF NOT EXISTS idx_schedules_owner ON schedules(owner_email)`,
+    },
+    {
+      version: 41,
+      sql: `CREATE INDEX IF NOT EXISTS idx_schedule_availability_schedule ON schedule_availability(schedule_id)`,
+    },
+    {
+      version: 42,
+      sql: `CREATE INDEX IF NOT EXISTS idx_date_overrides_schedule ON date_overrides(schedule_id)`,
+    },
+    {
+      version: 43,
+      sql: `CREATE INDEX IF NOT EXISTS idx_bookings_host ON bookings(host_email)`,
+    },
+    {
+      version: 44,
+      sql: `CREATE INDEX IF NOT EXISTS idx_bookings_event_type ON bookings(event_type_id)`,
+    },
+    {
+      version: 45,
+      sql: `CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status)`,
+    },
+    {
+      version: 46,
+      sql: `CREATE INDEX IF NOT EXISTS idx_booking_attendees_booking ON booking_attendees(booking_id)`,
+    },
+    {
+      version: 47,
+      sql: `CREATE INDEX IF NOT EXISTS idx_scheduled_reminders_due ON scheduled_reminders(sent, failed, scheduled_for)`,
+    },
+  ],
+  { table: "scheduling_migrations" },
+);

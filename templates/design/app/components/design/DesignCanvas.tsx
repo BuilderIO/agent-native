@@ -193,14 +193,21 @@ export function DesignCanvas({
     };
   }, [sendStyleChange]);
 
-  const deviceWidths: Record<DeviceFrameType, string> = {
-    none: "100%",
-    desktop: "1280px",
-    tablet: "768px",
-    mobile: "375px",
+  // Device dimensions match real-world devices. iframes are replaced elements
+  // with an intrinsic 300×150 size, so `aspect-ratio` + `height: auto` doesn't
+  // reliably compute height from width — explicit pixel heights are required.
+  const deviceDimensions: Record<
+    DeviceFrameType,
+    { width: string; height: string | null }
+  > = {
+    none: { width: "100%", height: null },
+    desktop: { width: "1280px", height: "800px" }, // 16:10
+    tablet: { width: "768px", height: "1024px" }, // iPad
+    mobile: { width: "390px", height: "844px" }, // iPhone 14
   };
 
-  const iframeWidth = deviceWidths[deviceFrame];
+  const { width: iframeWidth, height: iframeHeight } =
+    deviceDimensions[deviceFrame];
 
   const iframeElement = (
     <iframe
@@ -210,14 +217,7 @@ export function DesignCanvas({
       className="border-0 bg-white"
       style={{
         width: iframeWidth,
-        height: deviceFrame === "none" ? "100%" : "auto",
-        minHeight: deviceFrame === "none" ? undefined : "600px",
-        aspectRatio:
-          deviceFrame === "tablet"
-            ? "3/4"
-            : deviceFrame === "mobile"
-              ? "9/19.5"
-              : undefined,
+        height: deviceFrame === "none" ? "100%" : (iframeHeight ?? undefined),
       }}
       title="Design Preview"
     />

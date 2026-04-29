@@ -19,6 +19,17 @@ import { ThemeToggle } from "./ThemeToggle";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 
+// Routes whose page renders its own custom toolbar (with AgentToggleButton).
+// Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
+// there's no double-header.
+function isDetailRoute(pathname: string): boolean {
+  if (/^\/event-types\/[^/]+/.test(pathname)) return true;
+  if (/^\/availability\/[^/]+/.test(pathname)) return true;
+  if (/^\/routing-forms\/[^/]+/.test(pathname)) return true;
+  if (/^\/workflows\/[^/]+/.test(pathname)) return true;
+  return false;
+}
+
 const NAV = [
   { to: "/event-types", label: "Event Types", icon: IconCalendarEvent },
   { to: "/bookings/upcoming", label: "Bookings", icon: IconCalendarTime },
@@ -37,6 +48,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
     const view = inferView(location.pathname);
     writeAppState("navigation", { view, path: location.pathname });
   }, [location.pathname]);
+
+  const showHeader = !isDetailRoute(location.pathname);
 
   return (
     <HeaderActionsProvider>
@@ -97,7 +110,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           ]}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">
-            <Header />
+            {showHeader ? <Header /> : null}
             <main className="flex-1 overflow-auto">{children}</main>
           </div>
         </AgentSidebar>

@@ -314,11 +314,11 @@ The URL pattern is `/deck/<id>` (singular `deck`). If `process.env.APP_URL` isn'
 
 **Examples — good vs bad replies for "Create a 3-slide deck about Builder.io. Reply with just the URL.":**
 
-| | |
-|---|---|
-| ❌ | "I'll create a 3-slide deck about Builder.io! Slide 1 — What is Builder.io? Slide 2 — Key features. Slide 3 — Get started." (no URL — caller has nothing to point to) |
-| ❌ | "Created at `/deck/deck-123`" (relative path — caller's host won't resolve it) |
-| ✅ | "https://slides.agent-native.com/deck/deck-1777482594025-d7x2x" (verbatim, fully-qualified, just the URL the user asked for) |
+|     |                                                                                                                                                                       |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ❌  | "I'll create a 3-slide deck about Builder.io! Slide 1 — What is Builder.io? Slide 2 — Key features. Slide 3 — Get started." (no URL — caller has nothing to point to) |
+| ❌  | "Created at `/deck/deck-123`" (relative path — caller's host won't resolve it)                                                                                        |
+| ✅  | "https://slides.agent-native.com/deck/deck-1777482594025-d7x2x" (verbatim, fully-qualified, just the URL the user asked for)                                          |
 
 Same rule for `/deck/<id>/present` (presentation mode), `/share/<token>` (share link), and any other URL the caller might need.
 

@@ -8,7 +8,14 @@
 // Requires macOS `sips` and `iconutil` (no extra deps).
 
 import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -86,18 +93,36 @@ if (existsSync(DOCS_PUBLIC)) {
   writeSizedSvg(join(DOCS_PUBLIC, "favicon.svg"), 1024);
   writeSizedSvg(join(DOCS_PUBLIC, "icon-192.svg"), 192);
   writeSizedSvg(join(DOCS_PUBLIC, "icon-512.svg"), 512);
-  rasterize(join(DOCS_PUBLIC, "favicon.svg"), join(DOCS_PUBLIC, "logo192.png"), 192);
-  rasterize(join(DOCS_PUBLIC, "favicon.svg"), join(DOCS_PUBLIC, "logo512.png"), 512);
+  rasterize(
+    join(DOCS_PUBLIC, "favicon.svg"),
+    join(DOCS_PUBLIC, "logo192.png"),
+    192,
+  );
+  rasterize(
+    join(DOCS_PUBLIC, "favicon.svg"),
+    join(DOCS_PUBLIC, "logo512.png"),
+    512,
+  );
   // Modern browsers accept a PNG renamed to favicon.ico; keep our existing .ico path working.
-  rasterize(join(DOCS_PUBLIC, "favicon.svg"), join(DOCS_PUBLIC, "favicon.ico"), 64);
-  console.log("✔ packages/docs/public/{favicon.svg,icon-192,icon-512,logo192.png,logo512.png,favicon.ico}");
+  rasterize(
+    join(DOCS_PUBLIC, "favicon.svg"),
+    join(DOCS_PUBLIC, "favicon.ico"),
+    64,
+  );
+  console.log(
+    "✔ packages/docs/public/{favicon.svg,icon-192,icon-512,logo192.png,logo512.png,favicon.ico}",
+  );
 }
 
 // 4) Electron desktop app icon
 const DESKTOP_BUILD = join(ROOT, "packages/desktop-app/build");
 if (existsSync(DESKTOP_BUILD)) {
   writeFileSync(join(DESKTOP_BUILD, "icon.svg"), sized(FAVICON_SVG, 1024));
-  rasterize(join(DESKTOP_BUILD, "icon.svg"), join(DESKTOP_BUILD, "icon.png"), 1024);
+  rasterize(
+    join(DESKTOP_BUILD, "icon.svg"),
+    join(DESKTOP_BUILD, "icon.png"),
+    1024,
+  );
 
   const ICONSET = join(DESKTOP_BUILD, "icon.iconset");
   rmSync(ICONSET, { recursive: true, force: true });
@@ -121,7 +146,9 @@ if (existsSync(DESKTOP_BUILD)) {
     `iconutil -c icns -o "${join(DESKTOP_BUILD, "icon.icns")}" "${ICONSET}"`,
     { stdio: "inherit" },
   );
-  console.log("✔ packages/desktop-app/build/{icon.svg,icon.png,icon.iconset,icon.icns}");
+  console.log(
+    "✔ packages/desktop-app/build/{icon.svg,icon.png,icon.iconset,icon.icns}",
+  );
 }
 
 // 5) Clips Tauri desktop app
@@ -152,7 +179,10 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
   ]) {
     rasterize(tmpFav, join(ICONSET, name), size);
   }
-  execSync(`iconutil -c icns -o "${join(CLIPS_TAURI_ICONS, "icon.icns")}" "${ICONSET}"`, { stdio: "inherit" });
+  execSync(
+    `iconutil -c icns -o "${join(CLIPS_TAURI_ICONS, "icon.icns")}" "${ICONSET}"`,
+    { stdio: "inherit" },
+  );
   rmSync(ICONSET, { recursive: true, force: true });
 
   // .ico — sips writes a PNG-renamed-to-.ico, which Windows tolerates.
@@ -167,15 +197,27 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
   rasterize(tmpTray, join(CLIPS_TAURI_ICONS, "tray.png"), 44);
   rmSync(tmpTray);
 
-  console.log("✔ templates/clips/desktop/src-tauri/icons/{icon.png,32x32.png,128x128.png,128x128@2x.png,icon.icns,icon.ico,tray.png}");
+  console.log(
+    "✔ templates/clips/desktop/src-tauri/icons/{icon.png,32x32.png,128x128.png,128x128@2x.png,icon.icns,icon.ico,tray.png}",
+  );
 }
 
 // 6) Slack bot icon (manual upload to api.slack.com/apps → Basic Information → Display)
 const SLACK_OUT = join(BRANDING, "slack-bot");
 mkdirSync(SLACK_OUT, { recursive: true });
-rasterize(join(BRANDING, "favicon.svg"), join(SLACK_OUT, "agent-native-512.png"), 512);
-rasterize(join(BRANDING, "favicon.svg"), join(SLACK_OUT, "agent-native-1024.png"), 1024);
-console.log("✔ packages/core/src/assets/branding/slack-bot/{agent-native-512,agent-native-1024}.png");
+rasterize(
+  join(BRANDING, "favicon.svg"),
+  join(SLACK_OUT, "agent-native-512.png"),
+  512,
+);
+rasterize(
+  join(BRANDING, "favicon.svg"),
+  join(SLACK_OUT, "agent-native-1024.png"),
+  1024,
+);
+console.log(
+  "✔ packages/core/src/assets/branding/slack-bot/{agent-native-512,agent-native-1024}.png",
+);
 
 // 7) Mobile app
 const MOBILE_ASSETS = join(ROOT, "packages/mobile-app/assets");
@@ -190,10 +232,19 @@ if (existsSync(MOBILE_ASSETS)) {
 }
 
 // 7b) Native iOS AppIcon (Expo prebuild output — does NOT auto-regenerate)
-const IOS_APPICON = join(ROOT, "packages/mobile-app/ios/AgentNative/Images.xcassets/AppIcon.appiconset");
+const IOS_APPICON = join(
+  ROOT,
+  "packages/mobile-app/ios/AgentNative/Images.xcassets/AppIcon.appiconset",
+);
 if (existsSync(IOS_APPICON)) {
-  rasterize(join(BRANDING, "favicon.svg"), join(IOS_APPICON, "App-Icon-1024x1024@1x.png"), 1024);
-  console.log("✔ packages/mobile-app/ios/.../AppIcon.appiconset/App-Icon-1024x1024@1x.png");
+  rasterize(
+    join(BRANDING, "favicon.svg"),
+    join(IOS_APPICON, "App-Icon-1024x1024@1x.png"),
+    1024,
+  );
+  console.log(
+    "✔ packages/mobile-app/ios/.../AppIcon.appiconset/App-Icon-1024x1024@1x.png",
+  );
 }
 
 console.log("\nDone.");

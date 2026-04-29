@@ -1,9 +1,10 @@
 import { runMigrations } from "@agent-native/core/db";
 
-export default runMigrations([
-  {
-    version: 1,
-    sql: `CREATE TABLE IF NOT EXISTS forms (
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS forms (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     description TEXT,
@@ -14,21 +15,21 @@ export default runMigrations([
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
-  },
-  {
-    version: 2,
-    sql: `CREATE TABLE IF NOT EXISTS responses (
+    },
+    {
+      version: 2,
+      sql: `CREATE TABLE IF NOT EXISTS responses (
     id TEXT PRIMARY KEY,
     form_id TEXT NOT NULL REFERENCES forms(id),
     data TEXT NOT NULL,
     submitted_at TEXT NOT NULL,
     ip TEXT
   )`,
-  },
-  {
-    version: 3,
-    sql: {
-      postgres: `ALTER TABLE forms ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
+    },
+    {
+      version: 3,
+      sql: {
+        postgres: `ALTER TABLE forms ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
 ALTER TABLE forms ADD COLUMN IF NOT EXISTS org_id TEXT;
 ALTER TABLE forms ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public';
 CREATE TABLE IF NOT EXISTS form_shares (
@@ -40,23 +41,23 @@ CREATE TABLE IF NOT EXISTS form_shares (
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (now())
 )`,
-      sqlite: `ALTER TABLE forms ADD COLUMN owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+        sqlite: `ALTER TABLE forms ADD COLUMN owner_email TEXT NOT NULL DEFAULT 'local@localhost'`,
+      },
     },
-  },
-  {
-    version: 4,
-    sql: { sqlite: `ALTER TABLE forms ADD COLUMN org_id TEXT` },
-  },
-  {
-    version: 5,
-    sql: {
-      sqlite: `ALTER TABLE forms ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'`,
+    {
+      version: 4,
+      sql: { sqlite: `ALTER TABLE forms ADD COLUMN org_id TEXT` },
     },
-  },
-  {
-    version: 6,
-    sql: {
-      sqlite: `CREATE TABLE IF NOT EXISTS form_shares (
+    {
+      version: 5,
+      sql: {
+        sqlite: `ALTER TABLE forms ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'`,
+      },
+    },
+    {
+      version: 6,
+      sql: {
+        sqlite: `CREATE TABLE IF NOT EXISTS form_shares (
   id TEXT PRIMARY KEY,
   resource_id TEXT NOT NULL,
   principal_type TEXT NOT NULL,
@@ -65,6 +66,8 @@ CREATE TABLE IF NOT EXISTS form_shares (
   created_by TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`,
+      },
     },
-  },
-], { table: "forms_migrations" });
+  ],
+  { table: "forms_migrations" },
+);

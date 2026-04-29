@@ -142,7 +142,11 @@ export function runMigrations(
   options: RunMigrationsOptions,
 ): NitroPluginDef {
   const table = options?.table;
-  if (!table || typeof table !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) {
+  if (
+    !table ||
+    typeof table !== "string" ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)
+  ) {
     throw new Error(
       "runMigrations: `table` option is required and must be a valid SQL identifier " +
         '(e.g. `{ table: "slides_migrations" }`). See packages/core/src/db/migrations.ts ' +

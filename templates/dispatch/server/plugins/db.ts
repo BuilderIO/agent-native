@@ -1,9 +1,10 @@
 import { runMigrations } from "@agent-native/core/db";
 
-export default runMigrations([
-  {
-    version: 1,
-    sql: `
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `
       CREATE TABLE IF NOT EXISTS dispatch_destinations (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL,
@@ -77,10 +78,10 @@ export default runMigrations([
         created_at INTEGER NOT NULL
       );
     `,
-  },
-  {
-    version: 2,
-    sql: `
+    },
+    {
+      version: 2,
+      sql: `
       CREATE TABLE IF NOT EXISTS vault_secrets (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL,
@@ -163,5 +164,7 @@ export default runMigrations([
         updated_at INTEGER NOT NULL
       );
     `,
-  },
-], { table: "dispatch_migrations" });
+    },
+  ],
+  { table: "dispatch_migrations" },
+);

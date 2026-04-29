@@ -9,10 +9,10 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
-import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { IconMenu2, IconMoon, IconSun, IconX } from "@tabler/icons-react";
+import { IconMoon, IconSun } from "@tabler/icons-react";
+import { Layout as AppLayout } from "./components/layout/Layout";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 
@@ -45,67 +45,29 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 function AppShell() {
   useDbSync();
-  const [panelOpen, setPanelOpen] = useState(false);
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const { theme, setTheme } = useTheme();
 
   return (
     <TooltipProvider>
-      <div className="relative min-h-screen">
-        <button
-          onClick={() => setPanelOpen(true)}
-          className="fixed left-3 top-3 z-40 flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground"
-          aria-label="Open menu"
-        >
-          <IconMenu2 className="h-4 w-4" />
-        </button>
-
-        {panelOpen && (
-          <div
-            className="fixed inset-0 z-50 bg-black/50"
-            onClick={() => setPanelOpen(false)}
-          />
-        )}
-
-        <div
-          className={`fixed inset-y-0 left-0 z-50 w-64 border-r border-border bg-background p-4 ${
-            panelOpen ? "translate-x-0" : "-translate-x-full"
-          }`}
-        >
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-semibold text-foreground">Voice</span>
-            <button
-              onClick={() => setPanelOpen(false)}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
-              aria-label="Close menu"
-            >
-              <IconX className="h-4 w-4" />
-            </button>
-          </div>
-          <ToolsSidebarSection />
-        </div>
-
-        <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-          <CommandMenu.Group heading="Actions">
-            <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
-          </CommandMenu.Group>
-          <CommandMenu.Group heading="Appearance">
-            <CommandMenu.Item
-              onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
-              keywords={["theme", "dark", "light", "mode"]}
-            >
-              {theme === "dark" ? (
-                <IconSun size={16} />
-              ) : (
-                <IconMoon size={16} />
-              )}
-              Toggle {theme === "dark" ? "light" : "dark"} mode
-            </CommandMenu.Item>
-          </CommandMenu.Group>
-        </CommandMenu>
+      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu.Group heading="Actions">
+          <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+        </CommandMenu.Group>
+        <CommandMenu.Group heading="Appearance">
+          <CommandMenu.Item
+            onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}
+            keywords={["theme", "dark", "light", "mode"]}
+          >
+            {theme === "dark" ? <IconSun size={16} /> : <IconMoon size={16} />}
+            Toggle {theme === "dark" ? "light" : "dark"} mode
+          </CommandMenu.Item>
+        </CommandMenu.Group>
+      </CommandMenu>
+      <AppLayout>
         <Outlet />
-      </div>
+      </AppLayout>
       <Toaster position="bottom-right" />
     </TooltipProvider>
   );
