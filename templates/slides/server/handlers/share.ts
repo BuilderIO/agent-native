@@ -11,7 +11,12 @@ import type {
 // In production, this would use a database
 const sharedDecks = new Map<
   string,
-  { title: string; slides: any[]; createdAt: number }
+  {
+    title: string;
+    slides: any[];
+    createdAt: number;
+    aspectRatio?: SharedDeckResponse["aspectRatio"];
+  }
 >();
 
 // Clean up old shared decks (older than 30 days)
@@ -54,6 +59,7 @@ export const shareDeck = defineEventHandler(async (event) => {
       background: s.background,
     })),
     createdAt: Date.now(),
+    aspectRatio: (deck as any).aspectRatio,
   });
 
   const response: ShareDeckResponse = { shareToken };
@@ -80,6 +86,7 @@ export const getSharedDeck = defineEventHandler((event) => {
   const response: SharedDeckResponse = {
     title: shared.title,
     slides: shared.slides,
+    aspectRatio: shared.aspectRatio,
   };
   return response;
 });

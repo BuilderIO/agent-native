@@ -9,6 +9,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { notifyClients } from "../server/handlers/decks.js";
+import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 
 const SlideSchema = z.object({
   id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),
@@ -51,16 +52,33 @@ export default defineAction({
       .describe(
         "If provided, update this existing deck instead of creating a new one",
       ),
+    aspectRatio: z
+      .enum(ASPECT_RATIO_VALUES)
+      .optional()
+      .describe(
+        "Slide aspect ratio for the deck (defaults to 16:9 when omitted)",
+      ),
   }),
   http: false,
-  run: async ({ title, slides, deckId }) => {
+  run: async ({ title, slides, deckId, aspectRatio }) => {
     const db = getDb();
     const now = new Date().toISOString();
 
     if (deckId) {
       // Update existing deck — requires editor access.
       await assertAccess("deck", deckId, "editor");
-      const data = { title, slides, updatedAt: now };
+      const existing = await db
+        .select()
+        .from(schema.decks)
+        .where(eq(schema.decks.id, deckId))
+        .limit(1);
+      const prevData = existing[0] ? JSON.parse(existing[0].data) : {};
+      const data = {
+        title,
+        slides,
+        updatedAt: now,
+        aspectRatio: aspectRatio ?? prevData.aspectRatio,
+      };
       await db
         .update(schema.decks)
         .set({ title, data: JSON.stringify(data), updatedAt: now })
@@ -73,7 +91,13 @@ export default defineAction({
     }
 
     const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const data = { title, slides, createdAt: now, updatedAt: now };
+    const data: Record<string, unknown> = {
+      title,
+      slides,
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (aspectRatio) data.aspectRatio = aspectRatio;
     await db.insert(schema.decks).values({
       id,
       title,

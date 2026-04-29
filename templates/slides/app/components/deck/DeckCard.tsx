@@ -25,11 +25,13 @@ export default function DeckCard({ deck, onDelete }: DeckCardProps) {
         className="block rounded-xl border border-border bg-card hover:border-border transition-all duration-200 overflow-hidden hover:shadow-lg hover:shadow-[#609FF8]/5"
       >
         {/* Slide Preview */}
-        <div className="aspect-video overflow-hidden relative">
+        <div className="overflow-hidden relative">
           {firstSlide && (
-            <div className="w-full h-full">
-              <SlideRenderer slide={firstSlide} className="rounded-none" />
-            </div>
+            <SlideRenderer
+              slide={firstSlide}
+              className="rounded-none"
+              aspectRatio={deck.aspectRatio}
+            />
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-[hsl(240,5%,8%)] via-transparent to-transparent opacity-60" />
         </div>

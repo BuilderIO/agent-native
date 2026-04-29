@@ -97,6 +97,7 @@ export interface SharedDeckResponse {
     layout: string;
     background?: string;
   }>;
+  aspectRatio?: import("./aspect-ratios").AspectRatio;
 }
 
 // --- Design Systems ---

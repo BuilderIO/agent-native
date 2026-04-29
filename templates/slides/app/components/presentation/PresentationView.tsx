@@ -7,11 +7,13 @@ import type {
   AnimationType,
 } from "@/context/DeckContext";
 import SlideRenderer from "@/components/deck/SlideRenderer";
+import type { AspectRatio } from "@/lib/aspect-ratios";
 
 interface PresentationViewProps {
   slides: Slide[];
   deckId: string;
   startIndex?: number;
+  aspectRatio?: AspectRatio;
 }
 
 // ─── Element animation helpers ────────────────────────────────────────────────
@@ -152,6 +154,7 @@ export default function PresentationView({
   slides,
   deckId,
   startIndex = 0,
+  aspectRatio,
 }: PresentationViewProps) {
   const [currentIndex, setCurrentIndex] = useState(
     Math.min(startIndex, slides.length - 1),
@@ -341,7 +344,11 @@ export default function PresentationView({
           className={`absolute inset-0 z-10 ${exitClass}`}
           style={{ willChange: "transform, opacity" }}
         >
-          <SlideRenderer slide={slides[prevIndex]} thumbnail={false} />
+          <SlideRenderer
+            slide={slides[prevIndex]}
+            thumbnail={false}
+            aspectRatio={aspectRatio}
+          />
         </div>
       )}
 
@@ -351,7 +358,11 @@ export default function PresentationView({
         className={`absolute inset-0 z-20 ${enterClass}`}
         style={animating ? { willChange: "transform, opacity" } : undefined}
       >
-        <SlideRenderer slide={displaySlide} thumbnail={false} />
+        <SlideRenderer
+          slide={displaySlide}
+          thumbnail={false}
+          aspectRatio={aspectRatio}
+        />
       </div>
 
       {/* Controls overlay */}

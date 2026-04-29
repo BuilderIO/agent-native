@@ -8,6 +8,7 @@ import {
   ReactNode,
 } from "react";
 import { nanoid } from "nanoid";
+import type { AspectRatio } from "@/lib/aspect-ratios";
 
 export type SlideLayout =
   | "title"
@@ -64,6 +65,8 @@ export interface Deck {
   designSystemId?: string;
   /** Per-deck tweak overrides (accent color, title case, etc.) */
   tweaks?: Record<string, string | number | boolean>;
+  /** Slide aspect ratio (defaults to 16:9 when absent for backwards compat) */
+  aspectRatio?: AspectRatio;
 }
 
 export interface HistoryEntry {

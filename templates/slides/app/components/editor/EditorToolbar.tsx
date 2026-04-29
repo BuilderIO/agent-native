@@ -20,6 +20,11 @@ import {
   IconAdjustments,
 } from "@tabler/icons-react";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
+import {
+  ASPECT_RATIO_VALUES,
+  type AspectRatio,
+  DEFAULT_ASPECT_RATIO,
+} from "@/lib/aspect-ratios";
 import ShareDialog from "./ShareDialog";
 import { ExportMenu } from "./ExportMenu";
 import { ImportButton } from "./ImportButton";
@@ -85,6 +90,10 @@ interface EditorToolbarProps {
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
   onExportPdf?: () => void;
+  /** Active deck aspect ratio (defaults to 16:9 when omitted) */
+  aspectRatio?: AspectRatio;
+  /** Change the deck's aspect ratio */
+  onSetAspectRatio?: (ratio: AspectRatio) => void;
 }
 
 const slideLayoutOptions: { value: SlideLayout; label: string }[] = [
@@ -198,7 +207,10 @@ export default function EditorToolbar({
   onToggleTweaks,
   onDuplicateDeck,
   onExportPdf,
+  aspectRatio,
+  onSetAspectRatio,
 }: EditorToolbarProps) {
+  const activeAspectRatio: AspectRatio = aspectRatio ?? DEFAULT_ASPECT_RATIO;
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
 
@@ -460,6 +472,35 @@ graph TD
                   );
                 })}
               </div>
+
+              {/* Aspect Ratio section (deck-level) */}
+              {onSetAspectRatio && (
+                <>
+                  <div className="mx-2 my-1.5 border-t border-white/[0.06]" />
+                  <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+                    Aspect Ratio
+                  </div>
+                  <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">
+                    {ASPECT_RATIO_VALUES.map((r) => {
+                      const active = activeAspectRatio === r;
+                      return (
+                        <button
+                          key={r}
+                          onClick={() => onSetAspectRatio(r)}
+                          className={`px-1.5 py-1 rounded text-[10px] font-medium border ${
+                            active
+                              ? "bg-[#609FF8]/20 text-[#609FF8] border-[#609FF8]/30"
+                              : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent"
+                          }`}
+                          title={`Set deck to ${r}`}
+                        >
+                          {r}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           </ToolbarPopover>
         </>

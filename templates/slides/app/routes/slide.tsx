@@ -4,6 +4,7 @@ import { IconExternalLink } from "@tabler/icons-react";
 import { isInAgentEmbed, postNavigate } from "@agent-native/core/client";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
+import type { AspectRatio } from "@/lib/aspect-ratios";
 
 export function meta() {
   return [{ title: "Slide Preview" }];
@@ -32,6 +33,9 @@ export default function SlideRoute() {
   const slideIndexParam = params.get("slideIndex");
 
   const [slide, setSlide] = useState<Slide | null>(null);
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio | undefined>(
+    undefined,
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -66,6 +70,7 @@ export default function SlideRoute() {
         }
         const idx = Math.max(0, Math.min(slideIndex, slides.length - 1));
         setSlide(slides[idx]);
+        setAspectRatio(deck.aspectRatio);
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -88,7 +93,11 @@ export default function SlideRoute() {
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-black">
-      <SlideRenderer slide={slide} thumbnail={false} />
+      <SlideRenderer
+        slide={slide}
+        thumbnail={false}
+        aspectRatio={aspectRatio}
+      />
 
       {inEmbed && (
         <button

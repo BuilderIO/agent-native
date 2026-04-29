@@ -65,5 +65,11 @@ export default function SharedPresentation() {
   }));
 
   // Use a fake deckId that routes "exit" back to the share page itself
-  return <PresentationView slides={slides} deckId={`__shared__/${token}`} />;
+  return (
+    <PresentationView
+      slides={slides}
+      deckId={`__shared__/${token}`}
+      aspectRatio={deck.aspectRatio}
+    />
+  );
 }
