@@ -48,7 +48,7 @@ import {
   getHeader,
 } from "h3";
 import { agentEnv } from "../shared/agent-env.js";
-import { getSession } from "./auth.js";
+import { getSession, DEV_MODE_USER_EMAIL } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import {
   createThread,
@@ -2338,7 +2338,7 @@ export function createAgentChatPlugin(
       // Mutable owner — set per-request by the production handler, read by
       // automation tools and fetch tool via closure. Declared here (before
       // allScripts) so the tools are in scope when allScripts is built.
-      let _currentRunOwner = "local@localhost";
+      let _currentRunOwner = DEV_MODE_USER_EMAIL;
 
       // Automation tools + fetch tool — depend on _currentRunOwner via callback
       let automationTools: Record<string, ActionEntry> = {};
@@ -2692,12 +2692,12 @@ export function createAgentChatPlugin(
           const mcpTools = actionsToEngineTools(mcpActions);
 
           const resources = await loadResourcesForPrompt(
-            "local@localhost",
+            DEV_MODE_USER_EMAIL,
             lazyContext,
           );
           const schemaBlock = lazyContext
             ? ""
-            : await buildSchemaBlock("local@localhost", devActiveMcp);
+            : await buildSchemaBlock(DEV_MODE_USER_EMAIL, devActiveMcp);
           // Build the MCP handler's own prompt — always use the shell-based
           // dev prompt in dev mode because mcpActions routes template actions
           // through shell (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
@@ -3298,7 +3298,7 @@ export function createAgentChatPlugin(
           const trimmedKey = key.trim();
 
           const ownerEmail = await getOwnerFromEvent(event);
-          if (!ownerEmail || ownerEmail === "local@localhost") {
+          if (!ownerEmail || ownerEmail === DEV_MODE_USER_EMAIL) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
           }
@@ -3386,7 +3386,7 @@ export function createAgentChatPlugin(
           // Query resources
           try {
             const resources = currentDevMode
-              ? await resourceListAccessible("local@localhost")
+              ? await resourceListAccessible(DEV_MODE_USER_EMAIL)
               : await resourceList(SHARED_OWNER);
             for (const r of resources) {
               if (!seen.has(r.path)) {
@@ -3489,7 +3489,7 @@ export function createAgentChatPlugin(
           // Query resources with skills/ prefix
           try {
             const resourceSkills = currentDevMode
-              ? await resourceListAccessible("local@localhost", "skills/")
+              ? await resourceListAccessible(DEV_MODE_USER_EMAIL, "skills/")
               : await resourceList(SHARED_OWNER, "skills/");
             for (const r of resourceSkills) {
               // Try to get content to parse frontmatter
