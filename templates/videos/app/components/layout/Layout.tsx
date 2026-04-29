@@ -30,7 +30,6 @@ function studioRoute(pathname: string): boolean {
 function routeOwnsToolbar(pathname: string): boolean {
   if (studioRoute(pathname)) return true;
   if (pathname.startsWith("/tools")) return true;
-  if (pathname.startsWith("/components")) return true;
   return false;
 }
 

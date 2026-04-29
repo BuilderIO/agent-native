@@ -548,6 +548,42 @@ export default function DesignEditor() {
           </div>
         )}
       </div>
+
+      <PromptPopover
+        open={showPrompt}
+        onOpenChange={setShowPrompt}
+        title="Generate design"
+        placeholder="Describe what you want to build..."
+        skipLabel="Skip prompt"
+        onSkip={() => {
+          agentSubmit(
+            `Generate the initial design files for the "${design.title}" project.`,
+            `The user has design "${id}" open and wants to fill it with files. Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). DO NOT call create-design (the design already exists).`,
+          );
+          setShowPrompt(false);
+        }}
+        onSubmit={(prompt: string, files: UploadedFile[]) => {
+          const fileContext =
+            files.length > 0
+              ? `\n\nThe user uploaded ${files.length} file(s) for context:\n${files.map((f) => `- ${f.originalName} (${f.type}, ${(f.size / 1024).toFixed(1)}KB) at path: ${f.path}`).join("\n")}`
+              : "";
+          const context = [
+            `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
+            `User request: "${prompt}"`,
+            fileContext,
+            "",
+            `Use the \`generate-design --designId="${id}"\` action with one or more files (index.html, etc.). The design already exists — DO NOT call create-design.`,
+            "Each file's content must be complete, self-contained HTML with Alpine.js + Tailwind via CDN. HTML templates are in your AGENTS.md.",
+          ].join("\n");
+          agentSubmit(
+            `Generate design for "${design.title}": ${prompt}`,
+            context,
+          );
+          setShowPrompt(false);
+        }}
+        loading={generating}
+        anchorRef={promptAnchorRef}
+      />
     </div>
   );
 }

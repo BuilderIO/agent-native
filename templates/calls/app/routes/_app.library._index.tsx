@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { useActionQuery } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
+import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,

@@ -13,7 +13,6 @@ import {
   IconCheck,
 } from "@tabler/icons-react";
 import {
-  AgentSidebar,
   sendToAgentChat,
   openAgentSidebar,
   useActionQuery,
@@ -21,6 +20,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
 
 interface GitHubLink {
   id: string;
@@ -339,37 +342,35 @@ export default function DesignSystemSetup() {
     navigate,
   ]);
 
-  return (
-    <AgentSidebar
-      position="right"
-      emptyStateText="I'll help set up your design system"
-      suggestions={[
-        "Analyze my company's website for brand assets",
-        "Create a minimal design system",
-        "Set up a dark theme design system",
-      ]}
-    >
-      <div className="min-h-screen bg-background">
-        <header className="border-b border-border">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-            <button
-              onClick={() => navigate("/design-systems")}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground/90 cursor-pointer"
-            >
-              <IconArrowLeft className="w-4 h-4" />
-              Back
-            </button>
-            <Button
-              size="sm"
-              onClick={handleContinue}
-              disabled={!hasAnySources}
-              className="cursor-pointer"
-            >
-              Continue to generation
-            </Button>
-          </div>
-        </header>
+  useSetPageTitle(
+    <div className="flex items-center gap-2 min-w-0">
+      <button
+        onClick={() => navigate("/design-systems")}
+        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground/90"
+        aria-label="Back to design systems"
+      >
+        <IconArrowLeft className="w-4 h-4" />
+      </button>
+      <h1 className="text-lg font-semibold tracking-tight truncate">
+        Set up design system
+      </h1>
+    </div>,
+  );
 
+  useSetHeaderActions(
+    <Button
+      size="sm"
+      onClick={handleContinue}
+      disabled={!hasAnySources}
+      className="cursor-pointer"
+    >
+      Continue to generation
+    </Button>,
+  );
+
+  return (
+    <>
+      <div className="min-h-full bg-background">
         <main className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-foreground mb-2">

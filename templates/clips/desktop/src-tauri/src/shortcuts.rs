@@ -268,9 +268,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                 }
             };
             let runloop = CFRunLoop::get_current();
-            unsafe {
-                runloop.add_source(&source, kCFRunLoopCommonModes);
-            }
+            runloop.add_source(&source, unsafe { kCFRunLoopCommonModes });
             tap.enable();
             eprintln!("[clips-tray] Fn event tap installed; entering runloop");
 
@@ -286,15 +284,17 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     tap.enable();
                 }
                 CFRunLoop::run_current();
-                // run_current returned — either we asked it to (disable
-                // event), or something else removed our source. In the
-                // latter case avoid a tight spin and try to recover.
+                // run_current returned — either we asked it to (a disable
+                // event flagged needs_reenable above), or something else
+                // removed our source. In the latter case avoid a tight
+                // spin, then re-call enable() defensively (it's idempotent
+                // — calling on an already-enabled tap is a no-op).
                 if !needs_reenable.load(Ordering::SeqCst) {
                     thread::sleep(Duration::from_millis(50));
-                    if !tap.is_enabled() {
-                        eprintln!("[clips-tray] Fn tap reports disabled on runloop exit — re-enabling");
-                        needs_reenable.store(true, Ordering::SeqCst);
-                    }
+                    eprintln!(
+                        "[clips-tray] Fn runloop exited unexpectedly — re-enabling tap"
+                    );
+                    needs_reenable.store(true, Ordering::SeqCst);
                 }
             }
         })

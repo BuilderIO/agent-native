@@ -14,10 +14,8 @@ export function HydrateFallback() {
 
 export default function TeamRoute() {
   return (
-    <div className="flex-1 overflow-y-auto">
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-        <TeamPage createOrgDescription="Set up a team to share compositions and animations with your colleagues." />
-      </main>
-    </div>
+    <main className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+      <TeamPage createOrgDescription="Set up a team to share compositions and animations with your colleagues." />
+    </main>
   );
 }
