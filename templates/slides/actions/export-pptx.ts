@@ -2,6 +2,11 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { resolveAccess } from "@agent-native/core/sharing";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  type AspectRatio,
+  getAspectRatioDims,
+  ASPECT_RATIO_VALUES,
+} from "../shared/aspect-ratios.js";
 
 /**
  * Extract inline style value for a given property from a style string.
@@ -52,11 +57,14 @@ function colorToHex(color: string): string {
 }
 
 /**
- * Convert CSS px value to inches (PowerPoint uses inches).
- * Slides are 960px = 13.33in, so 1px = 13.33/960 in.
+ * Convert CSS px value to inches at a given slide width.
+ * The mapping depends on the aspect ratio: pxPerIn = pxWidth / inchWidth.
  */
-function pxToIn(px: number): number {
-  return (px / 960) * 13.33;
+function pxToIn(
+  px: number,
+  dims: { width: number; pptxInches: { w: number } },
+): number {
+  return (px / dims.width) * dims.pptxInches.w;
 }
 
 /**
@@ -94,7 +102,10 @@ interface ImageElement {
  * Parse slide HTML and extract text/image elements with positioning.
  * We know the exact HTML structure from the slide templates.
  */
-function parseSlideHtml(html: string): {
+function parseSlideHtml(
+  html: string,
+  aspectRatio?: AspectRatio,
+): {
   texts: TextElement[];
   images: ImageElement[];
   bgColor: string;
@@ -103,15 +114,16 @@ function parseSlideHtml(html: string): {
   const images: ImageElement[] = [];
   let bgColor = "000000";
 
+  const dims = getAspectRatioDims(aspectRatio);
+  const slideW = dims.pptxInches.w;
+  const slideH = dims.pptxInches.h;
+
   // Check for background color on the outer .fmd-slide div
   const slideStyleMatch = html.match(/class="fmd-slide"[^>]*style="([^"]*)"/);
   if (slideStyleMatch) {
     const bg = getStyle(slideStyleMatch[1], "background(?:-color)?");
     if (bg) bgColor = colorToHex(bg);
   }
-
-  // Slide dimensions: 960 x 540 mapped to 13.33 x 7.5 inches
-  const slideW = 13.33;
 
   // Extract padding from the .fmd-slide wrapper
   const paddingStr = slideStyleMatch
@@ -127,9 +139,9 @@ function parseSlideHtml(html: string): {
     }
   }
 
-  const xMargin = pxToIn(padLeft);
+  const xMargin = pxToIn(padLeft, dims);
   const contentW = slideW - 2 * xMargin;
-  let yPos = pxToIn(padTop);
+  let yPos = pxToIn(padTop, dims);
 
   // Check if the slide is vertically centered (justify-content: center)
   const isCentered =
@@ -188,8 +200,8 @@ function parseSlideHtml(html: string): {
       }
       totalHeight += fontSize * 1.3 + marginBottom;
     }
-    yPos = (7.5 - pxToIn(totalHeight)) / 2;
-    if (yPos < pxToIn(padTop)) yPos = pxToIn(padTop);
+    yPos = (slideH - pxToIn(totalHeight, dims)) / 2;
+    if (yPos < pxToIn(padTop, dims)) yPos = pxToIn(padTop, dims);
   }
 
   for (const el of elements) {
@@ -233,17 +245,19 @@ function parseSlideHtml(html: string): {
         src: imgSrc,
         x: xMargin,
         y: yPos,
-        w: imgW ? pxToIn(parseInt(imgW)) : contentW,
-        h: imgH ? pxToIn(parseInt(imgH)) : pxToIn(300),
+        w: imgW ? pxToIn(parseInt(imgW), dims) : contentW,
+        h: imgH ? pxToIn(parseInt(imgH), dims) : pxToIn(300, dims),
       });
-      yPos += imgH ? pxToIn(parseInt(imgH)) + 0.2 : pxToIn(300) + 0.2;
+      yPos += imgH
+        ? pxToIn(parseInt(imgH), dims) + 0.2
+        : pxToIn(300, dims) + 0.2;
     }
 
     if (text) {
       // Calculate element height based on font size and line count
       const lineCount = Math.max(1, text.split("\n").length);
       const lineH = lineHeight ? parseFloat(lineHeight) : 1.3;
-      const elHeight = pxToIn(fontSize * lineH * lineCount);
+      const elHeight = pxToIn(fontSize * lineH * lineCount, dims);
 
       // Extract margin-bottom
       const marginStr = getStyle(style, "margin");
@@ -272,7 +286,7 @@ function parseSlideHtml(html: string): {
         lineSpacing: lineH ? Math.round(lineH * pxToPt(fontSize)) : undefined,
       });
 
-      yPos += elHeight + pxToIn(marginBottom) + 0.1;
+      yPos += elHeight + pxToIn(marginBottom, dims) + 0.1;
     }
   }
 
@@ -349,17 +363,39 @@ export default defineAction({
     const row = access.resource;
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
+    const rawAspectRatio = deckData.aspectRatio;
+    const aspectRatio: AspectRatio | undefined = ASPECT_RATIO_VALUES.includes(
+      rawAspectRatio,
+    )
+      ? rawAspectRatio
+      : undefined;
+    const dims = getAspectRatioDims(aspectRatio);
 
     const PptxGenJS = (await import("pptxgenjs")).default;
     const pptx = new PptxGenJS();
 
-    pptx.layout = "LAYOUT_WIDE"; // 13.33 x 7.5 inches (16:9)
+    if (
+      Math.abs(dims.pptxInches.w - 13.33) < 0.01 &&
+      Math.abs(dims.pptxInches.h - 7.5) < 0.01
+    ) {
+      pptx.layout = "LAYOUT_WIDE"; // built-in 16:9
+    } else {
+      pptx.defineLayout({
+        name: "AGENT_NATIVE",
+        width: dims.pptxInches.w,
+        height: dims.pptxInches.h,
+      });
+      pptx.layout = "AGENT_NATIVE";
+    }
     pptx.author = "Agent Native Slides";
     pptx.title = row.title;
 
     for (const slide of slides) {
       const pptxSlide = pptx.addSlide();
-      const { texts, images, bgColor } = parseSlideHtml(slide.content || "");
+      const { texts, images, bgColor } = parseSlideHtml(
+        slide.content || "",
+        aspectRatio,
+      );
 
       pptxSlide.background = { color: bgColor };
 

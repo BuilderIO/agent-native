@@ -17,6 +17,7 @@ import {
   IconArrowUp,
 } from "@tabler/icons-react";
 import type { Slide } from "@/context/DeckContext";
+import type { AspectRatio } from "@/lib/aspect-ratios";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
@@ -39,6 +40,8 @@ interface EditorSidebarProps {
   onDeleteSlide: (id: string) => void;
   /** Presence map: slideId → list of users currently viewing that slide */
   slidePresence?: Map<string, CollabUser[]>;
+  /** Deck aspect ratio (defaults to 16:9 when omitted) */
+  aspectRatio?: AspectRatio;
 }
 
 /** Small presence avatar circle with hover card showing name + email */
@@ -109,6 +112,7 @@ function SortableSlideThumb({
   onDuplicate,
   onDelete,
   presenceUsers = [],
+  aspectRatio,
 }: {
   slide: Slide;
   index: number;
@@ -117,6 +121,7 @@ function SortableSlideThumb({
   onDuplicate: () => void;
   onDelete: () => void;
   presenceUsers?: CollabUser[];
+  aspectRatio?: AspectRatio;
 }) {
   const {
     attributes,
@@ -168,7 +173,7 @@ function SortableSlideThumb({
                   : "rgba(255,255,255,0.06)",
             }}
           >
-            <SlideRenderer slide={slide} />
+            <SlideRenderer slide={slide} aspectRatio={aspectRatio} />
           </div>
           {/* Presence avatars — show who's on this slide */}
           {presenceUsers.length > 0 && (
@@ -470,6 +475,7 @@ export default function EditorSidebar({
   onDuplicateSlide,
   onDeleteSlide,
   slidePresence,
+  aspectRatio,
 }: EditorSidebarProps) {
   const activeIndex = slides.findIndex((s) => s.id === activeSlideId);
   const [addOpen, setAddOpen] = useState(false);
@@ -549,6 +555,7 @@ export default function EditorSidebar({
               onDuplicate={() => onDuplicateSlide(slide.id)}
               onDelete={() => onDeleteSlide(slide.id)}
               presenceUsers={slidePresence?.get(slide.id) ?? []}
+              aspectRatio={aspectRatio}
             />
           ))}
         </SortableContext>
