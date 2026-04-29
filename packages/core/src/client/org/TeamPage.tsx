@@ -1011,14 +1011,17 @@ export function TeamPage({
         </section>
       )}
 
+      {/* guard:allow-localhost-fallback — client-side dev-mode UI: shows sign-in prompt when running in local mode */}
       {!isLoading && org?.email === "local@localhost" && (
         <LocalModeSignInCard />
       )}
 
+      {/* guard:allow-localhost-fallback — client-side dev-mode UI: hides migration card while still in local mode */}
       {!isLoading && org?.email !== "local@localhost" && (
         <MigrationStatusCard state={migration} />
       )}
 
+      {/* guard:allow-localhost-fallback — client-side dev-mode UI: hides team management while still in local mode */}
       {!isLoading && org?.email !== "local@localhost" && !isMigrating && (
         <>
           <PendingInvitationsCard />
