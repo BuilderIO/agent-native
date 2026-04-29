@@ -114,11 +114,7 @@ async function dispatch(
   }
 
   // DELETE /:slotId/install/:toolId — uninstall
-  if (
-    method === "DELETE" &&
-    parts.length === 3 &&
-    parts[1] === "install"
-  ) {
+  if (method === "DELETE" && parts.length === 3 && parts[1] === "install") {
     await uninstallToolSlot(parts[2], parts[0]);
     recordChange({ source: "action", type: "change" });
     return { ok: true };

@@ -324,9 +324,7 @@ export async function cascadeDeleteToolSlots(toolId: string): Promise<void> {
   await ensureSlotTables();
   const db = getDb();
   await db.delete(toolSlots).where(eq(toolSlots.toolId, toolId));
-  await db
-    .delete(toolSlotInstalls)
-    .where(eq(toolSlotInstalls.toolId, toolId));
+  await db.delete(toolSlotInstalls).where(eq(toolSlotInstalls.toolId, toolId));
 }
 
 function requireUserEmail(): string {

@@ -98,7 +98,7 @@ Connect any data source, prompt for any chart. Build reusable dashboards, not th
 
 **Clips**
 
-<a href="https://agent-native.com/templates/clips"><img src="https://placehold.co/800x600/625DF5/FFFFFF?text=Clips" alt="Clips template" width="100%" /></a>
+<a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7366585df5a545e697e254bb0138182d?format=webp&width=800" alt="Clips template" width="100%" /></a>
 
 **AI-native async screen recording**
 
@@ -120,7 +120,7 @@ Create and edit visual designs by prompt or by hand, with the agent as your co-d
 
 **Dispatch**
 
-<a href="https://agent-native.com/templates/dispatch"><img src="https://placehold.co/800x600/14B8A6/FFFFFF?text=Dispatch" alt="Dispatch template" width="100%" /></a>
+<a href="https://agent-native.com/templates/dispatch"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F104b3ad8d1dc461aa33ab9bff37a4482?format=webp&width=800" alt="Dispatch template" width="100%" /></a>
 
 **Mission control for agent-native apps**
 
@@ -133,7 +133,7 @@ Centralized messaging and management for every agent in your stack. Talk to your
 
 **Forms**
 
-<a href="https://agent-native.com/templates/forms"><img src="https://placehold.co/800x600/06B6D4/FFFFFF?text=Forms" alt="Forms template" width="100%" /></a>
+<a href="https://agent-native.com/templates/forms"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190c3fabd51f4c1bba5aa4e091ad4e9b?format=webp&width=800" alt="Forms template" width="100%" /></a>
 
 **AI-Native Typeform**
 

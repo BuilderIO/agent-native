@@ -87,7 +87,8 @@ export const templates = [
     description:
       "Async screen recording with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.",
     color: "#625DF5",
-    screenshot: "",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7366585df5a545e697e254bb0138182d?format=webp&width=800",
   },
   {
     name: "Design",
@@ -109,7 +110,8 @@ export const templates = [
     description:
       "Centralized messaging and management for every agent in your stack. Talk to your agents from Slack, Telegram, or the web; route jobs, hold memory, approve actions, and delegate across apps over A2A.",
     color: "#14B8A6",
-    screenshot: "",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F104b3ad8d1dc461aa33ab9bff37a4482?format=webp&width=800",
   },
   {
     name: "Forms",
@@ -120,7 +122,8 @@ export const templates = [
     description:
       "AI-native form builder. Generate forms from a prompt, branch logic with the agent, and own every response in your own database.",
     color: "#06B6D4",
-    screenshot: "",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190c3fabd51f4c1bba5aa4e091ad4e9b?format=webp&width=800",
   },
 ];
 
