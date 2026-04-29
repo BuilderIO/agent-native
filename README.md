@@ -24,52 +24,124 @@ Start from a complete, production-grade SaaS app. Each one replaces tools you're
 
 <table>
 <tr>
-<td width="50%" align="center" valign="top">
+<td width="33%" align="center" valign="top">
+
+**Mail**
+
+<a href="https://agent-native.com/templates/mail"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Mail template" width="100%" /></a>
+
+**AI-Native Mail, Superhuman**
+
+Superhuman-style email client with keyboard shortcuts, AI triage, and a fully customizable inbox you own.
+
+</td>
+<td width="33%" align="center" valign="top">
+
+**Calendar**
+
+<a href="https://agent-native.com/templates/calendar"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800" alt="Calendar template" width="100%" /></a>
+
+**AI-Native Google Calendar, Calendly**
+
+Manage events, sync with Google Calendar, and share a public booking page with AI scheduling.
+
+</td>
+<td width="33%" align="center" valign="top">
+
+**Content**
+
+<a href="https://agent-native.com/templates/content"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800" alt="Content template" width="100%" /></a>
+
+**AI-Native Notion, Google Docs**
+
+Write and organize content with an agent that knows your brand and publishing workflow.
+
+</td>
+</tr>
+<tr>
+<td width="33%" align="center" valign="top">
+
+**Slides**
+
+<a href="https://agent-native.com/templates/slides"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800" alt="Slides template" width="100%" /></a>
+
+**AI-Native Google Slides, Pitch**
+
+Generate and edit React-based presentations via prompt or point-and-click.
+
+</td>
+<td width="33%" align="center" valign="top">
+
+**Video**
+
+<a href="https://agent-native.com/templates/video"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b8bfcc18a1d4c47a491da3b2d4148a4?format=webp&width=800" alt="Video template" width="100%" /></a>
+
+**AI-Native video editing**
+
+Create and edit Remotion video compositions with agent assistance.
+
+</td>
+<td width="33%" align="center" valign="top">
+
+**Analytics**
+
+<a href="https://agent-native.com/templates/analytics"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800" alt="Analytics template" width="100%" /></a>
+
+**AI-Native Amplitude, Mixpanel**
+
+Connect any data source, prompt for any chart. Build reusable dashboards, not throwaway Q&A.
+
+</td>
+</tr>
+<tr>
+<td width="33%" align="center" valign="top">
 
 **Clips**
 
-<a href="https://agent-native.com/templates/clips"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Clips template" width="100%" /></a>
+<a href="https://agent-native.com/templates/clips"><img src="https://placehold.co/800x600/625DF5/FFFFFF?text=Clips" alt="Clips template" width="100%" /></a>
 
 **Async screen recording for teams**
 
 Record your screen with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.
 
 </td>
-<td width="50%" align="center" valign="top">
+<td width="33%" align="center" valign="top">
 
 **Design**
 
-<a href="https://agent-native.com/templates/design"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Design template" width="100%" /></a>
+<a href="https://agent-native.com/templates/design"><img src="https://placehold.co/800x600/F472B6/FFFFFF?text=Design" alt="Design template" width="100%" /></a>
 
 **AI-Native Figma, Canva**
 
 Create and edit visual designs by prompt or by hand, with the agent as your co-designer.
 
 </td>
-</tr>
-<tr>
-<td width="50%" align="center" valign="top">
+<td width="33%" align="center" valign="top">
 
 **Dispatch**
 
-<a href="https://agent-native.com/templates/dispatch"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Dispatch template" width="100%" /></a>
+<a href="https://agent-native.com/templates/dispatch"><img src="https://placehold.co/800x600/14B8A6/FFFFFF?text=Dispatch" alt="Dispatch template" width="100%" /></a>
 
 **Central agent router**
 
 Talk to your agents from Slack or Telegram. Dispatch routes work, manages jobs, memory, approvals, and A2A delegation across every app.
 
 </td>
-<td width="50%" align="center" valign="top">
+</tr>
+<tr>
+<td width="33%" align="center" valign="top">
 
 **Forms**
 
-<a href="https://agent-native.com/templates/forms"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800" alt="Forms template" width="100%" /></a>
+<a href="https://agent-native.com/templates/forms"><img src="https://placehold.co/800x600/06B6D4/FFFFFF?text=Forms" alt="Forms template" width="100%" /></a>
 
 **AI-Native Typeform**
 
 Generate forms from a prompt, branch logic with the agent, and own every response in your own database.
 
 </td>
+<td width="33%" align="center" valign="top"></td>
+<td width="33%" align="center" valign="top"></td>
 </tr>
 </table>
 
@@ -84,12 +156,12 @@ pnpm install
 pnpm dev
 ```
 
-The CLI shows a multi-select picker so you can include as many templates as you want in one workspace. Pick Clips + Forms + Dispatch and you get all three apps wired up and sharing auth in one go. Or browse the **[template gallery](https://agent-native.com/templates)** for live demos.
+The CLI shows a multi-select picker so you can include as many templates as you want in one workspace. Pick Mail + Calendar + Forms and you get all three apps wired up and sharing auth in one go. Or browse the **[template gallery](https://agent-native.com/templates)** for live demos.
 
 Want a single app, no monorepo? Use `--standalone`:
 
 ```bash
-npx @agent-native/core create my-app --standalone --template clips
+npx @agent-native/core create my-app --standalone --template mail
 ```
 
 ## Workspaces (Monorepo)
@@ -104,15 +176,15 @@ my-platform/
 ├── packages/
 │   └── core-module/               # shared auth, agent-chat plugin, skills, Tailwind v4 design tokens
 └── apps/
-    ├── clips/
-    ├── dispatch/
+    ├── mail/
+    ├── calendar/
     └── forms/
 ```
 
 Add another app later:
 
 ```bash
-agent-native add-app design-app --template design
+agent-native add-app notes --template content
 ```
 
 Deploy every app behind one origin:
