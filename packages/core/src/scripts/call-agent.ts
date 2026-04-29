@@ -128,49 +128,29 @@ export async function run(
         responseText = newText;
       };
 
-      let streamErr: any = null;
+      // Skip the SSE streaming attempt and go straight to async + poll.
+      // Why: on Netlify (Lambda), the receiving server has no streaming
+      // response support, so message/stream returns a single JSON-RPC error
+      // body in a 200 response that our SSE parser silently consumes — the
+      // `for await` loop yields nothing AND keeps the connection open until
+      // the function timeout, eating the 26s budget. By the time we get to
+      // the sync fallback, Lambda is dead and the second fetch errors out
+      // as "fetch failed". Async+poll has its own short fetches with their
+      // own budgets, so it works reliably across hosts. The trade-off is
+      // we lose progressive in-UI text streaming for cross-app A2A calls,
+      // but the receiving agent's full response still surfaces via the
+      // tool_result event below.
       try {
-        for await (const task of client.stream(
-          {
-            role: "user",
-            parts: [{ type: "text", text: message }],
-          },
-          Object.keys(a2aMetadata).length > 0
-            ? { metadata: a2aMetadata }
-            : undefined,
-        )) {
-          const newText =
-            task.status?.message?.parts
-              ?.filter(
-                (p): p is { type: "text"; text: string } => p.type === "text",
-              )
-              ?.map((p) => p.text)
-              ?.join("") ?? "";
-          emitNewText(newText);
-        }
-      } catch (err: any) {
-        streamErr = err;
-      }
-
-      // Fall back to sync send if streaming threw OR yielded nothing. The
-      // "yielded nothing" case happens on Netlify because the receiving
-      // function has no node response stream available, so the streaming
-      // endpoint replies with a JSON-RPC error body in a single 200 response
-      // that our SSE parser silently skips (no `data: ` lines).
-      if (!responseText) {
-        try {
-          responseText = await callAgent(agent.url, message, {
-            userEmail: callerEmail,
-            orgDomain: callerOrgDomain,
-            orgSecret: callerOrgSecret,
-          });
-          // Mirror the response into the streaming UI so the user sees it.
-          if (responseText) emitNewText(responseText);
-        } catch (pollErr: any) {
-          const reason =
-            pollErr?.message ?? streamErr?.message ?? "unknown error";
-          responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
-        }
+        responseText = await callAgent(agent.url, message, {
+          userEmail: callerEmail,
+          orgDomain: callerOrgDomain,
+          orgSecret: callerOrgSecret,
+        });
+        // Mirror the response into the streaming UI so the user sees it.
+        if (responseText) emitNewText(responseText);
+      } catch (pollErr: any) {
+        const reason = pollErr?.message ?? "unknown error";
+        responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
       }
 
       context.send({
