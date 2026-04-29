@@ -4,17 +4,16 @@ import { templates, trackEvent } from "../components/TemplateCard";
 
 export const meta = () => [
   {
-    title: "AI-Native Clips — Open Source Async Screen Recording & Loom Alternative",
+    title: "AI-Native Clips — Open Source Async Screen Recording",
   },
   {
     name: "description",
     content:
-      "Record your screen, camera, and audio with one click. Get auto-transcripts, instant share links, and AI-powered summaries. Open source alternative to Loom — own your recordings, own your data.",
+      "Record your screen, camera, and audio with one click. Get auto-transcripts, instant share links, and AI-powered summaries. Open source async screen recording — own your recordings, own your data.",
   },
   {
     property: "og:title",
-    content:
-      "AI-Native Clips — Open Source Async Screen Recording & Loom Alternative",
+    content: "AI-Native Clips — Open Source Async Screen Recording",
   },
   {
     property: "og:description",
@@ -24,7 +23,7 @@ export const meta = () => [
   {
     name: "keywords",
     content:
-      "screen recording, async video, Loom alternative, open source screen recorder, AI transcripts, AI video summaries, agent-native clips, screen capture, video messaging, async communication, shareable video links",
+      "screen recording, async video, open source screen recorder, AI transcripts, AI video summaries, agent-native clips, screen capture, video messaging, async communication, shareable video links",
   },
 ];
 
@@ -124,9 +123,9 @@ export default function ClipsTemplate() {
             </h1>
 
             <p className="mb-6 text-lg leading-relaxed text-[var(--fg-secondary)]">
-              Record screen, camera, and audio in one click. Get auto-transcripts,
-              AI summaries, and a shareable link — all backed by an agent you
-              own. No vendor lock-in, no per-seat fees.
+              Record screen, camera, and audio in one click. Get
+              auto-transcripts, AI summaries, and a shareable link — all backed
+              by an agent you own. No vendor lock-in, no per-seat fees.
             </p>
 
             <div className="mb-8 flex flex-wrap items-center gap-3">
