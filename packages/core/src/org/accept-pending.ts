@@ -1,5 +1,6 @@
 import { getDbExec } from "../db/client.js";
 import { putUserSetting } from "../settings/user-settings.js";
+import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
@@ -27,7 +28,7 @@ export async function acceptPendingInvitationsForEmail(
   rawEmail: string,
 ): Promise<AcceptPendingResult> {
   const email = rawEmail.trim().toLowerCase();
-  if (!email || email === "local@localhost") {
+  if (!email || email === DEV_MODE_USER_EMAIL) {
     return { accepted: [], activeOrgId: null };
   }
 
