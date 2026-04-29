@@ -126,6 +126,7 @@ async function ensureToolDataScope(
   await addCol("scope", "TEXT NOT NULL DEFAULT 'user'");
   await addCol("org_id", "TEXT");
   await addCol("scope_key", "TEXT NOT NULL DEFAULT 'local@localhost'");
+  // guard:allow-localhost-fallback — one-time backfill migration that replaces the dev-mode DEFAULT scope_key with each row's real owner_email; not a per-request fallback
   await client.execute(
     `UPDATE tool_data SET scope_key = owner_email WHERE scope_key = 'local@localhost' AND owner_email != 'local@localhost'`,
   );

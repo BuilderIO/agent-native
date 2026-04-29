@@ -27,7 +27,7 @@ import {
 } from "h3";
 import { readAppSecret } from "../secrets/storage.js";
 import { resolveCredential } from "../credentials/index.js";
-import { getSession } from "./auth.js";
+import { getSession, DEV_MODE_USER_EMAIL } from "./auth.js";
 import { appStateGet } from "../application-state/store.js";
 import { resolveHasBuilderPrivateKey } from "./credential-provider.js";
 import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
@@ -125,7 +125,7 @@ export function createTranscribeVoiceHandler() {
     // Resolve provider preference from application_state.
     const session = await getSession(event).catch(() => null);
     const sessionId =
-      session?.email === "local@localhost"
+      session?.email === DEV_MODE_USER_EMAIL
         ? "local"
         : (session?.email ?? "local");
     let providerPref: string | undefined;

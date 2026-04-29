@@ -40,7 +40,7 @@ import {
   putUserSetting,
   deleteUserSetting,
 } from "../settings/user-settings.js";
-import { getSession, isDevEnvironment } from "./auth.js";
+import { getSession, isDevEnvironment, DEV_MODE_USER_EMAIL } from "./auth.js";
 import { isLocalDatabase } from "../db/client.js";
 import { getOrigin } from "./google-oauth.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
@@ -431,7 +431,7 @@ export function createCoreRoutesPlugin(
         // on. Allow it only when the environment explicitly opts into
         // local mode (dev, tests, or AUTH_MODE=local).
         if (
-          session.email === "local@localhost" &&
+          session.email === DEV_MODE_USER_EMAIL &&
           process.env.NODE_ENV === "production" &&
           process.env.AUTH_MODE !== "local"
         ) {

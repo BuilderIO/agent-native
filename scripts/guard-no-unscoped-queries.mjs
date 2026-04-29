@@ -536,41 +536,43 @@ function walkBackToChainHead(contents, idx) {
 }
 
 /**
- * Return the text of `block` with all nested sub-blocks (children) that
- * do NOT contain `queryOffset` replaced by whitespace. This is the
- * "direct" content of the block — sibling sub-blocks are stripped so
- * their access-control statements don't accidentally defuse a buggy
- * sibling. The sub-block that DOES contain the query is left in place
- * (so its inline `.where(accessFilter(...))` still counts).
+ * Return the text of `block` with EVERY descendant sub-block that does
+ * NOT contain `queryOffset` replaced by whitespace. This is the "direct
+ * scope" content of the block — every branch that doesn't lead to the
+ * query is stripped so sibling branches can't defuse a buggy branch.
+ * Branches that lead to the query are kept (so their inline access
+ * control still counts).
  */
 function directBlockText(contents, block, blocks, queryOffset) {
-  const childBlocks = blocks.filter(
-    (b) =>
-      b.open > block.open &&
-      b.close < block.close &&
-      // Only direct children — exclude nested grandchildren.
-      !blocks.some(
-        (p) =>
-          p !== b &&
-          p !== block &&
-          p.open > block.open &&
-          p.close < block.close &&
-          p.open < b.open &&
-          p.close > b.close,
-      ),
-  );
+  // Collect every descendant of `block` that does NOT contain
+  // queryOffset. Process from the END backwards so byte offsets remain
+  // stable.
+  const descendants = blocks
+    .filter((b) => b.open > block.open && b.close < block.close)
+    .filter((b) => !(b.open <= queryOffset && b.close >= queryOffset))
+    // Keep only "outermost" non-containing descendants so we don't blank
+    // the same range twice.
+    .filter(
+      (b) =>
+        !blocks.some(
+          (p) =>
+            p !== b &&
+            p !== block &&
+            p.open > block.open &&
+            p.close < block.close &&
+            p.open < b.open &&
+            p.close > b.close &&
+            !(p.open <= queryOffset && p.close >= queryOffset),
+        ),
+    )
+    .sort((a, b) => b.open - a.open);
+
   let result = contents.slice(block.open, block.close + 1);
-  // Replace the contents of each sibling child (one that doesn't contain
-  // queryOffset) with whitespace, preserving line counts.
-  // We process from the END of the block backward so offsets remain
-  // stable for earlier replacements.
-  const sortedChildren = [...childBlocks].sort((a, b) => b.open - a.open);
-  for (const child of sortedChildren) {
-    if (child.open <= queryOffset && child.close >= queryOffset) continue;
+  for (const child of descendants) {
     const start = child.open - block.open;
     const end = child.close - block.open;
+    if (start < 0 || end >= result.length) continue;
     const inner = result.slice(start + 1, end);
-    // Preserve newlines so line numbers in error messages stay sane.
     const blanked = inner.replace(/[^\n]/g, " ");
     result = result.slice(0, start + 1) + blanked + result.slice(end);
   }

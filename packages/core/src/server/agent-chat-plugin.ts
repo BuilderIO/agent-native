@@ -3638,7 +3638,7 @@ export function createAgentChatPlugin(
               (async () => {
                 try {
                   const resources = currentDevMode
-                    ? await resourceListAccessible("local@localhost")
+                    ? await resourceListAccessible(DEV_MODE_USER_EMAIL)
                     : await resourceList(SHARED_OWNER);
                   flush(
                     resources.map((r) => {
