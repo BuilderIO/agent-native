@@ -8,4 +8,6 @@ export const coreDbScripts: Record<string, (args: string[]) => Promise<void>> =
       import("./check-scoping.js").then((m) => m.default(args)),
     "db-wipe-leaked-builder-keys": (args) =>
       import("./wipe-leaked-builder-keys.js").then((m) => m.default(args)),
+    "db-migrate-user-api-keys": (args) =>
+      import("./migrate-user-api-keys.js").then((m) => m.default(args)),
   };
