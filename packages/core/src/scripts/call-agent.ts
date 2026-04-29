@@ -167,6 +167,11 @@ export async function run(
           orgSecret: callerOrgSecret,
           ...(callTimeoutMs ? { timeoutMs: callTimeoutMs } : {}),
         });
+        // Some agents reply with relative paths (e.g. slides emits
+        // "/deck/abc"). Those resolve against the caller's host, not the
+        // receiver's, so they're broken for the user. Expand any leading-slash
+        // URL into a fully-qualified one rooted at the receiving agent's host.
+        responseText = expandRelativeUrls(responseText, agent.url);
         // Mirror the response into the streaming UI so the user sees it.
         if (responseText) emitNewText(responseText);
       } catch (pollErr: any) {
@@ -202,7 +207,7 @@ export async function run(
       orgDomain: domain,
       orgSecret,
     });
-    return response || "(empty response)";
+    return expandRelativeUrls(response, agent.url) || "(empty response)";
   } catch (err: any) {
     const msg = err?.message ?? String(err);
     // Friendlier message for the common timeout case so the calling agent can
@@ -212,4 +217,21 @@ export async function run(
     }
     return `Error calling ${agent.name}: ${msg}`;
   }
+}
+
+// Expand bare leading-slash paths (e.g. "/deck/abc") into fully-qualified URLs
+// rooted at the receiving agent's host. The receiver doesn't always know it's
+// being called cross-app, so it may emit relative paths that resolve against
+// the caller's host (broken). Match a path that starts at a word boundary,
+// begins with `/`, and has at least one path segment after that. Skip if it
+// already looks like a fully-qualified URL.
+export function expandRelativeUrls(text: string, agentUrl: string): string {
+  if (!text || !agentUrl) return text;
+  const base = agentUrl.replace(/\/$/, "");
+  // Path must start at boundary (start, whitespace, or punctuation that isn't
+  // ':' — to avoid mangling `https://example.com/foo` or markdown link bodies).
+  return text.replace(
+    /(^|[\s(\[<"'`])(\/[a-z0-9_-][a-z0-9_/?&=%#.,:-]*)/gi,
+    (_match, lead, path) => `${lead}${base}${path}`,
+  );
 }
