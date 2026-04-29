@@ -307,6 +307,57 @@ export function buildToolHtml(
 	    }
 	  </style>
 	  <script>
+	    // Extension-point slot context: when a tool is rendered embedded inside an
+	    // ExtensionSlot, the host pushes a context object via postMessage. Tools
+	    // read it synchronously via window.slotContext or subscribe to changes
+	    // via window.onSlotContext(fn). When rendered full-page (no ?slot= param),
+	    // slotContext stays null and tools branch on that.
+	    window.slotContext = null;
+	    var _slotContextSubscribers = [];
+	    window.onSlotContext = function(fn) {
+	      _slotContextSubscribers.push(fn);
+	      if (window.slotContext !== null) {
+	        try { fn(window.slotContext); } catch(_) {}
+	      }
+	      return function() {
+	        _slotContextSubscribers = _slotContextSubscribers.filter(function(f) { return f !== fn; });
+	      };
+	    };
+	    window.addEventListener('message', function(event) {
+	      var msg = event.data;
+	      if (!msg || msg.type !== 'agent-native-slot-context') return;
+	      window.slotContext = msg.context || {};
+	      _slotContextSubscribers.forEach(function(fn) {
+	        try { fn(window.slotContext); } catch(_) {}
+	      });
+	    });
+
+	    // Auto-resize the iframe to its content when running in slot mode. The
+	    // host listens for agent-native-tool-resize and adjusts the iframe height.
+	    if (new URLSearchParams(location.search).get('slot')) {
+	      var _lastH = 0;
+	      var _reportHeight = function() {
+	        var h = Math.max(
+	          document.documentElement.scrollHeight,
+	          document.body ? document.body.scrollHeight : 0,
+	        );
+	        if (h !== _lastH) {
+	          _lastH = h;
+	          window.parent.postMessage({ type: 'agent-native-tool-resize', height: h }, '*');
+	        }
+	      };
+	      if (typeof ResizeObserver !== 'undefined') {
+	        var _ro = new ResizeObserver(_reportHeight);
+	        document.addEventListener('DOMContentLoaded', function() {
+	          _ro.observe(document.documentElement);
+	          if (document.body) _ro.observe(document.body);
+	        });
+	      }
+	      // Initial reports — Alpine takes a tick to render after DOMContentLoaded.
+	      setTimeout(_reportHeight, 50);
+	      setTimeout(_reportHeight, 250);
+	    }
+
 	    window.addEventListener('message', function(event) {
 	      var msg = event.data;
 	      if (!msg || msg.type !== 'agent-native-theme-update') return;
