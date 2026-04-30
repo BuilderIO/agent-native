@@ -24,12 +24,14 @@
  */
 
 import {
+  createError,
   defineEventHandler,
   readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
 import { assertAccess } from "@agent-native/core/sharing";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 
 interface DirectUploadBody {
   callId?: string;
@@ -212,59 +214,69 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "callId is required" };
   }
 
-  try {
-    await assertAccess("call", callId, "editor");
-  } catch {
-    setResponseStatus(event, 403);
-    return { error: "Forbidden" };
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
 
-  const cfg = readCloudConfig();
-  if (!cfg) {
-    // Safe fallback — let the client degrade to the chunked endpoint.
-    return {
-      mode: "chunked" as const,
-      chunkUrl: `/api/uploads/${callId}/chunk`,
-      reason:
-        "Cloud storage is not configured. Set S3_* or R2_* env vars (bucket, access key, secret, endpoint) to enable direct uploads.",
-    };
-  }
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    async () => {
+      try {
+        await assertAccess("call", callId, "editor");
+      } catch {
+        setResponseStatus(event, 403);
+        return { error: "Forbidden" };
+      }
 
-  const ext = extFor(contentType);
-  const stamp = Date.now();
-  const rand = Math.random().toString(36).slice(2, 10);
-  const objectKey = `calls/${callId}/media-${stamp}-${rand}.${ext}`;
-  const expiresInSeconds = 15 * 60;
+      const cfg = readCloudConfig();
+      if (!cfg) {
+        // Safe fallback — let the client degrade to the chunked endpoint.
+        return {
+          mode: "chunked" as const,
+          chunkUrl: `/api/uploads/${callId}/chunk`,
+          reason:
+            "Cloud storage is not configured. Set S3_* or R2_* env vars (bucket, access key, secret, endpoint) to enable direct uploads.",
+        };
+      }
 
-  let uploadUrl: string;
-  try {
-    uploadUrl = await presignPutUrl(
-      cfg,
-      objectKey,
-      contentType,
-      expiresInSeconds,
-    );
-  } catch (err) {
-    console.error("[calls] presign failed:", err);
-    return {
-      mode: "chunked" as const,
-      chunkUrl: `/api/uploads/${callId}/chunk`,
-      reason:
-        err instanceof Error ? err.message : "Failed to presign upload URL",
-    };
-  }
+      const ext = extFor(contentType);
+      const stamp = Date.now();
+      const rand = Math.random().toString(36).slice(2, 10);
+      const objectKey = `calls/${callId}/media-${stamp}-${rand}.${ext}`;
+      const expiresInSeconds = 15 * 60;
 
-  const publicUrl = cfg.publicBaseUrl
-    ? `${cfg.publicBaseUrl}/${objectKey}`
-    : `${cfg.endpoint}/${cfg.bucket}/${objectKey}`;
+      let uploadUrl: string;
+      try {
+        uploadUrl = await presignPutUrl(
+          cfg,
+          objectKey,
+          contentType,
+          expiresInSeconds,
+        );
+      } catch (err) {
+        console.error("[calls] presign failed:", err);
+        return {
+          mode: "chunked" as const,
+          chunkUrl: `/api/uploads/${callId}/chunk`,
+          reason:
+            err instanceof Error ? err.message : "Failed to presign upload URL",
+        };
+      }
 
-  return {
-    mode: "direct" as const,
-    uploadUrl,
-    publicUrl,
-    objectKey,
-    expiresInSeconds,
-    headers: { "content-type": contentType },
-    sizeBytes,
-  };
+      const publicUrl = cfg.publicBaseUrl
+        ? `${cfg.publicBaseUrl}/${objectKey}`
+        : `${cfg.endpoint}/${cfg.bucket}/${objectKey}`;
+
+      return {
+        mode: "direct" as const,
+        uploadUrl,
+        publicUrl,
+        objectKey,
+        expiresInSeconds,
+        headers: { "content-type": contentType },
+        sizeBytes,
+      };
+    },
+  );
 });

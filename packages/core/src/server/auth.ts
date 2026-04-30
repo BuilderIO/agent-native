@@ -80,6 +80,7 @@ import {
 import {
   isElectron as isElectronRequest,
   getOrigin,
+  getAppUrl,
   encodeOAuthState,
   decodeOAuthState,
   createOAuthSession,
@@ -1228,7 +1229,7 @@ async function mountBetterAuthRoutes(
         }
         const redirectUri =
           (getQuery(event).redirect_uri as string) ||
-          `${getOrigin(event)}/_agent-native/google/callback`;
+          getAppUrl(event, "/_agent-native/google/callback");
         const q = getQuery(event);
         const desktop =
           isElectronRequest(event) || q.desktop === "1" || q.desktop === "true";
@@ -1284,7 +1285,7 @@ async function mountBetterAuthRoutes(
 
           const { redirectUri, desktop, returnUrl, flowId } = decodeOAuthState(
             query.state as string | undefined,
-            `${getOrigin(event)}/_agent-native/google/callback`,
+            getAppUrl(event, "/_agent-native/google/callback"),
           );
 
           const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
