@@ -65,15 +65,19 @@ export function useSubmitForm() {
       formId,
       data,
       captchaToken,
+      _hp,
+      _t,
     }: {
       formId: string;
       data: Record<string, unknown>;
       captchaToken?: string;
+      _hp?: string;
+      _t?: number;
     }) =>
       fetch(`/api/submit/${formId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data, captchaToken }),
+        body: JSON.stringify({ data, captchaToken, _hp, _t }),
       }).then((r) => {
         if (!r.ok) return r.json().then((e: any) => Promise.reject(e));
         return r.json();

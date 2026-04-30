@@ -3,7 +3,6 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   useRecordings,
-  useMoveRecording,
   useTrashRecording,
   useArchiveRecording,
   useRestoreRecording,
@@ -11,6 +10,7 @@ import {
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
+import { sendToAgentChat } from "@agent-native/core/client";
 import { RecordingCard } from "./recording-card";
 import { EmptyState } from "./empty-state";
 import { SortMenu, type SortKey } from "./sort-menu";
@@ -88,7 +88,6 @@ export function LibraryGrid({
   const { data, isLoading } = useRecordings(args);
   const recordings = data?.recordings ?? [];
 
-  const moveRecording = useMoveRecording();
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
   const restoreRecording = useRestoreRecording();
@@ -275,12 +274,10 @@ export function LibraryGrid({
                   onShare={(rec) => setSharingRec(rec)}
                   onRename={openRenameDialog}
                   onMove={(rec) => {
-                    moveRecording.mutate(
-                      { id: rec.id, folderId: null },
-                      {
-                        onSuccess: () => toast.success("Moved to library root"),
-                      },
-                    );
+                    sendToAgentChat({
+                      message: `Move the clip "${rec.title}" (id: ${rec.id}) to a folder. Ask me which folder to move it to, or list available folders.`,
+                      background: false,
+                    });
                   }}
                   onTrash={(rec) => {
                     trashRecording.mutate(

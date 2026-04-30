@@ -1,7 +1,6 @@
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
-  getSession,
 } from "@agent-native/core/server";
 import { getOrgContext } from "@agent-native/core/org";
 import { registerEvent } from "@agent-native/core/event-bus";
@@ -89,43 +88,34 @@ The UI writes navigation state including the current view, date, view mode (day/
 When the user says "show me", "go to", "open", or "switch to" a view or date, ALWAYS use the \`navigate\` action to update the UI first, then fetch/display data. The user expects to SEE the result in the app.`,
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
-    const { bookings, bookingLinks } = await import("../db/schema.js");
-    const { like, desc, eq, and, inArray } = await import("drizzle-orm");
+    const { bookings, bookingLinks, bookingLinkShares } =
+      await import("../db/schema.js");
+    const { like, desc, and, inArray } = await import("drizzle-orm");
+    const { accessFilter } = await import("@agent-native/core/sharing");
     return {
       bookings: {
         label: "Bookings",
         icon: "email",
-        search: async (query: string, event?: any) => {
+        search: async (query: string) => {
           const db = getDb();
-          const session = event ? await getSession(event) : null;
-          const ownerEmail = session?.user?.email;
-          // Scope to slugs belonging to this user's booking links
-          let ownerSlugs: string[] | null = null;
-          if (ownerEmail) {
-            const links = await db
-              .select({ slug: bookingLinks.slug })
-              .from(bookingLinks)
-              .where(eq(bookingLinks.ownerEmail, ownerEmail));
-            ownerSlugs = links.map((l) => l.slug);
-          }
-          if (ownerSlugs !== null && ownerSlugs.length === 0) return [];
-          const slugFilter = ownerSlugs
-            ? inArray(bookings.slug, ownerSlugs)
-            : undefined;
+          // bookings has no ownerEmail — scope via booking-links the caller can access
+          const ownedLinks = await db
+            .select({ slug: bookingLinks.slug })
+            .from(bookingLinks)
+            .where(accessFilter(bookingLinks, bookingLinkShares));
+          const slugs = ownedLinks.map((l) => l.slug);
+          if (slugs.length === 0) return [];
+          const scopeClause = inArray(bookings.slug, slugs);
           const rows = query
             ? await db
                 .select()
                 .from(bookings)
-                .where(
-                  slugFilter
-                    ? and(slugFilter, like(bookings.name, `%${query}%`))
-                    : like(bookings.name, `%${query}%`),
-                )
+                .where(and(scopeClause, like(bookings.name, `%${query}%`)))
                 .limit(15)
             : await db
                 .select()
                 .from(bookings)
-                .where(slugFilter)
+                .where(scopeClause)
                 .orderBy(desc(bookings.start))
                 .limit(15);
           return rows.map((booking) => ({
@@ -141,27 +131,19 @@ When the user says "show me", "go to", "open", or "switch to" a view or date, AL
       "booking-links": {
         label: "Booking Links",
         icon: "document",
-        search: async (query: string, event?: any) => {
+        search: async (query: string) => {
           const db = getDb();
-          const session = event ? await getSession(event) : null;
-          const ownerEmail = session?.user?.email;
-          const ownerFilter = ownerEmail
-            ? eq(bookingLinks.ownerEmail, ownerEmail)
-            : undefined;
+          const access = accessFilter(bookingLinks, bookingLinkShares);
           const rows = query
             ? await db
                 .select()
                 .from(bookingLinks)
-                .where(
-                  ownerFilter
-                    ? and(ownerFilter, like(bookingLinks.title, `%${query}%`))
-                    : like(bookingLinks.title, `%${query}%`),
-                )
+                .where(and(access, like(bookingLinks.title, `%${query}%`)))
                 .limit(15)
             : await db
                 .select()
                 .from(bookingLinks)
-                .where(ownerFilter)
+                .where(access)
                 .orderBy(desc(bookingLinks.updatedAt))
                 .limit(15);
           return rows.map((link) => ({

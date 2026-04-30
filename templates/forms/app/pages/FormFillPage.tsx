@@ -21,6 +21,8 @@ export function FormFillPage() {
   const [captchaToken, setCaptchaToken] = useState<string | undefined>();
   const [submitted, setSubmitted] = useState(false);
   const [embedded, setEmbedded] = useState(false);
+  const [honeypot, setHoneypot] = useState("");
+  const pageLoadTime = useState(() => Date.now())[0];
 
   useEffect(() => {
     try {
@@ -110,6 +112,8 @@ export function FormFillPage() {
         formId: form.id,
         data: values,
         captchaToken,
+        _hp: honeypot,
+        _t: pageLoadTime,
       },
       {
         onSuccess: () => {
@@ -222,6 +226,17 @@ export function FormFillPage() {
 
         {/* Form */}
         <form onSubmit={handleSubmit}>
+          {/* Honeypot: bots fill this, humans don't see it. */}
+          <input
+            type="text"
+            name="website"
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
+            tabIndex={-1}
+            aria-hidden="true"
+            className="absolute -left-[9999px] opacity-0 pointer-events-none"
+            autoComplete="off"
+          />
           <div className="space-y-6">
             {visibleFields.map((field) => (
               <FieldRenderer
