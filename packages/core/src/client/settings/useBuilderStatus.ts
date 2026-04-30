@@ -247,21 +247,47 @@ export function useBuilderConnectFlow(
     }, POLL_INTERVAL_MS);
   }, [fetchStatus, popupUrl, stopPoll]);
 
-  // Popup-side fast path: the error page postMessages us so we stop polling
-  // immediately rather than waiting for the next 2s tick (and so we still
-  // surface the error if the settings-row write also failed).
+  // Popup-side fast path: the error page broadcasts a message so we stop
+  // polling immediately rather than waiting for the next 2s tick.
+  //
+  // We listen on BroadcastChannel (same-origin, works with noopener popups)
+  // AND on window.message (legacy path for environments without BC or for
+  // popups that still have opener access). Both paths are safe to have open
+  // simultaneously \u2014 the first one to fire wins and the error is deduplicated
+  // by the stopPoll() call which is idempotent.
   useEffect(() => {
+    let channel: BroadcastChannel | null = null;
+    const handleError = (message: string) => {
+      stopPoll();
+      setConnecting(false);
+      setError(`Couldn't save Builder credentials: ${message}.`);
+    };
+
+    try {
+      channel = new BroadcastChannel(`builder-connect:${window.location.host}`);
+      channel.onmessage = (e: MessageEvent) => {
+        const data = e.data as { type?: string; message?: string } | undefined;
+        if (data?.type !== "builder-connect-error") return;
+        if (typeof data.message !== "string" || !data.message) return;
+        handleError(data.message);
+      };
+    } catch {
+      // BroadcastChannel not available (rare) \u2014 fall through to postMessage.
+    }
+
     const handler = (e: MessageEvent) => {
       if (e.origin !== window.location.origin) return;
       const data = e.data as { type?: string; message?: string } | undefined;
       if (data?.type !== "builder-connect-error") return;
       if (typeof data.message !== "string" || !data.message) return;
-      stopPoll();
-      setConnecting(false);
-      setError(`Couldn't save Builder credentials: ${data.message}.`);
+      handleError(data.message);
     };
     window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
+
+    return () => {
+      channel?.close();
+      window.removeEventListener("message", handler);
+    };
   }, [stopPoll]);
 
   return { configured, orgName, connecting, error, hasFetchedStatus, start };

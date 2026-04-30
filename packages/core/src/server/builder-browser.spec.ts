@@ -165,7 +165,45 @@ describe("Builder callback CSRF state", () => {
   });
 
   describe("buildBuilderCliAuthUrl", () => {
-    it("embeds the state token inside the redirect_url query string", () => {
+    // The connect flow switched to server-side pending state (stored in the
+    // settings table) rather than embedding a signed _an_state token in the
+    // redirect_url query string.  Builder's /cli-auth page was stripping the
+    // existing query params from redirect_url when it appended p-key/api-key,
+    // so _an_state was always null when the callback fired.  The connect route
+    // now calls buildBuilderCliAuthUrl(origin, null) — no state in the URL.
+    it("builds a clean redirect_url (no _an_state) when state is null", () => {
+      const cliAuthUrl = buildBuilderCliAuthUrl(
+        "https://alice.agent-native.com",
+        null,
+      );
+      const parsed = new URL(cliAuthUrl);
+      const redirectUrl = parsed.searchParams.get("redirect_url");
+      expect(redirectUrl).toBeTruthy();
+      const parsedRedirect = new URL(redirectUrl!);
+      expect(parsedRedirect.pathname).toBe(BUILDER_CALLBACK_PATH);
+      // No _an_state — Builder can safely append its own params.
+      expect(parsedRedirect.searchParams.has(BUILDER_STATE_PARAM)).toBe(false);
+    });
+
+    it("Builder can append p-key/api-key to a clean redirect_url", () => {
+      const cliAuthUrl = buildBuilderCliAuthUrl(
+        "https://alice.agent-native.com",
+        null,
+      );
+      const redirectUrl = new URL(cliAuthUrl).searchParams.get("redirect_url")!;
+      const finalUrl = new URL(redirectUrl);
+      finalUrl.searchParams.set("p-key", "bpk-test-private-key");
+      finalUrl.searchParams.set("api-key", "test-api-key");
+      finalUrl.searchParams.set("user-id", "user-123");
+      finalUrl.searchParams.set("org-name", "Acme");
+      finalUrl.searchParams.set("kind", "team");
+      // State param is absent — callback authenticates via server-side row.
+      expect(finalUrl.searchParams.has(BUILDER_STATE_PARAM)).toBe(false);
+      expect(finalUrl.searchParams.get("p-key")).toBe("bpk-test-private-key");
+      expect(finalUrl.searchParams.get("api-key")).toBe("test-api-key");
+    });
+
+    it("still supports an optional state param for legacy/testing use", () => {
       const state = signBuilderCallbackState("alice@example.com");
       const cliAuthUrl = buildBuilderCliAuthUrl(
         "https://alice.agent-native.com",
@@ -175,33 +213,7 @@ describe("Builder callback CSRF state", () => {
       const redirectUrl = parsed.searchParams.get("redirect_url");
       expect(redirectUrl).toBeTruthy();
       const parsedRedirect = new URL(redirectUrl!);
-      expect(parsedRedirect.pathname).toBe(BUILDER_CALLBACK_PATH);
       expect(parsedRedirect.searchParams.get(BUILDER_STATE_PARAM)).toBe(state);
-    });
-
-    it("survives Builder appending p-key / api-key to redirect_url verbatim", () => {
-      const state = signBuilderCallbackState("alice@example.com");
-      const cliAuthUrl = buildBuilderCliAuthUrl(
-        "https://alice.agent-native.com",
-        state,
-      );
-      // Simulate Builder's CLIAuthPage: parse redirect_url, append params.
-      const redirectUrl = new URL(cliAuthUrl).searchParams.get("redirect_url")!;
-      const finalUrl = new URL(redirectUrl);
-      finalUrl.searchParams.set("p-key", "bpk-test-private-key");
-      finalUrl.searchParams.set("api-key", "test-api-key");
-      finalUrl.searchParams.set("user-id", "user-123");
-      finalUrl.searchParams.set("org-name", "Acme");
-      finalUrl.searchParams.set("kind", "team");
-      // The state must still be there alongside Builder's appended params.
-      expect(finalUrl.searchParams.get(BUILDER_STATE_PARAM)).toBe(state);
-      expect(finalUrl.searchParams.get("p-key")).toBe("bpk-test-private-key");
-      expect(
-        verifyBuilderCallbackState(
-          finalUrl.searchParams.get(BUILDER_STATE_PARAM),
-          "alice@example.com",
-        ),
-      ).toBe(true);
     });
 
     it("omits the state param when no state is provided", () => {
