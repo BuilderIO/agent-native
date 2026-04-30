@@ -123,6 +123,7 @@ export default function IndexPage() {
               <button
                 onClick={submit}
                 disabled={!prompt.trim()}
+                aria-label="Submit prompt"
                 className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background disabled:opacity-20 cursor-pointer"
               >
                 <IconArrowRight className="h-3.5 w-3.5" />

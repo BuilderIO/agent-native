@@ -213,10 +213,16 @@ export default function WorkflowsIndex() {
                   <Switch
                     checked={!w.disabled}
                     onCheckedChange={() => toggle(w.id, !!w.disabled)}
+                    aria-label={`${w.disabled ? "Enable" : "Disable"} workflow ${w.name}`}
                   />
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button size="icon" variant="ghost" className="h-8 w-8">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        aria-label={`More options for workflow ${w.name}`}
+                      >
                         <IconDotsVertical className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
