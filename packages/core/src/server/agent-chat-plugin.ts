@@ -4273,7 +4273,11 @@ export function createAgentChatPlugin(
             tzRaw.trim().length < 64
               ? tzRaw.trim()
               : undefined;
-          if (timezone) process.env.AGENT_USER_TIMEZONE = timezone; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext below
+          if (timezone) {
+            process.env.AGENT_USER_TIMEZONE = timezone; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext below
+          } else {
+            delete process.env.AGENT_USER_TIMEZONE;
+          }
 
           return runWithRequestContext(
             { userEmail: owner, orgId: resolvedOrgId, timezone },

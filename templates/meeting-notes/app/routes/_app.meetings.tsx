@@ -1,5 +1,5 @@
 import { MeetingsPage } from "@/components/notes/NotesWorkspace";
 
-export default function Index() {
+export default function MeetingsRoute() {
   return <MeetingsPage />;
 }
