@@ -182,7 +182,9 @@ export function defineAction(options: any) {
   // "implicit allow with a deprecation warning"; only an explicit `false`
   // refuses the call. See `tools/routes.ts` and audit H5.
   const toolCallable: boolean | undefined =
-    typeof options.toolCallable === "boolean" ? options.toolCallable : undefined;
+    typeof options.toolCallable === "boolean"
+      ? options.toolCallable
+      : undefined;
 
   return {
     tool: {

@@ -118,9 +118,8 @@ describe("tools/tool-consents", () => {
   });
 
   it("revokeConsent clears every hash for a (viewer, tool) pair", async () => {
-    const { hasConsent, grantConsent, revokeConsent } = await import(
-      "./tool-consents.js"
-    );
+    const { hasConsent, grantConsent, revokeConsent } =
+      await import("./tool-consents.js");
     await grantConsent("viewer@x", "tool-1", "hash-a");
     await grantConsent("viewer@x", "tool-1", "hash-b");
     expect(await hasConsent("viewer@x", "tool-1", "hash-a")).toBe(true);
@@ -131,9 +130,8 @@ describe("tools/tool-consents", () => {
   });
 
   it("revokeConsent does not cross-delete other viewers' grants on the same tool", async () => {
-    const { hasConsent, grantConsent, revokeConsent } = await import(
-      "./tool-consents.js"
-    );
+    const { hasConsent, grantConsent, revokeConsent } =
+      await import("./tool-consents.js");
     await grantConsent("viewer-a@x", "tool-1", "hash-a");
     await grantConsent("viewer-b@x", "tool-1", "hash-a");
     await revokeConsent("viewer-a@x", "tool-1");
@@ -142,9 +140,8 @@ describe("tools/tool-consents", () => {
   });
 
   it("listConsentHashes returns granted hashes for a viewer × tool pair", async () => {
-    const { listConsentHashes, grantConsent } = await import(
-      "./tool-consents.js"
-    );
+    const { listConsentHashes, grantConsent } =
+      await import("./tool-consents.js");
     await grantConsent("viewer@x", "tool-1", "hash-a");
     await grantConsent("viewer@x", "tool-1", "hash-b");
     const hashes = await listConsentHashes("viewer@x", "tool-1");

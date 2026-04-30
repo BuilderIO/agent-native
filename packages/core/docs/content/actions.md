@@ -70,7 +70,7 @@ export default defineAction({
 
 ### Tools callability {#tool-callable}
 
-Tools (Alpine.js mini-apps that run inside sandboxed iframes — see [Tools](/docs/tools)) call actions via `appAction(name, params)`. Because a shared tool's HTML/JS executes inside the *viewer's* session, an action invoked from a tool runs with the viewer's permissions, secrets, and SQL scope. For high-blast-radius operations, that is too much trust to grant by default.
+Tools (Alpine.js mini-apps that run inside sandboxed iframes — see [Tools](/docs/tools)) call actions via `appAction(name, params)`. Because a shared tool's HTML/JS executes inside the _viewer's_ session, an action invoked from a tool runs with the viewer's permissions, secrets, and SQL scope. For high-blast-radius operations, that is too much trust to grant by default.
 
 Use the `toolCallable` flag to control this:
 
@@ -79,19 +79,22 @@ export default defineAction({
   description: "Delete the current user's account.",
   toolCallable: false, // never callable from a tool iframe
   schema: z.object({ confirm: z.literal("yes") }),
-  run: async () => { /* ... */ },
+  run: async () => {
+    /* ... */
+  },
 });
 ```
 
-| Value          | Behavior                                                                                                                                                  |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `true`         | Explicit allow. Recommended for any action a tool legitimately needs to call.                                                                             |
-| `false`        | Explicit deny. The tools bridge returns 403; the action is still callable normally from the UI, agent, CLI, MCP, and A2A.                                 |
-| `undefined`    | Implicit allow with a one-shot deprecation warning. Existing actions keep working; the warning surfaces during dev so you can migrate to an explicit flag. |
+| Value       | Behavior                                                                                                                                                   |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `true`      | Explicit allow. Recommended for any action a tool legitimately needs to call.                                                                              |
+| `false`     | Explicit deny. The tools bridge returns 403; the action is still callable normally from the UI, agent, CLI, MCP, and A2A.                                  |
+| `undefined` | Implicit allow with a one-shot deprecation warning. Existing actions keep working; the warning surfaces during dev so you can migrate to an explicit flag. |
 
 Enforcement: the parent host (`ToolViewer.tsx` / `EmbeddedTool.tsx`) tags every outbound action call from a tool iframe with the header `X-Agent-Native-Tool-Bridge: 1`. The action route layer reads this header and applies the rule above. Regular UI/agent/CLI/A2A calls do not carry the header and are unaffected. The header is set by the React host; the iframe's user-authored content cannot spoof it because the bridge sanitizes iframe-supplied headers.
 
 Set `toolCallable: false` for actions that:
+
 - delete or transfer ownership of any account/org,
 - change auth state (sign-out-all sessions, rotate tokens),
 - modify org membership (invite/remove members, change roles),

@@ -103,9 +103,9 @@ describe("checkBridgePolicy (audit H4)", () => {
     expect(
       checkBridgePolicy("/_agent-native/tools/sql/exec", "POST", owner).ok,
     ).toBe(true);
-    expect(checkBridgePolicy("/_agent-native/tools/proxy", "POST", owner).ok).toBe(
-      true,
-    );
+    expect(
+      checkBridgePolicy("/_agent-native/tools/proxy", "POST", owner).ok,
+    ).toBe(true);
   });
 
   it("editors keep mutating bridge surfaces", () => {
@@ -115,9 +115,9 @@ describe("checkBridgePolicy (audit H4)", () => {
     expect(
       checkBridgePolicy("/_agent-native/tools/sql/exec", "POST", editor).ok,
     ).toBe(true);
-    expect(checkBridgePolicy("/_agent-native/tools/proxy", "POST", editor).ok).toBe(
-      true,
-    );
+    expect(
+      checkBridgePolicy("/_agent-native/tools/proxy", "POST", editor).ok,
+    ).toBe(true);
   });
 
   it("denies SQL helpers entirely for viewers", () => {
@@ -158,22 +158,15 @@ describe("checkBridgePolicy (audit H4)", () => {
   });
 
   it("denies toolFetch for viewers (the proxy POST surface)", () => {
-    const res = checkBridgePolicy(
-      "/_agent-native/tools/proxy",
-      "POST",
-      viewer,
-    );
+    const res = checkBridgePolicy("/_agent-native/tools/proxy", "POST", viewer);
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/toolFetch/);
   });
 
   it("allows viewers to read tool-data (GET) but not write/delete", () => {
     expect(
-      checkBridgePolicy(
-        "/_agent-native/tools/data/tool-1/notes",
-        "GET",
-        viewer,
-      ).ok,
+      checkBridgePolicy("/_agent-native/tools/data/tool-1/notes", "GET", viewer)
+        .ok,
     ).toBe(true);
     const writeRes = checkBridgePolicy(
       "/_agent-native/tools/data/tool-1/notes",
