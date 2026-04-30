@@ -145,6 +145,14 @@ export interface AuthOptions {
    */
   googleOnly?: boolean;
   /**
+   * Mount the framework's generic Google sign-in routes.
+   *
+   * Set this to false when a template owns `/_agent-native/google/auth-url`
+   * and `/_agent-native/google/callback` itself because it needs broader
+   * product scopes and persisted API tokens, not just identity sign-in.
+   */
+  mountGoogleOAuthRoutes?: boolean;
+  /**
    * Product marketing content shown alongside the sign-in form.
    * When provided, the page uses a split layout: marketing on the left,
    * sign-in form on the right.
@@ -1313,10 +1321,14 @@ async function mountBetterAuthRoutes(
     if (!publicPaths.includes(pp)) publicPaths.push(pp);
   }
 
-  // Auto-add Google OAuth routes when credentials are configured.
-  // Templates can override by defining their own Nitro routes at the same
-  // paths (e.g. mail/calendar need broader scopes for API access).
-  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  // Auto-add Google OAuth routes when credentials are configured. Templates
+  // that need broader product scopes (mail/calendar) opt out and provide
+  // their own Nitro routes at these paths.
+  if (
+    process.env.GOOGLE_CLIENT_ID &&
+    process.env.GOOGLE_CLIENT_SECRET &&
+    options.mountGoogleOAuthRoutes !== false
+  ) {
     for (const gp of [
       "/_agent-native/google/callback",
       "/_agent-native/google/auth-url",

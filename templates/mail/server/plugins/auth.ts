@@ -5,6 +5,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 // creation, since that path can't be used to access mail.
 export default createAuthPlugin({
   googleOnly: true,
+  mountGoogleOAuthRoutes: false,
   marketing: {
     appName: "Agent-Native Mail",
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
