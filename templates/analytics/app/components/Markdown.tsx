@@ -69,6 +69,20 @@ function sanitizeUrl(url: string, kind: "link" | "image" = "link"): string {
       return "#";
     }
   }
+  // Defense-in-depth: when the URL carries a scheme, require http/https via
+  // a real URL parse (catches encodings the deny-list above might miss).
+  // Relative URLs (`/path`, `#anchor`, `?q=1`) without a scheme pass through.
+  // (audit 03 defense-in-depth)
+  if (/^[a-z][a-z\d+.-]*:/i.test(stripped)) {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return "#";
+      }
+    } catch {
+      return "#";
+    }
+  }
   return trimmed;
 }
 

@@ -10,6 +10,101 @@ import { getDb, schema } from "../db/index.js";
 export const SHARED_DISPATCH_OWNER = "dispatch@shared";
 const APPROVAL_POLICY_KEY = "dispatch-approval-policy";
 
+// ─── /link rate limiting ──────────────────────────────────────────────────
+//
+// Failed `/link <token>` attempts are rate-limited per `(platform, externalUserId)`
+// to deter token brute-force after the H5 entropy bump. The window /
+// threshold are tuned so legitimate retries (typo, expired token) don't
+// trip the limit, while a scripted attacker burns out their per-account
+// budget quickly.
+//
+// State is process-local: works for the single-node dispatch deployment
+// we ship today. TODO: move to a SQL-backed counter table when dispatch
+// is sharded across multiple regions / processes — otherwise an
+// attacker can scale around the limit by hammering more than one node.
+const LINK_FAIL_WINDOW_MS = 5 * 60 * 1000;
+const LINK_FAIL_BLOCK_MS = 30 * 60 * 1000;
+const LINK_FAIL_THRESHOLD = 5;
+
+interface LinkFailureState {
+  failures: number[]; // unix-ms timestamps of recent failures within the window
+  blockedUntil: number; // unix-ms; 0 if not currently blocked
+}
+
+const _linkFailureMap = new Map<string, LinkFailureState>();
+
+function linkFailureKey(
+  platform: string,
+  externalUserId: string | null | undefined,
+): string {
+  return `${platform}::${externalUserId ?? ""}`;
+}
+
+function getLinkFailureState(key: string): LinkFailureState {
+  let state = _linkFailureMap.get(key);
+  if (!state) {
+    state = { failures: [], blockedUntil: 0 };
+    _linkFailureMap.set(key, state);
+  }
+  return state;
+}
+
+function isLinkAttemptBlocked(
+  platform: string,
+  externalUserId: string | null | undefined,
+): { blocked: true; retryAfterMs: number } | { blocked: false } {
+  if (!externalUserId) return { blocked: false };
+  const key = linkFailureKey(platform, externalUserId);
+  const state = _linkFailureMap.get(key);
+  if (!state) return { blocked: false };
+  const nowMs = Date.now();
+  if (state.blockedUntil > nowMs) {
+    return { blocked: true, retryAfterMs: state.blockedUntil - nowMs };
+  }
+  return { blocked: false };
+}
+
+function recordLinkFailure(
+  platform: string,
+  externalUserId: string | null | undefined,
+): void {
+  if (!externalUserId) return;
+  const key = linkFailureKey(platform, externalUserId);
+  const state = getLinkFailureState(key);
+  const nowMs = Date.now();
+  // Drop expired failure timestamps before counting.
+  state.failures = state.failures.filter(
+    (ts) => nowMs - ts < LINK_FAIL_WINDOW_MS,
+  );
+  state.failures.push(nowMs);
+  if (state.failures.length >= LINK_FAIL_THRESHOLD) {
+    state.blockedUntil = nowMs + LINK_FAIL_BLOCK_MS;
+    state.failures = [];
+  }
+}
+
+function clearLinkFailures(
+  platform: string,
+  externalUserId: string | null | undefined,
+): void {
+  if (!externalUserId) return;
+  _linkFailureMap.delete(linkFailureKey(platform, externalUserId));
+}
+
+/**
+ * 429-style error returned when /link attempts are rate-limited. The
+ * adapter layer can branch on `code === "LINK_RATE_LIMITED"` to send a
+ * platform-appropriate message back to the user.
+ */
+export class LinkRateLimitError extends Error {
+  readonly code = "LINK_RATE_LIMITED";
+  constructor(public readonly retryAfterMs: number) {
+    super(
+      `Too many failed link attempts. Try again in ${Math.ceil(retryAfterMs / 60_000)} minute(s).`,
+    );
+  }
+}
+
 export interface DispatchApprovalPolicy {
   enabled: boolean;
   approverEmails: string[];
@@ -533,7 +628,13 @@ export async function rejectRequest(requestId: string, reason?: string | null) {
 export async function createLinkToken(platform: string) {
   const db = getDb();
   const timestamp = now();
-  const token = crypto.randomBytes(4).toString("hex");
+  // 16 bytes = 128 bits of entropy. Previous size was 4 bytes (32 bits,
+  // ~4.29 billion keyspace) which is brute-forceable in well under an
+  // hour given a 7-day expiry and no rate limiting on /link attempts.
+  // Old 8-hex-char tokens minted before this change continue to verify
+  // until they expire; we don't migrate retroactively. See
+  // /tmp/security-audit/07-webhooks.md (H5).
+  const token = crypto.randomBytes(16).toString("hex");
   const recordId = id();
   const owner = currentOwnerEmail();
   await db.insert(schema.dispatchLinkTokens).values({
@@ -629,6 +730,16 @@ export async function consumeLinkToken(input: {
   if (!input.externalUserId) {
     throw new Error("Linking requires a platform user id");
   }
+
+  // Rate-limit failed attempts per (platform, externalUserId). Once
+  // tripped, all further attempts are short-circuited until the block
+  // window passes — including the lookup, so an attacker can't probe
+  // for valid tokens during the block.
+  const blockState = isLinkAttemptBlocked(input.platform, input.externalUserId);
+  if (blockState.blocked) {
+    throw new LinkRateLimitError(blockState.retryAfterMs);
+  }
+
   const db = getDb();
   const tokenRows = await db
     .select()
@@ -642,13 +753,22 @@ export async function consumeLinkToken(input: {
     .orderBy(desc(schema.dispatchLinkTokens.createdAt))
     .limit(2);
   if (tokenRows.length > 1) {
+    recordLinkFailure(input.platform, input.externalUserId);
     throw new Error("Link token is ambiguous. Create a fresh token and retry.");
   }
   const tokenRow = tokenRows[0];
-  if (!tokenRow) throw new Error("Link token not found");
-  if (tokenRow.claimedAt)
+  if (!tokenRow) {
+    recordLinkFailure(input.platform, input.externalUserId);
+    throw new Error("Link token not found");
+  }
+  if (tokenRow.claimedAt) {
+    recordLinkFailure(input.platform, input.externalUserId);
     throw new Error("Link token has already been claimed");
-  if (tokenRow.expiresAt < now()) throw new Error("Link token has expired");
+  }
+  if (tokenRow.expiresAt < now()) {
+    recordLinkFailure(input.platform, input.externalUserId);
+    throw new Error("Link token has expired");
+  }
 
   const timestamp = now();
   const [existing] = await db
