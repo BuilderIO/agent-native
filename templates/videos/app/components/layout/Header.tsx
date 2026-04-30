@@ -47,6 +47,18 @@ export function Header({ onOpenMobileSidebar }: HeaderProps) {
         </button>
       )}
       <div className="flex items-center gap-3 flex-1 min-w-0">
+        <img
+          src="/agent-native-icon-light.svg"
+          alt=""
+          aria-hidden="true"
+          className="block h-4 w-auto shrink-0 dark:hidden"
+        />
+        <img
+          src="/agent-native-icon-dark.svg"
+          alt=""
+          aria-hidden="true"
+          className="hidden h-4 w-auto shrink-0 dark:block"
+        />
         {title ?? (
           <h1 className="text-lg font-semibold tracking-tight truncate">
             {resolveTitle(location.pathname)}

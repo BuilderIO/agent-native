@@ -51,7 +51,7 @@ export default defineAction({
       .where(
         and(
           accessFilter(schema.recordings, schema.recordingShares),
-          sql`(${schema.recordings.title} LIKE ${pattern} OR ${schema.recordings.description} LIKE ${pattern})`,
+          sql`(${schema.recordings.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.recordings.description} LIKE ${pattern} ESCAPE '\\')`,
         ),
       )
       .limit(args.limit);
@@ -80,7 +80,7 @@ export default defineAction({
       .where(
         and(
           accessFilter(schema.recordings, schema.recordingShares),
-          sql`${schema.recordingTranscripts.fullText} LIKE ${pattern}`,
+          sql`${schema.recordingTranscripts.fullText} LIKE ${pattern} ESCAPE '\\'`,
         ),
       )
       .limit(args.limit);

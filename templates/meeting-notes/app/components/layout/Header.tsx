@@ -53,6 +53,18 @@ export function Header() {
         <IconMenu2 className="h-4 w-4" />
       </button>
       <div className="flex min-w-0 flex-1 items-center gap-3">
+        <img
+          src="/agent-native-icon-light.svg"
+          alt=""
+          aria-hidden="true"
+          className="block h-4 w-auto shrink-0 dark:hidden"
+        />
+        <img
+          src="/agent-native-icon-dark.svg"
+          alt=""
+          aria-hidden="true"
+          className="hidden h-4 w-auto shrink-0 dark:block"
+        />
         {title ?? (
           <span className="truncate text-sm font-semibold text-foreground">
             {resolveTitle(location.pathname)}
@@ -72,9 +84,23 @@ export function Header() {
           />
           <div className="fixed inset-y-0 left-0 z-50 w-64 overflow-y-auto border-r border-border bg-background shadow-xl">
             <div className="flex h-12 items-center justify-between border-b border-border px-4">
-              <span className="text-sm font-semibold text-foreground">
-                Meeting Notes
-              </span>
+              <div className="flex items-center gap-2">
+                <img
+                  src="/agent-native-icon-light.svg"
+                  alt=""
+                  aria-hidden="true"
+                  className="block h-4 w-auto shrink-0 dark:hidden"
+                />
+                <img
+                  src="/agent-native-icon-dark.svg"
+                  alt=""
+                  aria-hidden="true"
+                  className="hidden h-4 w-auto shrink-0 dark:block"
+                />
+                <span className="text-sm font-semibold text-foreground">
+                  Meeting Notes
+                </span>
+              </div>
               <button
                 onClick={() => setMenuOpen(false)}
                 className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
