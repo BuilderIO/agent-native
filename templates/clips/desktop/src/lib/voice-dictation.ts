@@ -362,6 +362,13 @@ export function installDesktopVoiceDictation(
 ): () => void {
   let disposed = false;
   let session: VoiceSession | null = null;
+  // After stop() in the native path, `session` is cleared immediately so
+  // a rapid second Fn tap can start fresh. But the install-time
+  // `voice:final-transcript` listener still needs to find the lingering
+  // session so it can fire `onNativeFinalize` and run the paste. This
+  // ref holds that session through the wait + linger window; cleared
+  // once the linger callback completes.
+  let lingeringSession: VoiceSession | null = null;
   let serverUrl = options.serverUrl;
   let enabled = options.enabled;
   let shortcut = options.shortcut;
@@ -1056,9 +1063,21 @@ export function installDesktopVoiceDictation(
         // hide it after the linger) but renders only the transcript
         // chip in idle state.
         setFlowState("idle");
+        // Free the global session-startup guards immediately, matching the
+        // browser paths below. Deferring these to the end of the 1.2s
+        // linger meant a rapid second Fn tap during linger silently no-op'd
+        // because `start()` early-returns on a non-null `session`. We
+        // park the lingering session in `lingeringSession` so the
+        // install-time `voice:final-transcript` listener can still route
+        // the final event to `onNativeFinalize` while a brand-new
+        // `session` is being set up by the next tap.
+        const lingering = current;
+        lingeringSession = current;
+        if (session === current) session = null;
+        startInFlight = false;
+        stopRequestedBeforeReady = false;
         stopMeter(current);
         stopTracks(current);
-
         const stopAtMs = Date.now();
         console.log(
           "[voice-dictation] native stop — pill dismissed, awaiting final",
@@ -1070,11 +1089,16 @@ export function installDesktopVoiceDictation(
           console.log(
             `[voice-dictation] native finalize (${reason}, +${Date.now() - stopAtMs}ms)`,
           );
-          // If the user cancelled (X button) during the wait window,
-          // skip paste + linger. cleanup() already ran via cancel().
-          if (current.cancelled) return;
-          const text = current.browserTranscript.trim();
-          current.browserTranscript = "";
+          // If the user cancelled (X button) during the wait window or a
+          // brand-new session has started (Fn re-tapped during linger),
+          // skip paste + linger. cleanup() already ran via cancel() in the
+          // cancelled case; in the new-session case the new `session` owns
+          // the flow-bar now and we'd otherwise paste stale text against
+          // it.
+          if (lingering.cancelled) return;
+          if (session && session !== lingering) return;
+          const text = lingering.browserTranscript.trim();
+          lingering.browserTranscript = "";
           if (text) {
             console.log(
               `[voice-dictation] native paste (${text.length} chars):`,
@@ -1095,22 +1119,21 @@ export function installDesktopVoiceDictation(
           }
           // Linger ~1.2s with the transcript chip visible (no pill,
           // just the floating text), then clear the chip + hide the
-          // window.
+          // window. Don't clobber a new session's flow-bar if one started.
           console.log("[voice-dictation] starting linger");
           window.setTimeout(() => {
             console.log("[voice-dictation] linger done — dismissing");
+            if (lingeringSession === lingering) lingeringSession = null;
             if (disposed) return;
+            if (session && session !== lingering) return;
             invoke("hide_flow_bar").catch(() => {});
             emit("voice:partial-transcript", { text: "" }).catch(() => {});
-            if (session === current) session = null;
-            startInFlight = false;
-            stopRequestedBeforeReady = false;
           }, 1200);
         };
 
         // The install-time `voice:final-transcript` listener calls
         // `current.onNativeFinalize` when the final result arrives.
-        current.onNativeFinalize = () => finalize("final");
+        lingering.onNativeFinalize = () => finalize("final");
         // Safety timer: if final never arrives (unsupported locale,
         // crash, etc.), proceed after 3s with whatever partial we have.
         window.setTimeout(() => finalize("timeout"), 3000);
@@ -1166,6 +1189,11 @@ export function installDesktopVoiceDictation(
           );
           window.setTimeout(() => {
             if (lingering.cancelled || disposed) return;
+            // A new Fn-tap during tail-capture starts a fresh session that
+            // owns the flow-bar now. Don't paste this lingering session's
+            // text against it, and don't wipe its UI on dismiss. Mirrors
+            // the native finalize guard above.
+            if (session && session !== lingering) return;
             const finalText = lingering.browserTranscript.trim();
             lingering.browserTranscript = "";
             try {
@@ -1188,6 +1216,7 @@ export function installDesktopVoiceDictation(
               // dismiss everything.
               window.setTimeout(() => {
                 if (disposed) return;
+                if (session && session !== lingering) return;
                 invoke("hide_flow_bar").catch(() => {});
                 emit("voice:partial-transcript", { text: "" }).catch(() => {});
               }, 1000);
@@ -1227,8 +1256,18 @@ export function installDesktopVoiceDictation(
     .then((u) => unlistens.push(u))
     .catch(() => {});
   listen<{ text: string }>("voice:final-transcript", (ev) => {
-    const current = session;
-    if (!current || current.kind !== "native") return;
+    // After stop() in the native path, `session` has been cleared so a
+    // rapid restart can take it; the lingering session that's waiting
+    // for the final transcript lives on `lingeringSession`. Prefer the
+    // active session when both exist (we'd be receiving partials for a
+    // brand-new session).
+    const current =
+      session && session.kind === "native"
+        ? session
+        : lingeringSession && lingeringSession.kind === "native"
+          ? lingeringSession
+          : null;
+    if (!current) return;
     if (current.cancelled) return;
     // Final beats partial — overwrite so a `complete_voice_dictation`
     // from a late stop() picks up the better text.
