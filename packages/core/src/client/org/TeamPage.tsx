@@ -34,8 +34,10 @@ import {
   useSetOrgDomain,
   useSetA2ASecret,
   useSyncA2ASecret,
+  useJoinByDomain,
   type SyncA2ASecretResult,
 } from "./hooks.js";
+import type { DomainMatchOrg } from "../../org/types.js";
 
 export interface TeamPageProps {
   /**
@@ -111,6 +113,55 @@ function PendingInvitationsCard() {
         </div>
       ))}
       <ErrorText error={acceptInvitation.error} />
+    </section>
+  );
+}
+
+function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
+  const joinByDomain = useJoinByDomain();
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-4 space-y-3">
+      <h3 className="text-sm font-medium">Join your team</h3>
+      <p className="text-sm text-muted-foreground">
+        {matches.length === 1
+          ? `An organization matching your email domain already exists. Join it to collaborate with your teammates.`
+          : `Organizations matching your email domain already exist. Join one to collaborate with your teammates.`}
+      </p>
+      <div className="space-y-2">
+        {matches.map((m) => (
+          <div
+            key={m.orgId}
+            className="flex items-center justify-between rounded-md border border-border p-3"
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-600/10">
+                <IconBuilding className="h-4 w-4 text-blue-600" />
+              </div>
+              <div className="text-sm font-medium">{m.orgName}</div>
+            </div>
+            <button
+              type="button"
+              disabled={joinByDomain.isPending && pendingId === m.orgId}
+              onClick={() => {
+                setPendingId(m.orgId);
+                joinByDomain.mutate(m.orgId, {
+                  onSettled: () => setPendingId(null),
+                });
+              }}
+              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+            >
+              {joinByDomain.isPending && pendingId === m.orgId ? (
+                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                "Join"
+              )}
+            </button>
+          </div>
+        ))}
+      </div>
+      <ErrorText error={joinByDomain.error} />
     </section>
   );
 }
@@ -1031,7 +1082,12 @@ export function TeamPage({
         <>
           <PendingInvitationsCard />
           {!org?.orgId ? (
-            <CreateOrgCard description={createOrgDescription} />
+            <>
+              {org?.domainMatches && org.domainMatches.length > 0 && (
+                <JoinByDomainCard matches={org.domainMatches} />
+              )}
+              <CreateOrgCard description={createOrgDescription} />
+            </>
           ) : (
             <MembersCard />
           )}
