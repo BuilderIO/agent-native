@@ -479,6 +479,7 @@ async function failTranscript(
     failureReason: reason,
     now: nowIso,
   });
+  // guard:allow-unscoped — only called from the action body which already ran assertAccess("call", callId, "editor")
   await db
     .update(schema.calls)
     .set({ status: "failed", failureReason: reason, updatedAt: nowIso })

@@ -614,7 +614,7 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<()
         return Ok(());
     }
     eprintln!(
-        "[clips-tray] complete_voice_dictation: writing {} chars to clipboard + Cmd+V",
+        "[clips-tray] complete_voice_dictation: typing {} chars via CGEvent unicode",
         trimmed.chars().count()
     );
     if let Some(last) = app.try_state::<LastTranscript>() {
@@ -622,8 +622,14 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<()
             *g = Some(trimmed.clone());
         }
     }
+    // Keep the clipboard updated so users can ⌘V again to repeat the last
+    // dictation, but don't rely on Cmd+V for the actual insertion — many
+    // terminals (Ghostty, iTerm with custom keybindings, etc.) intercept
+    // Cmd+V or only accept paste through their own copy/paste pipeline.
+    // CGEvent unicode injection types the characters directly into the
+    // focused field and works in every terminal + editor we've tested.
     write_clipboard(&trimmed)?;
-    paste_clipboard();
+    type_text_unicode(&trimmed);
     Ok(())
 }
 
@@ -655,35 +661,63 @@ fn write_clipboard(_text: &str) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn paste_clipboard() {
-    use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
+fn type_text_unicode(text: &str) {
+    use core_graphics::event::{CGEvent, CGEventTapLocation};
     use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
-    thread::spawn(|| {
-        thread::sleep(Duration::from_millis(80));
+    let owned = text.to_string();
+    thread::spawn(move || {
+        // Brief delay so the focused-app context is ready (mirrors the
+        // delay the previous Cmd+V path used).
+        thread::sleep(Duration::from_millis(40));
         let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
-            eprintln!("[clips-tray] paste failed: no CGEventSource");
+            eprintln!("[clips-tray] type failed: no CGEventSource");
             return;
         };
-        // ANSI V on macOS.
-        let key_v: u16 = 9;
-        let Ok(down) = CGEvent::new_keyboard_event(source.clone(), key_v, true) else {
-            eprintln!("[clips-tray] paste failed: no keydown event");
-            return;
+        // CGEventKeyboardSetUnicodeString has a per-event payload limit
+        // (Apple docs: ~20 UTF-16 units, with longer bounded by ~75 char
+        // in practice). Chunk by codepoint to stay safely under that.
+        let chunks: Vec<String> = {
+            let mut out: Vec<String> = Vec::new();
+            let mut current = String::new();
+            let mut count = 0usize;
+            for c in owned.chars() {
+                current.push(c);
+                count += 1;
+                if count >= 20 {
+                    out.push(std::mem::take(&mut current));
+                    count = 0;
+                }
+            }
+            if !current.is_empty() {
+                out.push(current);
+            }
+            out
         };
-        let Ok(up) = CGEvent::new_keyboard_event(source, key_v, false) else {
-            eprintln!("[clips-tray] paste failed: no keyup event");
-            return;
-        };
-        down.set_flags(CGEventFlags::CGEventFlagCommand);
-        up.set_flags(CGEventFlags::CGEventFlagCommand);
-        down.post(CGEventTapLocation::HID);
-        up.post(CGEventTapLocation::HID);
+        for chunk in chunks {
+            let utf16: Vec<u16> = chunk.encode_utf16().collect();
+            let Ok(down) = CGEvent::new_keyboard_event(source.clone(), 0, true) else {
+                eprintln!("[clips-tray] type failed: no keydown event");
+                return;
+            };
+            let Ok(up) = CGEvent::new_keyboard_event(source.clone(), 0, false) else {
+                eprintln!("[clips-tray] type failed: no keyup event");
+                return;
+            };
+            down.set_string_from_utf16_unchecked(&utf16);
+            up.set_string_from_utf16_unchecked(&utf16);
+            down.post(CGEventTapLocation::HID);
+            up.post(CGEventTapLocation::HID);
+            // Tiny gap between chunks gives terminal apps time to digest
+            // each batch — without this, Ghostty occasionally drops the
+            // tail of long inserts.
+            thread::sleep(Duration::from_millis(2));
+        }
     });
 }
 
 #[cfg(not(target_os = "macos"))]
-fn paste_clipboard() {}
+fn type_text_unicode(_text: &str) {}
 
 /// Record the popover's current recording state. When active, clicking the
 /// tray icon emits a stop event instead of toggling the popover — so the

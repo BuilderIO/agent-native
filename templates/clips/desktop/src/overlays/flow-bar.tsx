@@ -45,13 +45,14 @@ export function FlowBar() {
 
     trackListen(
       listen<{ state: FlowState }>("voice:state-change", (ev) => {
-        const next = ev.payload.state;
-        // "complete" / "idle" are transitional states right before the
-        // window is closed by hide_flow_bar — don't repaint into the
-        // empty "EN" idle pill in the brief gap, just leave the
-        // previous state showing until the window goes away.
-        if (next === "complete" || next === "idle") return;
-        setState(next);
+        // Always reflect what the dictation engine reported. Earlier we
+        // ignored "complete"/"idle" on the assumption that hide_flow_bar
+        // would close the window milliseconds later — but if the hide
+        // got debounced or dropped, the bar would sit on "Polishing..."
+        // forever even after the text had already been pasted. Painting
+        // the actual state means the worst case is a blank bar for a
+        // frame, not a permanently stuck one.
+        setState(ev.payload.state);
       }),
     );
 

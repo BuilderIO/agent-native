@@ -287,6 +287,7 @@ export const getPublicBookingLink = defineEventHandler(
         return { error: "slug is required" };
       }
 
+      // guard:allow-unscoped — public booking URL — anonymous booking by design, gated by isActive
       const rows = await getDb()
         .select()
         .from(schema.bookingLinks)
