@@ -6,7 +6,7 @@ import {
   lazy,
   Suspense,
 } from "react";
-import DOMPurify from "isomorphic-dompurify";
+import DOMPurify from "dompurify";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const Excalidraw = lazy(async () => {

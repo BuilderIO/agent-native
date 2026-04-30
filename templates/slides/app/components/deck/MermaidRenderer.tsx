@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import mermaid from "mermaid";
-import DOMPurify from "isomorphic-dompurify";
+import DOMPurify from "dompurify";
 
 let initialized = false;
 let idCounter = 0;
