@@ -12,14 +12,20 @@ import { getDb, schema } from "../server/db/index.js";
 import { assertAccess } from "@agent-native/core/sharing";
 import { writeAppState } from "@agent-native/core/application-state";
 
+const cliBoolean = z.preprocess((value) => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return value;
+}, z.boolean());
+
 export default defineAction({
   description:
     "Toggle the isInternal flag on a call participant (true = teammate, false = external).",
   schema: z.object({
     callId: z.string().describe("Call ID"),
     speakerLabel: z.string().describe("Diarized label, e.g. 'Speaker 0'"),
-    isInternal: z.coerce
-      .boolean()
+    isInternal: z
+      .union([z.boolean(), cliBoolean])
       .describe("True if this speaker is on our team"),
   }),
   run: async (args) => {

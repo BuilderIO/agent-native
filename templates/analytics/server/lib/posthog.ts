@@ -2,6 +2,10 @@
 // Queries events, insights, and trends
 
 import { resolveCredential } from "./credentials";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const DEFAULT_HOST = "https://app.posthog.com";
 
@@ -15,11 +19,12 @@ async function getConfig(): Promise<{
   projectId: string;
   host: string;
 }> {
-  const apiKey = await resolveCredential("POSTHOG_API_KEY");
-  const projectId = await resolveCredential("POSTHOG_PROJECT_ID");
-  const host = (await resolveCredential("POSTHOG_HOST")) ?? DEFAULT_HOST;
-  if (!apiKey) throw new Error("POSTHOG_API_KEY env var required");
-  if (!projectId) throw new Error("POSTHOG_PROJECT_ID env var required");
+  const ctx = requireRequestCredentialContext("POSTHOG_API_KEY");
+  const apiKey = await resolveCredential("POSTHOG_API_KEY", ctx);
+  const projectId = await resolveCredential("POSTHOG_PROJECT_ID", ctx);
+  const host = (await resolveCredential("POSTHOG_HOST", ctx)) ?? DEFAULT_HOST;
+  if (!apiKey) throw new Error("POSTHOG_API_KEY not configured");
+  if (!projectId) throw new Error("POSTHOG_PROJECT_ID not configured");
   return { apiKey, projectId, host: host.replace(/\/$/, "") };
 }
 
@@ -32,7 +37,7 @@ function cacheSet(key: string, data: unknown) {
 }
 
 async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
-  const key = cacheKey ?? path;
+  const key = scopedCredentialCacheKey(cacheKey ?? path, "POSTHOG_API_KEY");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;
@@ -58,7 +63,9 @@ async function apiPost<T>(
   body: unknown,
   cacheKey?: string,
 ): Promise<T> {
-  const key = cacheKey;
+  const key = cacheKey
+    ? scopedCredentialCacheKey(cacheKey, "POSTHOG_API_KEY")
+    : undefined;
   if (key) {
     const cached = cache.get(key);
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {

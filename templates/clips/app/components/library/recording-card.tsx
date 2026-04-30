@@ -10,7 +10,6 @@ import {
   IconFolder,
   IconArchive,
   IconTrash,
-  IconCopy,
   IconEdit,
   IconCheck,
 } from "@tabler/icons-react";
@@ -71,9 +70,7 @@ interface RecordingCardProps {
   onToggleSelect?: (id: string) => void;
   onShare?: (rec: RecordingSummary) => void;
   onMove?: (rec: RecordingSummary) => void;
-  onAddToSpace?: (rec: RecordingSummary) => void;
   onRename?: (rec: RecordingSummary) => void;
-  onDuplicate?: (rec: RecordingSummary) => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
 }
@@ -85,9 +82,7 @@ export function RecordingCard({
   onToggleSelect,
   onShare,
   onMove,
-  onAddToSpace,
   onRename,
-  onDuplicate,
   onArchive,
   onTrash,
 }: RecordingCardProps) {
@@ -140,7 +135,6 @@ export function RecordingCard({
         "group relative flex flex-col rounded-lg border bg-card overflow-hidden cursor-pointer",
         "border-border/80 hover:border-primary/40",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md",
-        "transition-transform duration-100 ease-out hover:-translate-y-0.5",
         selected && "ring-2 ring-primary border-primary",
       )}
     >
@@ -251,15 +245,9 @@ export function RecordingCard({
               <DropdownMenuItem onSelect={() => onMove?.(recording)}>
                 <IconFolder className="h-4 w-4 mr-2" /> Move to folder
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onAddToSpace?.(recording)}>
-                <IconUsersGroup className="h-4 w-4 mr-2" /> Add to space
-              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => onRename?.(recording)}>
                 <IconEdit className="h-4 w-4 mr-2" /> Rename
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onDuplicate?.(recording)}>
-                <IconCopy className="h-4 w-4 mr-2" /> Duplicate
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               {recording.archivedAt ? (

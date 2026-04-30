@@ -1,8 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { createClient } from "@libsql/client";
+import { z } from "zod";
 
 export default defineAction({
   description: "Check database connection status.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     const url = process.env.DATABASE_URL || "file:./data/app.db";

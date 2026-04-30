@@ -25,6 +25,8 @@ import {
   aiSdkPartToEngineEvents,
   aiSdkStepToAssistantContent,
 } from "./translate-ai-sdk.js";
+import { DEFAULT_MODEL } from "../default-model.js";
+import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 
 // ---------------------------------------------------------------------------
 // Provider definitions
@@ -100,7 +102,7 @@ const PROVIDER_CAPABILITIES: Record<AISDKProvider, EngineCapabilities> = {
 };
 
 const PROVIDER_DEFAULT_MODELS: Record<AISDKProvider, string> = {
-  anthropic: "claude-sonnet-4-6",
+  anthropic: DEFAULT_MODEL,
   openai: "gpt-5.4",
   openrouter: "anthropic/claude-sonnet-4.6",
   google: "gemini-3-flash-preview",
@@ -395,7 +397,8 @@ function capitalize(s: string): string {
 function getProviderApiKey(provider: AISDKProvider): string | undefined {
   const envVars = PROVIDER_ENV_VARS[provider];
   for (const v of envVars) {
-    if (process.env[v]) return process.env[v];
+    const value = readDeployCredentialEnv(v);
+    if (value) return value;
   }
   return undefined;
 }

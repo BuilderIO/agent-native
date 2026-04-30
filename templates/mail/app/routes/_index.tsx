@@ -2,7 +2,14 @@ import { redirect } from "react-router";
 import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
-  return [{ title: "Mail" }];
+  return [
+    { title: "Mail" },
+    {
+      name: "description",
+      content:
+        "Agent-native email — keyboard-first inbox, AI triage, drafts, and search across every connected account.",
+    },
+  ];
 }
 
 /**

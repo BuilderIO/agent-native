@@ -10,7 +10,8 @@ export default defineAction({
     id: z.string().describe("The ID of the external calendar to remove"),
   }),
   run: async (args) => {
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const existing =
       ((await getUserSetting(email, "external-calendars")) as unknown as
         | ExternalCalendar[]

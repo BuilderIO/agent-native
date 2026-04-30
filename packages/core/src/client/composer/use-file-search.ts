@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import type { FileResult } from "./types.js";
+import { agentNativePath } from "../api-path.js";
 
 export function useFileSearch(query: string, enabled: boolean) {
   const [files, setFiles] = useState<FileResult[]>([]);
@@ -20,7 +21,9 @@ export function useFileSearch(query: string, enabled: boolean) {
       async () => {
         try {
           const res = await fetch(
-            `/_agent-native/agent-chat/files?q=${encodeURIComponent(query)}`,
+            agentNativePath(
+              `/_agent-native/agent-chat/files?q=${encodeURIComponent(query)}`,
+            ),
           );
           if (!res.ok) throw new Error();
           const data = await res.json();

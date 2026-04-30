@@ -31,17 +31,7 @@ export function onFrameMessage(
   if (typeof window === "undefined") return () => {};
 
   const listener = (event: MessageEvent) => {
-    // Validate origin: accept from frame origin, own origin, or same window
-    const frame = getFrameOrigin();
-    const ownOrigin = window.location.origin;
-    if (
-      event.source !== window &&
-      event.origin !== ownOrigin &&
-      frame &&
-      event.origin !== frame
-    ) {
-      return;
-    }
+    if (!isTrustedFrameMessage(event)) return;
     if (event.data?.type === type) {
       handler(event.data.data ?? event.data.detail ?? event.data);
     }
@@ -56,17 +46,40 @@ export function onFrameMessage(
 
 let _frameOrigin: string | null = null;
 
+function normalizeOrigin(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+export function isTrustedFrameMessage(event: MessageEvent): boolean {
+  if (typeof window === "undefined") return false;
+
+  const ownOrigin = window.location.origin;
+  if (event.origin === ownOrigin) return true;
+
+  const frameOrigin = getFrameOrigin();
+  if (!frameOrigin || event.origin !== frameOrigin) return false;
+
+  return event.source === window.parent || event.source === window;
+}
+
 // Listen for frame origin message and cache it.
 // Only accept from the direct parent frame, and only set once.
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event: MessageEvent) => {
+    const origin = normalizeOrigin(event.data?.origin);
     if (
-      event.data?.type === "builder.frameOrigin" &&
-      event.data.origin &&
+      event.data?.type === "agentNative.frameOrigin" &&
+      origin &&
+      origin === event.origin &&
       !_frameOrigin &&
       event.source === window.parent
     ) {
-      _frameOrigin = event.data.origin;
+      _frameOrigin = origin;
     }
   });
 }
@@ -129,7 +142,10 @@ export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
     }, timeoutMs);
 
     function handler(event: MessageEvent) {
-      if (!event.data || event.data.type !== "builder.userInfo") return;
+      if (!event.data || event.data.type !== "agentNative.userInfo") return;
+      if (event.source !== window.parent) return;
+      const frameOrigin = getFrameOrigin();
+      if (frameOrigin && event.origin !== frameOrigin) return;
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -139,7 +155,10 @@ export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
     }
 
     window.addEventListener("message", handler);
-    window.parent.postMessage({ type: "builder.getUserInfo" }, "*");
+    window.parent.postMessage(
+      { type: "agentNative.getUserInfo" },
+      getFrameOrigin() ?? window.location.origin,
+    );
   });
 }
 
@@ -151,19 +170,19 @@ export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
  * Enter visual editing selection mode for a specific element.
  */
 export function enterStyleEditing(selector: string): void {
-  sendToFrame("builder.enterStyleEditing", { selector });
+  sendToFrame("agentNative.enterStyleEditing", { selector });
 }
 
 /**
  * Enter text editing mode for a specific element.
  */
 export function enterTextEditing(selector: string): void {
-  sendToFrame("builder.enterTextEditing", { selector });
+  sendToFrame("agentNative.enterTextEditing", { selector });
 }
 
 /**
  * Exit selection mode.
  */
 export function exitSelectionMode(): void {
-  sendToFrame("builder.exitSelectionMode");
+  sendToFrame("agentNative.exitSelectionMode");
 }

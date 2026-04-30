@@ -17,6 +17,25 @@ export async function loader({ params }: LoaderFunctionArgs) {
   return { eventType, ownerEmail };
 }
 
+export function meta({
+  data,
+}: {
+  data?: {
+    eventType: { title: string; description?: string | null };
+    ownerEmail: string;
+  };
+}) {
+  if (!data) return [{ title: "Book a meeting" }];
+  const name = data.ownerEmail.split("@")[0];
+  return [
+    { title: `${data.eventType.title} with ${name}` },
+    {
+      name: "description",
+      content: data.eventType.description || `Book a meeting with ${name}.`,
+    },
+  ];
+}
+
 export default function BookerPage() {
   const { eventType, ownerEmail } = useLoaderData<typeof loader>();
   return (

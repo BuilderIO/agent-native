@@ -1,14 +1,44 @@
 import { useRef, useEffect, useCallback, useMemo } from "react";
+import { agentChat } from "@agent-native/core";
 import { cn } from "@/lib/utils";
 import { DeviceFrame } from "./DeviceFrame";
 import type { ElementInfo, DeviceFrameType } from "./types";
+// NOTE: This wires up the NEW shared visual-editor DrawOverlay + comment-pin
+// components from `@/components/visual-editor`. The legacy iframe-only
+// DrawOverlay at `./DrawOverlay.tsx` is intentionally NOT used here — both
+// exist for now and can be reconciled in a follow-up. Don't import both.
+import {
+  DrawOverlay as SharedDrawOverlay,
+  CanvasCommentPins,
+} from "@/components/visual-editor";
 
 /**
- * Bridge script injected into the iframe srcdoc.
- * Sends element info on click/hover to the parent, and accepts
- * style-change / tweak-value messages from the parent.
+ * Tweak-bridge script. ALWAYS injected so the parent's postMessage
+ * (`tweak-values`) can update CSS custom properties on the iframe's :root
+ * regardless of which editor mode is active. Without this the tweak panel
+ * silently no-ops in the default Comment mode.
  */
-const BRIDGE_SCRIPT = `
+const TWEAK_BRIDGE_SCRIPT = `
+<script>
+(function() {
+  window.addEventListener('message', function(e) {
+    if (e.origin !== window.location.origin) return;
+    if (!e.data || e.data.type !== 'tweak-values') return;
+    var root = document.documentElement;
+    var vals = e.data.values || {};
+    Object.keys(vals).forEach(function(k) {
+      root.style.setProperty(k, vals[k]);
+    });
+  });
+})();
+</script>
+`;
+
+/**
+ * Edit-mode bridge: element click/hover overlays + selector-targeted
+ * style-change messages. Only injected when the user is in Edit mode.
+ */
+const EDIT_BRIDGE_SCRIPT = `
 <script>
 (function() {
   function getElementInfo(el) {
@@ -75,7 +105,7 @@ const BRIDGE_SCRIPT = `
     selectionOverlay.style.left = rect.left + 'px';
     selectionOverlay.style.width = rect.width + 'px';
     selectionOverlay.style.height = rect.height + 'px';
-    window.parent.postMessage({ type: 'element-select', payload: info }, '*');
+    window.parent.postMessage({ type: 'element-select', payload: info }, window.location.origin);
   });
 
   document.addEventListener('mouseover', function(e) {
@@ -86,7 +116,7 @@ const BRIDGE_SCRIPT = `
     highlightOverlay.style.width = rect.width + 'px';
     highlightOverlay.style.height = rect.height + 'px';
     var info = getElementInfo(e.target);
-    window.parent.postMessage({ type: 'element-hover', payload: info }, '*');
+    window.parent.postMessage({ type: 'element-hover', payload: info }, window.location.origin);
   });
 
   document.addEventListener('mouseout', function() {
@@ -94,21 +124,13 @@ const BRIDGE_SCRIPT = `
   });
 
   window.addEventListener('message', function(e) {
-    if (!e.data || !e.data.type) return;
-    if (e.data.type === 'style-change') {
-      var sel = e.data.selector;
-      var prop = e.data.property;
-      var val = e.data.value;
-      var el = sel ? document.querySelector(sel) : null;
-      if (el) el.style[prop] = val;
-    }
-    if (e.data.type === 'tweak-values') {
-      var root = document.documentElement;
-      var vals = e.data.values || {};
-      Object.keys(vals).forEach(function(k) {
-        root.style.setProperty(k, vals[k]);
-      });
-    }
+    if (e.origin !== window.location.origin) return;
+    if (!e.data || e.data.type !== 'style-change') return;
+    var sel = e.data.selector;
+    var prop = e.data.property;
+    var val = e.data.value;
+    var el = sel ? document.querySelector(sel) : null;
+    if (el) el.style[prop] = val;
   });
 })();
 </script>
@@ -122,6 +144,18 @@ interface DesignCanvasProps {
   onElementSelect: (info: ElementInfo) => void;
   onElementHover: (info: ElementInfo) => void;
   tweakValues: Record<string, string>;
+  /** Whether draw-to-prompt mode is active (overlays the iframe). */
+  drawMode?: boolean;
+  /** Called when the user exits draw mode (X / Escape / after Send). */
+  onExitDrawMode?: () => void;
+  /** Whether comment-pin drop mode is active. */
+  pinMode?: boolean;
+  /** Called when the user exits pin mode. */
+  onExitPinMode?: () => void;
+  /** Stable id of the open design (used for pin scoping + agent prompt). */
+  designId?: string;
+  /** Human-readable label for the design (used in agent prompt). */
+  designTitle?: string;
 }
 
 export function DesignCanvas({
@@ -132,12 +166,20 @@ export function DesignCanvas({
   onElementSelect,
   onElementHover,
   tweakValues,
+  drawMode,
+  onExitDrawMode,
+  pinMode,
+  onExitPinMode,
+  designId,
+  designTitle,
 }: DesignCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Build the srcdoc with bridge script injected before </body>
+  // Build the srcdoc. The tweak bridge ALWAYS goes in so the panel works
+  // outside Edit mode. The edit bridge (click/hover overlays) is gated.
   const srcdoc = useMemo(() => {
-    const bridgeToInject = editMode ? BRIDGE_SCRIPT : "";
+    const bridgeToInject =
+      TWEAK_BRIDGE_SCRIPT + (editMode ? EDIT_BRIDGE_SCRIPT : "");
     if (content.includes("</body>")) {
       return content.replace("</body>", bridgeToInject + "</body>");
     }
@@ -151,6 +193,8 @@ export function DesignCanvas({
   // Listen for messages from the iframe
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      if (e.origin !== window.location.origin) return;
       if (!e.data || !e.data.type) return;
       if (e.data.type === "element-select") {
         onElementSelect(e.data.payload);
@@ -163,14 +207,22 @@ export function DesignCanvas({
     return () => window.removeEventListener("message", handleMessage);
   }, [onElementSelect, onElementHover]);
 
-  // Send tweak values to the iframe whenever they change
+  // Send tweak values to the iframe whenever they change OR the iframe
+  // (re)loads. The reload case matters: changing `content` or toggling Edit
+  // mode rebuilds srcdoc and remounts the iframe; without replaying values
+  // here, the freshly mounted document loses the user's tweak state.
   useEffect(() => {
     const iframe = iframeRef.current;
-    if (!iframe?.contentWindow) return;
-    iframe.contentWindow.postMessage(
-      { type: "tweak-values", values: tweakValues },
-      "*",
-    );
+    if (!iframe) return;
+    const send = () => {
+      iframe.contentWindow?.postMessage(
+        { type: "tweak-values", values: tweakValues },
+        window.location.origin,
+      );
+    };
+    send();
+    iframe.addEventListener("load", send);
+    return () => iframe.removeEventListener("load", send);
   }, [tweakValues]);
 
   const sendStyleChange = useCallback(
@@ -179,7 +231,7 @@ export function DesignCanvas({
       if (!iframe?.contentWindow) return;
       iframe.contentWindow.postMessage(
         { type: "style-change", selector, property, value },
-        "*",
+        window.location.origin,
       );
     },
     [],
@@ -209,18 +261,53 @@ export function DesignCanvas({
   const { width: iframeWidth, height: iframeHeight } =
     deviceDimensions[deviceFrame];
 
+  // Wrap the iframe in a positioned container so DrawOverlay /
+  // CanvasCommentPins can absolutely-position themselves on top of the
+  // iframe. The pin component anchors to `.design-canvas-iframe-wrapper`
+  // via canvasSelector.
   const iframeElement = (
-    <iframe
-      ref={iframeRef}
-      srcDoc={srcdoc}
-      sandbox="allow-scripts allow-same-origin"
-      className="border-0 bg-white"
+    <div
+      className="design-canvas-iframe-wrapper relative inline-block"
       style={{
         width: iframeWidth,
         height: deviceFrame === "none" ? "100%" : (iframeHeight ?? undefined),
       }}
-      title="Design Preview"
-    />
+    >
+      <iframe
+        ref={iframeRef}
+        srcDoc={srcdoc}
+        sandbox="allow-scripts allow-same-origin"
+        className="border-0 bg-white block w-full h-full"
+        title="Design Preview"
+      />
+      {/* Draw-to-prompt overlay — sits over the iframe, NOT inside it. */}
+      <SharedDrawOverlay
+        visible={!!drawMode}
+        onClose={() => onExitDrawMode?.()}
+        onSend={(annotations, instruction, canvasSize) => {
+          const summary = annotations
+            .map((a) =>
+              a.type === "path"
+                ? `[stroke ${a.color} w=${a.lineWidth}] ${a.pathData}`
+                : `[label "${a.text}" at ${a.position.x.toFixed(0)},${a.position.y.toFixed(0)}]`,
+            )
+            .join("\n");
+          const lines = [
+            `[Drawing on design ${designId || ""}${designTitle ? ` (${designTitle})` : ""}]`,
+            `Canvas size: ${canvasSize.width.toFixed(0)}x${canvasSize.height.toFixed(0)}`,
+            summary,
+            "",
+            instruction || "Apply these annotations to the design.",
+          ];
+          try {
+            agentChat.submit(lines.join("\n"));
+          } catch (err) {
+            console.error("[DesignCanvas] failed to submit drawing:", err);
+          }
+          onExitDrawMode?.();
+        }}
+      />
+    </div>
   );
 
   const wrappedContent =
@@ -268,6 +355,17 @@ export function DesignCanvas({
           </div>
         </div>
       )}
+
+      {/* Canvas comment pins — anchored to the iframe wrapper. The pins
+          themselves render via fixed positioning, so we mount them outside
+          the zoom-transformed container to keep coordinates stable. */}
+      <CanvasCommentPins
+        active={!!pinMode}
+        onClose={() => onExitPinMode?.()}
+        canvasSelector=".design-canvas-iframe-wrapper"
+        contextId={designId || "design"}
+        contextLabel={designTitle || designId || "design"}
+      />
     </div>
   );
 }

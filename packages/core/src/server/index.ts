@@ -16,6 +16,8 @@ export {
   getSessionEmail,
   runAuthGuard,
   setDesktopExchange,
+  DEV_MODE_USER_EMAIL,
+  safeReturnPath,
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
@@ -115,9 +117,13 @@ export {
 } from "./action-routes.js";
 export {
   runWithRequestContext,
+  hasRequestContext,
+  getRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
   getRequestTimezone,
+  getCredentialContext,
+  isIntegrationCallerRequest,
   type RequestContext,
 } from "./request-context.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
@@ -157,6 +163,8 @@ export {
   isElectron,
   isMobile,
   getOrigin,
+  getAppBasePath,
+  getAppUrl,
   encodeOAuthState,
   decodeOAuthState,
   resolveOAuthOwner,
@@ -180,6 +188,7 @@ export {
   resolveBuilderCredential,
   writeBuilderCredentials,
   deleteBuilderCredentials,
+  resolveSecret,
 } from "./credential-provider.js";
 
 export {
@@ -197,6 +206,12 @@ export {
   type EmailCta,
 } from "./email-template.js";
 export { getAppProductionUrl, getFirstPartyProdUrl } from "./app-url.js";
+export {
+  signShortLivedToken,
+  verifyShortLivedToken,
+  type ShortLivedTokenClaims,
+  type VerifyResult as ShortLivedTokenVerifyResult,
+} from "./short-lived-token.js";
 
 // SSR handler is NOT re-exported here — it uses a virtual module
 // (virtual:react-router/server-build) that only exists at Vite dev/build time.

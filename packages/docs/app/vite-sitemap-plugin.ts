@@ -7,35 +7,20 @@ const SITE_URL = "https://agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Vite plugin that auto-generates sitemap.xml from the file-based routes
- * in src/routes/ at build time. No more manual sitemap maintenance.
+ * Vite plugin that auto-generates sitemap.xml from the docs content and
+ * template registry at build time. No more manual sitemap maintenance.
  */
 export function sitemapPlugin(): Plugin {
   const rootDir = path.resolve(__dirname, "..");
-  const routesDir = path.resolve(__dirname, "routes");
 
   return {
     name: "sitemap-generator",
     apply: "build",
     closeBundle() {
-      const paths = [...new Set(discoverRoutes(routesDir, ""))];
+      const paths = buildSitemapPaths(rootDir);
       if (paths.length === 0) return;
 
-      const urls = paths.map((p) => {
-        const priority =
-          p === "/" ? "1.0" : p.split("/").length <= 2 ? "0.9" : "0.8";
-        return `  <url>
-    <loc>${SITE_URL}${p}</loc>
-    <changefreq>weekly</changefreq>
-    <priority>${priority}</priority>
-  </url>`;
-      });
-
-      const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls.join("\n")}
-</urlset>
-`;
+      const sitemap = buildSitemapXml(paths);
 
       // Write to public/ (source of truth) and dist outputs
       for (const dir of ["public", "dist/client", "dist/server/public"]) {
@@ -50,30 +35,56 @@ ${urls.join("\n")}
   };
 }
 
-function discoverRoutes(dir: string, prefix: string): string[] {
-  const paths: string[] = [];
+export function buildSitemapPaths(rootDir: string): string[] {
+  const docsDir = path.resolve(rootDir, "../core/docs/content");
+  const templateCardPath = path.resolve(
+    rootDir,
+    "app/components/TemplateCard.tsx",
+  );
 
-  if (!fs.existsSync(dir)) return paths;
+  const docsPaths = fs
+    .readdirSync(docsDir)
+    .filter((name) => name.endsWith(".md"))
+    .map((name) => name.replace(/\.md$/, ""))
+    .filter((slug) => slug !== "getting-started")
+    .map((slug) => `/docs/${slug}`);
 
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name.startsWith("__")) continue;
+  const templateSource = fs.readFileSync(templateCardPath, "utf8");
+  const templatePaths = Array.from(
+    templateSource.matchAll(/slug:\s*"([^"]+)"/g),
+    (match) => `/templates/${match[1]}`,
+  );
 
-    if (entry.isDirectory()) {
-      paths.push(
-        ...discoverRoutes(
-          path.join(dir, entry.name),
-          `${prefix}/${entry.name}`,
-        ),
-      );
-    } else if (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) {
-      const name = entry.name.replace(/\.tsx?$/, "");
-      if (name === "index") {
-        paths.push(prefix || "/");
-      } else {
-        paths.push(`${prefix}/${name}`);
-      }
-    }
-  }
+  return [
+    "/",
+    "/docs",
+    "/download",
+    "/templates",
+    ...docsPaths,
+    ...templatePaths,
+  ]
+    .filter((route, index, routes) => routes.indexOf(route) === index)
+    .sort((a, b) => {
+      if (a === "/") return -1;
+      if (b === "/") return 1;
+      return a.localeCompare(b);
+    });
+}
 
-  return paths.sort();
+export function buildSitemapXml(paths: string[]): string {
+  const urls = paths.map((p) => {
+    const priority =
+      p === "/" ? "1.0" : p === "/docs" || p === "/templates" ? "0.9" : "0.8";
+    return `  <url>
+    <loc>${SITE_URL}${p}</loc>
+    <changefreq>weekly</changefreq>
+    <priority>${priority}</priority>
+  </url>`;
+  });
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.join("\n")}
+</urlset>
+`;
 }

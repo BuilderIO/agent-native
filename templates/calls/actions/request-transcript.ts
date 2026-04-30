@@ -47,7 +47,10 @@ import {
 } from "@agent-native/core/application-state";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { readAppSecret } from "@agent-native/core/secrets";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestUserEmail,
+  getCredentialContext,
+} from "@agent-native/core/server/request-context";
 import { hasBuilderPrivateKey } from "@agent-native/core/server";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { transcribeWithDeepgram } from "../server/lib/transcription/deepgram.js";
@@ -241,7 +244,13 @@ export default defineAction({
       if (userSecret?.value) apiKey = userSecret.value;
     }
     if (!apiKey) {
-      apiKey = await resolveCredential("DEEPGRAM_API_KEY");
+      const credCtx = getCredentialContext();
+      if (!credCtx) {
+        throw new Error(
+          "request-transcript: no active request context — cannot resolve DEEPGRAM_API_KEY safely.",
+        );
+      }
+      apiKey = await resolveCredential("DEEPGRAM_API_KEY", credCtx);
     }
     if (!apiKey) {
       const [existingRow] = await db
@@ -470,6 +479,7 @@ async function failTranscript(
     failureReason: reason,
     now: nowIso,
   });
+  // guard:allow-unscoped — only called from the action body which already ran assertAccess("call", callId, "editor")
   await db
     .update(schema.calls)
     .set({ status: "failed", failureReason: reason, updatedAt: nowIso })

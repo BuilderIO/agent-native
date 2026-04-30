@@ -495,8 +495,47 @@ function baseRedirectGuard(): Plugin {
       // middleware is built — but we insert BEFORE by using the pre-hook
       // approach: configureServer hooks that return nothing run before
       // internal middleware.
-      server.middlewares.use((req, _res, next) => {
+      server.middlewares.use((req, res, next) => {
         const base = server.config.base;
+        if (base && base !== "/" && req.url?.startsWith(base)) {
+          const relativeUrl = req.url.slice(base.length - 1);
+          try {
+            const url = new URL(relativeUrl, "http://agent-native.local");
+            const publicDir = server.config.publicDir;
+            if (typeof publicDir !== "string") {
+              return next();
+            }
+            const publicPath = path.normalize(
+              path.join(publicDir, decodeURIComponent(url.pathname)),
+            );
+            if (
+              publicPath.startsWith(publicDir + path.sep) &&
+              fs.existsSync(publicPath) &&
+              fs.statSync(publicPath).isFile()
+            ) {
+              const contentType = contentTypeForPublicFile(publicPath);
+              if (contentType) res.setHeader("content-type", contentType);
+              if (req.method === "HEAD") {
+                res.statusCode = 200;
+                res.end();
+                return;
+              }
+              fs.createReadStream(publicPath).pipe(res);
+              return;
+            }
+          } catch {
+            // Fall through to Vite/Nitro. Malformed URLs should keep their
+            // original path so the normal dev-server error handling applies.
+          }
+        }
+        req.url = stripMountedDevApiPath(req.url, base);
+        if (
+          req.method === "HEAD" &&
+          req.url &&
+          !isFrameworkDevPath(req.url, base)
+        ) {
+          req.method = "GET";
+        }
         if (
           base &&
           base !== "/" &&
@@ -509,6 +548,69 @@ function baseRedirectGuard(): Plugin {
       });
     },
   };
+}
+
+function contentTypeForPublicFile(filePath: string): string | null {
+  switch (path.extname(filePath).toLowerCase()) {
+    case ".css":
+      return "text/css";
+    case ".html":
+      return "text/html";
+    case ".ico":
+      return "image/x-icon";
+    case ".json":
+    case ".webmanifest":
+      return "application/json";
+    case ".js":
+    case ".mjs":
+      return "text/javascript";
+    case ".png":
+      return "image/png";
+    case ".svg":
+      return "image/svg+xml";
+    case ".txt":
+      return "text/plain";
+    case ".xml":
+      return "application/xml";
+    default:
+      return null;
+  }
+}
+
+function devPathname(reqUrl: string): string {
+  return new URL(reqUrl, "http://agent-native.local").pathname;
+}
+
+function isApiDevPath(reqUrl: string): boolean {
+  const pathname = devPathname(reqUrl);
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
+
+export function stripMountedDevApiPath(
+  reqUrl: string | undefined,
+  base: string | undefined,
+): string | undefined {
+  if (!reqUrl || !base || base === "/") return reqUrl;
+  const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+  if (!reqUrl.startsWith(normalizedBase)) return reqUrl;
+  const stripped = reqUrl.slice(normalizedBase.length - 1) || "/";
+  return isApiDevPath(stripped) ? stripped : reqUrl;
+}
+
+export function isFrameworkDevPath(
+  reqUrl: string,
+  base: string | undefined,
+): boolean {
+  const pathname = devPathname(reqUrl);
+  if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")) {
+    return true;
+  }
+  if (!base || base === "/") return false;
+  const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
+  return (
+    pathname === `${normalizedBase}/_agent-native` ||
+    pathname.startsWith(`${normalizedBase}/_agent-native/`)
+  );
 }
 
 /**
@@ -592,7 +694,7 @@ function portExposer(): Plugin {
       server.httpServer?.once("listening", () => {
         const addr = server.httpServer?.address();
         if (addr && typeof addr === "object" && addr.port) {
-          process.env.PORT = String(addr.port);
+          process.env.PORT = String(addr.port); // guard:allow-env-mutation — Vite dev server port published once at boot before any request
         }
       });
     },
@@ -689,6 +791,10 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       dotenv.config({
         path: path.join(workspaceRoot, ".env"),
         override: false,
+        // Suppress the dotenv v17 tip line — this loader fires alongside
+        // utils.ts loadEnv() during dev startup and would otherwise emit a
+        // duplicate "[dotenv] injecting env" message.
+        quiet: true,
       });
     } catch {}
   }
@@ -787,6 +893,16 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           // and triggers a server restart when those files change.
           noExternal: [
             /^@agent-native\/core(\/.*)?$/,
+            // scheduling ships tsc-compiled dist files that contain literal
+            // `@/` path-alias imports (e.g. `import { Input } from
+            // "@/components/ui/input"`). In standalone (published) mode Node
+            // treats the package as an external CJS dep and can't resolve
+            // `@/components`. Adding it to noExternal makes Vite process it
+            // through the module pipeline, where the consumer app's `@` →
+            // `./app` alias is already registered.
+            ...(hasDep("@agent-native/scheduling", cwd)
+              ? [/^@agent-native\/scheduling(\/.*)?$/]
+              : []),
             ...workspaceCoreNoExternal,
           ],
           external: [

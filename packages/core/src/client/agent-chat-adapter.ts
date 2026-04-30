@@ -5,6 +5,7 @@ import {
   clearActiveRun,
 } from "./active-run-state.js";
 import { type ContentPart, readSSEStream } from "./sse-event-processor.js";
+import { agentNativePath } from "./api-path.js";
 
 /**
  * Creates a ChatModelAdapter that connects to the agent-native
@@ -17,7 +18,8 @@ export function createAgentChatAdapter(options?: {
   modelRef?: { current: string | undefined };
   engineRef?: { current: string | undefined };
 }): ChatModelAdapter {
-  const apiUrl = options?.apiUrl ?? "/_agent-native/agent-chat";
+  const apiUrl =
+    options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const tabId = options?.tabId;
   const threadId = options?.threadId;
   const modelRef = options?.modelRef;
@@ -108,7 +110,7 @@ export function createAgentChatAdapter(options?: {
       // Signal that generation is starting
       if (typeof window !== "undefined") {
         window.dispatchEvent(
-          new CustomEvent("builder.chatRunning", {
+          new CustomEvent("agentNative.chatRunning", {
             detail: { isRunning: true, tabId },
           }),
         );
@@ -338,7 +340,7 @@ export function createAgentChatAdapter(options?: {
       } finally {
         if (typeof window !== "undefined") {
           window.dispatchEvent(
-            new CustomEvent("builder.chatRunning", {
+            new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId },
             }),
           );

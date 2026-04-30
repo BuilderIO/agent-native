@@ -444,6 +444,19 @@ pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
 /// pick a fixed popover size that fits every state.
 #[tauri::command]
 pub async fn resize_popover(app: AppHandle, height: f64) -> Result<(), String> {
+    // CRITICAL: bail out when the popover is parked at 2x2 for voice
+    // wake-up. The React shell's ResizeObserver fires on every mount
+    // and would un-park the window back to full size, making the
+    // Clips UI flash on every Fn press AND steal focus from the
+    // foreground app. The window must stay invisible-but-alive until
+    // hide_flow_bar clears the wake flag.
+    let voice_woken = app
+        .try_state::<VoiceWakePopover>()
+        .and_then(|state| state.0.lock().ok().map(|g| *g))
+        .unwrap_or(false);
+    if voice_woken {
+        return Ok(());
+    }
     if let Some(w) = app.get_webview_window("popover") {
         let clamped = height.clamp(200.0, 820.0);
         let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
@@ -505,19 +518,23 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_flow_bar invoked");
 
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    let w: u32 = 400;
-    let h: u32 = 120;
+    // Wider + taller than the pill alone so the live transcript chip
+    // can stack above it. Height accommodates: bottom-anchored 32px pill
+    // + 6px gap + ~28px transcript chip + drop-shadow margin.
+    let w: u32 = 800;
+    let h: u32 = 180;
     let x: i32 = ((mw as i32 - w as i32) / 2).max(0);
     // Bottom margin: ~14 logical px ≈ 28 physical px, matching Wispr Flow.
     let y: i32 = (mh as i32 - h as i32 - 28).max(0);
 
     if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {
         // Reposition (in case the user changed display geometry between
-        // sessions) and bring it back into view. State reset is handled
-        // by the JS side emitting voice:state-change.
+        // sessions) and bring it back into view WITHOUT stealing focus
+        // from the user's foreground app. State reset is handled by the
+        // JS side emitting voice:state-change.
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
         let _ = existing.set_position(PhysicalPosition::new(x, y));
-        let _ = existing.show();
+        crate::util::show_without_activation(&existing);
         return Ok(());
     }
 
@@ -540,7 +557,7 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     let _ = win.set_position(PhysicalPosition::new(x, y));
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
-    let _ = win.show();
+    crate::util::show_without_activation(&win);
     let app_for_timeout = app.clone();
     thread::spawn(move || {
         // Long-tail safety net: if the JS cleanup path doesn't reach
@@ -596,10 +613,11 @@ pub async fn hide_flow_bar(app: AppHandle) -> Result<(), String> {
 pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<(), String> {
     let trimmed = text.trim().to_string();
     if trimmed.is_empty() {
+        eprintln!("[clips-tray] complete_voice_dictation: empty text — nothing to paste");
         return Ok(());
     }
-    dlog!(
-        "[clips-tray] complete_voice_dictation chars={}",
+    eprintln!(
+        "[clips-tray] complete_voice_dictation: typing {} chars via CGEvent unicode",
         trimmed.chars().count()
     );
     if let Some(last) = app.try_state::<LastTranscript>() {
@@ -607,8 +625,14 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<()
             *g = Some(trimmed.clone());
         }
     }
+    // Keep the clipboard updated so users can ⌘V again to repeat the last
+    // dictation, but don't rely on Cmd+V for the actual insertion — many
+    // terminals (Ghostty, iTerm with custom keybindings, etc.) intercept
+    // Cmd+V or only accept paste through their own copy/paste pipeline.
+    // CGEvent unicode injection types the characters directly into the
+    // focused field and works in every terminal + editor we've tested.
     write_clipboard(&trimmed)?;
-    paste_clipboard();
+    type_text_unicode(&trimmed);
     Ok(())
 }
 
@@ -640,35 +664,63 @@ fn write_clipboard(_text: &str) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn paste_clipboard() {
-    use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
+fn type_text_unicode(text: &str) {
+    use core_graphics::event::{CGEvent, CGEventTapLocation};
     use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
-    thread::spawn(|| {
-        thread::sleep(Duration::from_millis(80));
+    let owned = text.to_string();
+    thread::spawn(move || {
+        // Brief delay so the focused-app context is ready (mirrors the
+        // delay the previous Cmd+V path used).
+        thread::sleep(Duration::from_millis(40));
         let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
-            eprintln!("[clips-tray] paste failed: no CGEventSource");
+            eprintln!("[clips-tray] type failed: no CGEventSource");
             return;
         };
-        // ANSI V on macOS.
-        let key_v: u16 = 9;
-        let Ok(down) = CGEvent::new_keyboard_event(source.clone(), key_v, true) else {
-            eprintln!("[clips-tray] paste failed: no keydown event");
-            return;
+        // CGEventKeyboardSetUnicodeString has a per-event payload limit
+        // (Apple docs: ~20 UTF-16 units, with longer bounded by ~75 char
+        // in practice). Chunk by codepoint to stay safely under that.
+        let chunks: Vec<String> = {
+            let mut out: Vec<String> = Vec::new();
+            let mut current = String::new();
+            let mut count = 0usize;
+            for c in owned.chars() {
+                current.push(c);
+                count += 1;
+                if count >= 20 {
+                    out.push(std::mem::take(&mut current));
+                    count = 0;
+                }
+            }
+            if !current.is_empty() {
+                out.push(current);
+            }
+            out
         };
-        let Ok(up) = CGEvent::new_keyboard_event(source, key_v, false) else {
-            eprintln!("[clips-tray] paste failed: no keyup event");
-            return;
-        };
-        down.set_flags(CGEventFlags::CGEventFlagCommand);
-        up.set_flags(CGEventFlags::CGEventFlagCommand);
-        down.post(CGEventTapLocation::HID);
-        up.post(CGEventTapLocation::HID);
+        for chunk in chunks {
+            let utf16: Vec<u16> = chunk.encode_utf16().collect();
+            let Ok(down) = CGEvent::new_keyboard_event(source.clone(), 0, true) else {
+                eprintln!("[clips-tray] type failed: no keydown event");
+                return;
+            };
+            let Ok(up) = CGEvent::new_keyboard_event(source.clone(), 0, false) else {
+                eprintln!("[clips-tray] type failed: no keyup event");
+                return;
+            };
+            down.set_string_from_utf16_unchecked(&utf16);
+            up.set_string_from_utf16_unchecked(&utf16);
+            down.post(CGEventTapLocation::HID);
+            up.post(CGEventTapLocation::HID);
+            // Tiny gap between chunks gives terminal apps time to digest
+            // each batch — without this, Ghostty occasionally drops the
+            // tail of long inserts.
+            thread::sleep(Duration::from_millis(2));
+        }
     });
 }
 
 #[cfg(not(target_os = "macos"))]
-fn paste_clipboard() {}
+fn type_text_unicode(_text: &str) {}
 
 /// Record the popover's current recording state. When active, clicking the
 /// tray icon emits a stop event instead of toggling the popover — so the
@@ -845,19 +897,42 @@ pub fn toggle_popover(app: &AppHandle) {
     let Some(window) = app.get_webview_window("popover") else {
         return;
     };
-    if window.is_visible().unwrap_or(false) {
+    // Voice-wake parks the popover at 2x2 px and leaves it "visible" from
+    // AppKit's perspective so its JS keeps running. If a tray click lands
+    // while the wake flag is still set, the user wants to OPEN the
+    // popover normally — not toggle it shut. Treat the parked state as
+    // "user-invisible" so we always show full size on click. Without
+    // this, the user has to click the tray icon twice to see the popover
+    // after any voice dictation: first click hides the parked window,
+    // second click finally shows it.
+    let voice_woken = app
+        .try_state::<VoiceWakePopover>()
+        .and_then(|s| s.0.lock().ok().map(|g| *g))
+        .unwrap_or(false);
+    let user_visible = window.is_visible().unwrap_or(false) && !voice_woken;
+    if user_visible {
         let _ = window.hide();
         let _ = app.emit("clips:popover-visible", false);
-    } else {
-        // Restore normal size in case the window was shrunk to a pinhole
-        // during recording — otherwise it would reappear as a 2x2 dot.
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
-        position_popover(app, &window);
-        mark_popover_shown(app);
-        let _ = window.show();
-        let _ = window.set_focus();
-        let _ = app.emit("clips:popover-visible", true);
+        return;
     }
+    if voice_woken {
+        // Voice wake is over from the user's POV — clear the flag so the
+        // hide_flow_bar safety net doesn't double-hide the popover later.
+        if let Some(state) = app.try_state::<VoiceWakePopover>() {
+            if let Ok(mut g) = state.0.lock() {
+                *g = false;
+            }
+        }
+    }
+    // Restore normal size in case the window was shrunk to a pinhole
+    // during recording / voice-wake — otherwise it would reappear as a
+    // 2x2 dot.
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
+    position_popover(app, &window);
+    mark_popover_shown(app);
+    let _ = window.show();
+    let _ = window.set_focus();
+    let _ = app.emit("clips:popover-visible", true);
 }
 
 pub fn position_popover(app: &AppHandle, window: &WebviewWindow) {

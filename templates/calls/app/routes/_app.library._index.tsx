@@ -31,7 +31,7 @@ export function meta() {
 }
 
 type ViewMode = "grid" | "list";
-type SortKey = "recent" | "oldest" | "duration" | "title";
+type SortKey = "recent" | "oldest" | "longest" | "most-viewed" | "title";
 
 interface CallSummary {
   id: string;
@@ -85,7 +85,8 @@ export default function LibraryIndexRoute() {
             <SelectContent>
               <SelectItem value="recent">Most recent</SelectItem>
               <SelectItem value="oldest">Oldest</SelectItem>
-              <SelectItem value="duration">Longest</SelectItem>
+              <SelectItem value="longest">Longest</SelectItem>
+              <SelectItem value="most-viewed">Most viewed</SelectItem>
               <SelectItem value="title">Title</SelectItem>
             </SelectContent>
           </Select>

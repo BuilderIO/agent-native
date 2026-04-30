@@ -15,9 +15,80 @@ interface Props {
   markdown: string;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);?/g, (_, dec: string) =>
+      String.fromCodePoint(Number.parseInt(dec, 10)),
+    )
+    .replace(/&colon;?/gi, ":")
+    .replace(/&tab;?/gi, "\t")
+    .replace(/&newline;?/gi, "\n")
+    .replace(/&amp;?/gi, "&");
+}
+
+function isSafeUrl(rawUrl: string, kind: "link" | "image"): boolean {
+  const decoded = decodeHtmlEntities(rawUrl).trim();
+  if (!decoded) return false;
+
+  const normalized = decoded.replace(/[\s\u0000-\u001f\u007f]+/g, "");
+  const lower = normalized.toLowerCase();
+  if (
+    lower.startsWith("javascript:") ||
+    lower.startsWith("data:") ||
+    lower.startsWith("vbscript:") ||
+    lower.startsWith("file:") ||
+    lower.startsWith("//")
+  ) {
+    return false;
+  }
+
+  if (kind === "image" && lower.startsWith("data:image/")) {
+    return /^data:image\/(?:gif|png|jpe?g|webp|avif);base64,/i.test(decoded);
+  }
+
+  if (decoded.startsWith("/") || decoded.startsWith("#")) return true;
+  if (decoded.startsWith("./") || decoded.startsWith("../")) return true;
+
+  try {
+    const url = new URL(decoded);
+    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol);
+  } catch {
+    return !/^[a-z][a-z\d+.-]*:/i.test(lower);
+  }
+}
+
 // Custom renderer to add IDs to headings and handle {#custom-id} syntax
 function createRenderer() {
   const renderer = new marked.Renderer();
+
+  renderer.html = function ({ text }: Tokens.HTML) {
+    return escapeHtml(text);
+  };
+
+  renderer.link = function (this: RendererThis, token: Tokens.Link) {
+    const text = this.parser.parseInline(token.tokens);
+    if (!isSafeUrl(token.href, "link")) return text;
+    const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
+    return `<a href="${escapeHtml(token.href)}"${title}>${text}</a>`;
+  };
+
+  renderer.image = function (token: Tokens.Image) {
+    if (!isSafeUrl(token.href, "image")) return "";
+    const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
+    return `<img src="${escapeHtml(token.href)}" alt="${escapeHtml(token.text)}"${title}>`;
+  };
 
   renderer.heading = function (
     this: RendererThis,
@@ -48,14 +119,18 @@ function createRenderer() {
   return renderer;
 }
 
+export function renderMarkdownToHtml(markdown: string): string {
+  const renderer = createRenderer();
+  return marked(markdown, { renderer, async: false }) as string;
+}
+
 export default function MarkdownRenderer({ markdown }: Props) {
   const articleRef = useRef<HTMLDivElement>(null);
   const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
 
   // Convert markdown to HTML
   const baseHtml = useMemo(() => {
-    const renderer = createRenderer();
-    return marked(markdown, { renderer, async: false }) as string;
+    return renderMarkdownToHtml(markdown);
   }, [markdown]);
 
   // Highlight code blocks with Shiki after mount

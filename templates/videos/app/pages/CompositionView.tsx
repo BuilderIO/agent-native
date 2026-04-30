@@ -9,7 +9,13 @@ import {
   IconTrash,
   IconAdjustments,
 } from "@tabler/icons-react";
-import { useDevMode, ShareButton, useSession } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+  useDevMode,
+  ShareButton,
+  useSession,
+} from "@agent-native/core/client";
 import type { CollabUser } from "@agent-native/core/client";
 import { Pinpoint } from "@agent-native/pinpoint/react";
 import { useComposition } from "@/contexts/CompositionContext";
@@ -116,6 +122,8 @@ export default function CompositionView({
   const [showSaveError, setShowSaveError] = useState(false);
   const [saveErrorMessage, setSaveErrorMessage] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const canSave =
+    !!composition && (isDevMode || composition.storage === "database");
 
   // All hooks must be called before any early returns (React rules of hooks)
   const playerRef = useRef<VideoPlayerHandle>(null);
@@ -202,7 +210,56 @@ export default function CompositionView({
 
         console.log("Saving as default:", update);
 
-        // IconDeviceFloppy via API endpoint with retry logic
+        const saveToDatabase = async (signal: AbortSignal) => {
+          const response = await fetch(
+            agentNativePath("/_agent-native/actions/update-composition"),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              signal,
+              body: JSON.stringify({
+                id: composition.id,
+                data: JSON.stringify({
+                  description: composition.description,
+                  durationInFrames: composition.durationInFrames,
+                  fps: composition.fps,
+                  width: composition.width,
+                  height: composition.height,
+                  defaultProps: currentProps,
+                  tracks: formattedTracks,
+                }),
+              }),
+            },
+          );
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Server error: ${response.status} - ${errorText}`);
+          }
+
+          const result = (await response.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          if (result?.error) throw new Error(result.error);
+        };
+
+        const saveToRegistry = async (signal: AbortSignal) => {
+          const response = await fetch(
+            `${appBasePath()}/api/save-composition-defaults`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              signal,
+              body: JSON.stringify(update),
+            },
+          );
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Server error: ${response.status} - ${errorText}`);
+          }
+        };
+
         const maxRetries = 3;
         let lastError: Error | null = null;
         let saveSucceeded = false;
@@ -212,21 +269,14 @@ export default function CompositionView({
             // Add timeout to fetch request
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-            const response = await fetch("/api/save-composition-defaults", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(update),
-              signal: controller.signal,
-            });
-
-            clearTimeout(timeoutId);
-
-            if (!response.ok) {
-              const errorText = await response.text();
-              throw new Error(
-                `Server error: ${response.status} - ${errorText}`,
-              );
+            try {
+              if (composition.storage === "database") {
+                await saveToDatabase(controller.signal);
+              } else {
+                await saveToRegistry(controller.signal);
+              }
+            } finally {
+              clearTimeout(timeoutId);
             }
 
             // Success!
@@ -261,7 +311,7 @@ export default function CompositionView({
           localStorage.removeItem(`videos-comp-settings:${composition.id}`);
           localStorage.removeItem(`videos-tracks-version:${composition.id}`);
 
-          console.log(`[Save] Saved "${composition.title}" to registry`);
+          console.log(`[Save] Saved "${composition.title}" defaults`);
 
           if (!silent) {
             setShowSaveSuccess(true);
@@ -435,21 +485,23 @@ export default function CompositionView({
             </button>
             <button
               onClick={handleSaveAsDefault}
-              disabled={!isDevMode}
+              disabled={!canSave}
               className={cn(
                 "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium",
-                !isDevMode
+                !canSave
                   ? "bg-secondary/30 text-muted-foreground/40 border border-border/30 cursor-not-allowed"
                   : hasUnsavedChanges
                     ? "bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30"
                     : "bg-secondary/50 hover:bg-secondary text-muted-foreground border border-border/50",
               )}
               title={
-                !isDevMode
+                !canSave
                   ? "Save to registry requires local development mode"
                   : hasUnsavedChanges
                     ? "Save current settings as default for this composition"
-                    : "All changes saved to registry"
+                    : composition.storage === "database"
+                      ? "All changes saved to database"
+                      : "All changes saved to registry"
               }
             >
               <IconDeviceFloppy className="w-3.5 h-3.5" />
@@ -518,11 +570,11 @@ export default function CompositionView({
       <AlertDialog open={showSaveConfirm} onOpenChange={setShowSaveConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Save to registry</AlertDialogTitle>
+            <AlertDialogTitle>Save composition</AlertDialogTitle>
             <AlertDialogDescription>
-              Save current settings as default for "{composition.title}"? This
-              will update the registry file with current tracks, animations,
-              properties, and composition settings.
+              Save current settings as defaults for "{composition.title}"? This
+              will update its tracks, animations, properties, and composition
+              settings.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -544,8 +596,8 @@ export default function CompositionView({
           <AlertDialogHeader>
             <AlertDialogTitle>Saved</AlertDialogTitle>
             <AlertDialogDescription>
-              Saved "{composition.title}" to registry. The page will reload to
-              pick up the changes.
+              Saved "{composition.title}". The page will reload to pick up the
+              changes.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

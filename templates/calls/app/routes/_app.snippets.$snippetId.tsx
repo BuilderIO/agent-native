@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { IconArrowLeft, IconLoader2, IconShare3 } from "@tabler/icons-react";
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery, agentNativePath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CallPlayer } from "@/components/player/call-player";
@@ -34,7 +34,7 @@ export default function SnippetPlayerRoute() {
 
   useEffect(() => {
     if (!snippetId) return;
-    fetch("/_agent-native/application-state/navigation", {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       keepalive: true,
       headers: { "Content-Type": "application/json" },

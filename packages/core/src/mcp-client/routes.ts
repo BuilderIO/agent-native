@@ -33,7 +33,7 @@ import {
   listRemoteServers,
   mergedConfigKey,
   removeRemoteServer,
-  toHttpServerConfig,
+  toHttpServerConfigAsync,
   validateRemoteUrl,
   type RemoteMcpScope,
   type StoredRemoteMcpServer,
@@ -136,8 +136,11 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
     if (!Array.isArray(list)) continue;
     for (const stored of list) {
       if (!stored || typeof stored.url !== "string" || !stored.name) continue;
+      // Async resolve: decrypts `headerSecretKey` from app_secrets so the
+      // running MCP client gets the cleartext bearer at request time.
+      // Stored row contains only the secret-key reference, never the value.
       servers[mergedConfigKey(scope, stored, ownerId)] =
-        toHttpServerConfig(stored);
+        await toHttpServerConfigAsync(scope, ownerId, stored);
     }
   }
 
@@ -182,10 +185,9 @@ async function resolveContextForRequest(event: H3Event): Promise<{
   } catch {
     // ignore — no org context
   }
-  // In solo/dev mode `getSession` can return nothing but getOrgContext still
-  // yields the fallback email. Keep that as the user-scope id so single-user
-  // desktop installs work without a login flow.
-  if (!email) email = "local@localhost";
+  // No silent `local@localhost` fallback — if `getSession` returns nothing in
+  // production (misconfigured deploy, expired token), the caller must reject
+  // rather than silently pool every unauthenticated request under one identity.
   return { email, orgId, role };
 }
 
@@ -198,8 +200,11 @@ export function mountMcpServersRoutes(
   nitroApp: any,
   manager: McpClientManager,
 ): void {
-  if ((globalThis as any).__agentNativeMcpServersMounted) return;
-  (globalThis as any).__agentNativeMcpServersMounted = true;
+  const mountedApps: WeakSet<object> = ((
+    globalThis as any
+  ).__agentNativeMcpServersMountedApps ??= new WeakSet<object>());
+  if (mountedApps.has(nitroApp)) return;
+  mountedApps.add(nitroApp);
 
   try {
     getH3App(nitroApp).use(

@@ -32,6 +32,8 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
+    await assertAccess("call", args.callId, "viewer");
+
     const db = getDb();
     const rows = await db
       .select()
@@ -72,4 +74,3 @@ void resolveDefaultWorkspaceId;
 void writeAppState;
 void readAppState;
 void accessFilter;
-void assertAccess;

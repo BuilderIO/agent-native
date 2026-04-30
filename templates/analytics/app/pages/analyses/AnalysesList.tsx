@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconFlask, IconClock, IconDatabase } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
-import { useSendToAgentChat } from "@agent-native/core/client";
+import { appApiPath, useSendToAgentChat } from "@agent-native/core/client";
 
 interface AnalysisSummary {
   id: string;
@@ -25,7 +25,7 @@ interface AnalysisSummary {
 
 async function fetchAnalyses(): Promise<AnalysisSummary[]> {
   const token = await getIdToken();
-  const res = await fetch("/api/analyses", {
+  const res = await fetch(appApiPath("/api/analyses"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];

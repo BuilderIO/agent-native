@@ -19,20 +19,58 @@ import {
   setResponseStatus,
 } from "h3";
 import { getOrigin, getSession } from "@agent-native/core/server";
-import { completeVideoOAuth } from "@agent-native/scheduling/server";
+import {
+  completeVideoOAuth,
+  verifyVideoOAuthState,
+} from "@agent-native/scheduling/server";
+
+function normalizeBasePath(value: string | undefined): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function appPath(path: string): string {
+  const basePath = normalizeBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+  if (!basePath) return path;
+  if (path === basePath || path.startsWith(`${basePath}/`)) return path;
+  return `${basePath}${path}`;
+}
 
 export default defineEventHandler(async (event: H3Event) => {
   try {
     const query = getQuery(event);
     const code = query.code as string | undefined;
+    const state = query.state as string | undefined;
     if (!code) {
       setResponseStatus(event, 400);
       return errorPage("Missing authorization code");
     }
 
     const session = await getSession(event);
-    const userEmail = session?.email ?? "local@localhost";
-    const redirectUri = `${getOrigin(event)}/_agent-native/oauth/zoom/callback`;
+    if (!session?.email) {
+      setResponseStatus(event, 401);
+      return errorPage("Unauthenticated — please sign in and retry.");
+    }
+    const userEmail = session.email;
+
+    // Verify the OAuth state HMAC. Mismatch means the round-trip didn't
+    // come from a flow this user started — reject before exchanging the
+    // code so an attacker can't bind their own Zoom account onto somebody
+    // else's session via a forged callback.
+    if (!verifyVideoOAuthState({ state, kind: "zoom_video", userEmail })) {
+      setResponseStatus(event, 400);
+      return errorPage(
+        "Invalid OAuth state — please retry the connection from the integrations page.",
+      );
+    }
+
+    const redirectUri = `${getOrigin(event)}${appPath(
+      "/_agent-native/oauth/zoom/callback",
+    )}`;
 
     await completeVideoOAuth({
       kind: "zoom_video",
@@ -44,7 +82,7 @@ export default defineEventHandler(async (event: H3Event) => {
     // Redirect back to the Integrations page so the user sees the new
     // "Installed" chip.
     setResponseStatus(event, 302);
-    event.node.res.setHeader("Location", "/apps");
+    event.node.res.setHeader("Location", appPath("/apps"));
     return "";
   } catch (err: any) {
     return errorPage(`Zoom connection failed: ${err.message ?? err}`);
@@ -55,7 +93,7 @@ function errorPage(message: string): Response {
   return new Response(
     `<!DOCTYPE html><html><body style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
       <p style="font-size:15px;color:#e55">${escapeHtml(message)}</p>
-      <p style="margin-top:16px;font-size:13px;color:#888"><a href="/apps" style="color:#888">Back to integrations</a></p>
+      <p style="margin-top:16px;font-size:13px;color:#888"><a href="${appPath("/apps")}" style="color:#888">Back to integrations</a></p>
     </body></html>`,
     { status: 400, headers: { "content-type": "text/html" } },
   );

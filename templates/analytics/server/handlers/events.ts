@@ -1,6 +1,7 @@
 import { defineEventHandler, setResponseStatus } from "h3";
 import { getAccessToken } from "../lib/gcloud";
 import { resolveCredential } from "../lib/credentials";
+import { withRequestContextFromEvent } from "../lib/credentials";
 import { readBody } from "@agent-native/core/server";
 
 /**
@@ -42,34 +43,48 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
       modelId: null,
     };
 
-    // Insert into BigQuery via REST API (fire and forget - don't await)
-    Promise.all([getAccessToken(), resolveCredential("BIGQUERY_PROJECT_ID")])
-      .then(([token, projectId]) =>
-        fetch(
-          `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId || "your-gcp-project-id"}/datasets/analytics/tables/events_partitioned/insertAll`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              rows: [{ json: eventRow }],
-            }),
+    // Insert into BigQuery via REST API. We need the request context to
+    // resolve the per-user BIGQUERY_PROJECT_ID + service-account credential,
+    // so wrap inside withRequestContextFromEvent. The fetch itself still
+    // doesn't block the response (resolved upfront, fired async after).
+    const ctxResult = await withRequestContextFromEvent(event, async (ctx) => {
+      const [credentials, projectId] = await Promise.all([
+        resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
+        resolveCredential("BIGQUERY_PROJECT_ID", ctx),
+      ]);
+      if (!credentials || !projectId) return null;
+      const token = await getAccessToken();
+      return { token, projectId };
+    });
+
+    if (ctxResult) {
+      const { token, projectId } = ctxResult;
+      // Fire and forget — don't block the response on the BigQuery insert.
+      fetch(
+        `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId || "your-gcp-project-id"}/datasets/analytics/tables/events_partitioned/insertAll`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
-        ),
+          body: JSON.stringify({
+            rows: [{ json: eventRow }],
+          }),
+        },
       )
-      .then(async (res) => {
-        if (!res.ok) {
-          const text = await res.text();
-          console.error(
-            `Failed to insert event to BigQuery: ${res.status} ${text}`,
-          );
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to insert event to BigQuery:", err.message);
-      });
+        .then(async (res) => {
+          if (!res.ok) {
+            const text = await res.text();
+            console.error(
+              `Failed to insert event to BigQuery: ${res.status} ${text}`,
+            );
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to insert event to BigQuery:", err.message);
+        });
+    }
 
     // Respond immediately - don't wait for BigQuery
     setResponseStatus(event, 202);

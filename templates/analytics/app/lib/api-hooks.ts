@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { useActionQuery } from "@agent-native/core/client";
+import { appApiPath, useActionQuery } from "@agent-native/core/client";
 import { getIdToken } from "./auth";
 
 async function apiFetch<T>(path: string): Promise<T> {
   const token = await getIdToken();
-  const res = await fetch(path, {
+  const res = await fetch(appApiPath(path), {
     headers: {
       ...(token && { Authorization: `Bearer ${token}` }),
     },

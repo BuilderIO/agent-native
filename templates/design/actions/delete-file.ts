@@ -1,8 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { assertAccess } from "@agent-native/core/sharing";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:
@@ -15,9 +15,21 @@ export default defineAction({
 
     // Look up the file to get its designId for access check
     const [file] = await db
-      .select()
+      .select({
+        id: schema.designFiles.id,
+        designId: schema.designFiles.designId,
+      })
       .from(schema.designFiles)
-      .where(eq(schema.designFiles.id, id))
+      .innerJoin(
+        schema.designs,
+        eq(schema.designFiles.designId, schema.designs.id),
+      )
+      .where(
+        and(
+          eq(schema.designFiles.id, id),
+          accessFilter(schema.designs, schema.designShares),
+        ),
+      )
       .limit(1);
 
     if (!file) {

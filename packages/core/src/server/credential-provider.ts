@@ -19,6 +19,7 @@
  */
 
 import { getRequestUserEmail } from "./request-context.js";
+import { DEV_MODE_USER_EMAIL } from "./auth.js";
 
 export class FeatureNotConfiguredError extends Error {
   readonly requiredCredential: string;
@@ -40,6 +41,14 @@ export class FeatureNotConfiguredError extends Error {
     this.builderConnectUrl = opts.builderConnectUrl;
     this.byokDocsUrl = opts.byokDocsUrl;
   }
+}
+
+/**
+ * Deployment-level credential fallback for single-tenant/local operation.
+ * Multi-tenant call sites must gate this explicitly before calling.
+ */
+export function readDeployCredentialEnv(key: string): string | undefined {
+  return process.env[key] || undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,11 +84,11 @@ export async function resolveBuilderCredential(
     // connection get null here and see the "Connect Builder" prompt. The
     // local-dev session (`local@localhost`) is the only authenticated context
     // where the env fallback is safe — it identifies a single-user dev box.
-    if (email !== "local@localhost") {
+    if (email !== DEV_MODE_USER_EMAIL) {
       return null;
     }
   }
-  return process.env[key] || null;
+  return readDeployCredentialEnv(key) || null;
 }
 
 /**
@@ -200,7 +209,7 @@ export async function deleteBuilderCredentials(email: string): Promise<void> {
  */
 export async function resolveSecret(key: string): Promise<string | null> {
   const email = getRequestUserEmail();
-  if (email && email !== "local@localhost") {
+  if (email && email !== DEV_MODE_USER_EMAIL) {
     try {
       const { readAppSecret } = await import("../secrets/storage.js");
       const secret = await readAppSecret({

@@ -9,14 +9,78 @@ import {
   resourcePut,
   resourceGetByPath,
   resourceList,
+  resourceDelete,
   SHARED_OWNER,
 } from "../resources/store.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "../server/request-context.js";
+import { getDbExec } from "../db/client.js";
+
 function getOwner(): string {
-  return getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
+  return email;
+}
+
+/**
+ * Determine if the current request's user is an org owner/admin in the
+ * given org. Used to allow privileged users to update or delete shared
+ * jobs created by other org members. Returns false when there is no org,
+ * no user, no membership, or any error querying — fail closed.
+ */
+async function isCurrentUserOrgAdmin(
+  orgId: string | undefined,
+): Promise<boolean> {
+  if (!orgId) return false;
+  const email = getRequestUserEmail();
+  if (!email) return false;
+  try {
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [orgId, email.toLowerCase()],
+    });
+    if (rows.length === 0) return false;
+    const role = String((rows[0] as any).role ?? "").toLowerCase();
+    return role === "owner" || role === "admin";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Authorise a mutation (update / delete) against a job resource. When the
+ * job is in the SHARED scope the caller must either be the original
+ * `createdBy` user or an org owner/admin — otherwise any user could rewrite
+ * another user's shared job and have it run as that user on the next cron
+ * tick (the privilege-escalation chain documented in audit
+ * `/tmp/security-audit/12-mcp-a2a-agent.md`, finding #3).
+ *
+ * Returns null when the mutation is allowed, or an error string suitable
+ * for returning to the caller when not.
+ */
+async function authorizeJobMutation(
+  resourceOwner: string,
+  meta: JobFrontmatter,
+): Promise<string | null> {
+  if (resourceOwner !== SHARED_OWNER) {
+    // Personal-scope job — owner is the request's user. resourceGetByPath is
+    // already scoped to the caller, so we know meta.createdBy must match.
+    return null;
+  }
+  const caller = getOwner();
+  const createdBy = meta.createdBy?.toLowerCase();
+  if (createdBy && createdBy === caller.toLowerCase()) return null;
+
+  // Allow org owners/admins to manage shared jobs created by other members.
+  const isAdmin = await isCurrentUserOrgAdmin(
+    meta.orgId ?? getRequestOrgId() ?? undefined,
+  );
+  if (isAdmin) return null;
+
+  return "Only the job's creator (or an org admin) can update or delete it.";
 }
 
 async function runCreate(args: Record<string, any>): Promise<string> {
@@ -117,6 +181,16 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
 
   const { meta, body } = parseJobFrontmatter(resource.content);
 
+  // Reject when the caller doesn't own the shared job and isn't an org
+  // admin. Without this check, any user could rewrite a shared job whose
+  // `createdBy` is alice@…, and the next cron tick would run the
+  // attacker's instructions as alice (creator-runAs schedules in
+  // jobs/scheduler.ts line 273-278).
+  const denied = await authorizeJobMutation(resource.owner, meta);
+  if (denied) {
+    return JSON.stringify({ error: denied });
+  }
+
   if (schedule) {
     if (!isValidCron(schedule)) {
       return JSON.stringify({
@@ -149,6 +223,32 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
   });
 }
 
+async function runDelete(args: Record<string, any>): Promise<string> {
+  const { name, scope } = args;
+  const path = `jobs/${name}.md`;
+
+  let resource = await resourceGetByPath(SHARED_OWNER, path);
+  if (!resource && scope !== "shared") {
+    resource = await resourceGetByPath(getOwner(), path);
+  }
+
+  if (!resource) {
+    return JSON.stringify({ error: `Job "${name}" not found` });
+  }
+
+  // Same access check as runUpdate — only the creator or an org admin can
+  // remove a shared job. Otherwise any user could break another tenant's
+  // recurring schedule.
+  const { meta } = parseJobFrontmatter(resource.content);
+  const denied = await authorizeJobMutation(resource.owner, meta);
+  if (denied) {
+    return JSON.stringify({ error: denied });
+  }
+
+  await resourceDelete(resource.id);
+  return JSON.stringify({ deleted: true, name });
+}
+
 export function createJobTools(): Record<string, ActionEntry> {
   return {
     "manage-jobs": {
@@ -159,6 +259,7 @@ Actions:
 - "create": Create a new recurring job. Requires name, schedule, and instructions.
 - "list": List all recurring jobs and their status (schedule, enabled, last run, next run).
 - "update": Update a job's schedule, instructions, or enabled state. Requires name.
+- "delete": Delete a recurring job. Requires name. Always confirm with the user first.
 
 Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patterns: '0 9 * * *' (daily 9am), '0 9 * * 1-5' (weekdays 9am), '0 * * * *' (every hour), '0 9 * * 1' (Mondays 9am), '*/30 * * * *' (every 30 min).`,
         parameters: {
@@ -167,7 +268,7 @@ Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patt
             action: {
               type: "string",
               description: "The action to perform.",
-              enum: ["create", "list", "update"],
+              enum: ["create", "list", "update", "delete"],
             },
             name: {
               type: "string",
@@ -214,6 +315,8 @@ Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patt
             return runList(args);
           case "update":
             return runUpdate(args);
+          case "delete":
+            return runDelete(args);
           default:
             return JSON.stringify({
               error: `Unknown action "${args.action}". Use "create", "list", or "update".`,

@@ -4,7 +4,8 @@ import {
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
-import { useActionQuery } from "@agent-native/core/client";
+import { agentNativePath, useActionQuery } from "@agent-native/core/client";
+import { appApiPath } from "@/lib/api-path";
 import type { CalendarEvent } from "@shared/api";
 
 function buildEventsParams(
@@ -53,7 +54,9 @@ export function prefetchEvents(
     queryKey: ["action", "list-events", params],
     queryFn: async () => {
       const qs = new URLSearchParams(params).toString();
-      const res = await fetch(`/_agent-native/actions/list-events?${qs}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/actions/list-events?${qs}`),
+      );
       if (!res.ok) throw new Error("prefetch list-events failed");
       return res.json();
     },
@@ -66,7 +69,7 @@ export function useEvent(id: string) {
   return useQuery<CalendarEvent>({
     queryKey: ["events", id],
     queryFn: async () => {
-      const res = await fetch(`/api/events/${id}`);
+      const res = await fetch(appApiPath(`/api/events/${id}`));
       if (!res.ok) throw new Error("Failed to fetch event");
       return res.json();
     },
@@ -83,11 +86,14 @@ export function useCreateEvent() {
       },
     ) => {
       const { _tempId, ...eventData } = data;
-      const res = await fetch("/_agent-native/actions/create-event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(eventData),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/create-event"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(eventData),
+        },
+      );
       if (!res.ok) throw new Error("Failed to create event");
       const result = await res.json();
       return { ...result, _tempId };
@@ -136,7 +142,7 @@ export function useUpdateEvent() {
       id,
       ...data
     }: Partial<CalendarEvent> & { id: string }) => {
-      const res = await fetch(`/api/events/${id}`, {
+      const res = await fetch(appApiPath(`/api/events/${id}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -183,7 +189,7 @@ export function useDeleteEvent() {
       sendUpdates?: "all" | "none";
       removeOnly?: boolean;
     }) => {
-      const res = await fetch(`/api/events/${id}`, {
+      const res = await fetch(appApiPath(`/api/events/${id}`), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scope, sendUpdates, removeOnly }),
@@ -229,7 +235,7 @@ export function useRsvpEvent() {
       accountEmail?: string;
       scope?: "single" | "all" | "thisAndFollowing";
     }) => {
-      const res = await fetch(`/api/events/${id}/rsvp`, {
+      const res = await fetch(appApiPath(`/api/events/${id}/rsvp`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status, accountEmail, scope }),

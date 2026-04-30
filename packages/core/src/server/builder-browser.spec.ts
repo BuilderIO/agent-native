@@ -3,6 +3,7 @@ import {
   buildBuilderCliAuthUrl,
   BUILDER_CALLBACK_PATH,
   BUILDER_STATE_PARAM,
+  getBuilderBrowserConnectUrl,
   signBuilderCallbackState,
   verifyBuilderCallbackState,
 } from "./builder-browser.js";
@@ -220,6 +221,29 @@ describe("Builder callback CSRF state", () => {
       const redirectUrl = new URL(cliAuthUrl).searchParams.get("redirect_url")!;
       expect(redirectUrl).toBe(
         "https://alice.agent-native.com/_agent-native/builder/callback",
+      );
+    });
+
+    it("preserves APP_BASE_PATH in redirect and preview URLs", () => {
+      process.env.APP_BASE_PATH = "/docs/";
+      const cliAuthUrl = buildBuilderCliAuthUrl(
+        "https://alice.agent-native.com/",
+      );
+      const parsed = new URL(cliAuthUrl);
+      expect(parsed.searchParams.get("redirect_url")).toBe(
+        "https://alice.agent-native.com/docs/_agent-native/builder/callback",
+      );
+      expect(parsed.searchParams.get("preview_url")).toBe(
+        "https://alice.agent-native.com/docs",
+      );
+    });
+
+    it("preserves APP_BASE_PATH in the surfaced connect URL", () => {
+      process.env.APP_BASE_PATH = "/docs/";
+      expect(
+        getBuilderBrowserConnectUrl("https://alice.agent-native.com/"),
+      ).toBe(
+        "https://alice.agent-native.com/docs/_agent-native/builder/connect",
       );
     });
   });

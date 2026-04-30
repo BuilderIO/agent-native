@@ -42,8 +42,6 @@ function buildDryRunVars(
   return vars;
 }
 
-const LOCAL_EMAIL = "local@localhost";
-
 type JsonOp = {
   op: "set" | "replace" | "remove" | "move" | "move-before" | "insert";
   path?: string;
@@ -270,7 +268,8 @@ async function validatePanelSql(
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
-  const email = getRequestUserEmail() || LOCAL_EMAIL;
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
   return { orgId, email };
 }
 

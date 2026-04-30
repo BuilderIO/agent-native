@@ -1,7 +1,8 @@
 import { useActionQuery } from "@agent-native/core/client";
 
-export function useProjects() {
+export function useProjects(enabled = true) {
   return useActionQuery<any>("list-projects", undefined, {
+    enabled,
     staleTime: 60_000,
   });
 }

@@ -29,6 +29,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 
+function safeExternalHref(value?: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Integration definitions ────────────────────────────────────────────────
 
 type ProviderId = "apollo" | "hubspot" | "gong" | "pylon";
@@ -603,9 +615,9 @@ function ApolloSection({ email }: { email: string }) {
         <>
           <div className="h-px bg-border/30 mx-4" />
           <div className="px-4 py-2 flex flex-wrap gap-3">
-            {person.linkedin_url && (
+            {safeExternalHref(person.linkedin_url) && (
               <a
-                href={person.linkedin_url}
+                href={safeExternalHref(person.linkedin_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
@@ -613,9 +625,9 @@ function ApolloSection({ email }: { email: string }) {
                 LinkedIn
               </a>
             )}
-            {person.twitter_url && (
+            {safeExternalHref(person.twitter_url) && (
               <a
-                href={person.twitter_url}
+                href={safeExternalHref(person.twitter_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
@@ -623,9 +635,9 @@ function ApolloSection({ email }: { email: string }) {
                 X
               </a>
             )}
-            {person.github_url && (
+            {safeExternalHref(person.github_url) && (
               <a
-                href={person.github_url}
+                href={safeExternalHref(person.github_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
@@ -633,9 +645,12 @@ function ApolloSection({ email }: { email: string }) {
                 GitHub
               </a>
             )}
-            {person.organization?.website_url && (
+            {safeExternalHref(person.organization?.website_url) && (
               <a
-                href={person.organization.website_url}
+                href={
+                  safeExternalHref(person.organization?.website_url) ??
+                  undefined
+                }
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"

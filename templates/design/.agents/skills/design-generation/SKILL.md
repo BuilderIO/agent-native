@@ -10,34 +10,60 @@ Every generated design uses:
 - **Google Fonts** — for distinctive typography (never Inter/Roboto/Arial)
 - **CSS Custom Properties** — for theming and tweaks panel integration
 
-## Generation Workflow
+## Generation Workflow — the canonical 4-phase flow
 
-### Step 1: Create the project
+This flow mirrors Claude Design's UX: ask → show variants → user picks → refine. Don't skip phases for new designs.
+
+### Phase 1 — Create the project + ask before generating
 
 ```bash
 pnpm action create-design --title "Project Name" --projectType prototype
-```
-
-### Step 2: Navigate to the editor
-
-```bash
 pnpm action navigate --view editor --designId <returned-id>
 ```
 
-### Step 3: Generate and save the HTML
+Then, for any non-trivial first prompt, write `application-state/show-questions` BEFORE generating. The editor renders a full-canvas overlay; answers come back as a chat message. Skip the questions only when the prompt is unambiguous ("re-skin this with my brand colors") or the user said "decide for me".
+
+```bash
+# Write structured questions to the application_state table.
+# (Use whatever app-state writer your shell has; design-generation typically
+#  uses the framework's `db-exec` to upsert into application_state.)
+```
+
+### Phase 2 — Generate three side-by-side variations
+
+For new designs, default to **three** variations. Write candidates to `application-state/design-variants`:
+
+```json
+{
+  "designId": "<the design id>",
+  "prompt": "Pick a direction",
+  "variants": [
+    { "id": "a", "label": "Editorial Serif", "content": "<!DOCTYPE html>...full self-contained HTML..." },
+    { "id": "b", "label": "Bold Brutalist", "content": "<!DOCTYPE html>..." },
+    { "id": "c", "label": "Soft & Spacious", "content": "<!DOCTYPE html>..." }
+  ]
+}
+```
+
+Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **stylistically/structurally distinct** — different typography schools, layout grammars, color moods — never just color swaps. Label them with concrete style names ("Editorial Serif", not "Variant A").
+
+The framework persists the chosen content as `index.html` automatically when the user clicks "Use this one" — do NOT call `generate-design` while the picker is open.
+
+### Phase 3 — Save with `generate-design` (when not using variants)
+
+Skip variants and call `generate-design` directly for: refinements to an already-picked design, multi-screen additions to an existing design, or one-shot prompts where the direction is unambiguous.
 
 ```bash
 pnpm action generate-design \
   --designId "<id>" \
   --prompt "Description of the design" \
-  --files '[{"filename":"index.html","content":"<full HTML>","fileType":"html"}]'
+  --files '[{"filename":"index.html","content":"<full HTML>","fileType":"html"}]' \
+  --tweaks '[{"id":"accent","label":"Accent","type":"color-swatch","options":[...],"defaultValue":"#0EA5E9","cssVar":"--color-accent"}]'
 ```
 
-### Step 4: Update the design data with tweaks
+### Phase 4 — Always ship tweaks with the design
 
-```bash
-pnpm action update-design --id "<id>" --data '{"tweaks":[...]}'
-```
+`generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs.
 
 ## HTML Structure Requirements
 

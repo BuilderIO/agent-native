@@ -2,6 +2,7 @@ import { eq, and } from "drizzle-orm";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
   listOAuthAccounts,
+  listOAuthAccountsByOwner,
   getOAuthTokens,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
@@ -573,22 +574,25 @@ export async function processAutomationsForAccount(
 /**
  * Process automations for all connected accounts.
  */
-export async function processAutomations(): Promise<{
+export async function processAutomations(ownerEmail?: string): Promise<{
   result: string;
   details: ProcessResult[];
 }> {
-  const accounts = await listOAuthAccounts("google");
+  const accounts = ownerEmail
+    ? await listOAuthAccountsByOwner("google", ownerEmail)
+    : await listOAuthAccounts("google");
   const details: ProcessResult[] = [];
 
   for (const account of accounts) {
     const accessToken = await getAccessToken(account.accountId);
     if (!accessToken) continue;
 
-    const ownerEmail = (account as any).owner || account.accountId;
+    const accountOwnerEmail =
+      (account as any).owner || ownerEmail || account.accountId;
 
     try {
       const result = await processAutomationsForAccount(
-        ownerEmail,
+        accountOwnerEmail,
         account.accountId,
         accessToken,
       );
@@ -621,21 +625,22 @@ export async function processAutomations(): Promise<{
 
 // ─── In-memory debounce for focus trigger ────────────────────────────────────
 
-let _lastTriggerTime = 0;
+const _lastTriggerTimeByOwner = new Map<string, number>();
 const TRIGGER_DEBOUNCE_MS = 30_000;
 
-export async function triggerAutomationsDebounced(): Promise<{
+export async function triggerAutomationsDebounced(ownerEmail: string): Promise<{
   triggered: boolean;
   reason?: string;
 }> {
   const now = Date.now();
-  if (now - _lastTriggerTime < TRIGGER_DEBOUNCE_MS) {
+  const lastTriggerTime = _lastTriggerTimeByOwner.get(ownerEmail) ?? 0;
+  if (now - lastTriggerTime < TRIGGER_DEBOUNCE_MS) {
     return { triggered: false, reason: "debounced" };
   }
-  _lastTriggerTime = now;
+  _lastTriggerTimeByOwner.set(ownerEmail, now);
 
   // Fire and forget
-  processAutomations().catch((err) =>
+  processAutomations(ownerEmail).catch((err) =>
     console.error("[automation-engine] Trigger failed:", err),
   );
 

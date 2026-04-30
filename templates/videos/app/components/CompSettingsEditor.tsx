@@ -73,7 +73,7 @@ export function CompSettingsEditor({
                     onChange({ width: preset.width, height: preset.height })
                   }
                   className={cn(
-                    "flex-1 flex flex-col items-center py-1.5 rounded-lg border transition-all duration-150",
+                    "flex-1 flex flex-col items-center py-1.5 rounded-lg border",
                     active
                       ? "bg-primary/15 border-primary/40 text-primary"
                       : "bg-secondary border-border text-muted-foreground hover:border-primary/30 hover:text-foreground/70",

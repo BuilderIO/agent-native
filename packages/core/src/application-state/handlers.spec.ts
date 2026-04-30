@@ -19,12 +19,15 @@ vi.mock("./store.js", () => ({
 
 vi.mock("../server/auth.js", () => ({
   getSession: vi.fn().mockResolvedValue({ email: "local@localhost" }),
+  DEV_MODE_USER_EMAIL: "local@localhost",
 }));
 
 let lastStatus = 200;
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  createError: (opts: any) =>
+    Object.assign(new Error(opts.statusMessage), opts),
   readBody: (event: any) => Promise.resolve(event._body),
   getRouterParam: (event: any, key: string) => event._params?.[key],
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
@@ -33,6 +36,7 @@ vi.mock("h3", () => ({
   },
 }));
 
+import { getSession } from "../server/auth.js";
 import {
   getState,
   putState,
@@ -48,6 +52,9 @@ describe("application-state handlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     lastStatus = 200;
+    vi.mocked(getSession).mockResolvedValue({
+      email: "local@localhost",
+    } as any);
   });
 
   describe("safeKey", () => {
@@ -98,6 +105,18 @@ describe("application-state handlers", () => {
 
       // Session resolves local@localhost → "local"
       expect(mockAppStateGet).toHaveBeenCalledWith("local", "test");
+    });
+
+    it("rejects unauthenticated requests instead of sharing local state", async () => {
+      vi.mocked(getSession).mockResolvedValue(null as any);
+      mockAppStateGet.mockResolvedValue({ leaked: true });
+
+      const event = { _params: { key: "navigation" }, _headers: {} };
+      await expect(getState(event)).rejects.toMatchObject({
+        statusCode: 401,
+      });
+
+      expect(mockAppStateGet).not.toHaveBeenCalled();
     });
   });
 

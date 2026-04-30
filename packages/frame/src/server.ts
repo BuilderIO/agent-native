@@ -23,7 +23,7 @@ import {
   type H3Event,
 } from "h3";
 import { listen } from "listhen";
-import { DEFAULT_APPS } from "@agent-native/shared-app-config";
+import { getTemplate } from "@agent-native/shared-app-config";
 import { extractAppFromState } from "./oauth-state.js";
 
 const PORT = parseInt(process.env.FRAME_SERVER_PORT || "3335", 10);
@@ -48,7 +48,7 @@ function resolveAppId(event: H3Event): string {
   const referer = getHeader(event, "referer");
   if (referer) {
     const m = referer.match(/[?&]app=([^&]+)/);
-    if (m && DEFAULT_APPS.some((a) => a.id === m[1])) return m[1];
+    if (m && getTemplate(m[1])) return m[1];
   }
   const cookie = getCookie(event, "frame_active_app");
   if (cookie) return cookie;
@@ -84,14 +84,12 @@ router.get(
   defineEventHandler((event) => {
     const query = getQuery(event);
     const appId = (query.app as string) || "mail";
-    const app = DEFAULT_APPS.find((a) => a.id === appId);
+    const app = getTemplate(appId);
     return {
       id: appId,
-      name: app?.name || appId,
+      name: app?.label || appId,
       devPort: app?.devPort,
-      devUrl:
-        app?.devUrl ||
-        (app?.devPort ? `http://localhost:${app.devPort}` : null),
+      devUrl: app?.devPort ? `http://localhost:${app.devPort}` : null,
     };
   }),
 );
@@ -102,7 +100,7 @@ router.all(
   "/api/google/**",
   defineEventHandler(async (event) => {
     const appId = resolveAppId(event);
-    const app = DEFAULT_APPS.find((a) => a.id === appId);
+    const app = getTemplate(appId);
     const targetPort = app?.devPort || 8085;
     return proxyRequest(event, `http://localhost:${targetPort}${event.path}`);
   }),
@@ -114,7 +112,7 @@ router.all(
   "/_agent-native/**",
   defineEventHandler(async (event) => {
     const appId = resolveAppId(event);
-    const app = DEFAULT_APPS.find((a) => a.id === appId);
+    const app = getTemplate(appId);
     const targetPort = app?.devPort || 8085;
     return proxyRequest(event, `http://localhost:${targetPort}${event.path}`);
   }),

@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { DEFAULT_APPS } from "@agent-native/shared-app-config";
+import { TEMPLATES, getTemplate } from "@agent-native/shared-app-config";
 
 // Lazy-load heavy components
 const MultiTabAssistantChat = lazy(() =>
@@ -55,7 +55,7 @@ function getAppId(): string {
 }
 
 function getAppDevUrl(appId: string): string {
-  const app = DEFAULT_APPS.find((a) => a.id === appId);
+  const app = getTemplate(appId);
   const host =
     typeof window !== "undefined" ? window.location.hostname : "localhost";
   const port = app?.devPort || 8080;
@@ -93,7 +93,7 @@ export function App() {
   });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const appUrl = getAppDevUrl(appId);
-  const app = DEFAULT_APPS.find((a) => a.id === appId);
+  const app = getTemplate(appId);
 
   // (The `frame_active_app` cookie is set synchronously by getAppId() on
   // first render, before any child effect can fetch /_agent-native/**.)
@@ -125,7 +125,7 @@ export function App() {
   function notifyIframe(mode: FrameMode, width: number, open: boolean) {
     iframeRef.current?.contentWindow?.postMessage(
       {
-        type: "builder.sidebarMode",
+        type: "agentNative.sidebarMode",
         data: {
           mode: mode === "dev" ? "code" : "app",
           width,
@@ -143,7 +143,7 @@ export function App() {
     if (!iframe) return;
     function onLoad() {
       iframe!.contentWindow?.postMessage(
-        { type: "builder.frameOrigin", origin: window.location.origin },
+        { type: "agentNative.frameOrigin", origin: window.location.origin },
         "*",
       );
       const delays = [200, 500, 1500];
@@ -190,7 +190,7 @@ export function App() {
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
       if (!event.data?.type) return;
-      if (event.data.type === "builder.toggleSidebar") {
+      if (event.data.type === "agentNative.toggleSidebar") {
         const forceOpen = event.data.data?.open;
         if (forceOpen === true) {
           setSidebarOpen(true);
@@ -199,7 +199,7 @@ export function App() {
         }
         return;
       }
-      if (event.data.type === "builder.devModeChange") {
+      if (event.data.type === "agentNative.devModeChange") {
         const isDev = event.data.data?.isDevMode;
         if (isDev === true) {
           setFrameMode("dev");
@@ -209,10 +209,11 @@ export function App() {
         }
         return;
       }
-      if (event.data.type === "builder.getUserInfo") {
+      if (event.data.type === "agentNative.getUserInfo") {
         event.source?.postMessage(
           {
-            type: "builder.userInfo",
+            type: "agentNative.userInfo",
+            // guard:allow-localhost-fallback — Frame is a dev-only iframe wrapper that identifies itself to the Builder editor as the framework's dev-mode user; this is the dev identity, not a session-pooling fallback
             data: { name: "Developer", email: "local@localhost" },
           },
           { targetOrigin: event.origin },
@@ -223,13 +224,17 @@ export function App() {
       // cross-origin messages, so re-dispatch same-origin so it accepts it.
       // Only relay from known app dev-server origins to prevent arbitrary
       // cross-origin pages from injecting agent messages.
-      if (event.data.type === "builder.presentationMode") {
+      if (event.data.type === "agentNative.presentationMode") {
         setIsPresentationMode(event.data.data?.active === true);
         return;
       }
-      if (event.data.type === "builder.submitChat") {
+      if (event.data.type === "agentNative.submitChat") {
+        const host = window.location.hostname || "localhost";
         const allowedOrigins = new Set(
-          DEFAULT_APPS.map((a) => `http://localhost:${a.devPort || 8080}`),
+          TEMPLATES.flatMap((a) => [
+            `http://localhost:${a.devPort || 8080}`,
+            `http://${host}:${a.devPort || 8080}`,
+          ]),
         );
         if (allowedOrigins.has(event.origin)) {
           window.postMessage(event.data, window.location.origin);
@@ -300,7 +305,7 @@ export function App() {
           ref={iframeRef}
           src={appUrl}
           className="w-full h-full border-none"
-          title={app?.name || "App"}
+          title={app?.label || "App"}
           allow="fullscreen"
         />
         {/* Overlay during drag to prevent iframe from capturing mouse events */}
@@ -345,7 +350,7 @@ export function App() {
               }
             >
               <AgentPanel
-                emptyStateText={`Ask me anything about ${app?.name || "your app"}`}
+                emptyStateText={`Ask me anything about ${app?.label || "your app"}`}
                 suggestions={[
                   "What does this app do?",
                   "Show me the current screen",

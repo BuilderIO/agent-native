@@ -2,9 +2,11 @@ import { defineAction } from "@agent-native/core";
 import { desc } from "drizzle-orm";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "List all compositions ordered by most recently updated",
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
     const db = getDb();

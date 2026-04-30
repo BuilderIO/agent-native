@@ -4,6 +4,24 @@ import { defineAction } from "../../action.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
+import { sendEmail, isEmailConfigured } from "../../server/email.js";
+import { renderEmail, emailStrong } from "../../server/email-template.js";
+import { getAppProductionUrl } from "../../server/app-url.js";
+
+export function isSyntheticQaEmail(email: string): boolean {
+  const trimmed = email.trim().toLowerCase();
+  const at = trimmed.lastIndexOf("@");
+  if (at <= 0) return false;
+  const local = trimmed.slice(0, at);
+  const domain = trimmed.slice(at + 1);
+  return (
+    local.includes("+qa") &&
+    (domain === "example.test" ||
+      domain.endsWith(".test") ||
+      domain === "example.invalid" ||
+      domain.endsWith(".invalid"))
+  );
+}
 
 function nanoid(size = 12): string {
   const chars =
@@ -17,6 +35,11 @@ function nanoid(size = 12): string {
 export default defineAction({
   description:
     "Grant a user or org access to a shareable resource. Owner or admin role required.",
+  // (audit H5) Sharing-grant operations are admin-tier and let a caller
+  // expand who can read/write a resource. Refuse from the tools iframe
+  // bridge so a malicious shared tool can't silently re-share its
+  // viewer's resources to an attacker-controlled email.
+  toolCallable: false,
   schema: z.object({
     resourceType: z
       .string()
@@ -69,6 +92,43 @@ export default defineAction({
       createdBy: actor,
       createdAt: new Date().toISOString(),
     });
+
+    if (
+      args.principalType === "user" &&
+      isEmailConfigured() &&
+      !isSyntheticQaEmail(args.principalId)
+    ) {
+      try {
+        const titleCol = reg.titleColumn ?? "title";
+        const [resource] = await db
+          .select()
+          .from(reg.resourceTable)
+          .where(eq(reg.resourceTable.id, args.resourceId));
+        const resourceTitle: string =
+          (resource?.[titleCol] as string | undefined) ?? args.resourceType;
+        const appUrl = getAppProductionUrl();
+        const appName =
+          process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
+        const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
+        const { html, text } = renderEmail({
+          preheader: subject,
+          heading: "You've been given access",
+          paragraphs: [
+            `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
+            `You can access it by visiting ${emailStrong(appName)}.`,
+          ],
+          cta: { label: `Open ${reg.displayName}`, url: appUrl },
+          footer: `You received this because ${actor} granted you ${args.role} access.`,
+        });
+        await sendEmail({ to: args.principalId, subject, html, text });
+      } catch (err) {
+        console.error(
+          "[share-resource] failed to send share notification:",
+          err,
+        );
+      }
+    }
+
     return { id, updated: false };
   },
 });

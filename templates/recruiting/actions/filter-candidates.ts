@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestOrgId } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import * as gh from "../server/lib/greenhouse-api.js";
-import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { withCredentialContext } from "../server/lib/greenhouse-api.js";
 import { listRecentCandidates } from "../server/lib/candidate-search.js";
 import { filterCandidates } from "../server/lib/resume-filter.js";
 import { z } from "zod";
@@ -96,10 +99,8 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
-    const orgId = getRequestOrgId();
-    if (orgId) {
-      return withOrgContext(orgId, () => doFilter(args));
-    }
-    return doFilter(args);
+    const orgId = getRequestOrgId() ?? null;
+    const email = getRequestUserEmail() ?? null;
+    return withCredentialContext({ email, orgId }, () => doFilter(args));
   },
 });

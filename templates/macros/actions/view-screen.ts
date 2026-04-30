@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { readAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
     "See what the user is currently viewing - their current date, daily totals, and navigation state",
-  parameters: {},
+  schema: z.object({}),
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");

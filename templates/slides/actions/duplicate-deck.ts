@@ -18,14 +18,20 @@ export default defineAction({
       .string()
       .optional()
       .describe("Title for the copy (defaults to 'Copy of ...')"),
+    newId: z
+      .string()
+      .optional()
+      .describe(
+        "Optional client-supplied id for the new deck. Lets the UI pick the id ahead of time so it can navigate optimistically before the server responds.",
+      ),
   }),
-  run: async ({ deckId, title }) => {
+  run: async ({ deckId, title, newId: clientNewId }) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);
 
     const source = access.resource;
     const db = getDb();
-    const newId = `deck-${nanoid()}`;
+    const newId = clientNewId || `deck-${nanoid()}`;
     const now = new Date().toISOString();
     const deckData = JSON.parse(source.data);
 
@@ -46,14 +52,20 @@ export default defineAction({
       designSystemId: source.designSystemId ?? null,
       createdAt: now,
       updatedAt: now,
-      ownerEmail: getRequestUserEmail() || "local@localhost",
+      ownerEmail: (() => {
+        const e = getRequestUserEmail();
+        if (!e) throw new Error("no authenticated user");
+        return e;
+      })(),
       orgId: getRequestOrgId() || null,
     });
 
+    const appUrl = process.env.APP_URL || "https://slides.agent-native.com";
     return {
       id: newId,
       title: newTitle,
       slideCount: (deckData.slides || []).length,
+      url: `${appUrl}/deck/${newId}`,
     };
   },
 });

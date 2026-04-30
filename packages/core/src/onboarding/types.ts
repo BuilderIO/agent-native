@@ -44,15 +44,6 @@ export type OnboardingMethod =
         // "llm" (managed gateway) and "browser" (browser automation) are
         // live; "google" may land later.
         scope: "llm" | "browser";
-        /**
-         * When set, the method renders a "Join waitlist" CTA pointing to
-         * this URL if the deployment hasn't opted into Builder features
-         * (ENABLE_BUILDER unset). Omit to always render the real Connect
-         * flow — use this for GA-level integrations (e.g. file storage)
-         * where Builder is universally available regardless of the
-         * beta-flag.
-         */
-        waitlistUrl?: string;
       };
     })
   | (OnboardingMethodBase & {
@@ -71,7 +62,15 @@ export interface OnboardingStep {
   required?: boolean;
   methods: OnboardingMethod[];
   /** Resolver — called on every `GET /_agent-native/onboarding/steps` request. */
-  isComplete: () => boolean | Promise<boolean>;
+  isComplete: (
+    context?: OnboardingResolveContext,
+  ) => boolean | Promise<boolean>;
+}
+
+export interface OnboardingResolveContext {
+  sessionId: string;
+  userEmail?: string;
+  orgId?: string | null;
 }
 
 /** Serialized shape returned by `GET /_agent-native/onboarding/steps`. */

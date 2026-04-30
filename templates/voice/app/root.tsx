@@ -68,7 +68,7 @@ function AppShell() {
       <AppLayout>
         <Outlet />
       </AppLayout>
-      <Toaster position="bottom-right" />
+      <Toaster richColors position="bottom-left" />
     </TooltipProvider>
   );
 }

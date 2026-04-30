@@ -1,4 +1,10 @@
-import { runWithRequestContext, getRequestOrgId } from "./request-context.js";
+import {
+  runWithRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+  getRequestRunContext,
+  ensureRequestRunContext,
+} from "./request-context.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import { getH3App, trackPluginInit } from "./framework-request-handler.js";
 import {
@@ -14,6 +20,7 @@ import {
 } from "../agent/production-agent.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import { resolveEngine, createAnthropicEngine } from "../agent/engine/index.js";
+import { DEFAULT_MODEL } from "../agent/default-model.js";
 import type {
   ActionTool,
   MentionProvider,
@@ -47,7 +54,7 @@ import {
   getHeader,
 } from "h3";
 import { agentEnv } from "../shared/agent-env.js";
-import { getSession } from "./auth.js";
+import { getSession, DEV_MODE_USER_EMAIL } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import {
   createThread,
@@ -71,6 +78,7 @@ import {
 import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
 import { getBuilderBrowserConnectUrl } from "./builder-browser.js";
+import { captureCliOutput } from "./cli-capture.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -85,7 +93,9 @@ async function lazyFs(): Promise<typeof import("fs")> {
 
 /**
  * Wraps a core CLI script (that writes to console.log) as a ActionEntry
- * by capturing stdout.
+ * by capturing stdout. Uses an AsyncLocalStorage-backed capture so
+ * concurrent tool calls do not corrupt the global console/stdout pointers
+ * (see `cli-capture.ts`).
  */
 function wrapCliScript(
   tool: ActionTool,
@@ -100,36 +110,7 @@ function wrapCliScript(
       for (const [k, v] of Object.entries(args)) {
         cliArgs.push(`--${k}`, v);
       }
-      const logs: string[] = [];
-      const origLog = console.log;
-      const origError = console.error;
-      const origStdoutWrite = process.stdout.write;
-      console.log = (...a: unknown[]) => {
-        logs.push(a.map(String).join(" "));
-      };
-      console.error = (...a: unknown[]) => {
-        logs.push(a.map(String).join(" "));
-      };
-      // Intercept process.stdout.write so scripts that write directly
-      // (e.g. resource-read) have their output captured
-      process.stdout.write = ((chunk: any, ...rest: any[]) => {
-        if (typeof chunk === "string") {
-          logs.push(chunk);
-        } else if (Buffer.isBuffer(chunk)) {
-          logs.push(chunk.toString());
-        }
-        return true;
-      }) as any;
-      try {
-        await cliDefault(cliArgs);
-      } catch (err: any) {
-        logs.push(`Error: ${err?.message ?? String(err)}`);
-      } finally {
-        console.log = origLog;
-        console.error = origError;
-        process.stdout.write = origStdoutWrite;
-      }
-      return logs.join("\n") || "(no output)";
+      return captureCliOutput(() => cliDefault(cliArgs));
     },
   };
 }
@@ -221,6 +202,13 @@ function createRefreshScreenEntry(): Record<string, ActionEntry> {
 
 /** Well-known application-state key used by the refresh-screen tool. */
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
+
+/**
+ * In-memory rate-limit tracker for `/generate-title`. Keyed by user email,
+ * value is recent invocation timestamps within the rolling window. Stale
+ * entries are pruned on read.
+ */
+const generateTitleRateLimit = new Map<string, number[]>();
 
 /**
  * Creates the `set-search-params` / `set-url-path` tools. Writes a one-shot
@@ -1294,6 +1282,8 @@ const FRAMEWORK_CORE_COMPACT = `
 6. **Memory** — Use \`save-memory\` proactively when you learn preferences, corrections, or project context.
 7. **Security** — Always use parameterized queries. Never \`dangerouslySetInnerHTML\`, \`innerHTML\`, or \`eval()\`.
 8. **\`db-*\` tools are internal only** — \`db-query\`, \`db-exec\`, \`db-patch\` ONLY access the app's own SQL database (settings, application_state, template tables). They CANNOT reach BigQuery, HubSpot, GA4, Jira, or any external data source. If the user asks about a table that is NOT in the app schema (e.g. \`dbt_analytics.*\`, \`dbt_mart.*\`, or any fully-qualified \`project.dataset.table\`), use the appropriate template action instead — \`bigquery\` for warehouse tables, \`ga4-report\` for Google Analytics, \`hubspot-deals\` for HubSpot, etc. **Never use \`db-query\` for external data — it will fail.**
+9. **Never fabricate data** — Do NOT invent numbers, metrics, records, or query results. Do NOT present estimated or example data as if it were real. If a data source is unavailable (missing credentials, connection error, tool failure), say so clearly, note the gap, and work with whatever data you do have. If no data can be retrieved at all, say "I can't retrieve this data right now" and explain why. Presenting made-up data as real is a critical failure — it is worse than admitting the limitation.
+10. **Never fabricate success from tool errors** — When any tool call returns an error (marked \`isError: true\`, contains "Command failed", "Error:", or non-zero exit output), the operation FAILED. Do NOT synthesize a success narrative or describe what the action "would have" produced. Report the failure verbatim from the tool output. This applies especially to \`shell(command="pnpm action ...")\` calls: if the action threw, it did NOT succeed.
 
 ### Resources
 
@@ -1468,6 +1458,8 @@ const FRAMEWORK_CORE = `
 6. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. Update shared AGENTS.md for instructions that should apply to all users.
 7. **Security** — Always use \`defineAction\` with a Zod \`schema:\` for input validation. Never construct SQL with string concatenation — use parameterized queries via db-query/db-exec. Never use \`dangerouslySetInnerHTML\`, \`innerHTML\`, or \`eval()\`. Never expose secrets in responses or source code. Every table with user data must have \`owner_email\`.
 8. **\`db-*\` tools are internal only** — \`db-query\`, \`db-exec\`, \`db-patch\` ONLY access the app's own SQL database (settings, application_state, template tables). They CANNOT reach BigQuery, HubSpot, GA4, Jira, or any external data source. If the user asks about a table that is NOT in the app schema (e.g. \`dbt_analytics.*\`, \`dbt_mart.*\`, or any fully-qualified \`project.dataset.table\`), use the appropriate template action instead — \`bigquery\` for warehouse tables, \`ga4-report\` for Google Analytics, \`hubspot-deals\` for HubSpot, etc. **Never use \`db-query\` for external data — it will fail.**
+9. **Never fabricate data** — Do NOT invent numbers, metrics, records, or query results. Do NOT present estimated or example data as if it were real. If a data source is unavailable (missing credentials, connection error, tool failure), say so clearly, note the gap, and work with whatever data you do have. If no data can be retrieved at all, say "I can't retrieve this data right now" and explain why. Presenting made-up data as real is a critical failure — it is worse than admitting the limitation.
+10. **Never fabricate success from tool errors** — When any tool call returns an error (marked \`isError: true\`, contains "Command failed", "Error:", or non-zero exit output), the operation FAILED. Do NOT synthesize a success narrative, format a result table, or describe what the action "would have" produced. Report the failure verbatim from the tool output. This applies especially to \`shell(command="pnpm action ...")\` calls: if the underlying action threw (visible in the error text), the action did NOT succeed — report the error, do not describe a successful outcome.
 
 ### Resources
 
@@ -1638,7 +1630,7 @@ If the request matches the Tools section above (tool / widget / dashboard / calc
 
 When the user asks you to change the UI, modify code, add a feature, fix a bug in the app itself, change styles, add a hook, create a component, add a route, add an integration, or anything else that requires editing source files — you MUST take exactly these steps, in order:
 
-1. Call the \`connect-builder\` tool, passing the user's full request verbatim as the \`prompt\` argument. This renders an inline card. If Builder is connected, the card hands the prompt off to Builder's cloud agent on one click and returns a branch URL; otherwise it shows a connect / waitlist flow. Either way, Builder writes the code — no local setup, no clone, no install.
+1. Call the \`connect-builder\` tool, passing the user's full request verbatim as the \`prompt\` argument. This renders an inline card. If Builder is connected, the card hands the prompt off to Builder's cloud agent on one click and returns a branch URL; otherwise it shows the Connect Builder flow. Either way, Builder writes the code — no local setup, no clone, no install.
 2. After the card renders, write a single short sentence telling the user to click Connect Builder to have this built for them in the cloud, and mention they can also clone the app locally with \`npx agent-native create <app-name>\` if they'd rather work offline.
 
 **Hard rules — do NOT break these:**
@@ -2193,9 +2185,9 @@ export function createAgentChatPlugin(
         ...engineScripts,
       };
       const callAgentScript = await createCallAgentScriptEntry(options?.appId);
-      let _currentRequestOrigin = "http://localhost:3000";
       const browserTools = createBuilderBrowserTool({
-        getOrigin: () => _currentRequestOrigin,
+        getOrigin: () =>
+          getRequestRunContext()?.requestOrigin ?? "http://localhost:3000",
       });
 
       // Auto-mount A2A protocol endpoints so every app is discoverable
@@ -2334,31 +2326,68 @@ export function createAgentChatPlugin(
             );
         } catch {}
       }
-      // Mutable owner — set per-request by the production handler, read by
-      // automation tools and fetch tool via closure. Declared here (before
-      // allScripts) so the tools are in scope when allScripts is built.
-      let _currentRunOwner = "local@localhost";
+      // Per-request owner is read from the AsyncLocalStorage run context
+      // (populated by prepareRun). Module-scope `let` would race across
+      // concurrent requests on a long-lived Node process — overlapping
+      // tool calls would observe whichever request wrote last. ALS gives
+      // each async call-chain its own view of the owner.
+      //
+      // Falls back to `getRequestUserEmail()` so callers that wrap work
+      // in `runWithRequestContext({ userEmail }, …)` without going through
+      // `prepareRun` (recurring jobs, trigger dispatcher) still see the
+      // correct owner.
+      //
+      // SECURITY: returns `null` when neither the run context nor the
+      // request user-email is populated. Consumers MUST short-circuit
+      // with an explicit error rather than fall back to a sentinel
+      // identity (e.g. DEV_MODE_USER_EMAIL). The previous fallback to
+      // `local@localhost` slipped past `guard-no-localhost-fallback`
+      // because the literal was hidden behind a symbolic alias —
+      // any agent loop that reached this code without a populated
+      // session would resolve `${keys.NAME}` against the dev-shim's
+      // `app_secrets WHERE scope_id='local@localhost'` rows. See
+      // audit 02 (HIGH: getCurrentRunOwner) and the
+      // 2026-04-29 credentials-leak incident for the prior shape.
+      const getCurrentRunOwner = (): string | null =>
+        getRequestRunContext()?.owner ?? getRequestUserEmail() ?? null;
+      const requireCurrentRunOwner = (operation: string): string => {
+        const owner = getCurrentRunOwner();
+        if (!owner) {
+          throw new Error(
+            `[agent-chat] No authenticated owner in run context — ` +
+              `refusing to ${operation}. Ensure the request goes through ` +
+              `prepareRun() or is wrapped in runWithRequestContext({ userEmail, ... }).`,
+          );
+        }
+        return owner;
+      };
 
-      // Automation tools + fetch tool — depend on _currentRunOwner via callback
+      // Automation tools + fetch tool — depend on owner via callback.
+      // Each callback short-circuits with a clear error when the run context
+      // has no authenticated owner (see SECURITY note on getCurrentRunOwner).
       let automationTools: Record<string, ActionEntry> = {};
       try {
         const { createAutomationToolEntries } =
           await import("../triggers/actions.js");
-        automationTools = createAutomationToolEntries(() => _currentRunOwner);
+        automationTools = createAutomationToolEntries(() =>
+          requireCurrentRunOwner("manage automations"),
+        );
       } catch {}
       let notificationTools: Record<string, ActionEntry> = {};
       try {
         const { createNotificationToolEntries } =
           await import("../notifications/actions.js");
-        notificationTools = createNotificationToolEntries(
-          () => _currentRunOwner,
+        notificationTools = createNotificationToolEntries(() =>
+          requireCurrentRunOwner("manage notifications"),
         );
       } catch {}
       let progressTools: Record<string, ActionEntry> = {};
       try {
         const { createProgressToolEntries } =
           await import("../progress/actions.js");
-        progressTools = createProgressToolEntries(() => _currentRunOwner);
+        progressTools = createProgressToolEntries(() =>
+          requireCurrentRunOwner("manage progress"),
+        );
       } catch {}
       let fetchTool: Record<string, ActionEntry> = {};
       try {
@@ -2367,13 +2396,17 @@ export function createAgentChatPlugin(
           await import("../secrets/substitution.js");
         fetchTool = createFetchToolEntry({
           resolveKeys: async (text) =>
-            resolveKeyReferences(text, "user", _currentRunOwner),
+            resolveKeyReferences(
+              text,
+              "user",
+              requireCurrentRunOwner("resolve key references"),
+            ),
           validateUrl: async (url, usedKeys) => {
             for (const keyName of usedKeys) {
               const allowlist = await getKeyAllowlist(
                 keyName,
                 "user",
-                _currentRunOwner,
+                requireCurrentRunOwner("validate URL allowlist"),
               );
               if (allowlist && !validateUrlAllowlist(url, allowlist)) {
                 return false;
@@ -2444,12 +2477,82 @@ export function createAgentChatPlugin(
         streaming: true,
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
+          // Priority: A2A-JWT verified email (set by the A2A handler in
+          // request-context) > dev session DB (dev only) > Google OAuth
+          // tokeninfo (prod only). Without the JWT-verified-email path,
+          // cross-app A2A calls landed owned by `local@localhost` (dev) or
+          // `dispatch@shared`, which made resources invisible to the actual
+          // signed-in user.
+          //
+          // SECURITY: we deliberately do NOT trust `context.metadata.userEmail`
+          // as a fallback. The A2A endpoint runs in three modes — JWT-signed
+          // (verified email lands in request context), API-key (caller is
+          // app-authenticated but NOT user-authenticated), and unsigned
+          // (no auth at all). Trusting caller-supplied metadata on the latter
+          // two paths would let any reachable caller forge `metadata.userEmail`
+          // and impersonate an arbitrary user. The JWT path already populates
+          // the request context, so the metadata fallback was only ever used
+          // on the unauthenticated paths — exactly where it's unsafe.
           const isDev = process.env.NODE_ENV !== "production";
           let userEmail: string | undefined;
 
-          if (isDev) {
-            userEmail = (context.metadata?.userEmail as string) || undefined;
-            if (!userEmail) {
+          // 1. JWT-verified email from A2A receiver (auth boundary already
+          //    enforced upstream). Works in dev AND prod.
+          try {
+            const { getRequestUserEmail } =
+              await import("./request-context.js");
+            userEmail = getRequestUserEmail();
+          } catch {}
+
+          // Dev-mode-only: when no JWT-verified email is present, fall back
+          // to the most recently logged-in session. This is convenient for a
+          // single-developer dev box but is a silent-impersonation hole if
+          // it ever fires in production or on an exposed dev environment
+          // (preview deploys, ngrok tunnels, etc.).
+          //
+          // SECURITY: gate this fallback narrowly:
+          //   - NODE_ENV strictly === "development" (not "test", not unset).
+          //   - AUTH_MODE === "local" (the dev-only auth shim).
+          //   - Request host is localhost / 127.0.0.1 (best-effort: when the
+          //     A2A handler doesn't have direct H3 event access, we rely on
+          //     env-based shape checks).
+          //
+          // In production this MUST never fire — the runtime assertion
+          // below crashes loud if NODE_ENV === "production" somehow reaches
+          // this block.
+          if (!userEmail && isDev) {
+            if (process.env.NODE_ENV === "production") {
+              throw new Error(
+                "[agent-chat] Dev-mode 'latest session' fallback reached in production — refusing.",
+              );
+            }
+            const strictlyDev = process.env.NODE_ENV === "development";
+            const localAuthMode = process.env.AUTH_MODE === "local";
+            // Request host check: rely on the request-context request origin
+            // which prepareRun() / mountActionRoutes populate. The A2A
+            // handler doesn't have direct H3 event access, but on a
+            // misconfigured non-localhost dev box we still want to refuse.
+            let isLocalHost = false;
+            try {
+              const origin = getRequestRunContext()?.requestOrigin;
+              if (origin) {
+                const url = new URL(origin);
+                isLocalHost =
+                  url.hostname === "localhost" ||
+                  url.hostname === "127.0.0.1" ||
+                  url.hostname === "::1";
+              } else {
+                // No origin in context — the A2A handler runs without an
+                // explicit request origin. Treat absence as permissive only
+                // when we're confident the process is dev-only (NODE_ENV
+                // strictly "development" + AUTH_MODE=local). Otherwise
+                // refuse.
+                isLocalHost = strictlyDev && localAuthMode;
+              }
+            } catch {
+              isLocalHost = false;
+            }
+            if (strictlyDev && localAuthMode && isLocalHost) {
               try {
                 const { getDbExec } = await import("../db/client.js");
                 const db = getDbExec();
@@ -2460,7 +2563,9 @@ export function createAgentChatPlugin(
                 if (rows[0]) userEmail = rows[0].email as string;
               } catch {}
             }
-          } else {
+          }
+
+          if (!userEmail && !isDev) {
             const googleToken = context.metadata?.googleToken as string;
             if (googleToken) {
               try {
@@ -2478,10 +2583,6 @@ export function createAgentChatPlugin(
                 }
               } catch {}
             }
-          }
-
-          if (userEmail) {
-            process.env.AGENT_USER_EMAIL = userEmail;
           }
 
           const text = message.parts
@@ -2513,7 +2614,8 @@ export function createAgentChatPlugin(
           const handler = devActive && devHandler ? devHandler : prodHandler;
 
           // Build the same system prompt the interactive agent uses
-          const owner = userEmail || "local@localhost";
+          if (!userEmail) throw new Error("no authenticated user");
+          const owner = userEmail;
           const resources = await loadResourcesForPrompt(owner, lazyContext);
           const schemaBlock = lazyContext
             ? ""
@@ -2522,7 +2624,7 @@ export function createAgentChatPlugin(
             ? devPrompt + resources + schemaBlock
             : basePrompt + resources + schemaBlock;
 
-          const model = options?.model ?? "claude-sonnet-4-6";
+          const model = options?.model ?? DEFAULT_MODEL;
 
           // Build tools — same as interactive handler but WITHOUT call-agent
           // to prevent infinite recursive A2A loops (agent calling itself).
@@ -2660,7 +2762,7 @@ export function createAgentChatPlugin(
             engineOption: options?.engine,
             apiKey: options?.apiKey,
           });
-          const model = options?.model ?? "claude-sonnet-4-6";
+          const model = options?.model ?? DEFAULT_MODEL;
 
           // Same actions as A2A — without call-agent to prevent loops.
           // In dev mode, template actions go through shell, not native tools.
@@ -2690,12 +2792,12 @@ export function createAgentChatPlugin(
           const mcpTools = actionsToEngineTools(mcpActions);
 
           const resources = await loadResourcesForPrompt(
-            "local@localhost",
+            DEV_MODE_USER_EMAIL,
             lazyContext,
           );
           const schemaBlock = lazyContext
             ? ""
-            : await buildSchemaBlock("local@localhost", devActiveMcp);
+            : await buildSchemaBlock(DEV_MODE_USER_EMAIL, devActiveMcp);
           // Build the MCP handler's own prompt — always use the shell-based
           // dev prompt in dev mode because mcpActions routes template actions
           // through shell (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
@@ -2737,12 +2839,15 @@ export function createAgentChatPlugin(
 
       // Resolve owner from the H3 event's session — matches how resources are created
       const getOwnerFromEvent = async (event: any): Promise<string> => {
-        try {
-          const session = await getSession(event);
-          return session?.email || "local@localhost";
-        } catch {
-          return "local@localhost";
+        const session = await getSession(event);
+        if (!session?.email) {
+          const { createError } = await import("h3");
+          throw createError({
+            statusCode: 401,
+            statusMessage: "Unauthenticated",
+          });
         }
+        return session.email;
       };
 
       // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
@@ -2854,10 +2959,11 @@ export function createAgentChatPlugin(
 
             // Store debug metadata so we can inspect what the LLM actually
             // received (system prompt, model, engine) when diagnosing issues.
+            const runCtx = getRequestRunContext();
             repo._debug = {
-              systemPrompt: _currentRunSystemPrompt,
-              model: _currentRunModel ?? resolvedModel,
-              engine: _currentRunEngine?.name ?? "unknown",
+              systemPrompt: runCtx?.systemPrompt,
+              model: runCtx?.model ?? resolvedModel,
+              engine: runCtx?.engine?.name ?? "unknown",
               timestamp: Date.now(),
             };
 
@@ -2874,13 +2980,35 @@ export function createAgentChatPlugin(
           }
         });
 
-        // Emit agent.turn.completed for automation triggers
+        // Emit agent.turn.completed for automation triggers.
+        //
+        // SECURITY: include `owner` so the trigger dispatcher's tenant-scope
+        // check engages (see triggers/dispatcher.ts:212-218). Without an
+        // owner, every user's matching `agent.turn.completed` trigger
+        // would fire when ANY user's chat turn completes — cross-tenant
+        // fan-out (audit 12 #9). Owner comes from the thread row when
+        // available (most reliable; persisted at thread create time),
+        // falling back to the current run context's owner. If neither
+        // resolves we skip emission entirely rather than emit unowned.
         try {
-          const { emit } = await import("../event-bus/index.js");
-          emit("agent.turn.completed", {
-            threadId,
-            model: resolvedModel,
-          });
+          let ownerEmail: string | undefined;
+          try {
+            const ownerThread = await getThread(threadId);
+            ownerEmail = ownerThread?.ownerEmail;
+          } catch {
+            // ignore — fall through to run-context owner
+          }
+          if (!ownerEmail) {
+            ownerEmail = getRequestRunContext()?.owner;
+          }
+          if (ownerEmail) {
+            const { emit } = await import("../event-bus/index.js");
+            emit(
+              "agent.turn.completed",
+              { threadId, model: resolvedModel },
+              { owner: ownerEmail },
+            );
+          }
         } catch {
           // Event bus not available — skip
         }
@@ -2951,19 +3079,12 @@ export function createAgentChatPlugin(
         string,
         (event: import("../agent/types.js").AgentChatEvent) => void
       >();
-      let _currentRunUserApiKey: string | undefined;
-      let _currentRunThreadId = "";
-      let _currentRunSystemPrompt = basePrompt;
-      // Populated by onEngineResolved per request so sub-agents inherit
-      // whichever provider + model the user configured (OpenRouter, Groq, …)
-      // instead of silently falling back to Anthropic + Claude.
-      let _currentRunEngine: AgentEngine | undefined;
-      let _currentRunModel: string | undefined;
-      const resolvedModel = options?.model ?? "claude-sonnet-4-6";
+      const resolvedModel = options?.model ?? DEFAULT_MODEL;
 
       const teamTools = createTeamTools({
-        getOwner: () => _currentRunOwner,
-        getSystemPrompt: () => _currentRunSystemPrompt,
+        getOwner: () => requireCurrentRunOwner("spawn or manage sub-agents"),
+        getSystemPrompt: () =>
+          getRequestRunContext()?.systemPrompt ?? basePrompt,
         getActions: () =>
           isDevMode()
             ? {
@@ -2985,22 +3106,27 @@ export function createAgentChatPlugin(
                 ...urlTools,
                 ...chatScripts,
               },
-        getEngine: () =>
-          _currentRunEngine ??
-          createAnthropicEngine({
-            // Sub-agents must inherit the parent run's resolved key so a
-            // BYO-key user can't bypass the free-tier check on the parent
-            // run and then have agent-teams spawn delegations bill the platform key.
-            apiKey:
-              _currentRunUserApiKey ??
-              options?.apiKey ??
-              process.env.ANTHROPIC_API_KEY,
-          }),
-        getModel: () => _currentRunModel ?? resolvedModel,
-        getParentThreadId: () => _currentRunThreadId,
+        getEngine: () => {
+          const runCtx = getRequestRunContext();
+          return (
+            runCtx?.engine ??
+            createAnthropicEngine({
+              // Sub-agents must inherit the parent run's resolved key so
+              // delegations spawned by agent-teams don't silently fall back
+              // to the platform key while the parent uses BYO credentials.
+              apiKey:
+                runCtx?.userApiKey ??
+                options?.apiKey ??
+                process.env.ANTHROPIC_API_KEY,
+            })
+          );
+        },
+        getModel: () => getRequestRunContext()?.model ?? resolvedModel,
+        getParentThreadId: () => getRequestRunContext()?.threadId ?? "",
         getSend: () => {
           // Return the send for the current run's thread
-          const send = _runSendByThread.get(_currentRunThreadId);
+          const threadId = getRequestRunContext()?.threadId ?? "";
+          const send = _runSendByThread.get(threadId);
           return send ?? null;
         },
       });
@@ -3057,7 +3183,7 @@ export function createAgentChatPlugin(
       });
 
       // Always build the production handler (includes resource tools + call-agent + team tools)
-      // In production mode (!canToggle), enable usage tracking and limits
+      // In production mode (!canToggle), resolve the owner from the request session.
       const isHostedProd = !canToggle;
       const resolveExtraContext = async (
         event: any,
@@ -3082,20 +3208,31 @@ export function createAgentChatPlugin(
       const leanBasePrompt = (options?.systemPrompt ?? "") + prodActionsPrompt;
 
       // Per-request preamble shared by both prod and dev handlers. Resolves
-      // owner + user API key (stashed on the closure so downstream tools can
-      // reach them) and the template-authored `extraContext`. `extraContext`
-      // runs in every prompt variant (lean, lazy, full) — if a template
-      // defined it, they opted in; framework-provided content is what the
-      // token-saving modes strip.
+      // owner + user API key onto the AsyncLocalStorage run context so
+      // downstream tool closures (automation, fetch, team) read the
+      // current request's identity without racing against concurrent
+      // requests. `extraContext` runs in every prompt variant (lean, lazy,
+      // full) — if a template defined it, they opted in; framework-provided
+      // content is what the token-saving modes strip.
       const prepareRun = async (event: any) => {
-        _currentRequestOrigin = getOrigin(event);
         const owner = await getOwnerFromEvent(event);
-        _currentRunOwner = owner;
         const { getOwnerActiveApiKey } =
           await import("../agent/production-agent.js");
-        _currentRunUserApiKey = await getOwnerActiveApiKey(owner);
+        const userApiKey = await getOwnerActiveApiKey(owner);
+        const runCtx = ensureRequestRunContext();
+        if (runCtx) {
+          runCtx.requestOrigin = getOrigin(event);
+          runCtx.owner = owner;
+          runCtx.userApiKey = userApiKey;
+        }
         const extra = await resolveExtraContext(event, owner);
         return { owner, extra };
+      };
+
+      const setSystemPromptOnContext = (prompt: string): string => {
+        const runCtx = ensureRequestRunContext();
+        if (runCtx) runCtx.systemPrompt = prompt;
+        return prompt;
       };
 
       const prodHandler = createProductionAgentHandler({
@@ -3103,8 +3240,7 @@ export function createAgentChatPlugin(
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
           if (leanPrompt) {
-            _currentRunSystemPrompt = leanBasePrompt + extra;
-            return _currentRunSystemPrompt;
+            return setSystemPromptOnContext(leanBasePrompt + extra);
           }
           const resources = await loadResourcesForPrompt(owner, lazyContext);
           // In lazy context mode, skip embedding the full schema — the agent
@@ -3112,30 +3248,33 @@ export function createAgentChatPlugin(
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, false);
-          _currentRunSystemPrompt =
-            basePrompt + resources + schemaBlock + extra;
-          return _currentRunSystemPrompt;
+          return setSystemPromptOnContext(
+            basePrompt + resources + schemaBlock + extra,
+          );
         },
-        model: options?.model ?? "claude-sonnet-4-6",
+        model: options?.model ?? DEFAULT_MODEL,
         apiKey: options?.apiKey,
         skipFilesContext: leanPrompt,
         onEngineResolved: (engine, model) => {
-          _currentRunEngine = engine;
-          _currentRunModel = model;
+          const runCtx = ensureRequestRunContext();
+          if (runCtx) {
+            runCtx.engine = engine;
+            runCtx.model = model;
+          }
         },
         onRunStart: (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,
         ) => {
           _runSendByThread.set(threadId, send);
-          _currentRunThreadId = threadId;
+          const runCtx = ensureRequestRunContext();
+          if (runCtx) runCtx.threadId = threadId;
         },
         onRunComplete: async (run: any, threadId: string | undefined) => {
           if (threadId) _runSendByThread.delete(threadId);
           await onRunComplete(run, threadId);
         },
-        // Usage tracking for hosted production deployments
-        trackUsage: isHostedProd,
+        // Resolve owner from session for usage attribution in hosted prod
         resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
       });
 
@@ -3189,30 +3328,33 @@ export function createAgentChatPlugin(
           systemPrompt: async (event: any) => {
             const { owner, extra } = await prepareRun(event);
             if (leanPrompt) {
-              _currentRunSystemPrompt = leanBasePrompt + extra;
-              return _currentRunSystemPrompt;
+              return setSystemPromptOnContext(leanBasePrompt + extra);
             }
             const resources = await loadResourcesForPrompt(owner, lazyContext);
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(owner, true);
-            _currentRunSystemPrompt =
-              devPrompt + resources + schemaBlock + extra;
-            return _currentRunSystemPrompt;
+            return setSystemPromptOnContext(
+              devPrompt + resources + schemaBlock + extra,
+            );
           },
           model: options?.model,
           apiKey: options?.apiKey,
           skipFilesContext: leanPrompt,
           onEngineResolved: (engine, model) => {
-            _currentRunEngine = engine;
-            _currentRunModel = model;
+            const runCtx = ensureRequestRunContext();
+            if (runCtx) {
+              runCtx.engine = engine;
+              runCtx.model = model;
+            }
           },
           onRunStart: (
             send: (event: import("../agent/types.js").AgentChatEvent) => void,
             threadId: string,
           ) => {
             _runSendByThread.set(threadId, send);
-            _currentRunThreadId = threadId;
+            const runCtx = ensureRequestRunContext();
+            if (runCtx) runCtx.threadId = threadId;
           },
           onRunComplete: async (run: any, threadId: string | undefined) => {
             if (threadId) _runSendByThread.delete(threadId);
@@ -3293,7 +3435,7 @@ export function createAgentChatPlugin(
           const trimmedKey = key.trim();
 
           const ownerEmail = await getOwnerFromEvent(event);
-          if (!ownerEmail || ownerEmail === "local@localhost") {
+          if (!ownerEmail || ownerEmail === DEV_MODE_USER_EMAIL) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
           }
@@ -3381,7 +3523,7 @@ export function createAgentChatPlugin(
           // Query resources
           try {
             const resources = currentDevMode
-              ? await resourceListAccessible("local@localhost")
+              ? await resourceListAccessible(DEV_MODE_USER_EMAIL)
               : await resourceList(SHARED_OWNER);
             for (const r of resources) {
               if (!seen.has(r.path)) {
@@ -3484,7 +3626,7 @@ export function createAgentChatPlugin(
           // Query resources with skills/ prefix
           try {
             const resourceSkills = currentDevMode
-              ? await resourceListAccessible("local@localhost", "skills/")
+              ? await resourceListAccessible(DEV_MODE_USER_EMAIL, "skills/")
               : await resourceList(SHARED_OWNER, "skills/");
             for (const r of resourceSkills) {
               // Try to get content to parse frontmatter
@@ -3633,7 +3775,7 @@ export function createAgentChatPlugin(
               (async () => {
                 try {
                   const resources = currentDevMode
-                    ? await resourceListAccessible("local@localhost")
+                    ? await resourceListAccessible(DEV_MODE_USER_EMAIL)
                     : await resourceList(SHARED_OWNER);
                   flush(
                     resources.map((r) => {
@@ -3782,6 +3924,23 @@ export function createAgentChatPlugin(
             return { error: "Method not allowed" };
           }
           const ownerEmail = await getOwnerFromEvent(event);
+
+          // Per-user rate limit: 10 calls / 60s. Prevents an authenticated
+          // user from spamming the endpoint to exhaust shared Anthropic
+          // credits on platform-key deployments.
+          const now = Date.now();
+          const limitWindowMs = 60_000;
+          const limitMax = 10;
+          const recent = (generateTitleRateLimit.get(ownerEmail) ?? []).filter(
+            (t) => now - t < limitWindowMs,
+          );
+          if (recent.length >= limitMax) {
+            setResponseStatus(event, 429);
+            return { error: "Rate limit exceeded" };
+          }
+          recent.push(now);
+          generateTitleRateLimit.set(ownerEmail, recent);
+
           const body = await readBody(event);
           const message = body?.message;
           if (!message || typeof message !== "string") {
@@ -4225,14 +4384,6 @@ export function createAgentChatPlugin(
             }
           }
 
-          // Also set process.env for backwards compat (CLI scripts, legacy readers)
-          process.env.AGENT_USER_EMAIL = owner;
-          if (resolvedOrgId) {
-            process.env.AGENT_ORG_ID = resolvedOrgId;
-          } else {
-            delete process.env.AGENT_ORG_ID;
-          }
-
           // Propagate the caller's IANA timezone from `x-user-timezone` so that
           // tool calls made by the agent (e.g. log-meal with no explicit date)
           // resolve "today" in the user's local timezone instead of server UTC.
@@ -4243,7 +4394,6 @@ export function createAgentChatPlugin(
             tzRaw.trim().length < 64
               ? tzRaw.trim()
               : undefined;
-          if (timezone) process.env.AGENT_USER_TIMEZONE = timezone;
 
           return runWithRequestContext(
             { userEmail: owner, orgId: resolvedOrgId, timezone },
@@ -4382,8 +4532,11 @@ export function getGlobalMcpManager(): McpClientManager | null {
 }
 
 function mountMcpHubStatusRoute(nitroApp: any): void {
-  if ((globalThis as any).__agentNativeMcpHubStatusMounted) return;
-  (globalThis as any).__agentNativeMcpHubStatusMounted = true;
+  const mountedApps: WeakSet<object> = ((
+    globalThis as any
+  ).__agentNativeMcpHubStatusMountedApps ??= new WeakSet<object>());
+  if (mountedApps.has(nitroApp)) return;
+  mountedApps.add(nitroApp);
   try {
     getH3App(nitroApp).use(
       "/_agent-native/mcp/hub/status",
@@ -4404,9 +4557,12 @@ function mountMcpHubStatusRoute(nitroApp: any): void {
 }
 
 function mountMcpStatusRoute(nitroApp: any, manager: McpClientManager): void {
-  // Idempotent — agent-chat-plugin can be invoked once per process; guard anyway.
-  if ((globalThis as any).__agentNativeMcpStatusMounted) return;
-  (globalThis as any).__agentNativeMcpStatusMounted = true;
+  // Idempotent per Nitro app; dev-all may host multiple templates in one process.
+  const mountedApps: WeakSet<object> = ((
+    globalThis as any
+  ).__agentNativeMcpStatusMountedApps ??= new WeakSet<object>());
+  if (mountedApps.has(nitroApp)) return;
+  mountedApps.add(nitroApp);
   try {
     getH3App(nitroApp).use(
       "/_agent-native/mcp/status",

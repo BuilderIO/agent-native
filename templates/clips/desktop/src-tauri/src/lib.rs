@@ -7,6 +7,7 @@
 mod clips;
 mod config;
 mod debug;
+mod native_speech;
 mod shortcuts;
 mod state;
 mod tray;
@@ -66,6 +67,10 @@ pub fn run() {
             // config commands
             config::get_feature_config,
             config::set_feature_config,
+            // native macOS speech recognition (no-op stubs on other OSes)
+            native_speech::native_speech_start,
+            native_speech::native_speech_stop,
+            native_speech::native_speech_cancel,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
@@ -92,6 +97,7 @@ pub fn run() {
 
             tray::build_tray(app)?;
             shortcuts::register_shortcuts(app)?;
+            shortcuts::install_popover_dismiss_handler(app);
 
             // Hide the popover on blur so it feels like a real menu-bar popover.
             // The 250ms guard is the important bit — during the tray-click

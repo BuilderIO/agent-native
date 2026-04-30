@@ -6,7 +6,7 @@
  * ranges to exclude.
  *
  * Usage:
- *   pnpm action remove-silences --recordingId=<id> [--threshold-ms=1200]
+ *   pnpm action remove-silences --recordingId=<id> [--thresholdMs=1200]
  */
 
 import { defineAction } from "@agent-native/core";
@@ -55,7 +55,7 @@ export default defineAction({
         `by analyzing the transcript segments (gaps between segment.endMs and the next segment.startMs). ` +
         `For each gap > ${args.thresholdMs}ms, add a trim range covering the silence minus a 200ms ` +
         `buffer on each side so speech isn't clipped. Then call ` +
-        `\`trim-recording --recordingId=${args.recordingId} --ranges='[{ "startMs": ..., "endMs": ..., "excluded": true }, ...]'\`.`,
+        `\`trim-recording --recordingId=${args.recordingId} --startMs=<start> --endMs=<end>\` once for each silence.`,
     };
 
     await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);

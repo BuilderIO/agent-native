@@ -1,10 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
+import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
 
 export default defineAction({
   description: "See what the user is currently looking at on screen.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");
@@ -20,7 +23,12 @@ export default defineAction({
         const [form] = await db
           .select()
           .from(schema.forms)
-          .where(eq(schema.forms.id, nav.formId))
+          .where(
+            and(
+              eq(schema.forms.id, nav.formId),
+              accessFilter(schema.forms, schema.formShares),
+            ),
+          )
           .limit(1);
         if (form) {
           const [responseCount] = await db
@@ -49,7 +57,10 @@ export default defineAction({
     if (nav?.view === "forms" || nav?.view === "forms-list" || !nav?.formId) {
       try {
         const db = getDb();
-        const rows = await db.select().from(schema.forms);
+        const rows = await db
+          .select()
+          .from(schema.forms)
+          .where(accessFilter(schema.forms, schema.formShares));
         const counts = await db
           .select({
             formId: schema.responses.formId,
@@ -79,6 +90,18 @@ export default defineAction({
     if (nav?.view === "responses" && nav?.formId) {
       try {
         const db = getDb();
+        const [form] = await db
+          .select({ id: schema.forms.id })
+          .from(schema.forms)
+          .where(
+            and(
+              eq(schema.forms.id, nav.formId),
+              accessFilter(schema.forms, schema.formShares),
+            ),
+          )
+          .limit(1);
+        if (!form) return screen;
+
         const responses = await db
           .select()
           .from(schema.responses)

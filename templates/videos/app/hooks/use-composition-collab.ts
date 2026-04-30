@@ -12,13 +12,14 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
+  agentNativePath,
   useCollaborativeDoc,
   emailToColor,
   emailToName,
+  useSession,
   type CollabUser,
   type UseCollaborativeDocResult,
 } from "@agent-native/core/client";
-import { useSession } from "@agent-native/core/client";
 
 const TAB_ID = `videos-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -151,7 +152,7 @@ export function useCompositionCollab(
         updatedAt: new Date().toISOString(),
       });
 
-      fetch(`/_agent-native/collab/${docId}/text`, {
+      fetch(agentNativePath(`/_agent-native/collab/${docId}/text`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

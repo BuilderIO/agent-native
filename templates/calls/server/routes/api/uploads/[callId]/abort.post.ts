@@ -3,9 +3,16 @@
  * and marks the call row as failed.
  *
  * Route: POST /api/uploads/:callId/abort
+ *
+ * Auth: requires an authenticated session AND `editor` access on the call.
+ * The callId comes from the URL — without re-asserting access here a guesser
+ * could wipe another tenant's in-flight upload. Each chunk/abort/complete
+ * request is independent on serverless so the check has to happen on every
+ * request, not once at upload-start.
  */
 
 import {
+  createError,
   defineEventHandler,
   getRouterParam,
   setResponseStatus,
@@ -13,7 +20,8 @@ import {
 } from "h3";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../../../db/index.js";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import {
   deleteAppState,
   deleteAppStateByPrefix,
@@ -27,28 +35,41 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Missing callId" };
   }
 
-  try {
-    await assertAccess("call", callId, "editor");
-  } catch {
-    setResponseStatus(event, 403);
-    return { error: "Forbidden" };
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
 
-  const db = getDb();
-  const cleared = await deleteAppStateByPrefix(`call-chunks-${callId}-`);
-  await deleteAppState(`call-upload-${callId}`);
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    async () => {
+      try {
+        await assertAccess("call", callId, "editor");
+      } catch (err) {
+        if (err instanceof ForbiddenError) {
+          setResponseStatus(event, 403);
+          return { error: "Forbidden" };
+        }
+        throw err;
+      }
 
-  const now = new Date().toISOString();
-  await db
-    .update(schema.calls)
-    .set({
-      status: "failed",
-      failureReason: "upload aborted",
-      updatedAt: now,
-    })
-    .where(eq(schema.calls.id, callId));
+      const db = getDb();
+      const cleared = await deleteAppStateByPrefix(`call-chunks-${callId}-`);
+      await deleteAppState(`call-upload-${callId}`);
 
-  await writeAppState("refresh-signal", { ts: Date.now() });
+      const now = new Date().toISOString();
+      await db
+        .update(schema.calls)
+        .set({
+          status: "failed",
+          failureReason: "upload aborted",
+          updatedAt: now,
+        })
+        .where(eq(schema.calls.id, callId));
 
-  return { ok: true, callId, chunksCleared: cleared };
+      await writeAppState("refresh-signal", { ts: Date.now() });
+
+      return { ok: true, callId, chunksCleared: cleared };
+    },
+  );
 });

@@ -9,7 +9,7 @@ import { z } from "zod";
 export default defineAction({
   description: "Log a weight entry",
   schema: z.object({
-    weight: z.coerce.number().optional().describe("Weight in pounds"),
+    weight: z.coerce.number().describe("Weight in pounds"),
     date: z
       .string()
       .optional()
@@ -17,13 +17,16 @@ export default defineAction({
     notes: z.string().optional().describe("Optional notes"),
   }),
   run: async (args) => {
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
+
     const date = args.date || todayInTimezone();
 
     const result = await db()
       .insert(schema.weights)
       .values({
-        owner_email: getRequestUserEmail() ?? null,
-        weight: args.weight!,
+        owner_email: ownerEmail,
+        weight: args.weight,
         date: String(date).split("T")[0],
         notes: args.notes || null,
       })

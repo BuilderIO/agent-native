@@ -24,6 +24,7 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@libsql/client": "^0.15.0",
+    "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-popover": "^1.1.15",
     "@tabler/icons-react": "^3.40.0",
     "@tiptap/core": "^3.22.2",
@@ -50,8 +51,10 @@
     "highlight.js": "^11.11.1",
     "isbot": "^5",
     "lowlight": "^3.3.0",
+    "prosemirror-markdown": "^1.13.4",
     "tiptap-markdown": "^0.9.0",
     "y-protocols": "^1.0.7",
+    "yjs": "^13.6.30",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -90,5 +93,12 @@
     "vite": "catalog:",
     "vitest": "^4.1.5"
   },
-  "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748"
+  "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "node-pty"
+    ]
+  }
 }

@@ -7,10 +7,16 @@ import {
   getRequestIP,
   type H3Event,
 } from "h3";
-import { eq, desc, sql } from "drizzle-orm";
+import { and, eq, desc, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { readBody, verifyCaptcha } from "@agent-native/core/server";
+import {
+  getSession,
+  readBody,
+  runWithRequestContext,
+  verifyCaptcha,
+} from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../db/index.js";
 import type {
   FormField,
@@ -45,14 +51,17 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   const db = getDb();
   const id = getRouterParam(event, "id") as string;
 
-  // Look up the form
+  // guard:allow-unscoped — public submission endpoint intentionally accepts anonymous responses for published forms by id; it returns no owner data and rejects non-published forms.
+  // Public submission endpoint: published forms are intentionally readable
+  // without an authenticated viewer, but only by exact id and published status.
+  // guard:allow-unscoped — anonymous respondents must be able to submit published forms; unpublished/private forms still return 404
   const form = await db
     .select()
     .from(schema.forms)
-    .where(eq(schema.forms.id, id))
+    .where(and(eq(schema.forms.id, id), eq(schema.forms.status, "published")))
 
     .then((rows) => rows[0]);
-  if (!form || form.status !== "published") {
+  if (!form) {
     setResponseStatus(event, 404);
     return { error: "Form not found or not accepting responses" };
   }
@@ -186,7 +195,7 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   try {
     const { appStatePut } =
       await import("@agent-native/core/application-state");
-    await appStatePut("local", "new-submission", {
+    await appStatePut(form.ownerEmail, "new-submission", {
       formId: id,
       responseId,
       timestamp: now,
@@ -217,44 +226,50 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
 });
 
 export const listResponses = defineEventHandler(async (event: H3Event) => {
-  const db = getDb();
-  const id = getRouterParam(event, "id") as string;
-  const query = getQuery(event);
-  const limit = parseInt((query.limit as string) || "100", 10);
-
-  // Verify form exists
-  const form = await db
-    .select()
-    .from(schema.forms)
-    .where(eq(schema.forms.id, id))
-
-    .then((rows) => rows[0]);
-  if (!form) {
-    setResponseStatus(event, 404);
-    return { error: "Form not found" };
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to view responses" };
   }
 
-  const rows = await db
-    .select()
-    .from(schema.responses)
-    .where(eq(schema.responses.formId, id))
-    .orderBy(desc(schema.responses.submittedAt))
-    .limit(limit);
-  const total = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(schema.responses)
-    .where(eq(schema.responses.formId, id))
+  const id = getRouterParam(event, "id") as string;
+  const query = getQuery(event);
+  const requestedLimit = parseInt((query.limit as string) || "100", 10);
+  const limit = Math.min(Math.max(requestedLimit || 100, 1), 500);
 
-    .then((rows) => rows[0]);
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId ?? undefined },
+    async () => {
+      const access = await resolveAccess("form", id);
+      if (!access) {
+        setResponseStatus(event, 404);
+        return { error: "Form not found" };
+      }
 
-  return {
-    responses: rows.map((r) => ({
-      id: r.id,
-      formId: r.formId,
-      data: JSON.parse(r.data),
-      submittedAt: r.submittedAt,
-    })) as FormResponse[],
-    total: total?.count ?? 0,
-    fields: JSON.parse(form.fields),
-  };
+      const db = getDb();
+      const rows = await db
+        .select()
+        .from(schema.responses)
+        .where(eq(schema.responses.formId, id))
+        .orderBy(desc(schema.responses.submittedAt))
+        .limit(limit);
+      const total = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.responses)
+        .where(eq(schema.responses.formId, id))
+
+        .then((rows) => rows[0]);
+
+      return {
+        responses: rows.map((r) => ({
+          id: r.id,
+          formId: r.formId,
+          data: JSON.parse(r.data),
+          submittedAt: r.submittedAt,
+        })) as FormResponse[],
+        total: total?.count ?? 0,
+        fields: JSON.parse(access.resource.fields),
+      };
+    },
+  );
 });

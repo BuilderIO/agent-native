@@ -14,6 +14,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../../../db/index.js";
 import { getEventOwnerEmail } from "../../../../lib/recordings.js";
+import { runWithRequestContext } from "@agent-native/core/server";
 import {
   writeAppState,
   deleteAppStateByPrefix,
@@ -28,39 +29,41 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const ownerEmail = await getEventOwnerEmail(event);
-  const db = getDb();
+  return runWithRequestContext({ userEmail: ownerEmail }, async () => {
+    const db = getDb();
 
-  const [existing] = await db
-    .select({ id: schema.recordings.id })
-    .from(schema.recordings)
-    .where(
-      and(
-        eq(schema.recordings.id, recordingId),
-        eq(schema.recordings.ownerEmail, ownerEmail),
-      ),
+    const [existing] = await db
+      .select({ id: schema.recordings.id })
+      .from(schema.recordings)
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          eq(schema.recordings.ownerEmail, ownerEmail),
+        ),
+      );
+
+    if (!existing) {
+      setResponseStatus(event, 404);
+      return { error: "Recording not found" };
+    }
+
+    const cleared = await deleteAppStateByPrefix(
+      `recording-chunks-${recordingId}-`,
     );
+    await deleteAppState(`recording-upload-${recordingId}`);
 
-  if (!existing) {
-    setResponseStatus(event, 404);
-    return { error: "Recording not found" };
-  }
+    const now = new Date().toISOString();
+    await db
+      .update(schema.recordings)
+      .set({
+        status: "failed",
+        failureReason: "Upload aborted by user",
+        updatedAt: now,
+      })
+      .where(eq(schema.recordings.id, recordingId));
 
-  const cleared = await deleteAppStateByPrefix(
-    `recording-chunks-${recordingId}-`,
-  );
-  await deleteAppState(`recording-upload-${recordingId}`);
+    await writeAppState("refresh-signal", { ts: Date.now() });
 
-  const now = new Date().toISOString();
-  await db
-    .update(schema.recordings)
-    .set({
-      status: "failed",
-      failureReason: "Upload aborted by user",
-      updatedAt: now,
-    })
-    .where(eq(schema.recordings.id, recordingId));
-
-  await writeAppState("refresh-signal", { ts: Date.now() });
-
-  return { ok: true, recordingId, chunksCleared: cleared };
+    return { ok: true, recordingId, chunksCleared: cleared };
+  });
 });

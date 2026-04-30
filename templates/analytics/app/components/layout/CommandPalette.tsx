@@ -20,6 +20,7 @@ import {
 import { useTheme } from "next-themes";
 import { dashboards } from "@/pages/adhoc/registry";
 import { getIdToken } from "@/lib/auth";
+import { appApiPath } from "@agent-native/core/client";
 
 interface SavedConfig {
   id: string;
@@ -42,7 +43,7 @@ const defaultTools = [
 
 async function fetchSavedConfigs(): Promise<SavedConfig[]> {
   const token = await getIdToken();
-  const res = await fetch("/api/explorer-configs", {
+  const res = await fetch(appApiPath("/api/explorer-configs"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];
@@ -54,7 +55,7 @@ async function fetchSavedConfigs(): Promise<SavedConfig[]> {
 
 async function fetchExplorerDashboards(): Promise<ExplorerDashboard[]> {
   const token = await getIdToken();
-  const res = await fetch("/api/explorer-dashboards", {
+  const res = await fetch(appApiPath("/api/explorer-dashboards"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];
@@ -66,7 +67,7 @@ async function fetchExplorerDashboards(): Promise<ExplorerDashboard[]> {
 
 async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
   const token = await getIdToken();
-  const res = await fetch("/api/sql-dashboards", {
+  const res = await fetch(appApiPath("/api/sql-dashboards"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];

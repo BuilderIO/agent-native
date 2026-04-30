@@ -69,6 +69,18 @@ interface DictionaryEntry {
   updatedAt?: string;
 }
 
+function safeHttpUrl(value?: string): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 const EMPTY_ENTRY: Partial<DictionaryEntry> = {
   metric: "",
   definition: "",
@@ -262,9 +274,9 @@ export default function DataDictionary() {
                     </Badge>
                   )}
                 </div>
-                {e.sourceUrl && (
+                {safeHttpUrl(e.sourceUrl) && (
                   <a
-                    href={e.sourceUrl}
+                    href={safeHttpUrl(e.sourceUrl) ?? undefined}
                     target="_blank"
                     rel="noreferrer"
                     className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary"

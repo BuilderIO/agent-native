@@ -9,9 +9,6 @@
  */
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 
-/** Default usage limit per user in cents ($1.00) for hosted prod mode */
-export const DEFAULT_USAGE_LIMIT_CENTS = 100;
-
 /**
  * Per-million-token pricing in cents. Cache read is typically ~10% of
  * input; cache write (5m TTL) is ~125%. Pricing is best-effort — keep
@@ -225,22 +222,6 @@ export async function getUserUsageCents(ownerEmail: string): Promise<number> {
   });
   const total = Number((rows[0] as { total?: number })?.total ?? 0);
   return total / 100;
-}
-
-export async function checkUsageLimit(
-  ownerEmail: string,
-  limitCents?: number,
-): Promise<
-  | { allowed: true; usageCents: number; limitCents: number }
-  | { allowed: false; usageCents: number; limitCents: number }
-> {
-  const limit = limitCents ?? DEFAULT_USAGE_LIMIT_CENTS;
-  const usageCents = await getUserUsageCents(ownerEmail);
-  return {
-    allowed: usageCents < limit,
-    usageCents,
-    limitCents: limit,
-  };
 }
 
 // ─── Admin / UI queries ─────────────────────────────────────────────────

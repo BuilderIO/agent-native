@@ -14,6 +14,7 @@ import type {
   EngineStreamOptions,
 } from "./types.js";
 import { getSetting } from "../../settings/store.js";
+import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 
 export interface AgentEngineEntry {
   /** Unique name, e.g. "anthropic", "ai-sdk:anthropic", "ai-sdk:openai" */
@@ -72,7 +73,7 @@ export function listAgentEngines(): AgentEngineEntry[] {
 /**
  * First registered engine whose requiredEnvVars are all set. Registration
  * order controls priority — the Builder gateway is registered first so it
- * wins when BUILDER_PRIVATE_KEY is present.
+ * wins when the Builder private key is present.
  *
  * Escape hatch: AGENT_ENGINE_PREFER_BYO_KEY=true skips the Builder engine
  * on the first pass, so an explicit provider key (ANTHROPIC_API_KEY etc.)
@@ -88,7 +89,7 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
     for (const entry of _registry.values()) {
       if (entry.name === "builder") continue;
       if (entry.requiredEnvVars.length === 0) continue;
-      if (entry.requiredEnvVars.every((v) => !!process.env[v])) {
+      if (entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v))) {
         return entry;
       }
     }
@@ -97,7 +98,7 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
 
   for (const entry of _registry.values()) {
     if (entry.requiredEnvVars.length === 0) continue;
-    if (entry.requiredEnvVars.every((v) => !!process.env[v])) {
+    if (entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v))) {
       return entry;
     }
   }
@@ -117,9 +118,11 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
  * on the docs site (Loom 2026-04-28: "It doesn't seem to realize I'm
  * connected once I do a chat").
  *
- * Returns `null` for unauthenticated requests and for `local@localhost`
- * — both rely on env-based detection (the dev box's deploy-level keys
- * are unambiguous, and unauthenticated requests have no user to scope by).
+ * Includes the local dev session (`local@localhost`): the Builder
+ * OAuth flow writes credentials scoped to that email when run from
+ * `pnpm dev`, so detection has to consult those rows or the dev user
+ * sees the same "Connect your AI" card after they've already connected
+ * (Sami, 2026-04-30). Returns `null` only for unauthenticated requests.
  */
 export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | null> {
   let email: string | undefined;
@@ -130,7 +133,7 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
   } catch {
     return null;
   }
-  if (!email || email === "local@localhost") return null;
+  if (!email) return null;
 
   let readAppSecret: typeof import("../../secrets/storage.js").readAppSecret;
   try {
@@ -175,30 +178,34 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
 }
 
 /**
- * True when an `agent-engine` setting entry names an engine AND carries an
- * API key (top-level or inside `config`). Shared between the onboarding step
- * and the /agent-engine/status endpoint so both agree on "is this configured".
+ * Legacy inline API keys on the global `agent-engine` settings row are
+ * intentionally ignored. That row is deployment-wide, so treating
+ * `{ apiKey }` or `{ config: { apiKey } }` as configured would let one
+ * user's pasted key power every other user. Per-user keys live in
+ * `app_secrets` and are resolved separately.
  */
 export function isAgentEngineSettingConfigured(stored: unknown): boolean {
   if (!stored || typeof stored !== "object") return false;
   const s = stored as {
     engine?: unknown;
-    apiKey?: unknown;
-    config?: { apiKey?: unknown };
   };
   if (typeof s.engine !== "string" || !s.engine) return false;
-  if (typeof s.apiKey === "string" && s.apiKey) return true;
-  if (s.config && typeof s.config.apiKey === "string" && s.config.apiKey) {
-    return true;
-  }
   return false;
+}
+
+function stripInlineApiKeyConfig(
+  config: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!config) return {};
+  const { apiKey: _discardedApiKey, ...safeConfig } = config;
+  return safeConfig;
 }
 
 /**
  * True when the stored `agent-engine` row points at a registered engine
- * AND an API key for it is reachable — either inline (settings + `config`)
- * or via the engine's required env vars. When false, callers should fall
- * through to env-detection so a stale disconnected row can't hijack chat.
+ * AND an API key for it is reachable via the engine's required env vars.
+ * Inline keys on the global settings row are ignored; see
+ * `isAgentEngineSettingConfigured`.
  */
 export function isStoredEngineUsable(
   stored: unknown,
@@ -206,7 +213,7 @@ export function isStoredEngineUsable(
 ): boolean {
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
-  return entry.requiredEnvVars.every((v) => !!process.env[v]);
+  return entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v));
 }
 
 export interface ResolveEngineConfig {
@@ -278,10 +285,11 @@ export async function resolveEngine(
     if (stored && typeof stored.engine === "string") {
       const entry = _registry.get(stored.engine);
       if (entry && isStoredEngineUsable(stored, entry)) {
-        const storedApiKey = (stored.apiKey as string | undefined) ?? apiKey;
         return entry.create({
-          apiKey: storedApiKey,
-          ...((stored.config as Record<string, unknown>) ?? {}),
+          apiKey,
+          ...stripInlineApiKeyConfig(
+            stored.config as Record<string, unknown> | undefined,
+          ),
         });
       }
     }
@@ -303,12 +311,12 @@ export async function resolveEngine(
   const detectedFromUser = await detectEngineFromUserSecrets();
   if (detectedFromUser) return detectedFromUser.create({ apiKey });
 
-  // 7. Auto-detect from any provider env var — so just dropping a key in
+  // 8. Auto-detect from any provider env var — so just dropping a key in
   // .env works without also setting AGENT_ENGINE.
   const detected = detectEngineFromEnv();
   if (detected) return detected.create({ apiKey });
 
-  // 7. Default: anthropic
+  // 9. Default: anthropic
   const anthropicEntry = _registry.get("anthropic");
   if (!anthropicEntry) {
     throw new Error(

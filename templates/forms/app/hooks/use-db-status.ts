@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
 
 interface EnvStatusEntry {
   key: string;
@@ -11,7 +12,7 @@ export function useDbStatus() {
   const { data, isLoading } = useQuery<EnvStatusEntry[]>({
     queryKey: ["env-status"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/env-status");
+      const res = await fetch(agentNativePath("/_agent-native/env-status"));
       if (!res.ok) return [];
       return res.json();
     },

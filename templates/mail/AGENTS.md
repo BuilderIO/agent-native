@@ -61,10 +61,10 @@ Resources support **personal** scope (per-user) and **shared** scope (visible to
 
 | Action            | Args                                           | Purpose                 |
 | ----------------- | ---------------------------------------------- | ----------------------- |
-| `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
-| `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
+| `resource-read`   | `--path <path> [--scope personal\|shared]`     | Read a resource         |
+| `resource-write`  | `--path <path> --content <text> [--scope ...]` | Write/update a resource |
 | `resource-list`   | `[--scope personal\|shared]`                   | List all resources      |
-| `resource-delete` | `--name <name> [--scope personal\|shared]`     | Delete a resource       |
+| `resource-delete` | `--path <path> [--scope personal\|shared]`     | Delete a resource       |
 
 ## Architecture
 
@@ -398,19 +398,20 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ## API Routes
 
-| Method | Route                        | Description                     |
-| ------ | ---------------------------- | ------------------------------- |
-| GET    | `/api/emails?view=inbox&q=…` | List emails for a view/search   |
-| GET    | `/api/emails/:id`            | Get a single email              |
-| PATCH  | `/api/emails/:id/read`       | Toggle read state               |
-| PATCH  | `/api/emails/:id/star`       | Toggle starred                  |
-| PATCH  | `/api/emails/:id/archive`    | Archive email                   |
-| PATCH  | `/api/emails/:id/trash`      | Trash email                     |
-| DELETE | `/api/emails/:id`            | Permanently delete              |
-| POST   | `/api/emails/send`           | Send (create sent email)        |
-| GET    | `/api/labels`                | List all labels + unread counts |
-| GET    | `/api/settings`              | Get user settings               |
-| PATCH  | `/api/settings`              | Update user settings            |
+| Method | Route                             | Description                     |
+| ------ | --------------------------------- | ------------------------------- |
+| GET    | `/api/emails?view=inbox&q=…`      | List emails for a view/search   |
+| GET    | `/api/emails/:id`                 | Get a single email              |
+| PATCH  | `/api/emails/:id/read`            | Toggle read state               |
+| PATCH  | `/api/emails/:id/star`            | Toggle starred                  |
+| PATCH  | `/api/emails/:id/archive`         | Archive email                   |
+| PATCH  | `/api/emails/:id/trash`           | Trash email                     |
+| DELETE | `/api/emails/:id`                 | Permanently delete              |
+| POST   | `/api/emails/send`                | Send (create sent email)        |
+| GET    | `/api/threads/:threadId/messages` | Get all messages in a thread    |
+| GET    | `/api/labels`                     | List all labels + unread counts |
+| GET    | `/api/settings`                   | Get user settings               |
+| PATCH  | `/api/settings`                   | Update user settings            |
 
 ## Keyboard Shortcuts
 

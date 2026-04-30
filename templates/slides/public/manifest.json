@@ -2,18 +2,18 @@
   "name": "Agent Native Slides",
   "short_name": "Slides",
   "description": "AI slide deck creator",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#EC4899",
   "icons": [
     {
-      "src": "/icon-192.svg",
+      "src": "icon-192.svg",
       "sizes": "192x192",
       "type": "image/svg+xml"
     },
     {
-      "src": "/icon-512.svg",
+      "src": "icon-512.svg",
       "sizes": "512x512",
       "type": "image/svg+xml"
     }

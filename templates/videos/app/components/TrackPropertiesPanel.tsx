@@ -224,13 +224,7 @@ function ExpressionPropRow({
           <span className="uppercase tracking-wider">
             {expanded ? "hide" : "code"}
           </span>
-          <IconChevronDown
-            size={10}
-            className={cn(
-              "transition-transform duration-150",
-              expanded && "rotate-180",
-            )}
-          />
+          <IconChevronDown size={10} className={cn(expanded && "rotate-180")} />
         </button>
 
         <button

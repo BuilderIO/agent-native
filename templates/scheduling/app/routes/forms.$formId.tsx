@@ -6,8 +6,8 @@
 import { useLoaderData, useNavigate } from "react-router";
 import { useState } from "react";
 import type { LoaderFunctionArgs } from "react-router";
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { eq, inArray } from "drizzle-orm";
+import { agentNativePath } from "@agent-native/core/client";
 import { getDb, schema } from "../../server/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+export function meta() {
+  return [{ title: "Routing form" }];
+}
+
+function safeExternalUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loader({ params }: LoaderFunctionArgs) {
+  const db = getDb();
   const rows = await getDb()
     .select()
     .from(schema.routingForms)
@@ -28,14 +45,37 @@ export async function loader({ params }: LoaderFunctionArgs) {
   if (!rows[0] || rows[0].disabled)
     throw new Response("Form not found", { status: 404 });
   const row = rows[0];
+  const rules = JSON.parse(row.rules);
+  const fallback = row.fallback ? JSON.parse(row.fallback) : null;
+  const eventTypeIds = collectEventTypeIds(rules, fallback);
+  const eventRoutes: Record<string, string> = {};
+
+  if (eventTypeIds.length > 0) {
+    const eventTypes = await db
+      .select({
+        id: schema.eventTypes.id,
+        slug: schema.eventTypes.slug,
+        ownerEmail: schema.eventTypes.ownerEmail,
+      })
+      .from(schema.eventTypes)
+      .where(inArray(schema.eventTypes.id, eventTypeIds));
+
+    for (const eventType of eventTypes) {
+      if (!eventType.ownerEmail) continue;
+      eventRoutes[eventType.id] =
+        `/${encodeURIComponent(eventType.ownerEmail)}/${encodeURIComponent(eventType.slug)}`;
+    }
+  }
+
   return {
     form: {
       id: row.id,
       name: row.name,
       description: row.description,
       fields: JSON.parse(row.fields),
-      rules: JSON.parse(row.rules),
-      fallback: row.fallback ? JSON.parse(row.fallback) : null,
+      rules,
+      fallback,
+      eventRoutes,
     },
   };
 }
@@ -50,22 +90,35 @@ export default function RoutingFormPublic() {
     const matched = evaluateRules(form.rules, values);
     const action = matched ?? form.fallback;
     // Persist the response
-    await fetch("/_agent-native/actions/submit-routing-form-response", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        formId: form.id,
-        response: values,
-        matchedRuleId: matched?.ruleId,
-      }),
-    }).catch(() => {});
+    await fetch(
+      agentNativePath("/_agent-native/actions/submit-routing-form-response"),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          formId: form.id,
+          response: values,
+          matchedRuleId: matched?.ruleId,
+        }),
+      },
+    ).catch(() => {});
     if (!action) return;
     if (action.kind === "event-type") {
+      const route = form.eventRoutes[action.eventTypeId];
+      if (!route) {
+        setMessage("This form is not connected to an active booking link.");
+        return;
+      }
       navigate(
-        `/e/${action.eventTypeId}?prefill=${encodeURIComponent(JSON.stringify(values))}`,
+        `${route}?prefill=${encodeURIComponent(JSON.stringify(values))}`,
       );
     } else if (action.kind === "external-url") {
-      location.href = action.url;
+      const externalUrl = safeExternalUrl(action.url);
+      if (!externalUrl) {
+        setMessage("This form is not connected to a valid destination.");
+        return;
+      }
+      location.assign(externalUrl);
     } else {
       setMessage(action.message);
     }
@@ -135,6 +188,20 @@ export default function RoutingFormPublic() {
       </form>
     </main>
   );
+}
+
+function collectEventTypeIds(rules: any[], fallback: any): string[] {
+  const ids = new Set<string>();
+  for (const rule of rules ?? []) {
+    const action = rule?.action;
+    if (action?.kind === "event-type" && action.eventTypeId) {
+      ids.add(String(action.eventTypeId));
+    }
+  }
+  if (fallback?.kind === "event-type" && fallback.eventTypeId) {
+    ids.add(String(fallback.eventTypeId));
+  }
+  return [...ids];
 }
 
 function evaluateRules(rules: any[], values: Record<string, any>) {

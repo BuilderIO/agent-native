@@ -37,7 +37,8 @@ export default defineAction({
     const db = getDb();
     const id = providedId ?? nanoid();
     const now = new Date().toISOString();
-    const ownerEmail = getRequestUserEmail() ?? "local@localhost";
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
     await db.insert(schema.designs).values({

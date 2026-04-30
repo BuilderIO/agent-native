@@ -42,6 +42,8 @@ import {
   emailToColor,
   emailToName,
   sendToAgentChat,
+  agentNativePath,
+  appBasePath,
 } from "@agent-native/core/client";
 import type { QuestionFlowQuestion } from "@shared/api";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
@@ -53,6 +55,8 @@ import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { toast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
+import { nanoid } from "nanoid";
 const Pinpoint = lazy(() =>
   import("@agent-native/pinpoint/react").then((m) => ({
     default: m.Pinpoint,
@@ -73,6 +77,7 @@ export default function DeckEditor() {
     updateSlide,
     deleteSlide,
     duplicateSlide,
+    duplicateDeck,
     reorderSlides,
     undo,
     redo,
@@ -100,6 +105,8 @@ export default function DeckEditor() {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [animationsOpen, setAnimationsOpen] = useState(false);
   const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [drawMode, setDrawMode] = useState(false);
+  const [pinMode, setPinMode] = useState(false);
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
@@ -122,7 +129,7 @@ export default function DeckEditor() {
     queryKey: ["show-questions"],
     queryFn: async () => {
       const res = await fetch(
-        "/_agent-native/application-state/show-questions",
+        agentNativePath("/_agent-native/application-state/show-questions"),
       );
       if (!res.ok) return null;
       const text = await res.text();
@@ -170,9 +177,12 @@ export default function DeckEditor() {
 
       // Clear the question flow state — optimistically clear cache so overlay hides immediately
       queryClient.setQueryData(["show-questions"], null);
-      fetch("/_agent-native/application-state/show-questions", {
-        method: "DELETE",
-      }).catch(() => {});
+      fetch(
+        agentNativePath("/_agent-native/application-state/show-questions"),
+        {
+          method: "DELETE",
+        },
+      ).catch(() => {});
     },
     [id, queryClient],
   );
@@ -187,7 +197,7 @@ export default function DeckEditor() {
 
     // Clear the question flow state — optimistically clear cache so overlay hides immediately
     queryClient.setQueryData(["show-questions"], null);
-    fetch("/_agent-native/application-state/show-questions", {
+    fetch(agentNativePath("/_agent-native/application-state/show-questions"), {
       method: "DELETE",
     }).catch(() => {});
   }, [id, queryClient]);
@@ -297,7 +307,7 @@ export default function DeckEditor() {
       const form = new FormData();
       form.append("file", files[0]);
       try {
-        const res = await fetch("/api/assets/upload", {
+        const res = await fetch(`${appBasePath()}/api/assets/upload`, {
           method: "POST",
           body: form,
         });
@@ -312,17 +322,67 @@ export default function DeckEditor() {
     [replaceImageSrc, replaceImageInSlide],
   );
 
+  /**
+   * Delete a slide with an "Undo" toast.
+   *
+   * Why: Rochkind reported accidental slide deletions (clicking an element →
+   * Delete → entire slide gone, no obvious recovery path). The undo
+   * mechanism existed (Cmd+Z) but wasn't discoverable. This surfaces a
+   * 6-second undo toast right next to the action.
+   */
+  const deleteSlideWithUndo = useCallback(
+    (deckId: string, slideId: string) => {
+      const slideTitle = (() => {
+        const slide = deck?.slides.find((s) => s.id === slideId);
+        if (!slide) return "Slide";
+        const m = slide.content.match(/<h[12][^>]*>([^<]+)<\/h[12]>/i);
+        return (
+          m?.[1]?.trim() || `Slide ${(deck?.slides.indexOf(slide) ?? 0) + 1}`
+        );
+      })();
+      deleteSlide(deckId, slideId);
+      const t = toast({
+        title: `${slideTitle} deleted`,
+        description: "Press ⌘Z or click Undo to restore.",
+        action: (
+          <ToastAction
+            altText="Undo delete"
+            data-undo-button
+            onClick={() => {
+              undo();
+              t.dismiss();
+            }}
+          >
+            Undo
+          </ToastAction>
+        ),
+      });
+      // Auto-dismiss after 6 seconds (shadcn toast's TOAST_REMOVE_DELAY is
+      // intentionally enormous, so we trigger it manually).
+      setTimeout(() => t.dismiss(), 6000);
+    },
+    [deck, deleteSlide, undo],
+  );
+
   // Delete key deletes the current slide
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!deck || !id || !activeSlideId) return;
       // Don't intercept if user is typing in an input/textarea/contenteditable
+      // OR if a slide element is selected (image/text element selection state
+      // is owned by SlideEditor — we shouldn't blast the whole slide just
+      // because the user clicked an image then hit Delete).
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
         target.isContentEditable
       )
+        return;
+      // Skip if the SlideEditor reports an element is selected (image, text
+      // block, or builder-id selector). Slide-level delete is reserved for
+      // when the canvas itself has focus.
+      if (document.querySelector("[data-slide-element-selected='true']"))
         return;
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
@@ -332,13 +392,13 @@ export default function DeckEditor() {
         if (deck.slides.length <= 1) return; // don't delete last slide
         const idx = deck.slides.findIndex((s) => s.id === activeSlideId);
         const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
-        deleteSlide(id, activeSlideId);
+        deleteSlideWithUndo(id, activeSlideId);
         if (nextSlide) setActiveSlideId(nextSlide.id);
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [deck, id, activeSlideId, deleteSlide]);
+  }, [deck, id, activeSlideId, deleteSlideWithUndo]);
 
   // Resolve initial slide from URL param once deck is available.
   // Always sets activeSlideId so collab docId is never null when a slide is showing.
@@ -508,20 +568,14 @@ export default function DeckEditor() {
         onToggleAnimations={() => setAnimationsOpen((o) => !o)}
         tweaksOpen={tweaksOpen}
         onToggleTweaks={() => setTweaksOpen((o) => !o)}
-        onDuplicateDeck={async () => {
-          try {
-            const res = await fetch("/_agent-native/actions/duplicate-deck", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ deckId: id }),
-            });
-            const data = await res.json();
-            if (data.id) {
-              navigate(`/deck/${data.id}`);
-            }
-          } catch (err) {
-            console.error("Duplicate failed:", err);
-          }
+        drawMode={drawMode}
+        onToggleDrawMode={() => setDrawMode((v) => !v)}
+        pinMode={pinMode}
+        onTogglePinMode={() => setPinMode((v) => !v)}
+        onDuplicateDeck={() => {
+          const newId = `deck-${nanoid()}`;
+          const optimistic = duplicateDeck(id, newId);
+          if (optimistic) navigate(`/deck/${optimistic.id}`);
         }}
         onExportPdf={async () => {
           try {
@@ -550,11 +604,14 @@ export default function DeckEditor() {
           const previous = deck.aspectRatio;
           // Optimistic UI: update local cache immediately so canvas resizes.
           updateDeck(id, { aspectRatio: ratio });
-          fetch("/_agent-native/actions/update-deck-aspect-ratio", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ deckId: id, aspectRatio: ratio }),
-          }).catch((err) => {
+          fetch(
+            agentNativePath("/_agent-native/actions/update-deck-aspect-ratio"),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ deckId: id, aspectRatio: ratio }),
+            },
+          ).catch((err) => {
             console.error("Failed to set aspect ratio:", err);
             updateDeck(id, { aspectRatio: previous });
           });
@@ -585,10 +642,10 @@ export default function DeckEditor() {
                   }}
                   onDuplicateSlide={(slideId) => duplicateSlide(id, slideId)}
                   onDeleteSlide={(slideId) => {
-                    deleteSlide(id, slideId);
                     const idx = deck.slides.findIndex((s) => s.id === slideId);
                     const nextSlide =
                       deck.slides[idx + 1] || deck.slides[idx - 1];
+                    deleteSlideWithUndo(id, slideId);
                     if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
                   slidePresence={slidePresence}
@@ -650,6 +707,20 @@ export default function DeckEditor() {
               setPendingComment({ quotedText });
               setCommentsOpen(true);
             }}
+            drawMode={drawMode}
+            onExitDrawMode={() => setDrawMode(false)}
+            pinMode={pinMode}
+            onExitPinMode={() => setPinMode(false)}
+            slideId={currentSlide.id}
+            slideTitle={(() => {
+              const m = currentSlide.content?.match(
+                /<h[12][^>]*>([^<]+)<\/h[12]>/i,
+              );
+              return (
+                m?.[1]?.trim() ||
+                `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
+              );
+            })()}
           />
         )}
 

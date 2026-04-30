@@ -5,6 +5,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+
+export function meta() {
+  return [{ title: "Profile — Scheduling" }];
+}
+
 import {
   Select,
   SelectContent,

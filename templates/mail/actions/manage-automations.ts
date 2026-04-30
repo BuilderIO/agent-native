@@ -40,7 +40,8 @@ export default defineAction({
     // Lazy-import DB to avoid issues when running outside server context
     const { db, schema } = await import("../server/db/index.js");
 
-    const ownerEmail = getRequestUserEmail() || "local@localhost";
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
 
     switch (action) {
       case "list": {

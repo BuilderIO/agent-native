@@ -9,6 +9,15 @@
  * Both scopes store the same shape — a list of `StoredRemoteMcpServer`
  * records. The running MCP manager merges this list with the file-based
  * `mcp.config.json` on startup and after every mutation.
+ *
+ * SECURITY: HTTP MCP servers commonly require a bearer token in the
+ * `Authorization` header. Those values are written to the encrypted
+ * `app_secrets` table (AES-256-GCM via writeAppSecret). The settings row
+ * stores only the secret-key reference (`headerSecretKey`), not the raw
+ * value. Callers retrieving headers must call `materializeHeaders` to
+ * fetch the cleartext at request time. Legacy rows that wrote headers
+ * cleartext into `headers` continue to work read-only — they should be
+ * re-saved to migrate.
  */
 
 import { createHash } from "node:crypto";
@@ -22,11 +31,21 @@ import {
   putOrgSetting,
   deleteOrgSetting,
 } from "../settings/org-settings.js";
+import {
+  writeAppSecret,
+  readAppSecret,
+  deleteAppSecret,
+} from "../secrets/storage.js";
+import type { SecretScope } from "../secrets/register.js";
 import type { McpHttpServerConfig } from "./config.js";
 
 const SETTINGS_KEY = "mcp-servers-remote";
 
 export type RemoteMcpScope = "user" | "org";
+
+function toSecretScope(scope: RemoteMcpScope): SecretScope {
+  return scope === "user" ? "user" : "workspace";
+}
 
 export interface StoredRemoteMcpServer {
   /** Stable unique id — used for removal / URLs. */
@@ -35,12 +54,63 @@ export interface StoredRemoteMcpServer {
   name: string;
   /** Streamable HTTP MCP server URL. */
   url: string;
-  /** Optional headers to pass (e.g. `Authorization: Bearer …`). */
+  /**
+   * Optional non-secret headers to pass to the MCP server. SECURITY: secret
+   * material (Authorization, X-Api-Key, …) is moved out of this field at
+   * write time and stored encrypted in `app_secrets`; see
+   * `headerSecretKey`. Legacy rows may still contain cleartext headers and
+   * are honored read-only.
+   */
   headers?: Record<string, string>;
+  /**
+   * Reference to the encrypted secret holding the JSON-stringified secret
+   * headers map (e.g. `{"Authorization":"Bearer …"}`). Resolved at request
+   * time via `readAppSecret`. Undefined when no secret-class headers were
+   * supplied (or for legacy cleartext rows).
+   */
+  headerSecretKey?: string;
   /** Optional description shown in the UI. */
   description?: string;
   /** ms since epoch. */
   createdAt: number;
+}
+
+/**
+ * Header names that are routed through the encrypted-at-rest secrets store
+ * instead of being written to the plaintext `settings` row. Match is
+ * case-insensitive and substring-based to catch one-off names like
+ * `x-zapier-api-key`.
+ */
+const SECRET_HEADER_NAME_PATTERNS = [
+  /authorization/i,
+  /api[-_]?key/i,
+  /token/i,
+  /secret/i,
+  /bearer/i,
+  /x-.*-key/i,
+];
+
+function isSecretHeaderName(name: string): boolean {
+  return SECRET_HEADER_NAME_PATTERNS.some((re) => re.test(name));
+}
+
+/** Split a headers map into (cleartext, secret) buckets. */
+function partitionHeaders(headers: Record<string, string> | undefined): {
+  cleartext: Record<string, string> | undefined;
+  secret: Record<string, string> | undefined;
+} {
+  if (!headers) return { cleartext: undefined, secret: undefined };
+  const cleartext: Record<string, string> = {};
+  const secret: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (typeof v !== "string") continue;
+    if (isSecretHeaderName(k)) secret[k] = v;
+    else cleartext[k] = v;
+  }
+  return {
+    cleartext: Object.keys(cleartext).length > 0 ? cleartext : undefined,
+    secret: Object.keys(secret).length > 0 ? secret : undefined,
+  };
 }
 
 /** Tiny nanoid — matches the inline helper used elsewhere in this package. */
@@ -88,6 +158,92 @@ function sanitiseOrgId(orgId: string): string {
   return orgId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 }
 
+/**
+ * Hostname patterns that are always rejected to prevent SSRF via DNS rebinding
+ * or well-known internal service names.
+ */
+const BLOCKED_HOSTNAME_PATTERNS: RegExp[] = [
+  /^localhost$/i,
+  /\.localhost$/i,
+  /\.local$/i,
+  /\.internal$/i,
+  // DNS rebind services
+  /\.nip\.io$/i,
+  /\.sslip\.io$/i,
+  /\.xip\.io$/i,
+  /\.localtest\.me$/i,
+  /\.lvh\.me$/i,
+  // Cloud metadata hosts
+  /^metadata\.google\.internal$/i,
+  /^instance-data$/i,
+];
+
+/** Literal IPs that are always rejected (cloud metadata endpoints). */
+const BLOCKED_IPS = new Set([
+  "169.254.169.254", // AWS/GCP/Azure IMDS
+  "100.100.100.200", // Alibaba Cloud metadata
+  "::1",
+]);
+
+/** Parse a dotted-decimal IPv4 string to a 32-bit integer for range checks. */
+function ipv4ToInt(ip: string): number | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  let n = 0;
+  for (const part of parts) {
+    const byte = parseInt(part, 10);
+    if (isNaN(byte) || byte < 0 || byte > 255) return null;
+    n = (n << 8) | byte;
+  }
+  return n >>> 0;
+}
+
+function isPrivateIpv4(hostname: string): boolean {
+  const n = ipv4ToInt(hostname);
+  if (n === null) return false;
+  // 10.0.0.0/8
+  if ((n & 0xff000000) >>> 0 === 0x0a000000) return true;
+  // 172.16.0.0/12
+  if ((n & 0xfff00000) >>> 0 === 0xac100000) return true;
+  // 192.168.0.0/16
+  if ((n & 0xffff0000) >>> 0 === 0xc0a80000) return true;
+  // 169.254.0.0/16 (link-local, includes AWS/GCP metadata)
+  if ((n & 0xffff0000) >>> 0 === 0xa9fe0000) return true;
+  // 127.0.0.0/8 (loopback)
+  if ((n & 0xff000000) >>> 0 === 0x7f000000) return true;
+  return false;
+}
+
+function isBlockedHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (BLOCKED_IPS.has(normalized)) return true;
+  if (isPrivateIpv4(normalized)) return true;
+  // IPv6 ULA (fc00::/7) and link-local (fe80::/10)
+  if (normalized === "::1") return true;
+  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
+  if (normalized.startsWith("fe80")) return true;
+  if (normalized.startsWith("::ffff:")) {
+    const mapped = normalized.slice("::ffff:".length);
+    if (isPrivateIpv4(mapped)) return true;
+    const hexMatch = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(mapped);
+    if (hexMatch) {
+      const value =
+        (parseInt(hexMatch[1], 16) << 16) | parseInt(hexMatch[2], 16);
+      const dotted = [
+        (value >>> 24) & 0xff,
+        (value >>> 16) & 0xff,
+        (value >>> 8) & 0xff,
+        value & 0xff,
+      ].join(".");
+      if (isPrivateIpv4(dotted)) return true;
+    }
+  }
+  for (const pattern of BLOCKED_HOSTNAME_PATTERNS) {
+    if (pattern.test(normalized)) return true;
+  }
+  return false;
+}
+
 /** Reject obviously-wrong URLs. Allows http only for localhost. */
 export function validateRemoteUrl(raw: string): {
   ok: boolean;
@@ -100,10 +256,18 @@ export function validateRemoteUrl(raw: string): {
   } catch {
     return { ok: false, error: "Not a valid URL" };
   }
-  if (url.protocol === "https:") return { ok: true, url };
+  if (url.protocol === "https:") {
+    if (isBlockedHostname(url.hostname)) {
+      return {
+        ok: false,
+        error: `Host "${url.hostname}" is not allowed (private/internal address)`,
+      };
+    }
+    return { ok: true, url };
+  }
   if (url.protocol === "http:") {
     const host = url.hostname;
-    if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+    if (host === "localhost" || host === "127.0.0.1") {
       return { ok: true, url };
     }
     return { ok: false, error: "Plain http is only allowed for localhost" };
@@ -166,14 +330,36 @@ export async function addRemoteServer(
     return { ok: false, error: `A server named "${name}" already exists` };
   }
 
+  const id = `mcps_${shortId()}`;
+  const { cleartext, secret } = partitionHeaders(input.headers);
+
+  // Persist secret-class headers in the encrypted secrets table; the
+  // settings row only references the secret key, never the cleartext.
+  let headerSecretKey: string | undefined;
+  if (secret) {
+    headerSecretKey = `mcp_headers:${id}`;
+    try {
+      await writeAppSecret({
+        key: headerSecretKey,
+        value: JSON.stringify(secret),
+        scope: toSecretScope(scope),
+        scopeId,
+        description: `Encrypted MCP headers for ${name}`,
+      });
+    } catch (err: any) {
+      return {
+        ok: false,
+        error: `Failed to encrypt MCP headers: ${err?.message ?? err}`,
+      };
+    }
+  }
+
   const server: StoredRemoteMcpServer = {
-    id: `mcps_${shortId()}`,
+    id,
     name,
     url: urlCheck.url!.toString(),
-    headers:
-      input.headers && Object.keys(input.headers).length > 0
-        ? { ...input.headers }
-        : undefined,
+    headers: cleartext,
+    headerSecretKey,
     description: input.description?.trim() || undefined,
     createdAt: Date.now(),
   };
@@ -187,6 +373,7 @@ export async function removeRemoteServer(
   id: string,
 ): Promise<boolean> {
   const existing = await readList(scope, scopeId);
+  const removed = existing.find((s) => s.id === id);
   const next = existing.filter((s) => s.id !== id);
   if (next.length === existing.length) return false;
   if (next.length === 0) {
@@ -198,7 +385,62 @@ export async function removeRemoteServer(
   } else {
     await writeList(scope, scopeId, next);
   }
+  // Best-effort: drop the encrypted-headers secret too. Errors are logged
+  // but don't fail the deletion — the settings row is already gone, so a
+  // dangling secret is harmless (it just can't be read back).
+  if (removed?.headerSecretKey) {
+    try {
+      await deleteAppSecret({
+        key: removed.headerSecretKey,
+        scope: toSecretScope(scope),
+        scopeId,
+      });
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[mcp-client] Failed to delete MCP header secret ${removed.headerSecretKey}: ${err?.message ?? err}`,
+      );
+    }
+  }
   return true;
+}
+
+/**
+ * Resolve the full headers map (cleartext + decrypted secret headers) for a
+ * stored MCP server. Used when projecting the stored record into the
+ * runtime `McpHttpServerConfig` shape that `McpClientManager` consumes.
+ *
+ * For legacy rows that wrote secrets cleartext into `headers`, this
+ * returns those cleartext values unchanged — they should be re-saved
+ * through `addRemoteServer` to migrate to encrypted storage.
+ */
+export async function materializeHeaders(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  stored: StoredRemoteMcpServer,
+): Promise<Record<string, string> | undefined> {
+  const merged: Record<string, string> = { ...(stored.headers ?? {}) };
+  if (stored.headerSecretKey) {
+    try {
+      const secret = await readAppSecret({
+        key: stored.headerSecretKey,
+        scope: toSecretScope(scope),
+        scopeId,
+      });
+      if (secret) {
+        const parsed = JSON.parse(secret.value) as Record<string, string>;
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === "string") merged[k] = v;
+        }
+      }
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[mcp-client] Failed to decrypt MCP headers for ${stored.name}: ${err?.message ?? err}`,
+      );
+    }
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 /**
@@ -206,6 +448,13 @@ export async function removeRemoteServer(
  * `McpClientManager` consumes. The merged-config key is the scope + name
  * so a user-scope and org-scope server can both share a readable name
  * without clobbering each other.
+ *
+ * SECURITY: when the stored row references encrypted headers
+ * (`headerSecretKey`), callers should use `toHttpServerConfigAsync`
+ * instead — this synchronous variant returns ONLY the cleartext headers
+ * already present on the row. Returning the row's literal headers without
+ * the secret material means the runtime client would call the MCP server
+ * without auth (request will fail), but never leaks the encrypted secret.
  */
 export function toHttpServerConfig(
   stored: StoredRemoteMcpServer,
@@ -214,6 +463,27 @@ export function toHttpServerConfig(
     type: "http",
     url: stored.url,
     headers: stored.headers,
+    description: stored.description,
+  };
+}
+
+/**
+ * Async variant of `toHttpServerConfig` that resolves any encrypted
+ * `headerSecretKey` reference from `app_secrets` and returns the full
+ * cleartext headers map for use at runtime. Use this when actually
+ * configuring an MCP client; use the sync variant only when serializing
+ * stored data (e.g. for read-only listings that shouldn't disclose
+ * secrets).
+ */
+export async function toHttpServerConfigAsync(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  stored: StoredRemoteMcpServer,
+): Promise<McpHttpServerConfig> {
+  return {
+    type: "http",
+    url: stored.url,
+    headers: await materializeHeaders(scope, scopeId, stored),
     description: stored.description,
   };
 }

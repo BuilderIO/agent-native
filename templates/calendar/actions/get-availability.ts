@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
+import { z } from "zod";
 import type { AvailabilityConfig } from "../shared/api.js";
 
 const DEFAULT_AVAILABILITY: AvailabilityConfig = {
@@ -23,10 +24,11 @@ const DEFAULT_AVAILABILITY: AvailabilityConfig = {
 
 export default defineAction({
   description: "Get availability configuration",
-  parameters: {},
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const config =
       (await getUserSetting(email, "calendar-availability")) ||
       DEFAULT_AVAILABILITY;

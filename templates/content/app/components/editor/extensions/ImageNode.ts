@@ -1,7 +1,7 @@
 import Image, { type ImageOptions } from "@tiptap/extension-image";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { ImageBlock } from "./ImageBlock";
-import { defaultMarkdownSerializer } from "@tiptap/pm/markdown";
+import { defaultMarkdownSerializer } from "prosemirror-markdown";
 
 // Override the default image serializer to treat images as block elements
 defaultMarkdownSerializer.nodes.image = function (state: any, node: any) {

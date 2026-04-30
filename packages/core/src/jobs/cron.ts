@@ -1,10 +1,19 @@
 import { CronExpressionParser } from "cron-parser";
 
+// cron-parser v5 mishandles @midnight — normalize it to an equivalent 5-field expression.
+const ALIAS_MAP: Record<string, string> = {
+  "@midnight": "0 0 * * *",
+};
+
+function normalize(cronExpr: string): string {
+  return ALIAS_MAP[cronExpr.trim().toLowerCase()] ?? cronExpr;
+}
+
 /**
  * Compute the next occurrence of a cron expression after the given date.
  */
 export function nextOccurrence(cronExpr: string, after?: Date): Date {
-  const expr = CronExpressionParser.parse(cronExpr, {
+  const expr = CronExpressionParser.parse(normalize(cronExpr), {
     currentDate: after ?? new Date(),
   });
   const next = expr.next();
@@ -16,7 +25,7 @@ export function nextOccurrence(cronExpr: string, after?: Date): Date {
  */
 export function isValidCron(cronExpr: string): boolean {
   try {
-    CronExpressionParser.parse(cronExpr);
+    CronExpressionParser.parse(normalize(cronExpr));
     return true;
   } catch {
     return false;
@@ -28,13 +37,14 @@ export function isValidCron(cronExpr: string): boolean {
  * Handles common patterns; falls back to the raw expression for unusual ones.
  */
 export function describeCron(cronExpr: string): string {
-  const parts = cronExpr.trim().split(/\s+/);
+  const normalized = normalize(cronExpr);
+  const parts = normalized.trim().split(/\s+/);
   if (parts.length !== 5) return cronExpr;
 
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
 
   // Every minute
-  if (cronExpr === "* * * * *") return "Every minute";
+  if (normalized === "* * * * *") return "Every minute";
 
   // Every N minutes
   const minMatch = minute.match(/^\*\/(\d+)$/);

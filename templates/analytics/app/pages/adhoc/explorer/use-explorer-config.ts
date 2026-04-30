@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ExplorerConfig } from "./types";
 import { createDefaultConfig } from "./types";
 import { getIdToken } from "@/lib/auth";
+import { appApiPath } from "@agent-native/core/client";
 
 const AUTOSAVE_ID = "_autosave";
 const AUTOSAVE_DELAY = 800; // ms debounce
@@ -14,7 +15,7 @@ interface SavedConfigEntry {
 
 async function fetchWithAuth(url: string, options?: RequestInit) {
   const token = await getIdToken();
-  return fetch(url, {
+  return fetch(appApiPath(url), {
     ...options,
     headers: {
       "Content-Type": "application/json",

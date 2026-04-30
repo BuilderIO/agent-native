@@ -26,7 +26,7 @@ export default function BookingPage() {
   const navigate = useNavigate();
   const { data: settings, isLoading: settingsLoading } = usePublicSettings();
   const { data: availability, isLoading: availabilityLoading } =
-    usePublicAvailability();
+    usePublicAvailability(slug);
   const {
     data: bookingLink,
     isLoading: bookingLinkLoading,
@@ -65,6 +65,7 @@ export default function BookingPage() {
   const { data: slots = [], isLoading: slotsLoading } = useAvailableSlots(
     dateStr,
     duration,
+    slug,
   );
   const createBooking = useCreateBooking();
 

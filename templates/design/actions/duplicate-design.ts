@@ -38,7 +38,11 @@ export default defineAction({
       projectType: source.projectType,
       designSystemId: source.designSystemId ?? null,
       data: source.data,
-      ownerEmail: getRequestUserEmail() || "local@localhost",
+      ownerEmail: (() => {
+        const e = getRequestUserEmail();
+        if (!e) throw new Error("no authenticated user");
+        return e;
+      })(),
       orgId: getRequestOrgId() || null,
       createdAt: now,
       updatedAt: now,

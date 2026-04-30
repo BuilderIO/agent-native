@@ -4,7 +4,7 @@
  * The session ID determines which user's application state is read/written.
  * Resolution order:
  *   1. Per-request context (AsyncLocalStorage) — set by the HTTP handler
- *   2. AGENT_USER_EMAIL env var — set by agent runtime or CLI
+ *   2. AGENT_USER_EMAIL env var — CLI only
  *   3. Most recent session in the DB — fallback for CLI scripts
  *   4. "local" — last resort
  *
@@ -22,6 +22,7 @@ import {
   appStateDeleteByPrefix,
 } from "./store.js";
 import { getDbExec } from "../db/client.js";
+import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
 
 // Fallback session ID for CLI scripts (no per-request context).
 // Cached after first resolution so repeated CLI calls don't hit the DB.
@@ -38,19 +39,26 @@ let _cliFallbackSessionId: string | undefined;
 async function resolveSessionId(): Promise<string> {
   // 1. Per-request context (AsyncLocalStorage) — always preferred
   try {
-    const { getRequestUserEmail } =
+    const { getRequestUserEmail, hasRequestContext } =
       await import("../server/request-context.js");
     const ctxEmail = getRequestUserEmail();
-    if (ctxEmail && ctxEmail !== "local@localhost") return ctxEmail;
-    if (ctxEmail === "local@localhost") return "local";
+    if (ctxEmail && ctxEmail !== DEV_MODE_USER_EMAIL) return ctxEmail;
+    if (ctxEmail === DEV_MODE_USER_EMAIL) return "local";
+    if (hasRequestContext()) {
+      throw new Error(
+        "Application state access requires an authenticated request context",
+      );
+    }
   } catch {
-    // request-context module not available (e.g. edge runtime) — fall through
+    throw new Error(
+      "Application state access requires an authenticated request context",
+    );
   }
 
   // 2. AGENT_USER_EMAIL env var (CLI scripts)
   const email = process.env.AGENT_USER_EMAIL;
-  if (email && email !== "local@localhost") return email;
-  if (email === "local@localhost") return "local";
+  if (email && email !== DEV_MODE_USER_EMAIL) return email;
+  if (email === DEV_MODE_USER_EMAIL) return "local";
 
   // 3. DB fallback — cached per-process for CLI scripts only
   if (_cliFallbackSessionId) return _cliFallbackSessionId;
@@ -63,7 +71,7 @@ async function resolveSessionId(): Promise<string> {
     });
     if (rows[0]) {
       const dbEmail = rows[0].email as string;
-      if (dbEmail && dbEmail !== "local@localhost") {
+      if (dbEmail && dbEmail !== DEV_MODE_USER_EMAIL) {
         _cliFallbackSessionId = dbEmail;
         return dbEmail;
       }

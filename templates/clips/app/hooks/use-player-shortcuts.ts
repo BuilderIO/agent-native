@@ -2,29 +2,37 @@ import { useEffect } from "react";
 import type { VideoPlayerHandle } from "@/components/player/video-player";
 import { SPEED_OPTIONS } from "@/components/player/player-controls";
 
+export interface Chapter {
+  startMs: number;
+  title: string;
+}
+
 export interface UsePlayerShortcutsOpts {
   playerRef: React.RefObject<VideoPlayerHandle | null>;
   speed: number;
   setSpeed: (v: number) => void;
+  chapters?: Chapter[];
   enabled?: boolean;
 }
 
 /**
  * Wires up Clips' player-page keyboard shortcuts.
  *
- *  Space / K  → play/pause
- *  J / ←      → back 6s
- *  L / →      → forward 6s
- *  F          → fullscreen
- *  M          → mute
- *  > / .      → speed up
- *  < / ,      → speed down
- *  C          → toggle captions
+ *  Space / K      → play/pause
+ *  J / ←          → back 6s
+ *  L / →          → forward 6s
+ *  Shift+← / →   → previous/next chapter
+ *  ↑ / ↓          → volume up/down 10%
+ *  F              → fullscreen
+ *  M              → mute
+ *  > / .          → speed up
+ *  < / ,          → speed down
+ *  C              → toggle captions
  *
  * Ignores events when focus is inside an input/textarea/contenteditable.
  */
 export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
-  const { playerRef, speed, setSpeed, enabled = true } = opts;
+  const { playerRef, speed, setSpeed, chapters = [], enabled = true } = opts;
 
   useEffect(() => {
     if (!enabled) return;
@@ -46,18 +54,51 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
           break;
         case "j":
         case "J":
-        case "ArrowLeft":
           e.preventDefault();
           v.currentTime = Math.max(0, v.currentTime - 6);
           break;
         case "l":
         case "L":
-        case "ArrowRight":
           e.preventDefault();
           v.currentTime = Math.min(
             v.duration || v.currentTime,
             v.currentTime + 6,
           );
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          if (e.shiftKey) {
+            // Previous chapter
+            const currentMs = v.currentTime * 1000;
+            const prev = [...chapters]
+              .reverse()
+              .find((c) => c.startMs < currentMs - 500);
+            v.currentTime = prev ? prev.startMs / 1000 : 0;
+          } else {
+            v.currentTime = Math.max(0, v.currentTime - 6);
+          }
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          if (e.shiftKey) {
+            // Next chapter
+            const currentMs = v.currentTime * 1000;
+            const next = chapters.find((c) => c.startMs > currentMs + 500);
+            if (next) v.currentTime = next.startMs / 1000;
+          } else {
+            v.currentTime = Math.min(
+              v.duration || v.currentTime,
+              v.currentTime + 6,
+            );
+          }
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          v.volume = Math.min(1, v.volume + 0.1);
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          v.volume = Math.max(0, v.volume - 0.1);
           break;
         case "f":
         case "F":
@@ -105,7 +146,7 @@ export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [enabled, playerRef, speed, setSpeed]);
+  }, [enabled, playerRef, speed, setSpeed, chapters]);
 }
 
 function shouldIgnore(target: EventTarget | null): boolean {

@@ -11,10 +11,18 @@
  *   durationMs / width / height — forwarded to finalize
  *
  * Route: POST /api/uploads/:callId/chunk?index=N&total=T&isFinal=0|1
+ *
+ * Auth: requires an authenticated session AND `editor` access on the call.
+ * The callId comes from the URL — without re-asserting access here a guesser
+ * could overwrite another tenant's recording. Each chunk request is
+ * independent on serverless so the check has to happen on every chunk, not
+ * once at upload-start.
  */
 
 import {
+  createError,
   defineEventHandler,
+  getHeader,
   getRouterParam,
   getQuery,
   readRawBody,
@@ -23,7 +31,8 @@ import {
 } from "h3";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../../../db/index.js";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 import finalizeCall from "../../../../../actions/finalize-call.js";
 
@@ -57,92 +66,122 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Invalid chunk index" };
   }
 
-  try {
-    await assertAccess("call", callId, "editor");
-  } catch {
-    setResponseStatus(event, 403);
-    return { error: "Forbidden" };
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
 
-  const db = getDb();
-  const raw = await readRawBody(event, false);
-  if (!raw || raw.byteLength === 0) {
-    setResponseStatus(event, 400);
-    return { error: "Empty chunk body" };
+  const MAX_CHUNK_BYTES = 6 * 1024 * 1024; // 6MB cap (5MB client + slack)
+  const contentLength = Number(getHeader(event, "content-length") || 0);
+  if (contentLength > MAX_CHUNK_BYTES) {
+    setResponseStatus(event, 413);
+    return { error: "Chunk too large" };
   }
 
-  const bytes: Uint8Array = raw;
-  const paddedIndex = String(index).padStart(6, "0");
-  const chunkKey = `call-chunks-${callId}-${paddedIndex}`;
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    async () => {
+      try {
+        await assertAccess("call", callId, "editor");
+      } catch (err) {
+        if (err instanceof ForbiddenError) {
+          setResponseStatus(event, 403);
+          return { error: "Forbidden" };
+        }
+        throw err;
+      }
 
-  await writeAppState(chunkKey, {
-    callId,
-    index,
-    bytes: bytes.byteLength,
-    mimeType,
-    data: toBase64(bytes),
-    createdAt: new Date().toISOString(),
-  });
+      const db = getDb();
+      const raw = await readRawBody(event, false);
+      const bodySize = raw ? raw.byteLength : 0;
+      if (bodySize > MAX_CHUNK_BYTES) {
+        setResponseStatus(event, 413);
+        return { error: "Chunk too large" };
+      }
+      if (!isFinal && bodySize === 0) {
+        setResponseStatus(event, 400);
+        return { error: "Empty chunk body" };
+      }
 
-  if (total > 0) {
-    const progress = Math.min(100, Math.round(((index + 1) / total) * 100));
-    await writeAppState(`call-upload-${callId}`, {
-      callId,
-      status: isFinal ? "processing" : "uploading",
-      progress,
-      chunksReceived: index + 1,
-      totalChunks: total,
-      mimeType,
-      updatedAt: new Date().toISOString(),
-    });
+      const bytes: Uint8Array = raw ?? new Uint8Array(0);
 
-    await db
-      .update(schema.calls)
-      .set({
-        progressPct: progress,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.calls.id, callId));
-  }
+      if (bytes.byteLength > 0) {
+        const paddedIndex = String(index).padStart(6, "0");
+        const chunkKey = `call-chunks-${callId}-${paddedIndex}`;
 
-  if (isFinal) {
-    try {
-      const result = await finalizeCall.run({
-        id: callId,
-        durationMs: query.durationMs ? Number(query.durationMs) : undefined,
-        width: query.width ? Number(query.width) : undefined,
-        height: query.height ? Number(query.height) : undefined,
-        mimeType,
-      });
-      return { ok: true, finalized: true, ...result };
-    } catch (err) {
-      console.error("[calls] finalize-call failed:", err);
-      await db
-        .update(schema.calls)
-        .set({
-          status: "failed",
-          failureReason: err instanceof Error ? err.message : "Finalize failed",
+        await writeAppState(chunkKey, {
+          callId,
+          index,
+          bytes: bytes.byteLength,
+          mimeType,
+          data: toBase64(bytes),
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      if (total > 0) {
+        const progress = Math.min(100, Math.round(((index + 1) / total) * 100));
+        await writeAppState(`call-upload-${callId}`, {
+          callId,
+          status: isFinal ? "processing" : "uploading",
+          progress,
+          chunksReceived: index + 1,
+          totalChunks: total,
+          mimeType,
           updatedAt: new Date().toISOString(),
-        })
-        .where(eq(schema.calls.id, callId));
-      await writeAppState(`call-upload-${callId}`, {
-        callId,
-        status: "failed",
-        failureReason: err instanceof Error ? err.message : "Finalize failed",
-        updatedAt: new Date().toISOString(),
-      });
-      setResponseStatus(event, 500);
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : "Finalize failed",
-      };
-    }
-  }
+        });
 
-  return {
-    ok: true,
-    finalized: false,
-    index,
-    bytes: bytes.byteLength,
-  };
+        await db
+          .update(schema.calls)
+          .set({
+            progressPct: progress,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.calls.id, callId));
+      }
+
+      if (isFinal) {
+        try {
+          const result = await finalizeCall.run({
+            id: callId,
+            durationMs: query.durationMs ? Number(query.durationMs) : undefined,
+            width: query.width ? Number(query.width) : undefined,
+            height: query.height ? Number(query.height) : undefined,
+            mimeType,
+          });
+          return { ok: true, finalized: true, ...result };
+        } catch (err) {
+          console.error("[calls] finalize-call failed:", err);
+          await db
+            .update(schema.calls)
+            .set({
+              status: "failed",
+              failureReason:
+                err instanceof Error ? err.message : "Finalize failed",
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(schema.calls.id, callId));
+          await writeAppState(`call-upload-${callId}`, {
+            callId,
+            status: "failed",
+            failureReason:
+              err instanceof Error ? err.message : "Finalize failed",
+            updatedAt: new Date().toISOString(),
+          });
+          setResponseStatus(event, 500);
+          return {
+            ok: false,
+            error: err instanceof Error ? err.message : "Finalize failed",
+          };
+        }
+      }
+
+      return {
+        ok: true,
+        finalized: false,
+        index,
+        bytes: bytes.byteLength,
+      };
+    },
+  );
 });

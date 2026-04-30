@@ -465,7 +465,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                 setLocalState((prev) => ({ ...prev, type: "default" }));
                 setOrUpdateKeyframe("type", "default");
               }}
-              className={`h-12 rounded-lg border-2 transition-all flex items-center justify-center ${
+              className={`h-12 rounded-lg border-2 flex items-center justify-center ${
                 localState.type === "default"
                   ? "border-purple-500 bg-purple-500/10"
                   : "border-border bg-secondary/50 hover:bg-secondary"
@@ -485,7 +485,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                 setLocalState((prev) => ({ ...prev, type: "pointer" }));
                 setOrUpdateKeyframe("type", "pointer");
               }}
-              className={`h-12 rounded-lg border-2 transition-all flex items-center justify-center ${
+              className={`h-12 rounded-lg border-2 flex items-center justify-center ${
                 localState.type === "pointer"
                   ? "border-purple-500 bg-purple-500/10"
                   : "border-border bg-secondary/50 hover:bg-secondary"
@@ -505,7 +505,7 @@ export const CursorControls: React.FC<CursorControlsProps> = ({
                 setLocalState((prev) => ({ ...prev, type: "text" }));
                 setOrUpdateKeyframe("type", "text");
               }}
-              className={`h-12 rounded-lg border-2 transition-all flex items-center justify-center ${
+              className={`h-12 rounded-lg border-2 flex items-center justify-center ${
                 localState.type === "text"
                   ? "border-purple-500 bg-purple-500/10"
                   : "border-border bg-secondary/50 hover:bg-secondary"

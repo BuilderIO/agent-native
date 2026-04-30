@@ -45,6 +45,22 @@ function formatDuration(start: string, end: string): string {
   return `${hours}h ${minutes}m`;
 }
 
+/**
+ * Returns the URL only when it parses cleanly and uses http: or https:.
+ * Defends against `javascript:` / `data:` / `vbscript:` URLs in
+ * Google-Calendar-supplied attachment metadata reaching `<a href>` /
+ * `<img src>` (audit 03 medium).
+ */
+function safeUrl(u: string | undefined): string {
+  if (!u) return "#";
+  try {
+    const p = new URL(u);
+    return p.protocol === "http:" || p.protocol === "https:" ? u : "#";
+  } catch {
+    return "#";
+  }
+}
+
 function getEventColor(event: CalendarEvent): string {
   return getEventAutoColor(event);
 }
@@ -275,14 +291,14 @@ export function EventDetailPanel({
                     {event.attachments.map((att, i) => (
                       <a
                         key={i}
-                        href={att.fileUrl}
+                        href={safeUrl(att.fileUrl)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
                       >
                         {att.iconLink ? (
                           <img
-                            src={att.iconLink}
+                            src={safeUrl(att.iconLink)}
                             alt=""
                             className="h-4 w-4 shrink-0"
                           />

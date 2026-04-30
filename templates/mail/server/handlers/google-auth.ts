@@ -10,6 +10,7 @@ import {
   getSession,
   isElectron,
   getOrigin,
+  getAppUrl,
   encodeOAuthState,
   decodeOAuthState,
   resolveOAuthOwner,
@@ -17,6 +18,7 @@ import {
   oauthCallbackResponse,
   oauthErrorPage,
   setDesktopExchange,
+  DEV_MODE_USER_EMAIL,
 } from "@agent-native/core/server";
 import {
   getAuthUrl,
@@ -43,23 +45,25 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const q = getQuery(event);
     const redirectUri =
       (q.redirect_uri as string) ||
-      `${getOrigin(event)}/_agent-native/google/callback`;
+      getAppUrl(event, "/_agent-native/google/callback");
     const session = await getSession(event);
     const owner =
-      session?.email && session.email !== "local@localhost"
+      session?.email && session.email !== DEV_MODE_USER_EMAIL
         ? session.email
         : undefined;
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
-    const state = encodeOAuthState(
+    // Use the named-arg overload — the positional form smuggled `flowId`
+    // into the `returnUrl` slot in earlier revisions, which broke desktop
+    // OAuth completion. See encodeOAuthState's docs.
+    const state = encodeOAuthState({
       redirectUri,
       owner,
       desktop,
-      false,
-      undefined,
+      addAccount: false,
       flowId,
-    );
+    });
     const url = getAuthUrl(undefined, redirectUri, state);
     if (q.redirect === "1") {
       return sendRedirect(event, url, 302);
@@ -104,7 +108,7 @@ export const handleGoogleCallback = defineEventHandler(
         flowId,
       } = decodeOAuthState(
         query.state as string | undefined,
-        `${getOrigin(event)}/_agent-native/google/callback`,
+        getAppUrl(event, "/_agent-native/google/callback"),
       );
 
       // 1. Resolve owner (needs session context, before exchangeCode)
@@ -205,18 +209,17 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const q = getQuery(event);
       const redirectUri =
         (q.redirect_uri as string) ||
-        `${getOrigin(event)}/_agent-native/google/callback`;
+        getAppUrl(event, "/_agent-native/google/callback");
       const desktop =
         isElectron(event) || q.desktop === "1" || q.desktop === "true";
       const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
-      const state = encodeOAuthState(
+      const state = encodeOAuthState({
         redirectUri,
-        session.email,
+        owner: session.email,
         desktop,
-        true,
-        undefined,
+        addAccount: true,
         flowId,
-      );
+      });
       const url = getAuthUrl(undefined, redirectUri, state);
       if (q.redirect === "1") {
         return sendRedirect(event, url, 302);
@@ -255,7 +258,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         desktop,
       } = decodeOAuthState(
         query.state as string | undefined,
-        `${getOrigin(event)}/_agent-native/google/add-account/callback`,
+        getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
 
       const ownerEmail = session?.email || stateOwner;

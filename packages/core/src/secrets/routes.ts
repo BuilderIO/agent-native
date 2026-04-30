@@ -13,9 +13,38 @@ import {
   type H3Event,
 } from "h3";
 import { readBody } from "../server/h3-helpers.js";
-import { getSession } from "../server/auth.js";
+import { DEV_MODE_USER_EMAIL, getSession } from "../server/auth.js";
 import { getOrgContext } from "../org/context.js";
-import { hasOAuthTokens } from "../oauth-tokens/store.js";
+
+/**
+ * Workspace-scoped secret writes/deletes are deployment-wide for every
+ * org member who shares the resolved scopeId — a curious or malicious
+ * member could otherwise overwrite `OPENAI_API_KEY` (or any unregistered
+ * key) with their own value, redirecting every other member's automations
+ * through their key for skimming, billing abuse, or DoS by deletion.
+ *
+ * Allow workspace-scope writes only for org owners/admins. The "solo"
+ * fallback scopeId (`solo:<email>`) is single-user, so it bypasses the
+ * check. A normal session with no active org also passes — there's no
+ * privilege gradient to enforce in that case.
+ *
+ * Returns true if the request is allowed to write/delete this scope.
+ */
+async function canMutateWorkspaceScope(
+  event: H3Event,
+  scopeId: string,
+): Promise<boolean> {
+  // Solo / dev fallback scope — single user, no privilege gradient.
+  if (scopeId.startsWith("solo:")) return true;
+  const ctx = await getOrgContext(event).catch(() => null);
+  // No active org — single-tenant flow, allow.
+  if (!ctx?.orgId) return true;
+  return ctx.role === "owner" || ctx.role === "admin";
+}
+import {
+  hasOAuthTokens,
+  listOAuthAccountsByOwner,
+} from "../oauth-tokens/store.js";
 import {
   listRequiredSecrets,
   getRequiredSecret,
@@ -53,15 +82,35 @@ export interface SecretStatusPayload {
   error?: string;
 }
 
+function redactSecretFromMessage(message: string, secretValue: string): string {
+  if (!message || !secretValue) return message;
+  return message.split(secretValue).join("[redacted]");
+}
+
+async function hasOAuthSecretForEvent(
+  event: H3Event,
+  secret: RegisteredSecret,
+): Promise<boolean> {
+  if (!secret.oauthProvider) return false;
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) return false;
+  // hasOAuthTokens now requires an explicit owner — passing the dev sentinel
+  // preserves the "any row exists" wildcard behaviour for local-dev only.
+  if (session.email === DEV_MODE_USER_EMAIL) {
+    return hasOAuthTokens(secret.oauthProvider, DEV_MODE_USER_EMAIL);
+  }
+  const accounts = await listOAuthAccountsByOwner(
+    secret.oauthProvider,
+    session.email,
+  );
+  return accounts.length > 0;
+}
+
 /** Resolve the scopeId for a given scope, given the current session. */
 async function resolveScopeId(
   event: H3Event,
   scope: SecretScope,
-  override?: string,
 ): Promise<{ scopeId: string | null; reason?: string }> {
-  if (override && typeof override === "string" && override.trim()) {
-    return { scopeId: override.trim() };
-  }
   if (scope === "user") {
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {
@@ -107,7 +156,7 @@ export function createListSecretsHandler() {
         base.oauthConnectUrl = secret.oauthConnectUrl;
         if (secret.oauthProvider) {
           try {
-            const has = await hasOAuthTokens(secret.oauthProvider);
+            const has = await hasOAuthSecretForEvent(event, secret);
             base.status = has ? "set" : "unset";
           } catch {
             base.status = "unset";
@@ -177,8 +226,6 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
   }
   const body = (await readBody(event).catch(() => ({}))) as {
     value?: unknown;
-    scope?: unknown;
-    scopeId?: unknown;
   };
 
   const value = typeof body.value === "string" ? body.value.trim() : "";
@@ -187,20 +234,21 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
     return { error: "value is required" };
   }
 
-  const scope =
-    typeof body.scope === "string" &&
-    (body.scope === "user" || body.scope === "workspace")
-      ? (body.scope as SecretScope)
-      : secret.scope;
-
-  const { scopeId, reason } = await resolveScopeId(
-    event,
-    scope,
-    typeof body.scopeId === "string" ? body.scopeId : undefined,
-  );
+  const { scopeId, reason } = await resolveScopeId(event, secret.scope);
   if (!scopeId) {
     setResponseStatus(event, 401);
     return { error: reason ?? "Unable to resolve scope" };
+  }
+
+  if (
+    secret.scope === "workspace" &&
+    !(await canMutateWorkspaceScope(event, scopeId))
+  ) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Only organization owners and admins can set workspace-scoped secrets",
+    };
   }
 
   // Run validator if registered — return the validator's error on failure.
@@ -214,29 +262,36 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
           typeof result === "object" && result && result.error
             ? String(result.error)
             : "Validator rejected the value";
-        return { error: err };
+        return { error: redactSecretFromMessage(err, value) };
       }
     } catch (err) {
       setResponseStatus(event, 400);
+      const message =
+        err instanceof Error
+          ? `Validator threw: ${err.message}`
+          : "Validator threw";
       return {
-        error:
-          err instanceof Error
-            ? `Validator threw: ${err.message}`
-            : "Validator threw",
+        error: redactSecretFromMessage(message, value),
       };
     }
   }
 
   try {
-    await writeAppSecret({ key: secret.key, value, scope, scopeId });
+    await writeAppSecret({
+      key: secret.key,
+      value,
+      scope: secret.scope,
+      scopeId,
+    });
   } catch (err) {
     // Scrub: never surface the value in any error path.
     setResponseStatus(event, 500);
+    const message =
+      err instanceof Error
+        ? `Failed to save secret: ${err.message}`
+        : "Failed to save secret";
     return {
-      error:
-        err instanceof Error
-          ? `Failed to save secret: ${err.message}`
-          : "Failed to save secret",
+      error: redactSecretFromMessage(message, value),
     };
   }
 
@@ -254,6 +309,16 @@ async function handleDelete(event: H3Event, secret: RegisteredSecret) {
   if (!scopeId) {
     setResponseStatus(event, 401);
     return { error: reason ?? "Unable to resolve scope" };
+  }
+  if (
+    secret.scope === "workspace" &&
+    !(await canMutateWorkspaceScope(event, scopeId))
+  ) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Only organization owners and admins can delete workspace-scoped secrets",
+    };
   }
   const removed = await deleteAppSecret({
     key: secret.key,
@@ -285,9 +350,9 @@ export function createTestSecretHandler() {
     }
     if (secret.kind === "oauth") {
       // For OAuth we just report whether tokens exist.
-      const has = secret.oauthProvider
-        ? await hasOAuthTokens(secret.oauthProvider).catch(() => false)
-        : false;
+      const has = await hasOAuthSecretForEvent(event, secret).catch(
+        () => false,
+      );
       return { ok: has };
     }
     if (!secret.validator) {
@@ -315,16 +380,20 @@ export function createTestSecretHandler() {
           typeof result === "object" && result && result.error
             ? String(result.error)
             : "Validator rejected the value";
-        return { ok: false, error: err };
+        return {
+          ok: false,
+          error: redactSecretFromMessage(err, stored.value),
+        };
       }
       return { ok: true };
     } catch (err) {
+      const message =
+        err instanceof Error
+          ? `Validator threw: ${err.message}`
+          : "Validator threw";
       return {
         ok: false,
-        error:
-          err instanceof Error
-            ? `Validator threw: ${err.message}`
-            : "Validator threw",
+        error: redactSecretFromMessage(message, stored.value),
       };
     }
   });
@@ -453,23 +522,29 @@ async function handleAdHocWrite(event: H3Event) {
 
   let urlAllowlistJson: string | undefined;
   if (body.urlAllowlist !== undefined && body.urlAllowlist !== null) {
-    if (
-      !Array.isArray(body.urlAllowlist) ||
-      !body.urlAllowlist.every((v) => typeof v === "string")
-    ) {
+    const normalized = normalizeUrlAllowlist(body.urlAllowlist);
+    if (normalized.ok === false) {
       setResponseStatus(event, 400);
-      return { error: "urlAllowlist must be an array of strings" };
+      return { error: normalized.error };
     }
-    const cleaned = (body.urlAllowlist as string[])
-      .map((v) => v.trim())
-      .filter(Boolean);
-    urlAllowlistJson = JSON.stringify(cleaned);
+    urlAllowlistJson = JSON.stringify(normalized.origins);
   }
 
   const { scopeId, reason } = await resolveScopeId(event, scope);
   if (!scopeId) {
     setResponseStatus(event, 401);
     return { error: reason ?? "Unable to resolve scope" };
+  }
+
+  if (
+    scope === "workspace" &&
+    !(await canMutateWorkspaceScope(event, scopeId))
+  ) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Only organization owners and admins can set workspace-scoped secrets",
+    };
   }
 
   try {
@@ -483,11 +558,12 @@ async function handleAdHocWrite(event: H3Event) {
     });
   } catch (err) {
     setResponseStatus(event, 500);
+    const message =
+      err instanceof Error
+        ? `Failed to save secret: ${err.message}`
+        : "Failed to save secret";
     return {
-      error:
-        err instanceof Error
-          ? `Failed to save secret: ${err.message}`
-          : "Failed to save secret",
+      error: redactSecretFromMessage(message, value),
     };
   }
 
@@ -510,8 +586,16 @@ async function handleAdHocDelete(event: H3Event, name: string) {
   const removed = await deleteAppSecret({ key: name, scope, scopeId });
   if (!removed) {
     // Fall back to workspace scope so the agent / UI can clean up shared keys.
+    // Gate the fallback behind the org-admin check so a regular member can't
+    // DoS every other member's automations by deleting shared workspace keys.
     const workspaceContext = await resolveScopeId(event, "workspace");
     if (workspaceContext.scopeId) {
+      if (!(await canMutateWorkspaceScope(event, workspaceContext.scopeId))) {
+        // No-op silently for non-admins — the user-scope row didn't exist
+        // and they don't have permission to touch the workspace row, so
+        // there's nothing to remove from their point of view.
+        return { ok: true, removed: false };
+      }
       const removedWorkspace = await deleteAppSecret({
         key: name,
         scope: "workspace",
@@ -534,6 +618,37 @@ function extractAdHocName(event: H3Event): string | null {
   const candidate = parts[0];
   if (!candidate) return null;
   return AD_HOC_NAME_REGEX.test(candidate) ? candidate : null;
+}
+
+function normalizeUrlAllowlist(
+  input: unknown,
+): { ok: true; origins: string[] } | { ok: false; error: string } {
+  if (!Array.isArray(input) || !input.every((v) => typeof v === "string")) {
+    return { ok: false, error: "urlAllowlist must be an array of strings" };
+  }
+
+  const origins: string[] = [];
+  for (const raw of input) {
+    const value = raw.trim();
+    if (!value) continue;
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      return {
+        ok: false,
+        error: `urlAllowlist entry "${value}" is not a valid URL`,
+      };
+    }
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return {
+        ok: false,
+        error: `urlAllowlist entry "${value}" must use http or https`,
+      };
+    }
+    if (!origins.includes(url.origin)) origins.push(url.origin);
+  }
+  return { ok: true, origins };
 }
 
 /** Extract the key from `/:key` or `/:key/test` after the `/secrets` prefix strip. */

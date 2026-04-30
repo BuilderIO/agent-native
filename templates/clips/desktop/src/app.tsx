@@ -12,10 +12,12 @@ import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
 import {
   installDesktopVoiceDictation,
   type VoiceMode,
+  type VoiceProvider,
   type VoiceShortcutPreference,
 } from "./lib/voice-dictation";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { useFeatureConfig } from "./shared/config";
+import { IconArrowLeft, IconInfoCircle } from "@tabler/icons-react";
 
 interface RecordingSummary {
   id: string;
@@ -33,6 +35,7 @@ const MODE_KEY = "clips:last-mode";
 const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
 const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
 const VOICE_MODE_KEY = "clips:voice-mode";
+const VOICE_PROVIDER_KEY = "clips:voice-provider";
 const SOURCE_KEY = "clips:last-source";
 const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";
@@ -133,6 +136,28 @@ export function App() {
     const saved = loadString(VOICE_MODE_KEY, "push-to-talk");
     return saved === "toggle" ? "toggle" : "push-to-talk";
   });
+  const [voiceProvider, setVoiceProvider] = useState<VoiceProvider>(() => {
+    // Default to "browser" — local on-device dictation via the macOS
+    // Speech framework. No server round-trip, no "Polishing..." step,
+    // no API keys. Users wanting cloud-quality can pick a server
+    // provider in Settings → Voice transcription.
+    const saved = loadString(VOICE_PROVIDER_KEY, "browser");
+    const isMac =
+      typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+    // `macos-native` calls into native_speech_start which only works on
+    // macOS; on Windows/Linux a saved selection would be permanently
+    // broken. Coerce back to "browser" if we're not on a Mac.
+    if (saved === "macos-native" && !isMac) return "browser";
+    return saved === "auto" ||
+      saved === "browser" ||
+      saved === "macos-native" ||
+      saved === "builder" ||
+      saved === "gemini" ||
+      saved === "openai" ||
+      saved === "groq"
+      ? saved
+      : "browser";
+  });
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [showRecent, setShowRecent] = useState(false);
@@ -167,8 +192,15 @@ export function App() {
       serverUrl,
       shortcut: voiceShortcut,
       mode: voiceMode,
+      provider: voiceProvider,
     });
-  }, [featureConfig?.voiceEnabled, serverUrl, voiceShortcut, voiceMode]);
+  }, [
+    featureConfig?.voiceEnabled,
+    serverUrl,
+    voiceShortcut,
+    voiceMode,
+    voiceProvider,
+  ]);
 
   // ---- auth status --------------------------------------------------------
   // The Tauri WebView has its own cookie jar (separate from the user's
@@ -707,6 +739,10 @@ export function App() {
     [voiceShortcut],
   );
   useEffect(() => saveString(VOICE_MODE_KEY, voiceMode), [voiceMode]);
+  useEffect(
+    () => saveString(VOICE_PROVIDER_KEY, voiceProvider),
+    [voiceProvider],
+  );
   useEffect(() => saveString(SOURCE_KEY, source), [source]);
   useEffect(() => saveString(CAM_KEY, cameraId), [cameraId]);
   useEffect(() => saveString(MIC_KEY, micId), [micId]);
@@ -1045,10 +1081,13 @@ export function App() {
         {showSettings ? (
           <Setup
             initial={serverUrl}
+            serverUrl={serverUrl}
             voiceShortcut={voiceShortcut}
             voiceMode={voiceMode}
+            voiceProvider={voiceProvider}
             onVoiceShortcutChange={updateVoiceShortcut}
             onVoiceModeChange={setVoiceMode}
+            onVoiceProviderChange={setVoiceProvider}
             onConnect={(url) => {
               saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
               setServerUrl(url.replace(/\/+$/, ""));
@@ -1152,11 +1191,14 @@ export function App() {
       {showSettings ? (
         <Setup
           initial={serverUrl}
+          serverUrl={serverUrl}
           signedInAs={signedInAs}
           voiceShortcut={voiceShortcut}
           voiceMode={voiceMode}
+          voiceProvider={voiceProvider}
           onVoiceShortcutChange={updateVoiceShortcut}
           onVoiceModeChange={setVoiceMode}
+          onVoiceProviderChange={setVoiceProvider}
           onSignOut={signOut}
           onConnect={(url) => {
             saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
@@ -1516,6 +1558,31 @@ function Toggle({
   );
 }
 
+// Slim track-with-thumb switch (shadcn-style). type="button" is required so
+// it doesn't submit any enclosing form.
+function Switch({
+  on,
+  onChange,
+  label,
+}: {
+  on: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`switch ${on ? "switch-on" : "switch-off"}`}
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+    >
+      <span className="switch-thumb" aria-hidden />
+    </button>
+  );
+}
+
 function MicWave() {
   // Purely decorative — animates four bars to suggest input level. For real
   // input level we'd need a live stream, which Loom starts only on "Start".
@@ -1845,32 +1912,112 @@ function ClockIcon() {
 
 // ---------------------------------------------------------------------------
 
+type VoiceProviderStatus = {
+  browser: true;
+  // Apple's SFSpeechRecognizer + AVAudioEngine driven from Rust. The
+  // server reports `true` whenever it's available; the desktop client
+  // additionally has it gated to macOS at the Tauri-command layer.
+  "macos-native": boolean;
+  builder: boolean;
+  gemini: boolean;
+  openai: boolean;
+  groq: boolean;
+};
+
 function Setup({
   initial,
+  serverUrl,
   signedInAs,
   voiceShortcut,
   voiceMode,
+  voiceProvider,
   onVoiceShortcutChange,
   onVoiceModeChange,
+  onVoiceProviderChange,
   onConnect,
   onCancel,
   onSignOut,
 }: {
   initial?: string | null;
+  serverUrl?: string;
   signedInAs?: string | null;
   voiceShortcut: VoiceShortcutPreference;
   voiceMode: VoiceMode;
+  voiceProvider: VoiceProvider;
   onVoiceShortcutChange: (value: VoiceShortcutPreference) => void;
   onVoiceModeChange: (value: VoiceMode) => void;
+  onVoiceProviderChange: (value: VoiceProvider) => void;
   onConnect: (url: string) => void;
   onCancel?: () => void;
   onSignOut?: () => void;
 }) {
   const [url, setUrl] = useState(initial ?? DEFAULT_URL);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const featureConfig = useFeatureConfig();
+  const voiceEnabled = featureConfig?.voiceEnabled !== false;
+  const [providerStatus, setProviderStatus] =
+    useState<VoiceProviderStatus | null>(null);
+  const [providerStatusLoading, setProviderStatusLoading] = useState(true);
+
+  function setVoiceEnabled(enabled: boolean) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, voiceEnabled: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
+    let cancelled = false;
+    setProviderStatusLoading(true);
+    (async () => {
+      try {
+        const res = await fetch(
+          `${base}/_agent-native/voice-providers/status`,
+          { credentials: "include" },
+        );
+        if (!res.ok) {
+          if (!cancelled) {
+            setProviderStatus(null);
+            setProviderStatusLoading(false);
+          }
+          return;
+        }
+        // Server emits `native` (no namespace); the client uses
+        // `"macos-native"` as the provider key throughout — remap on the
+        // way in.
+        const json = (await res.json().catch(() => null)) as
+          | (Partial<Omit<VoiceProviderStatus, "browser" | "macos-native">> & {
+              native?: boolean;
+            })
+          | null;
+        if (cancelled) return;
+        setProviderStatus({
+          browser: true,
+          "macos-native": Boolean(json?.native),
+          builder: Boolean(json?.builder),
+          gemini: Boolean(json?.gemini),
+          openai: Boolean(json?.openai),
+          groq: Boolean(json?.groq),
+        });
+        setProviderStatusLoading(false);
+      } catch {
+        if (!cancelled) {
+          setProviderStatus(null);
+          setProviderStatusLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [serverUrl, initial]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1879,54 +2026,177 @@ function Setup({
     onConnect(trimmed);
   }
 
+  const providerHint: Record<VoiceProvider, string> = {
+    auto: "Picks the best available provider for your setup.",
+    browser: "Free Web Speech dictation. Cross-platform; quality varies.",
+    "macos-native":
+      "Apple's on-device dictation via SFSpeechRecognizer. Fastest and most reliable on macOS.",
+    builder: "Builder.io's transcription. Needs BUILDER_PRIVATE_KEY.",
+    gemini: "Google Gemini Flash Lite. Needs GEMINI_API_KEY.",
+    openai: "OpenAI Whisper. Needs OPENAI_API_KEY.",
+    groq: "Groq Whisper — fastest cloud option. Needs GROQ_API_KEY.",
+  };
+  const shortcutHint: Record<VoiceShortcutPreference, string> = {
+    fn: "Press the Fn / globe key to dictate.",
+    "cmd-shift-space": "Press Cmd+Shift+Space to dictate.",
+    "ctrl-shift-space": "Press Ctrl+Shift+Space to dictate.",
+    both: "Any of Fn, Cmd+Shift+Space, or Ctrl+Shift+Space.",
+  };
+  const modeHint: Record<VoiceMode, string> = {
+    "push-to-talk": "Hold the shortcut while speaking. Release to stop.",
+    toggle: "Press once to start, again to stop.",
+  };
+
+  // Only warn when the selected provider has no key on the server. Avoids
+  // showing four "missing key" rows at all times.
+  const providerWarning: string | null = (() => {
+    if (providerStatusLoading || !providerStatus) return null;
+    if (
+      voiceProvider === "browser" ||
+      voiceProvider === "macos-native" ||
+      voiceProvider === "auto"
+    ) {
+      return null;
+    }
+    if (providerStatus[voiceProvider]) return null;
+    const envKey = {
+      builder: "BUILDER_PRIVATE_KEY",
+      gemini: "GEMINI_API_KEY",
+      openai: "OPENAI_API_KEY",
+      groq: "GROQ_API_KEY",
+    }[voiceProvider];
+    return `${envKey} not set on the server — falling back to browser.`;
+  })();
+
   return (
     <form className="setup" onSubmit={handleSubmit}>
-      <h2>Settings</h2>
-      <p>Clips server URL</p>
-      <input
-        ref={inputRef}
-        type="url"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="http://localhost:8080"
-      />
-      <button className="primary" type="submit">
-        Connect
-      </button>
-      <div className="setup-section">
-        <label className="setup-label" htmlFor="voice-shortcut">
-          Voice shortcut
-        </label>
-        <select
-          id="voice-shortcut"
-          className="setup-select"
-          value={voiceShortcut}
-          onChange={(event) =>
-            onVoiceShortcutChange(event.target.value as VoiceShortcutPreference)
-          }
-        >
-          <option value="fn">Fn (hold to dictate)</option>
-          <option value="cmd-shift-space">Cmd+Shift+Space</option>
-          <option value="ctrl-shift-space">Ctrl+Shift+Space</option>
-          <option value="both">All shortcuts</option>
-        </select>
+      <div className="setup-header">
+        {onCancel ? (
+          <button
+            type="button"
+            className="setup-back"
+            onClick={onCancel}
+            aria-label="Back"
+          >
+            <IconArrowLeft size={18} stroke={1.75} />
+          </button>
+        ) : null}
+        <h2>Settings</h2>
       </div>
+
       <div className="setup-section">
-        <label className="setup-label" htmlFor="voice-mode">
-          Voice mode
-        </label>
-        <select
-          id="voice-mode"
-          className="setup-select"
-          value={voiceMode}
-          onChange={(event) =>
-            onVoiceModeChange(event.target.value as VoiceMode)
-          }
-        >
-          <option value="push-to-talk">Hold to dictate</option>
-          <option value="toggle">Press to start, press to stop</option>
-        </select>
+        <SettingLabel
+          label="Clips server URL"
+          hint="The URL of the Clips backend this tray app connects to."
+          htmlFor="clips-url"
+        />
+        <input
+          id="clips-url"
+          ref={inputRef}
+          type="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="http://localhost:8080"
+        />
+        <button className="primary" type="submit">
+          Connect
+        </button>
       </div>
+
+      <div className="setup-section">
+        <div className="setup-toggle-row">
+          <SettingLabel
+            label="Voice dictation"
+            hint="Speak to type anywhere on your Mac. Turn off to disable globally and remove the keyboard shortcuts."
+          />
+          <Switch
+            on={voiceEnabled}
+            onChange={setVoiceEnabled}
+            label="Enable voice dictation"
+          />
+        </div>
+      </div>
+
+      {voiceEnabled ? (
+        <>
+          <div className="setup-section">
+            <SettingLabel
+              label="Provider"
+              hint="Where audio is sent for transcription. Browser is free; cloud providers need an API key set on the server."
+              htmlFor="voice-provider"
+            />
+            <select
+              id="voice-provider"
+              className="setup-select"
+              value={voiceProvider}
+              onChange={(event) =>
+                onVoiceProviderChange(event.target.value as VoiceProvider)
+              }
+            >
+              <option value="auto">Auto (recommended)</option>
+              <option value="browser">Browser (free, built-in)</option>
+              {typeof navigator !== "undefined" &&
+              /Mac/i.test(navigator.platform) ? (
+                <option value="macos-native">
+                  macOS native (on-device, fastest)
+                </option>
+              ) : null}
+              <option value="builder">Builder.io</option>
+              <option value="gemini">Google Gemini Flash Lite</option>
+              <option value="openai">OpenAI Whisper</option>
+              <option value="groq">Groq Whisper</option>
+            </select>
+            <p className="setup-hint">{providerHint[voiceProvider]}</p>
+            {providerWarning ? (
+              <p className="setup-warning">{providerWarning}</p>
+            ) : null}
+          </div>
+
+          <div className="setup-section">
+            <SettingLabel
+              label="Shortcut"
+              hint="The key combination that triggers voice dictation."
+              htmlFor="voice-shortcut"
+            />
+            <select
+              id="voice-shortcut"
+              className="setup-select"
+              value={voiceShortcut}
+              onChange={(event) =>
+                onVoiceShortcutChange(
+                  event.target.value as VoiceShortcutPreference,
+                )
+              }
+            >
+              <option value="fn">Fn (globe) key</option>
+              <option value="cmd-shift-space">Cmd+Shift+Space</option>
+              <option value="ctrl-shift-space">Ctrl+Shift+Space</option>
+              <option value="both">All shortcuts</option>
+            </select>
+            <p className="setup-hint">{shortcutHint[voiceShortcut]}</p>
+          </div>
+
+          <div className="setup-section">
+            <SettingLabel
+              label="Mode"
+              hint="Whether you hold the shortcut while speaking or toggle it on and off."
+              htmlFor="voice-mode"
+            />
+            <select
+              id="voice-mode"
+              className="setup-select"
+              value={voiceMode}
+              onChange={(event) =>
+                onVoiceModeChange(event.target.value as VoiceMode)
+              }
+            >
+              <option value="push-to-talk">Hold to dictate</option>
+              <option value="toggle">Press to start, press to stop</option>
+            </select>
+            <p className="setup-hint">{modeHint[voiceMode]}</p>
+          </div>
+        </>
+      ) : null}
       {signedInAs && onSignOut ? (
         <div className="setup-account">
           <span className="setup-account-email">{signedInAs}</span>
@@ -1940,16 +2210,25 @@ function Setup({
           </button>
         </div>
       ) : null}
-      {onCancel ? (
-        <button
-          type="button"
-          className="link-button"
-          onClick={onCancel}
-          style={{ background: "transparent", border: "none" }}
-        >
-          Cancel
-        </button>
-      ) : null}
     </form>
+  );
+}
+
+function SettingLabel({
+  label,
+  hint,
+  htmlFor,
+}: {
+  label: string;
+  hint: string;
+  htmlFor?: string;
+}) {
+  return (
+    <label className="setup-label" htmlFor={htmlFor}>
+      <span>{label}</span>
+      <span className="setup-help" title={hint} aria-label={hint} role="img">
+        <IconInfoCircle size={14} stroke={1.75} />
+      </span>
+    </label>
   );
 }

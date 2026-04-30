@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { getHeader } from "h3";
+import { createError, getHeader, readRawBody } from "h3";
 import type {
   PlatformAdapter,
   IncomingMessage,
@@ -9,7 +9,6 @@ import type {
 } from "../types.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { getIntegrationConfig } from "../config-store.js";
-import { readBody } from "../../server/h3-helpers.js";
 
 /** Slack's max message length */
 const SLACK_MAX_LENGTH = 4000;
@@ -20,6 +19,19 @@ const SLACK_MAX_LENGTH = 4000;
  * Required env vars:
  * - SLACK_BOT_TOKEN — Bot user OAuth token (xoxb-...)
  * - SLACK_SIGNING_SECRET — Used to verify webhook signatures
+ *
+ * Optional env vars:
+ * - SLACK_ALLOWED_TEAM_IDS — Comma-separated list of Slack workspace
+ *   `team_id` values (e.g. "T012ABCDEF,T034GHIJKL") that this deployment
+ *   accepts events from. Strongly recommended in multi-tenant deployments
+ *   to prevent cross-workspace event injection (H1 in the webhook audit):
+ *   the global `SLACK_SIGNING_SECRET` is the same key for every workspace
+ *   the app is installed to, so without an allowlist any installed
+ *   workspace can drive the agent. When unset the adapter accepts events
+ *   from any workspace — fine for single-tenant dev, unsafe for prod.
+ * - SLACK_ALLOWED_API_APP_IDS — Comma-separated list of Slack app IDs
+ *   (`api_app_id`) to additionally pin events to. Useful when the same
+ *   signing secret rotation surfaces multiple app installs.
  */
 export function slackAdapter(): PlatformAdapter {
   return {
@@ -48,16 +60,17 @@ export function slackAdapter(): PlatformAdapter {
     async handleVerification(
       event: H3Event,
     ): Promise<{ handled: boolean; response?: unknown }> {
-      // Slack sends url_verification when first setting up the webhook
-      const body = await readRawBody(event);
+      // Slack sends url_verification when first setting up the webhook.
+      // readRawBodyCached caches the raw bytes on event.context.__rawBody so
+      // subsequent verifyWebhook + parseIncomingMessage calls re-use them
+      // without re-stringifying a parsed body (M2 in the audit).
+      const body = await readRawBodyCached(event);
       try {
         const parsed = JSON.parse(body);
         if (parsed.type === "url_verification") {
           return { handled: true, response: { challenge: parsed.challenge } };
         }
       } catch {}
-      // Store raw body for later use
-      event.context.__rawBody = body;
       return { handled: false };
     },
 
@@ -73,9 +86,7 @@ export function slackAdapter(): PlatformAdapter {
       const ts = parseInt(timestamp, 10);
       if (Math.abs(Date.now() / 1000 - ts) > 300) return false;
 
-      const body =
-        (event.context.__rawBody as string | undefined) ??
-        (await readRawBody(event));
+      const body = await readRawBodyCached(event);
       const crypto = await import("node:crypto");
       const basestring = `v0:${timestamp}:${body}`;
       const expectedSignature =
@@ -99,15 +110,23 @@ export function slackAdapter(): PlatformAdapter {
     async parseIncomingMessage(
       event: H3Event,
     ): Promise<IncomingMessage | null> {
-      const raw =
-        (event.context.__rawBody as string | undefined) ??
-        (await readRawBody(event));
+      const raw = await readRawBodyCached(event);
       let payload: any;
       try {
         payload = JSON.parse(raw);
       } catch {
         return null;
       }
+
+      // H1 (webhook audit): cross-workspace event injection. The global
+      // SLACK_SIGNING_SECRET is the same key for every workspace this Slack
+      // app is installed to — without a per-tenant allowlist any installed
+      // workspace can drive the agent. We enforce SLACK_ALLOWED_TEAM_IDS
+      // here AFTER the signature has already been verified by the webhook
+      // handler, so this is purely a tenant-isolation gate (not a forgery
+      // defense). When unset in production we surface a one-time warning
+      // recommending it be configured.
+      enforceWorkspaceAllowlist(payload);
 
       // Handle Events API wrapper
       if (payload.type === "event_callback") {
@@ -155,6 +174,12 @@ export function slackAdapter(): PlatformAdapter {
     async postProcessingPlaceholder(
       incoming: IncomingMessage,
     ): Promise<{ placeholderRef: string } | null> {
+      // No placeholder reply in the thread — Slack's native assistant
+      // status bar ("agent-native is thinking…", below the composer) is the
+      // loading affordance. A second visible "Working on it…" reply was
+      // redundant and added an extra chunk that we then had to overwrite.
+      // We just set the native status and return null so sendResponse posts
+      // the final reply as a fresh message.
       const token = process.env.SLACK_BOT_TOKEN;
       if (!token) return null;
 
@@ -162,44 +187,11 @@ export function slackAdapter(): PlatformAdapter {
       const threadTs = incoming.platformContext.threadTs as string;
       if (!channelId || !threadTs) return null;
 
-      const blocks = buildThinkingBlocks();
-      try {
-        const res = await fetch("https://slack.com/api/chat.postMessage", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            channel: channelId,
-            thread_ts: threadTs,
-            text: "Working on it…",
-            blocks,
-            unfurl_links: false,
-            unfurl_media: false,
-            mrkdwn: true,
-          }),
-        });
-        const data = (await res.json()) as {
-          ok: boolean;
-          ts?: string;
-          error?: string;
-        };
-        if (!data.ok || !data.ts) {
-          console.error("[slack] postProcessingPlaceholder error:", data.error);
-          return null;
-        }
-
-        // Best-effort: also flip the native AI-assistant "is thinking…"
-        // status bar in the channel input area. Only works for apps
-        // configured with `assistant:write`, otherwise silently no-ops.
-        setSlackAssistantStatus(token, channelId, threadTs, "is thinking…");
-
-        return { placeholderRef: data.ts };
-      } catch (err) {
-        console.error("[slack] postProcessingPlaceholder failed:", err);
-        return null;
-      }
+      // Best-effort: flip the native AI-assistant "is thinking…" status bar
+      // in the channel input area. Requires `assistant:write` scope on the
+      // app — otherwise silently no-ops.
+      setSlackAssistantStatus(token, channelId, threadTs, "is thinking…");
+      return null;
     },
 
     async sendResponse(
@@ -360,11 +352,111 @@ export function slackAdapter(): PlatformAdapter {
   };
 }
 
-/** Read the raw body as a string (H3 may have already parsed it) */
-async function readRawBody(event: H3Event): Promise<string> {
-  if (event.context.__rawBody) return event.context.__rawBody as string;
-  const body = await readBody(event);
-  const raw = typeof body === "string" ? body : JSON.stringify(body);
+/**
+ * Parse a comma-separated env var into a Set of trimmed, non-empty values.
+ * Returns null when the env var is unset or empty (so callers can
+ * distinguish "no allowlist configured" from "empty allowlist").
+ */
+function parseAllowlistEnv(name: string): Set<string> | null {
+  const raw = process.env[name];
+  if (!raw) return null;
+  const values = raw
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+  if (values.length === 0) return null;
+  return new Set(values);
+}
+
+let _missingAllowlistWarned = false;
+
+/**
+ * Enforce that an incoming Slack event comes from an allowlisted workspace.
+ *
+ * H1 in the webhook audit: the framework uses a SINGLE global
+ * SLACK_SIGNING_SECRET for every workspace the Slack app is installed to,
+ * so a valid signature alone doesn't prove the request belongs to the
+ * tenant the deployment intends to serve. This helper layers a per-tenant
+ * allowlist on top of signature verification.
+ *
+ * Behavior:
+ * - If `SLACK_ALLOWED_TEAM_IDS` is set: reject any payload whose
+ *   `team_id` isn't in the list.
+ * - If `SLACK_ALLOWED_API_APP_IDS` is set: also reject payloads whose
+ *   `api_app_id` isn't in the list (bot apps can be installed under the
+ *   same Slack app id across multiple workspaces — pinning both keeps
+ *   the surface tight when team_id allows multiple workspaces).
+ * - If neither is set AND `NODE_ENV === "production"`: log a one-time
+ *   warning recommending the env var be configured. Continue (preserves
+ *   existing behavior to avoid breaking single-tenant prod deployments
+ *   that have always run without an allowlist).
+ * - If neither is set in dev / single-tenant: accept (current behavior).
+ *
+ * Throws an h3 401 error when an allowlisted-but-mismatched payload is
+ * received, which the integrations plugin surfaces to the caller as
+ * "Unrecognized Slack workspace" without enqueuing the event.
+ */
+function enforceWorkspaceAllowlist(payload: any): void {
+  const teamId =
+    typeof payload?.team_id === "string" ? payload.team_id : undefined;
+  const apiAppId =
+    typeof payload?.api_app_id === "string" ? payload.api_app_id : undefined;
+
+  const allowedTeamIds = parseAllowlistEnv("SLACK_ALLOWED_TEAM_IDS");
+  const allowedAppIds = parseAllowlistEnv("SLACK_ALLOWED_API_APP_IDS");
+
+  if (allowedTeamIds) {
+    if (!teamId || !allowedTeamIds.has(teamId)) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: "Unrecognized Slack workspace",
+      });
+    }
+  }
+
+  if (allowedAppIds) {
+    if (!apiAppId || !allowedAppIds.has(apiAppId)) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: "Unrecognized Slack workspace",
+      });
+    }
+  }
+
+  if (
+    !allowedTeamIds &&
+    !allowedAppIds &&
+    process.env.NODE_ENV === "production" &&
+    !_missingAllowlistWarned
+  ) {
+    _missingAllowlistWarned = true;
+    console.warn(
+      "[slack] SLACK_ALLOWED_TEAM_IDS not set in production — accepting events from any workspace whose signature matches SLACK_SIGNING_SECRET. " +
+        "Set SLACK_ALLOWED_TEAM_IDS to a comma-separated list of allowed team_id values to prevent cross-workspace event injection (H1 in the webhook audit).",
+    );
+  }
+}
+
+/**
+ * Read the raw request body as a string and cache on the event context.
+ *
+ * This MUST read raw bytes from the request stream — never `JSON.stringify`
+ * a parsed body, because Slack's HMAC is computed over the exact bytes Slack
+ * sent. Re-stringifying a parsed object loses key ordering, whitespace, and
+ * Unicode-escape choices, so the signature check would silently fail for
+ * legitimate requests (M2 in the webhook security audit).
+ *
+ * h3 v2's body stream is consume-once, so we cache the raw string on the
+ * event context after the first read. All call sites (handleVerification,
+ * verifyWebhook, parseIncomingMessage) MUST go through this helper.
+ */
+async function readRawBodyCached(event: H3Event): Promise<string> {
+  const cached = event.context.__rawBody;
+  if (typeof cached === "string") return cached;
+  // h3's readRawBody returns the bytes Slack actually sent, defaulting to
+  // utf8-decoded. Returns undefined for empty bodies — we coerce to "" so
+  // the HMAC check can proceed deterministically.
+  const raw = (await readRawBody(event)) ?? "";
   event.context.__rawBody = raw;
   return raw;
 }
@@ -394,17 +486,35 @@ function splitMessage(text: string, maxLength: number): string[] {
   return chunks;
 }
 
+/** Hard cap on input length we feed to the regex-based mrkdwn converter.
+ *  L2 in the webhook audit: `\*\*(.+?)\*\*` with the `s` flag on a long
+ *  string of asterisks can exhibit super-linear backtracking. Slack
+ *  itself caps message bodies at 4000 chars (SLACK_MAX_LENGTH); we cap
+ *  the input here at 10x that as a defensive bound for any caller that
+ *  passes a longer rendering source through this helper before chunking. */
+const MRKDWN_MAX_LENGTH = 40_000;
+
 /**
  * Convert standard markdown to Slack's mrkdwn dialect.
  * - `[text](url)` → `<url|text>`
  * - `**bold**` → `*bold*` (Slack uses single asterisks for bold)
+ *
+ * Inputs longer than MRKDWN_MAX_LENGTH are truncated before the regex
+ * pass to bound worst-case backtracking on pathological input (L2 in the
+ * webhook audit).
  */
 function markdownToSlackMrkdwn(text: string): string {
+  const bounded =
+    text.length > MRKDWN_MAX_LENGTH ? text.slice(0, MRKDWN_MAX_LENGTH) : text;
   return (
-    text
+    bounded
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "<$2|$1>")
-      // 's' flag (dotAll) so `.` matches newlines — bold text can span lines.
-      .replace(/\*\*(.+?)\*\*/gs, "*$1*")
+      // Bounded character class instead of `.+?` with the `s` flag — caps
+      // each bold span at 5000 chars so an attacker can't construct a
+      // pathological "**" sequence that exhibits super-linear backtracking.
+      // Newlines are allowed because `[^*]` excludes only the asterisk
+      // itself, so multi-line bold spans still match.
+      .replace(/\*\*([^*]{1,5000})\*\*/g, "*$1*")
   );
 }
 
@@ -432,28 +542,6 @@ function setSlackAssistantStatus(
       status,
     }),
   }).catch(() => {});
-}
-
-function buildThinkingBlocks(): unknown[] {
-  // Pick a witty rotating message so two back-to-back mentions don't both
-  // say the exact same thing.
-  const messages = [
-    "Working on it…",
-    "On it — give me a sec…",
-    "Pulling that up now…",
-    "Routing your request…",
-    "Checking with the right agent…",
-    "Almost there…",
-  ];
-  const text = messages[Math.floor(Math.random() * messages.length)];
-  return [
-    {
-      type: "context",
-      elements: [
-        { type: "mrkdwn", text: `:hourglass_flowing_sand: _${text}_` },
-      ],
-    },
-  ];
 }
 
 /**

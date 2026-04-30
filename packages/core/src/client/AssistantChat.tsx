@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import React, {
   useState,
   useRef,
@@ -36,6 +37,7 @@ import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import { useDevMode } from "./use-dev-mode.js";
+import { agentNativePath } from "./api-path.js";
 import {
   TiptapComposer,
   type TiptapComposerHandle,
@@ -68,6 +70,7 @@ import {
   IconDots,
   IconGitFork,
   IconId,
+  IconQuote,
 } from "@tabler/icons-react";
 
 const ThumbsFeedbackLazy = React.lazy(() =>
@@ -90,9 +93,9 @@ const markdownStyles = `
 .agent-markdown h3 { font-size: 1em; font-weight: 600; margin: 0.75em 0 0.25em; }
 .agent-markdown strong { font-weight: 600; }
 .agent-markdown em { font-style: italic; }
-.agent-markdown code { font-size: 0.875em; padding: 0.15em 0.35em; border-radius: 0.25em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); }
-.agent-markdown pre { margin: 0.5em 0; padding: 0.75em 1em; border-radius: 0.375em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); overflow-x: auto; }
-.agent-markdown pre code { padding: 0; background: transparent; font-size: 0.8125em; color: inherit; }
+.agent-markdown code { font-size: 0.875em; padding: 0.15em 0.35em; border-radius: 0.25em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); border: 1px solid hsl(var(--border, 0 0% 80%)); }
+.agent-markdown pre { margin: 0.5em 0; padding: 0.75em 1em; border-radius: 0.375em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); overflow-x: auto; border: 1px solid hsl(var(--border, 0 0% 80%)); }
+.agent-markdown pre code { padding: 0; background: transparent; font-size: 0.8125em; color: inherit; border: none; }
 .agent-markdown-shiki { margin: 0.5em 0; border-radius: 0.375em; overflow: hidden; font-size: 0.8125em; }
 .agent-markdown-shiki pre { margin: 0; padding: 0.75em 1em; overflow-x: auto; background: var(--shiki-light-bg); color: var(--shiki-light); }
 .agent-markdown-shiki pre code { background: transparent; padding: 0; font-size: inherit; color: inherit; }
@@ -107,6 +110,93 @@ const markdownStyles = `
 .agent-markdown th, .agent-markdown td { border: 1px solid hsl(var(--border, 0 0% 20%)); padding: 0.35em 0.65em; text-align: left; }
 .agent-markdown th { font-weight: 600; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); }
 `;
+
+/**
+ * Pending selection context — written to application_state when the user
+ * presses Cmd+I with text selected on the page. The agent's next turn picks
+ * it up via the `selectionContextPromise` in production-agent. The pill
+ * below tells the user the context is attached and lets them clear it.
+ */
+const PENDING_SELECTION_KEY = "pending-selection-context";
+
+function clearPendingSelection() {
+  fetch(
+    agentNativePath(
+      `/_agent-native/application-state/${PENDING_SELECTION_KEY}`,
+    ),
+    {
+      method: "DELETE",
+      keepalive: true,
+      headers: { "X-Agent-Native-CSRF": "1" },
+    },
+  ).catch(() => {});
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("agent-panel:selection-cleared"));
+  }
+}
+
+function SelectionAttachedPill() {
+  const [length, setLength] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/${PENDING_SELECTION_KEY}`,
+      ),
+    )
+      .then((r) => (r.ok && r.status !== 204 ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const text =
+          (data?.value?.text as string | undefined) ??
+          (data?.text as string | undefined);
+        if (text) setLength(text.length);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    function onAttached(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail?.length === "number") setLength(detail.length);
+    }
+    function onCleared() {
+      setLength(null);
+    }
+    window.addEventListener("agent-panel:selection-attached", onAttached);
+    window.addEventListener("agent-panel:selection-cleared", onCleared);
+    return () => {
+      window.removeEventListener("agent-panel:selection-attached", onAttached);
+      window.removeEventListener("agent-panel:selection-cleared", onCleared);
+    };
+  }, []);
+
+  if (length === null || length === 0) return null;
+
+  return (
+    <div className="shrink-0 px-3 pt-1.5 -mb-1">
+      <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] text-muted-foreground">
+        <IconQuote size={11} />
+        <span>{length.toLocaleString()} chars of selection attached</span>
+        <button
+          type="button"
+          aria-label="Clear selection context"
+          onClick={() => {
+            setLength(null);
+            clearPendingSelection();
+          }}
+          className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
+        >
+          <IconX size={11} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 let stylesInjected = false;
 function injectMarkdownStyles() {
@@ -896,21 +986,13 @@ function MessageActionsMenu({
   onRevert?: () => void;
 } = {}) {
   const [open, setOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
+    null,
+  );
   const [copied, setCopied] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
   const actionsCtx = React.useContext(MessageActionsContext);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const handleCopyMessage = useCallback(() => {
     const m = messageRuntime.getState();
@@ -947,10 +1029,19 @@ function MessageActionsMenu({
     onRevert?.();
   }, [onRevert]);
 
+  const handleToggle = useCallback(() => {
+    if (!open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPos({ top: rect.bottom + 4, left: rect.left });
+    }
+    setOpen((v) => !v);
+  }, [open]);
+
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative">
       <button
-        onClick={() => setOpen((v) => !v)}
+        ref={buttonRef}
+        onClick={handleToggle}
         className={cn(
           "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground",
           open && "bg-accent text-foreground",
@@ -958,53 +1049,63 @@ function MessageActionsMenu({
       >
         <IconDots className="h-3.5 w-3.5" />
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-50 mt-1 w-44 rounded-md border border-border bg-popover py-1 shadow-lg">
-            {actionsCtx?.onForkChat && (
+      {open &&
+        menuPos &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0"
+              style={{ zIndex: 9998 }}
+              onClick={() => setOpen(false)}
+            />
+            <div
+              className="fixed w-44 rounded-md border border-border bg-popover py-1 shadow-lg"
+              style={{ top: menuPos.top, left: menuPos.left, zIndex: 9999 }}
+            >
+              {actionsCtx?.onForkChat && (
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+                  onClick={handleForkChat}
+                >
+                  <IconGitFork className="h-3.5 w-3.5" />
+                  Fork Chat
+                </button>
+              )}
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                onClick={handleForkChat}
+                onClick={handleCopyMessage}
               >
-                <IconGitFork className="h-3.5 w-3.5" />
-                Fork Chat
+                {copied === "message" ? (
+                  <IconCheck className="h-3.5 w-3.5" />
+                ) : (
+                  <IconCopy className="h-3.5 w-3.5" />
+                )}
+                {copied === "message" ? "Copied!" : "Copy Message"}
               </button>
-            )}
-            <button
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-              onClick={handleCopyMessage}
-            >
-              {copied === "message" ? (
-                <IconCheck className="h-3.5 w-3.5" />
-              ) : (
-                <IconCopy className="h-3.5 w-3.5" />
-              )}
-              {copied === "message" ? "Copied!" : "Copy Message"}
-            </button>
-            <button
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-              onClick={handleCopyRequestId}
-            >
-              {copied === "id" ? (
-                <IconCheck className="h-3.5 w-3.5" />
-              ) : (
-                <IconId className="h-3.5 w-3.5" />
-              )}
-              {copied === "id" ? "Copied!" : "Copy Request ID"}
-            </button>
-            {showRevert && (
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                onClick={handleRevert}
+                onClick={handleCopyRequestId}
               >
-                <IconArrowBackUp className="h-3.5 w-3.5" />
-                Revert to here
+                {copied === "id" ? (
+                  <IconCheck className="h-3.5 w-3.5" />
+                ) : (
+                  <IconId className="h-3.5 w-3.5" />
+                )}
+                {copied === "id" ? "Copied!" : "Copy Request ID"}
               </button>
-            )}
-          </div>
-        </>
-      )}
+              {showRevert && (
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
+                  onClick={handleRevert}
+                >
+                  <IconArrowBackUp className="h-3.5 w-3.5" />
+                  Revert to here
+                </button>
+              )}
+            </div>
+          </>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -1280,7 +1381,6 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
       </div>
 
       <div className="space-y-3">
-        {/* Builder CTA — live Connect flow, replaces the old waitlist link. */}
         <BuilderConnectCta />
 
         <div className="relative flex items-center">
@@ -1328,160 +1428,6 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
             Get an Anthropic key
           </a>
         </p>
-      </div>
-    </div>
-  );
-}
-
-// ─── Builder.io CTA Card (usage limit / code changes / CLI) ─────────────────
-
-export function BuilderCtaCard({
-  reason,
-  usageCents,
-  limitCents,
-  apiUrl = "/_agent-native/agent-chat",
-}: {
-  reason: "usage_limit" | "code_changes" | "cli_tab";
-  usageCents?: number;
-  limitCents?: number;
-  apiUrl?: string;
-}) {
-  const appName =
-    typeof window !== "undefined"
-      ? window.location.hostname.split(".")[0]
-      : "app";
-  const cloneCommand = `npx agent-native create ${appName}`;
-
-  const [apiKey, setApiKey] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSave = async () => {
-    if (!apiKey.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch(`${apiUrl}/save-key`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: apiKey.trim(), provider: "anthropic" }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save");
-      }
-      setSaved(true);
-      setTimeout(() => window.location.reload(), 1000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const title =
-    reason === "usage_limit"
-      ? "Free usage limit reached"
-      : reason === "code_changes"
-        ? "Code changes require a local setup"
-        : "Get full access";
-
-  const description =
-    reason === "usage_limit"
-      ? null
-      : reason === "code_changes"
-        ? "This app is running in hosted mode. To make code changes, add your own Anthropic API key or clone and run locally."
-        : "This hosted app has limited AI features. Add your own Anthropic API key for the full experience, or clone and run locally.";
-
-  if (saved) {
-    return (
-      <div className="mx-4 my-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
-        <div className="flex items-center gap-2 text-sm text-emerald-400">
-          <IconCheck className="h-4 w-4" />
-          API key saved. Reloading...
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
-          <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-foreground">{title}</h3>
-          {description && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {description}
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <div className="rounded-md bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground leading-relaxed">
-          <p>
-            Paste an Anthropic API key (
-            <a
-              href="https://console.anthropic.com/settings/keys"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline text-foreground/80 hover:text-foreground"
-            >
-              console.anthropic.com/settings/keys
-            </a>
-            ) to skip the free-tier limit.
-          </p>
-        </div>
-
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => {
-            setApiKey(e.target.value);
-            setError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSave();
-          }}
-          placeholder="sk-ant-..."
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-1 focus:ring-ring"
-          autoComplete="off"
-        />
-
-        {error && <p className="text-xs text-destructive">{error}</p>}
-
-        <button
-          onClick={handleSave}
-          disabled={saving || !apiKey.trim()}
-          className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {saving ? "Saving..." : "Save API key"}
-        </button>
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-border" />
-          </div>
-          <div className="relative flex justify-center text-xs">
-            <span className="bg-card px-2 text-muted-foreground">or</span>
-          </div>
-        </div>
-
-        <div className="rounded-md bg-muted/50 px-3 py-2.5">
-          <p className="text-xs text-muted-foreground mb-1.5">
-            Clone and run locally:
-          </p>
-          <code className="block text-xs text-foreground/80 font-mono break-all select-all">
-            {cloneCommand}
-          </code>
-        </div>
-
-        {/* Builder CTA — live Connect flow, replaces the old waitlist link. */}
-        <BuilderConnectCta variant="compact" />
       </div>
     </div>
   );
@@ -1634,10 +1580,6 @@ const AssistantChatInner = forwardRef<
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
-  const [usageLimitReached, setUsageLimitReached] = useState<{
-    usageCents: number;
-    limitCents: number;
-  } | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<
     Array<{
       id: string;
@@ -1773,7 +1715,7 @@ const AssistantChatInner = forwardRef<
                 setReconnectContent([]);
                 // Signal tab running indicator
                 window.dispatchEvent(
-                  new CustomEvent("builder.chatRunning", {
+                  new CustomEvent("agentNative.chatRunning", {
                     detail: { isRunning: true, tabId: tabId || threadId },
                   }),
                 );
@@ -1913,7 +1855,7 @@ const AssistantChatInner = forwardRef<
                     setIsReconnecting(false);
                     reconnectRunIdRef.current = null;
                     window.dispatchEvent(
-                      new CustomEvent("builder.chatRunning", {
+                      new CustomEvent("agentNative.chatRunning", {
                         detail: { isRunning: false, tabId: tabId || threadId },
                       }),
                     );
@@ -2079,13 +2021,13 @@ const AssistantChatInner = forwardRef<
     let cancelled = false;
     const check = async () => {
       const [envKeys, builderStatus, engineStatus] = await Promise.all([
-        fetch("/_agent-native/env-status")
+        fetch(agentNativePath("/_agent-native/env-status"))
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
-        fetch("/_agent-native/builder/status")
+        fetch(agentNativePath("/_agent-native/builder/status"))
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
-        fetch("/_agent-native/agent-engine/status")
+        fetch(agentNativePath("/_agent-native/agent-engine/status"))
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
       ]);
@@ -2122,20 +2064,6 @@ const AssistantChatInner = forwardRef<
     };
     window.addEventListener("agent-chat:auth-error", handler);
     return () => window.removeEventListener("agent-chat:auth-error", handler);
-  }, []);
-
-  // Listen for usage limit reached events from the adapter
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      setUsageLimitReached({
-        usageCents: detail?.usageCents ?? 0,
-        limitCents: detail?.limitCents ?? 100,
-      });
-    };
-    window.addEventListener("agent-chat:usage-limit-reached", handler);
-    return () =>
-      window.removeEventListener("agent-chat:usage-limit-reached", handler);
   }, []);
 
   // Listen for loop-limit events from the adapter
@@ -2211,6 +2139,9 @@ const AssistantChatInner = forwardRef<
   const addToQueue = useCallback(
     (text: string, images?: string[], references?: Reference[]) => {
       setShowContinue(false);
+      // Selection context attached via Cmd+I is one-shot — clear it as soon
+      // as the user actually sends a message so it can't be re-used.
+      clearPendingSelection();
       if (isRunning) {
         setQueuedMessages((prev) => [
           ...prev,
@@ -2395,9 +2326,12 @@ const AssistantChatInner = forwardRef<
                       <button
                         onClick={async () => {
                           try {
-                            await fetch("/_agent-native/auth/logout", {
-                              method: "POST",
-                            });
+                            await fetch(
+                              agentNativePath("/_agent-native/auth/logout"),
+                              {
+                                method: "POST",
+                              },
+                            );
                           } catch {}
                           window.location.reload();
                         }}
@@ -2420,15 +2354,6 @@ const AssistantChatInner = forwardRef<
               ) : missingApiKey ? (
                 <div className="flex flex-col items-center justify-center h-full px-2">
                   <ApiKeySetupCard apiUrl={apiUrl} />
-                </div>
-              ) : usageLimitReached ? (
-                <div className="flex flex-col items-center justify-center h-full px-2">
-                  <BuilderCtaCard
-                    reason="usage_limit"
-                    usageCents={usageLimitReached.usageCents}
-                    limitCents={usageLimitReached.limitCents}
-                    apiUrl={apiUrl}
-                  />
                 </div>
               ) : isRestoring ? (
                 <div className="flex flex-col gap-3 p-4">
@@ -2564,6 +2489,7 @@ const AssistantChatInner = forwardRef<
             )}
 
             {composerSlot}
+            <SelectionAttachedPill />
             {/* Input area */}
             <div className="agent-composer-area shrink-0 px-3 py-2">
               <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
@@ -2596,6 +2522,7 @@ const AssistantChatInner = forwardRef<
                   selectedModel={selectedModel ?? defaultModel}
                   availableModels={availableModels}
                   onModelChange={onModelChange}
+                  draftScope={threadId || tabId}
                   extraActionButton={
                     showRunningInUI ? (
                       <button
@@ -2623,7 +2550,7 @@ const AssistantChatInner = forwardRef<
                           threadRuntime.cancelRun();
 
                           window.dispatchEvent(
-                            new CustomEvent("builder.chatRunning", {
+                            new CustomEvent("agentNative.chatRunning", {
                               detail: {
                                 isRunning: false,
                                 tabId: tabId || threadId,
@@ -2652,7 +2579,12 @@ export const AssistantChat = forwardRef<
   AssistantChatHandle,
   AssistantChatProps
 >(function AssistantChat(
-  { apiUrl = "/_agent-native/agent-chat", tabId, threadId, ...props },
+  {
+    apiUrl = agentNativePath("/_agent-native/agent-chat"),
+    tabId,
+    threadId,
+    ...props
+  },
   ref,
 ) {
   const modelRef = useRef<string | undefined>(props.selectedModel);

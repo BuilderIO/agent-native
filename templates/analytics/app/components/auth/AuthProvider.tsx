@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { useSession, type AuthSession } from "@agent-native/core";
+import { agentNativePath } from "@agent-native/core/client";
 
 interface AuthContextValue {
   auth: AuthSession | null;
@@ -16,9 +17,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     auth: session,
     isLoading,
     logout: () =>
-      fetch("/_agent-native/auth/logout", { method: "POST" }).then(() =>
-        location.reload(),
-      ),
+      fetch(agentNativePath("/_agent-native/auth/logout"), {
+        method: "POST",
+      }).then(() => location.reload()),
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

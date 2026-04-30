@@ -1,17 +1,22 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
 import { nanoid } from "nanoid";
 import type { ComposeState } from "@shared/types";
+import { appApiPath } from "@/lib/api-path";
 import { TAB_ID } from "@/lib/tab-id";
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      "X-Request-Source": TAB_ID,
+  const res = await fetch(
+    url.startsWith("/api/") ? appApiPath(url) : agentNativePath(url),
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-Source": TAB_ID,
+      },
+      ...options,
     },
-    ...options,
-  });
+  );
   if (!res.ok) {
     if (res.status === 404) return undefined as T;
     throw new Error(`Request failed (${res.status})`);
@@ -247,7 +252,7 @@ export function useComposeState() {
 
       // Delete the Gmail draft if one was auto-saved
       if (draft?.savedDraftId) {
-        fetch(`/api/emails/draft/${draft.savedDraftId}`, {
+        fetch(appApiPath(`/api/emails/draft/${draft.savedDraftId}`), {
           method: "DELETE",
         }).then(() => {
           qc.invalidateQueries({ queryKey: ["emails"] });

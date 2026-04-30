@@ -143,6 +143,13 @@ export interface Experiment {
   startedAt: number | null;
   endedAt: number | null;
   createdAt: number;
+  /**
+   * Email of the user who created this experiment. Used to scope mutations
+   * (PUT /experiments/:id, POST /experiments/:id/results) so one user can't
+   * silently change another user's experiment in a multi-tenant deployment.
+   * Null on legacy rows from before the owner_email migration shipped.
+   */
+  ownerEmail?: string | null;
 }
 
 export interface ExperimentAssignment {

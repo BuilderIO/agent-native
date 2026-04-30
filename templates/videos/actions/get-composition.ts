@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { resolveAccess } from "@agent-native/core/sharing";
+import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
   description: "Get a single composition by ID",

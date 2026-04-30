@@ -1,1 +1,1 @@
-export { getSettings as default } from "../../../handlers/settings";
+export { getPublicSettings as default } from "../../../handlers/settings";

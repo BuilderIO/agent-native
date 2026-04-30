@@ -13,31 +13,47 @@ type SlackConfig = {
   enabled: boolean;
 };
 
-function slackSettingsKey(orgId: string | null): string {
-  return orgId ? `org:${orgId}:slack-notifications` : "slack-notifications";
+/**
+ * Build the per-user / per-org settings key for the Slack webhook config.
+ *
+ * SECURITY: The unprefixed `slack-notifications` setting must NEVER be
+ * read or written — every Neon deployment is shared across solo users, so
+ * an unscoped key leaks each user's webhook URL to every other user. When
+ * an org is active we scope by org, otherwise we scope by the caller's
+ * email. If neither is available we throw rather than silently leak.
+ */
+function slackSettingsKey(orgId: string | null, email: string | null): string {
+  if (orgId) return `o:${orgId}:slack-notifications`;
+  if (email) return `u:${email.toLowerCase()}:slack-notifications`;
+  throw createError({
+    statusCode: 401,
+    message: "Sign in to manage Slack notifications.",
+  });
 }
 
 async function getSlackConfig(
   orgId: string | null,
+  email: string | null,
 ): Promise<SlackConfig | null> {
-  const setting = await getSetting(slackSettingsKey(orgId));
+  const setting = await getSetting(slackSettingsKey(orgId, email));
   if (setting && typeof setting === "object" && "webhookUrl" in setting) {
     return setting as SlackConfig;
   }
-  // Fall back to global key
-  if (orgId) {
-    const global = await getSetting("slack-notifications");
-    if (global && typeof global === "object" && "webhookUrl" in global) {
-      return global as SlackConfig;
-    }
-  }
+  // No fall-back to the unprefixed global key — that's the leak we're
+  // fixing. Solo users who previously stored a webhook under the global
+  // key will see "not configured" and need to re-save through the UI.
   return null;
 }
 
 export const getNotificationStatusHandler = defineEventHandler(
   async (event) => {
     const ctx = await getOrgContext(event);
-    const config = await getSlackConfig(ctx.orgId);
+    if (!ctx.orgId && !ctx.email) {
+      // Not signed in — surface a benign "not configured" rather than
+      // throwing. The UI can prompt the user to sign in.
+      return { configured: false, enabled: false };
+    }
+    const config = await getSlackConfig(ctx.orgId, ctx.email || null);
     return {
       configured: !!config?.webhookUrl,
       enabled: config?.enabled ?? false,
@@ -48,7 +64,15 @@ export const getNotificationStatusHandler = defineEventHandler(
 export const saveNotificationConfigHandler = defineEventHandler(
   async (event) => {
     const ctx = await getOrgContext(event);
-    if (ctx.role !== "owner" && ctx.role !== "admin") {
+    if (!ctx.email) {
+      throw createError({
+        statusCode: 401,
+        message: "Sign in to manage Slack notifications.",
+      });
+    }
+    // Owner/admin role gating only applies when the caller is acting on
+    // behalf of an org. Solo users (no orgId) own their per-user webhook.
+    if (ctx.orgId && ctx.role !== "owner" && ctx.role !== "admin") {
       throw createError({
         statusCode: 403,
         message: "Only owners and admins can manage Slack configuration",
@@ -70,7 +94,7 @@ export const saveNotificationConfigHandler = defineEventHandler(
       });
     }
 
-    await putSetting(slackSettingsKey(ctx.orgId), {
+    await putSetting(slackSettingsKey(ctx.orgId, ctx.email), {
       webhookUrl: body.webhookUrl,
       enabled: body.enabled ?? true,
     });
@@ -82,21 +106,33 @@ export const saveNotificationConfigHandler = defineEventHandler(
 export const deleteNotificationConfigHandler = defineEventHandler(
   async (event) => {
     const ctx = await getOrgContext(event);
-    if (ctx.role !== "owner" && ctx.role !== "admin") {
+    if (!ctx.email) {
+      throw createError({
+        statusCode: 401,
+        message: "Sign in to manage Slack notifications.",
+      });
+    }
+    if (ctx.orgId && ctx.role !== "owner" && ctx.role !== "admin") {
       throw createError({
         statusCode: 403,
         message: "Only owners and admins can manage Slack configuration",
       });
     }
-    await deleteSetting(slackSettingsKey(ctx.orgId));
+    await deleteSetting(slackSettingsKey(ctx.orgId, ctx.email));
     return { success: true };
   },
 );
 
 export const sendRecruiterUpdateHandler = defineEventHandler(async (event) => {
   const ctx = await getOrgContext(event);
+  if (!ctx.orgId && !ctx.email) {
+    throw createError({
+      statusCode: 401,
+      message: "Sign in to send Slack notifications.",
+    });
+  }
   const body = await readBody(event);
-  const config = await getSlackConfig(ctx.orgId);
+  const config = await getSlackConfig(ctx.orgId, ctx.email || null);
 
   if (!config?.webhookUrl || !config.enabled) {
     throw createError({

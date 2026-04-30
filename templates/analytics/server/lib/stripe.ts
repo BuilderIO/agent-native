@@ -2,6 +2,10 @@
 // Fetches customers, invoices, charges, subscriptions, refunds
 
 import { resolveCredential } from "./credentials";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_BASE = "https://api.stripe.com";
 
@@ -10,10 +14,11 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 120;
 
 async function getToken(): Promise<string> {
-  const token = await resolveCredential("STRIPE_SECRET_KEY");
+  const ctx = requireRequestCredentialContext("STRIPE_SECRET_KEY");
+  const token = await resolveCredential("STRIPE_SECRET_KEY", ctx);
   if (!token)
     throw new Error(
-      "STRIPE_SECRET_KEY env var not configured. Add your Stripe secret key to continue.",
+      "STRIPE_SECRET_KEY not configured. Add your Stripe secret key to continue.",
     );
   return token;
 }
@@ -37,7 +42,7 @@ async function apiGet<T>(
     qs = parts.length ? "?" + parts.join("&") : "";
   }
   const url = `${API_BASE}${path}${qs}`;
-  const key = cacheKey ?? url;
+  const key = scopedCredentialCacheKey(cacheKey ?? url, "STRIPE_SECRET_KEY");
 
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {

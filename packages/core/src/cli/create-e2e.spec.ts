@@ -23,6 +23,8 @@ import {
   _fixPackageJsonName,
   _renameGitignore,
   _loadCatalog,
+  _getCoreDependencyVersion,
+  _getGitHubTemplateRef,
 } from "./create.js";
 import { workspacifyApp } from "./workspacify.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
@@ -58,7 +60,7 @@ function allDeps(pkg: Record<string, any>): Record<string, string> {
  * ───────────────────────────────────────────────────────────────────────── */
 
 describe("standalone scaffold — starter template", { timeout: 60000 }, () => {
-  it("resolves all workspace:* deps to 'latest'", async () => {
+  it("resolves all workspace:* deps for standalone install", async () => {
     await createApp("test-app", { template: "starter" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     const deps = allDeps(pkg);
@@ -112,6 +114,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         appName: t,
         workspaceRoot: targetDir,
         workspaceCoreName,
+        coreDependencyVersion: _getCoreDependencyVersion(),
       });
       _fixPackageJsonName(appDir, t);
       _renameGitignore(appDir);
@@ -129,7 +132,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(fs.existsSync(path.join(schedDir, "package.json"))).toBe(true);
   });
 
-  it("converts @agent-native/core workspace:* to latest in scaffolded packages", async () => {
+  it("converts @agent-native/core workspace:* in scaffolded packages", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
     const schedPkg = readPkg(path.join(wsDir, "packages", "scheduling"));
     for (const depType of ["dependencies", "devDependencies"] as const) {
@@ -139,6 +142,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
           val,
           `${depType}["@agent-native/core"] must not be workspace:*`,
         ).not.toMatch(/^workspace:/);
+        expect(val).toBe(_getCoreDependencyVersion());
       }
     }
   });
@@ -178,16 +182,38 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(wsYaml).toContain("tailwindcss");
   });
 
-  it("resolves @agent-native/core to latest in workspacified apps", async () => {
+  it("resolves @agent-native/core in workspacified apps", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
     const appPkg = readPkg(path.join(wsDir, "apps", "starter"));
-    expect(appPkg.dependencies["@agent-native/core"]).toBe("latest");
+    expect(appPkg.dependencies["@agent-native/core"]).toBe(
+      _getCoreDependencyVersion(),
+    );
   });
 
   it("adds workspace core-module dependency to apps", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
     const appPkg = readPkg(path.join(wsDir, "apps", "starter"));
     expect(appPkg.dependencies["@my-ws/core-module"]).toBe("workspace:*");
+  });
+
+  it("resolves @agent-native/core in the scaffolded workspace core module", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
+    const corePkg = readPkg(path.join(wsDir, "packages", "core-module"));
+    expect(corePkg.dependencies["@agent-native/core"]).toBe(
+      _getCoreDependencyVersion(),
+    );
+  });
+});
+
+describe("template/core version compatibility", () => {
+  it("uses local core for local framework scaffolds", () => {
+    expect(_getCoreDependencyVersion()).toMatch(
+      /^file:\/\/.*\/packages\/core$/,
+    );
+  });
+
+  it("downloads first-party templates from the CLI package version tag", () => {
+    expect(_getGitHubTemplateRef()).toMatch(/^v\d+\.\d+\.\d+(?:-.+)?$/);
   });
 });
 

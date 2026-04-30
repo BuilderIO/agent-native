@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { useActionMutation } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+  useActionMutation,
+} from "@agent-native/core/client";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import {
   IconMicrophone,
@@ -271,14 +275,17 @@ export function InBrowserRecorder({
     // configured, request-transcript will refine it with diarized output later.
     const browserTranscript = liveTranscription.stop();
     if (browserTranscript.trim()) {
-      void fetch("/_agent-native/actions/save-browser-transcript", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          callId,
-          fullText: browserTranscript,
-        }),
-      }).catch(() => {});
+      void fetch(
+        agentNativePath("/_agent-native/actions/save-browser-transcript"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            callId,
+            fullText: browserTranscript,
+          }),
+        },
+      ).catch(() => {});
     }
 
     const finalBlob = await new Promise<Blob>((resolve) => {
@@ -326,7 +333,9 @@ export function InBrowserRecorder({
     }
     const callId = callIdRef.current;
     if (callId) {
-      fetch(`/api/uploads/${callId}/abort`, { method: "POST" }).catch(() => {});
+      fetch(`${appBasePath()}/api/uploads/${callId}/abort`, {
+        method: "POST",
+      }).catch(() => {});
     }
     cleanupStream();
     callIdRef.current = null;
@@ -369,7 +378,7 @@ export function InBrowserRecorder({
     if (extra.durationMs !== undefined)
       params.set("durationMs", String(Math.round(extra.durationMs)));
     const res = await fetch(
-      `/api/uploads/${callId}/chunk?${params.toString()}`,
+      `${appBasePath()}/api/uploads/${callId}/chunk?${params.toString()}`,
       {
         method: "POST",
         headers: {

@@ -1,5 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import {
+  appApiPath,
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client";
 
 export interface Comment {
   id: string;
@@ -24,7 +28,7 @@ export interface CommentThread {
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const res = await fetch(appApiPath(url), init);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
 }

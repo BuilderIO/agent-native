@@ -10,10 +10,14 @@ import {
   IconClipboardList,
   IconUsers,
   IconCode,
-  IconMessage,
+  IconMessageCircle,
   IconSettings,
   IconScreenShare,
   IconBrush,
+  IconPhone,
+  IconNote,
+  IconMicrophone,
+  IconCalendarTime,
 } from "@tabler/icons-react";
 import type { AppDefinition } from "@shared/app-registry";
 import { UpdateIndicator } from "./UpdateIndicator.js";
@@ -30,9 +34,13 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   ClipboardList: IconClipboardList,
   Users: IconUsers,
   Code: IconCode,
-  Message: IconMessage,
+  MessageCircle: IconMessageCircle,
   ScreenShare: IconScreenShare,
   Brush: IconBrush,
+  Phone: IconPhone,
+  Note: IconNote,
+  Microphone: IconMicrophone,
+  CalendarTime: IconCalendarTime,
 };
 
 interface SidebarProps {

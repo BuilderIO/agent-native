@@ -28,7 +28,7 @@ describe("sendToAgentChat", () => {
     const tabId = sendToAgentChat({ message: "hello" });
     expect(postMessageSpy).toHaveBeenCalledOnce();
     const payload = postMessageSpy.mock.calls[0][0];
-    expect(payload.type).toBe("builder.submitChat");
+    expect(payload.type).toBe("agentNative.submitChat");
     expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.message).toBe("hello");
   });

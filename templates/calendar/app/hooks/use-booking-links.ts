@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import { appApiPath } from "@/lib/api-path";
 import type { BookingLink, ConferencingConfig, CustomField } from "@shared/api";
 
 const LIST_KEY = ["action", "list-booking-links"] as const;
@@ -103,7 +104,7 @@ export function useUpdateBookingLink() {
         color?: string;
       },
     ) => {
-      const res = await fetch(`/api/booking-links/${data.id}`, {
+      const res = await fetch(appApiPath(`/api/booking-links/${data.id}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -123,7 +124,9 @@ export function useDeleteBookingLink() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/booking-links/${id}`, { method: "DELETE" });
+      const res = await fetch(appApiPath(`/api/booking-links/${id}`), {
+        method: "DELETE",
+      });
       if (!res.ok) throw new Error("Failed to delete booking link");
       return res.json();
     },

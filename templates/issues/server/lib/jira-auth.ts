@@ -57,8 +57,12 @@ async function getValidAccessToken(
   }
 
   const { clientId, clientSecret } = getOAuth2Credentials();
-  const redirectUri = "http://localhost:8080/api/atlassian/callback";
-  const oauth2 = createOAuth2Client(clientId, clientSecret, redirectUri);
+  // redirectUri is not re-validated by Atlassian on refresh_token grants, but
+  // must still be a registered URI — pass the canonical registered value.
+  const refreshRedirectUri =
+    process.env.ATLASSIAN_REDIRECT_URI ||
+    "http://localhost:8080/api/atlassian/callback";
+  const oauth2 = createOAuth2Client(clientId, clientSecret, refreshRedirectUri);
   const refreshed = await oauth2.refreshToken(tokens.refresh_token);
 
   const updatedTokens: AtlassianTokens = {
@@ -80,6 +84,10 @@ async function getValidAccessToken(
   return refreshed.access_token;
 }
 
+const FALLBACK_REDIRECT_URI =
+  process.env.ATLASSIAN_REDIRECT_URI ||
+  "http://localhost:8080/api/atlassian/callback";
+
 export function getAuthUrl(
   origin?: string,
   redirectUri?: string,
@@ -88,9 +96,7 @@ export function getAuthUrl(
   const { clientId, clientSecret } = getOAuth2Credentials();
   const uri =
     redirectUri ||
-    (origin
-      ? `${origin}/api/atlassian/callback`
-      : "http://localhost:8080/api/atlassian/callback");
+    (origin ? `${origin}/api/atlassian/callback` : FALLBACK_REDIRECT_URI);
   const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   return oauth2.generateAuthUrl({
     scope: SCOPES,
@@ -108,9 +114,7 @@ export async function exchangeCode(
   const { clientId, clientSecret } = getOAuth2Credentials();
   const uri =
     redirectUri ||
-    (origin
-      ? `${origin}/api/atlassian/callback`
-      : "http://localhost:8080/api/atlassian/callback");
+    (origin ? `${origin}/api/atlassian/callback` : FALLBACK_REDIRECT_URI);
   const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   const tokenResponse = await oauth2.getToken(code);
 

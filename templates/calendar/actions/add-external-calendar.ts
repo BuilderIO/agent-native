@@ -38,7 +38,8 @@ export default defineAction({
       .describe("Hex color for events from this feed"),
   }),
   run: async (args) => {
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const existing =
       ((await getUserSetting(email, "external-calendars")) as unknown as
         | ExternalCalendar[]

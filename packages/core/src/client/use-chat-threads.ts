@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { agentNativePath } from "./api-path.js";
 
 export interface ChatThreadSummary {
   id: string;
@@ -23,7 +24,7 @@ export interface ChatThreadData {
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
 
 export function useChatThreads(
-  apiUrl = "/_agent-native/agent-chat",
+  apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey?: string,
 ) {
   const activeThreadKey = storageKey

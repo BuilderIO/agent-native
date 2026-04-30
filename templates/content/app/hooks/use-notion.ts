@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { appApiPath } from "@agent-native/core/client";
 import type {
   DocumentSyncStatus,
   LinkNotionPageRequest,
@@ -8,7 +9,7 @@ import type {
 } from "@shared/api";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const res = await fetch(appApiPath(url), init);
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(

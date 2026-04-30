@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type {
   CustomAgentProfile,
@@ -184,7 +185,7 @@ export function useResources(scope: ResourceScope = "personal") {
     queryKey: ["resources", "list", scope],
     queryFn: async () => {
       const data = await fetchJson<{ resources: ResourceMeta[] }>(
-        `/_agent-native/resources?scope=${scope}`,
+        agentNativePath(`/_agent-native/resources?scope=${scope}`),
       );
       return data.resources ?? [];
     },
@@ -196,7 +197,7 @@ export function useResourceTree(scope: ResourceScope = "personal") {
     queryKey: ["resources", "tree", scope],
     queryFn: async () => {
       const data = await fetchJson<{ tree: TreeNode[] }>(
-        `/_agent-native/resources/tree?scope=${scope}`,
+        agentNativePath(`/_agent-native/resources/tree?scope=${scope}`),
       );
       return data.tree ?? [];
     },
@@ -206,7 +207,7 @@ export function useResourceTree(scope: ResourceScope = "personal") {
 export function useResource(id: string | null) {
   return useQuery<Resource>({
     queryKey: ["resource", id],
-    queryFn: () => fetchJson(`/_agent-native/resources/${id}`),
+    queryFn: () => fetchJson(agentNativePath(`/_agent-native/resources/${id}`)),
     enabled: !!id,
   });
 }
@@ -220,7 +221,7 @@ export function useCreateResource() {
       mimeType?: string;
       shared?: boolean;
     }) => {
-      const res = await fetch("/_agent-native/resources", {
+      const res = await fetch(agentNativePath("/_agent-native/resources"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -246,11 +247,14 @@ export function useUpdateResource() {
       path?: string;
       mimeType?: string;
     }) => {
-      const res = await fetch(`/_agent-native/resources/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/resources/${id}`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
       if (!res.ok) throw new Error(`Update failed: ${res.statusText}`);
       return res.json() as Promise<Resource>;
     },
@@ -265,9 +269,13 @@ export function useDeleteResource() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/_agent-native/resources/${id}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/resources/${id}`),
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+        },
+      );
       if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
     },
     onSuccess: () => {
@@ -280,10 +288,13 @@ export function useUploadResource() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (formData: FormData) => {
-      const res = await fetch("/_agent-native/resources/upload", {
-        method: "POST",
-        body: formData,
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/resources/upload"),
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
       if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
       return res.json() as Promise<Resource>;
     },

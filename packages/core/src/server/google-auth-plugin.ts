@@ -68,13 +68,21 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
   <p class="error" id="err"></p>
 </div>
 <script>
+  function __anBasePath() {
+    var marker = '/_agent-native';
+    var idx = window.location.pathname.indexOf(marker);
+    return idx > 0 ? window.location.pathname.slice(0, idx) : '';
+  }
+  function __anPath(path) {
+    return __anBasePath() + path;
+  }
   async function signIn() {
     var btn = document.getElementById('btn');
     var err = document.getElementById('err');
     btn.disabled = true;
     err.classList.remove('show');
     try {
-      var res = await fetch('/_agent-native/google/auth-url');
+      var res = await fetch(__anPath('/_agent-native/google/auth-url'));
       var data = await res.json();
       if (data.url) {
         try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
@@ -82,7 +90,7 @@ const GOOGLE_LOGIN_HTML = `<!DOCTYPE html>
         btn.disabled = false;
         btn.textContent = 'Waiting for sign-in…';
         var poll = setInterval(function() {
-          fetch('/_agent-native/auth/session').then(function(r) { return r.json(); }).then(function(s) {
+          fetch(__anPath('/_agent-native/auth/session')).then(function(r) { return r.json(); }).then(function(s) {
             if (s && s.email) { clearInterval(poll); window.location.reload(); }
           }).catch(function() {});
         }, 1500);

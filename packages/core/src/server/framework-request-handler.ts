@@ -22,6 +22,42 @@ const APP_SHIM_KEY = "_agentNativeH3Shim";
 const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
 const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
 
+function normalizeAppBasePath(value: string | undefined): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function getAppBasePath(): string {
+  return normalizeAppBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+}
+
+function pathMatchesPrefix(reqPath: string, prefix: string): boolean {
+  return reqPath === prefix || reqPath.startsWith(prefix + "/");
+}
+
+function resolveMountMatch(
+  reqPath: string,
+  path: string,
+): { mountPath: string; strippedPath: string } | null {
+  if (pathMatchesPrefix(reqPath, path)) {
+    return { mountPath: path, strippedPath: reqPath.slice(path.length) || "/" };
+  }
+
+  const appBasePath = getAppBasePath();
+  if (!appBasePath || !path.startsWith(FRAMEWORK_PREFIX)) return null;
+
+  const prefixedPath = `${appBasePath}${path}`;
+  if (!pathMatchesPrefix(reqPath, prefixedPath)) return null;
+  return {
+    mountPath: prefixedPath,
+    strippedPath: reqPath.slice(prefixedPath.length) || "/",
+  };
+}
+
 /**
  * Wrapper around Nitro's h3 instance that exposes a v1-style `.use()` API
  * for registering path-prefix middleware.
@@ -172,19 +208,54 @@ function registerMiddleware(
 
   const middleware = async (event: H3Event, next: () => any) => {
     let originalPathname: string | undefined;
+    let originalEventPath: string | undefined;
+    let hadEventPath = false;
+    const restoreOriginalPath = () => {
+      if (originalPathname !== undefined) {
+        try {
+          event.url.pathname = originalPathname;
+        } catch {
+          // ignore
+        }
+        originalPathname = undefined;
+      }
+      if (hadEventPath) {
+        try {
+          (event as any).path = originalEventPath;
+        } catch {
+          // ignore
+        }
+      } else {
+        try {
+          delete (event as any).path;
+        } catch {
+          // ignore
+        }
+      }
+    };
     if (path) {
       const reqPath = event.url?.pathname ?? "";
-      if (reqPath !== path && !reqPath.startsWith(path + "/")) {
+      const match = resolveMountMatch(reqPath, path);
+      if (!match) {
         return next();
       }
       // Strip the mount prefix from event.url.pathname so handlers that
       // dispatch sub-routes can read `event.path` (or `event.url.pathname`)
       // and see the path RELATIVE to their mount point — matching h3 v1's
       // `app.use(path, handler)` semantics.
+      const eventAny = event as any;
+      hadEventPath = "path" in eventAny;
+      originalEventPath = eventAny.path;
       try {
         originalPathname = event.url.pathname;
-        const stripped = originalPathname.slice(path.length) || "/";
-        event.url.pathname = stripped;
+        // Save the full path in context so handlers that need the original URL
+        // (e.g. Better Auth, which extracts its own basePath prefix) can
+        // reconstruct a Request with the un-stripped URL.
+        eventAny.context = eventAny.context ?? {};
+        eventAny.context._mountedPathname = originalPathname;
+        eventAny.context._mountPrefix = match.mountPath;
+        event.url.pathname = match.strippedPath;
+        eventAny.path = `${match.strippedPath}${event.url.search || ""}`;
       } catch {
         // event.url is read-only on some runtimes — fall through. Handlers
         // that don't depend on prefix stripping (most of them) still work.
@@ -197,14 +268,7 @@ function registerMiddleware(
         // middleware sees the full URL — not the stripped mount-relative path.
         // Matches h3 v2's own sub-app middleware pattern where the restore
         // happens inside the next() callback, not after it returns.
-        if (originalPathname !== undefined) {
-          try {
-            event.url.pathname = originalPathname;
-          } catch {
-            // ignore
-          }
-          originalPathname = undefined;
-        }
+        restoreOriginalPath();
         return next();
       }
       return result;
@@ -234,20 +298,22 @@ function registerMiddleware(
       }
       return {
         error: e?.message || "Internal server error",
-        ...(status >= 500 && process.env.NODE_ENV !== "production" && e?.stack
+        // Only surface the stack to clients when explicitly enabled.
+        // `NODE_ENV !== "production"` was unsafe — preview deploys and
+        // any host that forgets to set NODE_ENV=production leaked stack
+        // traces (file paths, dependency versions, internal route
+        // topology) to anonymous callers. Operators who want stacks in
+        // dev set `AGENT_NATIVE_DEBUG_ERRORS=1` explicitly.
+        ...(status >= 500 &&
+        process.env.AGENT_NATIVE_DEBUG_ERRORS === "1" &&
+        e?.stack
           ? { stack: e.stack }
           : {}),
       };
     } finally {
       // Restore the original pathname so downstream middleware sees the
       // full URL.
-      if (originalPathname !== undefined) {
-        try {
-          event.url.pathname = originalPathname;
-        } catch {
-          // ignore
-        }
-      }
+      restoreOriginalPath();
     }
   };
 

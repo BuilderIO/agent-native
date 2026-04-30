@@ -382,6 +382,7 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
   //    so every downstream FK (`spaces.workspace_id`, `recordings.workspace_id`,
   //    etc.) already points at the right org without a remap. The framework
   //    `organizations` table has a simple shape: id, name, created_by, created_at.
+  // guard:allow-unscoped — schema migration backfill — system-level by design
   try {
     if (pg) {
       await exec.execute(`
@@ -414,6 +415,7 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
   }
 
   // 2) Copy workspaces → organization_settings (brand fields sidecar).
+  // guard:allow-unscoped — schema migration backfill — system-level by design
   try {
     await exec.execute(`
       INSERT INTO organization_settings (organization_id, brand_color, brand_logo_url, default_visibility, created_at, updated_at)
@@ -670,6 +672,7 @@ async function sweepOrphanedRecordingChunks(): Promise<void> {
 
   for (const [recordingId, keys] of keysByRecording) {
     let shouldSweep = false;
+    // guard:allow-unscoped — orphaned-chunk GC sweep — system-level by design
     try {
       const probe = await exec.execute({
         sql: pg

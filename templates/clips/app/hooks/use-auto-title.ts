@@ -19,7 +19,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { agentNativePath, sendToAgentChat } from "@agent-native/core/client";
 import { useRecordings, type RecordingSummary } from "./use-library";
 
 const DEFAULT_TITLE = "Untitled recording";
@@ -43,9 +43,11 @@ interface AiRequest {
 }
 
 async function readRequest(recordingId: string): Promise<AiRequest | null> {
-  const url = `/_agent-native/application-state/${encodeURIComponent(
-    `clips-ai-request-${recordingId}`,
-  )}`;
+  const url = agentNativePath(
+    `/_agent-native/application-state/${encodeURIComponent(
+      `clips-ai-request-${recordingId}`,
+    )}`,
+  );
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
@@ -60,9 +62,11 @@ async function readRequest(recordingId: string): Promise<AiRequest | null> {
 }
 
 async function clearRequest(recordingId: string): Promise<void> {
-  const url = `/_agent-native/application-state/${encodeURIComponent(
-    `clips-ai-request-${recordingId}`,
-  )}`;
+  const url = agentNativePath(
+    `/_agent-native/application-state/${encodeURIComponent(
+      `clips-ai-request-${recordingId}`,
+    )}`,
+  );
   await fetch(url, { method: "DELETE" }).catch(() => {});
 }
 

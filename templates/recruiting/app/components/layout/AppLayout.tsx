@@ -13,7 +13,6 @@ import {
   IconUsers,
   IconCalendar,
   IconSettings,
-  IconPlant2,
   IconAlertCircle,
   IconUsersGroup,
   IconX,
@@ -171,10 +170,19 @@ export function AppLayout({ children }: AppLayoutProps) {
                 : "-translate-x-full md:translate-x-0",
             )}
           >
-            <div className="flex h-12 items-center gap-2.5 px-4 border-b border-border">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-green-600/10">
-                <IconPlant2 className="h-4 w-4 text-green-600" />
-              </div>
+            <div className="flex h-12 items-center gap-2 px-4 border-b border-border">
+              <img
+                src="/agent-native-icon-light.svg"
+                alt=""
+                aria-hidden="true"
+                className="block h-4 w-auto shrink-0 dark:hidden"
+              />
+              <img
+                src="/agent-native-icon-dark.svg"
+                alt=""
+                aria-hidden="true"
+                className="hidden h-4 w-auto shrink-0 dark:block"
+              />
               <span className="text-sm font-semibold text-foreground">
                 Recruiting
               </span>

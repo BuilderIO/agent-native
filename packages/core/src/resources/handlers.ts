@@ -33,6 +33,7 @@ import {
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { uploadFile } from "../file-upload/index.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { getOrgContext } from "../org/context.js";
 import { createError } from "h3";
 
@@ -43,12 +44,20 @@ import { createError } from "h3";
 async function resolveOwner(event: any, shared?: boolean): Promise<string> {
   if (shared) return SHARED_OWNER;
   const session = await getSession(event);
-  return session?.email || "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return session.email;
 }
 
 async function resolveEmail(event: any): Promise<string> {
   const session = await getSession(event);
-  return session?.email || "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return session.email;
 }
 
 /**
@@ -57,6 +66,10 @@ async function resolveEmail(event: any): Promise<string> {
  * Read access remains open to every org member.
  */
 async function assertCanEditShared(event: any): Promise<void> {
+  const session = await getSession(event);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
   const ctx = await getOrgContext(event);
   if (!ctx.orgId) return; // solo / dev mode — no org, treat as owner
   if (ctx.role === "owner" || ctx.role === "admin") return;
@@ -290,6 +303,12 @@ export async function handleGetResource(event: any) {
     return { error: "Resource not found" };
   }
 
+  const email = await resolveEmail(event);
+  if (resource.owner !== SHARED_OWNER && resource.owner !== email) {
+    setResponseStatus(event, 404);
+    return { error: "Resource not found" };
+  }
+
   // Serve raw binary when ?raw query param is set (used by <img> tags etc.)
   const query = getQuery(event);
   const wantsRaw = query.raw !== undefined;
@@ -375,8 +394,8 @@ export async function handleUpdateResource(event: any) {
   // Ownership check: only the owner (or shared resource editors) can update
   const email = await resolveEmail(event);
   if (existing.owner !== SHARED_OWNER && existing.owner !== email) {
-    setResponseStatus(event, 403);
-    return { error: "Forbidden" };
+    setResponseStatus(event, 404);
+    return { error: "Resource not found" };
   }
   if (existing.owner === SHARED_OWNER) {
     await assertCanEditShared(event);
@@ -417,8 +436,8 @@ export async function handleDeleteResource(event: any) {
   // Ownership check: only the owner (or shared resource editors) can delete
   const email = await resolveEmail(event);
   if (existing.owner !== SHARED_OWNER && existing.owner !== email) {
-    setResponseStatus(event, 403);
-    return { error: "Forbidden" };
+    setResponseStatus(event, 404);
+    return { error: "Resource not found" };
   }
   if (existing.owner === SHARED_OWNER) {
     await assertCanEditShared(event);
@@ -463,12 +482,24 @@ export async function handleUploadResource(event: any) {
     mimeType.startsWith("text/") || mimeType === "application/json";
 
   if (!isText) {
-    const uploaded = await uploadFile({
-      data: filePart.data,
-      filename: fileName,
-      mimeType,
-      ownerEmail: owner,
-    });
+    // Use the actual session user email for credential resolution — not `owner`,
+    // which is "__shared__" for org-wide resources and would break the per-user
+    // DB credential lookup (resolveBuilderCredential refuses env fallback for any
+    // non-null non-local email, including the sentinel value).
+    const credentialEmail =
+      owner !== SHARED_OWNER
+        ? owner
+        : (await getSession(event).catch(() => null))?.email;
+    const doUpload = () =>
+      uploadFile({
+        data: filePart.data,
+        filename: fileName,
+        mimeType,
+        ownerEmail: owner,
+      });
+    const uploaded = credentialEmail
+      ? await runWithRequestContext({ userEmail: credentialEmail }, doUpload)
+      : await doUpload();
     if (uploaded) {
       const resource = await resourcePut(owner, path, uploaded.url, mimeType);
       setResponseStatus(event, 201);

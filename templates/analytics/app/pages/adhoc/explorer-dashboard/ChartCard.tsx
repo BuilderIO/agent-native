@@ -1,7 +1,17 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   IconGripVertical,
   IconTrash,
@@ -17,6 +27,7 @@ import { ExplorerChart } from "../explorer/components/ExplorerChart";
 import { buildSql } from "../explorer/sql-builder";
 import type { ExplorerConfig } from "../explorer/types";
 import type { DashboardChart } from "./index";
+import { appApiPath } from "@agent-native/core/client";
 
 interface ChartCardProps {
   chart: DashboardChart;
@@ -28,7 +39,7 @@ interface ChartCardProps {
 
 async function fetchConfig(id: string): Promise<ExplorerConfig | null> {
   const token = await getIdToken();
-  const res = await fetch(`/api/explorer-configs/${id}`, {
+  const res = await fetch(appApiPath(`/api/explorer-configs/${id}`), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return null;
@@ -44,6 +55,8 @@ export function DashboardChartCard({
   onToggleWidth,
   onEdit,
 }: ChartCardProps) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
   const {
     attributes,
     listeners,
@@ -114,7 +127,7 @@ export function DashboardChartCard({
               <IconExternalLink className="h-3.5 w-3.5" />
             </button>
             <button
-              onClick={onRemove}
+              onClick={() => setConfirmOpen(true)}
               className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
               title="Remove chart"
             >
@@ -139,6 +152,29 @@ export function DashboardChartCard({
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove chart?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove &ldquo;{config?.name ?? configName}&rdquo; from this
+              dashboard? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOpen(false);
+                onRemove();
+              }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

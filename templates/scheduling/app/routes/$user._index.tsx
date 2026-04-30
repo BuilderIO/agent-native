@@ -11,6 +11,17 @@ export async function loader({ params }: LoaderFunctionArgs) {
   return { eventTypes, ownerEmail };
 }
 
+export function meta({ data }: { data?: { ownerEmail: string } }) {
+  const name = data?.ownerEmail?.split("@")[0] ?? "Booking";
+  return [
+    { title: `Book a meeting with ${name}` },
+    {
+      name: "description",
+      content: `Pick a time to meet with ${name}.`,
+    },
+  ];
+}
+
 export default function PublicProfile() {
   const { eventTypes, ownerEmail } = useLoaderData<typeof loader>();
   const displayName = ownerEmail.split("@")[0];

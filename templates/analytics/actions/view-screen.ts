@@ -1,19 +1,16 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server";
 import { readAppState } from "@agent-native/core/application-state";
-import {
-  getOrgSetting,
-  getSetting,
-  getUserSetting,
-} from "@agent-native/core/settings";
+import { getDashboard } from "../server/lib/dashboards-store";
 
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, dashboard config (if on a dashboard), and any active URL filter params. Always call this first before taking any action.",
-  parameters: {},
+  schema: z.object({}),
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");
@@ -44,16 +41,15 @@ export default defineAction({
 
     if (nav?.view === "adhoc" && nav?.dashboardId) {
       try {
-        const key = `dashboard-${nav.dashboardId}`;
         const orgId = getRequestOrgId() || null;
-        const email = getRequestUserEmail() || "local@localhost";
-        const config =
-          (orgId ? await getOrgSetting(orgId, key) : null) ||
-          (email !== "local@localhost"
-            ? await getUserSetting(email, key)
-            : null) ||
-          (await getSetting(key));
-        if (config) screen.dashboard = config;
+        const email = getRequestUserEmail();
+        if (email) {
+          const dashboard = await getDashboard(nav.dashboardId, {
+            email,
+            orgId,
+          });
+          if (dashboard) screen.dashboard = dashboard.config;
+        }
       } catch {
         // Dashboard config not found
       }

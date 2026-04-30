@@ -9,7 +9,7 @@
  * filtered so queries only return the current user's data.
  *
  * Usage:
- *   pnpm action db-query --sql "SELECT * FROM forms" [--db path] [--format json] [--limit N]
+ *   pnpm action db-query --sql "SELECT * FROM forms WHERE id = ?" [--args '["abc"]'] [--db path] [--format json] [--limit N]
  */
 
 import path from "path";
@@ -20,6 +20,103 @@ import { buildScopingPostgres, buildScopingSqlite } from "./scoping.js";
 
 function isPostgresUrl(url: string): boolean {
   return url.startsWith("postgres://") || url.startsWith("postgresql://");
+}
+
+function parseSqlArgs(raw: string | undefined): unknown[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {
+    // Fall through to the shared error below.
+  }
+  fail("--args must be a JSON array");
+}
+
+function convertQuestionMarksToPostgresParams(sql: string): string {
+  let index = 0;
+  let out = "";
+  let state: "normal" | "single" | "double" | "line-comment" | "block-comment" =
+    "normal";
+
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (state === "line-comment") {
+      out += ch;
+      if (ch === "\n") state = "normal";
+      continue;
+    }
+
+    if (state === "block-comment") {
+      out += ch;
+      if (ch === "*" && next === "/") {
+        out += next;
+        i++;
+        state = "normal";
+      }
+      continue;
+    }
+
+    if (state === "single") {
+      out += ch;
+      if (ch === "'" && next === "'") {
+        out += next;
+        i++;
+      } else if (ch === "'") {
+        state = "normal";
+      }
+      continue;
+    }
+
+    if (state === "double") {
+      out += ch;
+      if (ch === '"' && next === '"') {
+        out += next;
+        i++;
+      } else if (ch === '"') {
+        state = "normal";
+      }
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      out += ch + next;
+      i++;
+      state = "line-comment";
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      out += ch + next;
+      i++;
+      state = "block-comment";
+      continue;
+    }
+    if (ch === "'") {
+      out += ch;
+      state = "single";
+      continue;
+    }
+    if (ch === '"') {
+      out += ch;
+      state = "double";
+      continue;
+    }
+    if (ch === "?") {
+      index++;
+      out += `$${index}`;
+      continue;
+    }
+    out += ch;
+  }
+
+  return out;
+}
+
+function normalizePostgresSql(sql: string, args: unknown[]): string {
+  if (args.length === 0 || /\$\d+\b/.test(sql)) return sql;
+  return convertQuestionMarksToPostgresParams(sql);
 }
 
 function printTable(
@@ -73,6 +170,7 @@ export default async function dbQuery(args: string[]): Promise<void> {
 
 Options:
   --sql <query>   SQL SELECT query to run (required)
+  --args <json>   JSON array of positional SQL bind parameters
   --db <path>     Path to SQLite database (default: data/app.db)
   --format json   Output as JSON instead of a table
   --limit N       Append LIMIT N if not already present
@@ -84,6 +182,7 @@ Options:
   if (!sql) {
     fail('--sql is required. Example: --sql "SELECT * FROM forms"');
   }
+  const sqlArgs = parseSqlArgs(parsed.args);
 
   // Safety: only allow read-only statements.
   // Strip leading SQL comments before checking the prefix.
@@ -136,13 +235,17 @@ Options:
         await pgSql.unsafe(stmt);
       }
 
-      const result = await pgSql.unsafe(finalSql);
+      const pgSqlText = normalizePostgresSql(finalSql, sqlArgs);
+      const result =
+        sqlArgs.length > 0
+          ? await pgSql.unsafe(pgSqlText, sqlArgs as any[])
+          : await pgSql.unsafe(pgSqlText);
       const rows: Record<string, unknown>[] = Array.from(result);
       const keys = rows.length > 0 ? Object.keys(rows[0]) : [];
 
       printTable(
         rows.length > 0 ? rows : keys.length > 0 ? rows : [],
-        finalSql,
+        pgSqlText,
         parsed.format,
       );
 
@@ -169,7 +272,10 @@ Options:
       await client.execute(stmt);
     }
 
-    const result = await client.execute(finalSql);
+    const result =
+      sqlArgs.length > 0
+        ? await client.execute({ sql: finalSql, args: sqlArgs as any[] })
+        : await client.execute(finalSql);
     const rows: Record<string, unknown>[] = result.rows.map((row) => {
       const obj: Record<string, unknown> = {};
       for (let i = 0; i < result.columns.length; i++) {

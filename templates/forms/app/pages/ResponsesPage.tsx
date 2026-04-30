@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router";
 import { format } from "date-fns";
-import { ArrowLeft, Download, RefreshCw } from "lucide-react";
+import { IconArrowLeft, IconDownload, IconRefresh } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -91,7 +91,7 @@ export function ResponsesPage() {
           onClick={() => refetch()}
           className="gap-2"
         >
-          <RefreshCw className="h-3.5 w-3.5" />
+          <IconRefresh className="h-3.5 w-3.5" />
           Retry
         </Button>
       </div>
@@ -110,7 +110,7 @@ export function ResponsesPage() {
             className="gap-1.5 shrink-0"
           >
             <Link to={`/forms/${id}`}>
-              <ArrowLeft className="h-3.5 w-3.5" />
+              <IconArrowLeft className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Back to Builder</span>
               <span className="sm:hidden">Back</span>
             </Link>
@@ -129,7 +129,7 @@ export function ResponsesPage() {
           onClick={exportCsv}
           disabled={responses.length === 0}
         >
-          <Download className="h-3.5 w-3.5" />
+          <IconDownload className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Export CSV</span>
           <span className="sm:hidden">Export</span>
         </Button>

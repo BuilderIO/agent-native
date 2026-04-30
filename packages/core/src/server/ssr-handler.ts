@@ -18,6 +18,99 @@
 import { createRequestHandler } from "react-router";
 import { defineEventHandler } from "h3";
 
+function normalizeAppBasePath(value: string | undefined): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function getAppBasePath(): string {
+  const metaEnv = (
+    import.meta as unknown as {
+      env?: Record<string, string | undefined>;
+    }
+  ).env;
+  return normalizeAppBasePath(
+    process.env.VITE_APP_BASE_PATH ||
+      process.env.APP_BASE_PATH ||
+      metaEnv?.VITE_APP_BASE_PATH ||
+      metaEnv?.APP_BASE_PATH ||
+      metaEnv?.BASE_URL,
+  );
+}
+
+function stripAppBasePath(pathname: string): string {
+  const basePath = getAppBasePath();
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
+function requestWithPathname(request: Request, pathname: string): Request {
+  const url = new URL(request.url);
+  if (url.pathname === pathname) return request;
+  url.pathname = pathname;
+  return new Request(url, {
+    method: request.method,
+    headers: request.headers,
+    signal: request.signal,
+  });
+}
+
+function prefixMountedPath(path: string, basePath: string): string {
+  if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
+  if (path === basePath || path.startsWith(`${basePath}/`)) return path;
+  return `${basePath}${path}`;
+}
+
+function prefixMountedHtml(html: string, basePath: string): string {
+  if (!basePath) return html;
+  return html
+    .replace(
+      /\b(href|src|action|formaction|poster)=(["'])(\/(?!\/)[^"']*)\2/g,
+      (_match, attr: string, quote: string, path: string) =>
+        `${attr}=${quote}${prefixMountedPath(path, basePath)}${quote}`,
+    )
+    .replace(/url\((["']?)(\/(?!\/)[^)'" ]+)\1\)/g, (_match, quote, path) => {
+      const q = quote || "";
+      return `url(${q}${prefixMountedPath(path, basePath)}${q})`;
+    });
+}
+
+async function rewriteMountedResponse(
+  response: Response,
+  basePath: string,
+): Promise<Response> {
+  if (!basePath) return response;
+
+  const headers = new Headers(response.headers);
+  const location = headers.get("location");
+  if (location?.startsWith("/") && !location.startsWith("//")) {
+    headers.set("location", prefixMountedPath(location, basePath));
+  }
+
+  const contentType = headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("text/html") || !response.body) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  const html = await response.text();
+  headers.delete("content-length");
+  return new Response(prefixMountedHtml(html, basePath), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 /**
  * Create an h3 catch-all that hands page routes to React Router and
  * returns 404 for framework / asset paths that React Router doesn't own.
@@ -25,7 +118,8 @@ import { defineEventHandler } from "h3";
 export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
   const handler = createRequestHandler(getBuild as any);
   return defineEventHandler(async (event) => {
-    const p = event.url.pathname;
+    const basePath = getAppBasePath();
+    const p = stripAppBasePath(event.url.pathname);
     if (
       p.startsWith("/.well-known/") ||
       p.startsWith("/_agent-native/") ||
@@ -37,7 +131,24 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       return new Response(null, { status: 404 });
     }
     try {
-      return await handler(event.req as Request);
+      const request = requestWithPathname(event.req as Request, p);
+      if (request.method === "HEAD") {
+        const getRequest = new Request(request.url, {
+          method: "GET",
+          headers: request.headers,
+          signal: request.signal,
+        });
+        const response = await handler(getRequest);
+        return await rewriteMountedResponse(
+          new Response(null, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+          }),
+          basePath,
+        );
+      }
+      return await rewriteMountedResponse(await handler(request), basePath);
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.
       // Stack traces expose file paths, library versions, and code structure

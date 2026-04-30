@@ -1,9 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { sql } from "drizzle-orm";
 import { getDb } from "../server/db/index.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Check database health and connectivity",
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
     const isLocal = (
@@ -11,7 +13,7 @@ export default defineAction({
     ).startsWith("file:");
     try {
       const db = getDb();
-      await db.run(sql`SELECT 1`);
+      await db.execute(sql`SELECT 1`);
       return { ok: true, local: isLocal };
     } catch (e) {
       return {

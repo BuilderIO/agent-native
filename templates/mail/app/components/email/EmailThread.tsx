@@ -28,6 +28,7 @@ import {
 } from "@/hooks/use-emails";
 import { useQueryClient } from "@tanstack/react-query";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
+import { appApiPath } from "@/lib/api-path";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
@@ -806,6 +807,7 @@ export function EmailThread({
         },
       },
       { key: "e", handler: handleArchive },
+      { key: "d", handler: handleTrash },
       { key: "s", handler: handleStar },
       {
         key: "r",
@@ -977,7 +979,7 @@ export function EmailThread({
     setUnsubscribing(true);
     try {
       const res = await fetch(
-        `/api/emails/${unsubscribeInfo.messageId}/unsubscribe`,
+        appApiPath(`/api/emails/${unsubscribeInfo.messageId}/unsubscribe`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1255,7 +1257,9 @@ export function EmailThread({
                               onClick: () => {
                                 if (snapshot.savedDraftId) {
                                   fetch(
-                                    `/api/emails/${snapshot.savedDraftId}`,
+                                    appApiPath(
+                                      `/api/emails/${snapshot.savedDraftId}`,
+                                    ),
                                     {
                                       method: "DELETE",
                                     },
@@ -1311,9 +1315,14 @@ export function EmailThread({
                           label: "DELETE DRAFT",
                           onClick: () => {
                             if (snapshot.savedDraftId) {
-                              fetch(`/api/emails/${snapshot.savedDraftId}`, {
-                                method: "DELETE",
-                              });
+                              fetch(
+                                appApiPath(
+                                  `/api/emails/${snapshot.savedDraftId}`,
+                                ),
+                                {
+                                  method: "DELETE",
+                                },
+                              );
                             }
                           },
                         },
@@ -1759,7 +1768,9 @@ const ExpandedMessageCard = forwardRef<
               {email.attachments
                 .filter((a) => a.mimeType.startsWith("image/"))
                 .map((att) => {
-                  const url = `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`;
+                  const url = appApiPath(
+                    `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`,
+                  );
                   return (
                     <a
                       key={att.id}
@@ -1787,7 +1798,9 @@ const ExpandedMessageCard = forwardRef<
               .map((att) => (
                 <a
                   key={att.id}
-                  href={`/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`}
+                  href={appApiPath(
+                    `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
+                  )}
                   download={att.filename}
                   className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs hover:bg-accent cursor-pointer"
                 >
@@ -1805,7 +1818,9 @@ const ExpandedMessageCard = forwardRef<
                 onClick={() => {
                   for (const att of email.attachments!) {
                     const a = document.createElement("a");
-                    a.href = `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`;
+                    a.href = appApiPath(
+                      `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
+                    );
                     a.download = att.filename;
                     a.click();
                   }
@@ -2328,13 +2343,63 @@ type SanitizedEmailHtml = {
   bodyHtml: string;
 };
 
+function decodeHtmlEntities(value: string): string {
+  let decoded = value;
+  for (let i = 0; i < 3; i++) {
+    const next = decoded
+      .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) =>
+        String.fromCodePoint(Number.parseInt(hex, 16)),
+      )
+      .replace(/&#(\d+);?/g, (_, dec: string) =>
+        String.fromCodePoint(Number.parseInt(dec, 10)),
+      )
+      .replace(/&colon;?/gi, ":")
+      .replace(/&tab;?/gi, "\t")
+      .replace(/&newline;?/gi, "\n")
+      .replace(/&amp;?/gi, "&");
+    if (next === decoded) break;
+    decoded = next;
+  }
+  return decoded;
+}
+
+function isSafeEmailUrl(value: string, kind: "link" | "image"): boolean {
+  const decoded = decodeHtmlEntities(value).trim();
+  if (!decoded) return false;
+  const lower = decoded.replace(/[\s\u0000-\u001f\u007f]+/g, "").toLowerCase();
+
+  if (
+    lower.startsWith("javascript:") ||
+    lower.startsWith("vbscript:") ||
+    lower.startsWith("file:") ||
+    lower.startsWith("//")
+  ) {
+    return false;
+  }
+
+  if (kind === "image" && lower.startsWith("cid:")) return true;
+  if (kind === "image" && lower.startsWith("data:image/")) {
+    return /^data:image\/(?:gif|png|jpe?g|webp);base64,/i.test(decoded);
+  }
+  if (decoded.startsWith("#")) return true;
+
+  try {
+    const url = new URL(decoded);
+    return kind === "image"
+      ? url.protocol === "http:" || url.protocol === "https:"
+      : ["http:", "https:", "mailto:", "tel:"].includes(url.protocol);
+  } catch {
+    return false;
+  }
+}
+
 function sanitizeEmailHtml(html: string): SanitizedEmailHtml {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
   doc
     .querySelectorAll(
-      "script, noscript, iframe, frame, object, embed, base, meta[http-equiv='refresh']",
+      "script, noscript, iframe, frame, object, embed, form, input, button, base, meta[http-equiv='refresh']",
     )
     .forEach((node) => node.remove());
 
@@ -2347,9 +2412,26 @@ function sanitizeEmailHtml(html: string): SanitizedEmailHtml {
         el.removeAttribute(attr.name);
         continue;
       }
+      if (name === "srcdoc" || name === "srcset") {
+        el.removeAttribute(attr.name);
+        continue;
+      }
       if (
-        (name === "href" || name === "src" || name === "xlink:href") &&
-        value.startsWith("javascript:")
+        (name === "href" || name === "xlink:href") &&
+        !isSafeEmailUrl(attr.value, "link")
+      ) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if (name === "src" && !isSafeEmailUrl(attr.value, "image")) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if (
+        name === "style" &&
+        /(?:expression\s*\(|url\s*\(\s*(?:javascript|vbscript|file)\s*:|@import)/i.test(
+          decodeHtmlEntities(value),
+        )
       ) {
         el.removeAttribute(attr.name);
       }
@@ -2817,7 +2899,7 @@ function HtmlEmailBody({
 
           // Call our API
           try {
-            const res = await fetch("/api/calendar/rsvp", {
+            const res = await fetch(appApiPath("/api/calendar/rsvp"), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({

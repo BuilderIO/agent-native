@@ -29,9 +29,6 @@ export interface SSEEvent {
   preview?: string;
   currentStep?: string;
   summary?: string;
-  // Usage limit fields
-  usageCents?: number;
-  limitCents?: number;
   // Structured error metadata — Builder gateway sets these on 402/403 so the
   // UI can render an upgrade CTA alongside the error text.
   errorCode?: string;
@@ -48,13 +45,7 @@ export function processEvent(
   toolCallCounter: { value: number },
   tabId: string | undefined,
 ): {
-  action:
-    | "continue"
-    | "done"
-    | "yield"
-    | "error"
-    | "missing_api_key"
-    | "usage_limit_reached";
+  action: "continue" | "done" | "yield" | "error" | "missing_api_key";
   result?: ChatModelRunResult;
 } {
   if (ev.type === "clear") {
@@ -203,27 +194,6 @@ export function processEvent(
     };
   }
 
-  if (ev.type === "usage_limit_reached") {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("agent-chat:usage-limit-reached", {
-          detail: {
-            usageCents: ev.usageCents,
-            limitCents: ev.limitCents,
-          },
-        }),
-      );
-    }
-    content.push({ type: "text", text: "" });
-    return {
-      action: "usage_limit_reached",
-      result: {
-        content: [...content],
-        status: { type: "incomplete" as const, reason: "error" as const },
-      } as ChatModelRunResult,
-    };
-  }
-
   if (ev.type === "loop_limit") {
     content.push({
       type: "text",
@@ -335,8 +305,7 @@ export async function* readSSEStream(
         if (
           action === "done" ||
           action === "error" ||
-          action === "missing_api_key" ||
-          action === "usage_limit_reached"
+          action === "missing_api_key"
         ) {
           return;
         }
@@ -397,16 +366,14 @@ export async function readSSEStreamRaw(
           action === "yield" ||
           action === "done" ||
           action === "error" ||
-          action === "missing_api_key" ||
-          action === "usage_limit_reached"
+          action === "missing_api_key"
         ) {
           updated = true;
         }
         if (
           action === "done" ||
           action === "error" ||
-          action === "missing_api_key" ||
-          action === "usage_limit_reached"
+          action === "missing_api_key"
         ) {
           onUpdate([...content]);
           return;

@@ -14,6 +14,7 @@ import {
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import type { Deck } from "@/context/DeckContext";
+import { appBasePath } from "@agent-native/core/client";
 
 interface ShareDialogProps {
   deck: Deck;
@@ -35,7 +36,7 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
     setError("");
 
     try {
-      const res = await fetch("/api/share", {
+      const res = await fetch(`${appBasePath()}/api/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deck }),
@@ -47,7 +48,7 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
       }
 
       const data = await res.json();
-      const url = `${window.location.origin}/share/${data.shareToken}`;
+      const url = `${window.location.origin}${appBasePath()}/share/${data.shareToken}`;
       setShareUrl(url);
     } catch (err: any) {
       setError(err.message);

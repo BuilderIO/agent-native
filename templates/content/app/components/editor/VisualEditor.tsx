@@ -13,7 +13,7 @@ import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
-import { defaultMarkdownSerializer } from "@tiptap/pm/markdown";
+import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import {
   Plugin,
   PluginKey,
@@ -537,7 +537,7 @@ export function VisualEditor({
         // this prevents overwriting DB content with empty string
         if (!normalized.trim() && ydoc) return;
         lastEmittedRef.current = normalized;
-        onChangeRef.current(normalized);
+        queueMicrotask(() => onChangeRef.current(normalized));
       } catch (err: any) {
         toast.error("Markdown serialization error: " + err.message);
         console.error("Markdown serialization error:", err);
@@ -620,7 +620,16 @@ export function VisualEditor({
     };
   }, [content, editor, documentId, ydoc]);
 
-  if (!editor) return null;
+  if (!editor) {
+    return (
+      <div className="flex flex-col gap-3 px-8 py-6 animate-pulse">
+        <div className="h-4 w-2/3 rounded bg-muted" />
+        <div className="h-4 w-full rounded bg-muted" />
+        <div className="h-4 w-5/6 rounded bg-muted" />
+        <div className="h-4 w-3/4 rounded bg-muted" />
+      </div>
+    );
+  }
 
   return (
     <div className="visual-editor-wrapper">

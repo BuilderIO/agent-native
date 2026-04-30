@@ -50,6 +50,12 @@ export function currentAccess(): AccessContext {
  * Pass the ownable resource table and its shares table; optional min role
  * (defaults to 'viewer') gates which share rows count.
  *
+ * `visibility = 'public'` is intentionally NOT admitted by default. Public
+ * means "anyone with the link can view" (still honoured by `resolveAccess`
+ * for read-by-id), not "appears in every signed-in user's list/sidebar."
+ * Pass `{ includePublic: true }` for the rare list endpoint that wants
+ * cross-user public discovery (a public template gallery, for example).
+ *
  * Example:
  *
  *   const rows = await db
@@ -62,18 +68,27 @@ export function accessFilter(
   sharesTable: any,
   ctx: AccessContext = currentAccess(),
   minRole: ShareRole = "viewer",
+  options: { includePublic?: boolean } = {},
 ): SQL {
   const { userEmail, orgId } = ctx;
+  const { includePublic = false } = options;
   const clauses: SQL[] = [];
 
   if (userEmail) {
     clauses.push(eq(resourceTable.ownerEmail, userEmail));
   }
-  clauses.push(eq(resourceTable.visibility, "public"));
-  if (orgId) {
-    clauses.push(
-      and(eq(resourceTable.visibility, "org"), eq(resourceTable.orgId, orgId))!,
-    );
+  if (minRole === "viewer") {
+    if (includePublic) {
+      clauses.push(eq(resourceTable.visibility, "public"));
+    }
+    if (orgId) {
+      clauses.push(
+        and(
+          eq(resourceTable.visibility, "org"),
+          eq(resourceTable.orgId, orgId),
+        )!,
+      );
+    }
   }
   if (userEmail) {
     clauses.push(
@@ -94,8 +109,7 @@ export function accessFilter(
     );
   }
 
-  // If there's no user and no org (fully anonymous), only public resources.
-  return or(...clauses) ?? eq(resourceTable.visibility, "public");
+  return or(...clauses) ?? sql`1=0`;
 }
 
 function minRoleSql(minRole: ShareRole): SQL {
@@ -161,22 +175,35 @@ async function highestShareRole(
   const { userEmail, orgId } = ctx;
   if (!userEmail && !orgId) return null;
   const db = reg.getDb() as any;
+
+  const principalClauses: ReturnType<typeof and>[] = [];
+  if (userEmail) {
+    principalClauses.push(
+      and(
+        eq(reg.sharesTable.principalType, "user"),
+        eq(reg.sharesTable.principalId, userEmail),
+      ),
+    );
+  }
+  if (orgId) {
+    principalClauses.push(
+      and(
+        eq(reg.sharesTable.principalType, "org"),
+        eq(reg.sharesTable.principalId, orgId),
+      ),
+    );
+  }
+
   const rows = await db
-    .select()
+    .select({ role: reg.sharesTable.role })
     .from(reg.sharesTable)
-    .where(eq(reg.sharesTable.resourceId, resourceId));
+    .where(
+      and(eq(reg.sharesTable.resourceId, resourceId), or(...principalClauses)),
+    )
+    .limit(10);
+
   let best: ShareRole | null = null;
-  for (const r of rows as Array<{
-    principalType: string;
-    principalId: string;
-    role: ShareRole;
-  }>) {
-    const matches =
-      (r.principalType === "user" &&
-        userEmail &&
-        r.principalId === userEmail) ||
-      (r.principalType === "org" && orgId && r.principalId === orgId);
-    if (!matches) continue;
+  for (const r of rows as Array<{ role: ShareRole }>) {
     if (!best || ROLE_RANK[r.role] > ROLE_RANK[best]) best = r.role;
   }
   return best;

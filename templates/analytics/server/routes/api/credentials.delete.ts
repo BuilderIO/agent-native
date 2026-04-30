@@ -1,10 +1,12 @@
 import { defineEventHandler, setResponseStatus } from "h3";
 import { credentialKeys } from "../../lib/credential-keys";
-import { deleteSetting } from "@agent-native/core/settings";
+import {
+  deleteCredential,
+  getCredentialContextFromEvent,
+} from "../../lib/credentials";
 import { readBody } from "@agent-native/core/server";
 
 const ALLOWED_KEYS = new Set(credentialKeys.map((k) => k.key));
-const SETTING_PREFIX = "credential:";
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);
@@ -23,8 +25,14 @@ export default defineEventHandler(async (event) => {
     return { error: "No recognized credential keys in request" };
   }
 
+  const ctx = await getCredentialContextFromEvent(event);
+  if (!ctx) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to delete credentials" };
+  }
+
   for (const key of filtered) {
-    await deleteSetting(`${SETTING_PREFIX}${key}`);
+    await deleteCredential(key, ctx);
   }
 
   return { deleted: filtered };

@@ -1,5 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import { toast } from "sonner";
+import {
+  appApiPath,
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client";
 
 // ---------------------------------------------------------------------------
 // Admin hooks (authenticated)
@@ -19,6 +24,9 @@ export function useCreateForm() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
     },
+    onError: () => {
+      toast.error("Failed to create form");
+    },
   });
 }
 
@@ -29,6 +37,9 @@ export function useUpdateForm() {
       qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
       qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
+    onError: () => {
+      toast.error("Failed to update form");
+    },
   });
 }
 
@@ -37,6 +48,9 @@ export function useDeleteForm() {
   return useActionMutation("delete-form", {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+    },
+    onError: () => {
+      toast.error("Failed to delete form");
     },
   });
 }
@@ -50,7 +64,7 @@ export function usePublicForm(formId: string) {
   return useQuery({
     queryKey: ["public-form", formId],
     queryFn: () =>
-      fetch(`/api/forms/public/${formId}`).then((r) => {
+      fetch(appApiPath(`/api/forms/public/${formId}`)).then((r) => {
         if (!r.ok) throw new Error("Form not found");
         return r.json();
       }),
@@ -65,15 +79,19 @@ export function useSubmitForm() {
       formId,
       data,
       captchaToken,
+      _hp,
+      _t,
     }: {
       formId: string;
       data: Record<string, unknown>;
       captchaToken?: string;
+      _hp?: string;
+      _t?: number;
     }) =>
-      fetch(`/api/submit/${formId}`, {
+      fetch(appApiPath(`/api/submit/${formId}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data, captchaToken }),
+        body: JSON.stringify({ data, captchaToken, _hp, _t }),
       }).then((r) => {
         if (!r.ok) return r.json().then((e: any) => Promise.reject(e));
         return r.json();

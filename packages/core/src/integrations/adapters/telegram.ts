@@ -14,6 +14,24 @@ import { readBody } from "../../server/h3-helpers.js";
 const TELEGRAM_MAX_LENGTH = 4096;
 
 /**
+ * One-shot warning flag — log once per process when accepting unverified
+ * webhooks (M6 in the webhook security audit).
+ */
+let _telegramUnverifiedWarned = false;
+
+/**
+ * Returns true when the deployment is running in production mode and the
+ * operator has NOT explicitly opted into accepting unverified webhooks for
+ * local testing. In production we MUST refuse webhooks whose secret is
+ * unset — otherwise an attacker can drive the agent loop with arbitrary
+ * messages (C2 in the webhook security audit).
+ */
+function shouldRefuseWhenSecretMissing(): boolean {
+  if (process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS === "1") return false;
+  return process.env.NODE_ENV === "production";
+}
+
+/**
  * Create a Telegram platform adapter.
  *
  * Required env vars:
@@ -69,7 +87,23 @@ export function telegramAdapter(): PlatformAdapter {
     async verifyWebhook(event: H3Event): Promise<boolean> {
       const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
       if (!secret) {
-        // No secret configured — accept all (Telegram recommends using a secret but doesn't require it)
+        if (shouldRefuseWhenSecretMissing()) {
+          if (!_telegramUnverifiedWarned) {
+            _telegramUnverifiedWarned = true;
+            console.error(
+              "[telegram] TELEGRAM_WEBHOOK_SECRET not set — refusing webhook in production. " +
+                "Set TELEGRAM_WEBHOOK_SECRET, or set AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1 for local testing only.",
+            );
+          }
+          return false;
+        }
+        if (!_telegramUnverifiedWarned) {
+          _telegramUnverifiedWarned = true;
+          console.warn(
+            "[telegram] TELEGRAM_WEBHOOK_SECRET not set — accepting webhook without verification (dev mode)",
+          );
+        }
+        // Dev mode: still require the bot token to be configured at all.
         return !!process.env.TELEGRAM_BOT_TOKEN;
       }
 

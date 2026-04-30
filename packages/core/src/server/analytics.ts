@@ -1,6 +1,5 @@
 /**
  * Opt-in analytics injection for SSR streams.
- *
  * Supported environment variables:
  * - `GA_MEASUREMENT_ID` — Google Analytics 4 measurement ID
  *

@@ -12,6 +12,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 
 const KeywordArray = z.array(z.string().min(1));
+const cliBoolean = z.preprocess((value) => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return value;
+}, z.boolean());
 
 export default defineAction({
   description:
@@ -26,7 +31,7 @@ export default defineAction({
       .string()
       .regex(/^#[0-9a-fA-F]{6}$/)
       .optional(),
-    enabled: z.coerce.boolean().optional(),
+    enabled: z.union([z.boolean(), cliBoolean]).optional(),
   }),
   run: async (args) => {
     const db = getDb();

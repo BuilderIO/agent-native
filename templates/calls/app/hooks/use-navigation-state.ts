@@ -6,6 +6,7 @@ import {
   useSearchParams,
 } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
 
 export type CallsView =
   | "library"
@@ -14,6 +15,8 @@ export type CallsView =
   | "search"
   | "trackers"
   | "upload"
+  | "space"
+  | "saved-view"
   | "archive"
   | "trash"
   | "settings"
@@ -29,6 +32,7 @@ export interface NavigationState {
   snippetId?: string | null;
   folderId?: string | null;
   spaceId?: string | null;
+  viewId?: string | null;
   shareId?: string | null;
   token?: string | null;
   search?: string | null;
@@ -46,6 +50,8 @@ function resolveView(path: string): CallsView {
   if (path.startsWith("/search")) return "search";
   if (path.startsWith("/trackers")) return "trackers";
   if (path.startsWith("/upload")) return "upload";
+  if (path.startsWith("/spaces/")) return "space";
+  if (path.startsWith("/views/")) return "saved-view";
   if (path.startsWith("/archive")) return "archive";
   if (path.startsWith("/trash")) return "trash";
   if (path.startsWith("/settings")) return "settings";
@@ -77,6 +83,10 @@ function pathFromCommand(cmd: NavigateCommand): string {
       return "/trackers";
     case "upload":
       return "/upload";
+    case "space":
+      return cmd.spaceId ? `/spaces/${cmd.spaceId}` : "/library";
+    case "saved-view":
+      return cmd.viewId ? `/views/${cmd.viewId}` : "/library";
     case "archive":
       return "/archive";
     case "trash":
@@ -116,6 +126,7 @@ export function useNavigationState() {
       snippetId: params.snippetId ?? null,
       folderId: params.folderId ?? null,
       spaceId: params.spaceId ?? null,
+      viewId: params.viewId ?? null,
       shareId: params.shareId ?? null,
       token: params.token ?? null,
       search: searchParams.get("q") ?? null,
@@ -129,7 +140,7 @@ export function useNavigationState() {
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      fetch("/_agent-native/application-state/navigation", {
+      fetch(agentNativePath("/_agent-native/application-state/navigation"), {
         method: "PUT",
         keepalive: true,
         headers: { "Content-Type": "application/json" },
@@ -144,7 +155,9 @@ export function useNavigationState() {
   const { data: navCommand } = useQuery<NavigateCommand | null>({
     queryKey: ["navigate-command"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/application-state/navigate");
+      const res = await fetch(
+        agentNativePath("/_agent-native/application-state/navigate"),
+      );
       if (!res.ok) return null;
       const data = (await res.json()) as NavigateCommand | null;
       if (data) return { ...data, _ts: Date.now() };
@@ -157,8 +170,9 @@ export function useNavigationState() {
 
   useEffect(() => {
     if (!navCommand) return;
-    fetch("/_agent-native/application-state/navigate", {
+    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
+      headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
     const path = pathFromCommand(navCommand);
     navigate(path);

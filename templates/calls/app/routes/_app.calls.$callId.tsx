@@ -5,7 +5,11 @@ import {
   IconLoader2,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import {
+  useActionQuery,
+  useActionMutation,
+  agentNativePath,
+} from "@agent-native/core/client";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -58,7 +62,7 @@ export default function CallPlayerRoute() {
 
   useEffect(() => {
     if (!callId) return;
-    fetch("/_agent-native/application-state/navigation", {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       keepalive: true,
       headers: { "Content-Type": "application/json" },

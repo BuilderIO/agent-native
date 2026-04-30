@@ -1,12 +1,18 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   ClientOnly,
   CommandMenu,
   DefaultSpinner,
+  appPath,
   useCommandMenuShortcut,
+  useDbSync,
 } from "@agent-native/core/client";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout as AppLayout } from "@/components/layout/Layout";
@@ -35,7 +41,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
-        <link rel="manifest" href="/manifest.json" />
+        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#EF4444" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -43,8 +49,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="black-translucent"
         />
         <meta name="apple-mobile-web-app-title" content="Videos" />
-        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-        <link rel="apple-touch-icon" href="/icon-180.svg" />
+        <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
+        <link rel="apple-touch-icon" href={appPath("/icon-180.svg")} />
         <Meta />
         <Links />
       </head>
@@ -59,6 +65,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 function AppContent() {
   useNavigationState();
+  const qc = useQueryClient();
+  useDbSync({ queryClient: qc, queryKeys: ["action"] });
   const { theme, setTheme } = useTheme();
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));

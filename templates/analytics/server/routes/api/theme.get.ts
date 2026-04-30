@@ -1,9 +1,13 @@
 import { defineEventHandler } from "h3";
-import { getSetting } from "@agent-native/core/settings";
+import {
+  getScopedSettingRecord,
+  resolveSettingsScope,
+} from "../../lib/scoped-settings";
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
   try {
-    const data = await getSetting("analytics-theme");
+    const scope = await resolveSettingsScope(event);
+    const data = await getScopedSettingRecord(scope, "analytics-theme");
     if (data) return data;
     return { theme: "dark" };
   } catch {

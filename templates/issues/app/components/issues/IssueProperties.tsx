@@ -8,6 +8,7 @@ import {
 import { useTransitions, useTransitionIssue } from "@/hooks/use-transitions";
 import type { JiraIssue, JiraTransition } from "@shared/types";
 import { format } from "date-fns";
+import { toast } from "sonner";
 
 interface IssuePropertiesProps {
   issue: JiraIssue;
@@ -21,7 +22,10 @@ export function IssueProperties({ issue }: IssuePropertiesProps) {
   const transitions: JiraTransition[] = transitionsData?.transitions || [];
 
   const handleTransition = (transitionId: string) => {
-    transitionMutation.mutate({ issueKey: issue.key, transitionId });
+    transitionMutation.mutate(
+      { issueKey: issue.key, transitionId },
+      { onError: () => toast.error("Failed to transition issue") },
+    );
   };
 
   return (

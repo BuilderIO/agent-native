@@ -494,7 +494,11 @@ export async function createNotionPageWithMarkdown(args: {
 
 export async function getDocumentOwnerEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
-  return session?.email ?? "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return session.email;
 }
 
 export function getNotionApiKey(): string | null {
@@ -532,20 +536,11 @@ export async function getNotionConnectionForOwner(owner: string) {
 
 export async function disconnectNotionForOwner(owner: string) {
   if (process.env.NOTION_API_KEY) {
-    delete process.env.NOTION_API_KEY;
-    try {
-      const path = await import("path");
-      const { upsertEnvFile } = await import(
-        "@agent-native/core/server" as string
-      );
-      const envPath = path.join(process.cwd(), ".env");
-      await (upsertEnvFile as Function)(envPath, [
-        { key: "NOTION_API_KEY", value: "" },
-      ]);
-    } catch {
-      // Edge runtime — skip file write
-    }
-    return 1;
+    // NOTION_API_KEY is deploy-level process configuration. Do not mutate
+    // process.env or rewrite .env from a request handler; that would affect
+    // every tenant sharing the same warm server process. Per-user OAuth
+    // connections below remain disconnectable.
+    return 0;
   }
 
   const accounts = await listOAuthAccountsByOwner(NOTION_PROVIDER, owner);
@@ -635,15 +630,15 @@ export async function listNotionComments(
   pageId: string,
   accessToken: string,
 ): Promise<NotionComment[]> {
-  const res = await fetch(`${NOTION_API_BASE}/comments?block_id=${pageId}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Notion-Version": NOTION_API_VERSION,
-    },
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.results ?? []) as NotionComment[];
+  try {
+    const data = await notionFetch<{ results?: NotionComment[] }>(
+      `/comments?block_id=${pageId}`,
+      accessToken,
+    );
+    return data.results ?? [];
+  } catch {
+    return [];
+  }
 }
 
 /** Add a comment to a Notion page. */
@@ -652,19 +647,16 @@ export async function addNotionComment(
   text: string,
   accessToken: string,
 ): Promise<string | null> {
-  const res = await fetch(`${NOTION_API_BASE}/comments`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Notion-Version": NOTION_API_VERSION,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      parent: { page_id: pageId },
-      rich_text: [{ text: { content: text } }],
-    }),
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.id ?? null;
+  try {
+    const data = await notionFetch<{ id?: string }>("/comments", accessToken, {
+      method: "POST",
+      body: JSON.stringify({
+        parent: { page_id: pageId },
+        rich_text: [{ text: { content: text } }],
+      }),
+    });
+    return data.id ?? null;
+  } catch {
+    return null;
+  }
 }

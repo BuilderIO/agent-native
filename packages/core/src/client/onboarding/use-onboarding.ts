@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 /**
  * `useOnboarding` — client hook for the framework onboarding system.
  *
@@ -47,12 +48,14 @@ export function useOnboarding(
 
   const fetchAll = useCallback(async () => {
     try {
-      const stepsUrl = preview
-        ? "/_agent-native/onboarding/steps?preview=1"
-        : "/_agent-native/onboarding/steps";
+      const stepsUrl = agentNativePath(
+        preview
+          ? "/_agent-native/onboarding/steps?preview=1"
+          : "/_agent-native/onboarding/steps",
+      );
       const [stepsRes, dismissRes] = await Promise.all([
         fetch(stepsUrl),
-        fetch("/_agent-native/onboarding/dismissed"),
+        fetch(agentNativePath("/_agent-native/onboarding/dismissed")),
       ]);
       if (!mountedRef.current) return;
       if (!stepsRes.ok) {
@@ -98,7 +101,9 @@ export function useOnboarding(
   const complete = useCallback(
     async (id: string) => {
       await fetch(
-        `/_agent-native/onboarding/steps/${encodeURIComponent(id)}/complete`,
+        agentNativePath(
+          `/_agent-native/onboarding/steps/${encodeURIComponent(id)}/complete`,
+        ),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -112,7 +117,7 @@ export function useOnboarding(
 
   const dismiss = useCallback(async () => {
     setDismissed(true); // optimistic
-    await fetch("/_agent-native/onboarding/dismiss", {
+    await fetch(agentNativePath("/_agent-native/onboarding/dismiss"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
@@ -122,7 +127,7 @@ export function useOnboarding(
 
   const reopen = useCallback(async () => {
     setDismissed(false); // optimistic
-    await fetch("/_agent-native/onboarding/reopen", {
+    await fetch(agentNativePath("/_agent-native/onboarding/reopen"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",

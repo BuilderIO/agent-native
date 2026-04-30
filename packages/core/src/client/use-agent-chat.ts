@@ -22,8 +22,8 @@ export function useAgentChatGenerating(): [
         setIsGenerating(false);
       }
     };
-    window.addEventListener("builder.chatRunning", handler);
-    return () => window.removeEventListener("builder.chatRunning", handler);
+    window.addEventListener("agentNative.chatRunning", handler);
+    return () => window.removeEventListener("agentNative.chatRunning", handler);
   }, []);
 
   const send = useCallback((opts: AgentChatMessage): string => {

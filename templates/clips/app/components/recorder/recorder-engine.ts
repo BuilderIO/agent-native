@@ -6,6 +6,7 @@
  * but no React state lives here — callers subscribe via `onState`, `onChunk`,
  * and `onError`.
  */
+import { appBasePath } from "@agent-native/core/client";
 
 export type RecordingMode = "screen" | "camera" | "screen+camera";
 
@@ -125,8 +126,11 @@ export class RecorderEngine {
     this.opts = {
       chunkIntervalMs: options.chunkIntervalMs ?? DEFAULT_CHUNK_MS,
       uploadUrl:
-        options.uploadUrl ?? `/api/uploads/${options.recordingId}/chunk`,
-      abortUrl: options.abortUrl ?? `/api/uploads/${options.recordingId}/abort`,
+        options.uploadUrl ??
+        `${appBasePath()}/api/uploads/${options.recordingId}/chunk`,
+      abortUrl:
+        options.abortUrl ??
+        `${appBasePath()}/api/uploads/${options.recordingId}/abort`,
       ...options,
     };
   }

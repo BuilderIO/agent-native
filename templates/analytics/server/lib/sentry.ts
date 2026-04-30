@@ -2,6 +2,10 @@
 // Fetches projects, issues, events, and org-level stats
 
 import { resolveCredential } from "./credentials";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_BASE = "https://sentry.io/api/0";
 const ORG_SLUG = "bridge-tm";
@@ -12,10 +16,11 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 100;
 
 async function getToken(): Promise<string> {
+  const ctx = requireRequestCredentialContext("SENTRY_SERVER_TOKEN");
   const token =
-    (await resolveCredential("SENTRY_SERVER_TOKEN")) ??
-    (await resolveCredential("SENTRY_AUTH_TOKEN"));
-  if (!token) throw new Error("SENTRY_SERVER_TOKEN env var required");
+    (await resolveCredential("SENTRY_SERVER_TOKEN", ctx)) ??
+    (await resolveCredential("SENTRY_AUTH_TOKEN", ctx));
+  if (!token) throw new Error("SENTRY_SERVER_TOKEN not configured");
   return token;
 }
 
@@ -28,7 +33,7 @@ function cacheSet(key: string, data: unknown) {
 }
 
 async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
-  const key = cacheKey ?? path;
+  const key = scopedCredentialCacheKey(cacheKey ?? path, "SENTRY_SERVER_TOKEN");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

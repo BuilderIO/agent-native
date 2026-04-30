@@ -1,0 +1,1 @@
+import{i as e}from"../_runtime.mjs";import{E as t,T as n}from"./@assistant-ui/core+[...].mjs";var r=e(t(),1);n();var i=r.createContext(void 0);function a(e){let t=r.useContext(i);return e||t||`ltr`}export{a as t};

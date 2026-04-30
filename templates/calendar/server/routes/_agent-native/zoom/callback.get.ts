@@ -42,7 +42,11 @@ export default defineEventHandler(async (event: H3Event) => {
 
     const { owner } = await resolveOAuthOwner(event, stateOwner);
     const session = await getSession(event);
-    const ownerEmail = owner ?? session?.email ?? "local@localhost";
+    const ownerEmail = owner ?? session?.email;
+    if (!ownerEmail) {
+      setResponseStatus(event, 401);
+      return oauthErrorPage("Unauthenticated — please sign in and retry.");
+    }
 
     const { email } = await exchangeZoomCode(code, redirectUri, ownerEmail);
 

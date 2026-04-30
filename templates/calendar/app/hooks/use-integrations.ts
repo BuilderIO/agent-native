@@ -1,4 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
+import { appApiPath } from "@/lib/api-path";
 
 // ─── Generic integration credentials (via application-state) ────────────────
 
@@ -8,7 +10,9 @@ function useIntegrationStatus(provider: Provider) {
   const { data } = useQuery<{ apiKey?: string } | null>({
     queryKey: ["integration-status", provider],
     queryFn: async () => {
-      const res = await fetch(`/_agent-native/application-state/${provider}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/application-state/${provider}`),
+      );
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`${res.status}`);
       return res.json();
@@ -22,11 +26,14 @@ function useIntegrationConnect(provider: Provider) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (apiKey: string) => {
-      const res = await fetch(`/_agent-native/application-state/${provider}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey }),
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/application-state/${provider}`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey }),
+        },
+      );
       if (!res.ok) throw new Error(`${res.status}`);
     },
     onSuccess: () => {
@@ -40,9 +47,12 @@ function useIntegrationDisconnect(provider: Provider) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      await fetch(`/_agent-native/application-state/${provider}`, {
-        method: "DELETE",
-      });
+      await fetch(
+        agentNativePath(`/_agent-native/application-state/${provider}`),
+        {
+          method: "DELETE",
+        },
+      );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["integration-status", provider] });
@@ -74,7 +84,7 @@ export function useHubSpotContact(email: string | undefined) {
     queryKey: ["integration-data", "hubspot", email],
     queryFn: async () => {
       const res = await fetch(
-        `/api/hubspot/contact?email=${encodeURIComponent(email!)}`,
+        appApiPath(`/api/hubspot/contact?email=${encodeURIComponent(email!)}`),
       );
       if (!res.ok) return null;
       return res.json();
@@ -91,7 +101,7 @@ export function usePylonContact(email: string | undefined) {
     queryKey: ["integration-data", "pylon", email],
     queryFn: async () => {
       const res = await fetch(
-        `/api/pylon/contact?email=${encodeURIComponent(email!)}`,
+        appApiPath(`/api/pylon/contact?email=${encodeURIComponent(email!)}`),
       );
       if (!res.ok) return null;
       return res.json();
@@ -108,7 +118,7 @@ export function useGongCalls(email: string | undefined) {
     queryKey: ["integration-data", "gong", email],
     queryFn: async () => {
       const res = await fetch(
-        `/api/gong/calls?email=${encodeURIComponent(email!)}`,
+        appApiPath(`/api/gong/calls?email=${encodeURIComponent(email!)}`),
       );
       if (!res.ok) return null;
       return res.json();

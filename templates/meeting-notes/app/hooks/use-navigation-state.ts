@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
 
 export type MeetingNotesView =
   | "meetings"
@@ -112,7 +113,7 @@ export function useNavigationState() {
     const state = stateFromLocation(location.pathname, location.search);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      fetch("/_agent-native/application-state/navigation", {
+      fetch(agentNativePath("/_agent-native/application-state/navigation"), {
         method: "PUT",
         keepalive: true,
         headers: { "Content-Type": "application/json" },
@@ -128,7 +129,9 @@ export function useNavigationState() {
   const { data: navCommand } = useQuery<NavigateCommand | null>({
     queryKey: ["navigate-command"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/application-state/navigate");
+      const res = await fetch(
+        agentNativePath("/_agent-native/application-state/navigate"),
+      );
       if (!res.ok) return null;
       const data = (await res.json()) as NavigateCommand | null;
       if (data) return { ...data, _ts: Date.now() };
@@ -141,8 +144,9 @@ export function useNavigationState() {
 
   useEffect(() => {
     if (!navCommand) return;
-    fetch("/_agent-native/application-state/navigate", {
+    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
+      headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
     const path = pathFromCommand(navCommand);
     navigate(path);

@@ -1,1 +1,1 @@
-export { getAvailability as default } from "../../../handlers/availability";
+export { getPublicAvailability as default } from "../../../handlers/availability";

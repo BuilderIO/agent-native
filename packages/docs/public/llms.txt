@@ -31,9 +31,13 @@ Replace `mail` with any template name below. To start from a blank canvas instea
 - **Mail**: Superhuman-style email client with keyboard shortcuts, AI triage, and smart search — `--template mail`
 - **Calendar**: Calendar app with Google Calendar sync, public booking page, and natural language scheduling — `--template calendar`
 - **Content**: Content workspace with brand-aware AI writing, CMS publishing, media management — `--template content`
-- **Slides**: AI presentation builder with 8 layouts, image generation, visual editing — `--template slides`
-- **Video**: Video composition studio built on Remotion with track-based animation — `--template video`
 - **Analytics**: BI platform with 20+ data connectors, SQL query explorer, dashboards, data dictionary — `--template analytics`
+- **Slides**: AI presentation builder with 8 layouts, image generation, visual editing — `--template slides`
+- **Video**: Video composition studio built on Remotion with track-based animation — `--template videos`
+- **Forms**: Agent-native form builder with branching logic and self-hosted responses — `--template forms`
+- **Clips**: Async screen recording (Loom-style) with auto-transcripts and AI summaries — `--template clips`
+- **Design**: Agent-native design tool with prompt-driven and hand editing — `--template design`
+- **Dispatch**: Workspace control plane that routes jobs, holds memory, approves actions, and delegates across apps over A2A — `--template dispatch`
 
 ## Documentation (Markdown)
 

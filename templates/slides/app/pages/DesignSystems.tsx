@@ -4,6 +4,7 @@ import { useDesignSystems } from "@/hooks/use-design-systems";
 import { DesignSystemCard } from "@/components/design-system/DesignSystemCard";
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
 import { Button } from "@/components/ui/button";
+import { agentNativePath } from "@agent-native/core/client";
 import type { DesignSystemData } from "../../shared/api";
 
 export default function DesignSystems() {
@@ -18,11 +19,14 @@ export default function DesignSystems() {
 
   const handleSetDefault = async (id: string) => {
     try {
-      await fetch("/_agent-native/actions/set-default-design-system", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
+      await fetch(
+        agentNativePath("/_agent-native/actions/set-default-design-system"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        },
+      );
       refetch();
     } catch (err) {
       console.error("Failed to set default design system:", err);

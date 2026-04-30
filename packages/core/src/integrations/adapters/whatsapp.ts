@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { getQuery, getHeader } from "h3";
+import { getQuery, getHeader, readRawBody as h3ReadRawBody } from "h3";
 import type {
   PlatformAdapter,
   IncomingMessage,
@@ -7,10 +7,26 @@ import type {
   IntegrationStatus,
 } from "../types.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
-import { readBody } from "../../server/h3-helpers.js";
 
 /** WhatsApp's max message length */
 const WHATSAPP_MAX_LENGTH = 4096;
+
+/**
+ * One-shot warning flag — log once per process when accepting unverified
+ * webhooks (M6 in the webhook security audit).
+ */
+let _whatsappUnverifiedWarned = false;
+
+/**
+ * Returns true when the deployment is running in production mode and the
+ * operator has NOT explicitly opted into accepting unverified webhooks for
+ * local testing. In production we MUST refuse webhooks whose signature can't
+ * be verified (C2 in the webhook security audit).
+ */
+function shouldRefuseWhenSecretMissing(): boolean {
+  if (process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS === "1") return false;
+  return process.env.NODE_ENV === "production";
+}
 
 /**
  * Create a WhatsApp Cloud API platform adapter.
@@ -64,17 +80,45 @@ export function whatsappAdapter(): PlatformAdapter {
     async handleVerification(
       event: H3Event,
     ): Promise<{ handled: boolean; response?: unknown }> {
-      // WhatsApp uses GET request for webhook verification
       const method = event.node?.req?.method || "POST";
-      if (method !== "GET") return { handled: false };
 
+      // For POST flows, pre-cache the raw body so verifyWebhook (HMAC) and
+      // parseIncomingMessage don't both try to consume the request body
+      // stream — h3 v2's body stream is consume-once, so a second read
+      // hangs (M3 in the webhook security audit). Reads raw bytes; never
+      // re-stringifies a parsed body, since Meta computes HMAC over the
+      // exact bytes it sent (M2 in the audit).
+      if (method === "POST") {
+        try {
+          await readRawBody(event);
+        } catch {
+          // Surfaces in verifyWebhook / parseIncomingMessage if it actually matters.
+        }
+        return { handled: false };
+      }
+
+      // GET: WhatsApp's challenge handshake.
       const query = getQuery(event);
       const mode = query["hub.mode"];
       const token = query["hub.verify_token"];
       const challenge = query["hub.challenge"];
+      const expected = process.env.WHATSAPP_VERIFY_TOKEN;
 
-      if (mode === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN) {
-        return { handled: true, response: challenge };
+      if (mode === "subscribe" && expected && typeof token === "string") {
+        // Timing-safe compare so an attacker can't measure character-wise
+        // mismatch latency (H6 in the webhook security audit).
+        const a = Buffer.from(String(token));
+        const b = Buffer.from(String(expected));
+        if (a.length === b.length) {
+          try {
+            const crypto = await import("node:crypto");
+            if (crypto.timingSafeEqual(a, b)) {
+              return { handled: true, response: challenge };
+            }
+          } catch {
+            // fall through
+          }
+        }
       }
 
       return { handled: false };
@@ -83,7 +127,23 @@ export function whatsappAdapter(): PlatformAdapter {
     async verifyWebhook(event: H3Event): Promise<boolean> {
       const appSecret = process.env.WHATSAPP_APP_SECRET;
       if (!appSecret) {
-        // No app secret — accept if access token is configured
+        if (shouldRefuseWhenSecretMissing()) {
+          if (!_whatsappUnverifiedWarned) {
+            _whatsappUnverifiedWarned = true;
+            console.error(
+              "[whatsapp] WHATSAPP_APP_SECRET not set — refusing webhook in production. " +
+                "Set WHATSAPP_APP_SECRET, or set AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1 for local testing only.",
+            );
+          }
+          return false;
+        }
+        if (!_whatsappUnverifiedWarned) {
+          _whatsappUnverifiedWarned = true;
+          console.warn(
+            "[whatsapp] WHATSAPP_APP_SECRET not set — accepting webhook without verification (dev mode)",
+          );
+        }
+        // Dev mode: still require the access token to be configured at all.
         return !!process.env.WHATSAPP_ACCESS_TOKEN;
       }
 
@@ -109,7 +169,17 @@ export function whatsappAdapter(): PlatformAdapter {
     async parseIncomingMessage(
       event: H3Event,
     ): Promise<IncomingMessage | null> {
-      const body = await readBody(event);
+      // Always read via the cached raw body so HMAC and parse see identical
+      // bytes — h3 v2's body stream is consume-once, and re-stringifying a
+      // parsed body breaks Meta's signature check (M2/M3 in the audit).
+      const raw = await readRawBody(event);
+      if (!raw) return null;
+      let body: any;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        return null;
+      }
       if (!body) return null;
 
       // WhatsApp Cloud API webhook payload structure
@@ -221,10 +291,18 @@ export function whatsappAdapter(): PlatformAdapter {
   };
 }
 
+/**
+ * Read the raw request body as a string and cache it on the event context.
+ *
+ * Reads raw bytes from the request stream, NEVER `JSON.stringify`s a parsed
+ * body — Meta's signature is computed over the exact bytes Meta sent
+ * (M2/M3 in the webhook security audit). h3 v2's body stream is consume-once
+ * so we cache the raw string after the first read.
+ */
 async function readRawBody(event: H3Event): Promise<string> {
-  if (event.context.__rawBody) return event.context.__rawBody as string;
-  const body = await readBody(event);
-  const raw = typeof body === "string" ? body : JSON.stringify(body);
+  const cached = event.context.__rawBody;
+  if (typeof cached === "string") return cached;
+  const raw = (await h3ReadRawBody(event)) ?? "";
   event.context.__rawBody = raw;
   return raw;
 }

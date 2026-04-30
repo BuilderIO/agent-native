@@ -1,7 +1,16 @@
+import { MeetingsPage } from "@/components/notes/NotesWorkspace";
+
+export function meta() {
+  return [
+    { title: "Notes" },
+    {
+      name: "description",
+      content:
+        "AI meeting notes — record, transcribe, and turn every meeting into structured notes you can search and share.",
+    },
+  ];
+}
+
 export default function Index() {
-  return (
-    <div className="flex h-screen items-center justify-center">
-      <h1 className="text-2xl font-semibold text-foreground">Notes</h1>
-    </div>
-  );
+  return <MeetingsPage />;
 }

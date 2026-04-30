@@ -1,6 +1,10 @@
 // Load .env in CLI mode (not needed when running via Vite dev server)
 try {
-  await import("dotenv/config");
+  // Use the programmatic form with `quiet: true` to suppress dotenv v17's
+  // "tip" banner on every load. The bare `dotenv/config` import would print
+  // it.
+  const dotenv = await import("dotenv");
+  dotenv.config({ quiet: true });
 } catch {
   // dotenv not available in Vite SSR context — env is already loaded
 }
@@ -37,10 +41,6 @@ export function parseArgs(
  *   --grep=<term>       Case-insensitive search across all string values.
  *                        Filters arrays to matching items, or checks the whole object.
  *   --fields=<a,b,c>    Comma-separated list of fields to pluck from each result object.
- *
- * Examples:
- *   pnpm action hubspot-deals --grep=enterprise
- *   pnpm action hubspot-deals --grep=enterprise --fields=dealname,amount,stageLabel
  */
 export function output(data: unknown): void {
   const args = parseArgs();

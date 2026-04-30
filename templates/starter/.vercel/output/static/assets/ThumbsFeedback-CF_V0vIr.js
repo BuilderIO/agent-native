@@ -1,0 +1,1 @@
+import{t as e}from"./ThumbsFeedback-C0gTKP9Y.js";export{e as ThumbsFeedback};

@@ -246,8 +246,20 @@ export function isConnectionError(err: any): boolean {
   if (!err) return false;
   const code = err.code || err.cause?.code;
   if (code && CONNECTION_ERROR_CODES.has(code)) return true;
+  // Neon serverless WS driver: errors from the underlying undici WebSocket
+  // closing mid-query come through as TypeError or ErrorEvent without a code.
+  const name = err.name || err.cause?.name || "";
+  if (name === "ErrorEvent") return true;
+  const stack = String(err.stack || err.cause?.stack || "");
+  if (
+    /WebSocket\.#onSocketClose|failWebsocketConnection|onSocketClose/.test(
+      stack,
+    )
+  ) {
+    return true;
+  }
   const msg = String(err.message || err.cause?.message || "");
-  return /ECONNRESET|ETIMEDOUT|EPIPE|connection.*(closed|ended|terminated)/i.test(
+  return /ECONNRESET|ETIMEDOUT|EPIPE|connection.*(closed|ended|terminated)|socket hang up|websocket/i.test(
     msg,
   );
 }

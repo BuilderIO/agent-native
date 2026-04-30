@@ -1,5 +1,6 @@
 import { useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
 
 export interface NavigationState {
   view: string;
@@ -12,7 +13,7 @@ export interface NavigationState {
 import { TAB_ID } from "@/lib/tab-id";
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(agentNativePath(url), {
     headers: {
       "Content-Type": "application/json",
       "X-Request-Source": TAB_ID,

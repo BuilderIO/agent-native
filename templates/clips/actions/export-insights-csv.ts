@@ -12,7 +12,7 @@ import { defineAction } from "@agent-native/core";
 import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { getActiveOrganizationId } from "../server/lib/recordings.js";
+import { requireOrganizationAccess } from "../server/lib/recordings.js";
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -40,15 +40,14 @@ export default defineAction({
   run: async (args) => {
     const db = getDb();
 
-    const organizationId =
-      args.organizationId || (await getActiveOrganizationId());
+    const { organizationId } = await requireOrganizationAccess(
+      args.organizationId,
+    );
 
-    const recordings = organizationId
-      ? await db
-          .select()
-          .from(schema.recordings)
-          .where(eq(schema.recordings.organizationId, organizationId))
-      : [];
+    const recordings = await db
+      .select()
+      .from(schema.recordings)
+      .where(eq(schema.recordings.organizationId, organizationId));
 
     const recordingIds = recordings.map((r) => r.id);
 

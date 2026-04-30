@@ -2,10 +2,16 @@
 // Fetches dashboards, datasources, alerts, and proxies queries
 
 import { resolveCredential } from "./credentials";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 async function getApiBase(): Promise<string> {
+  const ctx = requireRequestCredentialContext("GRAFANA_URL");
   return (
-    (await resolveCredential("GRAFANA_URL")) || "https://your-org.grafana.net"
+    (await resolveCredential("GRAFANA_URL", ctx)) ||
+    "https://your-org.grafana.net"
   );
 }
 
@@ -15,8 +21,9 @@ const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_CACHE = 120;
 
 async function getToken(): Promise<string> {
-  const token = await resolveCredential("GRAFANA_API_TOKEN");
-  if (!token) throw new Error("GRAFANA_API_TOKEN env var required");
+  const ctx = requireRequestCredentialContext("GRAFANA_API_TOKEN");
+  const token = await resolveCredential("GRAFANA_API_TOKEN", ctx);
+  if (!token) throw new Error("GRAFANA_API_TOKEN not configured");
   return token;
 }
 
@@ -29,7 +36,7 @@ function cacheSet(key: string, data: unknown) {
 }
 
 async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
-  const key = cacheKey ?? path;
+  const key = scopedCredentialCacheKey(cacheKey ?? path, "GRAFANA_API_TOKEN");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;
@@ -58,7 +65,10 @@ async function apiPost<T>(
   body: unknown,
   cacheKey?: string,
 ): Promise<T> {
-  const key = cacheKey ?? `POST:${path}:${JSON.stringify(body)}`;
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? `POST:${path}:${JSON.stringify(body)}`,
+    "GRAFANA_API_TOKEN",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

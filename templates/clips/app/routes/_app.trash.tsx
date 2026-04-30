@@ -39,6 +39,7 @@ export default function TrashRoute() {
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmPurge, setConfirmPurge] = useState(false);
+  const [singlePurgeId, setSinglePurgeId] = useState<string | null>(null);
 
   const args = useMemo(() => ({ view: "trash" as const, sort }), [sort]);
   const { data, isLoading } = useRecordings(args);
@@ -141,7 +142,7 @@ export default function TrashRoute() {
                 selectionMode
                 onToggleSelect={toggleSelect}
                 onArchive={() => restoreAll([r.id])}
-                onTrash={() => purgeAll([r.id])}
+                onTrash={() => setSinglePurgeId(r.id)}
               />
             ))}
           </div>
@@ -163,6 +164,34 @@ export default function TrashRoute() {
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => purgeAll(selectedIds)}
+            >
+              Delete forever
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!singlePurgeId}
+        onOpenChange={(open) => {
+          if (!open) setSinglePurgeId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete forever?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This recording will be permanently removed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (singlePurgeId) purgeAll([singlePurgeId]);
+                setSinglePurgeId(null);
+              }}
             >
               Delete forever
             </AlertDialogAction>

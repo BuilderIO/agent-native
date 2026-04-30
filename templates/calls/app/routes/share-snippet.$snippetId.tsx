@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
+import { appBasePath } from "@agent-native/core/client";
 import { IconLock } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +26,7 @@ const STORAGE_KEY_PREFIX = "calls-share-snippet-pw-";
 
 async function reportViewEvent(payload: Record<string, unknown>) {
   try {
-    await fetch("/api/view-events", {
+    await fetch(`${appBasePath()}/api/view-events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -49,7 +50,10 @@ export default function PublicShareSnippetRoute() {
   const dataQ = useQuery({
     queryKey: ["public-snippet", snippetId, password],
     queryFn: async () => {
-      const url = new URL("/api/public-snippet", window.location.origin);
+      const url = new URL(
+        `${appBasePath()}/api/public-snippet`,
+        window.location.origin,
+      );
       url.searchParams.set("snippetId", snippetId ?? "");
       if (password) url.searchParams.set("p", password);
       const res = await fetch(url.toString());

@@ -4,17 +4,22 @@ import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
+
 export default defineAction({
   description: "Search documents by title and content.",
   schema: z.object({
     query: z.string().describe("Search text"),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
   }),
   http: { method: "GET" },
   run: async (args) => {
     const query = args.query;
 
     const db = getDb();
-    const pattern = `%${query}%`;
+    const pattern = `%${escapeLike(query)}%`;
 
     const docs = await db
       .select({
@@ -29,10 +34,11 @@ export default defineAction({
       .where(
         and(
           accessFilter(schema.documents, schema.documentShares),
-          sql`${schema.documents.title} LIKE ${pattern} OR ${schema.documents.content} LIKE ${pattern}`,
+          sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`,
         ),
       )
-      .orderBy(sql`${schema.documents.updatedAt} DESC`);
+      .orderBy(sql`${schema.documents.updatedAt} DESC`)
+      .limit(args.limit);
 
     if (docs.length === 0) {
       console.log(`No documents matching "${query}".`);

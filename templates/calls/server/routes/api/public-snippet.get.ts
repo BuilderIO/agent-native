@@ -2,32 +2,61 @@
  * Public read endpoint for a shareable snippet (a bounded moment inside a
  * parent call). Unauthenticated viewers hit this from /share-snippet/:id.
  *
- * GET /api/public-snippet?snippetId=<id>[&password=<pw>]
+ * GET /api/public-snippet?snippetId=<id>[&password=<pw>|&p=<pw>]
  *
  * Returns the snippet + parent call metadata + media URL with the `#t=s,e`
- * media fragment already baked in. Same privacy rules as public-call — 404
- * for anything we don't want to reveal.
+ * media fragment already baked in. Same privacy rules as public-call.
  */
 
 import {
   defineEventHandler,
   getQuery,
+  setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
+import {
+  getSession,
+  runWithRequestContext,
+  signShortLivedToken,
+} from "@agent-native/core/server";
 
 function notFound(event: H3Event) {
   setResponseStatus(event, 404);
   return { error: "Not found" };
 }
 
-export default defineEventHandler(async (event) => {
-  const q = getQuery(event) as { snippetId?: string; password?: string };
+function appPath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return base ? `/${base}${path}` : path;
+}
+
+export default defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event).catch(() => null);
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    () => handlePublicSnippet(event),
+  );
+});
+
+async function handlePublicSnippet(event: H3Event) {
+  const q = getQuery(event) as {
+    snippetId?: string;
+    password?: string;
+    p?: string;
+  };
   const snippetId = q.snippetId;
-  const password = typeof q.password === "string" ? q.password : "";
+  const password =
+    typeof q.password === "string"
+      ? q.password
+      : typeof q.p === "string"
+        ? q.p
+        : "";
 
   if (!snippetId) {
     setResponseStatus(event, 400);
@@ -46,7 +75,10 @@ export default defineEventHandler(async (event) => {
   }
 
   if (snippet.password && access.role !== "owner") {
-    if (!password || password !== snippet.password) return notFound(event);
+    if (!password || password !== snippet.password) {
+      setResponseStatus(event, 401);
+      return { error: "Password required", passwordRequired: true };
+    }
   }
 
   const db = getDb();
@@ -68,12 +100,20 @@ export default defineEventHandler(async (event) => {
       ? call.mediaUrl
       : `/api/call-media/${call.id}`;
 
+  // For password-protected first-party media URLs, mint a short-lived
+  // HMAC token bound to the parent call id and pass it via `?t=<token>`
+  // instead of the plaintext password. The downstream call-media route
+  // still accepts `?p=<password>` as a legacy fallback during rollout.
+  // (audit 11 F-07)
   if (call.password && !/^https?:\/\//i.test(base)) {
+    const token = signShortLivedToken({ resourceId: call.id });
     const sep = base.includes("?") ? "&" : "?";
-    base = `${base}${sep}p=${encodeURIComponent(call.password)}`;
+    base = `${base}${sep}t=${encodeURIComponent(token)}`;
   }
 
-  const mediaUrl = `${base}${fragment}`;
+  const mediaUrl = `${base.startsWith("/") ? appPath(base) : base}${fragment}`;
+
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
   return {
     snippet: {
@@ -100,4 +140,4 @@ export default defineEventHandler(async (event) => {
       mediaUrl,
     },
   };
-});
+}

@@ -3,7 +3,6 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   useRecordings,
-  useMoveRecording,
   useTrashRecording,
   useArchiveRecording,
   useRestoreRecording,
@@ -11,6 +10,7 @@ import {
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
+import { sendToAgentChat } from "@agent-native/core/client";
 import { RecordingCard } from "./recording-card";
 import { EmptyState } from "./empty-state";
 import { SortMenu, type SortKey } from "./sort-menu";
@@ -27,6 +27,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { IconChecks } from "@tabler/icons-react";
+import { ShareRecordingPopover } from "@/components/player/share-dialog";
 
 interface LibraryGridProps {
   view: "library" | "space" | "archive" | "trash" | "all";
@@ -69,6 +70,7 @@ export function LibraryGrid({
   const [selectionMode, setSelectionMode] = useState(false);
   const [renamingRec, setRenamingRec] = useState<RecordingSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [sharingRec, setSharingRec] = useState<RecordingSummary | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
 
@@ -86,7 +88,6 @@ export function LibraryGrid({
   const { data, isLoading } = useRecordings(args);
   const recordings = data?.recordings ?? [];
 
-  const moveRecording = useMoveRecording();
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
   const restoreRecording = useRestoreRecording();
@@ -156,6 +157,20 @@ export function LibraryGrid({
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
+      {/* Share popover — programmatically opened from the card context menu */}
+      {sharingRec && (
+        <ShareRecordingPopover
+          recordingId={sharingRec.id}
+          recordingTitle={sharingRec.title}
+          open={!!sharingRec}
+          onOpenChange={(open) => {
+            if (!open) setSharingRec(null);
+          }}
+        >
+          <span />
+        </ShareRecordingPopover>
+      )}
+
       {/* Rename dialog */}
       <Dialog
         open={!!renamingRec}
@@ -256,14 +271,13 @@ export function LibraryGrid({
                   selected={selected.has(r.id)}
                   selectionMode={selectionMode}
                   onToggleSelect={toggleSelect}
+                  onShare={(rec) => setSharingRec(rec)}
                   onRename={openRenameDialog}
                   onMove={(rec) => {
-                    moveRecording.mutate(
-                      { id: rec.id, folderId: null },
-                      {
-                        onSuccess: () => toast.success("Moved to library root"),
-                      },
-                    );
+                    sendToAgentChat({
+                      message: `Move the clip "${rec.title}" (id: ${rec.id}) to a folder. Ask me which folder to move it to, or list available folders.`,
+                      background: false,
+                    });
                   }}
                   onTrash={(rec) => {
                     trashRecording.mutate(
@@ -303,11 +317,6 @@ export function LibraryGrid({
             <div className="pointer-events-auto">
               <BulkActionToolbar
                 count={selected.size}
-                onMove={() => toast.info("Move: implement via shadcn dialog")}
-                onAddToSpace={() =>
-                  toast.info("Add to space: implement via shadcn dialog")
-                }
-                onTag={() => toast.info("Tag: implement via shadcn dialog")}
                 onArchive={async () => {
                   setIsBulkPending(true);
                   try {

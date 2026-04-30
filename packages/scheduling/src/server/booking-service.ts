@@ -45,6 +45,8 @@ export interface CreateBookingInput {
   attendee: Attendee;
   guests?: Attendee[];
   customResponses?: Record<string, any>;
+  iCalUid?: string;
+  iCalSequence?: number;
   orgId?: string;
   /** If set, we're rescheduling from this booking uid */
   fromReschedule?: string;
@@ -71,6 +73,8 @@ export async function createBooking(
     location: input.location ?? eventType.locations[0],
     attendees,
     customResponses: input.customResponses,
+    iCalUid: input.iCalUid,
+    iCalSequence: input.iCalSequence,
     fromReschedule: input.fromReschedule,
     ownerEmail: input.hostEmail,
     orgId: input.orgId,
@@ -145,6 +149,8 @@ export async function rescheduleBooking(input: {
     attendee,
     guests,
     customResponses: original.customResponses,
+    iCalUid: original.iCalUid,
+    iCalSequence: original.iCalSequence + 1,
     fromReschedule: input.uid,
   });
 

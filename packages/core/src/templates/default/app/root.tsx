@@ -76,7 +76,7 @@ export default function Root() {
         <QueryClientProvider client={queryClient}>
           <DbSyncSetup />
           <Outlet />
-          <Toaster />
+          <Toaster richColors position="bottom-left" />
         </QueryClientProvider>
       </ThemeProvider>
     </ClientOnly>

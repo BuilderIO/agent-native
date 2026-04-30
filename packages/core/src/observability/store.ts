@@ -169,9 +169,22 @@ export async function ensureObservabilityTables(): Promise<void> {
           assignment_level TEXT NOT NULL DEFAULT 'user',
           started_at ${intType()},
           ended_at ${intType()},
-          created_at ${intType()} NOT NULL
+          created_at ${intType()} NOT NULL,
+          owner_email TEXT
         )
       `);
+      // Additive migration for DBs created before the owner column shipped
+      // (any pre-existing rows have NULL owner — see `updateExperiment` for
+      // the migration semantics). Mutations on those rows fall back to the
+      // standard authentication gate but cannot enforce per-owner scoping
+      // until they're re-saved.
+      try {
+        await client.execute(
+          `ALTER TABLE agent_experiments ADD COLUMN owner_email TEXT`,
+        );
+      } catch {
+        // Column already exists — expected after first run.
+      }
 
       await client.execute(`
         CREATE TABLE IF NOT EXISTS agent_experiment_assignments (
@@ -354,6 +367,48 @@ export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
       ],
     });
   }
+}
+
+/**
+ * Purge trace spans, summaries, and eval results older than `cutoffMs`
+ * (a Unix epoch in milliseconds — rows with `created_at < cutoffMs` are
+ * deleted). Returns the per-table deletion counts. Satisfies the span
+ * retention TTL noted in /tmp/security-audit/12-mcp-a2a-agent.md
+ * (MEDIUM #14): trace metadata can hold sensitive tool inputs, so we
+ * cap the storage horizon. Feedback rows are retained — they're
+ * intentionally durable for product analytics. Experiments and
+ * datasets are also retained because they are user-authored
+ * configuration, not call telemetry.
+ */
+export async function deleteOldTraceData(cutoffMs: number): Promise<{
+  spans: number;
+  summaries: number;
+  evals: number;
+}> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const cutoff = Math.floor(cutoffMs);
+
+  const [spansResult, summariesResult, evalsResult] = await Promise.all([
+    client.execute({
+      sql: `DELETE FROM agent_trace_spans WHERE created_at < ?`,
+      args: [cutoff],
+    }),
+    client.execute({
+      sql: `DELETE FROM agent_trace_summaries WHERE created_at < ?`,
+      args: [cutoff],
+    }),
+    client.execute({
+      sql: `DELETE FROM agent_evals WHERE created_at < ?`,
+      args: [cutoff],
+    }),
+  ]);
+
+  return {
+    spans: Number(spansResult.rowsAffected ?? 0),
+    summaries: Number(summariesResult.rowsAffected ?? 0),
+    evals: Number(evalsResult.rowsAffected ?? 0),
+  };
 }
 
 export async function getTraceSpansForRun(
@@ -752,8 +807,8 @@ export async function insertExperiment(exp: Experiment): Promise<void> {
   await client.execute({
     sql: `INSERT INTO agent_experiments
       (id, name, status, variants, metrics, assignment_level,
-       started_at, ended_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       started_at, ended_at, created_at, owner_email)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       exp.id,
       exp.name,
@@ -764,6 +819,7 @@ export async function insertExperiment(exp: Experiment): Promise<void> {
       exp.startedAt,
       exp.endedAt,
       exp.createdAt,
+      exp.ownerEmail ?? null,
     ],
   });
 }
@@ -1111,6 +1167,10 @@ function rowToExperiment(row: Record<string, any>): Experiment {
     startedAt: row.started_at ? Number(row.started_at) : null,
     endedAt: row.ended_at ? Number(row.ended_at) : null,
     createdAt: Number(row.created_at),
+    ownerEmail:
+      typeof row.owner_email === "string" && row.owner_email
+        ? row.owner_email
+        : null,
   };
 }
 

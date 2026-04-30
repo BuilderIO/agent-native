@@ -1,9 +1,11 @@
 import { defineEventHandler, setResponseStatus } from "h3";
-import { requireCredential } from "../lib/credentials";
+import {
+  requireCredential,
+  runApiHandlerWithContext,
+} from "../lib/credentials";
 import { runQuery } from "../lib/bigquery";
 import { runReport } from "../lib/google-analytics";
 import { getUserSegmentation, queryEvents } from "../lib/amplitude";
-import { getDbExec } from "@agent-native/core/db";
 import { readBody } from "@agent-native/core/server";
 
 /**
@@ -243,102 +245,72 @@ function flattenAmplitudeResponse(
 }
 
 export const handleSqlQuery = defineEventHandler(async (event) => {
-  const { query, source } = await readBody(event);
+  return runApiHandlerWithContext(event, async () => {
+    const { query, source } = await readBody(event);
 
-  if (!query || typeof query !== "string") {
-    setResponseStatus(event, 400);
-    return { error: "Missing or invalid query" };
-  }
-
-  if (!source || !["bigquery", "app-db", "ga4", "amplitude"].includes(source)) {
-    setResponseStatus(event, 400);
-    return {
-      error:
-        "Invalid source. Must be 'bigquery', 'app-db', 'ga4', or 'amplitude'",
-    };
-  }
-
-  try {
-    if (source === "bigquery") {
-      const missing = await requireCredential(
-        event,
-        "BIGQUERY_PROJECT_ID",
-        "BigQuery",
-      );
-      if (missing) return missing;
-      const result = await runQuery(query);
-      return result;
-    }
-
-    if (source === "ga4") {
-      const missingProp = await requireCredential(
-        event,
-        "GA4_PROPERTY_ID",
-        "Google Analytics",
-      );
-      if (missingProp) return missingProp;
-      const missingCreds = await requireCredential(
-        event,
-        "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-        "Google Analytics",
-      );
-      if (missingCreds) return missingCreds;
-      return await runGa4Panel(query);
-    }
-
-    if (source === "amplitude") {
-      const missingKey = await requireCredential(
-        event,
-        "AMPLITUDE_API_KEY",
-        "Amplitude",
-      );
-      if (missingKey) return missingKey;
-      const missingSecret = await requireCredential(
-        event,
-        "AMPLITUDE_SECRET_KEY",
-        "Amplitude",
-      );
-      if (missingSecret) return missingSecret;
-      return await runAmplitudePanel(query);
-    }
-
-    // app-db: strict read-only enforcement
-    const trimmed = query.trim().toUpperCase();
-    if (!trimmed.startsWith("SELECT") && !trimmed.startsWith("WITH")) {
+    if (!query || typeof query !== "string") {
       setResponseStatus(event, 400);
-      return { error: "Only SELECT queries are allowed for app-db" };
+      return { error: "Missing or invalid query" };
     }
-    const forbiddenPattern =
-      /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|ATTACH|DETACH|PRAGMA|LOAD_EXTENSION|VACUUM|REINDEX)\b/i;
-    if (forbiddenPattern.test(query)) {
+
+    if (!source || !["bigquery", "ga4", "amplitude"].includes(source)) {
       setResponseStatus(event, 400);
-      return { error: "Only SELECT queries are allowed for app-db" };
+      return {
+        error: "Invalid source. Must be 'bigquery', 'ga4', or 'amplitude'",
+      };
     }
-    // Block semicolons to prevent statement stacking
-    if (query.includes(";")) {
-      const statementsBeforeSemicolon = query
-        .split(";")
-        .filter((s) => s.trim());
-      if (statementsBeforeSemicolon.length > 1) {
-        setResponseStatus(event, 400);
-        return { error: "Multiple statements are not allowed" };
+
+    try {
+      if (source === "bigquery") {
+        const missing = await requireCredential(
+          event,
+          "BIGQUERY_PROJECT_ID",
+          "BigQuery",
+        );
+        if (missing) return missing;
+        const result = await runQuery(query);
+        return result;
       }
-    }
 
-    const client = getDbExec();
-    const { rows } = await client.execute(query);
-    const schema =
-      rows.length > 0
-        ? Object.keys(rows[0] as Record<string, unknown>).map((name) => ({
-            name,
-            type: typeof (rows[0] as Record<string, unknown>)[name],
-          }))
-        : [];
-    return { rows, schema };
-  } catch (error: any) {
-    const message = error?.message || String(error);
-    console.error(`SQL query error (${source}):`, message);
-    setResponseStatus(event, 400);
-    return { error: message };
-  }
+      if (source === "ga4") {
+        const missingProp = await requireCredential(
+          event,
+          "GA4_PROPERTY_ID",
+          "Google Analytics",
+        );
+        if (missingProp) return missingProp;
+        const missingCreds = await requireCredential(
+          event,
+          "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+          "Google Analytics",
+        );
+        if (missingCreds) return missingCreds;
+        return await runGa4Panel(query);
+      }
+
+      if (source === "amplitude") {
+        const missingKey = await requireCredential(
+          event,
+          "AMPLITUDE_API_KEY",
+          "Amplitude",
+        );
+        if (missingKey) return missingKey;
+        const missingSecret = await requireCredential(
+          event,
+          "AMPLITUDE_SECRET_KEY",
+          "Amplitude",
+        );
+        if (missingSecret) return missingSecret;
+        return await runAmplitudePanel(query);
+      }
+
+      setResponseStatus(event, 400);
+      return { error: "Unsupported source" };
+    } catch (error: any) {
+      const message = error?.message || String(error);
+      console.error(`SQL query error (${source}):`, message);
+      setResponseStatus(event, 400);
+      return { error: message };
+    }
+  });
 });

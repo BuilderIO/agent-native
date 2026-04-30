@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { getOrgSetting, putOrgSetting } from "@agent-native/core/settings";
 import {
   getRequestUserEmail,
@@ -9,6 +9,101 @@ import { getDb, schema } from "../db/index.js";
 
 export const SHARED_DISPATCH_OWNER = "dispatch@shared";
 const APPROVAL_POLICY_KEY = "dispatch-approval-policy";
+
+// ─── /link rate limiting ──────────────────────────────────────────────────
+//
+// Failed `/link <token>` attempts are rate-limited per `(platform, externalUserId)`
+// to deter token brute-force after the H5 entropy bump. The window /
+// threshold are tuned so legitimate retries (typo, expired token) don't
+// trip the limit, while a scripted attacker burns out their per-account
+// budget quickly.
+//
+// State is process-local: works for the single-node dispatch deployment
+// we ship today. TODO: move to a SQL-backed counter table when dispatch
+// is sharded across multiple regions / processes — otherwise an
+// attacker can scale around the limit by hammering more than one node.
+const LINK_FAIL_WINDOW_MS = 5 * 60 * 1000;
+const LINK_FAIL_BLOCK_MS = 30 * 60 * 1000;
+const LINK_FAIL_THRESHOLD = 5;
+
+interface LinkFailureState {
+  failures: number[]; // unix-ms timestamps of recent failures within the window
+  blockedUntil: number; // unix-ms; 0 if not currently blocked
+}
+
+const _linkFailureMap = new Map<string, LinkFailureState>();
+
+function linkFailureKey(
+  platform: string,
+  externalUserId: string | null | undefined,
+): string {
+  return `${platform}::${externalUserId ?? ""}`;
+}
+
+function getLinkFailureState(key: string): LinkFailureState {
+  let state = _linkFailureMap.get(key);
+  if (!state) {
+    state = { failures: [], blockedUntil: 0 };
+    _linkFailureMap.set(key, state);
+  }
+  return state;
+}
+
+function isLinkAttemptBlocked(
+  platform: string,
+  externalUserId: string | null | undefined,
+): { blocked: true; retryAfterMs: number } | { blocked: false } {
+  if (!externalUserId) return { blocked: false };
+  const key = linkFailureKey(platform, externalUserId);
+  const state = _linkFailureMap.get(key);
+  if (!state) return { blocked: false };
+  const nowMs = Date.now();
+  if (state.blockedUntil > nowMs) {
+    return { blocked: true, retryAfterMs: state.blockedUntil - nowMs };
+  }
+  return { blocked: false };
+}
+
+function recordLinkFailure(
+  platform: string,
+  externalUserId: string | null | undefined,
+): void {
+  if (!externalUserId) return;
+  const key = linkFailureKey(platform, externalUserId);
+  const state = getLinkFailureState(key);
+  const nowMs = Date.now();
+  // Drop expired failure timestamps before counting.
+  state.failures = state.failures.filter(
+    (ts) => nowMs - ts < LINK_FAIL_WINDOW_MS,
+  );
+  state.failures.push(nowMs);
+  if (state.failures.length >= LINK_FAIL_THRESHOLD) {
+    state.blockedUntil = nowMs + LINK_FAIL_BLOCK_MS;
+    state.failures = [];
+  }
+}
+
+function clearLinkFailures(
+  platform: string,
+  externalUserId: string | null | undefined,
+): void {
+  if (!externalUserId) return;
+  _linkFailureMap.delete(linkFailureKey(platform, externalUserId));
+}
+
+/**
+ * 429-style error returned when /link attempts are rate-limited. The
+ * adapter layer can branch on `code === "LINK_RATE_LIMITED"` to send a
+ * platform-appropriate message back to the user.
+ */
+export class LinkRateLimitError extends Error {
+  readonly code = "LINK_RATE_LIMITED";
+  constructor(public readonly retryAfterMs: number) {
+    super(
+      `Too many failed link attempts. Try again in ${Math.ceil(retryAfterMs / 60_000)} minute(s).`,
+    );
+  }
+}
 
 export interface DispatchApprovalPolicy {
   enabled: boolean;
@@ -28,11 +123,38 @@ type DispatchApprovalRequest =
   typeof schema.dispatchApprovalRequests.$inferSelect;
 
 export function currentOwnerEmail(): string {
-  return getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
+  return email;
 }
 
 export function currentOrgId(): string | null {
   return getRequestOrgId() || null;
+}
+
+/**
+ * Caller-supplied access context for dispatch operations that work by
+ * id (destinations, etc.). Looking up a row by id alone is unsafe —
+ * UUIDs are not authorization. A row matches the ctx if either the
+ * caller owns it or it lives in the caller's active org.
+ */
+export interface DispatchCtx {
+  ownerEmail: string;
+  orgId: string | null;
+}
+
+export function requireDispatchCtx(): DispatchCtx {
+  return { ownerEmail: currentOwnerEmail(), orgId: currentOrgId() };
+}
+
+function ctxScope<T extends { ownerEmail: any; orgId: any }>(
+  table: T,
+  ctx: DispatchCtx,
+) {
+  if (!ctx.orgId) {
+    return and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId));
+  }
+  return or(eq(table.ownerEmail, ctx.ownerEmail), eq(table.orgId, ctx.orgId));
 }
 
 function id() {
@@ -61,7 +183,10 @@ export async function getApprovalPolicy(): Promise<DispatchApprovalPolicy> {
   };
 }
 
-export async function setApprovalPolicy(input: DispatchApprovalPolicy) {
+async function applyApprovalPolicy(
+  input: DispatchApprovalPolicy,
+  actor = currentOwnerEmail(),
+) {
   const orgId = currentOrgId();
   if (!orgId) {
     throw new Error(
@@ -80,8 +205,27 @@ export async function setApprovalPolicy(input: DispatchApprovalPolicy) {
       ? "Enabled approval flow for durable dispatch changes"
       : "Disabled approval flow for durable dispatch changes",
     metadata: input,
+    actor,
   });
   return getApprovalPolicy();
+}
+
+export async function setApprovalPolicy(input: DispatchApprovalPolicy) {
+  const current = await getApprovalPolicy();
+  if (!current.enabled) {
+    return applyApprovalPolicy(input);
+  }
+  return createApprovalRequest({
+    changeType: "approval-policy.update",
+    targetType: "dispatch-settings",
+    targetId: APPROVAL_POLICY_KEY,
+    summary: input.enabled
+      ? "Update dispatch approval policy"
+      : "Disable dispatch approval policy",
+    payload: input,
+    beforeValue: current,
+    afterValue: input,
+  });
 }
 
 export async function recordAudit(input: {
@@ -92,13 +236,14 @@ export async function recordAudit(input: {
   metadata?: unknown;
   actor?: string;
   ownerEmail?: string;
+  orgId?: string | null;
 }) {
   const db = getDb();
   const timestamp = now();
   await db.insert(schema.dispatchAuditEvents).values({
     id: id(),
     ownerEmail: input.ownerEmail || currentOwnerEmail(),
-    orgId: currentOrgId(),
+    orgId: input.orgId !== undefined ? input.orgId : currentOrgId(),
     actor: input.actor || currentOwnerEmail(),
     action: input.action,
     targetType: input.targetType,
@@ -144,12 +289,20 @@ export async function listDestinations() {
     .orderBy(desc(schema.dispatchDestinations.updatedAt));
 }
 
-export async function getDestinationById(destinationId: string) {
+export async function getDestinationById(
+  destinationId: string,
+  ctx: DispatchCtx = requireDispatchCtx(),
+) {
   const db = getDb();
   const [row] = await db
     .select()
     .from(schema.dispatchDestinations)
-    .where(eq(schema.dispatchDestinations.id, destinationId))
+    .where(
+      and(
+        eq(schema.dispatchDestinations.id, destinationId),
+        ctxScope(schema.dispatchDestinations, ctx),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
@@ -157,11 +310,12 @@ export async function getDestinationById(destinationId: string) {
 async function applyDestinationUpsert(
   input: DispatchDestinationInput,
   actor = currentOwnerEmail(),
+  ctx: DispatchCtx = requireDispatchCtx(),
 ) {
   const db = getDb();
   const timestamp = now();
   const destinationId = input.id || id();
-  const existing = input.id ? await getDestinationById(input.id) : null;
+  const existing = input.id ? await getDestinationById(input.id, ctx) : null;
 
   if (existing) {
     await db
@@ -174,12 +328,17 @@ async function applyDestinationUpsert(
         notes: input.notes || null,
         updatedAt: timestamp,
       })
-      .where(eq(schema.dispatchDestinations.id, destinationId));
+      .where(
+        and(
+          eq(schema.dispatchDestinations.id, destinationId),
+          ctxScope(schema.dispatchDestinations, ctx),
+        ),
+      );
   } else {
     await db.insert(schema.dispatchDestinations).values({
       id: destinationId,
-      ownerEmail: currentOwnerEmail(),
-      orgId: currentOrgId(),
+      ownerEmail: ctx.ownerEmail,
+      orgId: ctx.orgId,
       name: input.name,
       platform: input.platform,
       destination: input.destination,
@@ -200,21 +359,27 @@ async function applyDestinationUpsert(
     metadata: input,
   });
 
-  return getDestinationById(destinationId);
+  return getDestinationById(destinationId, ctx);
 }
 
 async function applyDestinationDelete(
   destinationId: string,
   actor = currentOwnerEmail(),
+  ctx: DispatchCtx = requireDispatchCtx(),
 ) {
   const db = getDb();
-  const existing = await getDestinationById(destinationId);
+  const existing = await getDestinationById(destinationId, ctx);
   if (!existing) {
     throw new Error("Destination not found");
   }
   await db
     .delete(schema.dispatchDestinations)
-    .where(eq(schema.dispatchDestinations.id, destinationId));
+    .where(
+      and(
+        eq(schema.dispatchDestinations.id, destinationId),
+        ctxScope(schema.dispatchDestinations, ctx),
+      ),
+    );
   await recordAudit({
     actor,
     action: "destination.deleted",
@@ -355,39 +520,57 @@ export async function listApprovalRequests() {
     .orderBy(desc(schema.dispatchApprovalRequests.updatedAt));
 }
 
-async function getApprovalRequest(requestId: string) {
+async function getApprovalRequest(
+  requestId: string,
+  ctx: DispatchCtx = requireDispatchCtx(),
+) {
   const db = getDb();
   const [row] = await db
     .select()
     .from(schema.dispatchApprovalRequests)
-    .where(eq(schema.dispatchApprovalRequests.id, requestId))
+    .where(
+      and(
+        eq(schema.dispatchApprovalRequests.id, requestId),
+        ctxScope(schema.dispatchApprovalRequests, ctx),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
 
 async function applyApprovedRequest(request: DispatchApprovalRequest) {
   const payload = JSON.parse(request.payload);
+  const requestCtx = {
+    ownerEmail: request.ownerEmail,
+    orgId: request.orgId,
+  };
   if (request.changeType === "destination.upsert") {
     return applyDestinationUpsert(
       payload,
       request.reviewedBy || currentOwnerEmail(),
+      requestCtx,
     );
   }
   if (request.changeType === "destination.delete") {
     return applyDestinationDelete(
       payload.id,
       request.reviewedBy || currentOwnerEmail(),
+      requestCtx,
     );
   }
   if (request.changeType === "approval-policy.update") {
-    return setApprovalPolicy(payload);
+    return applyApprovalPolicy(
+      payload,
+      request.reviewedBy || currentOwnerEmail(),
+    );
   }
   throw new Error(`Unsupported approval request type: ${request.changeType}`);
 }
 
 export async function approveRequest(requestId: string) {
   const db = getDb();
-  const request = await getApprovalRequest(requestId);
+  const ctx = requireDispatchCtx();
+  const request = await getApprovalRequest(requestId, ctx);
   if (!request) throw new Error("Approval request not found");
   if (request.status !== "pending") {
     throw new Error("Only pending approvals can be approved");
@@ -402,7 +585,7 @@ export async function approveRequest(requestId: string) {
       updatedAt: timestamp,
     })
     .where(eq(schema.dispatchApprovalRequests.id, requestId));
-  const updated = await getApprovalRequest(requestId);
+  const updated = await getApprovalRequest(requestId, ctx);
   if (!updated) throw new Error("Approval request disappeared");
   await applyApprovedRequest(updated);
   await recordAudit({
@@ -445,7 +628,13 @@ export async function rejectRequest(requestId: string, reason?: string | null) {
 export async function createLinkToken(platform: string) {
   const db = getDb();
   const timestamp = now();
-  const token = crypto.randomBytes(4).toString("hex");
+  // 16 bytes = 128 bits of entropy. Previous size was 4 bytes (32 bits,
+  // ~4.29 billion keyspace) which is brute-forceable in well under an
+  // hour given a 7-day expiry and no rate limiting on /link attempts.
+  // Old 8-hex-char tokens minted before this change continue to verify
+  // until they expire; we don't migrate retroactively. See
+  // /tmp/security-audit/07-webhooks.md (H5).
+  const token = crypto.randomBytes(16).toString("hex");
   const recordId = id();
   const owner = currentOwnerEmail();
   await db.insert(schema.dispatchLinkTokens).values({
@@ -515,7 +704,7 @@ export async function resolveLinkedOwner(
   if (!externalUserId) return null;
   const db = getDb();
   const orgId = currentOrgId();
-  const [row] = await db
+  const rows = await db
     .select()
     .from(schema.dispatchIdentityLinks)
     .where(
@@ -529,7 +718,7 @@ export async function resolveLinkedOwner(
     )
     .orderBy(desc(schema.dispatchIdentityLinks.updatedAt))
     .limit(1);
-  return row?.ownerEmail || null;
+  return rows[0]?.ownerEmail || null;
 }
 
 export async function consumeLinkToken(input: {
@@ -541,8 +730,18 @@ export async function consumeLinkToken(input: {
   if (!input.externalUserId) {
     throw new Error("Linking requires a platform user id");
   }
+
+  // Rate-limit failed attempts per (platform, externalUserId). Once
+  // tripped, all further attempts are short-circuited until the block
+  // window passes — including the lookup, so an attacker can't probe
+  // for valid tokens during the block.
+  const blockState = isLinkAttemptBlocked(input.platform, input.externalUserId);
+  if (blockState.blocked) {
+    throw new LinkRateLimitError(blockState.retryAfterMs);
+  }
+
   const db = getDb();
-  const [tokenRow] = await db
+  const tokenRows = await db
     .select()
     .from(schema.dispatchLinkTokens)
     .where(
@@ -552,11 +751,24 @@ export async function consumeLinkToken(input: {
       ),
     )
     .orderBy(desc(schema.dispatchLinkTokens.createdAt))
-    .limit(1);
-  if (!tokenRow) throw new Error("Link token not found");
-  if (tokenRow.claimedAt)
+    .limit(2);
+  if (tokenRows.length > 1) {
+    recordLinkFailure(input.platform, input.externalUserId);
+    throw new Error("Link token is ambiguous. Create a fresh token and retry.");
+  }
+  const tokenRow = tokenRows[0];
+  if (!tokenRow) {
+    recordLinkFailure(input.platform, input.externalUserId);
+    throw new Error("Link token not found");
+  }
+  if (tokenRow.claimedAt) {
+    recordLinkFailure(input.platform, input.externalUserId);
     throw new Error("Link token has already been claimed");
-  if (tokenRow.expiresAt < now()) throw new Error("Link token has expired");
+  }
+  if (tokenRow.expiresAt < now()) {
+    recordLinkFailure(input.platform, input.externalUserId);
+    throw new Error("Link token has expired");
+  }
 
   const timestamp = now();
   const [existing] = await db
@@ -566,6 +778,9 @@ export async function consumeLinkToken(input: {
       and(
         eq(schema.dispatchIdentityLinks.platform, input.platform),
         eq(schema.dispatchIdentityLinks.externalUserId, input.externalUserId),
+        tokenRow.orgId
+          ? eq(schema.dispatchIdentityLinks.orgId, tokenRow.orgId)
+          : isNull(schema.dispatchIdentityLinks.orgId),
       ),
     )
     .limit(1);
@@ -605,9 +820,14 @@ export async function consumeLinkToken(input: {
     })
     .where(eq(schema.dispatchLinkTokens.id, tokenRow.id));
 
+  // Successful claim — reset the rate-limit budget so subsequent
+  // links from this external user start fresh.
+  clearLinkFailures(input.platform, input.externalUserId);
+
   await recordAudit({
     actor: tokenRow.createdBy,
     ownerEmail: tokenRow.ownerEmail,
+    orgId: tokenRow.orgId,
     action: "identity.linked",
     targetType: "identity-link",
     targetId: input.externalUserId,

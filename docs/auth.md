@@ -47,6 +47,19 @@ AUTH_DISABLED=true
 
 Without either `ACCESS_TOKEN` or `AUTH_DISABLED`, the server **refuses to start in production** to prevent accidental exposure.
 
+### QA Accounts
+
+For QA or preview environments where testers need real accounts but should not
+wait for email verification links, set:
+
+```bash
+AUTH_SKIP_EMAIL_VERIFICATION=1
+```
+
+Email/password signup will skip verification and will not send the signup
+verification email. Use `+qa` email addresses for QA accounts so they remain
+easy to identify.
+
 ## The Auth Contract
 
 All templates code against two interfaces — they never read cookies directly.
@@ -131,11 +144,12 @@ The framework doesn't ship Auth.js, Clerk, or any specific auth library. Instead
 
 ### Environment Variables
 
-| Variable        | Description                                |
-| --------------- | ------------------------------------------ |
-| `ACCESS_TOKEN`  | Single access token for production auth    |
-| `ACCESS_TOKENS` | Comma-separated tokens for team access     |
-| `AUTH_DISABLED` | Set to `"true"` to skip auth in production |
+| Variable                       | Description                                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `ACCESS_TOKEN`                 | Single access token for production auth                                                    |
+| `ACCESS_TOKENS`                | Comma-separated tokens for team access                                                     |
+| `AUTH_DISABLED`                | Set to `"true"` to skip auth in production                                                 |
+| `AUTH_SKIP_EMAIL_VERIFICATION` | Set to `1` in QA/preview environments to skip email verification for email/password signup |
 
 ### `AuthOptions`
 

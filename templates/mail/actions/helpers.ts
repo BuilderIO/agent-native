@@ -1,6 +1,10 @@
 // Load .env in CLI mode (not needed when running via Vite dev server)
 try {
-  await import("dotenv/config");
+  // Use the programmatic form with `quiet: true` to suppress dotenv v17's
+  // "tip" banner on every load. The bare `dotenv/config` import would print
+  // it.
+  const dotenv = await import("dotenv");
+  dotenv.config({ quiet: true });
 } catch {
   // dotenv not available in Vite SSR context — env is already loaded
 }
@@ -122,15 +126,13 @@ export async function resolveOwnerEmail(): Promise<string> {
     });
     if (rows[0]) {
       const email = rows[0].email as string;
-      if (email && email !== "local@localhost") {
-        return email;
-      }
+      if (email) return email;
     }
   } catch {
     // sessions table may not exist yet
   }
 
-  return "local@localhost";
+  throw new Error("no authenticated user");
 }
 
 // ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ import {
   resourceDeleteByPath,
 } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { DEV_MODE_USER_EMAIL } from "../../server/auth.js";
 
 export default async function deleteMemoryScript(
   args: string[],
@@ -20,7 +21,7 @@ export default async function deleteMemoryScript(
   const name = parsed.name;
   if (!name) fail("--name is required (e.g. 'coding-style')");
 
-  const owner = getRequestUserEmail() ?? "local@localhost";
+  const owner = getRequestUserEmail() ?? DEV_MODE_USER_EMAIL;
   const memoryPath = `memory/${name}.md`;
   const indexPath = "memory/MEMORY.md";
 

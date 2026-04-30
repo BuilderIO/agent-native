@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, createElement } from "react";
 import { sendToAgentChat, type AgentChatMessage } from "./agent-chat.js";
 import { useAgentChatGenerating } from "./use-agent-chat.js";
-import { isInFrame } from "./frame.js";
+import { isInFrame, isTrustedFrameMessage } from "./frame.js";
 import { CodeRequiredDialog } from "./components/CodeRequiredDialog.js";
 
 /**
@@ -31,9 +31,10 @@ export function useSendToAgentChat(): {
   useEffect(() => {
     if (!codeAgentWorking) return;
     function handler(event: MessageEvent) {
+      if (!isTrustedFrameMessage(event)) return;
       if (
-        event.data?.type === "builder.codeComplete" ||
-        (event.data?.type === "builder.chatRunning" &&
+        event.data?.type === "agentNative.codeComplete" ||
+        (event.data?.type === "agentNative.chatRunning" &&
           !event.data?.detail?.isRunning)
       ) {
         setCodeAgentWorking(false);

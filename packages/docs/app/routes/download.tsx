@@ -3,6 +3,7 @@ import { trackEvent } from "../components/TemplateCard";
 import { IconBrandGithub, IconDownload } from "@tabler/icons-react";
 
 const DL = "https://github.com/BuilderIO/agent-native/releases/latest/download";
+const RELEASES = "https://github.com/BuilderIO/agent-native/releases";
 
 function AppleIcon() {
   return (
@@ -43,10 +44,10 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     name: "macOS",
     icon: <AppleIcon />,
     primary: {
-      label: "Download for Mac",
-      href: "https://github.com/BuilderIO/agent-native/releases/download/v0.1.3/Agent-Native.dmg",
+      label: "View Mac releases",
+      href: RELEASES,
     },
-    note: "Universal binary — works on Apple Silicon and Intel.",
+    note: "The latest Agent Native release does not currently include a macOS installer.",
   },
   windows: {
     name: "Windows",
@@ -182,8 +183,7 @@ export default function DownloadPage() {
       {/* Mobile teaser */}
       <div className="mt-16 mx-auto max-w-lg rounded-lg border border-dashed border-[var(--docs-border)] px-6 py-5 text-center">
         <p className="text-sm text-[var(--fg-secondary)]">
-          <span className="mr-1.5">📱</span>A mobile app for iOS and Android is
-          in the works.
+          A mobile app for iOS and Android is in the works.
         </p>
       </div>
 

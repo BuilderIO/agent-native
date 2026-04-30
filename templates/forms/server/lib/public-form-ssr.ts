@@ -1,5 +1,6 @@
-import { getRequestURL, type H3Event } from "h3";
+import { getMethod, getRequestURL, type H3Event } from "h3";
 import { eq } from "drizzle-orm";
+import { getAppBasePath } from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
 import type { FormField, FormSettings } from "../../shared/types.js";
 
@@ -59,6 +60,33 @@ function escapeHtml(str: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+/**
+ * Validate a form-author-supplied post-submit redirect URL. Returns the
+ * value verbatim only if it parses as `http:` or `https:` — falls back to
+ * an empty string otherwise (caller treats empty as "no redirect").
+ *
+ * Form publishers control `settings.redirectUrl` and the rendered page
+ * assigns it to `window.location.href`. Without scheme validation a
+ * `javascript:fetch(...)` redirectUrl would execute attacker JS in the
+ * form-publisher origin against any anonymous submitter.
+ */
+export function safeRedirectUrl(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  // Reject control characters and protocol-relative URLs outright.
+  if (/[\x00-\x1f]/.test(trimmed)) return "";
+  if (trimmed.startsWith("//")) return "";
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? trimmed
+      : "";
+  } catch {
+    return "";
+  }
 }
 
 function renderField(field: FormField): string {
@@ -129,7 +157,13 @@ export async function renderPublicFormHtml(
   url: string,
 ): Promise<{ html: string; status: number }> {
   // Extract everything after /f/ as the slug (may contain slashes for legacy URLs)
-  const slugOrId = decodeURIComponent(url.split("?")[0].replace(/^\/f\//, ""));
+  const basePath = getAppBasePath();
+  const pathname = url.split("?")[0];
+  const pathWithoutBase =
+    basePath && pathname.startsWith(`${basePath}/`)
+      ? pathname.slice(basePath.length)
+      : pathname;
+  const slugOrId = decodeURIComponent(pathWithoutBase.replace(/^\/f\//, ""));
   const form = slugOrId ? await getFormBySlugOrId(slugOrId) : null;
 
   if (!form) {
@@ -156,7 +190,10 @@ export async function renderPublicForm(event: H3Event) {
     headers["Cache-Control"] =
       "public, s-maxage=60, stale-while-revalidate=300";
   }
-  return new Response(html, { status, headers });
+  return new Response(getMethod(event) === "HEAD" ? null : html, {
+    status,
+    headers,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +210,7 @@ function renderFormPage(form: {
   const settings: FormSettings = form.settings || {};
   const fields: FormField[] = form.fields || [];
   const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY || "";
+  const submitPath = `${getAppBasePath()}/api/submit/`;
 
   const fieldsHtml = fields.map(renderField).join("\n");
 
@@ -209,6 +247,7 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
     </div>
 
     <form id="mainForm" novalidate>
+      <input type="text" id="_hp" name="website" tabindex="-1" aria-hidden="true" autocomplete="off" style="position:absolute;left:-9999px;opacity:0;pointer-events:none">
       <div class="fields-card">
         ${fieldsHtml || '<p class="empty">This form has no fields yet.</p>'}
       </div>
@@ -236,7 +275,7 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
 <script>
 (function(){
   var FORM_ID = ${JSON.stringify(form.id)};
-  var REDIRECT = ${JSON.stringify(settings.redirectUrl || "")};
+  var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
   var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional })))};
 
@@ -388,6 +427,7 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
   }
 
   // Submit
+  var PAGE_LOAD_T = Date.now();
   var submitting = false;
   document.getElementById("mainForm").onsubmit = function(e) {
     e.preventDefault();
@@ -399,11 +439,12 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
     var btn = document.getElementById("submitBtn");
     btn.textContent = "Submitting...";
     btn.disabled = true;
+    var hp = (document.getElementById("_hp") || {}).value || "";
 
-    fetch("/api/submit/" + FORM_ID, {
+    fetch(${JSON.stringify(submitPath)} + FORM_ID, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: data, captchaToken: captchaToken }),
+      body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T }),
     })
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
     .then(function(res) {

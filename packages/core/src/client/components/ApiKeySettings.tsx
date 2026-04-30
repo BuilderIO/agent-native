@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { agentNativePath } from "../api-path.js";
 
 interface EnvKeyStatus {
   key: string;
@@ -34,7 +35,7 @@ export function ApiKeySettings({
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch("/_agent-native/env-status");
+      const res = await fetch(agentNativePath("/_agent-native/env-status"));
       if (!res.ok) {
         throw new Error(`Failed to fetch env status: ${res.status}`);
       }
@@ -69,7 +70,7 @@ export function ApiKeySettings({
     setSaveResult(null);
 
     try {
-      const res = await fetch("/_agent-native/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vars }),

@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useState } from "react";
 import {
   IconGitBranch,
@@ -30,14 +31,17 @@ export function BackgroundAgentSection() {
     setError(null);
     setResult(null);
     try {
-      const res = await fetch("/_agent-native/builder/agents-run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userMessage: "Set up this project for development",
-          projectUrl: projectUrl.trim(),
-        }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/builder/agents-run"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userMessage: "Set up this project for development",
+            projectUrl: projectUrl.trim(),
+          }),
+        },
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || `Failed (${res.status})`);

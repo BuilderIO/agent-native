@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import type { EmailMessage } from "@shared/types";
+import { appApiPath } from "@/lib/api-path";
 import { TAB_ID } from "@/lib/tab-id";
 
 type CacheEntry = {
@@ -47,7 +48,7 @@ function notify(threadId: string) {
 }
 
 async function fetchThread(threadId: string): Promise<EmailMessage[]> {
-  const res = await fetch(`/api/threads/${threadId}/messages`, {
+  const res = await fetch(appApiPath(`/api/threads/${threadId}/messages`), {
     headers: {
       "Content-Type": "application/json",
       "X-Request-Source": TAB_ID,
@@ -268,7 +269,7 @@ export function useThreadCache(
   // Kick off the fetch synchronously during render for cold opens so the
   // hook returns isLoading=true on the first paint. ensureThread dedupes.
   if (!inflight.has(threadId)) {
-    void ensureThread(threadId);
+    void ensureThread(threadId).catch(() => {});
   }
   return {
     messages: placeholder,

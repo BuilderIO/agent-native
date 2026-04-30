@@ -57,17 +57,24 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: "Templates",
+    // ── DO NOT add new templates here directly. ──
+    // The public-facing template list is the strict allow-list in
+    // `packages/shared-app-config/templates.ts` (entries with `hidden: false`).
+    // To surface a new template in the docs sidebar, first flip its `hidden`
+    // flag in that file. The CI guard `scripts/guard-template-list.mjs`
+    // enforces this — adding a slug here that isn't in the allow-list will
+    // fail the build.
     items: [
-      { label: "Mail", to: "/docs/template-mail" as const },
-      { label: "Calendar", to: "/docs/template-calendar" as const },
-      { label: "Content", to: "/docs/template-content" as const },
-      { label: "Slides", to: "/docs/template-slides" as const },
-      { label: "Video", to: "/docs/template-video" as const },
-      { label: "Analytics", to: "/docs/template-analytics" as const },
-      { label: "Clips", to: "/docs/template-clips" as const },
-      { label: "Design", to: "/docs/template-design" as const },
-      { label: "Dispatch", to: "/docs/template-dispatch" as const },
-      { label: "Forms", to: "/docs/template-forms" as const },
+      { label: "Mail", to: "/templates/mail" as const },
+      { label: "Calendar", to: "/templates/calendar" as const },
+      { label: "Content", to: "/templates/content" as const },
+      { label: "Slides", to: "/templates/slides" as const },
+      { label: "Video", to: "/templates/video" as const },
+      { label: "Analytics", to: "/templates/analytics" as const },
+      { label: "Clips", to: "/templates/clips" as const },
+      { label: "Design", to: "/templates/design" as const },
+      { label: "Dispatch", to: "/templates/dispatch" as const },
+      { label: "Forms", to: "/templates/forms" as const },
     ],
   },
   {

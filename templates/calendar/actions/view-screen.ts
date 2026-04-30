@@ -1,14 +1,17 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { z } from "zod";
 import { formatDateRange } from "./helpers.js";
 
 async function fetchEventsForRange(from: string, to: string): Promise<any[]> {
   try {
     const googleCalendar = await import("../server/lib/google-calendar.js");
-    if (!(await googleCalendar.isConnected())) {
+    const email = getRequestUserEmail();
+    if (!email || !(await googleCalendar.isConnected(email))) {
       return [];
     }
-    const { events } = await googleCalendar.listEvents(from, to);
+    const { events } = await googleCalendar.listEvents(from, to, email);
     return events;
   } catch {
     return [];
@@ -18,7 +21,7 @@ async function fetchEventsForRange(from: string, to: string): Promise<any[]> {
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, date range, and visible events. Always call this first before taking any action.",
-  parameters: {},
+  schema: z.object({}),
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");

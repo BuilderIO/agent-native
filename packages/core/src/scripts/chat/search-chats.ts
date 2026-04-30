@@ -10,10 +10,11 @@
 import { parseArgs, fail } from "../utils.js";
 import { searchThreads, listThreads } from "../../chat-threads/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { DEV_MODE_USER_EMAIL } from "../../server/auth.js";
 
 function getOwnerEmail(): string {
   const email = getRequestUserEmail();
-  if (!email || email === "local@localhost") return "local@localhost";
+  if (!email || email === DEV_MODE_USER_EMAIL) return DEV_MODE_USER_EMAIL;
   return email;
 }
 

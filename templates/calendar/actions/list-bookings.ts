@@ -1,4 +1,7 @@
 import { defineAction } from "@agent-native/core";
+import { inArray } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import { z } from "zod";
 import type { Booking } from "../shared/api.js";
 import { getDb, schema } from "../server/db/index.js";
 
@@ -27,12 +30,20 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
 
 export default defineAction({
   description: "List all bookings",
-  parameters: {},
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
+    const accessibleLinks = await getDb()
+      .select({ slug: schema.bookingLinks.slug })
+      .from(schema.bookingLinks)
+      .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+    const slugs = accessibleLinks.map((link) => link.slug);
+    if (slugs.length === 0) return [];
+
     const rows = await getDb()
       .select()
       .from(schema.bookings)
+      .where(inArray(schema.bookings.slug, slugs))
       .orderBy(schema.bookings.start);
     return rows.map(rowToBooking);
   },

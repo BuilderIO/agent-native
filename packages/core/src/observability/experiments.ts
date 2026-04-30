@@ -220,14 +220,14 @@ export async function computeExperimentResults(
     const userIds = assignmentRows.map((r: any) => String(r.user_id));
     const placeholders = userIds.map(() => "?").join(", ");
 
-    // Join trace summaries with feedback to scope runs to this variant's assigned users
+    // Scope runs to this variant's assigned users via user_id on the summary.
+    // Previously used INNER JOIN agent_feedback which excluded runs without
+    // any feedback — silently underreporting cost/latency/tool metrics.
     const { rows: userTraceRows } = await client.execute({
       sql: `SELECT s.total_cost_cents_x100, s.total_duration_ms, s.successful_tools, s.tool_calls, s.run_id
             FROM agent_trace_summaries s
-            INNER JOIN agent_feedback f ON f.run_id = s.run_id
-            WHERE f.user_id IN (${placeholders})
-            ${experiment.startedAt ? "AND s.created_at >= ?" : ""}
-            GROUP BY s.run_id`,
+            WHERE s.user_id IN (${placeholders})
+            ${experiment.startedAt ? "AND s.created_at >= ?" : ""}`,
       args: experiment.startedAt ? [...userIds, experiment.startedAt] : userIds,
     });
 

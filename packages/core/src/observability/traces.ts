@@ -7,6 +7,42 @@ function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** Keys whose values are stripped from persisted tool inputs when
+ *  `captureToolArgs` is enabled. Matched case-insensitively and tolerant
+ *  of `_` / `-` separators. M14 in the MCP/A2A audit: tool calls
+ *  routinely receive credentials verbatim (db-exec INSERTs, fetchTool
+ *  Authorization headers, ad-hoc bearer tokens) — keeping those values
+ *  out of agent_trace_spans.metadata avoids long-term storage of
+ *  short-lived secrets. */
+const SENSITIVE_FIELD_PATTERN =
+  /^(authorization|cookie|api[_-]?key|password|secret|token|access[_-]?token|refresh[_-]?token|bearer)$/i;
+
+/** Recursively walk a structured value and replace sensitive field
+ *  values with the literal string "[REDACTED]". Pure (returns a copy);
+ *  the original input is never mutated. Cycles are tolerated via a
+ *  small WeakSet seen-tracker that returns "[Circular]" for repeats. */
+export function redactSensitiveFields(value: unknown): unknown {
+  return redactWalk(value, new WeakSet<object>());
+}
+
+function redactWalk(value: unknown, seen: WeakSet<object>): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value as object)) return "[Circular]";
+  seen.add(value as object);
+  if (Array.isArray(value)) {
+    return value.map((v) => redactWalk(v, seen));
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (SENSITIVE_FIELD_PATTERN.test(k)) {
+      out[k] = "[REDACTED]";
+    } else {
+      out[k] = redactWalk(v, seen);
+    }
+  }
+  return out;
+}
+
 export async function getObservabilityConfig(): Promise<ObservabilityConfig> {
   try {
     const { getSetting } = await import("../settings/store.js");
@@ -122,7 +158,18 @@ export async function instrumentAgentLoop(opts: {
           status: isError ? "error" : "success",
           errorMessage: isError ? event.result : null,
           metadata:
-            config.captureToolArgs && pending ? { input: pending.input } : null,
+            config.captureToolArgs && pending
+              ? // Strip Authorization/api-key/token-shaped values before
+                // persisting (M14 in the MCP/A2A audit). Tool-runtime
+                // execution still sees the unredacted input — only the
+                // long-lived span row is sanitized.
+                {
+                  input: redactSensitiveFields(pending.input) as Record<
+                    string,
+                    string
+                  >,
+                }
+              : null,
           createdAt: Date.now(),
         };
         spans.push(span);

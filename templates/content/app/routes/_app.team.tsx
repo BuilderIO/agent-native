@@ -1,7 +1,7 @@
 import { TeamPage } from "@agent-native/core/client/org";
 
 export function meta() {
-  return [{ title: "Team — Documents" }];
+  return [{ title: "Team — Content" }];
 }
 
 export default function TeamRoute() {

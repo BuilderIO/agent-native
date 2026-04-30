@@ -31,7 +31,13 @@ export function CollabPresenceBar({
   className,
 }: CollabPresenceBarProps) {
   // Filter out the agent from user avatars (handled separately)
-  const humanUsers = activeUsers.filter((u) => u.email !== "agent@system");
+  const humanUsers = Array.from(
+    new Map(
+      activeUsers
+        .filter((u) => u.email !== "agent@system")
+        .map((user) => [user.email, user]),
+    ).values(),
+  );
   const hasPresence = humanUsers.length > 0 || agentPresent;
 
   if (!hasPresence) return null;

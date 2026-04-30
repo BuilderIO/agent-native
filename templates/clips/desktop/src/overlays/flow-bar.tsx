@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
+import { IconX } from "@tabler/icons-react";
 
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
 
@@ -20,6 +21,7 @@ export function FlowBar() {
   // "idle" caused the bar to flash an "EN" language pill that never went
   // away if the start event was missed.
   const [state, setState] = useState<FlowState>("recording");
+  const [partialTranscript, setPartialTranscript] = useState("");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const levelRef = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -44,19 +46,31 @@ export function FlowBar() {
 
     trackListen(
       listen<{ state: FlowState }>("voice:state-change", (ev) => {
-        const next = ev.payload.state;
-        // "complete" / "idle" are transitional states right before the
-        // window is closed by hide_flow_bar — don't repaint into the
-        // empty "EN" idle pill in the brief gap, just leave the
-        // previous state showing until the window goes away.
-        if (next === "complete" || next === "idle") return;
-        setState(next);
+        setState(ev.payload.state);
       }),
     );
 
     trackListen(
       listen<{ level: number }>("voice:audio-level", (ev) => {
         levelRef.current = Math.max(0, Math.min(1, ev.payload.level));
+      }),
+    );
+
+    trackListen(
+      listen<{ text: string }>("voice:partial-transcript", (ev) => {
+        // Live transcript as the user speaks — rendered above the pill.
+        // Empty payload clears the display (sent at session start/end).
+        setPartialTranscript(ev.payload.text || "");
+      }),
+    );
+
+    trackListen(
+      listen<{ text: string }>("voice:final-transcript", (ev) => {
+        // Final result from the recognizer (only fires after stop is
+        // requested). Show it on the bar — the last word lingers there
+        // for ~1s before voice-dictation.ts dismisses everything.
+        const text = ev.payload.text || "";
+        if (text) setPartialTranscript(text);
       }),
     );
 
@@ -136,14 +150,35 @@ export function FlowBar() {
     };
   }, [state]);
 
+  const handleCancel = () => {
+    // Broadcast to the popover webview where voice-dictation.ts lives —
+    // it will abort any in-flight transcribe, stop recording, and hide
+    // the bar without pasting text.
+    emit("voice:cancel").catch(() => {});
+  };
+
+  // The transcript chip is independent of the pill — it can linger on
+  // its own after Fn release while the pill dismisses snappily. Voice-
+  // dictation.ts emits an empty payload to clear it once the linger
+  // window expires.
+  const showTranscript = partialTranscript.length > 0;
+
   return (
     <div className="flow-bar-root">
+      {showTranscript && (
+        <div className="flow-bar-transcript">{partialTranscript}</div>
+      )}
+      {/* Pill is ALWAYS mounted — when state goes idle we fade the
+          opacity to 0 (see CSS) instead of removing it from the DOM,
+          so the transcript chip above doesn't reflow when the pill
+          "goes away". Inner content keeps its last frame rendered
+          during the fade so the canvas doesn't pop. */}
       <div className={`flow-bar flow-bar-${state}`}>
-        {state === "recording" ? (
+        {(state === "recording" || state === "idle") && (
           <div className="flow-bar-recording">
             <canvas ref={canvasRef} className="flow-bar-canvas" />
           </div>
-        ) : null}
+        )}
 
         {state === "processing" ? (
           <div className="flow-bar-processing">
@@ -156,6 +191,18 @@ export function FlowBar() {
             <span className="flow-bar-error">Could not transcribe</span>
           </div>
         ) : null}
+
+        {(state === "recording" || state === "processing") && (
+          <button
+            type="button"
+            className="flow-bar-cancel"
+            onClick={handleCancel}
+            aria-label="Cancel dictation"
+            title="Cancel"
+          >
+            <IconX size={12} stroke={2.5} />
+          </button>
+        )}
       </div>
     </div>
   );

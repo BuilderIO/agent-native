@@ -20,6 +20,7 @@ import {
   anthropicContentToEngine,
   anthropicChunkToEngineEvents,
 } from "./translate-anthropic.js";
+import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 
 export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -35,7 +36,12 @@ export const ANTHROPIC_SUPPORTED_MODELS = [
   "claude-haiku-4-5-20251001",
 ] as const;
 
-export const ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6";
+// Single source of truth for the framework default lives in
+// agent/default-model.ts. Engines, integrations, and the agent-chat plugin
+// all read from the same constant, so bumping the default model is a
+// one-line change.
+import { DEFAULT_MODEL } from "../default-model.js";
+export const ANTHROPIC_DEFAULT_MODEL = DEFAULT_MODEL;
 
 class AnthropicEngine implements AgentEngine {
   readonly name = "anthropic";
@@ -167,14 +173,14 @@ class AnthropicEngine implements AgentEngine {
 
 /**
  * Create an AnthropicEngine instance.
- * Falls back to ANTHROPIC_API_KEY env var if no key is provided.
+ * Falls back to the deployment Anthropic key if no key is provided.
  */
 export function createAnthropicEngine(
   config: Record<string, unknown> = {},
 ): AgentEngine {
   const apiKey =
     (config.apiKey as string | undefined) ??
-    process.env.ANTHROPIC_API_KEY ??
+    readDeployCredentialEnv("ANTHROPIC_API_KEY") ??
     "";
   if (!apiKey) {
     // Return a "missing key" engine that immediately errors

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { IconPalette, IconPhoto } from "@tabler/icons-react";
-import { useActionMutation } from "@agent-native/core/client";
+import { appBasePath, useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ const PRESETS = [
 async function uploadLogo(file: File): Promise<string> {
   const body = await file.arrayBuffer();
   const res = await fetch(
-    `/api/media?filename=${encodeURIComponent(file.name)}`,
+    `${appBasePath()}/api/media?filename=${encodeURIComponent(file.name)}`,
     {
       method: "POST",
       body,

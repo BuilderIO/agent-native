@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { AuthSession } from "../server/auth.js";
 import { trackSessionStatus } from "./analytics.js";
+import { agentNativePath } from "./api-path.js";
 
 export type { AuthSession };
 
@@ -28,7 +29,7 @@ export function useSession(): UseSessionResult {
     async function fetchSession() {
       let signedIn = false;
       try {
-        const res = await fetch("/_agent-native/auth/session");
+        const res = await fetch(agentNativePath("/_agent-native/auth/session"));
         if (!res.ok) {
           setSession(null);
           return;

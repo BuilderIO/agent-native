@@ -1,3 +1,5 @@
+import { appApiPath } from "@/lib/api-path";
+
 export interface UploadResult {
   url: string;
   filename: string;
@@ -9,7 +11,7 @@ export interface UploadResult {
 export async function uploadFile(file: File): Promise<UploadResult> {
   const buffer = await file.arrayBuffer();
   const resp = await fetch(
-    `/api/media/upload?filename=${encodeURIComponent(file.name)}`,
+    appApiPath(`/api/media/upload?filename=${encodeURIComponent(file.name)}`),
     {
       method: "POST",
       body: buffer,

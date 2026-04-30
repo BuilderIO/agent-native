@@ -49,6 +49,20 @@ ralph-loop.local.md
 # Local Netlify folder
 .netlify
 
+# Local Vercel folder
+.vercel
+templates/*/.vercel
+
+# Scaffolded test workspaces (from `agent-native create` smoke tests)
+test-starter/
+test-*-workspace/
+
+# Slides export artifacts (generated PDFs/HTML/PPTX exports)
+templates/slides/data/exports/
+
+# Playwright/vitest test run state
+test-results/
+
 # Wrangler local state
 .wrangler
 
@@ -69,3 +83,4 @@ templates/*/.env
 templates/*/.env.local
 templates/*/.env.*.local
 test-reports/
+*.tsbuildinfo

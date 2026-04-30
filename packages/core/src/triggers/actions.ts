@@ -16,6 +16,7 @@ import {
   resourcePut,
   resourceDelete,
   resourceGetByPath,
+  SHARED_OWNER,
 } from "../resources/store.js";
 import { parseTriggerFrontmatter, buildTriggerContent } from "./dispatcher.js";
 import { refreshEventSubscriptions } from "./dispatcher.js";
@@ -49,9 +50,14 @@ async function handleListEvents(): Promise<string> {
   return lines.join("\n");
 }
 
-async function handleList(args: Record<string, string>): Promise<string> {
+async function handleList(
+  args: Record<string, string>,
+  getCurrentUser: () => string,
+): Promise<string> {
+  const owner = getCurrentUser();
   const resources = await resourceListAllOwners("jobs/");
   const triggers = resources
+    .filter((r) => r.owner === owner || r.owner === SHARED_OWNER)
     .filter((r) => r.path.endsWith(".md"))
     .map((r) => {
       const { meta, body } = parseTriggerFrontmatter(r.content);
@@ -172,7 +178,10 @@ async function handleDelete(
   return `Automation "${args.name}" deleted.`;
 }
 
-async function handleFireTest(args: Record<string, string>): Promise<string> {
+async function handleFireTest(
+  args: Record<string, string>,
+  getCurrentUser: () => string,
+): Promise<string> {
   // Dynamic import to avoid circular dependency at module load time
   const { emit } = await import("../event-bus/index.js");
 
@@ -185,7 +194,10 @@ async function handleFireTest(args: Record<string, string>): Promise<string> {
     }
   }
 
-  emit("test.event.fired", { data });
+  // Scope the test event to the current user so only their automations fire,
+  // not automations owned by other users in the same process.
+  const owner = getCurrentUser();
+  emit("test.event.fired", { data }, { owner });
   return `Test event fired with payload: ${JSON.stringify({ data })}. Any automations subscribed to "test.event.fired" will be evaluated.`;
 }
 
@@ -292,7 +304,7 @@ export function createAutomationToolEntries(
           case "list-events":
             return handleListEvents();
           case "list":
-            return handleList(args);
+            return handleList(args, getCurrentUser);
           case "define":
             return handleDefine(args, getCurrentUser);
           case "update":
@@ -300,7 +312,7 @@ export function createAutomationToolEntries(
           case "delete":
             return handleDelete(args, getCurrentUser);
           case "fire-test":
-            return handleFireTest(args);
+            return handleFireTest(args, getCurrentUser);
           default:
             return `Error: unknown action "${action}". Valid actions: ${VALID_ACTIONS.join(", ")}.`;
         }

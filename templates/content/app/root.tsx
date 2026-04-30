@@ -1,4 +1,11 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+} from "react-router";
 import { useCallback, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
@@ -82,7 +89,13 @@ function ThemeToggleItem() {
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const location = useLocation();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+
+  if (location.pathname.startsWith("/p/")) {
+    return <Outlet />;
+  }
+
   return (
     <ClientOnly fallback={<DefaultSpinner />}>
       <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
@@ -92,7 +105,7 @@ export default function Root() {
             <Toaster />
             <Sonner position="bottom-left" />
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-              <CommandMenu.Group heading="Documents">
+              <CommandMenu.Group heading="Content">
                 <CommandMenu.Item onSelect={() => {}}>
                   Search documents
                 </CommandMenu.Item>

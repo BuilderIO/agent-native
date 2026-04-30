@@ -51,7 +51,7 @@ interface OrganizationStateResponse {
 
 export default function OrganizationSettingsRoute() {
   const { session } = useSession();
-  const email = session?.email ?? "local@localhost";
+  const email = session?.email ?? "";
 
   const { data, isLoading } = useActionQuery<OrganizationStateResponse>(
     "list-organization-state",
@@ -69,7 +69,7 @@ export default function OrganizationSettingsRoute() {
     const me = members.find((m) => m.email === email);
     if (me) return me.role;
     if (isOwner) return "admin";
-    return "viewer";
+    return "member";
   }, [members, email, isOwner]);
 
   const isAdmin = currentRole === "admin" || isOwner;

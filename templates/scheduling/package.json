@@ -78,5 +78,12 @@
     "typescript": "^6.0.3",
     "vite": "catalog:",
     "vitest": "^4.1.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "node-pty"
+    ]
   }
 }

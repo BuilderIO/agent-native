@@ -1,0 +1,1 @@
+import{t as e}from"./plugin-BHvXFDyp.mjs";export{e as defaultOrgPlugin};

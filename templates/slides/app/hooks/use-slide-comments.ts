@@ -1,6 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
-import { emailToColor } from "@agent-native/core/client";
+import {
+  appBasePath,
+  emailToColor,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client";
 
 export interface SlideComment {
   id: string;
@@ -80,7 +84,7 @@ export function useResolveSlideComment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id }: { id: string }) =>
-      fetchJson<{ ok: boolean }>(`/api/comments/${id}`, {
+      fetchJson<{ ok: boolean }>(`${appBasePath()}/api/comments/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ resolved: true }),
@@ -95,7 +99,9 @@ export function useDeleteSlideComment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id }: { id: string }) =>
-      fetchJson<{ ok: boolean }>(`/api/comments/${id}`, { method: "DELETE" }),
+      fetchJson<{ ok: boolean }>(`${appBasePath()}/api/comments/${id}`, {
+        method: "DELETE",
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["action"] });
     },

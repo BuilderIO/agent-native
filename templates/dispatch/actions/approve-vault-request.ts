@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { approveRequest } from "../server/lib/vault-store.js";
+import { approveRequest, requireVaultCtx } from "../server/lib/vault-store.js";
 
 export default defineAction({
   description:
@@ -14,5 +14,10 @@ export default defineAction({
       .describe("Human-readable name for the secret"),
   }),
   run: async (args) =>
-    approveRequest(args.id, args.secretValue, args.secretName),
+    approveRequest(
+      args.id,
+      args.secretValue,
+      args.secretName,
+      requireVaultCtx(),
+    ),
 });

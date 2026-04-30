@@ -1,5 +1,6 @@
 import { getDbExec } from "../db/client.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
+import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { signInternalToken } from "./internal-token.js";
 
 /**
@@ -110,11 +111,13 @@ export async function retryStuckPendingTasks(
                    updated_at = ?,
                    error_message = COALESCE(error_message, ?)
              WHERE id = ?
+               AND status = ?
           `,
           args: [
             Date.now(),
             `Retry job: exceeded ${MAX_ATTEMPTS} attempts`,
             row.id,
+            row.status,
           ],
         });
         console.warn(
@@ -124,7 +127,7 @@ export async function retryStuckPendingTasks(
       }
 
       // Reset stuck `processing` rows back to `pending` so the processor's
-      // atomic claim (which only matches pending/failed) can re-acquire it.
+      // atomic claim (which only matches pending) can re-acquire it.
       // Without this, processing rows stay stuck forever.
       // For pending rows, just touch updated_at to avoid re-firing every tick.
       const newStatus = row.status === "processing" ? "pending" : row.status;
@@ -133,8 +136,9 @@ export async function retryStuckPendingTasks(
           UPDATE integration_pending_tasks
              SET status = ?, updated_at = ?
            WHERE id = ?
+             AND status = ?
         `,
-        args: [newStatus, Date.now(), row.id],
+        args: [newStatus, Date.now(), row.id, row.status],
       });
 
       await refireProcessor(row.id, baseUrl);
@@ -164,19 +168,34 @@ async function refireProcessor(
     process.env.DEPLOY_URL ||
     `http://localhost:${process.env.PORT || 3000}`;
 
-  const url = `${baseUrl.replace(/\/$/, "")}${PROCESSOR_PATH}`;
+  const url = `${withConfiguredAppBasePath(baseUrl)}${PROCESSOR_PATH}`;
 
-  // Sign with HMAC if A2A_SECRET is configured. If it isn't, we still fire
-  // the request — the processor accepts unsigned requests when A2A_SECRET is
-  // absent (see plugin.ts). This keeps the retry job working on templates
-  // that haven't yet enrolled in the A2A identity scheme.
+  // Sign with HMAC if A2A_SECRET is configured. In production we MUST sign —
+  // an unsigned dispatch in production lets attackers re-trigger any queued
+  // task with a guessable id (C3 in the webhook security audit). In dev we
+  // fall back to unsigned so contributors can iterate without configuring
+  // A2A_SECRET locally.
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   try {
     headers["Authorization"] = `Bearer ${signInternalToken(taskId)}`;
-  } catch {
-    // No A2A_SECRET — proceed unsigned.
+  } catch (err) {
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        `[integrations] Refusing to dispatch task ${taskId} — A2A_SECRET not configured. ` +
+          "Set A2A_SECRET to enable signed retry dispatches.",
+      );
+      return;
+    }
+    // Dev: proceed unsigned. Log the underlying error path so a malformed
+    // secret (different from "not set") doesn't fail silently (L5 in the audit).
+    if (err instanceof Error && !/A2A_SECRET/i.test(err.message)) {
+      console.error(
+        `[integrations] signInternalToken failed unexpectedly for ${taskId}:`,
+        err,
+      );
+    }
   }
 
   // Don't await the body — we just want the request to leave the box.

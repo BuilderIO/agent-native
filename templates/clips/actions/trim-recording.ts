@@ -6,7 +6,7 @@
  * is adjacent to or overlaps an existing excluded range, they are merged.
  *
  * Usage:
- *   pnpm action trim-recording --id=<id> --startMs=12000 --endMs=15000
+ *   pnpm action trim-recording --recordingId=<id> --startMs=12000 --endMs=15000
  */
 
 import { defineAction } from "@agent-native/core";

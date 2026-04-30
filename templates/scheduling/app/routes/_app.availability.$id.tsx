@@ -2,6 +2,11 @@ import { useLoaderData, useRevalidator, Link } from "react-router";
 import { useEffect, useMemo, useState } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { getScheduleById } from "@agent-native/scheduling/server";
+
+export function meta() {
+  return [{ title: "Edit schedule — Scheduling" }];
+}
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";

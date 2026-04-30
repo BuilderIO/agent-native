@@ -1,19 +1,9 @@
-import {
-  IconFolder,
-  IconUsersGroup,
-  IconTag,
-  IconArchive,
-  IconTrash,
-  IconX,
-} from "@tabler/icons-react";
+import { IconArchive, IconTrash, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 interface BulkActionToolbarProps {
   count: number;
-  onMove?: () => void;
-  onAddToSpace?: () => void;
-  onTag?: () => void;
   onArchive?: () => void;
   onTrash?: () => void;
   onClear?: () => void;
@@ -22,9 +12,6 @@ interface BulkActionToolbarProps {
 
 export function BulkActionToolbar({
   count,
-  onMove,
-  onAddToSpace,
-  onTag,
   onArchive,
   onTrash,
   onClear,
@@ -42,25 +29,6 @@ export function BulkActionToolbar({
         {count} selected
       </span>
       <div className="h-4 w-px bg-border" />
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-8 gap-1.5"
-        onClick={onMove}
-      >
-        <IconFolder className="h-3.5 w-3.5" /> Move
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-8 gap-1.5"
-        onClick={onAddToSpace}
-      >
-        <IconUsersGroup className="h-3.5 w-3.5" /> Space
-      </Button>
-      <Button variant="ghost" size="sm" className="h-8 gap-1.5" onClick={onTag}>
-        <IconTag className="h-3.5 w-3.5" /> Tag
-      </Button>
       <Button
         variant="ghost"
         size="sm"

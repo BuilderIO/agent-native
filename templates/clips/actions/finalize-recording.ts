@@ -18,10 +18,7 @@ import {
   deleteAppState,
   listAppState,
 } from "@agent-native/core/application-state";
-import {
-  uploadFile,
-  getActiveFileUploadProvider,
-} from "@agent-native/core/file-upload";
+import { uploadFile } from "@agent-native/core/file-upload";
 import { emit } from "@agent-native/core/event-bus";
 import { applyFaststart } from "../server/lib/faststart.js";
 import { debugLog } from "../server/lib/debug.js";
@@ -55,6 +52,12 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
+const cliBoolean = z.preprocess((value) => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return value;
+}, z.boolean());
+
 export default defineAction({
   description:
     "Assemble recorded chunks into a final video blob, upload it to the configured storage provider, update the recording row (videoUrl, durationMs, width/height/hasAudio/hasCamera), flip status to 'ready', and trigger the agent to produce a title, summary, transcript, and chapters in the background.",
@@ -67,11 +70,11 @@ export default defineAction({
     width: z.number().optional().describe("Video width in pixels"),
     height: z.number().optional().describe("Video height in pixels"),
     hasAudio: z
-      .boolean()
+      .union([z.boolean(), cliBoolean])
       .optional()
       .describe("Whether the recording contains audio"),
     hasCamera: z
-      .boolean()
+      .union([z.boolean(), cliBoolean])
       .optional()
       .describe("Whether the recording contains a camera feed"),
     mimeType: z
@@ -188,16 +191,6 @@ export default defineAction({
       // recordings.
       parts.length = 0;
 
-      // Require a real upload provider — storing video blobs in the database
-      // is not viable for production. The onboarding step ensures this is
-      // configured before the user can record.
-      const activeProvider = getActiveFileUploadProvider();
-      if (!activeProvider) {
-        throw new Error(
-          "No file upload provider configured. Connect Builder.io or S3-compatible storage in Settings.",
-        );
-      }
-
       // Apply faststart to MP4 files — moves the moov atom before mdat so
       // browsers can begin playback immediately via HTTP range requests.
       let uploadData = assembled;
@@ -225,7 +218,9 @@ export default defineAction({
 
       if (!upload?.url) {
         throw new Error(
-          "File upload returned no URL. Check your storage provider configuration.",
+          upload === null
+            ? "No file upload provider configured. Connect Builder.io or S3-compatible storage in Settings."
+            : "File upload returned no URL. Check your storage provider configuration.",
         );
       }
       const videoUrl = upload.url;

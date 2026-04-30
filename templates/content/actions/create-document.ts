@@ -7,6 +7,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 function nanoid(size = 12): string {
@@ -47,9 +48,17 @@ export default defineAction({
 
     const parentId = args.parentId || null;
     const icon = args.icon || null;
-    const ownerEmail = getRequestUserEmail() ?? "local@localhost";
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId() ?? null;
     const db = getDb();
+
+    if (parentId) {
+      const parentAccess = await assertAccess("document", parentId, "editor");
+      if (parentAccess.resource.ownerEmail !== ownerEmail) {
+        throw new Error("Parent document not found");
+      }
+    }
 
     // Get max position among siblings
     const maxPos = await db

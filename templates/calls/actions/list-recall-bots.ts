@@ -4,6 +4,12 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { resolveDefaultWorkspaceId } from "../server/lib/calls.js";
 
+const cliBoolean = z.preprocess((value) => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return value;
+}, z.boolean());
+
 export default defineAction({
   description:
     "List scheduled and active Recall.ai bots for the current workspace. Defaults to non-final statuses (scheduled, joining, recording).",
@@ -13,7 +19,7 @@ export default defineAction({
       .optional()
       .describe("Workspace id (defaults to the user's current workspace)"),
     includeDone: z
-      .boolean()
+      .union([z.boolean(), cliBoolean])
       .default(false)
       .describe("Include bots in 'done' or 'failed' status"),
     limit: z.coerce.number().int().min(1).max(500).default(100),

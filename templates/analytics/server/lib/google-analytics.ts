@@ -2,6 +2,11 @@
 // Runs reports for active users, top pages, sessions by source
 
 import { resolveCredential } from "./credentials";
+import {
+  credentialCacheScope,
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 import { signRs256Jwt } from "./sign-jwt";
 
 const API_BASE = "https://analyticsdata.googleapis.com/v1beta";
@@ -12,17 +17,22 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 100;
 
 async function getConfig(): Promise<{ propertyId: string }> {
-  const propertyId = await resolveCredential("GA4_PROPERTY_ID");
-  if (!propertyId) throw new Error("GA4_PROPERTY_ID env var required");
+  const ctx = requireRequestCredentialContext("GA4_PROPERTY_ID");
+  const propertyId = await resolveCredential("GA4_PROPERTY_ID", ctx);
+  if (!propertyId) throw new Error("GA4_PROPERTY_ID not configured");
   return { propertyId };
 }
 
 async function getAccessToken(): Promise<string> {
-  const credsJson = await resolveCredential(
+  const ctx = requireRequestCredentialContext(
     "GOOGLE_APPLICATION_CREDENTIALS_JSON",
   );
+  const credsJson = await resolveCredential(
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+    ctx,
+  );
   if (!credsJson) {
-    throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON env var required");
+    throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured");
   }
 
   const creds = JSON.parse(credsJson);
@@ -58,15 +68,17 @@ async function getAccessToken(): Promise<string> {
 }
 
 // Cache the access token separately (1 hour TTL)
-let tokenCache: { token: string; ts: number } | null = null;
+const tokenCache = new Map<string, { token: string; ts: number }>();
 const TOKEN_TTL_MS = 50 * 60 * 1000; // 50 minutes (tokens last 60)
 
 async function getCachedToken(): Promise<string> {
-  if (tokenCache && Date.now() - tokenCache.ts < TOKEN_TTL_MS) {
-    return tokenCache.token;
+  const tokenKey = credentialCacheScope("GOOGLE_APPLICATION_CREDENTIALS_JSON");
+  const cached = tokenCache.get(tokenKey);
+  if (cached && Date.now() - cached.ts < TOKEN_TTL_MS) {
+    return cached.token;
   }
   const token = await getAccessToken();
-  tokenCache = { token, ts: Date.now() };
+  tokenCache.set(tokenKey, { token, ts: Date.now() });
   return token;
 }
 
@@ -114,7 +126,10 @@ export async function runReport(
   const range = dateRange ?? { startDate: "7daysAgo", endDate: "today" };
 
   const filterKey = dimensionFilter ? JSON.stringify(dimensionFilter) : "";
-  const cacheKey = `report-${dimensions.join(",")}-${metrics.join(",")}-${range.startDate}-${range.endDate}-${filterKey}`;
+  const cacheKey = scopedCredentialCacheKey(
+    `report-${dimensions.join(",")}-${metrics.join(",")}-${range.startDate}-${range.endDate}-${filterKey}`,
+    "GA4_PROPERTY_ID",
+  );
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as GA4ReportResponse;

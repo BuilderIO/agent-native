@@ -63,13 +63,23 @@ const ATLASSIAN_LOGIN_HTML = `<!DOCTYPE html>
   <p class="error" id="err"></p>
 </div>
 <script>
+  function appBasePath() {
+    var marker = '/_agent-native/';
+    var path = window.location.pathname || '';
+    var index = path.indexOf(marker);
+    if (index <= 0) return '';
+    return path.slice(0, index).replace(/\\/+$/, '');
+  }
+  function appPath(path) {
+    return appBasePath() + path;
+  }
   async function signIn() {
     var btn = document.getElementById('btn');
     var err = document.getElementById('err');
     btn.disabled = true;
     err.classList.remove('show');
     try {
-      var res = await fetch('/api/atlassian/auth-url');
+      var res = await fetch(appPath('/api/atlassian/auth-url'));
       var data = await res.json();
       if (data.url) {
         try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
@@ -78,7 +88,7 @@ const ATLASSIAN_LOGIN_HTML = `<!DOCTYPE html>
           var popup = window.open(data.url, '_blank', 'width=640,height=760');
           var poll = setInterval(async function() {
             try {
-              var r = await fetch('/_agent-native/auth/session');
+              var r = await fetch(appPath('/_agent-native/auth/session'));
               var s = await r.json();
               if (s && s.email) { clearInterval(poll); window.location.reload(); }
             } catch(e) {}

@@ -1,9 +1,41 @@
-import { useEffect } from "react";
-import { useNavigate } from "react-router";
+import { redirect, type LoaderFunctionArgs } from "react-router";
 import { DefaultSpinner } from "@agent-native/core/client";
 
 export function meta() {
-  return [{ title: "Clips" }];
+  return [
+    { title: "Clips" },
+    {
+      name: "description",
+      content:
+        "Async screen recording with auto-transcription, chapters, and shareable links — agent-native by default.",
+    },
+  ];
+}
+
+/**
+ * The root route redirects to /library — the Library is the default landing
+ * view. Everything else hangs off the pathless _app layout so the sidebar +
+ * agent chat persist across navigations.
+ *
+ * Run the redirect on both the server and the client. A client-only
+ * `useNavigate(...)` inside `useEffect` can drop during hydration (before
+ * the route tree is fully attached), leaving the user stranded on `/` with
+ * a blank main area while the layout chrome around it still renders. A
+ * `loader` redirect runs as part of the server response and the navigation
+ * completes before the app hydrates; `clientLoader` covers SPA-style
+ * navigations to `/`.
+ */
+function buildTarget(request: Request): string {
+  const url = new URL(request.url);
+  return `/library${url.search}${url.hash}`;
+}
+
+export function loader({ request }: LoaderFunctionArgs) {
+  throw redirect(buildTarget(request));
+}
+
+export function clientLoader({ request }: LoaderFunctionArgs) {
+  throw redirect(buildTarget(request));
 }
 
 export function HydrateFallback() {
@@ -14,19 +46,6 @@ export function HydrateFallback() {
   );
 }
 
-// The root route redirects to /library — the Library is the default landing
-// view. Everything else hangs off the pathless _app layout so the sidebar +
-// agent chat persist across navigations.
 export default function IndexPage() {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    navigate("/library", { replace: true });
-  }, [navigate]);
-
-  return (
-    <div className="flex items-center justify-center h-screen w-full">
-      <DefaultSpinner />
-    </div>
-  );
+  return null;
 }

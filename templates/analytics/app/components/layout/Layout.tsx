@@ -38,7 +38,7 @@ export function Layout({ children }: LayoutProps) {
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">
             <MobileNav />
-            <Header />
+            {!isToolsRoute && <Header />}
             <InvitationBanner />
             <main
               className={

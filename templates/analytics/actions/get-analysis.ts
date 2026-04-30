@@ -14,7 +14,8 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const orgId = getRequestOrgId() || null;
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const a = await getAnalysis(args.id, { email, orgId });
     if (!a) return { error: "Analysis not found" };
     return {

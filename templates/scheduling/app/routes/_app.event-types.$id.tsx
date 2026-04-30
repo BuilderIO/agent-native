@@ -2,6 +2,11 @@ import { useLoaderData, useRevalidator, Link } from "react-router";
 import { useMemo, useState } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { getEventTypeById } from "@agent-native/scheduling/server";
+
+export function meta() {
+  return [{ title: "Edit event type — Scheduling" }];
+}
+
 import { callAction } from "@/lib/api";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";

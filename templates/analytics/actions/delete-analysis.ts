@@ -14,7 +14,8 @@ export default defineAction({
   http: false,
   run: async (args) => {
     const orgId = getRequestOrgId() || null;
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     await removeAnalysis(args.id, { email, orgId });
     return `Analysis "${args.id}" deleted.`;
   },

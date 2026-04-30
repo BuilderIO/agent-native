@@ -1,4 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/oauth-tokens", () => ({
+  deleteOAuthTokens: vi.fn(),
+  getOAuthTokens: vi.fn(),
+  listOAuthAccountsByOwner: vi.fn(),
+  saveOAuthTokens: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getSession: vi.fn(),
+}));
+
 import {
   resolveNotionMarkdownResponse,
   type NotionPageMarkdown,

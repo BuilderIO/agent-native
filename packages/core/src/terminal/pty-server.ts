@@ -162,6 +162,13 @@ export async function createPtyWebSocketServer(
 
   // Handle WebSocket upgrades with optional auth
   server.on("upgrade", async (req, socket, head) => {
+    const url = new URL(req.url || "/", `http://${req.headers.host}`);
+    if (url.pathname !== "/ws") {
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
     if (authCheck) {
       try {
         const allowed = await authCheck(req);
@@ -303,7 +310,7 @@ export async function createPtyWebSocketServer(
         const msg = JSON.parse(str);
 
         if (
-          msg.type === "builder.setEnvVars" &&
+          msg.type === "agentNative.setEnvVars" &&
           Array.isArray(msg.data?.vars)
         ) {
           const envPath = path.join(resolvedAppDir, ".env");
@@ -358,7 +365,7 @@ export async function createPtyWebSocketServer(
           return;
         }
 
-        if (msg.type === "resize" && msg.cols && msg.rows) {
+        if (msg.type === "resize" && msg.cols != null && msg.rows != null) {
           const cols = Math.max(
             1,
             Math.min(65535, Math.trunc(Number(msg.cols))),

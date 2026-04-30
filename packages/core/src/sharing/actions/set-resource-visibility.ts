@@ -7,6 +7,9 @@ import { requireShareableResource } from "../registry.js";
 export default defineAction({
   description:
     "Change the coarse visibility of a shareable resource: 'private' | 'org' | 'public'. Owner or admin role required.",
+  // (audit H5) Visibility changes are admin-tier and can flip a private
+  // resource org-wide or public. Refuse from the tools iframe bridge.
+  toolCallable: false,
   schema: z.object({
     resourceType: z.string(),
     resourceId: z.string(),

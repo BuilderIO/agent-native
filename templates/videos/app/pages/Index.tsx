@@ -3,6 +3,7 @@ import { useParams, Navigate } from "react-router";
 import { AgentSidebar } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { compositions } from "@/remotion/registry";
+import { Spinner } from "@/components/ui/spinner";
 import { Sidebar } from "@/components/Sidebar";
 import { StudioHeader } from "@/components/StudioHeader";
 import { QuestionFlow } from "@/components/QuestionFlow";
@@ -15,6 +16,7 @@ import { PlaybackProvider } from "@/contexts/PlaybackContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
 import { useCompositionCollab } from "@/hooks/use-composition-collab";
+import { useDatabaseCompositions } from "@/hooks/use-database-compositions";
 import "@/utils/resetComposition"; // Make reset utility available in console
 
 // ─── Studio Container with Providers ──────────────────────────────────────────
@@ -113,19 +115,43 @@ function StudioContent({
 
 export default function Studio() {
   const { compositionId } = useParams<{ compositionId: string }>();
+  const dbCompositions = useDatabaseCompositions();
   const collab = useCompositionCollab(
     compositionId && compositionId !== "new" ? compositionId : null,
   );
 
   const isNew = compositionId === "new";
   const selected = compositions.find((c) => c.id === compositionId);
+  const dbHasSelectedComposition =
+    !!compositionId &&
+    dbCompositions.rows.some((row) => row.id === compositionId);
 
   // ── Redirects ─────────────────────────────────────────────────────────────
+  if (!compositionId && dbCompositions.isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen w-full">
+        <Spinner className="size-8 text-foreground" />
+      </div>
+    );
+  }
+
   if (!compositionId) {
     return compositions.length > 0 ? (
-      <Navigate to={`/c/${compositions[0].id}`} replace />
+      <Navigate to={`c/${compositions[0].id}`} replace />
     ) : (
-      <Navigate to="/c/new" replace />
+      <Navigate to="c/new" replace />
+    );
+  }
+
+  if (
+    !isNew &&
+    !selected &&
+    (dbCompositions.isLoading || dbHasSelectedComposition)
+  ) {
+    return (
+      <div className="flex items-center justify-center h-screen w-full">
+        <Spinner className="size-8 text-foreground" />
+      </div>
     );
   }
 

@@ -15,9 +15,13 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   nanoid,
-  requireActiveOrganizationId,
+  requireOrganizationAccess,
 } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
+
+const cliBoolean = z
+  .union([z.boolean(), z.enum(["true", "false"])])
+  .transform((value) => value === true || value === "true");
 
 export default defineAction({
   description:
@@ -39,18 +43,18 @@ export default defineAction({
         "Organization the recording belongs to (defaults to the caller's active org)",
       ),
     hasCamera: z
-      .boolean()
+      .union([z.boolean(), cliBoolean])
       .optional()
       .describe("Whether the recording includes a camera track"),
     hasAudio: z
-      .boolean()
+      .union([z.boolean(), cliBoolean])
       .optional()
       .describe("Whether the recording includes an audio track"),
-    width: z
+    width: z.coerce
       .number()
       .optional()
       .describe("Width of the recording in pixels (may be 0 until finalized)"),
-    height: z
+    height: z.coerce
       .number()
       .optional()
       .describe("Height of the recording in pixels (may be 0 until finalized)"),
@@ -65,8 +69,9 @@ export default defineAction({
     const id = args.id || nanoid();
     const now = new Date().toISOString();
 
-    const organizationId =
-      args.organizationId || (await requireActiveOrganizationId());
+    const { organizationId } = await requireOrganizationAccess(
+      args.organizationId,
+    );
 
     await db.insert(schema.recordings).values({
       id,

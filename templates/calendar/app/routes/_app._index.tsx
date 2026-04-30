@@ -2,7 +2,14 @@ import CalendarView from "@/pages/CalendarView";
 import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
-  return [{ title: "Calendar" }];
+  return [
+    { title: "Calendar" },
+    {
+      name: "description",
+      content:
+        "Agent-native calendar — sync Google Calendar, manage events, and share booking links.",
+    },
+  ];
 }
 
 export function HydrateFallback() {

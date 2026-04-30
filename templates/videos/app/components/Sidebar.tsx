@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router";
 import { compositions } from "@/remotion/registry";
 import { CompositionCard } from "@/components/CompositionCard";
+import { LibraryFolderRow } from "@/components/LibraryFolderRow";
 import { PropsEditor } from "@/components/PropsEditor";
 import { TrackPropertiesPanel } from "@/components/TrackPropertiesPanel";
 import { CompSettingsEditor } from "@/components/CompSettingsEditor";
@@ -20,6 +21,7 @@ import {
   IconComponents,
   IconPalette,
   IconUsers,
+  IconFolderPlus,
 } from "@tabler/icons-react";
 import { NewCompositionPopover } from "@/components/NewCompositionPopover";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -27,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { useComposition } from "@/contexts/CompositionContext";
 import { useTimeline } from "@/contexts/TimelineContext";
 import { usePlayback } from "@/contexts/PlaybackContext";
+import { useFolders } from "@/hooks/use-folders";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { FeedbackButton } from "@agent-native/core/client";
 
@@ -69,7 +72,19 @@ export function Sidebar({
 
   const { currentFrame, fps, onSeek } = usePlayback();
 
+  const {
+    folders,
+    createFolder,
+    renameFolder,
+    deleteFolder,
+    addToFolder,
+    removeFromFolder,
+    getFolderForComposition,
+    getCompositionsInFolder,
+  } = useFolders();
+
   const [tab, setTab] = useState<"compositions" | "properties">("compositions");
+  const [isDragOverUncategorized, setIsDragOverUncategorized] = useState(false);
   const cameraDetailsRef = useRef<HTMLDetailsElement>(null);
   const cursorDetailsRef = useRef<HTMLDetailsElement>(null);
   const trackDetailsRef = useRef<HTMLDetailsElement>(null);
@@ -79,6 +94,11 @@ export function Sidebar({
     timelineTracks.find((t) => t.id === selectedTrackId) ?? null;
   const cameraTrack = timelineTracks.find((t) => t.id === "camera");
   const cursorTrack = timelineTracks.find((t) => t.id === "cursor");
+
+  // Compositions not assigned to any folder
+  const uncategorizedCompositions = compositions.filter(
+    (c) => !getFolderForComposition(c.id),
+  );
 
   // Auto-switch to Properties tab when a track is selected from the timeline
   useEffect(() => {
@@ -235,7 +255,7 @@ export function Sidebar({
     <div
       className={cn(
         "flex-shrink-0 border-r border-border bg-card/40 overflow-hidden h-full",
-        "md:relative md:transition-[width] md:duration-200",
+        "md:relative",
         open
           ? "absolute inset-y-0 left-0 z-30 w-64 lg:w-72 md:relative"
           : "w-0",
@@ -294,23 +314,110 @@ export function Sidebar({
 
           <TabsContent
             value="compositions"
-            className="flex-1 overflow-y-auto p-2.5 space-y-1.5 scrollbar-thin mt-0"
+            className="flex-1 overflow-y-auto p-2.5 scrollbar-thin mt-0"
           >
-            <NewCompositionPopover
-              isNew={isNew}
-              onNavigate={onNavigate}
-              onGeneratingChange={onGeneratingChange}
-            />
+            <div className="space-y-1.5">
+              {/* Toolbar: new composition + new folder */}
+              <div className="flex gap-1.5">
+                <div className="flex-1 min-w-0">
+                  <NewCompositionPopover
+                    isNew={isNew}
+                    onNavigate={onNavigate}
+                    onGeneratingChange={onGeneratingChange}
+                  />
+                </div>
+                <button
+                  onClick={() => createFolder("New Folder")}
+                  title="New folder"
+                  className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-md border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-border/60 hover:bg-secondary/60 transition-colors"
+                >
+                  <IconFolderPlus className="h-3.5 w-3.5" />
+                </button>
+              </div>
 
-            {compositions.map((comp) => (
-              <CompositionCard
-                key={comp.id}
-                composition={comp}
-                isSelected={comp.id === compositionId}
-                onClick={() => onNavigate(`/c/${comp.id}`)}
-                onDelete={onDelete}
-              />
-            ))}
+              {/* Folders (always at the top) */}
+              {folders.map((folder) => {
+                const folderCompIds = getCompositionsInFolder(folder.id);
+                const folderComps = compositions.filter((c) =>
+                  folderCompIds.includes(c.id),
+                );
+                return (
+                  <LibraryFolderRow
+                    key={folder.id}
+                    folder={folder}
+                    compositions={folderComps}
+                    selectedCompositionId={compositionId ?? null}
+                    onSelectComposition={(id) => onNavigate(`/c/${id}`)}
+                    onDelete={onDelete}
+                    onRenameFolder={renameFolder}
+                    onDeleteFolder={deleteFolder}
+                    onDropComposition={addToFolder}
+                    onRemoveFromFolder={removeFromFolder}
+                  />
+                );
+              })}
+
+              {/* Divider when folders exist */}
+              {folders.length > 0 && (
+                <div className="flex items-center gap-2 px-1 py-0.5">
+                  <div className="flex-1 h-px bg-border/40" />
+                  <span className="text-[9px] uppercase tracking-wider text-muted-foreground/40 font-medium">
+                    Uncategorized
+                  </span>
+                  <div className="flex-1 h-px bg-border/40" />
+                </div>
+              )}
+
+              {/* Uncategorized compositions — also a drop target to remove from folder.
+                  Always rendered when folders exist so there's a reachable drop zone
+                  even when every composition has been placed in a folder. */}
+              {(folders.length > 0 || uncategorizedCompositions.length > 0) && (
+                <div
+                  className={cn(
+                    "rounded-lg space-y-0.5 transition-all",
+                    folders.length > 0 &&
+                      uncategorizedCompositions.length === 0 &&
+                      "min-h-[36px] flex items-center justify-center border border-dashed border-border/30 rounded-lg",
+                    isDragOverUncategorized &&
+                      "ring-2 ring-dashed ring-border bg-secondary/20 p-1",
+                  )}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragOverUncategorized(true);
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setIsDragOverUncategorized(false);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOverUncategorized(false);
+                    const compId = e.dataTransfer.getData(
+                      "text/composition-id",
+                    );
+                    if (compId) removeFromFolder(compId);
+                  }}
+                >
+                  {uncategorizedCompositions.map((comp) => (
+                    <CompositionCard
+                      key={comp.id}
+                      composition={comp}
+                      isSelected={comp.id === compositionId}
+                      onClick={() => onNavigate(`/c/${comp.id}`)}
+                      onDelete={onDelete}
+                      draggable
+                    />
+                  ))}
+                  {folders.length > 0 &&
+                    uncategorizedCompositions.length === 0 && (
+                      <p className="text-[10px] text-center text-muted-foreground/40">
+                        Drop here to remove from folder
+                      </p>
+                    )}
+                </div>
+              )}
+            </div>
           </TabsContent>
 
           <TabsContent

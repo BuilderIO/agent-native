@@ -16,6 +16,7 @@ import {
   getOrigin,
   encodeOAuthState,
   isElectron,
+  DEV_MODE_USER_EMAIL,
 } from "@agent-native/core/server";
 import { getZoomAuthUrl, isZoomConfigured } from "../../../lib/zoom.js";
 
@@ -33,7 +34,7 @@ export default defineEventHandler(async (event: H3Event) => {
     `${getOrigin(event)}/_agent-native/zoom/callback`;
   const session = await getSession(event);
   const owner =
-    session?.email && session.email !== "local@localhost"
+    session?.email && session.email !== DEV_MODE_USER_EMAIL
       ? session.email
       : undefined;
   const desktop = isElectron(event);

@@ -7,6 +7,5 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Destination id"),
   }),
-  http: { method: "DELETE" },
   run: async ({ id }) => deleteDestination(id),
 });

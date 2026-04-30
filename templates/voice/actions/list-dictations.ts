@@ -13,6 +13,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/helpers.js";
 
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
+
 export default defineAction({
   description:
     "List dictations for the current user. Supports search by text content, filtering by language, and sort order.",
@@ -40,9 +44,9 @@ export default defineAction({
     const whereClauses = [eq(schema.dictations.ownerEmail, ownerEmail)];
 
     if (args.search) {
-      const pat = `%${args.search}%`;
+      const pat = `%${escapeLike(args.search)}%`;
       whereClauses.push(
-        sql`(LOWER(${schema.dictations.text}) LIKE LOWER(${pat}) OR LOWER(${schema.dictations.rawText}) LIKE LOWER(${pat}))`,
+        sql`(LOWER(${schema.dictations.text}) LIKE LOWER(${pat}) ESCAPE '\\' OR LOWER(${schema.dictations.rawText}) LIKE LOWER(${pat}) ESCAPE '\\')`,
       );
     }
 

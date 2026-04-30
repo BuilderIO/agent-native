@@ -9,6 +9,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "../api-path.js";
 
 export type McpServerScope = "user" | "org";
 
@@ -34,7 +35,7 @@ export interface McpServersList {
   role: string | null;
 }
 
-const ENDPOINT = "/_agent-native/mcp/servers";
+const ENDPOINT = agentNativePath("/_agent-native/mcp/servers");
 const LIST_KEY = ["mcp-servers"] as const;
 
 export function useMcpServers() {
@@ -87,7 +88,11 @@ export function useDeleteMcpServer() {
     mutationFn: async (args: { id: string; scope: McpServerScope }) => {
       const res = await fetch(
         `${ENDPOINT}/${encodeURIComponent(args.id)}?scope=${args.scope}`,
-        { method: "DELETE", credentials: "include" },
+        {
+          method: "DELETE",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        },
       );
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
