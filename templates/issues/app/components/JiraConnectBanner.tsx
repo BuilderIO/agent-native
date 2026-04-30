@@ -10,7 +10,7 @@ import {
   IconClipboardList,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, appApiPath } from "@agent-native/core/client";
 
 export function JiraConnectBanner() {
   const [step, setStep] = useState(1);
@@ -22,7 +22,10 @@ export function JiraConnectBanner() {
 
   const callbackUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}/api/atlassian/callback`
+      ? new URL(
+          appApiPath("/api/atlassian/callback"),
+          window.location.origin,
+        ).toString()
       : "";
 
   const handleCopy = () => {
