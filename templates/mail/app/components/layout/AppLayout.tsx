@@ -57,6 +57,7 @@ import type { Label } from "@shared/types";
 import { toast } from "sonner";
 
 import { AccountFilterContext } from "@/hooks/use-account-filter";
+import { appApiPath } from "@/lib/api-path";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const BARE_ROUTES = new Set(["/email"]);
@@ -1237,7 +1238,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       label: "DELETE DRAFT",
                       onClick: () => {
                         if (snapshot.savedDraftId) {
-                          fetch(`/api/emails/${snapshot.savedDraftId}`, {
+                          fetch(appApiPath(`/api/emails/${snapshot.savedDraftId}`), {
                             method: "DELETE",
                           });
                         }
@@ -1270,7 +1271,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       onClick: () => {
                         for (const snap of snapshots) {
                           if (snap.savedDraftId) {
-                            fetch(`/api/emails/${snap.savedDraftId}`, {
+                            fetch(appApiPath(`/api/emails/${snap.savedDraftId}`), {
                               method: "DELETE",
                             });
                           }

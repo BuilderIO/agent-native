@@ -38,9 +38,10 @@ export function appPath(path: string): string {
 }
 
 export function appApiPath(path: string): string {
-  const normalized = path.startsWith("/api")
-    ? path
-    : `/api/${path.replace(/^\/+/, "")}`;
+  const normalized =
+    path === "/api" || path.startsWith("/api/")
+      ? path
+      : `/api/${path.replace(/^\/+/, "")}`;
   return appPath(normalized);
 }
 

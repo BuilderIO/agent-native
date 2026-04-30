@@ -243,18 +243,19 @@ function registerMiddleware(
       // dispatch sub-routes can read `event.path` (or `event.url.pathname`)
       // and see the path RELATIVE to their mount point — matching h3 v1's
       // `app.use(path, handler)` semantics.
+      const eventAny = event as any;
+      hadEventPath = "path" in eventAny;
+      originalEventPath = eventAny.path;
       try {
         originalPathname = event.url.pathname;
         // Save the full path in context so handlers that need the original URL
         // (e.g. Better Auth, which extracts its own basePath prefix) can
         // reconstruct a Request with the un-stripped URL.
-        (event as any).context = (event as any).context ?? {};
-        (event as any).context._mountedPathname = originalPathname;
-        (event as any).context._mountPrefix = match.mountPath;
+        eventAny.context = eventAny.context ?? {};
+        eventAny.context._mountedPathname = originalPathname;
+        eventAny.context._mountPrefix = match.mountPath;
         event.url.pathname = match.strippedPath;
-        hadEventPath = "path" in (event as any);
-        originalEventPath = (event as any).path;
-        (event as any).path = `${match.strippedPath}${event.url.search || ""}`;
+        eventAny.path = `${match.strippedPath}${event.url.search || ""}`;
       } catch {
         // event.url is read-only on some runtimes — fall through. Handlers
         // that don't depend on prefix stripping (most of them) still work.

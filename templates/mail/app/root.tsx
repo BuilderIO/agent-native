@@ -11,6 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useDbSync } from "@agent-native/core";
 import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
+import { appApiPath } from "@/lib/api-path";
 import { TAB_ID } from "@/lib/tab-id";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
@@ -89,7 +90,9 @@ function AutomationTrigger() {
       const now = Date.now();
       if (now - lastTrigger.current < 30_000) return;
       lastTrigger.current = now;
-      fetch("/api/automations/trigger", { method: "POST" }).catch(() => {});
+      fetch(appApiPath("/api/automations/trigger"), { method: "POST" }).catch(
+        () => {},
+      );
     };
     // Trigger on load
     trigger();

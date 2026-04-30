@@ -6,6 +6,7 @@ import {
   flattenInfiniteEmails,
   type InfiniteEmails,
 } from "./use-emails";
+import { appApiPath } from "@/lib/api-path";
 
 export interface ScheduledJob {
   id: string;
@@ -24,7 +25,7 @@ export function useScheduledJobs() {
   return useQuery<ScheduledJob[]>({
     queryKey: ["scheduled-jobs"],
     queryFn: async () => {
-      const res = await fetch("/api/scheduled-jobs");
+      const res = await fetch(appApiPath("/api/scheduled-jobs"));
       if (!res.ok) throw new Error("Failed to fetch scheduled jobs");
       return res.json();
     },
@@ -41,7 +42,7 @@ export function useCreateScheduledJob() {
       payload?: Record<string, unknown>;
       runAt: number;
     }) => {
-      const res = await fetch("/api/scheduled-jobs", {
+      const res = await fetch(appApiPath("/api/scheduled-jobs"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -61,7 +62,7 @@ export function useSnoozeEmail() {
       runAt: number;
       accountEmail?: string;
     }) => {
-      const res = await fetch(`/api/emails/${data.emailId}/snooze`, {
+      const res = await fetch(appApiPath(`/api/emails/${data.emailId}/snooze`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -122,7 +123,7 @@ export function useScheduleEmail() {
       replyToId?: string;
       threadId?: string;
     }) => {
-      const res = await fetch("/api/emails/schedule", {
+      const res = await fetch(appApiPath("/api/emails/schedule"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -144,7 +145,7 @@ export function useDeleteScheduledJob() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/scheduled-jobs/${id}`, {
+      const res = await fetch(appApiPath(`/api/scheduled-jobs/${id}`), {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to cancel job");
@@ -157,7 +158,7 @@ export function useDeleteScheduledJob() {
 export function useParseDate() {
   return useMutation({
     mutationFn: async (data: { nlInput: string; timezone: string }) => {
-      const res = await fetch("/api/parse-date", {
+      const res = await fetch(appApiPath("/api/parse-date"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),

@@ -101,6 +101,25 @@ function isEnvVarWriteAllowed(): boolean {
   return isDevEnvironment() && isLocalDatabase();
 }
 
+function normalizeAppBasePath(value: string | undefined): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function stripAppBasePath(pathname: string): string {
+  const basePath = normalizeAppBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface CoreRoutesPluginOptions {
@@ -252,8 +271,11 @@ export function createCoreRoutesPlugin(
       .filter(Boolean);
     getH3App(nitroApp).use(
       defineEventHandler((event) => {
-        const url = event.node?.req?.url ?? event.path ?? "/";
-        if (!url.startsWith(P) && !url.startsWith("/api/")) return;
+        const pathname = stripAppBasePath(
+          event.url?.pathname ??
+            String(event.node?.req?.url ?? event.path ?? "/").split("?")[0],
+        );
+        if (!pathname.startsWith(P) && !pathname.startsWith("/api/")) return;
         const reqHeaders = (event.node?.req?.headers ?? {}) as Record<
           string,
           string | string[] | undefined

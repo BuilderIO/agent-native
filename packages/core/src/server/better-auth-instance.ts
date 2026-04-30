@@ -270,6 +270,13 @@ const pgAuthSchema = {
     createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
   }),
+  jwks: pgTable("jwks", {
+    id: pgText("id").primaryKey(),
+    publicKey: pgText("public_key").notNull(),
+    privateKey: pgText("private_key").notNull(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: pgTimestamp("expires_at", { withTimezone: true }),
+  }),
 };
 
 const sqliteAuthSchema = {
@@ -350,6 +357,13 @@ const sqliteAuthSchema = {
     createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: sqliteInteger("updated_at", { mode: "timestamp_ms" }).notNull(),
   }),
+  jwks: sqliteTable("jwks", {
+    id: sqliteText("id").primaryKey(),
+    publicKey: sqliteText("public_key").notNull(),
+    privateKey: sqliteText("private_key").notNull(),
+    createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
+    expiresAt: sqliteInteger("expires_at", { mode: "timestamp_ms" }),
+  }),
 };
 
 function getBetterAuthSchema() {
@@ -367,6 +381,7 @@ async function ensureBetterAuthTables(): Promise<void> {
         `CREATE TABLE IF NOT EXISTS "organization" (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS "member" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS "invitation" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at TIMESTAMPTZ NOT NULL, inviter_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+        `CREATE TABLE IF NOT EXISTS "jwks" (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ)`,
       ]
     : [
         `CREATE TABLE IF NOT EXISTS user (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified INTEGER NOT NULL DEFAULT 0, image TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
@@ -376,6 +391,7 @@ async function ensureBetterAuthTables(): Promise<void> {
         `CREATE TABLE IF NOT EXISTS organization (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS member (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS invitation (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at INTEGER NOT NULL, inviter_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+        `CREATE TABLE IF NOT EXISTS jwks (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER)`,
       ];
 
   for (const sql of statements) await db.execute(sql);

@@ -31,6 +31,7 @@ import {
 import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
 import { expandAliasTokens } from "@/lib/alias-utils";
+import { appApiPath } from "@/lib/api-path";
 import { useAgentChatGenerating } from "@agent-native/core";
 import { toast } from "sonner";
 import type {
@@ -159,7 +160,9 @@ export const InlineReplyComposer = forwardRef<
     onDiscard(draft.id);
 
     if (savedDraftId) {
-      fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
+      fetch(appApiPath(`/api/emails/draft/${savedDraftId}`), {
+        method: "DELETE",
+      });
     }
 
     // Show optimistic reply in the thread immediately

@@ -6,6 +6,7 @@ import {
   IconX,
   IconArrowUp,
 } from "@tabler/icons-react";
+import { appBasePath } from "@agent-native/core/client";
 
 export interface UploadedFile {
   path: string;
@@ -132,7 +133,7 @@ export default function PromptPopover({
     try {
       const formData = new FormData();
       newFiles.forEach((f) => formData.append("files", f));
-      const res = await fetch("/api/uploads", {
+      const res = await fetch(`${appBasePath()}/api/uploads`, {
         method: "POST",
         body: formData,
       });

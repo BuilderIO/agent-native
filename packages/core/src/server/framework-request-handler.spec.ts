@@ -13,6 +13,7 @@ async function dispatch(nitroApp: any, pathname: string) {
   const event = {
     method: "GET",
     url: new URL(`http://example.test${pathname}`),
+    path: pathname,
     context: {},
   };
   let index = 0;
@@ -48,6 +49,37 @@ describe("framework request handler", () => {
     });
   });
 
+  it("dispatches with a mount-relative event.path for legacy handlers", async () => {
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/_agent-native/resources", (event: any) => ({
+      pathname: event.url.pathname,
+      path: event.path,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/resources/doc-1?raw=1"),
+    ).resolves.toEqual({
+      pathname: "/doc-1",
+      path: "/doc-1?raw=1",
+    });
+  });
+
+  it("restores event.path before falling through to downstream middleware", async () => {
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/_agent-native/resources", () => undefined);
+    getH3App(nitroApp).use((event: any) => ({
+      pathname: event.url.pathname,
+      path: event.path,
+    }));
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/resources/doc-1?raw=1"),
+    ).resolves.toEqual({
+      pathname: "/_agent-native/resources/doc-1",
+      path: "/_agent-native/resources/doc-1?raw=1",
+    });
+  });
+
   it("dispatches framework routes under APP_BASE_PATH", async () => {
     process.env.APP_BASE_PATH = "/docs";
     const nitroApp = createNitroApp();
@@ -55,6 +87,7 @@ describe("framework request handler", () => {
       mountPrefix: event.context._mountPrefix,
       mountedPathname: event.context._mountedPathname,
       pathname: event.url.pathname,
+      path: event.path,
     }));
 
     await expect(
@@ -63,6 +96,7 @@ describe("framework request handler", () => {
       mountPrefix: "/docs/_agent-native/resources",
       mountedPathname: "/docs/_agent-native/resources/tree",
       pathname: "/tree",
+      path: "/tree",
     });
   });
 

@@ -50,9 +50,7 @@ describe("appPath", () => {
       location: { pathname: "/docs/_agent-native/auth/reset" },
     });
 
-    expect(appPath("/api/local-migration")).toBe(
-      "/docs/api/local-migration",
-    );
+    expect(appPath("/api/local-migration")).toBe("/docs/api/local-migration");
     expect(appPath("/settings")).toBe("/docs/settings");
   });
 
