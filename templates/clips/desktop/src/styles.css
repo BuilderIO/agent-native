@@ -425,6 +425,50 @@ button {
   color: var(--fg);
 }
 
+/* Shadcn-style switch — slim track + sliding thumb. Used in Settings for the
+   Voice dictation enable/disable toggle. */
+.switch {
+  position: relative;
+  display: inline-flex;
+  width: 32px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background 120ms;
+  flex-shrink: 0;
+}
+
+.switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+.switch-on {
+  background: #16a34a;
+}
+
+.switch-off {
+  background: var(--surface-strong);
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 120ms;
+  pointer-events: none;
+}
+
+.switch-on .switch-thumb {
+  transform: translateX(14px);
+}
+
 /* Mic level indicator — animated bars under the mic row. */
 .mic-wave {
   position: absolute;
@@ -771,9 +815,83 @@ button {
   gap: 6px;
 }
 
+.setup-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setup-header h2 {
+  margin: 0;
+}
+
+.setup-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.setup-back:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.setup-back:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
 .setup-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: var(--fg-muted);
+}
+
+.setup-help {
+  display: inline-flex;
+  align-items: center;
+  color: var(--fg-muted);
+  opacity: 0.6;
+  cursor: help;
+  transition: opacity 120ms;
+}
+
+.setup-help:hover {
+  opacity: 1;
+}
+
+.setup-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.setup-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+
+.setup-warning {
+  margin: 0;
+  font-size: 11px;
+  color: #b45309;
+  line-height: 1.4;
 }
 
 .setup-select {
