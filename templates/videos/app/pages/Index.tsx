@@ -122,6 +122,9 @@ export default function Studio() {
 
   const isNew = compositionId === "new";
   const selected = compositions.find((c) => c.id === compositionId);
+  const dbHasSelectedComposition =
+    !!compositionId &&
+    dbCompositions.rows.some((row) => row.id === compositionId);
 
   // ── Redirects ─────────────────────────────────────────────────────────────
   if (!compositionId && dbCompositions.isLoading) {
@@ -140,7 +143,11 @@ export default function Studio() {
     );
   }
 
-  if (!isNew && !selected && dbCompositions.isLoading) {
+  if (
+    !isNew &&
+    !selected &&
+    (dbCompositions.isLoading || dbHasSelectedComposition)
+  ) {
     return (
       <div className="flex items-center justify-center h-screen w-full">
         <Spinner className="size-8 text-foreground" />

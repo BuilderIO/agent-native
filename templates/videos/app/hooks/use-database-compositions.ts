@@ -58,6 +58,7 @@ export function useDatabaseCompositions() {
   }, [query.data]);
 
   return {
+    rows: query.data ?? [],
     version,
     isLoading: query.isLoading,
     isError: query.isError,
