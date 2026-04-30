@@ -150,7 +150,11 @@ export function createTranscribeVoiceHandler() {
     if (providerPref === undefined) {
       try {
         const prefs = await appStateGet(sessionId, "voice-transcription-prefs");
-        providerPref = (prefs as { provider?: string } | null)?.provider;
+        providerPref = (
+          prefs as { provider?: string; value?: { provider?: string } } | null
+        )?.provider;
+        providerPref ??= (prefs as { value?: { provider?: string } } | null)
+          ?.value?.provider;
       } catch {
         /* fall through — default to fallback chain */
       }

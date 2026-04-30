@@ -47,9 +47,10 @@ export function VoiceTranscriptionSection() {
     let cancelled = false;
     fetch(PREFS_URL)
       .then((r) => (r.ok ? r.json() : null))
-      .then((body: { value?: Prefs } | null) => {
+      .then((body: Prefs | { value?: Prefs } | null) => {
         if (cancelled) return;
-        const p = body?.value?.provider;
+        const p =
+          body && "value" in body ? body.value?.provider : body?.provider;
         setProvider(
           p === "openai" || p === "builder" || p === "browser"
             ? p
@@ -87,7 +88,7 @@ export function VoiceTranscriptionSection() {
         const res = await fetch(PREFS_URL, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ value: { provider: next } }),
+          body: JSON.stringify({ provider: next }),
         });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);

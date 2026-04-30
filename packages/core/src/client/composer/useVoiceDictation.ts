@@ -57,8 +57,12 @@ async function readProviderPrefs(): Promise<VoiceProvider> {
   try {
     const res = await fetch(PREFS_URL);
     if (!res.ok) return "browser";
-    const body = (await res.json()) as { value?: VoicePrefs } | null;
-    const p = body?.value?.provider;
+    const body = (await res.json()) as
+      | VoicePrefs
+      | { value?: VoicePrefs }
+      | null;
+    const p =
+      body && "value" in body ? body.value?.provider : body?.provider;
     if (p === "openai" || p === "browser" || p === "builder") return p;
   } catch {
     /* fall through */
