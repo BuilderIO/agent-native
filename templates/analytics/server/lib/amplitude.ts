@@ -35,10 +35,7 @@ function cacheSet(key: string, data: unknown) {
 }
 
 async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
-  const key = scopedCredentialCacheKey(
-    cacheKey ?? path,
-    "AMPLITUDE_API_KEY",
-  );
+  const key = scopedCredentialCacheKey(cacheKey ?? path, "AMPLITUDE_API_KEY");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

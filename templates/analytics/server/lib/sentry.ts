@@ -33,10 +33,7 @@ function cacheSet(key: string, data: unknown) {
 }
 
 async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
-  const key = scopedCredentialCacheKey(
-    cacheKey ?? path,
-    "SENTRY_SERVER_TOKEN",
-  );
+  const key = scopedCredentialCacheKey(cacheKey ?? path, "SENTRY_SERVER_TOKEN");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

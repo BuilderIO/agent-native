@@ -16,7 +16,7 @@ import { defineAction } from "@agent-native/core";
 import { and, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { getActiveOrganizationId } from "../server/lib/recordings.js";
+import { requireOrganizationAccess } from "../server/lib/recordings.js";
 
 function startOfDay(d: Date): Date {
   const out = new Date(d);
@@ -45,18 +45,9 @@ export default defineAction({
   run: async (args) => {
     const db = getDb();
 
-    const organizationId =
-      args.organizationId || (await getActiveOrganizationId());
-    if (!organizationId) {
-      return {
-        organizationId: null,
-        period: { days: args.days, start: null, end: null },
-        totals: { views: 0, reactions: 0, comments: 0, recordings: 0 },
-        topVideos: { byViews: [], byReactions: [], byComments: [] },
-        topCreators: [],
-        trend: [],
-      };
-    }
+    const { organizationId } = await requireOrganizationAccess(
+      args.organizationId,
+    );
 
     const now = new Date();
     const start = startOfDay(

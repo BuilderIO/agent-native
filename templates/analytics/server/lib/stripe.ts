@@ -2,7 +2,10 @@
 // Fetches customers, invoices, charges, subscriptions, refunds
 
 import { resolveCredential } from "./credentials";
-import { requireRequestCredentialContext } from "./credentials-context";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_BASE = "https://api.stripe.com";
 
@@ -39,7 +42,10 @@ async function apiGet<T>(
     qs = parts.length ? "?" + parts.join("&") : "";
   }
   const url = `${API_BASE}${path}${qs}`;
-  const key = cacheKey ?? url;
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? url,
+    "STRIPE_SECRET_KEY",
+  );
 
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {

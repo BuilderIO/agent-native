@@ -1,9 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "Trigger automation processing to run now against new inbox emails. Automations normally run every minute on a cron, but this forces immediate processing.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     const ownerEmail = getRequestUserEmail();

@@ -44,10 +44,7 @@ async function apiGet<T>(
   path: string,
   cacheKey?: string,
 ): Promise<T> {
-  const key = scopedCredentialCacheKey(
-    cacheKey ?? path,
-    "MIXPANEL_PROJECT_ID",
-  );
+  const key = scopedCredentialCacheKey(cacheKey ?? path, "MIXPANEL_PROJECT_ID");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

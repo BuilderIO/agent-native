@@ -9,6 +9,7 @@ function initMermaid() {
   initialized = true;
   mermaid.initialize({
     startOnLoad: false,
+    securityLevel: "strict",
     theme: "dark",
     themeVariables: {
       darkMode: true,
