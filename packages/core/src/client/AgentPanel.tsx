@@ -1697,6 +1697,8 @@ export function AgentSidebar({
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type !== "builder.presentationMode") return;
+      if (event.source !== window.parent || !isTrustedFrameMessage(event))
+        return;
       setPresentationMode(event.data.data?.active === true);
     };
     window.addEventListener("message", handler);

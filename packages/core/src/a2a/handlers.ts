@@ -12,6 +12,7 @@ import type {
 import {
   createTask,
   getTask,
+  getTaskOwner,
   updateTask,
   claimA2ATaskForProcessing,
 } from "./task-store.js";

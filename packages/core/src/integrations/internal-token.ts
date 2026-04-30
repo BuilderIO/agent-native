@@ -77,7 +77,13 @@ export function verifyInternalToken(taskId: string, token: string): boolean {
   const sig = token.slice(dot + 1);
   const ts = Number(tsRaw);
   if (!Number.isFinite(ts)) return false;
-  if (Math.abs(Date.now() - ts) > MAX_AGE_MS) return false;
+  // Reject expired (past) AND future-stamped tokens. A small forward skew
+  // tolerance accounts for legitimate clock drift between machines but no
+  // more — accepting tokens minutes in the future would let an attacker
+  // replay them long after issuance.
+  const now = Date.now();
+  if (now - ts > MAX_AGE_MS) return false;
+  if (ts - now > FUTURE_SKEW_TOLERANCE_MS) return false;
   let expected: string;
   try {
     expected = hmacHex(getSecret(), `${taskId}:${ts}`);
