@@ -589,9 +589,6 @@ importers:
 
   packages/pinpoint:
     dependencies:
-      '@agent-native/core':
-        specifier: workspace:*
-        version: link:../core
       '@medv/finder':
         specifier: ^4.0.2
         version: 4.0.2
@@ -611,6 +608,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@agent-native/core':
+        specifier: workspace:*
+        version: link:../core
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.0
         version: 1.29.0(zod@4.3.6)
