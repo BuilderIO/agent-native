@@ -27,7 +27,11 @@ const DEFAULT_AVAILABILITY: AvailabilityConfig = {
 
 async function uEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
-  return session?.email ?? "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return session.email;
 }
 
 export const getAvailability = defineEventHandler(async (event: H3Event) => {

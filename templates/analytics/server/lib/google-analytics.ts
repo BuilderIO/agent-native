@@ -2,6 +2,7 @@
 // Runs reports for active users, top pages, sessions by source
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 import { signRs256Jwt } from "./sign-jwt";
 
 const API_BASE = "https://analyticsdata.googleapis.com/v1beta";
@@ -12,17 +13,22 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 100;
 
 async function getConfig(): Promise<{ propertyId: string }> {
-  const propertyId = await resolveCredential("GA4_PROPERTY_ID");
-  if (!propertyId) throw new Error("GA4_PROPERTY_ID env var required");
+  const ctx = requireRequestCredentialContext("GA4_PROPERTY_ID");
+  const propertyId = await resolveCredential("GA4_PROPERTY_ID", ctx);
+  if (!propertyId) throw new Error("GA4_PROPERTY_ID not configured");
   return { propertyId };
 }
 
 async function getAccessToken(): Promise<string> {
-  const credsJson = await resolveCredential(
+  const ctx = requireRequestCredentialContext(
     "GOOGLE_APPLICATION_CREDENTIALS_JSON",
   );
+  const credsJson = await resolveCredential(
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+    ctx,
+  );
   if (!credsJson) {
-    throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON env var required");
+    throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured");
   }
 
   const creds = JSON.parse(credsJson);

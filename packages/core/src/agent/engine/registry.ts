@@ -14,6 +14,7 @@ import type {
   EngineStreamOptions,
 } from "./types.js";
 import { getSetting } from "../../settings/store.js";
+import { DEV_MODE_USER_EMAIL } from "../../server/auth.js";
 
 export interface AgentEngineEntry {
   /** Unique name, e.g. "anthropic", "ai-sdk:anthropic", "ai-sdk:openai" */
@@ -130,7 +131,7 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
   } catch {
     return null;
   }
-  if (!email || email === "local@localhost") return null;
+  if (!email || email === DEV_MODE_USER_EMAIL) return null;
 
   let readAppSecret: typeof import("../../secrets/storage.js").readAppSecret;
   try {

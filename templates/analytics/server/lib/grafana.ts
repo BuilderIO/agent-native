@@ -2,10 +2,13 @@
 // Fetches dashboards, datasources, alerts, and proxies queries
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 
 async function getApiBase(): Promise<string> {
+  const ctx = requireRequestCredentialContext("GRAFANA_URL");
   return (
-    (await resolveCredential("GRAFANA_URL")) || "https://your-org.grafana.net"
+    (await resolveCredential("GRAFANA_URL", ctx)) ||
+    "https://your-org.grafana.net"
   );
 }
 
@@ -15,8 +18,9 @@ const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_CACHE = 120;
 
 async function getToken(): Promise<string> {
-  const token = await resolveCredential("GRAFANA_API_TOKEN");
-  if (!token) throw new Error("GRAFANA_API_TOKEN env var required");
+  const ctx = requireRequestCredentialContext("GRAFANA_API_TOKEN");
+  const token = await resolveCredential("GRAFANA_API_TOKEN", ctx);
+  if (!token) throw new Error("GRAFANA_API_TOKEN not configured");
   return token;
 }
 

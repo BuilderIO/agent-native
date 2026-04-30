@@ -43,8 +43,50 @@ export default defineAction({
       .enum(["prototype", "other"])
       .optional()
       .describe("Project type hint for generation"),
+    tweaks: z
+      .preprocess(
+        (v) => (typeof v === "string" ? JSON.parse(v) : v),
+        z
+          .array(
+            z.object({
+              id: z.string(),
+              label: z.string(),
+              type: z.enum(["color-swatch", "segment", "slider", "toggle"]),
+              options: z
+                .array(
+                  z.object({
+                    label: z.string(),
+                    value: z.string(),
+                    color: z.string().optional(),
+                  }),
+                )
+                .optional(),
+              min: z.number().optional(),
+              max: z.number().optional(),
+              step: z.number().optional(),
+              defaultValue: z.union([z.string(), z.number(), z.boolean()]),
+              cssVar: z.string().optional(),
+            }),
+          )
+          .optional(),
+      )
+      .optional()
+      .describe(
+        "Optional array of tweak definitions (color swatches, segments, " +
+          "sliders, toggles) bound to CSS custom properties in the design. " +
+          "Surface 3-6 of the most impactful knobs (accent color, density, " +
+          "radius, dark mode, font choice). Each must reference a CSS var " +
+          "the design's `:root` block actually uses.",
+      ),
   }),
-  run: async ({ designId, prompt, files, designSystemId, projectType }) => {
+  run: async ({
+    designId,
+    prompt,
+    files,
+    designSystemId,
+    projectType,
+    tweaks,
+  }) => {
     await assertAccess("design", designId, "editor");
 
     const db = getDb();
@@ -136,13 +178,32 @@ export default defineAction({
       designUpdates.projectType = projectType;
     }
 
-    // Store generation metadata in the data field
-    const generationMeta = JSON.stringify({
+    // Merge with existing data so tweak definitions survive content updates.
+    // The data column is a free-form JSON blob; we own these keys here and
+    // leave anything else intact.
+    const [existingDesign] = await db
+      .select({ data: schema.designs.data })
+      .from(schema.designs)
+      .where(eq(schema.designs.id, designId));
+    let prevData: Record<string, unknown> = {};
+    if (existingDesign?.data) {
+      try {
+        const parsed = JSON.parse(existingDesign.data);
+        if (parsed && typeof parsed === "object") prevData = parsed;
+      } catch {
+        // Stale or invalid JSON — start fresh.
+      }
+    }
+    const mergedData: Record<string, unknown> = {
+      ...prevData,
       lastPrompt: prompt,
       generatedAt: now,
       fileCount: files.length,
-    });
-    designUpdates.data = generationMeta;
+    };
+    if (tweaks !== undefined) {
+      mergedData.tweaks = tweaks;
+    }
+    designUpdates.data = JSON.stringify(mergedData);
 
     await db
       .update(schema.designs)

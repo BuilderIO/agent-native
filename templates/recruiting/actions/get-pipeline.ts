@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestOrgId } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import * as gh from "../server/lib/greenhouse-api.js";
-import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { withCredentialContext } from "../server/lib/greenhouse-api.js";
 import { z } from "zod";
 import type { GreenhouseCandidate, PipelineStage } from "@shared/types";
 
@@ -108,10 +111,8 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    const orgId = getRequestOrgId();
-    if (orgId) {
-      return withOrgContext(orgId, () => getPipeline(args));
-    }
-    return getPipeline(args);
+    const orgId = getRequestOrgId() ?? null;
+    const email = getRequestUserEmail() ?? null;
+    return withCredentialContext({ email, orgId }, () => getPipeline(args));
   },
 });

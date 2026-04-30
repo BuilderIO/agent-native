@@ -29,10 +29,14 @@ export default defineAction({
     const db = getDb();
     const orgId = await getActiveOrganizationId();
 
-    const conditions: any[] = [];
-    if (orgId) {
-      conditions.push(eq(schema.people.organizationId, orgId));
+    // People are an org-scoped roster (no per-row owner). Without an active
+    // org, there are no people the caller can legitimately see -- returning
+    // everything would expose other tenants' contacts.
+    if (!orgId) {
+      return { people: [] as Array<never> };
     }
+
+    const conditions: any[] = [eq(schema.people.organizationId, orgId)];
 
     if (args.search) {
       const pat = `%${args.search.toLowerCase()}%`;

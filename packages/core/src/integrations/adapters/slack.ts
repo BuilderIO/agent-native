@@ -155,6 +155,12 @@ export function slackAdapter(): PlatformAdapter {
     async postProcessingPlaceholder(
       incoming: IncomingMessage,
     ): Promise<{ placeholderRef: string } | null> {
+      // No placeholder reply in the thread — Slack's native assistant
+      // status bar ("agent-native is thinking…", below the composer) is the
+      // loading affordance. A second visible "Working on it…" reply was
+      // redundant and added an extra chunk that we then had to overwrite.
+      // We just set the native status and return null so sendResponse posts
+      // the final reply as a fresh message.
       const token = process.env.SLACK_BOT_TOKEN;
       if (!token) return null;
 
@@ -162,44 +168,11 @@ export function slackAdapter(): PlatformAdapter {
       const threadTs = incoming.platformContext.threadTs as string;
       if (!channelId || !threadTs) return null;
 
-      const blocks = buildThinkingBlocks();
-      try {
-        const res = await fetch("https://slack.com/api/chat.postMessage", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            channel: channelId,
-            thread_ts: threadTs,
-            text: "Working on it…",
-            blocks,
-            unfurl_links: false,
-            unfurl_media: false,
-            mrkdwn: true,
-          }),
-        });
-        const data = (await res.json()) as {
-          ok: boolean;
-          ts?: string;
-          error?: string;
-        };
-        if (!data.ok || !data.ts) {
-          console.error("[slack] postProcessingPlaceholder error:", data.error);
-          return null;
-        }
-
-        // Best-effort: also flip the native AI-assistant "is thinking…"
-        // status bar in the channel input area. Only works for apps
-        // configured with `assistant:write`, otherwise silently no-ops.
-        setSlackAssistantStatus(token, channelId, threadTs, "is thinking…");
-
-        return { placeholderRef: data.ts };
-      } catch (err) {
-        console.error("[slack] postProcessingPlaceholder failed:", err);
-        return null;
-      }
+      // Best-effort: flip the native AI-assistant "is thinking…" status bar
+      // in the channel input area. Requires `assistant:write` scope on the
+      // app — otherwise silently no-ops.
+      setSlackAssistantStatus(token, channelId, threadTs, "is thinking…");
+      return null;
     },
 
     async sendResponse(
@@ -432,28 +405,6 @@ function setSlackAssistantStatus(
       status,
     }),
   }).catch(() => {});
-}
-
-function buildThinkingBlocks(): unknown[] {
-  // Pick a witty rotating message so two back-to-back mentions don't both
-  // say the exact same thing.
-  const messages = [
-    "Working on it…",
-    "On it — give me a sec…",
-    "Pulling that up now…",
-    "Routing your request…",
-    "Checking with the right agent…",
-    "Almost there…",
-  ];
-  const text = messages[Math.floor(Math.random() * messages.length)];
-  return [
-    {
-      type: "context",
-      elements: [
-        { type: "mrkdwn", text: `:hourglass_flowing_sand: _${text}_` },
-      ],
-    },
-  ];
 }
 
 /**

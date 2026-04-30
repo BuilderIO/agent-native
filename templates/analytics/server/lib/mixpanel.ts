@@ -2,6 +2,7 @@
 // Queries events, top events, and funnels
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 
 const API_BASE = "https://data.mixpanel.com/api/2.0";
 const QUERY_BASE = "https://mixpanel.com/api/query";
@@ -12,12 +13,16 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 100;
 
 async function getCredentials(): Promise<{ projectId: string; auth: string }> {
-  const projectId = await resolveCredential("MIXPANEL_PROJECT_ID");
-  const serviceAccount = await resolveCredential("MIXPANEL_SERVICE_ACCOUNT");
-  if (!projectId) throw new Error("MIXPANEL_PROJECT_ID env var required");
+  const ctx = requireRequestCredentialContext("MIXPANEL_PROJECT_ID");
+  const projectId = await resolveCredential("MIXPANEL_PROJECT_ID", ctx);
+  const serviceAccount = await resolveCredential(
+    "MIXPANEL_SERVICE_ACCOUNT",
+    ctx,
+  );
+  if (!projectId) throw new Error("MIXPANEL_PROJECT_ID not configured");
   if (!serviceAccount)
     throw new Error(
-      "MIXPANEL_SERVICE_ACCOUNT env var required (format: username:secret)",
+      "MIXPANEL_SERVICE_ACCOUNT not configured (format: username:secret)",
     );
   const auth = Buffer.from(serviceAccount).toString("base64");
   return { projectId, auth };

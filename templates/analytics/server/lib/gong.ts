@@ -2,6 +2,7 @@
 // Fetches calls, transcripts, and users
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 
 const API_BASE = "https://us-65885.api.gong.io/v2";
 
@@ -10,10 +11,11 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
 
 async function getAuthHeader(): Promise<string> {
-  const accessKey = await resolveCredential("GONG_ACCESS_KEY");
-  const secret = await resolveCredential("GONG_ACCESS_SECRET");
+  const ctx = requireRequestCredentialContext("GONG_ACCESS_KEY");
+  const accessKey = await resolveCredential("GONG_ACCESS_KEY", ctx);
+  const secret = await resolveCredential("GONG_ACCESS_SECRET", ctx);
   if (!accessKey || !secret)
-    throw new Error("GONG_ACCESS_KEY and GONG_ACCESS_SECRET env vars required");
+    throw new Error("GONG_ACCESS_KEY and GONG_ACCESS_SECRET not configured");
   return `Basic ${Buffer.from(`${accessKey}:${secret}`).toString("base64")}`;
 }
 

@@ -30,7 +30,8 @@ async function fetchEmailList(
   _label?: string,
 ): Promise<any[]> {
   try {
-    const ownerEmail = getRequestUserEmail() || "local@localhost";
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
     if (await isConnected(ownerEmail)) {
       const clients = await getClients(ownerEmail);
       const labelMap = new Map<string, string>();

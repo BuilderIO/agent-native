@@ -51,22 +51,34 @@ sleep 2
 pgrep -f "/Applications/Agent Native.app/Contents/MacOS/Agent Native" | xargs -r kill
 ```
 
-### 3. Install to /Applications
+### 3. Patch the built .app for macOS Tahoe Liquid Glass
+
+electron-builder ships only `icon.icns`. macOS 26 (Tahoe) draws the dynamic Liquid Glass bezel/specular only when an app has both `Assets.car` (compiled from our `.icon` bundle) AND `CFBundleIconName` set in `Info.plist`. `scripts/build-branding-assets.mjs` produces `packages/desktop-app/build/Assets.car` from `packages/core/src/assets/branding/agent-native.icon`. Install it directly into the unpacked `.app` before copying it to `/Applications` (skip the DMG — it's just compressed packaging).
 
 ```bash
-DMG="packages/desktop-app/dist/Agent Native.dmg"
-MOUNT=$(hdiutil attach -nobrowse -noverify -noautoopen "$DMG" | tail -1 | awk -F'\t' '{print $NF}')
-rm -rf "/Applications/Agent Native.app"
-cp -R "$MOUNT/Agent Native.app" /Applications/
-hdiutil detach "$MOUNT" -quiet
+APP="packages/desktop-app/dist/mac-arm64/Agent Native.app"
+cp packages/desktop-app/build/Assets.car "$APP/Contents/Resources/Assets.car"
+/usr/libexec/PlistBuddy -c "Add :CFBundleIconName string agent-native" "$APP/Contents/Info.plist" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Set :CFBundleIconName agent-native" "$APP/Contents/Info.plist"
 ```
 
-### 4. Strip quarantine + launch
-
-Unsigned apps get a Gatekeeper warning on first launch — `xattr -dr` clears it.
+### 4. Install to /Applications
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/Agent Native.app"
+rm -rf "/Applications/Agent Native.app"
+cp -R "packages/desktop-app/dist/mac-arm64/Agent Native.app" /Applications/
+```
+
+### 5. Refresh icon caches + launch
+
+macOS aggressively caches Dock/Finder icons. Without flushing, a fresh `.icns` won't show until logout. The `mv … .tmp && mv … back` is the no-`killall Dock` cache buster (the harness usually denies `killall Dock`).
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Agent Native.app" 2>/dev/null
+/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "/Applications/Agent Native.app"
+find ~/Library/Caches/com.apple.iconservices.store -type f -delete 2>/dev/null
+rm -f /private/var/folders/*/C/com.apple.dock.iconcache 2>/dev/null
+mv "/Applications/Agent Native.app" "/Applications/Agent Native.app.tmp" && mv "/Applications/Agent Native.app.tmp" "/Applications/Agent Native.app"
 open "/Applications/Agent Native.app"
 ```
 
