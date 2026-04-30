@@ -495,7 +495,7 @@ function baseRedirectGuard(): Plugin {
       // middleware is built — but we insert BEFORE by using the pre-hook
       // approach: configureServer hooks that return nothing run before
       // internal middleware.
-      server.middlewares.use((req, _res, next) => {
+      server.middlewares.use((req, res, next) => {
         const base = server.config.base;
         if (base && base !== "/" && req.url?.startsWith(base)) {
           const relativeUrl = req.url.slice(base.length - 1);
@@ -513,7 +513,15 @@ function baseRedirectGuard(): Plugin {
               fs.existsSync(publicPath) &&
               fs.statSync(publicPath).isFile()
             ) {
-              req.url = `${url.pathname}${url.search}`;
+              const contentType = contentTypeForPublicFile(publicPath);
+              if (contentType) res.setHeader("content-type", contentType);
+              if (req.method === "HEAD") {
+                res.statusCode = 200;
+                res.end();
+                return;
+              }
+              fs.createReadStream(publicPath).pipe(res);
+              return;
             }
           } catch {
             // Fall through to Vite/Nitro. Malformed URLs should keep their
@@ -540,6 +548,33 @@ function baseRedirectGuard(): Plugin {
       });
     },
   };
+}
+
+function contentTypeForPublicFile(filePath: string): string | null {
+  switch (path.extname(filePath).toLowerCase()) {
+    case ".css":
+      return "text/css";
+    case ".html":
+      return "text/html";
+    case ".ico":
+      return "image/x-icon";
+    case ".json":
+    case ".webmanifest":
+      return "application/json";
+    case ".js":
+    case ".mjs":
+      return "text/javascript";
+    case ".png":
+      return "image/png";
+    case ".svg":
+      return "image/svg+xml";
+    case ".txt":
+      return "text/plain";
+    case ".xml":
+      return "application/xml";
+    default:
+      return null;
+  }
 }
 
 function devPathname(reqUrl: string): string {
