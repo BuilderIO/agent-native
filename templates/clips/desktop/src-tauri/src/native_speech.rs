@@ -454,8 +454,14 @@ mod imp {
     }
 }
 
+// Glob re-export — `#[tauri::command]` generates companion `__cmd__<name>`
+// symbols that `tauri::generate_handler!` looks up at the SAME module path
+// as the function. A targeted `use imp::{...}` only re-exports the
+// functions and leaves the companions inside `imp`, breaking handler
+// codegen with "cannot find `__cmd__native_speech_start`". The glob
+// re-exports both halves.
 #[cfg(target_os = "macos")]
-pub use imp::{native_speech_cancel, native_speech_start, native_speech_stop};
+pub use imp::*;
 
 #[cfg(not(target_os = "macos"))]
 mod stub {
