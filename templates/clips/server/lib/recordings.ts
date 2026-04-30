@@ -10,12 +10,18 @@ import { readAppState } from "@agent-native/core/application-state";
 import { isPostgres } from "@agent-native/core/db";
 
 export function getCurrentOwnerEmail(): string {
-  return getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
+  return email;
 }
 
 export async function getEventOwnerEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
-  return session?.email ?? "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return session.email;
 }
 
 /**

@@ -11,7 +11,11 @@ import { readBody, getSession } from "@agent-native/core/server";
 
 async function uEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
-  return session?.email ?? "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return session.email;
 }
 
 async function readAliases(email: string): Promise<Alias[]> {

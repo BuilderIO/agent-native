@@ -14,6 +14,7 @@ import {
   useInviteMember,
   useAcceptInvitation,
 } from "./hooks.js";
+import { DEV_MODE_USER_EMAIL } from "../dev-mode.js";
 
 export interface OrgSwitcherProps {
   className?: string;
@@ -74,7 +75,7 @@ export function OrgSwitcher({ className, hideWhenSingle }: OrgSwitcherProps) {
     }
   }, [open]);
 
-  if (!org || org.email === "local@localhost") return null;
+  if (!org || org.email === DEV_MODE_USER_EMAIL) return null;
 
   const orgs = org.orgs ?? [];
   const pendingInvitations = org.pendingInvitations ?? [];

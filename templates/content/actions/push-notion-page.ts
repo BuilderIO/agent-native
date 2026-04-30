@@ -16,7 +16,8 @@ export default defineAction({
       throw new Error("Usage: pnpm action push-notion-page --documentId <id>");
     }
 
-    const owner = getRequestUserEmail() || "local@localhost";
+    const owner = getRequestUserEmail();
+    if (!owner) throw new Error("no authenticated user");
     return pushDocumentToNotion(owner, documentId);
   },
 });

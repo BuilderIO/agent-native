@@ -161,14 +161,15 @@ async function fetchFoldersForSpace(spaceId: string | null) {
 }
 
 async function fetchSpaces(organizationId: string | null) {
+  // No active org -> don't leak cross-tenant spaces. The org switcher in the
+  // UI is responsible for prompting the user to choose an organization.
+  if (!organizationId) return [];
   const db = getDb();
-  const rows = organizationId
-    ? await db
-        .select()
-        .from(schema.spaces)
-        .where(eq(schema.spaces.organizationId, organizationId))
-        .orderBy(asc(schema.spaces.name))
-    : await db.select().from(schema.spaces).orderBy(asc(schema.spaces.name));
+  const rows = await db
+    .select()
+    .from(schema.spaces)
+    .where(eq(schema.spaces.organizationId, organizationId))
+    .orderBy(asc(schema.spaces.name));
   return rows.map((s) => ({
     id: s.id,
     name: s.name,

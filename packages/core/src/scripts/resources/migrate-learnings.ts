@@ -11,6 +11,7 @@ import fs from "fs";
 import path from "path";
 import { resourcePut } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { DEV_MODE_USER_EMAIL } from "../../server/auth.js";
 
 export default async function migrateLearningsScript(
   args: string[],
@@ -23,7 +24,7 @@ export default async function migrateLearningsScript(
   }
 
   const content = fs.readFileSync(filePath, "utf-8");
-  const owner = getRequestUserEmail() ?? "local@localhost";
+  const owner = getRequestUserEmail() ?? DEV_MODE_USER_EMAIL;
 
   const resource = await resourcePut(
     owner,

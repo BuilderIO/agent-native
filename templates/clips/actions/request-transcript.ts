@@ -39,7 +39,10 @@ import {
 } from "@agent-native/core/application-state";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { readAppSecret } from "@agent-native/core/secrets";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestUserEmail,
+  getCredentialContext,
+} from "@agent-native/core/server/request-context";
 import { hasBuilderPrivateKey } from "@agent-native/core/server";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import regenerateTitle from "./regenerate-title.js";
@@ -86,7 +89,7 @@ const OPENAI_MODEL = "whisper-1";
 /**
  * Resolve a secret from (in order):
  *   1. Per-user secret store (sidebar settings UI, encrypted at rest)
- *   2. `resolveCredential` (env + legacy settings prefix)
+ *   2. `resolveCredential` (per-user / per-org SQL settings rows)
  */
 async function resolveKey(
   key: string,
@@ -100,7 +103,13 @@ async function resolveKey(
     }).catch(() => null);
     if (userSecret?.value) return userSecret.value;
   }
-  const fromCreds = await resolveCredential(key);
+  const credCtx = getCredentialContext();
+  if (!credCtx) {
+    // No active request context — refuse to fall back to a global lookup
+    // because there is no user/org to scope the credential read to.
+    return undefined;
+  }
+  const fromCreds = await resolveCredential(key, credCtx);
   return fromCreds ?? undefined;
 }
 

@@ -13,7 +13,8 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
-    const owner = getRequestUserEmail() || "local@localhost";
+    const owner = getRequestUserEmail();
+    if (!owner) throw new Error("no authenticated user");
     const documentId = args.documentId || args.id;
     const pageIdOrUrl = args.pageId || args.url;
 

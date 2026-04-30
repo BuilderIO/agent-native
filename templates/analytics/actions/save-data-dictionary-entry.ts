@@ -110,7 +110,8 @@ export default defineAction({
   }),
   run: async (args) => {
     const orgId = getRequestOrgId() || null;
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const id = args.id?.trim() || slugify(args.metric);
     if (!id) {
       return "Error: could not derive an id — provide one or a non-empty `metric`.";

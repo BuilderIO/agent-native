@@ -2,6 +2,7 @@
 // Queries events, active users, and user segmentation
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 
 const API_BASE = "https://amplitude.com/api/2";
 
@@ -14,10 +15,11 @@ async function getCredentials(): Promise<{
   apiKey: string;
   secretKey: string;
 }> {
-  const apiKey = await resolveCredential("AMPLITUDE_API_KEY");
-  const secretKey = await resolveCredential("AMPLITUDE_SECRET_KEY");
-  if (!apiKey) throw new Error("AMPLITUDE_API_KEY env var required");
-  if (!secretKey) throw new Error("AMPLITUDE_SECRET_KEY env var required");
+  const ctx = requireRequestCredentialContext("AMPLITUDE_API_KEY");
+  const apiKey = await resolveCredential("AMPLITUDE_API_KEY", ctx);
+  const secretKey = await resolveCredential("AMPLITUDE_SECRET_KEY", ctx);
+  if (!apiKey) throw new Error("AMPLITUDE_API_KEY not configured");
+  if (!secretKey) throw new Error("AMPLITUDE_SECRET_KEY not configured");
   return { apiKey, secretKey };
 }
 

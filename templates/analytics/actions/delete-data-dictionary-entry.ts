@@ -18,7 +18,8 @@ export default defineAction({
   }),
   run: async (args) => {
     const orgId = getRequestOrgId() || null;
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const key = `${KEY_PREFIX}${args.id}`;
     if (orgId) {
       await deleteOrgSetting(orgId, key);

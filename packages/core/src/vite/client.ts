@@ -592,7 +592,7 @@ function portExposer(): Plugin {
       server.httpServer?.once("listening", () => {
         const addr = server.httpServer?.address();
         if (addr && typeof addr === "object" && addr.port) {
-          process.env.PORT = String(addr.port);
+          process.env.PORT = String(addr.port); // guard:allow-env-mutation — Vite dev server port published once at boot before any request
         }
       });
     },

@@ -2,6 +2,7 @@
 // Uses Basic auth (email + API token)
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 
 const API_V3 = "/rest/api/3";
 const API_AGILE = "/rest/agile/1.0";
@@ -15,12 +16,13 @@ async function getAuth(): Promise<{
   baseUrl: string;
   headers: Record<string, string>;
 }> {
-  const baseUrl = await resolveCredential("JIRA_BASE_URL");
-  const email = await resolveCredential("JIRA_USER_EMAIL");
-  const token = await resolveCredential("JIRA_API_TOKEN");
+  const ctx = requireRequestCredentialContext("JIRA_BASE_URL");
+  const baseUrl = await resolveCredential("JIRA_BASE_URL", ctx);
+  const email = await resolveCredential("JIRA_USER_EMAIL", ctx);
+  const token = await resolveCredential("JIRA_API_TOKEN", ctx);
   if (!baseUrl || !email || !token) {
     throw new Error(
-      "JIRA_BASE_URL, JIRA_USER_EMAIL, and JIRA_API_TOKEN env vars are required",
+      "JIRA_BASE_URL, JIRA_USER_EMAIL, and JIRA_API_TOKEN are not configured",
     );
   }
   const encoded = Buffer.from(`${email}:${token}`).toString("base64");

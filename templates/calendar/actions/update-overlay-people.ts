@@ -8,7 +8,8 @@ export default defineAction({
   parameters: {},
   http: { method: "PUT" },
   run: async (args) => {
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     // The frontend sends the array directly as the body
     const people = args as unknown as OverlayPerson[];
     await putUserSetting(email, "calendar-overlay-people", {

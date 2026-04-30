@@ -9,7 +9,7 @@ import {
   useRouteError,
   useLocation,
 } from "react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AgentSidebar, configureTracking } from "@agent-native/core/client";
 import Header from "./components/Header";
@@ -90,6 +90,28 @@ function CanonicalLink() {
   return <link rel="canonical" href={canonical} />;
 }
 
+// AgentSidebar wraps content in an overflow-auto div, so the window never
+// scrolls. React Router's <ScrollRestoration /> resets window.scrollY, which
+// does nothing here — find the real scroll container and reset it instead.
+function ScrollToTop() {
+  const { pathname, hash } = useLocation();
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (hash) return;
+    let parent: HTMLElement | null = ref.current?.parentElement ?? null;
+    while (parent) {
+      const overflowY = getComputedStyle(parent).overflowY;
+      if (overflowY === "auto" || overflowY === "scroll") {
+        parent.scrollTop = 0;
+        return;
+      }
+      parent = parent.parentElement;
+    }
+    window.scrollTo(0, 0);
+  }, [pathname, hash]);
+  return <span ref={ref} aria-hidden style={{ display: "none" }} />;
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -134,6 +156,7 @@ export default function Root() {
 
   const content = (
     <>
+      <ScrollToTop />
       <Header />
       <Outlet />
       <Footer />

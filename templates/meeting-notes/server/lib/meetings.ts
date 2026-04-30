@@ -5,42 +5,35 @@ import { readAppState } from "@agent-native/core/application-state";
 import { isPostgres } from "@agent-native/core/db";
 
 export function getCurrentOwnerEmail(): string {
-  return getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
+  return email;
 }
 
 /**
  * Resolve the caller's active organization id.
  *
- * Resolution order:
- *   1. The caller's most recent `org_members` row for their request email.
- *   2. Any org in the DB (dev / solo fallback).
+ * Resolution: returns the most recent `org_members` row for the request
+ * email. If the user has no membership, returns null -- callers MUST handle
+ * the null case (either fall back to per-user filtering, or surface a
+ * "no active org" error). NEVER falls back to "any org in the DB" -- that
+ * silently joined brand-new users into another tenant's data.
  */
 export async function getActiveOrganizationId(): Promise<string | null> {
   const email = getRequestUserEmail();
+  if (!email) return null;
   const exec = getDbExec();
 
-  if (email) {
-    try {
-      const ph = isPostgres() ? "$1" : "?";
-      const res = await exec.execute({
-        sql: `SELECT org_id AS id FROM org_members WHERE LOWER(email) = ${ph} ORDER BY joined_at DESC LIMIT 1`,
-        args: [email.toLowerCase()],
-      });
-      const row = (res.rows as Array<{ id?: string }>)[0];
-      if (row?.id) return row.id;
-    } catch {
-      // fall through
-    }
-  }
-
   try {
-    const res = await exec.execute(
-      `SELECT id FROM organizations ORDER BY created_at DESC LIMIT 1`,
-    );
+    const ph = isPostgres() ? "$1" : "?";
+    const res = await exec.execute({
+      sql: `SELECT org_id AS id FROM org_members WHERE LOWER(email) = ${ph} ORDER BY joined_at DESC LIMIT 1`,
+      args: [email.toLowerCase()],
+    });
     const row = (res.rows as Array<{ id?: string }>)[0];
     if (row?.id) return row.id;
   } catch {
-    // fall through
+    // fall through -- table may not exist yet on first boot
   }
 
   return null;
@@ -48,10 +41,17 @@ export async function getActiveOrganizationId(): Promise<string | null> {
 
 /**
  * Like `getActiveOrganizationId` but throws if there's no active org.
+ * Use this for write actions where data MUST be tenanted (create-template,
+ * create-meeting). The thrown error tells the user to create or join an org
+ * first instead of silently planting data in someone else's tenant.
  */
 export async function requireActiveOrganizationId(): Promise<string> {
   const id = await getActiveOrganizationId();
-  if (!id) throw new Error("No active organization");
+  if (!id) {
+    throw new Error(
+      "No active organization. Create or join an organization before creating tenant-scoped resources.",
+    );
+  }
   return id;
 }
 

@@ -85,7 +85,8 @@ export default defineAction({
     const limit = args.limit ?? 50;
     const compact = args.compact !== false;
     const accountFilter = args.account?.toLowerCase();
-    const ownerEmail = getRequestUserEmail() || "local@localhost";
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
 
     if (await isConnected(ownerEmail)) {
       const clients = await getClients(ownerEmail);

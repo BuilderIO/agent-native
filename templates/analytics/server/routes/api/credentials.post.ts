@@ -1,5 +1,8 @@
 import { defineEventHandler, setResponseStatus } from "h3";
-import { saveCredential } from "../../lib/credentials";
+import {
+  saveCredential,
+  getCredentialContextFromEvent,
+} from "../../lib/credentials";
 import { credentialKeys } from "../../lib/credential-keys";
 import { readBody } from "@agent-native/core/server";
 import {
@@ -74,8 +77,13 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  const ctx = await getCredentialContextFromEvent(event);
+  if (!ctx) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to save credentials" };
+  }
   for (const { key, value } of filtered) {
-    await saveCredential(key, value.trim());
+    await saveCredential(key, value.trim(), ctx);
   }
 
   // Auto-seed the Google Analytics SQL dashboard the first time a user

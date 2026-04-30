@@ -46,12 +46,10 @@ export default defineAction({
       try {
         const key = `dashboard-${nav.dashboardId}`;
         const orgId = getRequestOrgId() || null;
-        const email = getRequestUserEmail() || "local@localhost";
+        const email = getRequestUserEmail();
         const config =
           (orgId ? await getOrgSetting(orgId, key) : null) ||
-          (email !== "local@localhost"
-            ? await getUserSetting(email, key)
-            : null) ||
+          (email ? await getUserSetting(email, key) : null) ||
           (await getSetting(key));
         if (config) screen.dashboard = config;
       } catch {

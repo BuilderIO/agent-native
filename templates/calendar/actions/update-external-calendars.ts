@@ -16,7 +16,8 @@ export default defineAction({
   ),
   http: { method: "PUT" },
   run: async (args) => {
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const calendars = args as unknown as ExternalCalendar[];
     await putUserSetting(
       email,

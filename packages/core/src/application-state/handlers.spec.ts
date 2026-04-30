@@ -19,6 +19,7 @@ vi.mock("./store.js", () => ({
 
 vi.mock("../server/auth.js", () => ({
   getSession: vi.fn().mockResolvedValue({ email: "local@localhost" }),
+  DEV_MODE_USER_EMAIL: "local@localhost",
 }));
 
 let lastStatus = 200;

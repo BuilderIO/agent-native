@@ -12,7 +12,8 @@ export default defineAction({
   http: { method: "GET" },
   run: async () => {
     const orgId = getRequestOrgId() || null;
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const rows = await listAnalyses({ email, orgId });
     return rows
       .map((a) => ({

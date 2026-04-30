@@ -3,7 +3,7 @@ import { getOrgContext } from "@agent-native/core/org";
 import { filterCandidates } from "../../../lib/resume-filter.js";
 import { listRecentCandidates } from "../../../lib/candidate-search.js";
 import * as gh from "../../../lib/greenhouse-api.js";
-import { withOrgContext } from "../../../lib/greenhouse-api.js";
+import { withCredentialContext } from "../../../lib/greenhouse-api.js";
 import { readBody } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event) => {
@@ -21,6 +21,12 @@ export default defineEventHandler(async (event) => {
   const limit = Math.min(Number(body.limit) || 50, 100);
 
   const ctx = await getOrgContext(event);
+  if (!ctx.orgId && !ctx.email) {
+    throw createError({
+      statusCode: 401,
+      message: "Sign in to filter candidates.",
+    });
+  }
   const run = async () => {
     // Fetch candidates to evaluate — either for a specific job or recent ones
     let candidates;
@@ -47,5 +53,8 @@ export default defineEventHandler(async (event) => {
     return filterCandidates(fullCandidates, prompt);
   };
 
-  return ctx.orgId ? withOrgContext(ctx.orgId, run) : run();
+  return withCredentialContext(
+    { email: ctx.email || null, orgId: ctx.orgId },
+    run,
+  );
 });

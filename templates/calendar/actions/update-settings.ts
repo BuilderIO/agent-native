@@ -19,7 +19,8 @@ export default defineAction({
       .describe("Default event duration in minutes"),
   }),
   run: async (args) => {
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     // The frontend sends the full settings object as the body
     const settings = args as unknown as Settings;
     const settingsRecord = settings as unknown as Record<string, unknown>;

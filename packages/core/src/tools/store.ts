@@ -126,7 +126,10 @@ async function ensureToolDataScope(
   await addCol("scope", "TEXT NOT NULL DEFAULT 'user'");
   await addCol("org_id", "TEXT");
   await addCol("scope_key", "TEXT NOT NULL DEFAULT 'local@localhost'");
+  // One-time backfill migration: replaces the dev-mode DEFAULT scope_key
+  // with each row's real owner_email. Not a per-request fallback.
   await client.execute(
+    // guard:allow-localhost-fallback — one-time backfill migration replacing dev-mode default scope_key with the row's real owner_email
     `UPDATE tool_data SET scope_key = owner_email WHERE scope_key = 'local@localhost' AND owner_email != 'local@localhost'`,
   );
 }
@@ -182,7 +185,8 @@ export interface CreateToolData {
 export async function createTool(data: CreateToolData): Promise<ToolRow> {
   await ensureToolsTables();
   const db = getDb();
-  const userEmail = getRequestUserEmail() || "local@localhost";
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) throw new Error("no authenticated user");
   const orgId = getRequestOrgId();
   const id = randomUUID();
   const now = new Date().toISOString();

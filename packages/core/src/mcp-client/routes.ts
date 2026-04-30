@@ -182,10 +182,9 @@ async function resolveContextForRequest(event: H3Event): Promise<{
   } catch {
     // ignore — no org context
   }
-  // In solo/dev mode `getSession` can return nothing but getOrgContext still
-  // yields the fallback email. Keep that as the user-scope id so single-user
-  // desktop installs work without a login flow.
-  if (!email) email = "local@localhost";
+  // No silent `local@localhost` fallback — if `getSession` returns nothing in
+  // production (misconfigured deploy, expired token), the caller must reject
+  // rather than silently pool every unauthenticated request under one identity.
   return { email, orgId, role };
 }
 

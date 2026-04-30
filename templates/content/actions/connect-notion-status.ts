@@ -6,7 +6,8 @@ export default defineAction({
   description: "Check Notion connection status for the current user.",
   http: false,
   run: async () => {
-    const owner = getRequestUserEmail() || "local@localhost";
+    const owner = getRequestUserEmail();
+    if (!owner) throw new Error("no authenticated user");
     const connection = await getNotionConnectionForOwner(owner);
     return {
       connected: Boolean(connection),

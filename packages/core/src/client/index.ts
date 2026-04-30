@@ -3,6 +3,7 @@ export {
   generateTabId,
   type AgentChatMessage,
 } from "./agent-chat.js";
+export { DEV_MODE_USER_EMAIL } from "./dev-mode.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
 export { useDevMode } from "./use-dev-mode.js";
 export { useBuilderEnabled } from "./use-builder-enabled.js";

@@ -597,7 +597,10 @@ export async function sendScheduledEmail(
     }
   }
 
-  const fallbackOwner = ownerEmail || from || accountEmail || "local@localhost";
+  const fallbackOwner = ownerEmail || from || accountEmail;
+  if (!fallbackOwner) {
+    throw new Error("scheduleEmail: no owner email available");
+  }
   const emails = await readEmails(fallbackOwner);
   emails.push({
     id: `msg-${nanoid(8)}`,

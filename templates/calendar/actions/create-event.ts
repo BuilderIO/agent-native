@@ -19,7 +19,8 @@ export default defineAction({
       .describe("Account email to create the event on"),
   }),
   run: async (args) => {
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
 
     if (!(await googleCalendar.isConnected(email))) {
       throw new Error(

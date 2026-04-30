@@ -1,4 +1,5 @@
 import { defineEventHandler, setResponseStatus } from "h3";
+import { DEV_MODE_USER_EMAIL } from "@agent-native/core/server";
 import {
   resolveSettingsScope,
   migrateGlobalSettingsPrefixesToUser,
@@ -6,7 +7,7 @@ import {
 
 export default defineEventHandler(async (event) => {
   const scope = await resolveSettingsScope(event);
-  if (!scope.email || scope.email === "local@localhost") {
+  if (!scope.email || scope.email === DEV_MODE_USER_EMAIL) {
     setResponseStatus(event, 401);
     return { error: "Not authenticated" };
   }

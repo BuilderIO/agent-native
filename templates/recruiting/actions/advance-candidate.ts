@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestOrgId } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import * as gh from "../server/lib/greenhouse-api.js";
-import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { withCredentialContext } from "../server/lib/greenhouse-api.js";
 import { z } from "zod";
 
 async function advanceCandidate(args: {
@@ -31,10 +34,10 @@ export default defineAction({
       .describe("Current stage ID (required)"),
   }),
   run: async (args) => {
-    const orgId = getRequestOrgId();
-    if (orgId) {
-      return withOrgContext(orgId, () => advanceCandidate(args));
-    }
-    return advanceCandidate(args);
+    const orgId = getRequestOrgId() ?? null;
+    const email = getRequestUserEmail() ?? null;
+    return withCredentialContext({ email, orgId }, () =>
+      advanceCandidate(args),
+    );
   },
 });

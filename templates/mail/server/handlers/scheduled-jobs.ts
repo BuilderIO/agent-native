@@ -60,7 +60,11 @@ export function parseNlDate(input: string, timezone: string): Date | null {
 /** GET /api/scheduled-jobs — list pending/processing jobs */
 export const listScheduledJobs = defineEventHandler(async (event: H3Event) => {
   const session = await getSession(event);
-  return listPendingJobs(session?.email ?? "local@localhost");
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return listPendingJobs(session.email);
 });
 
 /** POST /api/scheduled-jobs — create a new job */
@@ -91,7 +95,11 @@ export const createScheduledJob = defineEventHandler(async (event: H3Event) => {
     return { error: "runAt must be a future timestamp" };
   }
 
-  const ownerEmail = session?.email ?? "local@localhost";
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthenticated" };
+  }
+  const ownerEmail = session.email;
   const job = await createScheduledJobRecord({
     type,
     ownerEmail,
@@ -190,7 +198,11 @@ export const parseDateNl = defineEventHandler(async (event: H3Event) => {
 
 export const snoozeEmail = defineEventHandler(async (event: H3Event) => {
   const session = await getSession(event);
-  const ownerEmail = session?.email ?? "local@localhost";
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthenticated" };
+  }
+  const ownerEmail = session.email;
   const emailId = getRouterParam(event, "id");
   const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
     runAt?: number;
@@ -226,7 +238,11 @@ export const snoozeEmail = defineEventHandler(async (event: H3Event) => {
 
 export const scheduleEmail = defineEventHandler(async (event: H3Event) => {
   const session = await getSession(event);
-  const ownerEmail = session?.email ?? "local@localhost";
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthenticated" };
+  }
+  const ownerEmail = session.email;
   const body = ((await readBody(event).catch(() => ({}))) ??
     {}) as SendLaterPayload & {
     runAt?: number;

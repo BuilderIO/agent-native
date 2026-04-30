@@ -164,7 +164,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
     // TOCTOU window where two concurrent plugin invocations would both pass
     // the running-check, both spawn a server, and end up fighting for the
     // CLI's PTY pool — leading to `posix_spawnp failed` floods.
-    process.env.__AGENT_TERMINAL_RUNNING = "true";
+    process.env.__AGENT_TERMINAL_RUNNING = "true"; // guard:allow-env-mutation — process-wide running flag set once at boot, before any HTTP request handling, to coordinate concurrent plugin invocations
 
     try {
       const { createPtyWebSocketServer } = await import("./pty-server.js");
@@ -178,7 +178,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       });
 
       // Store port for other consumers
-      process.env.AGENT_TERMINAL_PORT = String(result.port);
+      process.env.AGENT_TERMINAL_PORT = String(result.port); // guard:allow-env-mutation — terminal subprocess port published once at boot, not per-request
 
       // Mount discovery endpoint
       getH3App(nitroApp).use(

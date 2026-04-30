@@ -1,6 +1,7 @@
 // Slack API client for fetching channel messages and searching across workspaces
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 
 export type Workspace = "primary" | "secondary";
 
@@ -11,9 +12,10 @@ const MAX_CACHE = 200;
 async function getToken(workspace: Workspace): Promise<string> {
   const envKey =
     workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN";
-  const token = await resolveCredential(envKey);
+  const ctx = requireRequestCredentialContext(envKey);
+  const token = await resolveCredential(envKey, ctx);
   if (!token) {
-    throw new Error(`${envKey} env var is required`);
+    throw new Error(`${envKey} not configured`);
   }
   return token;
 }

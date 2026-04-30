@@ -73,7 +73,8 @@ export default defineAction({
     const limit = args.limit ?? 25;
     const compact = args.compact !== false;
     const accountFilter = args.account?.toLowerCase();
-    const ownerEmail = getRequestUserEmail() || "local@localhost";
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
 
     const clients = await getClients(ownerEmail);
     if (clients.length === 0) return "Error: No Google account connected.";

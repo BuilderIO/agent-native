@@ -5,7 +5,11 @@ import { getSession } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event) => {
   const session = await getSession(event);
-  const email = session?.email || "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  const email = session.email;
   const body = (await readBody(event)) as { model?: string };
 
   const existing =

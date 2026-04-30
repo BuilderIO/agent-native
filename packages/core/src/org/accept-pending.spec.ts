@@ -5,6 +5,7 @@ const mockPutUserSetting = vi.fn();
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockExecute }),
+  isLocalDatabase: () => true,
 }));
 vi.mock("../settings/user-settings.js", () => ({
   putUserSetting: (...args: any[]) => mockPutUserSetting(...args),

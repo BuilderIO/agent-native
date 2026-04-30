@@ -6,7 +6,8 @@
   "description": "Clips menu-bar tray app (Tauri 2). Quick-record + recent recordings from the OS tray.",
   "scripts": {
     "check:prereqs": "node ./scripts/check-tauri-prereqs.mjs",
-    "dev": "pnpm run check:prereqs && tauri dev",
+    "kill:installed": "pkill -x Clips 2>/dev/null; exit 0",
+    "dev": "pnpm run check:prereqs && pnpm run kill:installed && tauri dev",
     "build": "vite build",
     "build:tauri": "pnpm run check:prereqs && tauri build",
     "tauri": "tauri",

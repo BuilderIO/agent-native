@@ -52,6 +52,8 @@ export const createNoteHandler = defineEventHandler(async (event) => {
   }
 
   const ctx = await getOrgContext(event);
+  if (!ctx.email)
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   const id = nanoid();
   const now = Date.now();
 
@@ -61,7 +63,7 @@ export const createNoteHandler = defineEventHandler(async (event) => {
     content: body.content,
     type: body.type,
     createdAt: now,
-    ownerEmail: ctx.email !== "local@localhost" ? ctx.email : null,
+    ownerEmail: ctx.email,
     orgId: ctx.orgId,
   });
 

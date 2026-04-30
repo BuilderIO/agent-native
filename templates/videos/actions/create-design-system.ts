@@ -46,7 +46,8 @@ export default defineAction({
     const db = getDb();
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const ownerEmail = getRequestUserEmail() ?? "local@localhost";
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
     // Check if user has any existing design systems to determine default

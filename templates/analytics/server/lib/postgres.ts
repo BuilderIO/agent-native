@@ -3,12 +3,14 @@
 // Requires the `postgres` package: pnpm add postgres
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 
 let _sql: any = null;
 
 async function getConnectionUrl(): Promise<string> {
-  const url = await resolveCredential("POSTGRES_URL");
-  if (!url) throw new Error("POSTGRES_URL env var required");
+  const ctx = requireRequestCredentialContext("POSTGRES_URL");
+  const url = await resolveCredential("POSTGRES_URL", ctx);
+  if (!url) throw new Error("POSTGRES_URL not configured");
   return url;
 }
 

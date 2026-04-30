@@ -15,7 +15,8 @@ export default defineAction({
   parameters: {},
   http: { method: "GET" },
   run: async () => {
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const settings =
       (await getUserSetting(email, "calendar-settings")) || DEFAULT_SETTINGS;
     return settings;

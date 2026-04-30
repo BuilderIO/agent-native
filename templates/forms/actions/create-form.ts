@@ -83,7 +83,11 @@ export default defineAction({
       status: args.status || "draft",
       createdAt: now,
       updatedAt: now,
-      ownerEmail: getRequestUserEmail() ?? "local@localhost",
+      ownerEmail: (() => {
+        const e = getRequestUserEmail();
+        if (!e) throw new Error("no authenticated user");
+        return e;
+      })(),
       orgId: getRequestOrgId(),
     });
 

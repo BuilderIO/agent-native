@@ -6,7 +6,8 @@ export default defineAction({
   description: "List all documents linked to Notion pages.",
   http: false,
   run: async () => {
-    const owner = getRequestUserEmail() || "local@localhost";
+    const owner = getRequestUserEmail();
+    if (!owner) throw new Error("no authenticated user");
     const links = await listNotionLinks(owner);
 
     if (links.length === 0) {

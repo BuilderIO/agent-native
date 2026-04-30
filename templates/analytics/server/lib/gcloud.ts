@@ -3,11 +3,14 @@
 // Uses manual JWT-based service account auth (no SDK dependencies)
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 import { signRs256Jwt } from "./sign-jwt";
 
 async function getProjectId(): Promise<string> {
+  const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
   return (
-    (await resolveCredential("BIGQUERY_PROJECT_ID")) || "your-gcp-project-id"
+    (await resolveCredential("BIGQUERY_PROJECT_ID", ctx)) ||
+    "your-gcp-project-id"
   );
 }
 
@@ -20,11 +23,15 @@ const MAX_CACHE = 120;
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
 async function getServiceAccountCredentials() {
-  const credsJson = await resolveCredential(
+  const ctx = requireRequestCredentialContext(
     "GOOGLE_APPLICATION_CREDENTIALS_JSON",
   );
+  const credsJson = await resolveCredential(
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+    ctx,
+  );
   if (!credsJson) {
-    throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON env var required");
+    throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured");
   }
 
   let parsed: Record<string, unknown>;

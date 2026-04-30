@@ -4,11 +4,31 @@ import { DeviceFrame } from "./DeviceFrame";
 import type { ElementInfo, DeviceFrameType } from "./types";
 
 /**
- * Bridge script injected into the iframe srcdoc.
- * Sends element info on click/hover to the parent, and accepts
- * style-change / tweak-value messages from the parent.
+ * Tweak-bridge script. ALWAYS injected so the parent's postMessage
+ * (`tweak-values`) can update CSS custom properties on the iframe's :root
+ * regardless of which editor mode is active. Without this the tweak panel
+ * silently no-ops in the default Comment mode.
  */
-const BRIDGE_SCRIPT = `
+const TWEAK_BRIDGE_SCRIPT = `
+<script>
+(function() {
+  window.addEventListener('message', function(e) {
+    if (!e.data || e.data.type !== 'tweak-values') return;
+    var root = document.documentElement;
+    var vals = e.data.values || {};
+    Object.keys(vals).forEach(function(k) {
+      root.style.setProperty(k, vals[k]);
+    });
+  });
+})();
+</script>
+`;
+
+/**
+ * Edit-mode bridge: element click/hover overlays + selector-targeted
+ * style-change messages. Only injected when the user is in Edit mode.
+ */
+const EDIT_BRIDGE_SCRIPT = `
 <script>
 (function() {
   function getElementInfo(el) {
@@ -94,21 +114,12 @@ const BRIDGE_SCRIPT = `
   });
 
   window.addEventListener('message', function(e) {
-    if (!e.data || !e.data.type) return;
-    if (e.data.type === 'style-change') {
-      var sel = e.data.selector;
-      var prop = e.data.property;
-      var val = e.data.value;
-      var el = sel ? document.querySelector(sel) : null;
-      if (el) el.style[prop] = val;
-    }
-    if (e.data.type === 'tweak-values') {
-      var root = document.documentElement;
-      var vals = e.data.values || {};
-      Object.keys(vals).forEach(function(k) {
-        root.style.setProperty(k, vals[k]);
-      });
-    }
+    if (!e.data || e.data.type !== 'style-change') return;
+    var sel = e.data.selector;
+    var prop = e.data.property;
+    var val = e.data.value;
+    var el = sel ? document.querySelector(sel) : null;
+    if (el) el.style[prop] = val;
   });
 })();
 </script>
@@ -135,9 +146,11 @@ export function DesignCanvas({
 }: DesignCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Build the srcdoc with bridge script injected before </body>
+  // Build the srcdoc. The tweak bridge ALWAYS goes in so the panel works
+  // outside Edit mode. The edit bridge (click/hover overlays) is gated.
   const srcdoc = useMemo(() => {
-    const bridgeToInject = editMode ? BRIDGE_SCRIPT : "";
+    const bridgeToInject =
+      TWEAK_BRIDGE_SCRIPT + (editMode ? EDIT_BRIDGE_SCRIPT : "");
     if (content.includes("</body>")) {
       return content.replace("</body>", bridgeToInject + "</body>");
     }
@@ -163,14 +176,22 @@ export function DesignCanvas({
     return () => window.removeEventListener("message", handleMessage);
   }, [onElementSelect, onElementHover]);
 
-  // Send tweak values to the iframe whenever they change
+  // Send tweak values to the iframe whenever they change OR the iframe
+  // (re)loads. The reload case matters: changing `content` or toggling Edit
+  // mode rebuilds srcdoc and remounts the iframe; without replaying values
+  // here, the freshly mounted document loses the user's tweak state.
   useEffect(() => {
     const iframe = iframeRef.current;
-    if (!iframe?.contentWindow) return;
-    iframe.contentWindow.postMessage(
-      { type: "tweak-values", values: tweakValues },
-      "*",
-    );
+    if (!iframe) return;
+    const send = () => {
+      iframe.contentWindow?.postMessage(
+        { type: "tweak-values", values: tweakValues },
+        "*",
+      );
+    };
+    send();
+    iframe.addEventListener("load", send);
+    return () => iframe.removeEventListener("load", send);
   }, [tweakValues]);
 
   const sendStyleChange = useCallback(

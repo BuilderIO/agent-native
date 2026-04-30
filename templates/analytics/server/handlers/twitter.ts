@@ -1,5 +1,9 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { requireCredential, resolveCredential } from "../lib/credentials";
+import {
+  withRequestContextFromEvent,
+  getCredentialContextFromEvent,
+} from "../lib/credentials";
 import { createHash } from "crypto";
 
 // ─── In-memory cache (TTL-based) ───────────────────────────────────────
@@ -120,43 +124,51 @@ export const handleTwitterTweets = defineEventHandler(async (event) => {
     "Twitter",
   );
   if (missing) return missing;
-  const { userName: userNameParam, pages: pagesParam } = getQuery(event);
-  const userName = userNameParam as string;
-  if (!userName) {
-    return { error: "userName query parameter is required" };
-  }
-  const maxPages = Math.min(Number(pagesParam) || 5, 10);
 
-  const apiKey = await resolveCredential("TWITTER_API_KEY");
-  console.log(
-    "[Twitter] API key present:",
-    !!apiKey,
-    "userName:",
-    userName,
-    "pages:",
-    maxPages,
-  );
-  if (!apiKey) {
-    console.error("[Twitter] TWITTER_API_KEY not configured");
-    setResponseStatus(event, 500);
-    return { error: "TWITTER_API_KEY not configured" };
-  }
+  const result = await withRequestContextFromEvent(event, async (ctx) => {
+    const { userName: userNameParam, pages: pagesParam } = getQuery(event);
+    const userName = userNameParam as string;
+    if (!userName) {
+      return { error: "userName query parameter is required" };
+    }
+    const maxPages = Math.min(Number(pagesParam) || 5, 10);
 
-  try {
-    const tweets = await fetchAllTweetsForUser(apiKey, userName, maxPages);
+    const apiKey = await resolveCredential("TWITTER_API_KEY", ctx);
     console.log(
-      "[Twitter] Successfully fetched",
-      tweets.length,
-      "tweets for",
+      "[Twitter] API key present:",
+      !!apiKey,
+      "userName:",
       userName,
+      "pages:",
+      maxPages,
     );
-    return { tweets, count: tweets.length };
-  } catch (error: any) {
-    const message = error?.message || String(error);
-    console.error("[Twitter] API error:", message, error);
-    setResponseStatus(event, 502);
-    return { error: message };
+    if (!apiKey) {
+      console.error("[Twitter] TWITTER_API_KEY not configured");
+      setResponseStatus(event, 500);
+      return { error: "TWITTER_API_KEY not configured" };
+    }
+
+    try {
+      const tweets = await fetchAllTweetsForUser(apiKey, userName, maxPages);
+      console.log(
+        "[Twitter] Successfully fetched",
+        tweets.length,
+        "tweets for",
+        userName,
+      );
+      return { tweets, count: tweets.length };
+    } catch (error: any) {
+      const message = error?.message || String(error);
+      console.error("[Twitter] API error:", message, error);
+      setResponseStatus(event, 502);
+      return { error: message };
+    }
+  });
+  if (result === null) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to access Twitter data." };
   }
+  return result;
 });
 
 // ─── Handler: GET /api/twitter/multi?userNames=a,b,c&pages=... ──────
@@ -167,6 +179,13 @@ export const handleTwitterMulti = defineEventHandler(async (event) => {
     "Twitter",
   );
   if (missing) return missing;
+
+  const ctx = await getCredentialContextFromEvent(event);
+  if (!ctx) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to query Twitter" };
+  }
+
   const { userNames: userNamesParam, pages: pagesParam } = getQuery(event);
   const userNames = ((userNamesParam as string) || "")
     .split(",")
@@ -190,7 +209,7 @@ export const handleTwitterMulti = defineEventHandler(async (event) => {
     return { error: "Max 10 usernames at a time" };
   }
 
-  const apiKey = await resolveCredential("TWITTER_API_KEY");
+  const apiKey = await resolveCredential("TWITTER_API_KEY", ctx);
   console.log("[Twitter Multi] API key present:", !!apiKey);
   if (!apiKey) {
     console.error("[Twitter Multi] TWITTER_API_KEY not configured");

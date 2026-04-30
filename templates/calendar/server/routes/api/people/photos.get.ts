@@ -11,7 +11,11 @@ import { peopleSearchDirectoryPeople } from "../../../lib/google-api.js";
  */
 export default defineEventHandler(async (event) => {
   const session = await getSession(event);
-  const userEmail = session?.email ?? "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  const userEmail = session.email;
 
   const query = getQuery(event);
   const emailsParam = String(query.emails || "");

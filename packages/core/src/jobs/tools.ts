@@ -16,7 +16,9 @@ import {
   getRequestOrgId,
 } from "../server/request-context.js";
 function getOwner(): string {
-  return getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
+  return email;
 }
 
 async function runCreate(args: Record<string, any>): Promise<string> {

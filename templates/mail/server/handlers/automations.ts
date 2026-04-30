@@ -24,7 +24,10 @@ function toApiRule(row: any): AutomationRule {
 
 export const listAutomations = defineEventHandler(async (event) => {
   const session = await getSession(event);
-  const ownerEmail = session?.email ?? "local@localhost";
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  const ownerEmail = session.email;
 
   const rules = await db
     .select()
@@ -38,7 +41,10 @@ export const listAutomations = defineEventHandler(async (event) => {
 
 export const createAutomation = defineEventHandler(async (event) => {
   const session = await getSession(event);
-  const ownerEmail = session?.email ?? "local@localhost";
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  const ownerEmail = session.email;
 
   const body = await readBody(event);
   const { name, condition, actions, domain = "mail", enabled = true } = body;
@@ -68,7 +74,10 @@ export const createAutomation = defineEventHandler(async (event) => {
 
 export const updateAutomation = defineEventHandler(async (event) => {
   const session = await getSession(event);
-  const ownerEmail = session?.email ?? "local@localhost";
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  const ownerEmail = session.email;
   const id = getRouterParam(event, "id");
 
   if (!id) throw new Error("id is required");
@@ -107,7 +116,10 @@ export const updateAutomation = defineEventHandler(async (event) => {
 
 export const deleteAutomation = defineEventHandler(async (event) => {
   const session = await getSession(event);
-  const ownerEmail = session?.email ?? "local@localhost";
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  const ownerEmail = session.email;
   const id = getRouterParam(event, "id");
 
   if (!id) throw new Error("id is required");

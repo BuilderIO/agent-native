@@ -44,7 +44,8 @@ import {
 } from "@tabler/icons-react";
 
 export async function loader() {
-  const email = getRequestUserEmail() ?? "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Response("Unauthenticated", { status: 401 });
   const eventTypes = await listEventTypes({
     ownerEmail: email,
     includeHidden: true,

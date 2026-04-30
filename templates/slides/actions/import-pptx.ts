@@ -123,7 +123,11 @@ export default defineAction({
       id,
       title: deckTitle,
       data: JSON.stringify(data),
-      ownerEmail: getRequestUserEmail() ?? "local@localhost",
+      ownerEmail: (() => {
+        const e = getRequestUserEmail();
+        if (!e) throw new Error("no authenticated user");
+        return e;
+      })(),
       orgId: getRequestOrgId(),
       createdAt: now,
       updatedAt: now,

@@ -2,6 +2,7 @@
 // Search people, enrich contacts, search/enrich organizations
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 
 const API_BASE = "https://api.apollo.io";
 
@@ -10,8 +11,9 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
 
 async function getApiKey(): Promise<string> {
-  const key = await resolveCredential("APOLLO_API_KEY");
-  if (!key) throw new Error("APOLLO_API_KEY env var required");
+  const ctx = requireRequestCredentialContext("APOLLO_API_KEY");
+  const key = await resolveCredential("APOLLO_API_KEY", ctx);
+  if (!key) throw new Error("APOLLO_API_KEY not configured");
   return key;
 }
 

@@ -53,6 +53,8 @@ export default defineAction({
         .where(eq(schema.compositions.id, args.id));
     } else {
       // Creating — set owner/org from request context
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("no authenticated user");
       await db.insert(schema.compositions).values({
         id: args.id,
         title: args.title,
@@ -60,7 +62,7 @@ export default defineAction({
         data: dataStr,
         createdAt: now,
         updatedAt: now,
-        ownerEmail: getRequestUserEmail() ?? "local@localhost",
+        ownerEmail,
         orgId: getRequestOrgId(),
       });
     }

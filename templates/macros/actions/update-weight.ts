@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { db, schema } from "../server/db/index.js";
-import { eq, and, or, isNull } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 
 export default defineAction({
@@ -15,6 +15,8 @@ export default defineAction({
   run: async (args) => {
     const id = args.id!;
     const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
+
     const result = await db()
       .update(schema.weights)
       .set({
@@ -25,12 +27,7 @@ export default defineAction({
       .where(
         and(
           eq(schema.weights.id, id),
-          ownerEmail
-            ? or(
-                eq(schema.weights.owner_email, ownerEmail),
-                isNull(schema.weights.owner_email),
-              )
-            : undefined,
+          eq(schema.weights.owner_email, ownerEmail),
         ),
       )
       .returning();

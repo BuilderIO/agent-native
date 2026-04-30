@@ -299,7 +299,7 @@ function UseBuilderCard({
   comingSoon,
   builderEnabled,
   label = "Connect Builder.io",
-  subtitle = "One click, no API key needed. Free during beta.",
+  subtitle = "One click, no API key needed.",
   dim,
 }: {
   connectUrl?: string;
@@ -385,9 +385,6 @@ function UseBuilderCard({
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[12px] font-semibold text-foreground">
               {label}
-            </span>
-            <span className="inline-flex items-center rounded-sm bg-green-500/15 px-1 text-[9px] font-medium uppercase tracking-wide text-green-500">
-              Free
             </span>
           </div>
           <p className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">
