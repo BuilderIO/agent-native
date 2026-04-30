@@ -13,7 +13,7 @@ import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
 import { Markdown } from "tiptap-markdown";
-import { defaultMarkdownSerializer } from "@tiptap/pm/markdown";
+import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import {
   Plugin,
   PluginKey,
