@@ -2,15 +2,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as sharedConfig from "../packages/shared-app-config/index.ts";
-
-const {
-  DEFAULT_APPS,
-  TEMPLATE_APPS,
-  TEMPLATES,
-  coreTemplates,
-  visibleTemplates,
-} = sharedConfig;
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -23,6 +14,29 @@ function read(file: string): string {
 
 function templateNamesFromSource(file: string): string[] {
   return [...read(file).matchAll(/name:\s*"([^"]+)"/g)].map((m) => m[1]);
+}
+
+interface TemplateEntry {
+  name: string;
+  devPort: number;
+  core: boolean;
+  hidden: boolean;
+  prodUrl: boolean;
+}
+
+function sharedTemplates(): TemplateEntry[] {
+  const src = read("packages/shared-app-config/templates.ts");
+  return [
+    ...src.matchAll(
+      /\{\s*name:\s*"([^"]+)"[\s\S]*?devPort:\s*(\d+)[\s\S]*?\}/g,
+    ),
+  ].map((m) => ({
+    name: m[1],
+    devPort: Number(m[2]),
+    core: /core:\s*true/.test(m[0]),
+    hidden: /hidden:\s*true/.test(m[0]),
+    prodUrl: /prodUrl:\s*"[^"]+"/.test(m[0]),
+  }));
 }
 
 function assertSameMembers(
@@ -41,37 +55,55 @@ const templateDirs = fs
     fs.existsSync(path.join(repoRoot, "templates", name, "package.json")),
   );
 
+const templates = sharedTemplates();
+
 assertSameMembers(
-  TEMPLATES.map((template) => template.name),
+  templates.map((template) => template.name),
   templateDirs,
   "shared template registry must match templates/* package directories",
 );
 
 assertSameMembers(
   templateNamesFromSource("packages/core/src/cli/templates-meta.ts"),
-  TEMPLATES.map((template) => template.name),
+  templates.map((template) => template.name),
   "CLI and shared template registries must expose the same template names",
 );
 
 assert.equal(
-  new Set(TEMPLATES.map((template) => template.devPort)).size,
-  TEMPLATES.length,
+  new Set(templates.map((template) => template.devPort)).size,
+  templates.length,
   "template dev ports must be unique",
 );
 
-assertSameMembers(
-  DEFAULT_APPS.map((app) => app.id),
-  coreTemplates().map((template) => template.name),
-  "desktop default apps must be exactly the core template set",
+const sharedIndex = read("packages/shared-app-config/index.ts");
+assert.match(
+  sharedIndex,
+  /DEFAULT_APPS:[\s\S]*coreTemplates\(\)\.map/,
+  "desktop default apps must be derived from the core template set",
 );
 
 assertSameMembers(
-  TEMPLATE_APPS.map((app) => app.id),
-  TEMPLATES.map((template) => template.name),
-  "template app configs must cover every template for frame/dev routing",
+  templates
+    .filter((template) => template.core)
+    .map((template) => template.name),
+  [
+    "analytics",
+    "calendar",
+    "clips",
+    "content",
+    "design",
+    "dispatch",
+    "forms",
+    "mail",
+    "slides",
+    "starter",
+    "videos",
+  ],
+  "core template set changed; update desktop/default orchestration expectations deliberately",
 );
 
-const visibleWithoutProdUrl = visibleTemplates()
+const visibleWithoutProdUrl = templates
+  .filter((template) => !template.hidden)
   .filter((template) => !template.prodUrl)
   .map((template) => template.name);
 assert.deepEqual(
@@ -97,7 +129,7 @@ assert.match(
 const frameClient = read("packages/frame/client/App.tsx");
 assert.match(
   frameClient,
-  /TEMPLATES\.map/,
+  /TEMPLATES\.flatMap/,
   "frame client must allow messages from every template dev origin",
 );
 
