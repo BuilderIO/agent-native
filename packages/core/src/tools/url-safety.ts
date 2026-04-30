@@ -26,7 +26,7 @@ function isPrivateIpv4MappedHex(host: string): boolean {
   if (!mapped) return false;
   const high = Number.parseInt(mapped[1], 16);
   const low = Number.parseInt(mapped[2], 16);
-  if (!Number.isFinite(high) || !Number.isFinite(low)) return false;
+  if (high < 0 || high > 0xffff || low < 0 || low > 0xffff) return false;
   const a = (high >> 8) & 0xff;
   const b = high & 0xff;
   return isPrivateIpv4(a, b);

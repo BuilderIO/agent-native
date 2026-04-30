@@ -5,6 +5,7 @@ import { IconExternalLink } from "@tabler/icons-react";
 import {
   agentNativePath,
   appBasePath,
+  appPath,
   PoweredByBadge,
   useSession,
 } from "@agent-native/core/client";
@@ -248,7 +249,7 @@ export default function ShareRoute() {
           <span className="font-medium">Clips</span>
         </div>
         <a
-          href="/"
+          href={appPath("/")}
           className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
         >
           Try Clips <IconExternalLink className="h-3 w-3" />
@@ -400,7 +401,7 @@ function EndState({ title, message }: { title: string; message: string }) {
     <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
       <h1 className="text-2xl font-semibold mb-2">{title}</h1>
       <p className="text-sm text-muted-foreground mb-6">{message}</p>
-      <a href="/" className="text-sm text-primary hover:underline">
+      <a href={appPath("/")} className="text-sm text-primary hover:underline">
         Go home
       </a>
     </div>

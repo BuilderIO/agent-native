@@ -6,7 +6,7 @@ import {
   IconLoader2,
   IconServer,
 } from "@tabler/icons-react";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, appPath } from "@agent-native/core/client";
 
 function BuilderBMark({ className }: { className?: string }) {
   return (
@@ -175,7 +175,7 @@ export function StorageSetupCard({ onConfigured }: StorageSetupCardProps) {
             <span className="text-sm text-muted-foreground">
               Or{" "}
               <a
-                href="/settings"
+                href={appPath("/settings")}
                 className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
               >
                 configure S3-compatible storage
