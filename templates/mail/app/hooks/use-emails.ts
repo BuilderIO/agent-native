@@ -253,6 +253,7 @@ export function useEmails(
   view: string = "inbox",
   search?: string,
   label?: string,
+  options?: { enabled?: boolean },
 ) {
   const q = useInfiniteQuery({
     queryKey: ["emails", view, search, label],
@@ -278,6 +279,7 @@ export function useEmails(
       query.state.status === "error" ? false : 2 * 60_000,
     refetchOnWindowFocus: false,
     retry: false,
+    enabled: options?.enabled ?? true,
   });
 
   const data = useMemo(() => {

@@ -575,17 +575,31 @@ function TransportControls({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <Button variant="ghost" size="icon" onClick={() => onSkip(-10000)}>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Skip back 10 seconds"
+        onClick={() => onSkip(-10000)}
+      >
         <IconPlayerSkipBack className="h-4 w-4" />
       </Button>
-      <Button size="icon" onClick={onToggle}>
+      <Button
+        size="icon"
+        aria-label={playing ? "Pause" : "Play"}
+        onClick={onToggle}
+      >
         {playing ? (
           <IconPlayerPause className="h-4 w-4" />
         ) : (
           <IconPlayerPlay className="h-4 w-4" />
         )}
       </Button>
-      <Button variant="ghost" size="icon" onClick={() => onSkip(10000)}>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Skip forward 10 seconds"
+        onClick={() => onSkip(10000)}
+      >
         <IconPlayerSkipForward className="h-4 w-4" />
       </Button>
       <div className="text-xs font-mono text-muted-foreground tabular-nums ml-1">

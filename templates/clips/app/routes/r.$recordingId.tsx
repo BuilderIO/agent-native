@@ -178,7 +178,7 @@ export default function RecordingPage() {
     }).catch(() => {});
   }, [recordingId]);
 
-  usePlayerShortcuts({ playerRef, speed, setSpeed });
+  usePlayerShortcuts({ playerRef, speed, setSpeed, chapters });
 
   const tracking = useViewTracking({
     recordingId: recordingId ?? "",

@@ -147,6 +147,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const googleStatus = useGoogleAuthStatus();
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
+  const googleStatusReady = !googleStatus.isLoading && !googleStatus.isError;
   const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
   // Account filter: which accounts' emails to show. Empty set = all accounts.
   // Persisted to localStorage so it survives page refreshes.
@@ -189,9 +190,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const labelAliases = settings?.labelAliases ?? {};
   const { data: rawInboxEmails = [], isLoading: emailsLoading } =
     useEmails("inbox");
+  const { data: rawAllLocalEmails = [], isLoading: allLocalEmailsLoading } =
+    useEmails("all", undefined, undefined, {
+      enabled: googleStatusReady && !hasAccounts,
+    });
   const hasLocalMailboxData =
     !hasAccounts &&
-    (rawInboxEmails.length > 0 ||
+    (rawAllLocalEmails.length > 0 ||
+      rawInboxEmails.length > 0 ||
       labels.some(
         (label) => (label.totalCount ?? 0) > 0 || (label.unreadCount ?? 0) > 0,
       ));
@@ -209,7 +215,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       return { ...e, labelIds };
     });
   }, [rawInboxEmails, isGoogleConnected, connectedEmails, hasNoteToSelf]);
-  const tabsLoading = labelsLoading || settingsLoading || emailsLoading;
+  const tabsLoading =
+    labelsLoading || settingsLoading || emailsLoading || allLocalEmailsLoading;
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Drag-to-reorder tabs
@@ -688,6 +695,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
                 className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                aria-label="Toggle menu"
                 title="Menu"
               >
                 <IconMenu2 className="h-4 w-4" />
@@ -800,6 +808,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                               ? "text-foreground bg-accent/50"
                               : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/30",
                           )}
+                          aria-label="Configure tabs"
                           title="Configure tabs"
                         >
                           <IconSettings className="h-3.5 w-3.5" />
@@ -851,6 +860,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 <button
                   onClick={() => setSearchFocused(true)}
                   className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                  aria-label="Search"
                   title="Search (/)"
                 >
                   <IconSearch className="h-4 w-4" />
@@ -883,6 +893,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <button
                 onClick={handleCompose}
                 className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                aria-label="Compose email"
                 title="Compose (C)"
               >
                 <IconPencil className="h-4 w-4" />
