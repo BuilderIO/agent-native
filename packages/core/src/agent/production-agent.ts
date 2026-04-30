@@ -583,6 +583,7 @@ export async function runAgentLoop(opts: {
           input: toolCall.input as Record<string, string>,
         });
 
+        const MAX_TOOL_RESULT_CHARS = 50_000;
         let result: string;
         let isError = false;
         try {
@@ -590,7 +591,13 @@ export async function runAgentLoop(opts: {
             toolCall.input as Record<string, string>,
             { send },
           );
-          result = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+          let resultStr =
+            typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+          if (resultStr.length > MAX_TOOL_RESULT_CHARS) {
+            const truncated = resultStr.slice(0, MAX_TOOL_RESULT_CHARS);
+            resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${MAX_TOOL_RESULT_CHARS.toLocaleString()} shown]`;
+          }
+          result = resultStr;
         } catch (err: any) {
           result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
           isError = true;
