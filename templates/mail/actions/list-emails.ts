@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { getSetting } from "@agent-native/core/settings";
+import { getUserSetting } from "@agent-native/core/settings";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import {
   getClients,
@@ -37,8 +37,8 @@ function toCompact(emails: any[]): any[] {
   }));
 }
 
-async function readLocalEmails(): Promise<any[]> {
-  const data = await getSetting("local-emails");
+async function readLocalEmails(ownerEmail: string): Promise<any[]> {
+  const data = await getUserSetting(ownerEmail, "local-emails");
   if (data && Array.isArray((data as any).emails)) {
     return (data as any).emails;
   }
@@ -131,7 +131,7 @@ export default defineAction({
     }
 
     // Fallback: local store
-    let emails = await readLocalEmails();
+    let emails = await readLocalEmails(ownerEmail);
 
     switch (view) {
       case "inbox":

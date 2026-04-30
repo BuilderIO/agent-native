@@ -62,7 +62,8 @@ async function readProviderPrefs(): Promise<VoiceProvider> {
       | { value?: VoicePrefs }
       | null;
     const p =
-      body && "value" in body ? body.value?.provider : body?.provider;
+      (body as VoicePrefs | null)?.provider ??
+      (body as { value?: VoicePrefs } | null)?.value?.provider;
     if (p === "openai" || p === "browser" || p === "builder") return p;
   } catch {
     /* fall through */

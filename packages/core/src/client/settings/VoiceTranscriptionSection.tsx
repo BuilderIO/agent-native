@@ -50,7 +50,8 @@ export function VoiceTranscriptionSection() {
       .then((body: Prefs | { value?: Prefs } | null) => {
         if (cancelled) return;
         const p =
-          body && "value" in body ? body.value?.provider : body?.provider;
+          (body as Prefs | null)?.provider ??
+          (body as { value?: Prefs } | null)?.value?.provider;
         setProvider(
           p === "openai" || p === "builder" || p === "browser"
             ? p
