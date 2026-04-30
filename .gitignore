@@ -49,6 +49,10 @@ ralph-loop.local.md
 # Local Netlify folder
 .netlify
 
+# Local Vercel folder
+.vercel
+templates/*/.vercel
+
 # Wrangler local state
 .wrangler
 
