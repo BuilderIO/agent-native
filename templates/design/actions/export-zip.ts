@@ -5,6 +5,20 @@ import { getDb, schema } from "../server/db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
+function getExportDir(path: typeof import("path")): string {
+  if (process.env.NODE_ENV === "production") {
+    return path.join(process.cwd(), "data", "exports");
+  }
+
+  return path.join(
+    process.cwd(),
+    "node_modules",
+    ".cache",
+    "agent-native-design",
+    "exports",
+  );
+}
+
 export default defineAction({
   description:
     "Export a design project as a ZIP file containing all design files and a README. " +
@@ -64,7 +78,7 @@ export default defineAction({
     // Save to exports directory
     const fs = await import("fs");
     const path = await import("path");
-    const exportDir = path.join(process.cwd(), "data", "exports");
+    const exportDir = getExportDir(path);
     fs.mkdirSync(exportDir, { recursive: true });
     const filename = `${row.title.replace(/[^a-zA-Z0-9]/g, "-")}-${Date.now()}.zip`;
     const filePath = path.join(exportDir, filename);

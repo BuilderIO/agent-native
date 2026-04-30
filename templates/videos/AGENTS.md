@@ -167,19 +167,19 @@ cd templates/videos && pnpm action <name> [args]
 | ----------------------------- | --------------------------------------- | ------------------------------ |
 | `view-screen`                 |                                         | See current UI state + context |
 | `navigate`                    | `--compositionId <id>` or `--view home` | Navigate the UI                |
-| `create-composition`          | `--id <id> --title "..."`               | Create a new composition       |
-| `generate-animated-component` | `--name <name> --description "..."`     | Generate an animated component |
+| `save-composition`            | `--id <id> --title "..." --type <type>` | Create or update a composition |
+| `generate-animated-component` | `--name <name> [--elements A,B]`        | Generate an animated component |
 | `validate-compositions`       |                                         | Validate all compositions      |
 
 ### Common Tasks
 
-| User request                     | What to do                                                             |
-| -------------------------------- | ---------------------------------------------------------------------- |
-| "What am I looking at?"          | `pnpm action view-screen`                                              |
-| "Create a new composition"       | `pnpm action create-composition --id my-comp --title "..."`            |
-| "Open the logo reveal"           | `pnpm action navigate --compositionId=logo-reveal`                     |
-| "Go back to the studio"          | `pnpm action navigate --view=home`                                     |
-| "Generate an animated component" | `pnpm action generate-animated-component --name X --description "..."` |
+| User request                     | What to do                                                                |
+| -------------------------------- | ------------------------------------------------------------------------- |
+| "What am I looking at?"          | `pnpm action view-screen`                                                 |
+| "Create a new composition"       | `pnpm action save-composition --id my-comp --title "..." --type custom`   |
+| "Open the logo reveal"           | `pnpm action navigate --compositionId=logo-reveal`                        |
+| "Go back to the studio"          | `pnpm action navigate --view=home`                                        |
+| "Generate an animated component" | `pnpm action generate-animated-component --name X --elements Button,Card` |
 
 ## Sharing
 

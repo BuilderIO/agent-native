@@ -10,7 +10,7 @@ export const templates = [
     name: "Mail",
     slug: "mail",
     replaces: "Replaces or augments Superhuman, Gmail",
-    cliCommand: "npx @agent-native/core create my-mail-app",
+    cliCommand: "npx @agent-native/core create my-mail-app --template mail",
     demoUrl: "https://mail.agent-native.com",
     description:
       "Superhuman-style email client with keyboard shortcuts, AI triage, multi-account support, and email automations. Own your inbox workflow.",
@@ -22,7 +22,8 @@ export const templates = [
     name: "Calendar",
     slug: "calendar",
     replaces: "Replaces or augments Google Calendar, Calendly",
-    cliCommand: "npx @agent-native/core create my-calendar-app",
+    cliCommand:
+      "npx @agent-native/core create my-calendar-app --template calendar",
     demoUrl: "https://calendar.agent-native.com",
     description:
       "Full calendar with Google sync, availability management, and a public booking page. The agent finds open slots, creates events, and manages your schedule.",
@@ -34,7 +35,8 @@ export const templates = [
     name: "Content",
     slug: "content",
     replaces: "Replaces or augments Notion, Google Docs",
-    cliCommand: "npx @agent-native/core create my-content-app",
+    cliCommand:
+      "npx @agent-native/core create my-content-app --template content",
     demoUrl: "https://content.agent-native.com",
     description:
       "Write and organize documents with a rich editor, Notion import/export, and an AI agent that drafts, rewrites, and publishes to any CMS.",
@@ -46,7 +48,7 @@ export const templates = [
     name: "Slides",
     slug: "slides",
     replaces: "Replaces or augments Google Slides, Pitch",
-    cliCommand: "npx @agent-native/core create my-slides-app",
+    cliCommand: "npx @agent-native/core create my-slides-app --template slides",
     demoUrl: "https://slides.agent-native.com",
     description:
       "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
@@ -58,7 +60,7 @@ export const templates = [
     name: "Video",
     slug: "video",
     replaces: "Replaces or augments video editing",
-    cliCommand: "npx @agent-native/core create my-video-app",
+    cliCommand: "npx @agent-native/core create my-video-app --template videos",
     demoUrl: "https://videos.agent-native.com",
     description:
       "Build React-based video compositions with Remotion. Keyframe animation, 30+ easing curves, camera controls, and agent-assisted editing.",
@@ -70,7 +72,8 @@ export const templates = [
     name: "Analytics",
     slug: "analytics",
     replaces: "Replaces or augments Amplitude, Mixpanel, Looker",
-    cliCommand: "npx @agent-native/core create my-analytics-app",
+    cliCommand:
+      "npx @agent-native/core create my-analytics-app --template analytics",
     demoUrl: "https://analytics.agent-native.com",
     description:
       "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
@@ -82,7 +85,7 @@ export const templates = [
     name: "Clips",
     slug: "clips",
     replaces: "Replaces or augments Loom",
-    cliCommand: "npx @agent-native/core create my-clips-app",
+    cliCommand: "npx @agent-native/core create my-clips-app --template clips",
     demoUrl: "https://clips.agent-native.com",
     description:
       "Async screen recording with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.",
@@ -94,7 +97,7 @@ export const templates = [
     name: "Design",
     slug: "design",
     replaces: "Replaces or augments Figma, Canva",
-    cliCommand: "npx @agent-native/core create my-design-app",
+    cliCommand: "npx @agent-native/core create my-design-app --template design",
     demoUrl: "https://design.agent-native.com",
     description:
       "Agent-native design tool. Create and edit visual designs by prompt or by hand, with the agent as your co-designer.",
@@ -106,7 +109,8 @@ export const templates = [
     name: "Dispatch",
     slug: "dispatch",
     replaces: "Mission control for your agent-native apps",
-    cliCommand: "npx @agent-native/core create my-dispatch-app",
+    cliCommand:
+      "npx @agent-native/core create my-dispatch-app --template dispatch",
     demoUrl: "https://dispatch.agent-native.com",
     description:
       "Centralized messaging and management for every agent in your stack. Talk to your agents from Slack, Telegram, or the web; route jobs, hold memory, approve actions, and delegate across apps over A2A.",
@@ -118,7 +122,7 @@ export const templates = [
     name: "Forms",
     slug: "forms",
     replaces: "Replaces or augments Typeform, Google Forms",
-    cliCommand: "npx @agent-native/core create my-forms-app",
+    cliCommand: "npx @agent-native/core create my-forms-app --template forms",
     demoUrl: "https://forms.agent-native.com",
     description:
       "Agent-native form builder. Generate forms from a prompt, branch logic with the agent, and own every response in your own database.",

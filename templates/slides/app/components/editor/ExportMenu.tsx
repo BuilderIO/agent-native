@@ -102,13 +102,13 @@ export function ExportMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer">
-          <IconShare2 className="w-3.5 h-3.5" />
-          Share
+          <IconDownload className="w-3.5 h-3.5" />
+          Export
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuLabel className="text-[11px] text-muted-foreground">
-          Share & Export
+          Export & Duplicate
         </DropdownMenuLabel>
         {onShareTeam && (
           <DropdownMenuItem onClick={onShareTeam} className="cursor-pointer">

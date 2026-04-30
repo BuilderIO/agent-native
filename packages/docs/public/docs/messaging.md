@@ -7,7 +7,7 @@ description: "Talk to your agent from Slack, email, Telegram, or WhatsApp — sa
 
 Connect your agent to Slack, email, Telegram, or WhatsApp so you can chat with it from the apps you already use. It's the same agent — same memory, same tools, same threads — just reachable from more places.
 
-> **Using the Dispatch template?** All of this is wired up for you in **Settings → Messaging**. Click to connect each platform — you don't need to read the rest of this page unless you're customizing or building your own template. See [Dispatch](/docs/template-dispatch).
+> **Using the Dispatch template?** All of this is wired up for you in **Settings → Messaging**. Click to connect each platform — you don't need to read the rest of this page unless you're customizing or building your own template. See [Dispatch](/templates/dispatch).
 
 ## What you can do {#what-you-can-do}
 
@@ -168,7 +168,7 @@ Email is the most powerful integration — your agent gets its own address, repl
 
 ## Use Dispatch as your agent's central inbox {#dispatch}
 
-If you're running multiple agent-native apps (mail, calendar, analytics, etc.), the recommended pattern is to set up messaging on the **[Dispatch template](/docs/template-dispatch)** and let it route work to your domain apps over [A2A](/docs/a2a-protocol).
+If you're running multiple agent-native apps (mail, calendar, analytics, etc.), the recommended pattern is to set up messaging on the **[Dispatch template](/templates/dispatch)** and let it route work to your domain apps over [A2A](/docs/a2a-protocol).
 
 Why this is nice:
 
@@ -319,6 +319,6 @@ Reference implementations live in `packages/core/src/integrations/adapters/` (`s
 
 ### See also {#see-also}
 
-- [Dispatch template](/docs/template-dispatch) — recommended central inbox for multi-app workspaces
+- [Dispatch template](/templates/dispatch) — recommended central inbox for multi-app workspaces
 - [A2A Protocol](/docs/a2a-protocol) — how Dispatch delegates work to other agents
 - [Agent Mentions](/docs/agent-mentions) — `@`-mentioning agents inside the web chat

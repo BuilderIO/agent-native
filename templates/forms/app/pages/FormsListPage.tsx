@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { nanoid } from "nanoid";
 import { format } from "date-fns";
 import {
   IconPlus,
@@ -51,7 +50,7 @@ export function FormsListPage() {
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
 
   function handleCreate() {
-    const tempId = nanoid(10);
+    const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
     navigate(`/forms/${tempId}`);
     createForm.mutate(
       { title: "Untitled Form" },

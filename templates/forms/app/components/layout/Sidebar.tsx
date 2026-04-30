@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { nanoid } from "nanoid";
 import {
   IconUsers,
   IconArrowUp,
@@ -53,7 +52,7 @@ export function Sidebar() {
 
   function handleSkip() {
     setPopoverOpen(false);
-    const tempId = nanoid(10);
+    const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
     navigate(`/forms/${tempId}`);
     createForm.mutate(
       { title: "Untitled Form" },

@@ -14,11 +14,16 @@ export function usePublicSettings() {
 }
 
 /** Fetches availability from the public (unauthenticated) endpoint */
-export function usePublicAvailability() {
+export function usePublicAvailability(slug?: string) {
   return useQuery<AvailabilityConfig>({
-    queryKey: ["public-availability"],
+    queryKey: ["public-availability", slug],
     queryFn: async () => {
-      const res = await fetch("/api/public/availability");
+      const params = new URLSearchParams();
+      if (slug) params.set("slug", slug);
+      const path = params.size
+        ? `/api/public/availability?${params}`
+        : "/api/public/availability";
+      const res = await fetch(path);
       if (!res.ok) throw new Error("Failed to fetch availability");
       return res.json();
     },

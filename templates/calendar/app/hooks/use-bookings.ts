@@ -6,11 +6,16 @@ export function useBookings() {
   return useActionQuery<Booking[]>("list-bookings");
 }
 
-export function useAvailableSlots(date: string, duration: number) {
+export function useAvailableSlots(
+  date: string,
+  duration: number,
+  slug?: string,
+) {
   return useQuery<{ start: string; end: string }[]>({
-    queryKey: ["available-slots", date, duration],
+    queryKey: ["available-slots", date, duration, slug],
     queryFn: async () => {
       const params = new URLSearchParams({ date, duration: String(duration) });
+      if (slug) params.set("slug", slug);
       const res = await fetch(`/api/bookings/available-slots?${params}`);
       if (!res.ok) throw new Error("Failed to fetch available slots");
       const data = await res.json();

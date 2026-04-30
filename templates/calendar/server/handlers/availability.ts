@@ -1,4 +1,10 @@
-import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+import { eq } from "drizzle-orm";
 import type { AvailabilityConfig } from "../../shared/api.js";
 import {
   getSetting,
@@ -7,6 +13,7 @@ import {
   putSetting,
 } from "@agent-native/core/settings";
 import { readBody, getSession } from "@agent-native/core/server";
+import { getDb, schema } from "../db/index.js";
 
 const DEFAULT_AVAILABILITY: AvailabilityConfig = {
   timezone: "America/New_York",
@@ -49,7 +56,24 @@ export const getAvailability = defineEventHandler(async (event: H3Event) => {
 });
 
 export const getPublicAvailability = defineEventHandler(
-  async (_event: H3Event) => {
+  async (event: H3Event) => {
+    const query = getQuery(event);
+    const slug = typeof query.slug === "string" ? query.slug : "";
+    if (slug) {
+      const link = await getDb()
+        .select({ ownerEmail: schema.bookingLinks.ownerEmail })
+        .from(schema.bookingLinks)
+        .where(eq(schema.bookingLinks.slug, slug))
+        .then((rows) => rows[0]);
+      if (link?.ownerEmail) {
+        const ownerConfig = (await getUserSetting(
+          link.ownerEmail,
+          "calendar-availability",
+        )) as unknown as AvailabilityConfig | null;
+        if (ownerConfig) return ownerConfig;
+      }
+    }
+
     const config =
       ((await getSetting(
         "calendar-availability",

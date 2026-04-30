@@ -3,37 +3,11 @@ import { useSearchParams } from "react-router";
 import { postNavigate, isInAgentEmbed } from "@agent-native/core/client";
 import { useThreadMessages } from "@/hooks/use-emails";
 import { formatEmailDate, formatEmailDateFull, cn } from "@/lib/utils";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconExternalLink } from "@tabler/icons-react";
 import type { EmailMessage } from "@shared/types";
-
-function sanitizeHtml(html: string): string {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-  doc
-    .querySelectorAll(
-      "script, noscript, iframe, frame, object, embed, base, meta[http-equiv='refresh']",
-    )
-    .forEach((node) => node.remove());
-  doc.querySelectorAll<HTMLElement>("*").forEach((el) => {
-    for (const attr of Array.from(el.attributes)) {
-      const name = attr.name.toLowerCase();
-      const value = attr.value.trim().toLowerCase();
-      if (name.startsWith("on")) {
-        el.removeAttribute(attr.name);
-        continue;
-      }
-      if (
-        (name === "href" || name === "src" || name === "xlink:href") &&
-        value.startsWith("javascript:")
-      ) {
-        el.removeAttribute(attr.name);
-      }
-    }
-  });
-  return doc.body.innerHTML;
-}
 
 export function meta() {
   return [{ title: "Email" }];

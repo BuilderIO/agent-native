@@ -116,6 +116,19 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     }
   }, [document, localTitle]);
 
+  // When polling/SSE refetches confirm that the server now matches the local
+  // editor state, acknowledge it as saved. This keeps later agent/action
+  // updates from being mistaken for conflicts with stale "unsaved" local text.
+  useEffect(() => {
+    if (!document || !isInitializedRef.current) return;
+    if (document.title === localTitle && document.content === localContent) {
+      lastSavedRef.current = {
+        title: document.title,
+        content: document.content,
+      };
+    }
+  }, [document, localTitle, localContent]);
+
   const debouncedSave = useCallback(
     (title: string, content: string) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);

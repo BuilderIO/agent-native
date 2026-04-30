@@ -243,7 +243,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | Action               | Args / Flags                | Use For                                                                                                                     |
 | -------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `github-prs`         | `--org`, `--query`          | PR & issue search                                                                                                           |
-| `hubspot-deals`      | `--grep`, `--fields`        | CRM deals, pipelines                                                                                                        |
+| `hubspot-deals`      |                             | CRM deals, pipelines                                                                                                        |
 | `hubspot-metrics`    |                             | CRM metrics summary                                                                                                         |
 | `hubspot-pipelines`  |                             | Pipeline stages                                                                                                             |
 | `jira-search`        | `--jql`, `--fields`         | Ticket search                                                                                                               |
@@ -251,7 +251,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `pylon-issues`       | `--account`, `--state`      | Support tickets                                                                                                             |
 | `gong-calls`         | `--company`, `--days`       | Sales call recordings                                                                                                       |
 | `apollo-search`      | `--query`                   | Contact/company enrichment                                                                                                  |
-| `seo-top-keywords`   | `--grep`, `--fields`        | Keyword rankings                                                                                                            |
+| `seo-top-keywords`   | `--limit`                   | Keyword rankings                                                                                                            |
 | `seo-page-keywords`  | `--url`                     | Keywords for a specific page                                                                                                |
 | `seo-blog-pages`     |                             | Blog page SEO metrics                                                                                                       |
 | `ga4-report`         | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                    |
@@ -259,16 +259,16 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `mixpanel-events`    |                             | Mixpanel event data                                                                                                         |
 | `posthog-events`     |                             | PostHog event data                                                                                                          |
 | `amplitude-events`   |                             | Amplitude event data                                                                                                        |
-| `commonroom-members` | `--grep`                    | Community member lookup                                                                                                     |
+| `commonroom-members` | `--query`, `--email`        | Community member lookup                                                                                                     |
 | `twitter-tweets`     |                             | Tweet engagement                                                                                                            |
 | `generate-chart`     | `--type`, `--data`          | Generate inline charts for chat                                                                                             |
 
-### Built-in Filtering
+### Action-Specific Filtering
 
-All scripts that use `output()` support:
+Use each action's schema-specific filters. For example:
 
 ```bash
-pnpm action hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabel
+pnpm action commonroom-members --query="enterprise" --limit=10
 ```
 
 ## Common Tasks
