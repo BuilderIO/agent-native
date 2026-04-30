@@ -22,13 +22,9 @@ export default defineAction({
     if (!(await isConnected(ownerEmail))) {
       const data = await getUserSetting(ownerEmail, "local-emails");
       const emails =
-        data && Array.isArray((data as any).emails)
-          ? (data as any).emails
-          : [];
+        data && Array.isArray((data as any).emails) ? (data as any).emails : [];
       const found = emails.find((e: any) => e.id === args.id);
-      return found
-        ? JSON.stringify(found, null, 2)
-        : "Error: Email not found.";
+      return found ? JSON.stringify(found, null, 2) : "Error: Email not found.";
     }
 
     const accounts = await getAccessTokens();

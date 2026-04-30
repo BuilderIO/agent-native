@@ -81,9 +81,7 @@ export default defineAction({
     if (!(await isConnected(ownerEmail))) {
       const data = await getUserSetting(ownerEmail, "local-emails");
       let emails =
-        data && Array.isArray((data as any).emails)
-          ? (data as any).emails
-          : [];
+        data && Array.isArray((data as any).emails) ? (data as any).emails : [];
       switch (view) {
         case "inbox":
           emails = emails.filter(
