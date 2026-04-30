@@ -4,4 +4,5 @@ export default createCollabPlugin({
   table: "decks",
   contentColumn: "data",
   idColumn: "id",
+  resourceType: "deck",
 });

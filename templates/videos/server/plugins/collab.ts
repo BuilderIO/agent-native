@@ -5,4 +5,5 @@ export default createCollabPlugin({
   contentColumn: "data",
   idColumn: "id",
   autoSeed: true,
+  resourceType: "composition",
 });

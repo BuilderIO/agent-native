@@ -34,6 +34,10 @@ import { hasCollabState } from "../collab/storage.js";
 import { getDbExec } from "../db/client.js";
 import { getCollabEmitter } from "../collab/emitter.js";
 import { recordChange } from "./poll.js";
+import { getSession } from "./auth.js";
+import { getOrgContext } from "../org/context.js";
+import { runWithRequestContext } from "./request-context.js";
+import { resolveAccess, assertAccess } from "../sharing/access.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -55,6 +59,12 @@ export interface CollabPluginOptions {
   contentType?: "text" | "json";
   /** Column name for JSON content (used when contentType is "json"). */
   jsonColumn?: string;
+  /**
+   * The shareable resource type registered via `registerShareableResource`.
+   * Used to enforce access checks on collab routes.
+   * Omit only for resources that are always public (no sharing model).
+   */
+  resourceType?: string;
 }
 
 export function createCollabPlugin(
@@ -65,6 +75,7 @@ export function createCollabPlugin(
     contentColumn = "content",
     idColumn = "id",
     autoSeed = true,
+    resourceType,
   } = options;
 
   return async (nitroApp: any) => {
@@ -94,25 +105,62 @@ export function createCollabPlugin(
           event.context.params = { ...event.context.params, docId };
         }
         const method = getMethod(event);
-        if (action === "state" && method === "GET")
-          return getCollabState(event);
-        if (action === "update" && method === "POST")
-          return postCollabUpdate(event);
-        if (action === "text" && method === "POST")
-          return postCollabText(event);
-        if (action === "search-replace" && method === "POST")
-          return postCollabSearchReplace(event);
-        if (action === "json" && method === "POST")
-          return postCollabJson(event);
-        if (action === "json" && method === "GET") return getCollabJson(event);
-        if (action === "patch" && method === "POST")
-          return postCollabPatch(event);
-        if (action === "awareness" && method === "POST")
-          return postAwareness(event);
-        if (action === "users" && method === "GET")
-          return getActiveUsers(event);
-        setResponseStatus(event, 404);
-        return { error: "Not found" };
+
+        // Auth check — all collab routes require a session
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "Authentication required" };
+        }
+
+        const orgCtx = await getOrgContext(event).catch(() => null);
+        const userEmail = session.email;
+        const orgId = orgCtx?.orgId ?? undefined;
+
+        return runWithRequestContext({ userEmail, orgId }, async () => {
+          // Access check — require at least viewer for reads, editor for writes
+          if (resourceType) {
+            const isWrite =
+              (action === "update" && method === "POST") ||
+              (action === "text" && method === "POST") ||
+              (action === "search-replace" && method === "POST") ||
+              (action === "json" && method === "POST") ||
+              (action === "patch" && method === "POST");
+
+            if (isWrite) {
+              // assertAccess throws ForbiddenError (→ 403) if no editor access
+              await assertAccess(resourceType, docId, "editor");
+            } else {
+              // resolveAccess returns null when no access; return 404 to avoid leaking existence
+              const access = await resolveAccess(resourceType, docId);
+              if (!access) {
+                setResponseStatus(event, 404);
+                return { error: "Not found" };
+              }
+            }
+          }
+
+          if (action === "state" && method === "GET")
+            return getCollabState(event);
+          if (action === "update" && method === "POST")
+            return postCollabUpdate(event);
+          if (action === "text" && method === "POST")
+            return postCollabText(event);
+          if (action === "search-replace" && method === "POST")
+            return postCollabSearchReplace(event);
+          if (action === "json" && method === "POST")
+            return postCollabJson(event);
+          if (action === "json" && method === "GET")
+            return getCollabJson(event);
+          if (action === "patch" && method === "POST")
+            return postCollabPatch(event);
+          if (action === "awareness" && method === "POST")
+            return postAwareness(event);
+          if (action === "users" && method === "GET")
+            return getActiveUsers(event);
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        });
       }),
     );
 

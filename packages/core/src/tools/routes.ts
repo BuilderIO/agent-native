@@ -140,8 +140,15 @@ async function dispatch(
     const isDark = search.includes("dark=1") || search.includes("dark=true");
     const themeVars = getThemeVars(isDark);
     const html = buildToolHtml(tool.content, themeVars, isDark, parts[0]);
+    // Security headers per render. We set these explicitly here (rather than
+    // rely on the global security-headers middleware) because:
+    //   - The global middleware sets X-Frame-Options: DENY which would break
+    //     the legitimate iframe usage of this route inside the app.
+    //   - frame-ancestors in the CSP must be set as an HTTP header to be
+    //     enforced; meta-CSP can't set it per spec.
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
     setResponseHeader(event, "Content-Security-Policy", TOOL_IFRAME_CSP);
+    setResponseHeader(event, "X-Frame-Options", "SAMEORIGIN");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
     return html;
@@ -617,11 +624,27 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
   }
 }
 
+// TODO(security): replace this regex blocklist with a SQL parser + an explicit
+// allowlist of tables a tool may read/write (e.g. only `tool_data`, plus a
+// per-template list). The current blocklist is best-effort defense in depth
+// and is by design bypassable via SQL constructions that don't include the
+// blocklisted token literally (string concat, dynamic SQL, etc). The temp-
+// view scoping in scripts/db/scoping.ts is the actual ownership boundary.
 const DESTRUCTIVE_SQL_RE =
-  /\b(CREATE\s+(?:(?:LOCAL|GLOBAL)\s+)?(?:TEMPORARY|TEMP)?\s*(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+TABLE\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA)\b/i;
+  /\b(CREATE\s+(?:(?:LOCAL|GLOBAL)\s+)?(?:TEMPORARY|TEMP)?\s*(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER|FUNCTION|EXTENSION|ROLE|TABLESPACE|PUBLICATION|SUBSCRIPTION)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER|FUNCTION|EXTENSION|ROLE)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+(TABLE|VIEW|SCHEMA|DATABASE|FUNCTION|ROLE|EXTENSION|PUBLICATION)\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|PRAGMA|GRANT|REVOKE|SET\s+ROLE|RESET\s+ROLE|COPY)\b/i;
 
+// Sensitive tables that tools must not touch directly. Includes Better Auth
+// identity tables, framework infrastructure (tracing, evals, automations,
+// integrations, notifications, scheduling, sharing/orgs), and Postgres
+// catalogs that would let a tool enumerate or read internals.
 const SENSITIVE_SQL_RE =
-  /\b(app_secrets|user|users|session|sessions|account|accounts|verification|oauth_tokens|tool_shares|tool_slots|tool_slot_installs)\b/i;
+  /\b(app_secrets|user|users|session|sessions|account|accounts|verification|oauth_tokens|tools|tool_shares|tool_slots|tool_slot_installs|member|organization|invitation|jwks|agent_trace_spans|agent_trace_summaries|agent_feedback|agent_satisfaction_scores|agent_evals|agent_runs|agent_run_events|notifications|progress_runs|integration_configs|integration_pending_tasks|integration_thread_mappings|resources|org_members|org_invitations|bigquery_cache|dashboard_views|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
+
+// Refuses positional INSERTs (no column list). `INSERT INTO recordings VALUES
+// (...)` would let a tool stuff arbitrary owner_email values into a row.
+// `INSERT INTO recordings (col1, col2) VALUES (...)` is required so the
+// downstream injectOwnership helper can append owner_email.
+const POSITIONAL_INSERT_RE = /\bINSERT\s+INTO\s+["'`]?\w+["'`]?\s+VALUES\b/i;
 
 function stripSqlComments(sql: string): string {
   return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
@@ -645,6 +668,13 @@ async function handleSqlExec(event: H3Event): Promise<unknown> {
   if (SENSITIVE_SQL_RE.test(cleanSql)) {
     setResponseStatus(event, 403);
     return { error: "Sensitive framework tables are not writable from tools" };
+  }
+  if (POSITIONAL_INSERT_RE.test(cleanSql)) {
+    setResponseStatus(event, 400);
+    return {
+      error:
+        "INSERT must specify an explicit column list (e.g. INSERT INTO t (col1, col2) VALUES (?, ?)) so ownership can be injected.",
+    };
   }
 
   try {

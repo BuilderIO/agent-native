@@ -10,4 +10,5 @@ export default createCollabPlugin({
   contentColumn: "config",
   idColumn: "id",
   autoSeed: true,
+  resourceType: "dashboard",
 });
