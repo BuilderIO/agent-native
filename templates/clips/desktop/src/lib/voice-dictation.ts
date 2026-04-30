@@ -1198,10 +1198,16 @@ export function installDesktopVoiceDictation(
           );
           window.setTimeout(() => {
             if (disposed) return;
+            // If a new Fn-tap took over during tail-capture, mark the
+            // old session cancelled BEFORE aborting so its `onend`
+            // handler skips the paste (otherwise abort() fires onend
+            // synchronously and complete_voice_dictation pastes the
+            // stale transcript into the new session's focused field).
+            const supersededByNewSession = !!session && session !== lingering;
+            if (supersededByNewSession) lingering.cancelled = true;
             // Always release the lingering session's mic + recognizer
-            // — even if cancelled or replaced by a newer session.
-            // Skipping the abort/stopTracks would leave the old
-            // recognizer listening and the mic stream open.
+            // — even if cancelled or superseded. Skipping abort/stopTracks
+            // would leave the old recognizer listening and the mic open.
             try {
               lingering.recognition?.abort();
             } catch {
@@ -1209,11 +1215,7 @@ export function installDesktopVoiceDictation(
             }
             stopTracks(lingering);
             if (lingering.cancelled) return;
-            // A new Fn-tap during tail-capture starts a fresh session
-            // that owns the flow-bar now. Don't paste this lingering
-            // session's text against it, and don't wipe its UI on
-            // dismiss. Mirrors the native finalize guard above.
-            if (session && session !== lingering) return;
+            if (supersededByNewSession) return;
             const finalText = lingering.browserTranscript.trim();
             lingering.browserTranscript = "";
             if (finalText) {
@@ -1270,20 +1272,16 @@ export function installDesktopVoiceDictation(
     .then((u) => unlistens.push(u))
     .catch(() => {});
   listen<{ text: string }>("voice:final-transcript", (ev) => {
-    // After stop() in the native path, `session` has been cleared so a
-    // rapid restart can take it; the lingering session that's waiting
-    // for the final transcript lives on `lingeringSession`. Prefer
-    // `lingeringSession` here — the final-transcript event we're
-    // routing was emitted by Rust's `endAudio()` from the lingering
-    // session's stop(); the brand-new `session` is still ramping up
-    // and won't see a final until its own stop() fires. Only if there
-    // is no lingering one do we fall back to the active session.
+    // Final transcripts are ONLY emitted by Rust after `endAudio()`,
+    // which we call in stop(). At that point the session has been
+    // moved from `session` to `lingeringSession`, so route there
+    // exclusively. Do NOT fall back to the active `session`: a
+    // late-arriving final from the previous session would otherwise
+    // overwrite the new session's transcript with stale text.
     const current =
       lingeringSession && lingeringSession.kind === "native"
         ? lingeringSession
-        : session && session.kind === "native"
-          ? session
-          : null;
+        : null;
     if (!current) return;
     if (current.cancelled) return;
     // Final beats partial — overwrite so a `complete_voice_dictation`

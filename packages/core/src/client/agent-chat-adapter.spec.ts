@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAgentChatAdapter } from "./agent-chat-adapter.js";
+import {
+  PLAN_MODE_INSTRUCTION,
+  createAgentChatAdapter,
+} from "./agent-chat-adapter.js";
 
 function sseResponse(events: unknown[]): Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`);
@@ -175,5 +178,65 @@ describe("createAgentChatAdapter", () => {
         detail: { isRunning: false, tabId: "chat-qa" },
       }),
     );
+  });
+
+  it("prepends the plan-mode instruction to the request body when execMode is plan", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const execModeRef: { current: "build" | "plan" | undefined } = {
+      current: "plan",
+    };
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      execModeRef,
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "make a button blue" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.message).toBe(`${PLAN_MODE_INSTRUCTION}\n\nmake a button blue`);
+
+    // Switching back to build mode skips the prefix
+    execModeRef.current = "build";
+    fetchSpy.mockClear();
+    fetchSpy.mockResolvedValueOnce(sseResponse([{ type: "done" }]));
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "make a button blue" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body2 = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body2.message).toBe("make a button blue");
   });
 });

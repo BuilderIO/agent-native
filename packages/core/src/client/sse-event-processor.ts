@@ -256,6 +256,11 @@ export function processEvent(
 /**
  * Read and process SSE events from a ReadableStream response body.
  * Yields ChatModelRunResult for each meaningful event.
+ *
+ * When `runId` is provided, every yielded result carries
+ * `metadata.custom.runId` so the UI can expose the trace ID via
+ * "Copy Request ID" — including mid-stream, so users can grab it before
+ * the run completes (or if the run hangs / ends prematurely).
  */
 export async function* readSSEStream(
   body: ReadableStream<Uint8Array>,
@@ -263,10 +268,14 @@ export async function* readSSEStream(
   toolCallCounter: { value: number },
   tabId: string | undefined,
   onSeq?: (seq: number) => void,
+  runId?: string | null,
 ): AsyncGenerator<ChatModelRunResult> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
+
+  const withRunId = (r: ChatModelRunResult): ChatModelRunResult =>
+    runId ? { ...r, metadata: { ...r.metadata, custom: { runId } } } : r;
 
   try {
     while (true) {
@@ -301,7 +310,7 @@ export async function* readSSEStream(
           tabId,
         );
 
-        if (result) yield result;
+        if (result) yield withRunId(result);
         if (
           action === "done" ||
           action === "error" ||
@@ -317,7 +326,7 @@ export async function* readSSEStream(
 
   // Stream ended without explicit done event
   if (content.length > 0) {
-    yield { content: [...content] } as ChatModelRunResult;
+    yield withRunId({ content: [...content] } as ChatModelRunResult);
   }
 }
 
