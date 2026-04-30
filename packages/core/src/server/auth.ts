@@ -967,6 +967,11 @@ function hasSignInFlag(event: H3Event): boolean {
   }
 }
 
+function isReadMethod(event: H3Event): boolean {
+  const method = getMethod(event);
+  return method === "GET" || method === "HEAD";
+}
+
 /**
  * Cookie attributes that work in both same-site and third-party iframe
  * contexts. Over HTTPS we emit `SameSite=None; Secure` (required by browsers
@@ -1690,7 +1695,7 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
-      if (getMethod(event) !== "GET") {
+      if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
@@ -1710,7 +1715,7 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/reset",
     defineEventHandler((event) => {
-      if (getMethod(event) !== "GET") {
+      if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
@@ -1786,7 +1791,7 @@ function mountTokenOnlyRoutes(
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
-      if (getMethod(event) !== "GET") {
+      if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
@@ -1810,7 +1815,7 @@ function mountLocalModeRoutes(app: H3App): void {
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
-      if (getMethod(event) !== "GET") {
+      if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
@@ -2011,7 +2016,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
-      if (getMethod(event) !== "GET") {
+      if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
@@ -2133,7 +2138,7 @@ export async function autoMountAuth(
     app.use(
       "/_agent-native/auth/session",
       defineEventHandler(async (event) => {
-        if (getMethod(event) !== "GET") {
+        if (!isReadMethod(event)) {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }

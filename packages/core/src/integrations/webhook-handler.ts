@@ -20,6 +20,7 @@ import { resolveOrgIdForEmail } from "../org/context.js";
 import { insertPendingTask, type PendingTask } from "./pending-tasks-store.js";
 import { signInternalToken } from "./internal-token.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
+import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 
 /**
  * Tracks recently processed event IDs to deduplicate webhook retries.
@@ -262,13 +263,13 @@ async function enqueueAndDispatch(
  * Prefers explicit env vars (most reliable on serverless), falls back to the
  * inbound request's headers.
  */
-function resolveBaseUrl(event: H3Event): string {
+export function resolveBaseUrl(event: H3Event): string {
   const fromEnv =
     process.env.APP_URL ||
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
-  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  if (fromEnv) return withConfiguredAppBasePath(fromEnv);
 
   try {
     const headers = (event as any).node?.req?.headers ?? (event as any).headers;
@@ -283,9 +284,11 @@ function resolveBaseUrl(event: H3Event): string {
     };
     const proto = get("x-forwarded-proto") || "http";
     const host = get("host") || `localhost:${process.env.PORT || 3000}`;
-    return `${proto}://${host}`;
+    return withConfiguredAppBasePath(`${proto}://${host}`);
   } catch {
-    return `http://localhost:${process.env.PORT || 3000}`;
+    return withConfiguredAppBasePath(
+      `http://localhost:${process.env.PORT || 3000}`,
+    );
   }
 }
 
@@ -484,9 +487,10 @@ async function processIncomingMessage(
           // of inlining a `<url|text>` link that auto-unfurls into a giant
           // preview card.
           const baseUrl = process.env.APP_URL || process.env.URL || "";
+          const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
           const threadDeepLinkUrl =
-            baseUrl && threadId
-              ? `${baseUrl.replace(/\/$/, "")}/?thread=${threadId}`
+            appBaseUrl && threadId
+              ? `${appBaseUrl}/?thread=${threadId}`
               : undefined;
 
           // Format and send back to platform — update the "thinking…"

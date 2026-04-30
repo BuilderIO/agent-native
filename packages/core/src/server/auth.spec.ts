@@ -219,6 +219,30 @@ describe("server/auth", () => {
       );
     });
 
+    it("accepts HEAD on the auth session endpoint", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      delete process.env.AUTH_MODE;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+      expect(sessionHandler).toBeTypeOf("function");
+
+      const event = createMockEvent({ path: "/_agent-native/auth/session" });
+      event.req.method = "HEAD";
+      event.node.req.method = "HEAD";
+
+      const result = await sessionHandler(event);
+
+      expect(event.res.status).toBe(200);
+      expect(result).toEqual({ error: "Not authenticated" });
+    });
+
     it("strips APP_BASE_PATH before forwarding requests to Better Auth", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("APP_BASE_PATH", "/docs");

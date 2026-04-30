@@ -17,6 +17,7 @@ import {
 } from "./task-store.js";
 import { agentChat } from "../shared/agent-chat.js";
 import { signInternalToken } from "../integrations/internal-token.js";
+import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 
 // Inlined to avoid pulling the entire core-routes-plugin (and its h3
 // transitive deps) into the a2a/handlers test boundary. Must stay in sync
@@ -34,7 +35,7 @@ function resolveSelfBaseUrl(event: any | undefined): string {
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
-  if (fromEnv) return String(fromEnv).replace(/\/$/, "");
+  if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
 
   try {
     const headers = event?.node?.req?.headers ?? event?.headers;
@@ -48,9 +49,11 @@ function resolveSelfBaseUrl(event: any | undefined): string {
     };
     const proto = get("x-forwarded-proto") || "http";
     const host = get("host") || `localhost:${process.env.PORT || 3000}`;
-    return `${proto}://${host}`;
+    return withConfiguredAppBasePath(`${proto}://${host}`);
   } catch {
-    return `http://localhost:${process.env.PORT || 3000}`;
+    return withConfiguredAppBasePath(
+      `http://localhost:${process.env.PORT || 3000}`,
+    );
   }
 }
 
@@ -203,8 +206,9 @@ const defaultHandler: A2AHandler = async (
   //      caller's host and 404.
   // We prepend a one-line hint to the user message so the agent knows.
   const baseUrl = process.env.APP_URL || process.env.URL || "";
+  const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
   const augmentedText = baseUrl
-    ? `[Cross-app A2A request — the caller is on a different host (${baseUrl} is yours, theirs is different). Include the concrete result (URL, ID, value) explicitly in your reply text; the caller can't see your local UI state. Any URL MUST be fully-qualified, never a relative path.]\n\n${text}`
+    ? `[Cross-app A2A request — the caller is on a different host (${appBaseUrl} is yours, theirs is different). Include the concrete result (URL, ID, value) explicitly in your reply text; the caller can't see your local UI state. Any URL MUST be fully-qualified, never a relative path.]\n\n${text}`
     : text;
 
   const result = await agentChat.call(augmentedText);
