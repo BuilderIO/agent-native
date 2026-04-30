@@ -19,6 +19,8 @@ function resolveTitle(pathname: string): string {
 
   if (pathname.startsWith("/calls/")) return "Call";
   if (pathname.startsWith("/library/folder/")) return "Folder";
+  if (pathname.startsWith("/spaces/")) return "Space";
+  if (pathname.startsWith("/views/")) return "Saved View";
   if (pathname.startsWith("/snippets/")) return "Snippet";
   if (pathname.startsWith("/tools")) return "Tools";
 

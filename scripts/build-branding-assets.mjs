@@ -45,6 +45,24 @@ function rasterize(svgPath, pngPath, size) {
   );
 }
 
+// Tauri 2.x's image decoder only accepts 8-bit/channel RGBA PNGs. Apple's
+// `ictool` writes 16-bit/channel PNGs, which crash the app at startup with
+// `invalid icon: dimensions don't match the number of pixels supplied`. Run
+// any PNG that Tauri loads directly through sharp-cli to coerce it to 8-bit.
+function force8BitRgba(pngPath) {
+  const outDir = dirname(pngPath);
+  const tmpDir = join(outDir, ".__bitdepth_tmp");
+  mkdirSync(tmpDir, { recursive: true });
+  try {
+    execSync(`pnpm dlx sharp-cli -i "${pngPath}" -o "${tmpDir}" -f png`, {
+      stdio: ["ignore", "ignore", "inherit"],
+    });
+    copyFileSync(join(tmpDir, pngPath.split("/").pop()), pngPath);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 // 1) Template & core scaffold favicons (SVGs)
 const TEMPLATE_DIRS = [
   "packages/core/src/templates/default",
@@ -206,6 +224,10 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
       `"${ICTOOL}" "${ICON_BUNDLE}" --export-image --output-file "${join(CLIPS_TAURI_ICONS, "128x128@2x.png")}" --platform macOS --rendition Default --width 256 --height 256 --scale 1`,
       { stdio: ["ignore", "ignore", "inherit"] },
     );
+    // ictool writes 16-bit PNGs; Tauri requires 8-bit RGBA at runtime.
+    for (const name of ["icon.png", "32x32.png", "128x128.png", "128x128@2x.png"]) {
+      force8BitRgba(join(CLIPS_TAURI_ICONS, name));
+    }
   } else {
     rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "icon.png"), 1024);
     rasterize(tmpFav, join(CLIPS_TAURI_ICONS, "32x32.png"), 32);

@@ -53,11 +53,11 @@ let weEnteredSelectionMode = false;
 
 /** Helper to send selection mode messages and track state */
 export function enterSelectionMode(
-  type: "builder.enterStyleEditing" | "builder.enterTextEditing",
+  type: "agentNative.enterStyleEditing" | "agentNative.enterTextEditing",
   data: { selector: string },
 ) {
   weEnteredSelectionMode = true;
-  if (type === "builder.enterStyleEditing") {
+  if (type === "agentNative.enterStyleEditing") {
     coreEnterStyleEditing(data.selector);
   } else {
     coreEnterTextEditing(data.selector);

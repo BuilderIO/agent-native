@@ -36,8 +36,14 @@ function createNitroApp() {
   return { h3: { "~middleware": [] as any[] } };
 }
 
-async function dispatch(nitroApp: any, pathname: string, method = "GET") {
+async function dispatch(
+  nitroApp: any,
+  pathname: string,
+  method = "GET",
+  body?: unknown,
+) {
   const url = `https://app.test${pathname}`;
+  const requestBody = body === undefined ? undefined : JSON.stringify(body);
   const event = {
     method,
     url: new URL(url),
@@ -45,9 +51,11 @@ async function dispatch(nitroApp: any, pathname: string, method = "GET") {
     context: {},
     req: new Request(url, {
       method,
+      body: requestBody,
       headers: {
         host: "app.test",
         "x-forwarded-proto": "https",
+        ...(requestBody ? { "content-type": "application/json" } : {}),
       },
     }),
     res: {
@@ -61,6 +69,7 @@ async function dispatch(nitroApp: any, pathname: string, method = "GET") {
         headers: {
           host: "app.test",
           "x-forwarded-proto": "https",
+          ...(requestBody ? { "content-type": "application/json" } : {}),
         },
       },
       res: {
@@ -75,8 +84,8 @@ async function dispatch(nitroApp: any, pathname: string, method = "GET") {
     if (!middleware) return { fellThrough: true };
     return middleware(event, next);
   };
-  const body = await next();
-  return { body, status: event.res.status };
+  const responseBody = await next();
+  return { body: responseBody, status: event.res.status };
 }
 
 const adapter: PlatformAdapter = {
@@ -97,9 +106,18 @@ const adapter: PlatformAdapter = {
 };
 
 describe("integrations plugin routes", () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalA2ASecret = process.env.A2A_SECRET;
+
   afterEach(() => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
+    process.env.NODE_ENV = originalNodeEnv;
+    if (originalA2ASecret === undefined) {
+      delete process.env.A2A_SECRET;
+    } else {
+      process.env.A2A_SECRET = originalA2ASecret;
+    }
     vi.clearAllMocks();
   });
 
@@ -154,5 +172,47 @@ describe("integrations plugin routes", () => {
     expect(result.status).toBe(401);
     expect(result.body).toEqual({ error: "unauthorized" });
     expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+  });
+
+  it("answers platform verification challenges before requiring enablement", async () => {
+    const challengeAdapter: PlatformAdapter = {
+      ...adapter,
+      handleVerification: async () => ({
+        handled: true,
+        response: { challenge: "qa-challenge" },
+      }),
+    };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [challengeAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { type: "url_verification" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ challenge: "qa-challenge" });
+  });
+
+  it("refuses unsigned task processing in production when A2A_SECRET is missing", async () => {
+    delete process.env.A2A_SECRET;
+    process.env.NODE_ENV = "production";
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: "task-prod-auth" },
+    );
+
+    expect(result.status).toBe(503);
+    expect(result.body).toEqual({
+      error:
+        "A2A_SECRET not configured — internal token signing is required to process integration tasks in production.",
+    });
   });
 });

@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildToolHtml, TOOL_IFRAME_CSP } from "./html-shell.js";
+import {
+  buildToolHtml,
+  TOOL_IFRAME_CSP,
+  TOOL_IFRAME_META_CSP,
+} from "./html-shell.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIR = join(HERE, "..", "client", "tools");
@@ -15,6 +19,19 @@ describe("buildToolHtml", () => {
     expect(TOOL_IFRAME_CSP).toContain("img-src 'self' data: blob:");
     expect(TOOL_IFRAME_CSP).not.toContain("img-src 'self' data: https:");
     expect(TOOL_IFRAME_CSP).toContain("frame-ancestors 'self'");
+  });
+
+  it("keeps frame-ancestors in the HTTP header CSP only", () => {
+    const html = buildToolHtml("<div>Hello</div>", ":root{}", false, "tool-1");
+
+    expect(TOOL_IFRAME_CSP).toContain("frame-ancestors 'self'");
+    expect(TOOL_IFRAME_META_CSP).not.toContain("frame-ancestors");
+    expect(html).toContain(
+      `<meta http-equiv="Content-Security-Policy" content="${TOOL_IFRAME_META_CSP}" />`,
+    );
+    expect(html).not.toContain(
+      `http-equiv="Content-Security-Policy" content="${TOOL_IFRAME_CSP}"`,
+    );
   });
 
   it("only accepts runtime messages from the parent window", () => {

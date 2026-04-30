@@ -207,13 +207,13 @@ describe("AgentTerminal", () => {
     window.dispatchEvent(
       new MessageEvent("message", {
         origin: "https://attacker.test",
-        data: { type: "builder.submitChat", data: { message: "nope" } },
+        data: { type: "agentNative.submitChat", data: { message: "nope" } },
       }),
     );
     window.dispatchEvent(
       new MessageEvent("message", {
         origin: window.location.origin,
-        data: { type: "builder.submitChat", data: { message: "hello" } },
+        data: { type: "agentNative.submitChat", data: { message: "hello" } },
       }),
     );
 

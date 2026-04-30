@@ -114,4 +114,23 @@ describe("integration pending task store", () => {
       }),
     );
   });
+
+  it("only treats duplicate-key errors as duplicate webhook deliveries", async () => {
+    const { isDuplicateEventError } = await loadStore();
+
+    expect(
+      isDuplicateEventError(
+        new Error(
+          "UNIQUE constraint failed: integration_pending_tasks.platform, integration_pending_tasks.external_event_key",
+        ),
+      ),
+    ).toBe(true);
+    expect(isDuplicateEventError({ code: "23505" })).toBe(true);
+    expect(isDuplicateEventError(new Error("NOT NULL constraint failed"))).toBe(
+      false,
+    );
+    expect(isDuplicateEventError(new Error("CHECK constraint failed"))).toBe(
+      false,
+    );
+  });
 });

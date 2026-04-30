@@ -58,7 +58,7 @@ export interface AgentChatMessage {
   background?: boolean;
 }
 
-const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";
+const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
 
 /**
  * Listen for chatRunning messages from the frame (postMessage)
@@ -67,9 +67,9 @@ const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
     if (!isTrustedFrameMessage(event)) return;
-    if (event.data?.type === "builder.chatRunning") {
+    if (event.data?.type === "agentNative.chatRunning") {
       window.dispatchEvent(
-        new CustomEvent("builder.chatRunning", {
+        new CustomEvent("agentNative.chatRunning", {
           detail: event.data.detail,
         }),
       );

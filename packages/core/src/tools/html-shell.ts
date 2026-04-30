@@ -1,6 +1,11 @@
 export const TOOL_IFRAME_CSP =
   "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self';";
 
+export const TOOL_IFRAME_META_CSP = TOOL_IFRAME_CSP.replace(
+  /\s*frame-ancestors 'self';?$/,
+  "",
+);
+
 /**
  * SECURITY — TOOL CONTENT IS UNTRUSTED.
  *
@@ -67,7 +72,7 @@ export function buildToolHtml(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="${TOOL_IFRAME_CSP}" />
+  <meta http-equiv="Content-Security-Policy" content="${TOOL_IFRAME_META_CSP}" />
   ${binding && !binding.isAuthor ? `<meta name="agent-native-tool-author" content="${escapeHtmlAttribute(binding.authorEmail)}" />` : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

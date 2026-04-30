@@ -37,8 +37,8 @@ describe("pending task retry job", () => {
     expect(executeMock).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        sql: expect.stringContaining("SET status = ?, updated_at = ?"),
-        args: ["pending", expect.any(Number), "task-processing"],
+        sql: expect.stringContaining("AND status = ?"),
+        args: ["pending", expect.any(Number), "task-processing", "processing"],
       }),
     );
     expect(fetch).toHaveBeenCalledWith(
@@ -63,14 +63,49 @@ describe("pending task retry job", () => {
     expect(executeMock).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        sql: expect.stringContaining("SET status = 'failed'"),
+        sql: expect.stringContaining("AND status = ?"),
         args: [
           expect.any(Number),
           "Retry job: exceeded 3 attempts",
           "task-exhausted",
+          "pending",
         ],
       }),
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("uses status-guarded updates so stale retry sweeps cannot clobber completed tasks", async () => {
+    const { retryStuckPendingTasks } = await loadRetryJob();
+    executeMock
+      .mockResolvedValueOnce({
+        rows: [
+          { id: "task-stale-pending", status: "pending", attempts: 1 },
+          { id: "task-stale-processing", status: "processing", attempts: 3 },
+        ],
+      })
+      .mockResolvedValue({ rows: [] });
+
+    await retryStuckPendingTasks("https://app.test");
+
+    expect(executeMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        sql: expect.stringContaining("AND status = ?"),
+        args: ["pending", expect.any(Number), "task-stale-pending", "pending"],
+      }),
+    );
+    expect(executeMock).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        sql: expect.stringContaining("AND status = ?"),
+        args: [
+          expect.any(Number),
+          "Retry job: exceeded 3 attempts",
+          "task-stale-processing",
+          "processing",
+        ],
+      }),
+    );
   });
 });

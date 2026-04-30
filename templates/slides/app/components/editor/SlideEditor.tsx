@@ -837,7 +837,7 @@ export default function SlideEditor({
       // Send style-editing postMessage with a unique selector for the clicked element
       const selector = getBuilderSelector(target);
       if (selector) {
-        enterSelectionMode("builder.enterStyleEditing", { selector });
+        enterSelectionMode("agentNative.enterStyleEditing", { selector });
       }
     },
     [

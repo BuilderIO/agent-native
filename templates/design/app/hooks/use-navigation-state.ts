@@ -68,6 +68,7 @@ export function useNavigationState() {
     if (!navCommand) return;
     fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
+      headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
     const cmd = navCommand as NavigationState & { designId?: string };
 
