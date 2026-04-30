@@ -27,7 +27,9 @@ export default defineAction({
       screen.context = {
         view: "composition",
         compositionId: nav.compositionId,
-        hint: "User is editing a composition. Use the registry in app/remotion/registry.ts for composition details.",
+        folderId: nav.folderId ?? null,
+        folderName: nav.folderName ?? null,
+        hint: "User is editing a composition. Use the registry in app/remotion/registry.ts for composition details. Use list-folders to inspect library folders.",
       };
     } else {
       screen.context = {

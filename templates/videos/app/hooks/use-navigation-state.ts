@@ -2,18 +2,21 @@ import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
+import { useFolders } from "@/hooks/use-folders";
 
 export interface NavigationState {
   view: string;
   compositionId?: string;
+  folderId?: string;
+  folderName?: string;
 }
 
 export function useNavigationState() {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { folders, getFolderForComposition } = useFolders();
 
-  // Sync current route to application state
   useEffect(() => {
     const path = location.pathname;
     const state: NavigationState = { view: "home" };
@@ -21,7 +24,16 @@ export function useNavigationState() {
     if (path.startsWith("/c/")) {
       state.view = "composition";
       const match = path.match(/\/c\/([^/]+)/);
-      if (match) state.compositionId = match[1];
+      if (match) {
+        const compositionId = match[1];
+        state.compositionId = compositionId;
+        const folderId = getFolderForComposition(compositionId);
+        if (folderId) {
+          state.folderId = folderId;
+          const folder = folders.find((f) => f.id === folderId);
+          if (folder?.name) state.folderName = folder.name;
+        }
+      }
     } else if (path.startsWith("/components")) {
       state.view = "components";
     }
@@ -32,7 +44,7 @@ export function useNavigationState() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [location.pathname]);
+  }, [location.pathname, folders, getFolderForComposition]);
 
   // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
