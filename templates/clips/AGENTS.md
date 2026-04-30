@@ -21,10 +21,10 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 | Action            | Args                                           | Purpose                 |
 | ----------------- | ---------------------------------------------- | ----------------------- |
-| `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
-| `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
+| `resource-read`   | `--path <path> [--scope personal\|shared]`     | Read a resource         |
+| `resource-write`  | `--path <path> --content <text> [--scope ...]` | Write/update a resource |
 | `resource-list`   | `[--scope personal\|shared]`                   | List all resources      |
-| `resource-delete` | `--name <name> [--scope personal\|shared]`     | Delete a resource       |
+| `resource-delete` | `--path <path> [--scope personal\|shared]`     | Delete a resource       |
 
 ## Architecture
 
@@ -305,7 +305,7 @@ Custom routes only exist for things actions can't do well — file uploads (bina
 | POST   | `/api/uploads/complete` | Finalize upload — sets `recordings.status = processing`   |
 | GET    | `/api/video/:id`        | Stream the video bytes (respects `visibility` / shares)   |
 | GET    | `/api/thumbnail/:id`    | Return static thumbnail                                   |
-| POST   | `/api/view-events`      | Record a watch-progress / seek / pause / cta-click event  |
+| POST   | `/api/view-event`       | Record a watch-progress / seek / pause / cta-click event  |
 | POST   | `/api/webhooks/whisper` | Webhook for async Whisper completion (updates transcript) |
 
 All standard CRUD (list, get, create, update) goes through `/_agent-native/actions/:name` — use `useActionQuery` / `useActionMutation` from the client.
