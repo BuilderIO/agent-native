@@ -1,14 +1,35 @@
 import { useState } from "react";
-import { useLocation } from "react-router";
-import { IconMenu2, IconX } from "@tabler/icons-react";
+import { Link, useLocation } from "react-router";
+import {
+  IconBuilding,
+  IconCalendarEvent,
+  IconMenu2,
+  IconSettings,
+  IconTemplate,
+  IconUsers,
+  IconX,
+} from "@tabler/icons-react";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { AgentToggleButton } from "@agent-native/core/client";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitles: Record<string, string> = {
   "/": "Notes",
+  "/meetings": "Meetings",
+  "/people": "People",
+  "/companies": "Companies",
+  "/templates": "Templates",
+  "/settings": "Settings",
   "/tools": "Tools",
 };
+
+const navItems = [
+  { href: "/meetings", label: "Meetings", icon: IconCalendarEvent },
+  { href: "/people", label: "People", icon: IconUsers },
+  { href: "/companies", label: "Companies", icon: IconBuilding },
+  { href: "/templates", label: "Templates", icon: IconTemplate },
+  { href: "/settings", label: "Settings", icon: IconSettings },
+];
 
 function resolveTitle(pathname: string): string {
   if (pageTitles[pathname]) return pageTitles[pathname];
@@ -62,6 +83,33 @@ export function Header() {
                 <IconX className="h-4 w-4" />
               </button>
             </div>
+            <nav className="border-b border-border p-3" aria-label="Main">
+              <div className="space-y-1">
+                {navItems.map((item) => {
+                  const active =
+                    location.pathname === item.href ||
+                    (item.href === "/meetings" && location.pathname === "/") ||
+                    (item.href !== "/meetings" &&
+                      location.pathname.startsWith(`${item.href}/`));
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      to={item.href}
+                      onClick={() => setMenuOpen(false)}
+                      className={`flex h-9 items-center gap-2 rounded-md px-2 text-sm font-medium ${
+                        active
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </nav>
             <div className="p-3">
               <ToolsSidebarSection />
             </div>

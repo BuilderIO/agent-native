@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 /**
  * <OnboardingPanel /> — the setup checklist that sits above the agent chat.
  *
@@ -401,7 +402,7 @@ function FormMethod({
         setErr("Enter a value first.");
         return;
       }
-      const res = await fetch("/_agent-native/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vars, scope: writeScope ?? "workspace" }),

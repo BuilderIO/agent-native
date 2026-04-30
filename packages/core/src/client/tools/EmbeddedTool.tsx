@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -54,7 +55,9 @@ export function EmbeddedTool({
   const { data: tool } = useQuery<Tool>({
     queryKey: ["tool", toolId],
     queryFn: async () => {
-      const res = await fetch(`/_agent-native/tools/${toolId}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/tools/${toolId}`),
+      );
       if (!res.ok) throw new Error("Failed to fetch tool");
       return res.json();
     },

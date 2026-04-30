@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconLoader2, IconPencil, IconRefresh } from "@tabler/icons-react";
@@ -299,7 +300,9 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
   const { data: tool, isLoading } = useQuery<Tool>({
     queryKey: ["tool", toolId],
     queryFn: async () => {
-      const res = await fetch(`/_agent-native/tools/${toolId}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/tools/${toolId}`),
+      );
       if (!res.ok) throw new Error("Failed to fetch tool");
       return res.json();
     },
@@ -338,7 +341,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
     );
     setIsRenaming(false);
     try {
-      await fetch(`/_agent-native/tools/${toolId}`, {
+      await fetch(agentNativePath(`/_agent-native/tools/${toolId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: trimmed }),

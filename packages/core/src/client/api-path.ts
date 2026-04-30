@@ -8,9 +8,11 @@ function normalizeBasePath(value: string | undefined): string {
 }
 
 function configuredBasePath(): string {
-  const env = (import.meta as unknown as {
-    env?: Record<string, string | boolean | undefined>;
-  }).env;
+  const env = (
+    import.meta as unknown as {
+      env?: Record<string, string | boolean | undefined>;
+    }
+  ).env;
   const value = env?.VITE_APP_BASE_PATH ?? env?.APP_BASE_PATH;
   return typeof value === "string" ? normalizeBasePath(value) : "";
 }

@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   IconBolt,
@@ -99,7 +100,7 @@ export function AutomationsSection() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch("/_agent-native/resources/tree")
+    fetch(agentNativePath("/_agent-native/resources/tree"))
       .then(async (r) => {
         if (!r.ok) throw new Error(`Failed to load (${r.status})`);
         return (await r.json()) as { tree: TreeNode[] };
@@ -193,11 +194,14 @@ export function AutomationsSection() {
   const handleFireTestEvent = useCallback(async () => {
     showToast("ok", "Firing test event...");
     try {
-      const res = await fetch("/_agent-native/automations/fire-test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: {} }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/automations/fire-test"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: {} }),
+        },
+      );
       if (!res.ok) {
         showToast("err", `Failed to fire event (${res.status})`);
         return;

@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -63,7 +64,7 @@ export function ToolsSidebarSection() {
   const { data: tools, isLoading } = useQuery<Tool[]>({
     queryKey: ["tools"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/tools");
+      const res = await fetch(agentNativePath("/_agent-native/tools"));
       if (!res.ok) return [];
       return res.json();
     },
@@ -90,9 +91,12 @@ export function ToolsSidebarSection() {
         (old ?? []).filter((t) => t.id !== toolId),
       );
       try {
-        const res = await fetch(`/_agent-native/tools/${toolId}`, {
-          method: "DELETE",
-        });
+        const res = await fetch(
+          agentNativePath(`/_agent-native/tools/${toolId}`),
+          {
+            method: "DELETE",
+          },
+        );
         if (!res.ok) throw new Error("Delete failed");
         queryClient.removeQueries({ queryKey: ["tool", toolId] });
         queryClient.invalidateQueries({ queryKey: ["tools"] });
@@ -136,7 +140,7 @@ export function ToolsSidebarSection() {
         old ? { ...old, name: trimmed } : old,
       );
       try {
-        await fetch(`/_agent-native/tools/${toolId}`, {
+        await fetch(agentNativePath(`/_agent-native/tools/${toolId}`), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: trimmed }),

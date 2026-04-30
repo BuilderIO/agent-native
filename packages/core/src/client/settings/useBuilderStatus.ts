@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getCallbackOrigin } from "../frame.js";
 
@@ -30,7 +31,7 @@ export function useBuilderStatus() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch("/_agent-native/builder/status");
+      const res = await fetch(agentNativePath("/_agent-native/builder/status"));
       if (!res.ok) {
         setStatus(null);
         return;

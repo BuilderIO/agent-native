@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { IconBell, IconBellRinging, IconLoader2 } from "@tabler/icons-react";
 import { usePausingInterval } from "../use-pausing-interval.js";
@@ -57,7 +58,9 @@ export function NotificationsBell({
 
   const loadItems = useCallback(async () => {
     try {
-      const res = await fetch("/_agent-native/notifications?limit=20");
+      const res = await fetch(
+        agentNativePath("/_agent-native/notifications?limit=20"),
+      );
       if (!res.ok) return;
       const rows = (await res.json()) as NotificationDto[];
       setItems(rows);
@@ -106,7 +109,9 @@ export function NotificationsBell({
       return;
     }
     try {
-      const res = await fetch("/_agent-native/notifications/count");
+      const res = await fetch(
+        agentNativePath("/_agent-native/notifications/count"),
+      );
       if (!res.ok) return;
       const data = (await res.json()) as { count: number };
       setUnreadCount(data.count);
@@ -139,7 +144,7 @@ export function NotificationsBell({
 
   const markRead = async (id: string) => {
     try {
-      await fetch(`/_agent-native/notifications/${id}/read`, {
+      await fetch(agentNativePath(`/_agent-native/notifications/${id}/read`), {
         method: "POST",
       });
       setItems((prev) =>
@@ -157,7 +162,9 @@ export function NotificationsBell({
 
   const markAllRead = async () => {
     try {
-      await fetch(`/_agent-native/notifications/read-all`, { method: "POST" });
+      await fetch(agentNativePath(`/_agent-native/notifications/read-all`), {
+        method: "POST",
+      });
       setItems((prev) =>
         prev
           ? prev.map((n) =>
