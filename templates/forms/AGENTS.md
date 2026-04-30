@@ -138,11 +138,12 @@ cd templates/forms && pnpm action <name> [args]
 
 ### Creating & Modifying
 
-| Action             | Args                                                    | Purpose           |
-| ------------------ | ------------------------------------------------------- | ----------------- |
-| `create-form`      | `--title "..." [--description "..."] [--fields <json>]` | Create a new form |
-| `update-form`      | `--id <id> [--title] [--fields <json>] [--status]`      | Update a form     |
-| `export-responses` | `--form <id> --output <path> [--format csv\|json]`      | Export responses  |
+| Action             | Args                                                    | Purpose                          |
+| ------------------ | ------------------------------------------------------- | -------------------------------- |
+| `create-form`      | `--title "..." [--description "..."] [--fields <json>]` | Create a new form                |
+| `update-form`      | `--id <id> [--title] [--fields <json>] [--status]`      | Update a form                    |
+| `delete-form`      | `--id <id>`                                             | Delete a form (requires `admin`) |
+| `export-responses` | `--form <id> --output <path> [--format csv\|json]`      | Export responses                 |
 
 ### Navigation & UI
 

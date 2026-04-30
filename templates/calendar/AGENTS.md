@@ -34,7 +34,7 @@ Read the skill files in `.agents/skills/` for detailed patterns:
 - **availability-booking** — Booking system: availability settings, booking links, public URLs
 - **storing-data** — Settings and config in SQL via settings API
 - **delegate-to-agent** — UI never calls LLMs directly
-- **scripts** — Complex operations as `pnpm action <name>`
+- **actions** — Complex operations as `pnpm action <name>`
 - **real-time-sync** — Real-time UI sync via SSE (DB change events)
 - **frontend-design** — Build distinctive, production-grade UI
 

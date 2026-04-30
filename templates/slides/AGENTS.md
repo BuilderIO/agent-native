@@ -166,9 +166,13 @@ All decks are stored in the `decks` SQL table via Drizzle ORM:
 CREATE TABLE decks (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
-  data TEXT NOT NULL,       -- Full deck JSON (slides, metadata)
+  data TEXT NOT NULL,         -- Full deck JSON (slides, metadata)
+  design_system_id TEXT,      -- Optional linked design system
   created_at TEXT,
-  updated_at TEXT
+  updated_at TEXT,
+  owner_email TEXT,           -- Per-user owner (from ownableColumns)
+  org_id TEXT,                -- Owner's active org at creation time
+  visibility TEXT DEFAULT 'private'  -- 'private' | 'org' | 'public'
 );
 ```
 

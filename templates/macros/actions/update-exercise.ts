@@ -7,7 +7,7 @@ import { z } from "zod";
 export default defineAction({
   description: "Update an existing exercise",
   schema: z.object({
-    id: z.coerce.number().optional().describe("Exercise ID"),
+    id: z.coerce.number().describe("Exercise ID"),
     name: z.string().optional().describe("Exercise name"),
     calories_burned: z.coerce.number().optional().describe("Calories burned"),
     duration_minutes: z.coerce
@@ -17,7 +17,6 @@ export default defineAction({
     date: z.string().optional().describe("Date in YYYY-MM-DD format"),
   }),
   run: async (args) => {
-    const id = args.id!;
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 
@@ -31,7 +30,7 @@ export default defineAction({
       })
       .where(
         and(
-          eq(schema.exercises.id, id),
+          eq(schema.exercises.id, args.id),
           eq(schema.exercises.owner_email, ownerEmail),
         ),
       )

@@ -1,38 +1,19 @@
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import crypto from "crypto";
+import { eq, lt } from "drizzle-orm";
 import { readBody } from "@agent-native/core/server";
+import { getDb, schema } from "../db";
 import type {
   ShareDeckRequest,
   ShareDeckResponse,
   SharedDeckResponse,
 } from "@shared/api";
 
-// In-memory store for shared decks (persists as long as server runs)
-// In production, this would use a database
-const sharedDecks = new Map<
-  string,
-  {
-    title: string;
-    slides: any[];
-    createdAt: number;
-    aspectRatio?: SharedDeckResponse["aspectRatio"];
-  }
->();
-
-// Clean up old shared decks (older than 30 days)
-function cleanupOldShares() {
-  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-  const now = Date.now();
-  for (const [token, data] of sharedDecks.entries()) {
-    if (now - data.createdAt > thirtyDaysMs) {
-      sharedDecks.delete(token);
-    }
-  }
-}
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * POST /api/share
- * Store a deck snapshot and return a share token
+ * Persist a deck snapshot with a random token.
  */
 export const shareDeck = defineEventHandler(async (event) => {
   const body = await readBody<ShareDeckRequest>(event);
@@ -43,50 +24,75 @@ export const shareDeck = defineEventHandler(async (event) => {
     return { error: "Deck with slides is required" };
   }
 
-  cleanupOldShares();
+  const db = getDb();
+  const token = crypto.randomBytes(12).toString("base64url");
+  const now = new Date().toISOString();
 
-  // Generate a unique share token
-  const shareToken = crypto.randomBytes(12).toString("base64url");
+  const slides = deck.slides.map((s: any) => ({
+    id: s.id,
+    content: s.content,
+    notes: "", // never share speaker notes
+    layout: s.layout,
+    background: s.background,
+  }));
 
-  // Store a snapshot of the deck (without sensitive data)
-  sharedDecks.set(shareToken, {
-    title: deck.title,
-    slides: deck.slides.map((s) => ({
-      id: s.id,
-      content: s.content,
-      notes: "", // Don't share speaker notes
-      layout: s.layout,
-      background: s.background,
-    })),
-    createdAt: Date.now(),
-    aspectRatio: (deck as any).aspectRatio,
+  await db.insert(schema.deckShareLinks).values({
+    token,
+    title: deck.title ?? "Untitled",
+    slides: JSON.stringify(slides),
+    aspectRatio: (deck as any).aspectRatio ?? null,
+    createdAt: now,
   });
 
-  const response: ShareDeckResponse = { shareToken };
+  // Prune expired rows opportunistically (no await — background)
+  db.delete(schema.deckShareLinks)
+    .where(
+      lt(
+        schema.deckShareLinks.createdAt,
+        new Date(Date.now() - THIRTY_DAYS_MS).toISOString(),
+      ),
+    )
+    .catch(() => {});
+
+  const response: ShareDeckResponse = { shareToken: token };
   return response;
 });
 
 /**
  * GET /api/share/:token
- * Retrieve a shared deck by token
+ * Retrieve a shared deck by token.
  */
-export const getSharedDeck = defineEventHandler((event) => {
+export const getSharedDeck = defineEventHandler(async (event) => {
   const token = getRouterParam(event, "token");
   if (!token) {
     setResponseStatus(event, 400);
     return { error: "Token is required" };
   }
-  const shared = sharedDecks.get(token);
 
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(schema.deckShareLinks)
+    .where(eq(schema.deckShareLinks.token, token))
+    .limit(1);
+
+  const shared = rows[0];
   if (!shared) {
+    setResponseStatus(event, 404);
+    return { error: "Shared presentation not found or has expired" };
+  }
+
+  // Check expiry
+  const age = Date.now() - new Date(shared.createdAt).getTime();
+  if (age > THIRTY_DAYS_MS) {
     setResponseStatus(event, 404);
     return { error: "Shared presentation not found or has expired" };
   }
 
   const response: SharedDeckResponse = {
     title: shared.title,
-    slides: shared.slides,
-    aspectRatio: shared.aspectRatio,
+    slides: JSON.parse(shared.slides),
+    aspectRatio: shared.aspectRatio as SharedDeckResponse["aspectRatio"],
   };
   return response;
 });
