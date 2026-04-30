@@ -270,6 +270,7 @@ async function isJobRunAsStillValid(
   jobOrgId: string | undefined,
 ): Promise<{ ok: boolean; reason?: string }> {
   // Dev-mode bypass identity isn't a row in `user`. Don't validate.
+  // guard:allow-localhost-fallback — protective check, not a fallback identity (skip user-existence validation when the dev shim wrote the row).
   if (jobUserEmail === "local@localhost") return { ok: true };
   // Shared-owner sentinel isn't a real user (used by jobs run as the
   // workspace identity).

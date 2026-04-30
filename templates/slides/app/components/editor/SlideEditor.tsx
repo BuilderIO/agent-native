@@ -219,6 +219,12 @@ export default function SlideEditor({
   slideCount = 1,
   designSystem,
   aspectRatio,
+  drawMode,
+  onExitDrawMode,
+  pinMode,
+  onExitPinMode,
+  slideId,
+  slideTitle,
 }: SlideEditorProps) {
   const content = typeof slide.content === "string" ? slide.content : "";
   const isHtmlSlide =
@@ -511,8 +517,13 @@ export default function SlideEditor({
     [showImageOverlay, enterInlineEdit, isHtmlSlide],
   );
 
+  const slideElementSelected = !!selectedImg || !!editingEl;
+
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden">
+    <div
+      className="flex-1 flex flex-col h-full overflow-hidden"
+      data-slide-element-selected={slideElementSelected ? "true" : undefined}
+    >
       <div className="flex-1 overflow-hidden">
         {activeTab === "visual" ? (
           slide.excalidrawData ? (
