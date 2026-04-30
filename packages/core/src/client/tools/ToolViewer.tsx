@@ -449,6 +449,14 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 function isAllowedToolPath(path: string): boolean {
   if (!path.startsWith("/") || path.startsWith("//")) return false;
   if (path.includes("\\") || path.includes("\0")) return false;
+  // Reject path traversal: normalize via URL and check the resolved path didn't escape.
+  try {
+    const resolved = new URL(path, "http://x").pathname;
+    if (resolved.includes("..") || resolved !== path.split("?")[0])
+      return false;
+  } catch {
+    return false;
+  }
   return true;
 }
 

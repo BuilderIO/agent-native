@@ -37,7 +37,17 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       return new Response(null, { status: 404 });
     }
     try {
-      return await handler(event.req as Request);
+      const request = event.req as Request;
+      if (request.method === "HEAD") {
+        const getRequest = new Request(request, { method: "GET" });
+        const response = await handler(getRequest);
+        return new Response(null, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      }
+      return await handler(request);
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.
       // Stack traces expose file paths, library versions, and code structure

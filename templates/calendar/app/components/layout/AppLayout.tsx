@@ -86,6 +86,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const googleStatus = useGoogleAuthStatus();
   const hasAccounts = (googleStatus.data?.accounts?.length ?? 0) > 0;
   const isSettingsPage = location.pathname === "/settings";
+  const isCalendarPage = location.pathname === "/";
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
@@ -186,10 +187,11 @@ export function AppLayout({ children }: AppLayoutProps) {
 
             <InvitationBanner />
 
-            {/* Show full-page takeover when no accounts connected (except on settings page) */}
+            {/* Show the full-page Google prompt only on the calendar view. */}
             {!googleStatus.isLoading &&
             !googleStatus.isError &&
             !hasAccounts &&
+            isCalendarPage &&
             !isSettingsPage ? (
               <main className="flex-1 overflow-y-auto">
                 <GoogleConnectBanner variant="hero" />
