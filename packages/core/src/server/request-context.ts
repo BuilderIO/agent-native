@@ -46,18 +46,33 @@ export function runWithRequestContext<T>(
 
 /**
  * Get the current request's user email.
- * Falls back to `process.env.AGENT_USER_EMAIL` for CLI scripts.
+ *
+ * - If a request context exists (HTTP/A2A path), returns its `userEmail` —
+ *   even when that value is `undefined`. The env fallback MUST NOT fire here:
+ *   on serverless platforms `process.env.AGENT_USER_EMAIL` is mutated as a
+ *   back-compat hack on every request, so a previous request's identity
+ *   would leak into an unauthenticated A2A call (e.g. unsigned or API-key
+ *   modes where `runWithRequestContext({ userEmail: undefined })` is used).
+ * - Only when there is NO request context (CLI scripts) do we fall back to
+ *   `process.env.AGENT_USER_EMAIL`.
  */
 export function getRequestUserEmail(): string | undefined {
-  return als.getStore()?.userEmail ?? process.env.AGENT_USER_EMAIL;
+  const store = als.getStore();
+  if (store !== undefined) return store.userEmail;
+  return process.env.AGENT_USER_EMAIL;
 }
 
 /**
  * Get the current request's org ID.
- * Falls back to `process.env.AGENT_ORG_ID` for CLI scripts.
+ *
+ * Same store-aware semantics as `getRequestUserEmail()` — env fallback is
+ * CLI-only, so a request that explicitly has no org doesn't inherit a stale
+ * `process.env.AGENT_ORG_ID` from a prior request on the same Lambda instance.
  */
 export function getRequestOrgId(): string | undefined {
-  return als.getStore()?.orgId ?? process.env.AGENT_ORG_ID;
+  const store = als.getStore();
+  if (store !== undefined) return store.orgId;
+  return process.env.AGENT_ORG_ID;
 }
 
 /**
@@ -65,10 +80,12 @@ export function getRequestOrgId(): string | undefined {
  * The UI sends this via the `x-user-timezone` header on every action call, and
  * the agent chat plugin propagates it into the request context so that
  * agent-initiated tool calls also see the user's timezone. Falls back to
- * `process.env.AGENT_USER_TIMEZONE` for CLI scripts, and undefined if unset.
+ * `process.env.AGENT_USER_TIMEZONE` only for CLI scripts (no request context).
  */
 export function getRequestTimezone(): string | undefined {
-  return als.getStore()?.timezone ?? process.env.AGENT_USER_TIMEZONE;
+  const store = als.getStore();
+  if (store !== undefined) return store.timezone;
+  return process.env.AGENT_USER_TIMEZONE;
 }
 
 /**

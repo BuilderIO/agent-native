@@ -2448,10 +2448,21 @@ export function createAgentChatPlugin(
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
           // Priority: A2A-JWT verified email (set by the A2A handler in
-          // request-context) > Google OAuth tokeninfo > dev fallbacks.
-          // Without the JWT-verified-email path, cross-app A2A calls landed
-          // owned by `local@localhost` (dev) or `dispatch@shared`, which made
-          // resources invisible to the actual signed-in user.
+          // request-context) > dev session DB (dev only) > Google OAuth
+          // tokeninfo (prod only). Without the JWT-verified-email path,
+          // cross-app A2A calls landed owned by `local@localhost` (dev) or
+          // `dispatch@shared`, which made resources invisible to the actual
+          // signed-in user.
+          //
+          // SECURITY: we deliberately do NOT trust `context.metadata.userEmail`
+          // as a fallback. The A2A endpoint runs in three modes — JWT-signed
+          // (verified email lands in request context), API-key (caller is
+          // app-authenticated but NOT user-authenticated), and unsigned
+          // (no auth at all). Trusting caller-supplied metadata on the latter
+          // two paths would let any reachable caller forge `metadata.userEmail`
+          // and impersonate an arbitrary user. The JWT path already populates
+          // the request context, so the metadata fallback was only ever used
+          // on the unauthenticated paths — exactly where it's unsafe.
           const isDev = process.env.NODE_ENV !== "production";
           let userEmail: string | undefined;
 
@@ -2462,13 +2473,6 @@ export function createAgentChatPlugin(
               await import("./request-context.js");
             userEmail = getRequestUserEmail();
           } catch {}
-
-          // 2. Message-level metadata.userEmail (caller hint, only trusted
-          //    if request-context didn't supply one — A2A receiver already
-          //    runs auth verification before this handler is called).
-          if (!userEmail) {
-            userEmail = (context.metadata?.userEmail as string) || undefined;
-          }
 
           if (!userEmail && isDev) {
             try {
