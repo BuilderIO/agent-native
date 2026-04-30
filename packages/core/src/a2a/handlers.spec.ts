@@ -27,6 +27,7 @@ vi.mock("./task-store.js", () => {
       message: Message,
       contextId?: string,
       metadata?: Record<string, unknown>,
+      ownerEmail?: string | null,
     ) {
       const id = `task-${++counter}`;
       const task = {
@@ -36,12 +37,18 @@ vi.mock("./task-store.js", () => {
         history: [message],
         artifacts: [],
         metadata,
+        ownerEmail: ownerEmail ?? null,
       };
       tasks[id] = task;
       return task;
     },
     async getTask(id: string) {
       return tasks[id] ?? null;
+    },
+    async getTaskOwner(id: string) {
+      const task = tasks[id];
+      if (!task) return null;
+      return task.ownerEmail ?? null;
     },
     async updateTask(id: string, update: any) {
       const task = tasks[id];

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { createHmac } from "node:crypto";
 import {
   signInternalToken,
   verifyInternalToken,
@@ -54,8 +55,7 @@ describe("integrations/internal-token", () => {
     // any token more than ~1 minute in the future (L4 in the audit).
     const futureTs = Date.now() + 5 * 60 * 1000;
     const secret = process.env.A2A_SECRET as string;
-    const sig = require("node:crypto")
-      .createHmac("sha256", secret)
+    const sig = createHmac("sha256", secret)
       .update(`task-1:${futureTs}`)
       .digest("hex");
     const token = `${futureTs}.${sig}`;
@@ -65,8 +65,7 @@ describe("integrations/internal-token", () => {
   it("rejects an expired token", () => {
     const expiredTs = Date.now() - 6 * 60 * 1000;
     const secret = process.env.A2A_SECRET as string;
-    const sig = require("node:crypto")
-      .createHmac("sha256", secret)
+    const sig = createHmac("sha256", secret)
       .update(`task-1:${expiredTs}`)
       .digest("hex");
     const token = `${expiredTs}.${sig}`;

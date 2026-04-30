@@ -12,7 +12,6 @@
  *
  * Framework convention: this path is `/_agent-native/oauth/zoom/callback`.
  */
-import crypto from "node:crypto";
 import {
   defineEventHandler,
   getQuery,
@@ -20,8 +19,10 @@ import {
   setResponseStatus,
 } from "h3";
 import { getOrigin, getSession } from "@agent-native/core/server";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { completeVideoOAuth } from "@agent-native/scheduling/server";
+import {
+  completeVideoOAuth,
+  verifyVideoOAuthState,
+} from "@agent-native/scheduling/server";
 
 function normalizeBasePath(value: string | undefined): string {
   if (!value || value === "/") return "";
@@ -43,6 +44,7 @@ export default defineEventHandler(async (event: H3Event) => {
   try {
     const query = getQuery(event);
     const code = query.code as string | undefined;
+    const state = query.state as string | undefined;
     if (!code) {
       setResponseStatus(event, 400);
       return errorPage("Missing authorization code");
@@ -54,6 +56,18 @@ export default defineEventHandler(async (event: H3Event) => {
       return errorPage("Unauthenticated — please sign in and retry.");
     }
     const userEmail = session.email;
+
+    // Verify the OAuth state HMAC. Mismatch means the round-trip didn't
+    // come from a flow this user started — reject before exchanging the
+    // code so an attacker can't bind their own Zoom account onto somebody
+    // else's session via a forged callback.
+    if (!verifyVideoOAuthState({ state, kind: "zoom_video", userEmail })) {
+      setResponseStatus(event, 400);
+      return errorPage(
+        "Invalid OAuth state — please retry the connection from the integrations page.",
+      );
+    }
+
     const redirectUri = `${getOrigin(event)}${appPath(
       "/_agent-native/oauth/zoom/callback",
     )}`;
