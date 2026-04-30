@@ -6,6 +6,12 @@ import { getCallOrThrow, stringifySpaceIds } from "../server/lib/calls.js";
 import { assertAccess } from "@agent-native/core/sharing";
 import { writeAppState } from "@agent-native/core/application-state";
 
+const cliBoolean = z.preprocess((value) => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return value;
+}, z.boolean());
+
 export default defineAction({
   description:
     "Partially update a call's mutable fields. Only fields you pass are changed.",
@@ -24,15 +30,21 @@ export default defineAction({
       .nullish()
       .describe("ISO timestamp the share expires (null to clear)"),
     shareIncludesSummary: z
-      .boolean()
+      .union([z.boolean(), cliBoolean])
       .optional()
       .describe("Whether the public share link shows the AI summary"),
     shareIncludesTranscript: z
-      .boolean()
+      .union([z.boolean(), cliBoolean])
       .optional()
       .describe("Whether the public share link shows the transcript"),
-    enableComments: z.boolean().optional().describe("Allow comments"),
-    enableDownloads: z.boolean().optional().describe("Allow media download"),
+    enableComments: z
+      .union([z.boolean(), cliBoolean])
+      .optional()
+      .describe("Allow comments"),
+    enableDownloads: z
+      .union([z.boolean(), cliBoolean])
+      .optional()
+      .describe("Allow media download"),
     defaultSpeed: z
       .string()
       .optional()

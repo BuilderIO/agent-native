@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { msToClock } from "./scrubber";
+import { agentNativePath } from "@agent-native/core/client";
 
 export interface TranscriptSegment {
   startMs: number;
@@ -253,7 +254,7 @@ function MissingOpenAiKeyCard({ onRetry }: { onRetry?: () => void }) {
     if (!value.trim() || saving) return;
     setSaving(true);
     try {
-      const res = await fetch("/_agent-native/secrets/OPENAI_API_KEY", {
+      const res = await fetch(agentNativePath("/_agent-native/secrets/OPENAI_API_KEY"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: value.trim() }),
