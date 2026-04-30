@@ -25,9 +25,7 @@ export default defineAction({
     if (!(await isConnected(ownerEmail))) {
       const data = await getUserSetting(ownerEmail, "local-emails");
       const emails =
-        data && Array.isArray((data as any).emails)
-          ? (data as any).emails
-          : [];
+        data && Array.isArray((data as any).emails) ? (data as any).emails : [];
       const messages = emails
         .filter((e: any) => e.threadId === args.id)
         .sort(
@@ -38,7 +36,9 @@ export default defineAction({
       const result = compact
         ? messages.map((m: any) => ({
             id: m.id,
-            from: m.from.name ? `${m.from.name} <${m.from.email}>` : m.from.email,
+            from: m.from.name
+              ? `${m.from.name} <${m.from.email}>`
+              : m.from.email,
             subject: m.subject,
             snippet: m.snippet,
             date: m.date,

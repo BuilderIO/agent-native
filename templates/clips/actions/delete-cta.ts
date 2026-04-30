@@ -3,6 +3,7 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 
 export default defineAction({
   description: "Delete a call-to-action button from a recording.",
@@ -18,6 +19,7 @@ export default defineAction({
       .where(eq(schema.recordingCtas.id, args.id))
       .limit(1);
     if (!existing) throw new Error(`CTA not found: ${args.id}`);
+    await assertAccess("recording", existing.recordingId, "editor");
 
     await db
       .delete(schema.recordingCtas)

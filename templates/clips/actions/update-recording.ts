@@ -8,14 +8,11 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  nanoid,
-  stringifySpaceIds,
-} from "../server/lib/recordings.js";
+import { nanoid, stringifySpaceIds } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:

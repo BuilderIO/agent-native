@@ -7,6 +7,32 @@ const handler = createRequestHandler(
   () => import("virtual:react-router/server-build"),
 );
 
+const ASSET_EXTENSIONS = new Set([
+  "avif",
+  "css",
+  "gif",
+  "ico",
+  "jpeg",
+  "jpg",
+  "js",
+  "json",
+  "map",
+  "png",
+  "svg",
+  "txt",
+  "webmanifest",
+  "webp",
+  "woff",
+  "woff2",
+]);
+
+function isAssetPath(pathname: string): boolean {
+  if (pathname.endsWith(".data")) return false;
+  const lastSegment = pathname.split("/").pop() ?? "";
+  const extension = lastSegment.split(".").pop()?.toLowerCase();
+  return extension ? ASSET_EXTENSIONS.has(extension) : false;
+}
+
 export default defineEventHandler(async (event) => {
   const p = event.url.pathname;
   if (
@@ -15,7 +41,7 @@ export default defineEventHandler(async (event) => {
     p.startsWith("/api/") ||
     p === "/favicon.ico" ||
     p === "/favicon.png" ||
-    (/\.\w+$/.test(p) && !p.endsWith(".data"))
+    isAssetPath(p)
   ) {
     return new Response(null, { status: 404 });
   }

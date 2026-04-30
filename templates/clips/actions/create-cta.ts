@@ -2,8 +2,9 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import { nanoid, getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import { nanoid } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 
 export default defineAction({
   description: "Add a call-to-action button to a recording.",
@@ -19,7 +20,7 @@ export default defineAction({
   }),
   run: async (args) => {
     const db = getDb();
-    const ownerEmail = getCurrentOwnerEmail();
+    await assertAccess("recording", args.recordingId, "editor");
 
     const [recording] = await db
       .select({ id: schema.recordings.id })

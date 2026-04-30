@@ -1,12 +1,14 @@
 import { defineAction } from "@agent-native/core";
 import { getAccessTokens } from "./helpers.js";
 import { z } from "zod";
+import { nanoid } from "nanoid";
 import {
   gmailGetMessage,
   gmailSendMessage,
   googleFetch,
 } from "../server/lib/google-api.js";
-import { getSetting } from "@agent-native/core/settings";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { emit } from "@agent-native/core/event-bus";
 import {
   collectLinks,
@@ -194,7 +196,10 @@ async function readSettings(): Promise<{
   email: string;
   tracking?: UserSettings["tracking"];
 }> {
-  const data = await getSetting("mail-settings");
+  const ownerEmail = getRequestUserEmail();
+  const data = ownerEmail
+    ? await getUserSetting(ownerEmail, "mail-settings")
+    : undefined;
   if (data && typeof (data as any).name === "string") {
     return {
       name: (data as any).name ?? "",
@@ -253,9 +258,68 @@ export default defineAction({
       .describe("Specific account email to send from"),
   }),
   run: async (args) => {
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
     const settings = await readSettings();
     const accounts = await getAccessTokens();
-    if (accounts.length === 0) return "Error: No Google account connected.";
+    if (accounts.length === 0) {
+      const data = await getUserSetting(ownerEmail, "local-emails");
+      const emails =
+        data && Array.isArray((data as any).emails) ? (data as any).emails : [];
+      const newEmail = {
+        id: `msg-${nanoid(8)}`,
+        threadId: args.replyToId
+          ? (emails.find((e: any) => e.id === args.replyToId)?.threadId ??
+            `thread-${nanoid(8)}`)
+          : `thread-${nanoid(8)}`,
+        from: { name: settings.name, email: settings.email },
+        to: args.to.split(",").map((value) => {
+          const trimmed = value.trim();
+          return { name: trimmed, email: trimmed };
+        }),
+        ...(args.cc
+          ? {
+              cc: args.cc.split(",").map((value) => {
+                const trimmed = value.trim();
+                return { name: trimmed, email: trimmed };
+              }),
+            }
+          : {}),
+        ...(args.bcc
+          ? {
+              bcc: args.bcc.split(",").map((value) => {
+                const trimmed = value.trim();
+                return { name: trimmed, email: trimmed };
+              }),
+            }
+          : {}),
+        subject: args.subject,
+        snippet: args.body.slice(0, 120).replace(/\n/g, " "),
+        body: args.body,
+        bodyHtml: bodyToHtml(args.body),
+        date: new Date().toISOString(),
+        isRead: true,
+        isStarred: false,
+        isSent: true,
+        isArchived: false,
+        isTrashed: false,
+        labelIds: ["sent"],
+      };
+      emails.push(newEmail);
+      await putUserSetting(ownerEmail, "local-emails", { emails });
+      try {
+        emit(
+          "mail.message.sent",
+          {
+            messageId: newEmail.id,
+            to: args.to,
+            subject: args.subject,
+          },
+          { owner: ownerEmail },
+        );
+      } catch {}
+      return JSON.stringify(newEmail, null, 2);
+    }
 
     let selectedToken = accounts[0].accessToken;
     let selectedEmail = accounts[0].email;

@@ -34,9 +34,7 @@ export default defineAction({
     if (!(await isConnected(ownerEmail))) {
       const data = await getUserSetting(ownerEmail, "local-emails");
       const emails =
-        data && Array.isArray((data as any).emails)
-          ? (data as any).emails
-          : [];
+        data && Array.isArray((data as any).emails) ? (data as any).emails : [];
       const idSet = new Set(ids);
       let changed = 0;
       const updated = emails.map((email: any) => {

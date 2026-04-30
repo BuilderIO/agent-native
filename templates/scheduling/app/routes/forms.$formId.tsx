@@ -7,7 +7,6 @@ import { useLoaderData, useNavigate } from "react-router";
 import { useState } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
 import { getDb, schema } from "../../server/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

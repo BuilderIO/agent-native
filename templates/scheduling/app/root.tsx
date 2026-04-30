@@ -10,7 +10,6 @@ import { useTheme } from "next-themes";
 import {
   useDbSync,
   ClientOnly,
-  DefaultSpinner,
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
@@ -113,15 +112,15 @@ export default function Root() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <TooltipProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="system"
+        enableSystem
+        disableTransitionOnChange
+      >
+        <TooltipProvider>
+          <ClientOnly>
             <DbSyncSetup />
             <Toaster position="bottom-left" />
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
@@ -132,11 +131,11 @@ export default function Root() {
                 <ThemeToggleItem />
               </CommandMenu.Group>
             </CommandMenu>
-            <Outlet />
-          </TooltipProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    </ClientOnly>
+          </ClientOnly>
+          <Outlet />
+        </TooltipProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }
 
