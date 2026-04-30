@@ -38,6 +38,20 @@ function htmlResponse(html: string, status = 200): Response {
   });
 }
 
+/**
+ * HTML escape — minimal but covers the cases that matter when interpolating
+ * user-controlled values into our OAuth callback HTML. Mirrors the helper in
+ * email-template.ts; kept inline here to avoid a circular import.
+ */
+function escapeHtml(s: string): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /** Detect requests from the Electron desktop app webview. */
 export function isElectron(event: H3Event): boolean {
   return /Electron/i.test(getHeader(event, "user-agent") || "");
@@ -48,11 +62,59 @@ export function isMobile(event: H3Event): boolean {
   return /iPhone|iPad|iPod|Android/i.test(getHeader(event, "user-agent") || "");
 }
 
-/** Get the origin from forwarded headers or Host. */
+/**
+ * Build the static allowlist of origins we trust for `getOrigin`. Reads
+ * `APP_URL` and `BETTER_AUTH_URL` (both are deployment-known public URLs).
+ * Each entry is normalised to `${proto}://${host}` (no path). Duplicates
+ * collapse, invalid entries are dropped silently.
+ */
+function getConfiguredOriginAllowlist(): Set<string> {
+  const out = new Set<string>();
+  for (const raw of [process.env.APP_URL, process.env.BETTER_AUTH_URL]) {
+    if (!raw) continue;
+    try {
+      const u = new URL(raw);
+      out.add(`${u.protocol}//${u.host}`);
+    } catch {
+      // Ignore — env value isn't a parseable URL.
+    }
+  }
+  return out;
+}
+
+/**
+ * Get the origin from forwarded headers or Host.
+ *
+ * Defends against Host-header injection: in production we require the
+ * resolved origin to match `APP_URL` / `BETTER_AUTH_URL`, falling back to
+ * those values when the inbound headers are missing or don't match. In
+ * dev we accept the inbound `Host` so localhost / ngrok / preview hosts
+ * keep working without configuration. The protocol defaults to `https`
+ * in production (so a TLS-terminating proxy that drops `x-forwarded-proto`
+ * doesn't downgrade us to plain HTTP).
+ */
 export function getOrigin(event: H3Event): string {
-  const host = getHeader(event, "x-forwarded-host") || getHeader(event, "host");
-  const proto = getHeader(event, "x-forwarded-proto") || "http";
-  return `${proto}://${host}`;
+  const headerHost =
+    getHeader(event, "x-forwarded-host") || getHeader(event, "host");
+  const isProd = process.env.NODE_ENV === "production";
+  const headerProto =
+    getHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");
+
+  if (isProd) {
+    const allow = getConfiguredOriginAllowlist();
+    // If the deploy declares its public URL, prefer it over inbound headers.
+    if (allow.size > 0) {
+      const inbound = headerHost ? `${headerProto}://${headerHost}` : "";
+      if (inbound && allow.has(inbound)) return inbound;
+      // Inbound didn't match — fall back to the first configured origin.
+      return [...allow][0];
+    }
+    // No allowlist configured: still default to https, but accept the
+    // inbound Host (best we can do without a configured base URL).
+    return `${headerProto}://${headerHost ?? ""}`;
+  }
+
+  return `${headerProto}://${headerHost ?? "localhost"}`;
 }
 
 function normalizeAppBasePath(value: string | undefined): string {
