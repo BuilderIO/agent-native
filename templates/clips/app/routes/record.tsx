@@ -719,6 +719,12 @@ export default function RecordRoute() {
         <div className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-3 bg-black/70 text-white backdrop-blur">
           <Spinner className="h-10 w-10 text-white/70" />
           <div className="text-sm">Saving your recording…</div>
+          <button
+            onClick={doCancel}
+            className="mt-1 text-xs text-white/50 underline-offset-2 hover:text-white/80 hover:underline"
+          >
+            Cancel
+          </button>
         </div>
       )}
 
