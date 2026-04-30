@@ -31,6 +31,7 @@ import { startPendingTasksRetryJob } from "./pending-tasks-retry-job.js";
 import { resourceGetByPath, SHARED_OWNER } from "../resources/store.js";
 import { getTaskQueueStats } from "./task-queue-stats.js";
 import { getSession } from "../server/auth.js";
+import { getOrgContext } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
