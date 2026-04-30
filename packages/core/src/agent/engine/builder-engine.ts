@@ -191,7 +191,7 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
-    yield* parseJsonlStream(reader);
+    yield* parseJsonlStream(reader, opts.model);
   }
 }
 
@@ -300,6 +300,7 @@ async function* readJsonlLines(
 
 async function* parseJsonlStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
+  model: string,
 ): AsyncIterable<EngineEvent> {
   const parts: EngineContentPart[] = [];
   let pendingText = "";
@@ -409,10 +410,25 @@ async function* parseJsonlStream(
               errorCode: "rate_limited",
             };
           } else if (reason === "error") {
+            // Surface every diagnostic the gateway gave us so the user (and
+            // our logs) get more than a bare "Gateway error". The gateway
+            // sometimes emits an error stop event with no message — most
+            // commonly when the upstream provider rejects the model for
+            // this account (Opus quotas have hit this in practice).
+            const errMsg =
+              event.error ??
+              event.message ??
+              event.detail ??
+              `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
+            const errCode = event.errorCode ?? event.code;
+            console.error(
+              `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} error=${errMsg}`,
+            );
             yield {
               type: "stop",
               reason: "error",
-              error: event.error ?? "Gateway error",
+              error: errMsg,
+              ...(errCode ? { errorCode: errCode } : {}),
             };
           } else if (
             reason === "end_turn" ||

@@ -30,6 +30,7 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
+import { getActiveRun } from "./active-run-state.js";
 import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
@@ -1010,7 +1011,23 @@ function MessageActionsMenu({
 
   const handleCopyRequestId = useCallback(() => {
     const m = messageRuntime.getState();
-    const runId = (m.metadata as any)?.runId || m.id || "";
+    const meta = m.metadata as
+      | {
+          custom?: { runId?: unknown };
+          runId?: unknown;
+        }
+      | undefined;
+    // Live yields put the trace ID at metadata.custom.runId; server-persisted
+    // messages put it at metadata.runId. If neither is present (e.g. the run
+    // is still in flight and this is the first message), fall back to the
+    // active-run state so a hung / mid-stream chat still surfaces a usable
+    // trace ID. Last resort is the assistant-ui local message id.
+    const runId =
+      (typeof meta?.custom?.runId === "string" && meta.custom.runId) ||
+      (typeof meta?.runId === "string" && meta.runId) ||
+      (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
+      m.id ||
+      "";
     navigator.clipboard.writeText(runId);
     setCopied("id");
     setTimeout(() => {
@@ -1132,7 +1149,13 @@ function AssistantMessage() {
     setRestoreState("restoring");
     try {
       const m = messageRuntime.getState();
-      const runId = (m.metadata as any)?.runId;
+      const meta = m.metadata as
+        | { custom?: { runId?: unknown }; runId?: unknown }
+        | undefined;
+      const runId =
+        (typeof meta?.custom?.runId === "string" && meta.custom.runId) ||
+        (typeof meta?.runId === "string" && meta.runId) ||
+        null;
       if (!runId) {
         setRestoreState("idle");
         return;
@@ -1183,13 +1206,17 @@ function AssistantMessage() {
           }}
         />
       </div>
-      {isComplete && (
-        <div className="mt-1 flex items-center justify-between">
-          <MessageActionsMenu
-            showRevert={showRestore && restoreState === "idle"}
-            onRevert={handleRestore}
-          />
-          {showRestore && restoreState === "confirming" ? (
+      {/* Always render the actions menu so users can grab the trace ID even
+          mid-stream — including when a run hangs or ends prematurely without
+          flipping isRunning false. Thumbs feedback still gates on isComplete
+          since rating an in-flight response makes no sense. */}
+      <div className="mt-1 flex items-center justify-between">
+        <MessageActionsMenu
+          showRevert={showRestore && restoreState === "idle"}
+          onRevert={handleRestore}
+        />
+        {isComplete &&
+          (showRestore && restoreState === "confirming" ? (
             <div className="flex items-center gap-1 text-xs">
               <button
                 onClick={handleRestore}
@@ -1213,17 +1240,22 @@ function AssistantMessage() {
             <React.Suspense fallback={null}>
               <ThumbsFeedbackLazy
                 threadId={cpCtx?.threadId ?? ""}
-                runId={
-                  ((messageRuntime.getState().metadata as any)?.runId as
-                    | string
-                    | undefined) ?? ""
-                }
+                runId={(() => {
+                  const meta = messageRuntime.getState().metadata as
+                    | { custom?: { runId?: unknown }; runId?: unknown }
+                    | undefined;
+                  return (
+                    (typeof meta?.custom?.runId === "string" &&
+                      meta.custom.runId) ||
+                    (typeof meta?.runId === "string" && meta.runId) ||
+                    ""
+                  );
+                })()}
                 messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
               />
             </React.Suspense>
-          )}
-        </div>
-      )}
+          ))}
+      </div>
     </div>
   );
 }
@@ -2591,10 +2623,19 @@ export const AssistantChat = forwardRef<
   modelRef.current = props.selectedModel;
   const engineRef = useRef<string | undefined>(props.selectedEngine);
   engineRef.current = props.selectedEngine;
+  const execModeRef = useRef<"build" | "plan" | undefined>(props.execMode);
+  execModeRef.current = props.execMode;
 
   const adapter = useMemo(
     () =>
-      createAgentChatAdapter({ apiUrl, tabId, threadId, modelRef, engineRef }),
+      createAgentChatAdapter({
+        apiUrl,
+        tabId,
+        threadId,
+        modelRef,
+        engineRef,
+        execModeRef,
+      }),
     [apiUrl, tabId, threadId],
   );
   const attachmentAdapter = useMemo(

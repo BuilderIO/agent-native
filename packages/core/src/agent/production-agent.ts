@@ -242,7 +242,7 @@ export interface ProductionAgentOptions {
   skipFilesContext?: boolean;
 }
 
-const MAX_ITERATIONS = 40;
+const MAX_ITERATIONS = 100;
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 2000;
 
