@@ -64,6 +64,16 @@ export function FlowBar() {
       }),
     );
 
+    trackListen(
+      listen<{ text: string }>("voice:final-transcript", (ev) => {
+        // Final result from the recognizer (only fires after stop is
+        // requested). Show it on the bar — the last word lingers there
+        // for ~1s before voice-dictation.ts dismisses everything.
+        const text = ev.payload.text || "";
+        if (text) setPartialTranscript(text);
+      }),
+    );
+
     return () => {
       stopped = true;
       unlistens.forEach((u) => {
@@ -147,49 +157,55 @@ export function FlowBar() {
     emit("voice:cancel").catch(() => {});
   };
 
-  // Show live transcript above the pill while recording / processing,
-  // so the user can see the words being recognized in real time. Empties
-  // out as soon as the bar closes.
-  const showTranscript =
-    (state === "recording" || state === "processing") &&
-    partialTranscript.length > 0;
+  // The transcript chip is independent of the pill — it can linger on
+  // its own after Fn release while the pill dismisses snappily. Voice-
+  // dictation.ts emits an empty payload to clear it once the linger
+  // window expires.
+  const showTranscript = partialTranscript.length > 0;
+  // Pill is hidden when state goes idle (e.g. on Fn release while the
+  // transcript chip lingers). Without this gate the empty `.flow-bar`
+  // div would still paint a 32px-tall colored pill with no content.
+  const showPill =
+    state === "recording" || state === "processing" || state === "error";
 
   return (
     <div className="flow-bar-root">
       {showTranscript && (
         <div className="flow-bar-transcript">{partialTranscript}</div>
       )}
-      <div className={`flow-bar flow-bar-${state}`}>
-        {state === "recording" ? (
-          <div className="flow-bar-recording">
-            <canvas ref={canvasRef} className="flow-bar-canvas" />
-          </div>
-        ) : null}
+      {showPill && (
+        <div className={`flow-bar flow-bar-${state}`}>
+          {state === "recording" ? (
+            <div className="flow-bar-recording">
+              <canvas ref={canvasRef} className="flow-bar-canvas" />
+            </div>
+          ) : null}
 
-        {state === "processing" ? (
-          <div className="flow-bar-processing">
-            <span className="flow-bar-shimmer">Polishing...</span>
-          </div>
-        ) : null}
+          {state === "processing" ? (
+            <div className="flow-bar-processing">
+              <span className="flow-bar-shimmer">Polishing...</span>
+            </div>
+          ) : null}
 
-        {state === "error" ? (
-          <div className="flow-bar-processing">
-            <span className="flow-bar-error">Could not transcribe</span>
-          </div>
-        ) : null}
+          {state === "error" ? (
+            <div className="flow-bar-processing">
+              <span className="flow-bar-error">Could not transcribe</span>
+            </div>
+          ) : null}
 
-        {(state === "recording" || state === "processing") && (
-          <button
-            type="button"
-            className="flow-bar-cancel"
-            onClick={handleCancel}
-            aria-label="Cancel dictation"
-            title="Cancel"
-          >
-            <IconX size={12} stroke={2.5} />
-          </button>
-        )}
-      </div>
+          {(state === "recording" || state === "processing") && (
+            <button
+              type="button"
+              className="flow-bar-cancel"
+              onClick={handleCancel}
+              aria-label="Cancel dictation"
+              title="Cancel"
+            >
+              <IconX size={12} stroke={2.5} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

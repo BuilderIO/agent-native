@@ -82,6 +82,11 @@ interface VoiceSession {
   // Marks the session as user-cancelled so the recorder.onstop handler
   // skips transcription + paste and just hides the bar.
   cancelled: boolean;
+  // Native-only: invoked once the post-stop final transcript lands (or
+  // a safety timer fires). The callback pastes + lingers + dismisses.
+  // Lets the install-time `voice:final-transcript` listener trigger
+  // the lingered finalize without it having to know the timer state.
+  onNativeFinalize?: (() => void) | null;
 }
 
 // Minimal type shim for webkitSpeechRecognition — TypeScript's lib.dom
@@ -674,13 +679,46 @@ export function installDesktopVoiceDictation(
     try {
       startInFlight = true;
       stopRequestedBeforeReady = false;
+      // Open a parallel mic stream JUST for the live audio meter. This
+      // is safe with the native path because SFSpeechRecognizer's audio
+      // capture lives in Rust (AVAudioEngine, separate bus) — multiple
+      // mic consumers coexist fine on macOS. We deliberately don't do
+      // this on the browser path because webkitSpeechRecognition fights
+      // a sibling getUserMedia in WKWebView.
+      //
+      // Disable echoCancellation / noiseSuppression / autoGainControl so
+      // we stay in standard mic mode. With them ON, macOS may switch
+      // into voice-call mode which conflicts with AVAudioEngine's
+      // input bus and causes getUserMedia to silently return a dead
+      // stream that produces no audio levels.
+      const meterStream = await navigator.mediaDevices
+        .getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+        })
+        .catch((err) => {
+          console.warn(
+            `[voice-dictation] meter getUserMedia failed (${(err as Error)?.name ?? "Error"}): ${(err as Error)?.message ?? String(err)} — falling back to synthetic meter`,
+          );
+          return null;
+        });
+      if (meterStream) {
+        const tracks = meterStream.getAudioTracks();
+        console.log(
+          `[voice-dictation] meter mic ready: ${tracks.length} track(s)`,
+          tracks[0]?.label || "unlabeled",
+        );
+      }
       await invoke("show_flow_bar");
       setFlowState("recording");
       // Reset any prior partial transcript display in the flow-bar.
       emit("voice:partial-transcript", { text: "" }).catch(() => {});
       const next: VoiceSession = {
         kind: "native",
-        stream: null,
+        stream: meterStream,
         recorder: null,
         chunks: [],
         audioContext: null,
@@ -696,10 +734,15 @@ export function installDesktopVoiceDictation(
       };
       session = next;
       startInFlight = false;
-      // Pulse the waveform without opening a parallel mic stream — the
-      // Rust side owns the audio device and we don't want to fight over
-      // it in the WebView layer.
-      startSyntheticMeter(next);
+      // Real audio meter from the parallel mic stream — bars bounce with
+      // the user's voice + volume. Falls back to synthetic if the mic
+      // stream couldn't be opened (e.g. permission denied just for
+      // getUserMedia).
+      if (meterStream) {
+        startMeter(next);
+      } else {
+        startSyntheticMeter(next);
+      }
       try {
         await invoke("native_speech_start", {
           locale: navigator.language || "en-US",
@@ -785,8 +828,41 @@ export function installDesktopVoiceDictation(
         () => console.log("[voice-dictation] recognition.onstart");
       (
         recognition as unknown as { onaudiostart: (() => void) | null }
-      ).onaudiostart = () =>
+      ).onaudiostart = () => {
         console.log("[voice-dictation] recognition.onaudiostart");
+        // After recognition has the mic, open a sibling getUserMedia
+        // stream just for the live meter. Doing it AFTER onaudiostart
+        // (rather than before recognition.start()) lets recognition
+        // claim the device first; the second consumer rides along on
+        // macOS's multi-tap mic. If we can't open it, the synthetic
+        // meter started below stays running.
+        navigator.mediaDevices
+          .getUserMedia({
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+          })
+          .then((meterStream) => {
+            if (next.cancelled || session !== next) {
+              meterStream.getTracks().forEach((t) => t.stop());
+              return;
+            }
+            next.stream = meterStream;
+            stopMeter(next);
+            startMeter(next);
+            console.log(
+              "[voice-dictation] meter mic ready (browser):",
+              meterStream.getAudioTracks()[0]?.label || "unlabeled",
+            );
+          })
+          .catch((err) => {
+            console.warn(
+              `[voice-dictation] browser parallel mic failed (${(err as Error)?.name ?? "Error"}): ${(err as Error)?.message ?? err} — synthetic meter stays`,
+            );
+          });
+      };
       (
         recognition as unknown as { onspeechstart: (() => void) | null }
       ).onspeechstart = () =>
@@ -967,75 +1043,160 @@ export function installDesktopVoiceDictation(
       if (current.kind === "server") {
         current.recorder?.stop();
       } else if (current.kind === "native") {
-        // NATIVE PATH: same immediate-dismiss + immediate-paste behavior as
-        // the browser path. We've been accumulating partials in
-        // `browserTranscript` from the `voice:partial-transcript` listener,
-        // so the latest hypothesis is already in hand. We tell Rust to
-        // `endAudio()` (`native_speech_stop`) so the recognizer can deliver
-        // its final result, but we don't wait for it — pasting the partial
-        // is faster and more responsive. The tail of the final transcript
-        // (if any) won't double-paste because `complete_voice_dictation`
-        // already fired and the Rust task gets cleared on the final result.
-        const text = current.browserTranscript.trim();
-        current.browserTranscript = "";
-        if (session === current) session = null;
-        startInFlight = false;
-        stopRequestedBeforeReady = false;
-        setFlowState("idle");
-        invoke("hide_flow_bar").catch(() => {});
-        emit("voice:partial-transcript", { text: "" }).catch(() => {});
+        // NATIVE PATH: dismiss the pill *immediately* (snappy UX) but
+        // leave the transcript chip lingering. Tell Rust to `endAudio()`
+        // so SFSpeechRecognizer can deliver its final hypothesis. When
+        // `voice:final-transcript` lands (or after a safety timeout),
+        // paste the text and let the chip sit for ~1s with the final
+        // word visible — like a notification fading — then dismiss.
         invoke("native_speech_stop").catch((err) => {
           console.warn("[voice-dictation] native_speech_stop failed:", err);
         });
-        stopMeter(current);
-        if (text) {
-          console.log(
-            `[voice-dictation] native paste on Fn release (${text.length} chars):`,
-            text.slice(0, 120),
-          );
-          invoke("complete_voice_dictation", { text }).catch((err) => {
-            console.error("[voice-dictation] paste failed:", err);
-          });
-        } else {
-          console.warn(
-            "[voice-dictation] no transcript captured — native recognizer didn't produce results",
-          );
-        }
-      } else {
-        // BROWSER PATH: dismiss the bar IMMEDIATELY and paste whatever
-        // transcript we have right now. recognition.stop() / .abort()
-        // can take 1-5 seconds to fire onend in WKWebView — we don't
-        // want the user staring at a stuck bar that long. We tracked
-        // interim results in browserTranscript above, so the latest
-        // spoken text is captured. Null out browserTranscript before
-        // calling abort() so the late onend doesn't double-paste.
-        const text = current.browserTranscript.trim();
-        current.browserTranscript = "";
-        if (session === current) session = null;
-        startInFlight = false;
-        stopRequestedBeforeReady = false;
+        // Pill goes RIGHT NOW. The flow-bar window stays open (we'll
+        // hide it after the linger) but renders only the transcript
+        // chip in idle state.
         setFlowState("idle");
-        invoke("hide_flow_bar").catch(() => {});
-        emit("voice:partial-transcript", { text: "" }).catch(() => {});
-        try {
-          current.recognition?.abort();
-        } catch {
-          // ignore
-        }
         stopMeter(current);
         stopTracks(current);
-        if (text) {
+
+        const stopAtMs = Date.now();
+        console.log(
+          "[voice-dictation] native stop — pill dismissed, awaiting final",
+        );
+        let finalized = false;
+        const finalize = (reason: "final" | "timeout" | "manual") => {
+          if (finalized) return;
+          finalized = true;
           console.log(
-            `[voice-dictation] pasting on Fn release (${text.length} chars):`,
-            text.slice(0, 120),
+            `[voice-dictation] native finalize (${reason}, +${Date.now() - stopAtMs}ms)`,
           );
-          invoke("complete_voice_dictation", { text }).catch((err) => {
-            console.error("[voice-dictation] paste failed:", err);
-          });
-        } else {
+          // If the user cancelled (X button) during the wait window,
+          // skip paste + linger. cleanup() already ran via cancel().
+          if (current.cancelled) return;
+          const text = current.browserTranscript.trim();
+          current.browserTranscript = "";
+          if (text) {
+            console.log(
+              `[voice-dictation] native paste (${text.length} chars):`,
+              text.slice(0, 120),
+            );
+            invoke("complete_voice_dictation", { text }).catch((err) => {
+              console.error("[voice-dictation] paste failed:", err);
+            });
+            // Make sure the chip displays the FINAL text (the
+            // install-time final listener also pushes this, but we
+            // emit explicitly so the chip is up-to-date in case the
+            // listener fired before HMR refreshed the flow-bar).
+            emit("voice:partial-transcript", { text }).catch(() => {});
+          } else {
+            console.warn(
+              "[voice-dictation] no transcript captured — native recognizer didn't produce results",
+            );
+          }
+          // Linger ~1.2s with the transcript chip visible (no pill,
+          // just the floating text), then clear the chip + hide the
+          // window.
+          console.log("[voice-dictation] starting linger");
+          window.setTimeout(() => {
+            console.log("[voice-dictation] linger done — dismissing");
+            if (disposed) return;
+            invoke("hide_flow_bar").catch(() => {});
+            emit("voice:partial-transcript", { text: "" }).catch(() => {});
+            if (session === current) session = null;
+            startInFlight = false;
+            stopRequestedBeforeReady = false;
+          }, 1200);
+        };
+
+        // The install-time `voice:final-transcript` listener calls
+        // `current.onNativeFinalize` when the final result arrives.
+        current.onNativeFinalize = () => finalize("final");
+        // Safety timer: if final never arrives (unsupported locale,
+        // crash, etc.), proceed after 3s with whatever partial we have.
+        window.setTimeout(() => finalize("timeout"), 3000);
+      } else {
+        // BROWSER PATH: conditional dismiss based on whether we
+        // captured any words.
+        //
+        // Empty transcript (accidental Fn tap, or user released before
+        // speaking): snappy dismiss — pill + everything goes RIGHT
+        // away, no tail capture.
+        //
+        // Transcript present (user actually dictated): pill goes away
+        // immediately for snappiness, but we keep recognition alive
+        // for ~1500ms to catch the trailing word(s) the user hadn't
+        // finished saying when they lifted Fn. The transcript chip
+        // stays visible during this tail-capture window AND for an
+        // additional ~1000ms linger after we paste, so the user can
+        // read what landed.
+        const initialText = current.browserTranscript.trim();
+        if (!initialText) {
+          // Snappy path — accidental tap.
+          current.browserTranscript = "";
+          if (session === current) session = null;
+          startInFlight = false;
+          stopRequestedBeforeReady = false;
+          setFlowState("idle");
+          invoke("hide_flow_bar").catch(() => {});
+          emit("voice:partial-transcript", { text: "" }).catch(() => {});
+          try {
+            current.recognition?.abort();
+          } catch {
+            // ignore
+          }
+          stopMeter(current);
+          stopTracks(current);
           console.warn(
             "[voice-dictation] no transcript captured — recognition didn't produce results",
           );
+        } else {
+          // Tail-capture path. Hide pill but keep recognition listening
+          // so onresult continues to grow browserTranscript for ~1.5s.
+          // Clear the global session slot now so a new Fn press isn't
+          // blocked by the lingering one (the captured `current` ref
+          // still works through onresult's closure).
+          const lingering = current;
+          if (session === current) session = null;
+          startInFlight = false;
+          stopRequestedBeforeReady = false;
+          setFlowState("idle");
+          stopMeter(lingering);
+          console.log(
+            `[voice-dictation] tail-capture starting (${initialText.length} chars so far): "${initialText.slice(0, 60)}..."`,
+          );
+          window.setTimeout(() => {
+            if (lingering.cancelled || disposed) return;
+            const finalText = lingering.browserTranscript.trim();
+            lingering.browserTranscript = "";
+            try {
+              lingering.recognition?.abort();
+            } catch {
+              // ignore
+            }
+            stopTracks(lingering);
+            if (finalText) {
+              const tailGain = finalText.length - initialText.length;
+              console.log(
+                `[voice-dictation] tail-capture done (${finalText.length} chars, +${tailGain} from tail): "${finalText.slice(0, 80)}"`,
+              );
+              invoke("complete_voice_dictation", { text: finalText }).catch(
+                (err) => {
+                  console.error("[voice-dictation] paste failed:", err);
+                },
+              );
+              // Linger ~1s with the chip showing the final text, then
+              // dismiss everything.
+              window.setTimeout(() => {
+                if (disposed) return;
+                invoke("hide_flow_bar").catch(() => {});
+                emit("voice:partial-transcript", { text: "" }).catch(() => {});
+              }, 1000);
+            } else {
+              // Edge case: tail capture wiped the transcript somehow.
+              invoke("hide_flow_bar").catch(() => {});
+              emit("voice:partial-transcript", { text: "" }).catch(() => {});
+            }
+          }, 1500);
         }
       }
     } catch (err) {
@@ -1072,6 +1233,9 @@ export function installDesktopVoiceDictation(
     // Final beats partial — overwrite so a `complete_voice_dictation`
     // from a late stop() picks up the better text.
     current.browserTranscript = (ev.payload.text || "").trim();
+    // If stop() is waiting on this event before lingering, trigger the
+    // finalize sequence now (paste → 1s linger → dismiss).
+    current.onNativeFinalize?.();
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});
