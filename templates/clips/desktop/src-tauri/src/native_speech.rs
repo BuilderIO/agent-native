@@ -29,6 +29,7 @@ mod imp {
 
     use block2::{RcBlock, StackBlock};
     use objc2::rc::Retained;
+    use objc2::{AnyThread, ClassType};
     use objc2_avf_audio::{AVAudioEngine, AVAudioPCMBuffer, AVAudioTime};
     use objc2_foundation::{NSError, NSLocale, NSString};
     use objc2_speech::{
@@ -285,12 +286,24 @@ mod imp {
                 },
             )
             .copy();
+            // SAFETY: AVFoundation's `installTapOnBus:` performs a
+            // `Block_copy` internally, so the caller does not need to keep
+            // `tap_block` alive. We hand it a `*mut Block<F>` cast from the
+            // `RcBlock`'s deref — the block_copy will retain it on the
+            // ObjC side, and `tap_block` drops at end of scope releasing
+            // our copy. removeTapOnBus: + drop fully tears it down.
+            let block_ptr: *mut block2::Block<
+                dyn Fn(
+                        std::ptr::NonNull<AVAudioPCMBuffer>,
+                        std::ptr::NonNull<AVAudioTime>,
+                    ) + 'static,
+            > = (&*tap_block) as *const _ as *mut _;
             unsafe {
                 input_node.installTapOnBus_bufferSize_format_block(
                     0,
                     1024,
                     Some(&format),
-                    &*tap_block,
+                    block_ptr,
                 );
             }
         }

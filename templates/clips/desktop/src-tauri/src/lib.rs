@@ -7,7 +7,6 @@
 mod clips;
 mod config;
 mod debug;
-#[cfg(target_os = "macos")]
 mod native_speech;
 mod shortcuts;
 mod state;
@@ -68,6 +67,10 @@ pub fn run() {
             // config commands
             config::get_feature_config,
             config::set_feature_config,
+            // native macOS speech recognition (no-op stubs on other OSes)
+            native_speech::native_speech_start,
+            native_speech::native_speech_stop,
+            native_speech::native_speech_cancel,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())

@@ -2,6 +2,18 @@ import { useLoaderData, useRevalidator, Link } from "react-router";
 import { useState } from "react";
 import { listSchedules } from "@agent-native/scheduling/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+
+export function meta() {
+  return [
+    { title: "Availability — Scheduling" },
+    {
+      name: "description",
+      content:
+        "Set the hours you're free for meetings, with timezone-aware schedules and date overrides.",
+    },
+  ];
+}
+
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
