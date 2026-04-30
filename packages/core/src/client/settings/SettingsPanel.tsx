@@ -300,8 +300,6 @@ function UseBuilderCard({
   connectUrl,
   connected,
   orgName,
-  comingSoon,
-  builderEnabled,
   label = "Connect Builder.io",
   subtitle = "One click, no API key needed.",
   dim,
@@ -309,13 +307,10 @@ function UseBuilderCard({
   connectUrl?: string;
   connected: boolean;
   orgName?: string;
-  comingSoon?: boolean;
-  builderEnabled?: boolean;
   label?: string;
   subtitle?: string;
   dim?: boolean;
 }) {
-  const showComingSoon = comingSoon && !builderEnabled;
   const bgClass = dim ? "" : "bg-accent/30";
 
   if (connected) {
@@ -346,27 +341,6 @@ function UseBuilderCard({
             </a>
           )}
           <DisconnectBuilderButton />
-        </div>
-      </div>
-    );
-  }
-
-  if (showComingSoon) {
-    return (
-      <div className={`rounded-md border border-border px-2.5 py-2 ${bgClass}`}>
-        <div className="flex items-center justify-between">
-          <div className="text-[11px] font-medium text-foreground">
-            Builder.io
-          </div>
-          <a
-            href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] font-medium no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
-          >
-            Join waitlist
-            <IconExternalLink size={10} />
-          </a>
         </div>
       </div>
     );
@@ -547,7 +521,6 @@ const PROVIDER_DOCS: Record<string, string> = {
 };
 
 function LLMSectionInner({
-  builderEnabled,
   builderLoading,
   connectUrl,
   connected,
@@ -555,7 +528,6 @@ function LLMSectionInner({
   open,
   onToggle,
 }: {
-  builderEnabled: boolean;
   builderLoading?: boolean;
   connectUrl?: string;
   connected: boolean;
@@ -1357,8 +1329,6 @@ export function SettingsPanel({
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
-            comingSoon
-            builderEnabled={builderEnabled}
           />
           <ManualSetupCard
             hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
@@ -1382,8 +1352,6 @@ export function SettingsPanel({
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
-            comingSoon
-            builderEnabled={builderEnabled}
           />
           <ManualSetupCard
             hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, or any Postgres/SQLite database."
@@ -1430,8 +1398,6 @@ export function SettingsPanel({
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
-            comingSoon
-            builderEnabled={builderEnabled}
           />
           <ManualSetupCard
             hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
@@ -1476,8 +1442,6 @@ export function SettingsPanel({
           connectUrl={connectUrl}
           connected={connected}
           orgName={orgName}
-          comingSoon
-          builderEnabled={builderEnabled}
         />
       </SettingsSection>
 
