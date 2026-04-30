@@ -32,16 +32,24 @@ describe("sanitizeHtml", () => {
     expect(out).toContain('rel="noopener noreferrer"');
   });
 
-  it("strips iframe and svg payloads entirely", () => {
+  it("strips iframe payloads entirely", () => {
     const out = sanitizeHtml(
-      '<p>before</p><iframe srcdoc="<script>alert(1)</script>"></iframe><svg><foreignObject><script>alert(1)</script></foreignObject></svg><p>after</p>',
+      '<p>before</p><iframe srcdoc="<script>alert(1)</script>"></iframe><p>after</p>',
     );
     expect(out).not.toContain("iframe");
-    expect(out).not.toContain("svg");
-    expect(out).not.toContain("foreignObject");
     expect(out).not.toContain("script");
     expect(out).toContain("<p>before</p>");
     expect(out).toContain("<p>after</p>");
+  });
+
+  it("strips svg payloads entirely", () => {
+    const out = sanitizeHtml(
+      '<p>note</p><svg><foreignObject><script>alert(1)</script></foreignObject></svg>',
+    );
+    expect(out).not.toContain("svg");
+    expect(out).not.toContain("foreignObject");
+    expect(out).not.toContain("script");
+    expect(out).toContain("<p>note</p>");
   });
 
   it("strips srcdoc/srcset on allowed tags", () => {
