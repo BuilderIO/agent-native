@@ -19,6 +19,7 @@ export type VoiceMode = "push-to-talk" | "toggle";
 export type VoiceProvider =
   | "auto"
   | "browser"
+  | "macos-native"
   | "builder"
   | "gemini"
   | "openai"
@@ -33,6 +34,10 @@ interface ProviderStatus {
   openai: boolean;
   groq: boolean;
   browser: true;
+  // Apple's SFSpeechRecognizer + AVAudioEngine driven from Rust. The
+  // server reports `true` whenever the desktop client builds for macOS;
+  // non-macOS builds shouldn't see this picked.
+  native: boolean;
 }
 
 interface DesktopVoiceDictationOptions {
@@ -50,9 +55,11 @@ interface VoiceShortcutEvent {
 interface VoiceSession {
   // "server" sessions capture audio with MediaRecorder and POST it to
   // the transcribe-voice endpoint. "browser" sessions use WebKit's
-  // built-in webkitSpeechRecognition for real-time on-device dictation —
-  // no server round-trip, no API keys, no "Polishing..." state.
-  kind: "server" | "browser";
+  // webkitSpeechRecognition (works in Safari and Chromium WebViews,
+  // broken in Tauri WKWebView). "native" sessions drive Apple's
+  // SFSpeechRecognizer + AVAudioEngine through Tauri commands —
+  // on-device, real-time partials, free, macOS-only.
+  kind: "server" | "browser" | "native";
   // server-only fields
   stream: MediaStream | null;
   recorder: MediaRecorder | null;
@@ -429,12 +436,14 @@ export function installDesktopVoiceDictation(
    */
   const resolveProvider = async (): Promise<
     | { kind: "browser" }
+    | { kind: "native" }
     | {
         kind: "server";
         providerPref: "auto" | "builder" | "gemini" | "openai" | "groq";
       }
   > => {
     if (provider === "browser") return { kind: "browser" };
+    if (provider === "macos-native") return { kind: "native" };
     if (provider !== "auto") {
       // User picked a specific server provider — honor it even if the
       // status check says it's not configured. The server will return a

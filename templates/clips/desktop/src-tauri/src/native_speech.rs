@@ -26,10 +26,7 @@
 use tauri::AppHandle;
 
 #[tauri::command]
-pub async fn native_speech_start(
-    app: AppHandle,
-    locale: Option<String>,
-) -> Result<(), String> {
+pub async fn native_speech_start(app: AppHandle, locale: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         macos::native_speech_start_impl(app, locale).await
@@ -78,8 +75,8 @@ mod macos {
     use objc2_avf_audio::{AVAudioEngine, AVAudioPCMBuffer, AVAudioTime};
     use objc2_foundation::{NSError, NSLocale, NSString};
     use objc2_speech::{
-        SFSpeechAudioBufferRecognitionRequest, SFSpeechRecognitionResult,
-        SFSpeechRecognitionTask, SFSpeechRecognizer, SFSpeechRecognizerAuthorizationStatus,
+        SFSpeechAudioBufferRecognitionRequest, SFSpeechRecognitionResult, SFSpeechRecognitionTask,
+        SFSpeechRecognizer, SFSpeechRecognizerAuthorizationStatus,
     };
     use serde::Serialize;
     use tauri::{AppHandle, Emitter};
@@ -162,21 +159,19 @@ mod macos {
 
         // NotDetermined — prompt the user. Bridge the async callback into a
         // sync wait via mpsc.
-        let (tx, rx) =
-            std::sync::mpsc::sync_channel::<SFSpeechRecognizerAuthorizationStatus>(1);
+        let (tx, rx) = std::sync::mpsc::sync_channel::<SFSpeechRecognizerAuthorizationStatus>(1);
         let tx = Mutex::new(Some(tx));
         // SAFETY: the handler is owned by the system until it fires once;
         // we box it into an `RcBlock` so the closure stays alive across the
         // ObjC boundary. The closure captures only the
         // `Mutex<Option<SyncSender>>`, which is `Send + Sync`.
-        let handler =
-            RcBlock::new(move |status: SFSpeechRecognizerAuthorizationStatus| {
-                if let Ok(mut guard) = tx.lock() {
-                    if let Some(sender) = guard.take() {
-                        let _ = sender.send(status);
-                    }
+        let handler = RcBlock::new(move |status: SFSpeechRecognizerAuthorizationStatus| {
+            if let Ok(mut guard) = tx.lock() {
+                if let Some(sender) = guard.take() {
+                    let _ = sender.send(status);
                 }
-            });
+            }
+        });
         unsafe { SFSpeechRecognizer::requestAuthorization(&handler) };
 
         match rx.recv_timeout(std::time::Duration::from_secs(30)) {
@@ -197,9 +192,7 @@ mod macos {
 
     /// Build a fresh recognizer for the given locale (defaulting to en-US if
     /// the user didn't pass one or the BCP-47 string was unsupported).
-    fn build_recognizer(
-        locale: Option<&str>,
-    ) -> Result<Retained<SFSpeechRecognizer>, String> {
+    fn build_recognizer(locale: Option<&str>) -> Result<Retained<SFSpeechRecognizer>, String> {
         let identifier = locale.unwrap_or("en-US");
         // SAFETY: `NSString::from_str` and
         // `NSLocale::localeWithLocaleIdentifier:` are pure constructors that
@@ -214,15 +207,12 @@ mod macos {
             let allocated = SFSpeechRecognizer::alloc();
             SFSpeechRecognizer::initWithLocale(allocated, &locale_obj)
         };
-        let recognizer = recognizer.ok_or_else(|| {
-            format!("SFSpeechRecognizer init failed for locale {identifier}")
-        })?;
+        let recognizer = recognizer
+            .ok_or_else(|| format!("SFSpeechRecognizer init failed for locale {identifier}"))?;
         // Guard against the recognizer being temporarily offline (e.g. for a
         // locale that requires Apple's servers and we have no network).
         if !unsafe { recognizer.isAvailable() } {
-            return Err(
-                "SFSpeechRecognizer is not currently available (network down?).".into(),
-            );
+            return Err("SFSpeechRecognizer is not currently available (network down?).".into());
         }
         Ok(recognizer)
     }
@@ -260,8 +250,7 @@ mod macos {
     fn ns_error_message(err: &NSError) -> String {
         // SAFETY: `localizedDescription` always returns a non-nil NSString
         // per Apple's docs.
-        let desc: Retained<NSString> =
-            unsafe { objc2::msg_send![err, localizedDescription] };
+        let desc: Retained<NSString> = unsafe { objc2::msg_send![err, localizedDescription] };
         let s = desc.to_string();
         if s.is_empty() {
             format!("NSError code {}", err.code())
@@ -332,10 +321,8 @@ mod macos {
             )
             .copy();
             let block_ptr: *mut block2::Block<
-                dyn Fn(
-                        std::ptr::NonNull<AVAudioPCMBuffer>,
-                        std::ptr::NonNull<AVAudioTime>,
-                    ) + 'static,
+                dyn Fn(std::ptr::NonNull<AVAudioPCMBuffer>, std::ptr::NonNull<AVAudioTime>)
+                    + 'static,
             > = (&*tap_block) as *const _ as *mut _;
             unsafe {
                 input_node.installTapOnBus_bufferSize_format_block(
@@ -389,8 +376,8 @@ mod macos {
                         // this callback.
                         let err = unsafe { &*error_ptr };
                         let msg = ns_error_message(err);
-                        let _ = app_for_handler
-                            .emit("voice:speech-error", ErrorPayload { error: msg });
+                        let _ =
+                            app_for_handler.emit("voice:speech-error", ErrorPayload { error: msg });
                     }
                     clear_session_slot();
                     return;
@@ -410,12 +397,11 @@ mod macos {
                 let text = formatted.to_string();
                 let is_final = unsafe { result.isFinal() };
                 if is_final {
-                    let _ = app_for_handler
-                        .emit("voice:final-transcript", FinalPayload { text });
+                    let _ = app_for_handler.emit("voice:final-transcript", FinalPayload { text });
                     clear_session_slot();
                 } else if !stopped {
-                    let _ = app_for_handler
-                        .emit("voice:partial-transcript", PartialPayload { text });
+                    let _ =
+                        app_for_handler.emit("voice:partial-transcript", PartialPayload { text });
                 }
             },
         );
