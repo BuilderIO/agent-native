@@ -131,9 +131,9 @@ function pickMimeType(): string {
 // Bluetooth headsets force macOS into a tighter audio-session mode that
 // pauses + glitches whatever's playing the moment we open getUserMedia,
 // and we don't get the dictation experience right unless we sidestep that
-// by always pinning to the built-in mic. Returns null in dev — labels
-// require a prior permission grant which we no longer pre-warm.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+// by always pinning to the built-in mic. Returns null when labels are
+// empty (no prior permission grant) — the caller falls back to plain
+// `audio: true` so the first-time grant prompt still goes through.
 async function pickBuiltInMicId(): Promise<string | null> {
   try {
     if (!navigator.mediaDevices?.enumerateDevices) return null;
@@ -518,13 +518,21 @@ export function installDesktopVoiceDictation(
       startInFlight = true;
       stopRequestedBeforeReady = false;
       console.log("[voice-dictation] startServer:", providerPref);
-      // Plain getUserMedia per press — the warm-stream pattern was causing
-      // silent recordings (track.enabled toggling between sessions left
-      // WebKit's MediaRecorder pipeline reading silence even after the
-      // re-enable) and forced a mic-permission prompt at app launch. The
-      // ~200ms first-press latency from getUserMedia is far better than
-      // a hung Polishing... + empty paste.
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Per-press getUserMedia, but still pinned to the built-in mic when
+      // we can identify it. The warm-stream pre-warm caused silent
+      // recordings (track.enabled toggling between sessions left WebKit's
+      // MediaRecorder pipeline reading silence even after the re-enable)
+      // — opening fresh per press fixes that. Built-in-mic pinning is
+      // independent of warming and still required: opening getUserMedia
+      // through a Bluetooth headset puts macOS in a tighter audio-session
+      // mode that pauses/glitches whatever is playing, so AirPods users
+      // would otherwise see audio cut out the moment they start dictation.
+      const builtInId = await pickBuiltInMicId();
+      const stream = await navigator.mediaDevices.getUserMedia(
+        builtInId
+          ? { audio: { deviceId: { exact: builtInId } } }
+          : { audio: true },
+      );
       if (disposed || stopRequestedBeforeReady) {
         stream.getTracks().forEach((track) => track.stop());
         startInFlight = false;

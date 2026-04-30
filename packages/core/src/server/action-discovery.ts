@@ -131,10 +131,13 @@ function wrapDefaultExport(
   };
 }
 
-function preserveReadOnly(entry: Record<string, any>): Partial<ActionEntry> {
-  return typeof entry.readOnly === "boolean"
-    ? { readOnly: entry.readOnly }
-    : {};
+function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
+  const out: Partial<ActionEntry> = {};
+  if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
+  if (typeof entry.toolCallable === "boolean") {
+    out.toolCallable = entry.toolCallable;
+  }
+  return out;
 }
 
 /**
@@ -223,7 +226,7 @@ async function loadActionsIntoRegistry(
           tool: mod.tool,
           run: mod.run,
           ...(mod.http !== undefined ? { http: mod.http } : {}),
-          ...preserveReadOnly(mod),
+          ...preserveActionFlags(mod),
         };
       } else if (
         mod.default &&
@@ -235,7 +238,7 @@ async function loadActionsIntoRegistry(
           tool: mod.default.tool,
           run: mod.default.run,
           ...(mod.default.http !== undefined ? { http: mod.default.http } : {}),
-          ...preserveReadOnly(mod.default),
+          ...preserveActionFlags(mod.default),
         };
       } else if (typeof mod.default === "function") {
         registry[name] = wrapDefaultExport(name, mod.default);
@@ -269,7 +272,7 @@ export function loadActionsFromStaticRegistry(
         tool: mod.tool,
         run: mod.run,
         ...(mod.http !== undefined ? { http: mod.http } : {}),
-        ...preserveReadOnly(mod),
+        ...preserveActionFlags(mod),
       };
       continue;
     }
@@ -285,7 +288,7 @@ export function loadActionsFromStaticRegistry(
         tool: def.tool,
         run: def.run,
         ...(def.http !== undefined ? { http: def.http } : {}),
-        ...preserveReadOnly(def),
+        ...preserveActionFlags(def),
       };
       continue;
     }

@@ -304,7 +304,7 @@ describe("mountActionRoutes", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it("warns once per process when toolCallable is undefined and call comes from tools bridge", async () => {
+  it("denies tools-bridge calls when toolCallable is undefined (deny-by-default) and warns once per process", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     const nitroApp = {
@@ -322,17 +322,30 @@ describe("mountActionRoutes", () => {
 
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const make = () => ({
-      _method: "POST",
-      _headers: { "x-agent-native-tool-bridge": "1" },
-      req: { json: async () => ({}) },
+    const make = () =>
+      ({
+        _method: "POST",
+        _headers: { "x-agent-native-tool-bridge": "1" },
+        req: { json: async () => ({}) },
+      }) as any;
+
+    const e1 = make();
+    const e2 = make();
+    const r1 = await mounted[0].handler(e1);
+    const r2 = await mounted[0].handler(e2);
+
+    // Both calls denied; action.run never invoked.
+    expect(actions["legacy-action"].run).not.toHaveBeenCalled();
+    expect(e1._status).toBe(403);
+    expect(e2._status).toBe(403);
+    expect(r1).toEqual({
+      error: "Action 'legacy-action' is not callable from tools.",
+    });
+    expect(r2).toEqual({
+      error: "Action 'legacy-action' is not callable from tools.",
     });
 
-    await mounted[0].handler(make());
-    await mounted[0].handler(make());
-
-    // Action runs both times (implicit allow), but warning only fires once.
-    expect(actions["legacy-action"].run).toHaveBeenCalledTimes(2);
+    // Warning fires once per process per action so authors can find it.
     const matching = warn.mock.calls.filter((c) =>
       String(c[0] ?? "").includes('"legacy-action"'),
     );
