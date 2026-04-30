@@ -1179,6 +1179,11 @@ export function installDesktopVoiceDictation(
           );
           window.setTimeout(() => {
             if (lingering.cancelled || disposed) return;
+            // A new Fn-tap during tail-capture starts a fresh session that
+            // owns the flow-bar now. Don't paste this lingering session's
+            // text against it, and don't wipe its UI on dismiss. Mirrors
+            // the native finalize guard above.
+            if (session && session !== lingering) return;
             const finalText = lingering.browserTranscript.trim();
             lingering.browserTranscript = "";
             try {
@@ -1201,6 +1206,7 @@ export function installDesktopVoiceDictation(
               // dismiss everything.
               window.setTimeout(() => {
                 if (disposed) return;
+                if (session && session !== lingering) return;
                 invoke("hide_flow_bar").catch(() => {});
                 emit("voice:partial-transcript", { text: "" }).catch(() => {});
               }, 1000);
