@@ -8,6 +8,7 @@ import {
 } from "h3";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { readBody } from "../server/h3-helpers.js";
+import { runWithRequestContext } from "../server/request-context.js";
 
 export interface MCPConfig {
   /** App name shown in MCP server info */
@@ -20,6 +21,19 @@ export interface MCPConfig {
   actions: Record<string, ActionEntry>;
   /** Handler for the ask-agent meta-tool — runs the full agent loop */
   askAgent?: (message: string) => Promise<string>;
+}
+
+/**
+ * Identity extracted from a verified MCP bearer token / JWT. Used to wrap
+ * `entry.run()` and `config.askAgent()` calls in `runWithRequestContext`
+ * so downstream tools (db-query, accessFilter, resolveCredential) honour
+ * per-user / per-org scoping. Without this wrap the MCP endpoint would
+ * silently bypass tenant isolation. See finding #6 in
+ * /tmp/security-audit/12-mcp-a2a-agent.md.
+ */
+interface MCPCallerIdentity {
+  userEmail: string | undefined;
+  orgDomain: string | undefined;
 }
 
 // ---------------------------------------------------------------------------

@@ -265,6 +265,44 @@ export function safeReturnPath(raw: string | null | undefined): string {
   }
 }
 
+/**
+ * Extract the framework session token from a Better Auth response's
+ * Set-Cookie headers, if any. Used by the password-reset path to skip
+ * the freshly-minted session when revoking sibling sessions for the
+ * user. Returns undefined if no session cookie was minted (the common
+ * case — Better Auth's reset doesn't auto-sign-in by default).
+ */
+function extractSessionTokenFromSetCookies(
+  response: Response,
+): string | undefined {
+  try {
+    // Headers may have multiple Set-Cookie entries; iterate via getSetCookie
+    // when available (Node 20+ / undici), else fall back to comma split.
+    const headers = response.headers as Headers & {
+      getSetCookie?: () => string[];
+    };
+    const setCookies =
+      typeof headers.getSetCookie === "function"
+        ? headers.getSetCookie()
+        : (headers.get("set-cookie") ?? "")
+            .split(/,(?=[^;]+=)/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+    for (const sc of setCookies) {
+      // Better Auth's session cookie name is configurable but defaults to
+      // `<prefix>.session_token`. Match either the Better Auth default or
+      // our COOKIE_NAME (`an_session`) on the same line.
+      const match = sc.match(
+        /(?:^|\s|;)(an_session|[\w.-]*session_token)=([^;]+)/i,
+      );
+      if (match) return match[2];
+    }
+  } catch {
+    // Best-effort; treat as no token.
+  }
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // ACCESS_TOKEN resolution
 // ---------------------------------------------------------------------------
@@ -1524,6 +1562,65 @@ async function mountBetterAuthRoutes(
             sql: 'UPDATE "user" SET email_verified = TRUE WHERE id = ? AND (email_verified = FALSE OR email_verified IS NULL)',
             args: [resetUserId],
           });
+
+          // Revoke every existing session for this user so a stolen
+          // cookie doesn't outlive the password it was paired with. We
+          // do this AFTER Better Auth's response has been generated so
+          // the freshly-minted post-reset session (if any) is captured
+          // by the response's Set-Cookie header — but `auth.handler` for
+          // reset-password does not auto-sign-in by default, so the
+          // common path is "wipe everything; user signs in with new
+          // password." The legacy `sessions` table is also wiped by
+          // joining through the `user.email` column.
+          //
+          // Skip the freshly-minted Better Auth session id when present
+          // (auto-sign-in plugins / future config). Reading it from the
+          // response avoids racing against Better Auth's own writes.
+          const newSessionToken = extractSessionTokenFromSetCookies(
+            response as Response,
+          );
+
+          // 1. Better Auth `session` table — keyed by user_id.
+          if (newSessionToken) {
+            await db.execute({
+              sql: 'DELETE FROM "session" WHERE user_id = ? AND token <> ?',
+              args: [resetUserId, newSessionToken],
+            });
+          } else {
+            await db.execute({
+              sql: 'DELETE FROM "session" WHERE user_id = ?',
+              args: [resetUserId],
+            });
+          }
+
+          // 2. Legacy `sessions` table — keyed by `email` column. The
+          // reset-password verification row holds the user's id, not
+          // their email, so we look up the email first. Best-effort —
+          // skip silently if the lookup fails so the response still ships.
+          try {
+            const { rows } = await db.execute({
+              sql: 'SELECT email FROM "user" WHERE id = ?',
+              args: [resetUserId],
+            });
+            const userEmail = (rows[0]?.email ?? rows[0]?.[0]) as
+              | string
+              | undefined;
+            if (userEmail) {
+              if (newSessionToken) {
+                await db.execute({
+                  sql: "DELETE FROM sessions WHERE email = ? AND token <> ?",
+                  args: [userEmail, newSessionToken],
+                });
+              } else {
+                await db.execute({
+                  sql: "DELETE FROM sessions WHERE email = ?",
+                  args: [userEmail],
+                });
+              }
+            }
+          } catch {
+            // Best-effort — don't block the response
+          }
         } catch {
           // Best-effort — don't block the response
         }
@@ -1713,6 +1810,75 @@ async function mountBetterAuthRoutes(
       if (isElectronRequest(event)) await clearDesktopSso();
 
       return { ok: true };
+    }),
+  );
+
+  // POST /_agent-native/auth/logout-all — revoke every session row for
+  // the authenticated user across both auth tables. Companion to the
+  // password-reset session-revocation logic; lets a user sign out
+  // everywhere from one device. Requires an authenticated session.
+  app.use(
+    "/_agent-native/auth/logout-all",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const session = await getSession(event);
+      if (!session?.email) {
+        setResponseStatus(event, 401);
+        return { error: "Not authenticated" };
+      }
+      try {
+        const db = getDbExec();
+        // 1. Resolve user_id from email so we can wipe Better Auth sessions
+        // by their FK column.
+        let userId: string | undefined;
+        try {
+          const { rows } = await db.execute({
+            sql: 'SELECT id FROM "user" WHERE email = ?',
+            args: [session.email],
+          });
+          userId = (rows[0]?.id ?? rows[0]?.[0]) as string | undefined;
+        } catch {
+          // User table may not exist on token-only deployments — skip.
+        }
+        if (userId) {
+          try {
+            await db.execute({
+              sql: 'DELETE FROM "session" WHERE user_id = ?',
+              args: [userId],
+            });
+          } catch {
+            // Best-effort.
+          }
+        }
+
+        // 2. Legacy `sessions` table — keyed by `email` column.
+        try {
+          await db.execute({
+            sql: "DELETE FROM sessions WHERE email = ?",
+            args: [session.email],
+          });
+        } catch {
+          // Best-effort.
+        }
+
+        // 3. Drop the current request's cookie and best-effort sign out
+        // of Better Auth (so the response sets the proper expiry header).
+        deleteCookie(event, COOKIE_NAME, { path: "/" });
+        try {
+          await auth.api.signOut({ headers: event.headers });
+        } catch {
+          // Ignore — sessions are already gone in DB.
+        }
+
+        if (isElectronRequest(event)) await clearDesktopSso();
+        return { ok: true };
+      } catch (e: any) {
+        setResponseStatus(event, 500);
+        return { error: e?.message || "Failed to revoke sessions" };
+      }
     }),
   );
 

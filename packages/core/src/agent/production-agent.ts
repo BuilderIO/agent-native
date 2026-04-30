@@ -158,6 +158,7 @@ export async function getOwnerActiveApiKey(
       return undefined;
     }
     const envVar = PROVIDER_TO_ENV[provider];
+    // guard:allow-env-credential — single-tenant fallback. isMultiTenantDeploy() above blocks this branch on hosted shared-DB deploys.
     return envVar ? process.env[envVar] || undefined : undefined;
   } catch {
     return undefined;
@@ -711,6 +712,7 @@ export function createProductionAgentHandler(
         // key for an authenticated user (see getOwnerActiveApiKey for the
         // full rationale).
         const envVar = PROVIDER_TO_ENV[provider];
+        // guard:allow-env-credential — single-tenant fallback (gated by !isMultiTenantDeploy() above).
         userApiKey = envVar ? process.env[envVar] || undefined : undefined;
       }
     } else {
@@ -724,7 +726,8 @@ export function createProductionAgentHandler(
     // deployment's account. Only honour it in single-tenant mode.
     const effectiveApiKey = isMultiTenantDeploy()
       ? userApiKey
-      : (userApiKey ?? options.apiKey ?? process.env.ANTHROPIC_API_KEY);
+      : // guard:allow-env-credential — single-tenant fallback (gated by isMultiTenantDeploy() above).
+        (userApiKey ?? options.apiKey ?? process.env.ANTHROPIC_API_KEY);
 
     // Resolve engine — per-request engine override takes priority
     let engine: AgentEngine;

@@ -29,7 +29,7 @@ export default defineAction({
       .where(
         and(
           accessFilter(schema.documents, schema.documentShares),
-          sql`${schema.documents.title} LIKE ${pattern} OR ${schema.documents.content} LIKE ${pattern}`,
+          sql`(${schema.documents.title} LIKE ${pattern} OR ${schema.documents.content} LIKE ${pattern})`,
         ),
       )
       .orderBy(sql`${schema.documents.updatedAt} DESC`);

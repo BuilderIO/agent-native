@@ -131,7 +131,23 @@ export function whatsappAdapter(): PlatformAdapter {
     async verifyWebhook(event: H3Event): Promise<boolean> {
       const appSecret = process.env.WHATSAPP_APP_SECRET;
       if (!appSecret) {
-        // No app secret — accept if access token is configured
+        if (shouldRefuseWhenSecretMissing()) {
+          if (!_whatsappUnverifiedWarned) {
+            _whatsappUnverifiedWarned = true;
+            console.error(
+              "[whatsapp] WHATSAPP_APP_SECRET not set — refusing webhook in production. " +
+                "Set WHATSAPP_APP_SECRET, or set AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1 for local testing only.",
+            );
+          }
+          return false;
+        }
+        if (!_whatsappUnverifiedWarned) {
+          _whatsappUnverifiedWarned = true;
+          console.warn(
+            "[whatsapp] WHATSAPP_APP_SECRET not set — accepting webhook without verification (dev mode)",
+          );
+        }
+        // Dev mode: still require the access token to be configured at all.
         return !!process.env.WHATSAPP_ACCESS_TOKEN;
       }
 
@@ -157,7 +173,20 @@ export function whatsappAdapter(): PlatformAdapter {
     async parseIncomingMessage(
       event: H3Event,
     ): Promise<IncomingMessage | null> {
-      const body = await readBody(event);
+      // Prefer the pre-cached raw body (set by handleVerification) — h3 v2's
+      // request body stream is consume-once, so a second readBody call
+      // hangs.
+      const raw = event.context.__rawBody as string | undefined;
+      let body: any;
+      if (raw !== undefined) {
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      } else {
+        body = await readBody(event);
+      }
       if (!body) return null;
 
       // WhatsApp Cloud API webhook payload structure

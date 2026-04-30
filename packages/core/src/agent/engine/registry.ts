@@ -15,6 +15,7 @@ import type {
 } from "./types.js";
 import { getSetting } from "../../settings/store.js";
 import { DEV_MODE_USER_EMAIL } from "../../server/auth.js";
+import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 
 export interface AgentEngineEntry {
   /** Unique name, e.g. "anthropic", "ai-sdk:anthropic", "ai-sdk:openai" */
@@ -73,7 +74,7 @@ export function listAgentEngines(): AgentEngineEntry[] {
 /**
  * First registered engine whose requiredEnvVars are all set. Registration
  * order controls priority — the Builder gateway is registered first so it
- * wins when BUILDER_PRIVATE_KEY is present.
+ * wins when the Builder private key is present.
  *
  * Escape hatch: AGENT_ENGINE_PREFER_BYO_KEY=true skips the Builder engine
  * on the first pass, so an explicit provider key (ANTHROPIC_API_KEY etc.)
@@ -90,7 +91,7 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
       if (entry.name === "builder") continue;
       if (entry.requiredEnvVars.length === 0) continue;
       // guard:allow-env-credential — deploy-level engine availability check, not per-user resolution. The companion `detectEngineFromUserSecrets` handles per-user keys.
-      if (entry.requiredEnvVars.every((v) => !!process.env[v])) {
+      if (entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v))) {
         return entry;
       }
     }
@@ -100,7 +101,7 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
   for (const entry of _registry.values()) {
     if (entry.requiredEnvVars.length === 0) continue;
     // guard:allow-env-credential — deploy-level engine availability check, not per-user resolution.
-    if (entry.requiredEnvVars.every((v) => !!process.env[v])) {
+    if (entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v))) {
       return entry;
     }
   }
@@ -214,7 +215,7 @@ export function isStoredEngineUsable(
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
   // guard:allow-env-credential — deploy-level engine usability check (whether the deploy has the env vars to run this engine), not per-user credential resolution.
-  return entry.requiredEnvVars.every((v) => !!process.env[v]);
+  return entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v));
 }
 
 export interface ResolveEngineConfig {

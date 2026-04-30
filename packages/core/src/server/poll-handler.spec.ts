@@ -5,10 +5,16 @@ const mockExecute = vi.hoisted(() => vi.fn());
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getQuery: (event: any) => event.query ?? {},
+  setResponseStatus: () => {},
 }));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockExecute }),
+}));
+
+// Stub auth so the handler doesn't try to read a real session cookie.
+vi.mock("./auth.js", () => ({
+  getSession: async () => ({ email: "test@example.com" }),
 }));
 
 describe("poll handler", () => {

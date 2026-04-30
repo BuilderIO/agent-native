@@ -17,6 +17,7 @@ export {
   runAuthGuard,
   setDesktopExchange,
   DEV_MODE_USER_EMAIL,
+  safeReturnPath,
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
@@ -184,6 +185,7 @@ export {
   resolveBuilderCredential,
   writeBuilderCredentials,
   deleteBuilderCredentials,
+  resolveSecret,
 } from "./credential-provider.js";
 
 export {

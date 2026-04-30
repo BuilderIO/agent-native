@@ -14,9 +14,11 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
   return {
     ...original,
     resolveBuilderCredential: vi.fn(async (key: string) => {
+      // guard:allow-env-credential — test mock that mirrors the real resolver shape; runs only in vitest.
       return process.env[key] || null;
     }),
     resolveBuilderAuthHeader: vi.fn(async () => {
+      // guard:allow-env-credential — test mock; runs only in vitest.
       const key = process.env.BUILDER_PRIVATE_KEY;
       return key ? `Bearer ${key}` : null;
     }),

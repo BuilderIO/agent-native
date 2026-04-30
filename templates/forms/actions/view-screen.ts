@@ -88,6 +88,18 @@ export default defineAction({
     if (nav?.view === "responses" && nav?.formId) {
       try {
         const db = getDb();
+        const [form] = await db
+          .select({ id: schema.forms.id })
+          .from(schema.forms)
+          .where(
+            and(
+              eq(schema.forms.id, nav.formId),
+              accessFilter(schema.forms, schema.formShares),
+            ),
+          )
+          .limit(1);
+        if (!form) return screen;
+
         const responses = await db
           .select()
           .from(schema.responses)

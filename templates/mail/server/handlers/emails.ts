@@ -1258,6 +1258,21 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
     return { error: "Missing required fields: to, subject, body" };
   }
 
+  // Validate address-list shape after stripCrlf — guards against header
+  // injection where the attacker supplies a `\r\n`-laced subject or
+  // recipient and tries to smuggle Bcc/Reply-To headers into the raw email.
+  const cleanedTo = stripCrlf(to);
+  const cleanedCc = cc ? stripCrlf(cc) : "";
+  const cleanedBcc = bcc ? stripCrlf(bcc) : "";
+  if (
+    !isValidAddressList(cleanedTo) ||
+    !isValidAddressList(cleanedCc) ||
+    !isValidAddressList(cleanedBcc)
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid recipient address" };
+  }
+
   // If Gmail is connected, send via Gmail API
   if (await isConnected(email)) {
     try {
@@ -1489,6 +1504,18 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
   const reqBody = await readBody(event);
   const { to, cc, bcc, subject, body, draftId, replyToId, replyToThreadId } =
     reqBody;
+
+  // Validate header values after stripCrlf — same protection as sendEmail.
+  // Drafts go through the same buildRawEmail path so they need the same
+  // header-injection guard.
+  if (
+    !isValidAddressList(to ? stripCrlf(to) : "") ||
+    !isValidAddressList(cc ? stripCrlf(cc) : "") ||
+    !isValidAddressList(bcc ? stripCrlf(bcc) : "")
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid recipient address" };
+  }
 
   // If Gmail is connected, create/update a Gmail draft
   if (await isConnected(email)) {
@@ -2327,8 +2354,23 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
       !!listUnsubPost &&
       listUnsubPost.toLowerCase().includes("list-unsubscribe=one-click");
 
-    // Try RFC 8058 one-click unsubscribe first
+    // Try RFC 8058 one-click unsubscribe first.
+    //
+    // SSRF: the URL comes from an inbound email's `List-Unsubscribe` header
+    // — fully attacker-controlled. Without this guard a phishing email can
+    // make the production server POST to AWS IMDS (`http://169.254.169.254/`),
+    // localhost loopback, or internal cluster services and exfiltrate cloud
+    // creds / hit authenticated internal endpoints.
     if (oneClick && url) {
+      if (isBlockedToolUrl(url)) {
+        console.warn(
+          "[unsubscribe] one-click POST blocked: SSRF-protected URL",
+        );
+        // Don't echo the URL — that would let an attacker probe via the
+        // error response to map internal infrastructure.
+        setResponseStatus(event, 400);
+        return { error: "Unsubscribe URL is not allowed" };
+      }
       try {
         const res = await fetch(url, {
           method: "POST",
@@ -2351,9 +2393,17 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
         const subject = params.get("subject") || "Unsubscribe";
         const bodyText = params.get("body") || "";
 
+        // CRLF-strip every header value flowing into the raw RFC 2822
+        // message — the address/subject/body all come from inbound email
+        // headers and are attacker-controlled. Without this an unsubscribe
+        // mailto URI of `mailto:victim@target?subject=Hi%0D%0ABcc:attacker`
+        // injects a Bcc through the user's connected Gmail account.
+        const safeAddress = stripCrlf(address || "");
+        const safeSubject = stripCrlf(subject);
+
         // Build RFC 2822 email
         const raw = Buffer.from(
-          `To: ${address}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${bodyText}`,
+          `To: ${safeAddress}\r\nSubject: ${safeSubject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${bodyText}`,
         )
           .toString("base64")
           .replace(/\+/g, "-")
@@ -2361,7 +2411,7 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
           .replace(/=+$/, "");
 
         await gmailSendMessage(accessToken, raw);
-        return { ok: true, method: "mailto", address, url };
+        return { ok: true, method: "mailto", address: safeAddress, url };
       } catch (e: any) {
         console.warn("[unsubscribe] mailto send failed:", e.message);
       }

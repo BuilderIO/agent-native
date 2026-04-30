@@ -10,7 +10,13 @@ import {
 import { eq, desc, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { readBody, verifyCaptcha } from "@agent-native/core/server";
+import {
+  getSession,
+  readBody,
+  runWithRequestContext,
+  verifyCaptcha,
+} from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../db/index.js";
 import type {
   FormField,
@@ -217,44 +223,50 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
 });
 
 export const listResponses = defineEventHandler(async (event: H3Event) => {
-  const db = getDb();
-  const id = getRouterParam(event, "id") as string;
-  const query = getQuery(event);
-  const limit = parseInt((query.limit as string) || "100", 10);
-
-  // Verify form exists
-  const form = await db
-    .select()
-    .from(schema.forms)
-    .where(eq(schema.forms.id, id))
-
-    .then((rows) => rows[0]);
-  if (!form) {
-    setResponseStatus(event, 404);
-    return { error: "Form not found" };
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Sign in to view responses" };
   }
 
-  const rows = await db
-    .select()
-    .from(schema.responses)
-    .where(eq(schema.responses.formId, id))
-    .orderBy(desc(schema.responses.submittedAt))
-    .limit(limit);
-  const total = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(schema.responses)
-    .where(eq(schema.responses.formId, id))
+  const id = getRouterParam(event, "id") as string;
+  const query = getQuery(event);
+  const requestedLimit = parseInt((query.limit as string) || "100", 10);
+  const limit = Math.min(Math.max(requestedLimit || 100, 1), 500);
 
-    .then((rows) => rows[0]);
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId ?? undefined },
+    async () => {
+      const access = await resolveAccess("form", id);
+      if (!access) {
+        setResponseStatus(event, 404);
+        return { error: "Form not found" };
+      }
 
-  return {
-    responses: rows.map((r) => ({
-      id: r.id,
-      formId: r.formId,
-      data: JSON.parse(r.data),
-      submittedAt: r.submittedAt,
-    })) as FormResponse[],
-    total: total?.count ?? 0,
-    fields: JSON.parse(form.fields),
-  };
+      const db = getDb();
+      const rows = await db
+        .select()
+        .from(schema.responses)
+        .where(eq(schema.responses.formId, id))
+        .orderBy(desc(schema.responses.submittedAt))
+        .limit(limit);
+      const total = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.responses)
+        .where(eq(schema.responses.formId, id))
+
+        .then((rows) => rows[0]);
+
+      return {
+        responses: rows.map((r) => ({
+          id: r.id,
+          formId: r.formId,
+          data: JSON.parse(r.data),
+          submittedAt: r.submittedAt,
+        })) as FormResponse[],
+        total: total?.count ?? 0,
+        fields: JSON.parse(access.resource.fields),
+      };
+    },
+  );
 });
