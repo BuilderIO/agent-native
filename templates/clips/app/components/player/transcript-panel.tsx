@@ -163,7 +163,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
                   <button
                     onClick={() => onSeek(seg.startMs)}
                     className={cn(
-                      "w-full text-left px-3 py-2 flex gap-3 items-start hover:bg-accent/50 transition-colors",
+                      "w-full text-left px-3 py-2 flex gap-3 items-start hover:bg-accent/50",
                       isActive && "bg-accent",
                     )}
                   >

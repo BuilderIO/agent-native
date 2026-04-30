@@ -38,7 +38,7 @@ export function ReactionsTray({ onReact, disabled }: ReactionsTrayProps) {
           onClick={() => fire(emoji)}
           disabled={disabled}
           className={cn(
-            "h-9 w-9 rounded-full flex items-center justify-center text-xl transition-transform hover:scale-125 active:scale-110",
+            "h-9 w-9 rounded-full flex items-center justify-center text-xl",
             disabled && "opacity-50 cursor-not-allowed",
           )}
           title={`React with ${emoji}`}

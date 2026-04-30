@@ -23,7 +23,7 @@ export function CtaButton({ cta, onClick, floating, large }: CtaButtonProps) {
         onClick?.();
       }}
       className={cn(
-        "inline-flex items-center gap-2 rounded-full font-medium text-white shadow-lg transition-all hover:shadow-xl hover:-translate-y-0.5",
+        "inline-flex items-center gap-2 rounded-full font-medium text-white shadow-lg",
         large ? "px-6 py-3 text-base" : "px-4 py-2 text-sm",
         floating && "ring-2 ring-white/20",
       )}
