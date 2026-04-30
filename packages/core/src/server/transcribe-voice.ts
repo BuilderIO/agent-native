@@ -43,7 +43,9 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper hard limit.
 // this" prompt and it replies with text. 2.5x faster TTFT than 2.5 Flash
 // per Google's release notes, and noticeably snappier than the Whisper
 // round-trip even on a fast connection.
-const GEMINI_MODEL = "gemini-3.1-flash-lite-preview";
+// gemini-2.0-flash-lite is the stable GA Flash Lite as of April 2026.
+// (gemini-3.1-flash-lite-preview was never a real model ID — Gemini is on 2.x naming.)
+const GEMINI_MODEL = "gemini-2.0-flash-lite";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 /**
