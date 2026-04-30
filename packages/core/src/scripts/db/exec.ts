@@ -10,7 +10,7 @@
  * table uses the ownership convention.
  *
  * Usage:
- *   pnpm action db-exec --sql "UPDATE forms SET status='published' WHERE id='abc'" [--db path]
+ *   pnpm action db-exec --sql "UPDATE forms SET status=? WHERE id=?" [--args '["published","abc"]'] [--db path]
  */
 
 import path from "path";
@@ -25,6 +25,17 @@ import {
 
 function isPostgresUrl(url: string): boolean {
   return url.startsWith("postgres://") || url.startsWith("postgresql://");
+}
+
+function parseSqlArgs(raw: string | undefined): unknown[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {
+    // Fall through to the shared error below.
+  }
+  fail("--args must be a JSON array");
 }
 
 /**
@@ -150,6 +161,7 @@ export default async function dbExec(args: string[]): Promise<void> {
 
 Options:
   --sql <stmt>    SQL statement to execute (required)
+  --args <json>   JSON array of positional SQL bind parameters
   --db <path>     Path to SQLite database (default: data/app.db)
   --format json   Output as JSON
   --help          Show this help message`);
@@ -162,6 +174,7 @@ Options:
       "--sql is required. Example: --sql \"UPDATE forms SET status='published' WHERE id='abc'\"",
     );
   }
+  const sqlArgs = parseSqlArgs(parsed.args);
 
   // Allowlist: only permit DML statements the agent should run
   const stripped = sql
@@ -212,7 +225,10 @@ Options:
       // For INSERT: auto-inject owner_email / org_id
       const finalSql = injectOwnership(sql, scoping);
 
-      const result = await pgSql.unsafe(finalSql);
+      const result =
+        sqlArgs.length > 0
+          ? await pgSql.unsafe(finalSql, sqlArgs as any[])
+          : await pgSql.unsafe(finalSql);
       const rows: Record<string, unknown>[] =
         hasReturning && result.length > 0 ? Array.from(result) : [];
 
@@ -248,7 +264,10 @@ Options:
     // For INSERT: auto-inject owner_email / org_id
     const finalSql = injectOwnership(sql, scoping);
 
-    const result = await client.execute(finalSql);
+    const result =
+      sqlArgs.length > 0
+        ? await client.execute({ sql: finalSql, args: sqlArgs as any[] })
+        : await client.execute(finalSql);
 
     const rows: Record<string, unknown>[] =
       hasReturning && result.rows.length > 0

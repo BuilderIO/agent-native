@@ -541,6 +541,13 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
     const mod = await import("../scripts/db/query.js");
     const args = ["--sql", sql, "--format", "json"];
     if (body.limit) args.push("--limit", String(body.limit));
+    if (body.args !== undefined) {
+      if (!Array.isArray(body.args)) {
+        setResponseStatus(event, 400);
+        return { error: "args must be an array" };
+      }
+      args.push("--args", JSON.stringify(body.args));
+    }
     const output = await captureCliOutput(mod.default, args);
     try {
       return JSON.parse(output);
@@ -586,6 +593,13 @@ async function handleSqlExec(event: H3Event): Promise<unknown> {
   try {
     const mod = await import("../scripts/db/exec.js");
     const args = ["--sql", sql, "--format", "json"];
+    if (body.args !== undefined) {
+      if (!Array.isArray(body.args)) {
+        setResponseStatus(event, 400);
+        return { error: "args must be an array" };
+      }
+      args.push("--args", JSON.stringify(body.args));
+    }
     const output = await captureCliOutput(mod.default, args);
     try {
       return JSON.parse(output);
