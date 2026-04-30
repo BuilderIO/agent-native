@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { getIdToken } from "@/lib/auth";
 
 async function fetchWithAuth(url: string, options?: RequestInit) {
@@ -42,7 +43,13 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
     },
     onMutate: async (value: T) => {
       await queryClient.cancelQueries({ queryKey });
+      const previousValue = queryClient.getQueryData<T>(queryKey);
       queryClient.setQueryData(queryKey, value);
+      return { previousValue };
+    },
+    onError: (_err, _value, context) => {
+      queryClient.setQueryData(queryKey, context?.previousValue);
+      toast.error("Failed to save preference");
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });
