@@ -652,21 +652,37 @@ export function installDesktopVoiceDictation(
    * the "Polishing..." state entirely.
    */
   const startBrowser = async () => {
+    console.log("[voice-dictation] startBrowser: opening mic + recognition");
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) {
       console.error(
-        "[voice-dictation] webkitSpeechRecognition unavailable — falling back to server path",
+        "[voice-dictation] webkitSpeechRecognition unavailable — falling back to server",
       );
-      // Force a server attempt as a last resort. If that fails too, the
-      // user gets the "no provider" error in the bar.
       await startServer("auto");
       return;
     }
     try {
       startInFlight = true;
       stopRequestedBeforeReady = false;
+      // Open a real mic stream so the waveform shows actual audio levels.
+      // Web Speech API doesn't expose its own buffers; without this we
+      // were faking the bars with a synthetic sine. The recognition engine
+      // has its own independent audio path so the two coexist fine.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      if (disposed || stopRequestedBeforeReady) {
+        stream.getTracks().forEach((t) => t.stop());
+        startInFlight = false;
+        stopRequestedBeforeReady = false;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+        return;
+      }
       await invoke("show_flow_bar");
       setFlowState("recording");
+      // Reset any prior partial transcript display in the flow-bar.
+      emit("voice:partial-transcript", { text: "" }).catch(() => {});
       const recognition = new Ctor();
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -674,7 +690,7 @@ export function installDesktopVoiceDictation(
       recognition.maxAlternatives = 1;
       const next: VoiceSession = {
         kind: "browser",
-        stream: null,
+        stream,
         recorder: null,
         chunks: [],
         audioContext: null,
@@ -688,29 +704,59 @@ export function installDesktopVoiceDictation(
         transcribeAbort: null,
         cancelled: false,
       };
+      // Lifecycle diagnostics — when something silently fails (common in
+      // WKWebView Web Speech), missing logs tell us exactly which stage
+      // is broken. Cheap to keep enabled.
+      (
+        recognition as unknown as { onstart: (() => void) | null }
+      ).onstart = () => console.log("[voice-dictation] recognition.onstart");
+      (
+        recognition as unknown as { onaudiostart: (() => void) | null }
+      ).onaudiostart = () =>
+        console.log("[voice-dictation] recognition.onaudiostart");
+      (
+        recognition as unknown as { onspeechstart: (() => void) | null }
+      ).onspeechstart = () =>
+        console.log("[voice-dictation] recognition.onspeechstart");
       recognition.onresult = (ev) => {
-        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        // Build current full text (final segments + latest interim).
+        let finalSoFar = "";
+        let interim = "";
+        for (let i = 0; i < ev.results.length; i++) {
           const r = ev.results[i];
           if (r.isFinal) {
-            next.browserTranscript += r[0].transcript;
+            finalSoFar += r[0].transcript;
+          } else {
+            interim += r[0].transcript;
           }
         }
+        next.browserTranscript = finalSoFar;
+        const live = (finalSoFar + interim).trim();
+        // Stream the live transcript to the flow-bar.
+        emit("voice:partial-transcript", { text: live }).catch(() => {});
       };
       recognition.onerror = (ev) => {
-        // "no-speech" / "aborted" are normal in push-to-talk; only log
-        // the genuinely unexpected ones.
         if (ev.error !== "no-speech" && ev.error !== "aborted") {
           console.warn(
-            "[voice-dictation] webkitSpeechRecognition error:",
+            "[voice-dictation] recognition error:",
             ev.error,
           );
+        } else {
+          console.log("[voice-dictation] recognition error (benign):", ev.error);
         }
       };
       recognition.onend = async () => {
+        console.log("[voice-dictation] recognition.onend");
         stopMeter(next);
+        stopTracks(next);
         if (session === next) session = null;
         const text = next.browserTranscript.trim();
         if (disposed || next.cancelled || !text) {
+          console.log(
+            "[voice-dictation] no usable text on onend (cancelled/empty)",
+          );
+          // Clear the live transcript display.
+          emit("voice:partial-transcript", { text: "" }).catch(() => {});
           cleanup(next);
           return;
         }
@@ -726,14 +772,20 @@ export function installDesktopVoiceDictation(
             err,
           );
         }
-        // No "Polishing..." for the browser path — text is already final
-        // when onend fires. Just dismiss.
+        emit("voice:partial-transcript", { text: "" }).catch(() => {});
         cleanup(next);
       };
       session = next;
       startInFlight = false;
-      startSyntheticMeter(next);
-      recognition.start();
+      // Real audio meter from the mic stream.
+      startMeter(next);
+      try {
+        recognition.start();
+        console.log("[voice-dictation] recognition.start() returned");
+      } catch (err) {
+        console.error("[voice-dictation] recognition.start threw:", err);
+        throw err;
+      }
       if (stopRequestedBeforeReady) {
         stop();
       }
