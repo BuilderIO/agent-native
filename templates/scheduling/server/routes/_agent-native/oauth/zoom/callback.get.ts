@@ -12,6 +12,7 @@
  *
  * Framework convention: this path is `/_agent-native/oauth/zoom/callback`.
  */
+import crypto from "node:crypto";
 import {
   defineEventHandler,
   getQuery,
@@ -19,6 +20,7 @@ import {
   setResponseStatus,
 } from "h3";
 import { getOrigin, getSession } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { completeVideoOAuth } from "@agent-native/scheduling/server";
 
 function normalizeBasePath(value: string | undefined): string {

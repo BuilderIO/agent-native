@@ -36,11 +36,16 @@ import {
   readAppSecret,
   deleteAppSecret,
 } from "../secrets/storage.js";
+import type { SecretScope } from "../secrets/register.js";
 import type { McpHttpServerConfig } from "./config.js";
 
 const SETTINGS_KEY = "mcp-servers-remote";
 
 export type RemoteMcpScope = "user" | "org";
+
+function toSecretScope(scope: RemoteMcpScope): SecretScope {
+  return scope === "user" ? "user" : "workspace";
+}
 
 export interface StoredRemoteMcpServer {
   /** Stable unique id — used for removal / URLs. */
@@ -337,7 +342,7 @@ export async function addRemoteServer(
       await writeAppSecret({
         key: headerSecretKey,
         value: JSON.stringify(secret),
-        scope: scope === "user" ? "user" : "org",
+        scope: toSecretScope(scope),
         scopeId,
         description: `Encrypted MCP headers for ${name}`,
       });
@@ -387,7 +392,7 @@ export async function removeRemoteServer(
     try {
       await deleteAppSecret({
         key: removed.headerSecretKey,
-        scope: scope === "user" ? "user" : "org",
+        scope: toSecretScope(scope),
         scopeId,
       });
     } catch (err: any) {
@@ -419,7 +424,7 @@ export async function materializeHeaders(
     try {
       const secret = await readAppSecret({
         key: stored.headerSecretKey,
-        scope: scope === "user" ? "user" : "org",
+        scope: toSecretScope(scope),
         scopeId,
       });
       if (secret) {

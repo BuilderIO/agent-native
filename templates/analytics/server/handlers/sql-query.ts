@@ -3,7 +3,6 @@ import { requireCredential, runApiHandlerWithContext } from "../lib/credentials"
 import { runQuery } from "../lib/bigquery";
 import { runReport } from "../lib/google-analytics";
 import { getUserSegmentation, queryEvents } from "../lib/amplitude";
-import { getDbExec } from "@agent-native/core/db";
 import { readBody } from "@agent-native/core/server";
 
 /**
@@ -251,14 +250,10 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
       return { error: "Missing or invalid query" };
     }
 
-    if (
-      !source ||
-      !["bigquery", "app-db", "ga4", "amplitude"].includes(source)
-    ) {
+    if (!source || !["bigquery", "ga4", "amplitude"].includes(source)) {
       setResponseStatus(event, 400);
       return {
-        error:
-          "Invalid source. Must be 'bigquery', 'app-db', 'ga4', or 'amplitude'",
+        error: "Invalid source. Must be 'bigquery', 'ga4', or 'amplitude'",
       };
     }
 
@@ -306,39 +301,8 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
         return await runAmplitudePanel(query);
       }
 
-      // app-db: strict read-only enforcement
-      const trimmed = query.trim().toUpperCase();
-      if (!trimmed.startsWith("SELECT") && !trimmed.startsWith("WITH")) {
-        setResponseStatus(event, 400);
-        return { error: "Only SELECT queries are allowed for app-db" };
-      }
-      const forbiddenPattern =
-        /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|ATTACH|DETACH|PRAGMA|LOAD_EXTENSION|VACUUM|REINDEX)\b/i;
-      if (forbiddenPattern.test(query)) {
-        setResponseStatus(event, 400);
-        return { error: "Only SELECT queries are allowed for app-db" };
-      }
-      // Block semicolons to prevent statement stacking
-      if (query.includes(";")) {
-        const statementsBeforeSemicolon = query
-          .split(";")
-          .filter((s) => s.trim());
-        if (statementsBeforeSemicolon.length > 1) {
-          setResponseStatus(event, 400);
-          return { error: "Multiple statements are not allowed" };
-        }
-      }
-
-      const client = getDbExec();
-      const { rows } = await client.execute(query);
-      const schema =
-        rows.length > 0
-          ? Object.keys(rows[0] as Record<string, unknown>).map((name) => ({
-              name,
-              type: typeof (rows[0] as Record<string, unknown>)[name],
-            }))
-          : [];
-      return { rows, schema };
+      setResponseStatus(event, 400);
+      return { error: "Unsupported source" };
     } catch (error: any) {
       const message = error?.message || String(error);
       console.error(`SQL query error (${source}):`, message);

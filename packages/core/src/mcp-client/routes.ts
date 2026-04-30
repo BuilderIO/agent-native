@@ -33,7 +33,7 @@ import {
   listRemoteServers,
   mergedConfigKey,
   removeRemoteServer,
-  toHttpServerConfig,
+  toHttpServerConfigAsync,
   validateRemoteUrl,
   type RemoteMcpScope,
   type StoredRemoteMcpServer,
@@ -136,8 +136,11 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
     if (!Array.isArray(list)) continue;
     for (const stored of list) {
       if (!stored || typeof stored.url !== "string" || !stored.name) continue;
+      // Async resolve: decrypts `headerSecretKey` from app_secrets so the
+      // running MCP client gets the cleartext bearer at request time.
+      // Stored row contains only the secret-key reference, never the value.
       servers[mergedConfigKey(scope, stored, ownerId)] =
-        toHttpServerConfig(stored);
+        await toHttpServerConfigAsync(scope, ownerId, stored);
     }
   }
 

@@ -460,7 +460,8 @@ export function createIntegrationsPlugin(
                 setResponseStatus(event, 503);
                 return {
                   ok: false,
-                  error: "google-docs push endpoint disabled (audience not configured)",
+                  error:
+                    "google-docs push endpoint disabled (audience not configured)",
                 };
               }
               // Dev: keep the loose posture so contributors can play with the
@@ -545,7 +546,7 @@ export function createIntegrationsPlugin(
         // ─── POST /:platform/enable ────────────────────────────
         if (action === "enable" && method === "POST") {
           const adminCheck = await checkOrgAdmin(event);
-          if (adminCheck.ok !== true) return { error: adminCheck.error };
+          if (adminCheck.ok === false) return { error: adminCheck.error };
           // Stamp the org-admin who toggled this so downstream code can
           // tell who is responsible — useful for audit logs even though
           // the row itself remains deployment-wide.
@@ -562,7 +563,7 @@ export function createIntegrationsPlugin(
         // ─── POST /:platform/disable ───────────────────────────
         if (action === "disable" && method === "POST") {
           const adminCheck = await checkOrgAdmin(event);
-          if (adminCheck.ok !== true) return { error: adminCheck.error };
+          if (adminCheck.ok === false) return { error: adminCheck.error };
           const session = await getSession(event).catch(() => null);
           await saveIntegrationConfig(
             platform,
@@ -576,7 +577,7 @@ export function createIntegrationsPlugin(
         // ─── POST /:platform/setup ─────────────────────────────
         if (action === "setup" && method === "POST") {
           const adminCheck = await checkOrgAdmin(event);
-          if (adminCheck.ok !== true) return { error: adminCheck.error };
+          if (adminCheck.ok === false) return { error: adminCheck.error };
           if (platform === "telegram") {
             const baseUrl = getBaseUrl(event);
             const webhookUrl = `${baseUrl}${P}/telegram/webhook`;

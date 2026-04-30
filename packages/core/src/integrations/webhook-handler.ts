@@ -144,13 +144,21 @@ export async function handleWebhook(
   try {
     await enqueueAndDispatch(event, incoming, options);
   } catch (err) {
+    // Duplicate event delivery: the SQL UNIQUE constraint on
+    // (platform, external_event_key) rejected the second insert. This is
+    // the expected path when a platform retries an event that already
+    // landed (e.g. Slack 3-second timeout) — return 200 so the platform
+    // stops retrying. See H3 in the webhook security audit.
+    if (isDuplicateEventError(err)) {
+      return { status: 200, body: "ok" };
+    }
     console.error(
       `[integrations] Failed to enqueue/dispatch ${incoming.platform} message:`,
       err,
     );
-    // Return 500 so the platform retries. If the SQL insert failed, the
-    // message is genuinely lost — better to let Slack retry (it will
-    // re-fire the same event_callback) than silently drop it.
+    // Return 500 so the platform retries. If the SQL insert failed for a
+    // non-dup reason, the message is genuinely lost — better to let Slack
+    // retry (it will re-fire the same event_callback) than silently drop it.
     return { status: 500, body: { error: "enqueue failed" } };
   }
 
@@ -213,24 +221,35 @@ async function enqueueAndDispatch(
     payload,
     ownerEmail: options.ownerEmail,
     orgId,
+    // SQL-level dedup key — duplicate webhook deliveries from the same
+    // platform produce the same key, so the unique index rejects the
+    // second insert (H3 in the webhook security audit).
+    externalEventKey: buildEventDedupKey(incoming),
   });
 
   const baseUrl = resolveBaseUrl(event);
   const processUrl = `${baseUrl}${FRAMEWORK_ROUTE_PREFIX}/integrations/process-task`;
 
-  // If A2A_SECRET is configured, sign the dispatch with an HMAC token so the
-  // processor endpoint can verify the request came from us and not from the
-  // public internet. If A2A_SECRET isn't set we still dispatch — the
-  // processor endpoint validates that the task id exists in SQL and uses the
-  // atomic claim to dedupe, so an unsigned dispatch is bounded in damage to
-  // re-running already-queued work.
+  // Sign the dispatch with an HMAC token so the processor endpoint can
+  // verify the request came from us and not the public internet. The
+  // processor refuses unsigned requests in production (C3 in the webhook
+  // security audit). In dev, dispatching unsigned is allowed and falls
+  // through to the SQL atomic claim for double-processing protection.
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   try {
     headers["Authorization"] = `Bearer ${signInternalToken(taskId)}`;
-  } catch {
-    // No A2A_SECRET — proceed without a signed token. See note above.
+  } catch (err) {
+    // Distinguish "secret not configured" (the documented dev path) from
+    // a real signing failure — silently swallowing both made malformed
+    // secrets fail invisibly (L5 in the audit).
+    if (err instanceof Error && !/A2A_SECRET/i.test(err.message)) {
+      console.error(
+        `[integrations] signInternalToken failed unexpectedly for ${taskId}:`,
+        err,
+      );
+    }
   }
 
   // Fire-and-forget: do NOT await the full response (the processor's run

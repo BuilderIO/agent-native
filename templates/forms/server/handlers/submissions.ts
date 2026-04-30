@@ -7,7 +7,7 @@ import {
   getRequestIP,
   type H3Event,
 } from "h3";
-import { eq, desc, sql } from "drizzle-orm";
+import { and, eq, desc, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -51,14 +51,17 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   const db = getDb();
   const id = getRouterParam(event, "id") as string;
 
-  // Look up the form
+  // guard:allow-unscoped — public submission endpoint intentionally accepts anonymous responses for published forms by id; it returns no owner data and rejects non-published forms.
+  // Public submission endpoint: published forms are intentionally readable
+  // without an authenticated viewer, but only by exact id and published status.
+  // guard:allow-unscoped — anonymous respondents must be able to submit published forms; unpublished/private forms still return 404
   const form = await db
     .select()
     .from(schema.forms)
-    .where(eq(schema.forms.id, id))
+    .where(and(eq(schema.forms.id, id), eq(schema.forms.status, "published")))
 
     .then((rows) => rows[0]);
-  if (!form || form.status !== "published") {
+  if (!form) {
     setResponseStatus(event, 404);
     return { error: "Form not found or not accepting responses" };
   }
@@ -192,7 +195,7 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   try {
     const { appStatePut } =
       await import("@agent-native/core/application-state");
-    await appStatePut("local", "new-submission", {
+    await appStatePut(form.ownerEmail, "new-submission", {
       formId: id,
       responseId,
       timestamp: now,
