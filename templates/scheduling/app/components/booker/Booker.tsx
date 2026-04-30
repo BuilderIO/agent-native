@@ -47,6 +47,8 @@ export interface BookerProps {
   teamSlug?: string;
   /** If set, this is a reschedule — old booking UID is replaced. */
   rescheduleUid?: string;
+  /** Public magic token used when an attendee reschedules without signing in. */
+  rescheduleToken?: string;
   mode?: "page" | "embed";
 }
 
@@ -121,6 +123,7 @@ export function Booker(props: BookerProps) {
           newEndTime: slot.end,
           reason: form.notes || undefined,
           rescheduledBy: "attendee",
+          token: props.rescheduleToken,
         });
         flow.submitSuccess(booking.uid);
       } else {
@@ -304,8 +307,9 @@ export function Booker(props: BookerProps) {
                     </span>
                   </div>
                   <SlotPicker
-                    slots={slots.filter((s: Slot) =>
-                      s.start.startsWith(flow.state.selectedDate!),
+                    slots={slots.filter(
+                      (s: Slot) =>
+                        slotLocalDate(s, tz) === flow.state.selectedDate,
                     )}
                     timezone={tz}
                     onSelect={flow.selectSlot}
@@ -320,6 +324,13 @@ export function Booker(props: BookerProps) {
         Powered by Scheduling
       </footer>
     </div>
+  );
+}
+
+function slotLocalDate(slot: Slot, timezone: string): string {
+  return format(
+    new TZDate(new Date(slot.start).getTime(), timezone),
+    "yyyy-MM-dd",
   );
 }
 

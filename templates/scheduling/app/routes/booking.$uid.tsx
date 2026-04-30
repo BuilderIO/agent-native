@@ -3,6 +3,7 @@ import { useLoaderData, Link } from "react-router";
 import { TZDate } from "@date-fns/tz";
 import { format } from "date-fns";
 import { getBookingByUid } from "@agent-native/scheduling/server";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,14 +18,24 @@ import {
   IconX,
 } from "@tabler/icons-react";
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, request }: LoaderFunctionArgs) {
   const booking = await getBookingByUid(params.uid!);
   if (!booking) throw new Response("Not found", { status: 404 });
-  return { booking };
+  const token = new URL(request.url).searchParams.get("token") ?? undefined;
+  const userEmail = getRequestUserEmail();
+  const isHost = !!userEmail && userEmail === booking.hostEmail;
+  const hasManageToken =
+    !!token &&
+    (token === booking.cancelToken || token === booking.rescheduleToken);
+  return {
+    booking,
+    manageToken: hasManageToken ? token : undefined,
+    canManage: isHost || hasManageToken,
+  };
 }
 
 export default function BookingDetail() {
-  const { booking } = useLoaderData<typeof loader>();
+  const { booking, manageToken, canManage } = useLoaderData<typeof loader>();
   const tz = booking.timezone;
   const start = new TZDate(new Date(booking.startTime).getTime(), tz);
   const end = new TZDate(new Date(booking.endTime).getTime(), tz);
@@ -126,12 +137,18 @@ export default function BookingDetail() {
           </>
         )}
 
-        {booking.status === "confirmed" && booking.rescheduleToken && (
+        {booking.status === "confirmed" && canManage && (
           <>
             <Separator />
             <div className="flex items-center justify-center gap-2 p-6">
               <Button asChild variant="outline" size="sm">
-                <Link to={`/reschedule/${booking.uid}`}>
+                <Link
+                  to={
+                    manageToken
+                      ? `/reschedule/${booking.uid}?token=${encodeURIComponent(manageToken)}`
+                      : `/reschedule/${booking.uid}`
+                  }
+                >
                   <IconCalendar className="mr-1.5 h-3.5 w-3.5" />
                   Reschedule
                 </Link>
@@ -142,6 +159,10 @@ export default function BookingDetail() {
                 className="inline"
               >
                 <input type="hidden" name="uid" value={booking.uid} />
+                {manageToken && (
+                  <input type="hidden" name="token" value={manageToken} />
+                )}
+                <input type="hidden" name="cancelledBy" value="attendee" />
                 <Button type="submit" variant="ghost" size="sm">
                   <IconX className="mr-1.5 h-3.5 w-3.5" />
                   Cancel
