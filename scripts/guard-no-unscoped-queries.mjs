@@ -1031,34 +1031,63 @@ if (ownablesByDir.size === 0) {
 const violations = await scanFiles(ownablesByDir);
 const mentionViolations = await scanMentionProviders(ownablesByDir);
 
-if (violations.length > 0) {
+if (violations.length > 0 || mentionViolations.length > 0) {
   const bar = "=".repeat(72);
   console.error(`\n${bar}`);
   console.error("ERROR: unscoped query against an ownable resource table.");
   console.error(bar);
   console.error("");
-  console.error(
-    "These statements query a table that includes `ownableColumns()`",
-  );
-  console.error("but do NOT use `accessFilter` / `resolveAccess` /");
-  console.error(
-    "`assertAccess` and do NOT filter by `ownerEmail` / `userEmail` /",
-  );
-  console.error("`orgId` in their WHERE clause (or in the enclosing block).");
-  console.error("That is how the slides leak happened on 2026-04-28 —");
-  console.error("anyone signing in saw every other user's decks. Same");
-  console.error("class of bug for inserts that don't set ownerEmail from the");
-  console.error("request context.");
-  console.error("");
-  for (const v of violations) {
-    console.error(`  ${v.file}`);
-    for (const hit of v.hits) {
+
+  if (violations.length > 0) {
+    console.error(
+      "These statements query a table that includes `ownableColumns()`",
+    );
+    console.error("but do NOT use `accessFilter` / `resolveAccess` /");
+    console.error(
+      "`assertAccess` and do NOT filter by `ownerEmail` / `userEmail` /",
+    );
+    console.error("`orgId` in their WHERE clause (or in the enclosing block).");
+    console.error("That is how the slides leak happened on 2026-04-28 —");
+    console.error("anyone signing in saw every other user's decks. Same");
+    console.error("class of bug for inserts that don't set ownerEmail from the");
+    console.error("request context.");
+    console.error("");
+    for (const v of violations) {
+      console.error(`  ${v.file}`);
+      for (const hit of v.hits) {
+        console.error(
+          `    line ${hit.line}: unscoped ${hit.op} on "${hit.name}" (${hit.kind})`,
+        );
+      }
+      console.error("");
+    }
+  }
+
+  if (mentionViolations.length > 0) {
+    console.error(
+      "These mentionProviders search closures query an ownable table",
+    );
+    console.error(
+      "without `accessFilter` / `resolveAccess` / `assertAccess` /",
+    );
+    console.error(
+      "`getRequestUserEmail` / `getCurrentOwnerEmail` / explicit owner filter.",
+    );
+    console.error(
+      "mentionProviders run in a shared server context — every user who",
+    );
+    console.error(
+      "types `@` in the chat would see rows owned by other users.",
+    );
+    console.error("");
+    for (const v of mentionViolations) {
       console.error(
-        `    line ${hit.line}: unscoped ${hit.op} on "${hit.name}" (${hit.kind})`,
+        `  ${v.file}  line ${v.line}: unscoped select on "${v.table}" in ${v.context}`,
       );
     }
     console.error("");
   }
+
   console.error(bar);
   console.error("Fix:");
   console.error("");
@@ -1080,10 +1109,16 @@ if (violations.length > 0) {
     "    wrap the call with `runWithRequestContext({ userEmail, orgId },",
   );
   console.error("    fn)` after reading the session via `getSession(event)`.");
+  console.error(
+    "  - mentionProviders search closures: use accessFilter() or",
+  );
+  console.error(
+    "    eq(table.ownerEmail, getCurrentOwnerEmail()) in the WHERE clause.",
+  );
   console.error("");
   console.error("  Last-resort opt-out (requires reviewer approval):");
   console.error("    // guard:allow-unscoped — explain why this is safe");
-  console.error("    (place inside the enclosing block, or as a file header)");
+  console.error("    (place inside the search closure, or as a file header)");
   console.error(`${bar}\n`);
   process.exit(1);
 }

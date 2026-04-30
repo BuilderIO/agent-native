@@ -88,7 +88,10 @@ export async function getApprovalPolicy(): Promise<DispatchApprovalPolicy> {
   };
 }
 
-export async function setApprovalPolicy(input: DispatchApprovalPolicy) {
+async function applyApprovalPolicy(
+  input: DispatchApprovalPolicy,
+  actor = currentOwnerEmail(),
+) {
   const orgId = currentOrgId();
   if (!orgId) {
     throw new Error(
@@ -107,8 +110,27 @@ export async function setApprovalPolicy(input: DispatchApprovalPolicy) {
       ? "Enabled approval flow for durable dispatch changes"
       : "Disabled approval flow for durable dispatch changes",
     metadata: input,
+    actor,
   });
   return getApprovalPolicy();
+}
+
+export async function setApprovalPolicy(input: DispatchApprovalPolicy) {
+  const current = await getApprovalPolicy();
+  if (!current.enabled) {
+    return applyApprovalPolicy(input);
+  }
+  return createApprovalRequest({
+    changeType: "approval-policy.update",
+    targetType: "dispatch-settings",
+    targetId: APPROVAL_POLICY_KEY,
+    summary: input.enabled
+      ? "Update dispatch approval policy"
+      : "Disable dispatch approval policy",
+    payload: input,
+    beforeValue: current,
+    afterValue: input,
+  });
 }
 
 export async function recordAudit(input: {
@@ -441,7 +463,10 @@ async function applyApprovedRequest(request: DispatchApprovalRequest) {
     );
   }
   if (request.changeType === "approval-policy.update") {
-    return setApprovalPolicy(payload);
+    return applyApprovalPolicy(
+      payload,
+      request.reviewedBy || currentOwnerEmail(),
+    );
   }
   throw new Error(`Unsupported approval request type: ${request.changeType}`);
 }
