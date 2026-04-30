@@ -56,6 +56,17 @@
  *   'local@localhost'     (single-quoted)
  *   `local@localhost`     (backtick / template literal)
  *
+ * Symbolic alias caught:
+ *
+ *   ?? DEV_MODE_USER_EMAIL
+ *   || DEV_MODE_USER_EMAIL
+ *
+ * The audit (02 — getCurrentRunOwner) found that hiding the literal
+ * behind a symbolic alias slipped past the regex above. Use the same
+ * "no fallback to dev sentinel" rule for symbolic references on `??` /
+ * `||` chains. Imports and other reads of the constant are fine — only
+ * the fallback shape is dangerous.
+ *
  * Comments (lines starting with `*`, `//`, or `/*`) are skipped — the
  * literal often appears in JSDoc explaining the dev-mode behavior.
  *
@@ -134,6 +145,13 @@ const OPT_OUT_REQUIRES_REASON =
 // Match any of the three quoted forms. The flag `g` so we can iterate;
 // the offset gives us the line.
 const LITERAL_RE = /(?:"local@localhost"|'local@localhost'|`local@localhost`)/g;
+
+// Catch the symbolic-alias fallback shape:
+//   foo ?? DEV_MODE_USER_EMAIL
+//   foo || DEV_MODE_USER_EMAIL
+// Plain reads / imports of the constant are fine — only the fallback
+// chain is the dangerous pattern audit 02 found.
+const SYMBOLIC_FALLBACK_RE = /(?:\?\?|\|\|)\s*DEV_MODE_USER_EMAIL\b/g;
 
 // SQL DDL `DEFAULT 'local@localhost'` (case-insensitive, any whitespace) is
 // a legitimate schema column default. Drizzle's helper form
