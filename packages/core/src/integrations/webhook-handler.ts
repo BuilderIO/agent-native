@@ -27,28 +27,18 @@ import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 
 /**
- * Tracks recently processed event IDs to deduplicate webhook retries.
- * Slack retries if it doesn't get a 200 within 3 seconds.
+ * Build a stable per-event dedup key from the incoming message. The same
+ * key is computed for every retry of the same event from the platform —
+ * Slack/Telegram retry on timeout (3s for Slack), so we MUST treat the
+ * second delivery as a duplicate and return 200 silently.
+ *
+ * The `(platform, external_event_key)` UNIQUE index in
+ * `integration_pending_tasks` enforces this at the SQL layer, replacing
+ * the previous in-memory Map (H3 in the webhook security audit) which
+ * couldn't survive serverless cold starts.
  */
-const recentEventIds = new Map<string, number>();
-const DEDUP_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-// Periodically clean up old entries
-setInterval(() => {
-  const cutoff = Date.now() - DEDUP_TTL_MS;
-  for (const [id, ts] of recentEventIds) {
-    if (ts < cutoff) recentEventIds.delete(id);
-  }
-}, 60_000);
-
-/**
- * Check if this event was already processed (for deduplication).
- * Returns true if it's a duplicate.
- */
-function isDuplicate(eventId: string): boolean {
-  if (recentEventIds.has(eventId)) return true;
-  recentEventIds.set(eventId, Date.now());
-  return false;
+function buildEventDedupKey(incoming: IncomingMessage): string {
+  return `${incoming.platform}:${incoming.externalThreadId}:${incoming.timestamp}`;
 }
 
 export interface WebhookHandlerOptions {
@@ -132,11 +122,12 @@ export async function handleWebhook(
     }
   }
 
-  // Deduplicate (platforms retry on timeout)
-  const eventId = `${incoming.platform}:${incoming.externalThreadId}:${incoming.timestamp}`;
-  if (isDuplicate(eventId)) {
-    return { status: 200, body: "ok" };
-  }
+  // Dedup is enforced inside enqueueAndDispatch — the unique index on
+  // `(platform, external_event_key)` raises a constraint violation we treat
+  // as "already enqueued" and respond 200. We can't dedup BEFORE the
+  // beforeProcess hook because some templates use beforeProcess for
+  // command-style intercepts that are stateless and idempotent (e.g. a
+  // Slack `/help` command that doesn't enqueue a task).
 
   if (beforeProcess) {
     const result = await beforeProcess(incoming, adapter);

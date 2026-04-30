@@ -443,6 +443,13 @@ export async function materializeHeaders(
  * `McpClientManager` consumes. The merged-config key is the scope + name
  * so a user-scope and org-scope server can both share a readable name
  * without clobbering each other.
+ *
+ * SECURITY: when the stored row references encrypted headers
+ * (`headerSecretKey`), callers should use `toHttpServerConfigAsync`
+ * instead — this synchronous variant returns ONLY the cleartext headers
+ * already present on the row. Returning the row's literal headers without
+ * the secret material means the runtime client would call the MCP server
+ * without auth (request will fail), but never leaks the encrypted secret.
  */
 export function toHttpServerConfig(
   stored: StoredRemoteMcpServer,
@@ -451,6 +458,27 @@ export function toHttpServerConfig(
     type: "http",
     url: stored.url,
     headers: stored.headers,
+    description: stored.description,
+  };
+}
+
+/**
+ * Async variant of `toHttpServerConfig` that resolves any encrypted
+ * `headerSecretKey` reference from `app_secrets` and returns the full
+ * cleartext headers map for use at runtime. Use this when actually
+ * configuring an MCP client; use the sync variant only when serializing
+ * stored data (e.g. for read-only listings that shouldn't disclose
+ * secrets).
+ */
+export async function toHttpServerConfigAsync(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  stored: StoredRemoteMcpServer,
+): Promise<McpHttpServerConfig> {
+  return {
+    type: "http",
+    url: stored.url,
+    headers: await materializeHeaders(scope, scopeId, stored),
     description: stored.description,
   };
 }
