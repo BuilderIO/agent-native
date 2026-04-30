@@ -55,6 +55,7 @@ import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { toast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { nanoid } from "nanoid";
 const Pinpoint = lazy(() =>
   import("@agent-native/pinpoint/react").then((m) => ({
@@ -319,17 +320,68 @@ export default function DeckEditor() {
     [replaceImageSrc, replaceImageInSlide],
   );
 
+  /**
+   * Delete a slide with an "Undo" toast.
+   *
+   * Why: Rochkind reported accidental slide deletions (clicking an element →
+   * Delete → entire slide gone, no obvious recovery path). The undo
+   * mechanism existed (Cmd+Z) but wasn't discoverable. This surfaces a
+   * 6-second undo toast right next to the action.
+   */
+  const deleteSlideWithUndo = useCallback(
+    (deckId: string, slideId: string) => {
+      const slideTitle = (() => {
+        const slide = deck?.slides.find((s) => s.id === slideId);
+        if (!slide) return "Slide";
+        const m = slide.content.match(/<h[12][^>]*>([^<]+)<\/h[12]>/i);
+        return (
+          m?.[1]?.trim() ||
+          `Slide ${(deck?.slides.indexOf(slide) ?? 0) + 1}`
+        );
+      })();
+      deleteSlide(deckId, slideId);
+      const t = toast({
+        title: `${slideTitle} deleted`,
+        description: "Press ⌘Z or click Undo to restore.",
+        action: (
+          <ToastAction
+            altText="Undo delete"
+            data-undo-button
+            onClick={() => {
+              undo();
+              t.dismiss();
+            }}
+          >
+            Undo
+          </ToastAction>
+        ),
+      });
+      // Auto-dismiss after 6 seconds (shadcn toast's TOAST_REMOVE_DELAY is
+      // intentionally enormous, so we trigger it manually).
+      setTimeout(() => t.dismiss(), 6000);
+    },
+    [deck, deleteSlide, undo],
+  );
+
   // Delete key deletes the current slide
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!deck || !id || !activeSlideId) return;
       // Don't intercept if user is typing in an input/textarea/contenteditable
+      // OR if a slide element is selected (image/text element selection state
+      // is owned by SlideEditor — we shouldn't blast the whole slide just
+      // because the user clicked an image then hit Delete).
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
         target.isContentEditable
       )
+        return;
+      // Skip if the SlideEditor reports an element is selected (image, text
+      // block, or builder-id selector). Slide-level delete is reserved for
+      // when the canvas itself has focus.
+      if (document.querySelector("[data-slide-element-selected='true']"))
         return;
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
@@ -339,13 +391,13 @@ export default function DeckEditor() {
         if (deck.slides.length <= 1) return; // don't delete last slide
         const idx = deck.slides.findIndex((s) => s.id === activeSlideId);
         const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
-        deleteSlide(id, activeSlideId);
+        deleteSlideWithUndo(id, activeSlideId);
         if (nextSlide) setActiveSlideId(nextSlide.id);
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [deck, id, activeSlideId, deleteSlide]);
+  }, [deck, id, activeSlideId, deleteSlideWithUndo]);
 
   // Resolve initial slide from URL param once deck is available.
   // Always sets activeSlideId so collab docId is never null when a slide is showing.
@@ -585,10 +637,10 @@ export default function DeckEditor() {
                   }}
                   onDuplicateSlide={(slideId) => duplicateSlide(id, slideId)}
                   onDeleteSlide={(slideId) => {
-                    deleteSlide(id, slideId);
                     const idx = deck.slides.findIndex((s) => s.id === slideId);
                     const nextSlide =
                       deck.slides[idx + 1] || deck.slides[idx - 1];
+                    deleteSlideWithUndo(id, slideId);
                     if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
                   slidePresence={slidePresence}

@@ -6,6 +6,8 @@ const resourcePutMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
+const dbExecuteMock = vi.hoisted(() => vi.fn());
+const getDbExecMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   resourceListAllOwners: resourceListAllOwnersMock,
@@ -34,9 +36,19 @@ vi.mock("./condition-evaluator.js", () => ({
   evaluateCondition: vi.fn(async () => true),
 }));
 
+// Mock the user/membership validation lookup so triggers don't get
+// skipped during tests (audit 12 #10).
+vi.mock("../db/client.js", () => ({
+  getDbExec: getDbExecMock,
+  isPostgres: vi.fn(() => false),
+}));
+
 describe("trigger dispatcher", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: user exists and (when checked) is an org member.
+    dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }] });
+    getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-1",
