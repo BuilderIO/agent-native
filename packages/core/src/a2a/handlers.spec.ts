@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { handleJsonRpcH3 as handleJsonRpc } from "./handlers.js";
 import {
   getRequestOrgId,
@@ -121,6 +121,12 @@ function mockEvent(): any {
 describe("handleJsonRpc", () => {
   beforeEach(() => {
     resolveOrgByDomainMock.mockReset();
+  });
+
+  afterEach(() => {
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    vi.unstubAllGlobals();
   });
 
   const customHandler: A2AConfig = {
@@ -352,6 +358,43 @@ describe("handleJsonRpc", () => {
     expect(followup.result.status.state).toBe("completed");
     expect(followup.result.status.message.parts[0].text).toBe(
       "done eventually",
+    );
+  });
+
+  it("self-dispatches async A2A tasks under APP_BASE_PATH", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    const fetchMock = vi.fn(async () => new Response("ok"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = mockEvent();
+    event.node.req = {
+      headers: {
+        host: "app.test",
+        "x-forwarded-proto": "https",
+      },
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      customHandler,
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://app.test/docs/_agent-native/a2a/_process-task",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 
