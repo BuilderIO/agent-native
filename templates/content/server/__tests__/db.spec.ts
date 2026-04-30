@@ -7,7 +7,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe("content database migrations", () => {
   it("keeps document_sync_links migrations aligned with queried columns", () => {
-    const source = readFileSync(join(__dirname, "db.ts"), "utf8");
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
 
     expect(source).toContain("sync_comments INTEGER NOT NULL DEFAULT 0");
     expect(source).toContain(
