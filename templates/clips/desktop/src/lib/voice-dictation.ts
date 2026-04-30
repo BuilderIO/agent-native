@@ -165,7 +165,10 @@ let warmStreamDeviceId: string | null = null;
 let warmStreamPromise: Promise<MediaStream | null> | null = null;
 
 async function prewarmMicStream(): Promise<MediaStream | null> {
-  if (warmStream && warmStream.getAudioTracks().some((t) => t.readyState === "live")) {
+  if (
+    warmStream &&
+    warmStream.getAudioTracks().some((t) => t.readyState === "live")
+  ) {
     return warmStream;
   }
   if (warmStreamPromise) return warmStreamPromise;
