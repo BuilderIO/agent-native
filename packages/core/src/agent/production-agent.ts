@@ -829,6 +829,31 @@ export function createProductionAgentHandler(
       return "";
     })();
 
+    // Selection context: written by the client when the user presses Cmd+I
+    // with text selected on the page. Treat anything older than 5 minutes
+    // as stale and ignore it.
+    const SELECTION_TTL_MS = 5 * 60 * 1000;
+    const selectionContextPromise = (async (): Promise<string> => {
+      try {
+        const sel = (await readAppState("pending-selection-context")) as {
+          text?: string;
+          capturedAt?: number;
+        } | null;
+        if (!sel?.text) return "";
+        const capturedAt =
+          typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
+        if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
+        return (
+          `\n\nThe user has selected the following text and pressed Cmd+I to focus the agent. ` +
+          `Treat this as the immediate context to act on:\n` +
+          `<selection>\n${sel.text}\n</selection>`
+        );
+      } catch {
+        // DB not ready — skip silently
+      }
+      return "";
+    })();
+
     // On the first message of a conversation, inject workspace inventory
     // so the agent knows what files, skills, jobs, and custom agents exist.
     // Templates can opt out via `skipFilesContext: true` when the inventory
@@ -924,11 +949,12 @@ export function createProductionAgentHandler(
       return filesContext;
     })();
 
-    const [systemPrompt, screenBlock, urlBlock, filesContext] =
+    const [systemPrompt, screenBlock, urlBlock, selectionBlock, filesContext] =
       await Promise.all([
         systemPromptPromise,
         screenContextPromise,
         urlContextPromise,
+        selectionContextPromise,
         filesContextPromise,
       ]);
 
@@ -948,7 +974,7 @@ export function createProductionAgentHandler(
         },
       });
     }
-    const screenContext = screenBlock + urlBlock;
+    const screenContext = screenBlock + urlBlock + selectionBlock;
 
     // Pre-compute agent references for A2A resolution inside the run
     const agentRefs = references.filter((r) => r.type === "agent");
