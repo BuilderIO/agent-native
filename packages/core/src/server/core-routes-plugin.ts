@@ -355,6 +355,11 @@ export function createCoreRoutesPlugin(
                 return {
                   ...envStatus,
                   configured: false,
+                  privateKeyConfigured: false,
+                  publicKeyConfigured: false,
+                  userId: undefined,
+                  orgName: undefined,
+                  orgKind: undefined,
                   connectError: {
                     message: errRow.message as string,
                     at:
