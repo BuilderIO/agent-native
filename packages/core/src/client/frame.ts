@@ -155,7 +155,10 @@ export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
     }
 
     window.addEventListener("message", handler);
-    window.parent.postMessage({ type: "builder.getUserInfo" }, "*");
+    window.parent.postMessage(
+      { type: "builder.getUserInfo" },
+      getFrameOrigin() ?? window.location.origin,
+    );
   });
 }
 

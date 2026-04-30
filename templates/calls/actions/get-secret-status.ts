@@ -1,11 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { readAppSecret } from "@agent-native/core/secrets";
+import { getRequiredSecret, readAppSecret } from "@agent-native/core/secrets";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { getRequiredSecret } from "@agent-native/core/secrets";
 
 const namesParam = z.preprocess((value) => {
   if (Array.isArray(value)) return value;

@@ -150,5 +150,22 @@ describe("server/request-context", () => {
         expect(getRequestUserEmail()).toBeUndefined();
       });
     });
+
+    it("shares context across duplicate module instances", async () => {
+      const duplicate = await import("./request-context.js?duplicate");
+
+      runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          orgId: "org-a",
+          timezone: "America/New_York",
+        },
+        () => {
+          expect(duplicate.getRequestUserEmail()).toBe("alice@example.com");
+          expect(duplicate.getRequestOrgId()).toBe("org-a");
+          expect(duplicate.getRequestTimezone()).toBe("America/New_York");
+        },
+      );
+    });
   });
 });

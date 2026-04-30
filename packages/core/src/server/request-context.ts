@@ -64,7 +64,15 @@ export interface RequestContext {
   run?: RequestRunContext;
 }
 
-const als = new AsyncLocalStorage<RequestContext>();
+const GLOBAL_KEY = "__agentNativeRequestContextAls" as const;
+type GlobalWithRequestContext = typeof globalThis & {
+  [GLOBAL_KEY]?: AsyncLocalStorage<RequestContext>;
+};
+const globalRef = globalThis as GlobalWithRequestContext;
+if (!globalRef[GLOBAL_KEY]) {
+  globalRef[GLOBAL_KEY] = new AsyncLocalStorage<RequestContext>();
+}
+const als = globalRef[GLOBAL_KEY]!;
 
 /**
  * Run a callback within a per-request context. The context is available to all

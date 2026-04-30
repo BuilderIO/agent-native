@@ -5,6 +5,7 @@ import {
   getMethod,
 } from "h3";
 import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
+import { isLocalDatabase } from "../db/client.js";
 import type { EventHandler as H3EventHandler } from "h3";
 import type {
   ActionTool,
@@ -101,8 +102,42 @@ export function engineToProvider(engineName: string): string {
 }
 
 /**
+ * Returns true when this process is acting as a multi-tenant deployment —
+ * i.e. a hosted shared-DB environment where one user's identity must NOT be
+ * silently substituted with the deploy-level API key.
+ *
+ * Mirrors the gate in `resolveBuilderCredential` (server/credential-provider.ts).
+ *
+ * Heuristic:
+ *   - `NODE_ENV === "production"`, AND
+ *   - The DB is not a local file (i.e. it's Neon/Postgres/Turso/D1 — any
+ *     backend that could be shared across multiple users).
+ *
+ * Self-hosted single-tenant deployments (a local sqlite file, or NODE_ENV
+ * unset/development) keep the env-var fallback so the original BYO-server
+ * UX continues to work without a per-user key.
+ */
+function isMultiTenantDeploy(): boolean {
+  if (process.env.NODE_ENV !== "production") return false;
+  return !isLocalDatabase();
+}
+
+/**
  * Resolve the active engine's provider and look up the user's API key for it.
- * Falls back to the provider's env var if no per-user key is stored.
+ *
+ * In multi-tenant deploys we deliberately refuse the deploy-level
+ * `process.env[envVar]` fallback for authenticated users. Without that gate
+ * any signed-in user who hasn't configured their own provider key would
+ * silently inherit the deployment's key (free-tier abuse, billing
+ * mis-attribution, prompt logging tied to the deployment owner) — exactly
+ * the prior-incident pattern we hit on 2026-04-29.
+ *
+ * Single-tenant (local-dev, self-hosted SQLite) keeps the env fallback.
+ *
+ * Callers in `agent-chat-plugin.ts`, `triggers/dispatcher.ts`,
+ * `jobs/scheduler.ts`, and `integrations/plugin.ts` historically layer
+ * another `?? process.env.ANTHROPIC_API_KEY` after this — those redundant
+ * fallbacks must be removed when the matching files are next edited.
  */
 export async function getOwnerActiveApiKey(
   ownerEmail: string | null | undefined,
@@ -115,6 +150,13 @@ export async function getOwnerActiveApiKey(
     const provider = engineToProvider(activeEngine);
     const userKey = await getOwnerApiKey(provider, ownerEmail);
     if (userKey) return userKey;
+    if (isMultiTenantDeploy()) {
+      // Multi-tenant: refuse the env fallback. A null user (unauthenticated /
+      // background context with no owner) gets undefined here too — there's
+      // no user to bill, and the call site must surface a "configure a key"
+      // error to the requester rather than silently using the deploy key.
+      return undefined;
+    }
     const envVar = PROVIDER_TO_ENV[provider];
     return envVar ? process.env[envVar] || undefined : undefined;
   } catch {
