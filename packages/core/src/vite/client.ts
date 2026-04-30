@@ -791,6 +791,10 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
       dotenv.config({
         path: path.join(workspaceRoot, ".env"),
         override: false,
+        // Suppress the dotenv v17 tip line — this loader fires alongside
+        // utils.ts loadEnv() during dev startup and would otherwise emit a
+        // duplicate "[dotenv] injecting env" message.
+        quiet: true,
       });
     } catch {}
   }

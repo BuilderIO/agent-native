@@ -18,6 +18,10 @@ import { z } from "zod";
 const INTERVAL_MS = 60_000; // 1 minute
 const WATCH_RENEW_INTERVAL_MS = 12 * 60 * 60_000;
 let lastWatchRenewalAt = 0;
+// Vite's dev server initializes Nitro plugins more than once during boot
+// (initial load + post-init). Module-scope flag ensures the "skipping" log
+// fires at most once per process.
+let skippingLogged = false;
 
 async function renewAllWatches(): Promise<void> {
   if (!process.env.GMAIL_WATCH_TOPIC) return;
@@ -110,9 +114,12 @@ export default () => {
   const flag = process.env.RUN_BACKGROUND_JOBS;
   const enabled = flag === "1" || (isProd && flag !== "0");
   if (!enabled) {
-    console.log(
-      "[mail-jobs] Skipping background cron (set RUN_BACKGROUND_JOBS=1 to enable in dev; on by default in production)",
-    );
+    if (!skippingLogged) {
+      console.log(
+        "[mail-jobs] Skipping background cron (set RUN_BACKGROUND_JOBS=1 to enable in dev; on by default in production)",
+      );
+      skippingLogged = true;
+    }
     return;
   }
 

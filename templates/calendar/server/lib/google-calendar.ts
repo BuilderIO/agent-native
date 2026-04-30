@@ -109,6 +109,14 @@ async function getValidAccessToken(
         // Drop the dead row so isOAuthConnected returns false and the UI
         // surfaces the connect banner instead of a stale-token illusion.
         await deleteOAuthTokens("google", accountId);
+        throw err;
+      }
+      // Transient failure (network hiccup, 5xx, timeout). If the existing
+      // token hasn't actually expired yet — we only entered this path
+      // because we're inside the 5-minute pre-expiry buffer — fall back to
+      // it so a flaky moment doesn't 502 the calendar.
+      if (tokens.access_token && tokens.expiry_date > Date.now()) {
+        return tokens.access_token;
       }
       throw err;
     }
@@ -183,7 +191,12 @@ export async function getClient(
 export async function getClients(
   forEmail?: string,
 ): Promise<Array<{ email: string; accessToken: string }>> {
-  const { clients } = await getClientsWithErrors(forEmail);
+  const { clients, errors } = await getClientsWithErrors(forEmail);
+  if (clients.length === 0 && errors.length > 0) {
+    throw new Error(
+      `All Google accounts failed to refresh: ${errors[0].error}`,
+    );
+  }
   return clients;
 }
 
@@ -396,12 +409,13 @@ export async function listOverlayEvents(
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
 }> {
-  const clients = await getClients(forEmail);
-  if (clients.length === 0) return { events: [], errors: [] };
+  const { clients, errors: refreshErrors } =
+    await getClientsWithErrors(forEmail);
+  const errors: Array<{ email: string; error: string }> = [...refreshErrors];
+  if (clients.length === 0) return { events: [], errors };
 
   // Use the first available token to query other people's calendars
   const { accessToken } = clients[0];
-  const errors: Array<{ email: string; error: string }> = [];
 
   const allResults = await Promise.all(
     overlayEmails.map(async (overlayEmail) => {

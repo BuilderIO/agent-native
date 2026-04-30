@@ -115,6 +115,18 @@ async function getValidAccessToken(
       // Drop the dead row so isOAuthConnected returns false and the UI
       // surfaces the connect banner instead of an empty-inbox illusion.
       await deleteOAuthTokens("google", accountId);
+      throw err;
+    }
+    // Transient failure (network hiccup, 5xx, timeout). If the existing
+    // token hasn't actually expired yet — we only entered this path
+    // because we're inside the 5-minute pre-expiry buffer — fall back to
+    // it so a flaky moment doesn't 502 the inbox.
+    if (
+      tokens.access_token &&
+      tokens.expiry_date &&
+      Date.now() < tokens.expiry_date
+    ) {
+      return tokens.access_token;
     }
     throw err;
   }
@@ -297,17 +309,22 @@ export async function getClientFromAccount(account: {
  * Get OAuth credentials. When `forEmail` is provided, returns only that
  * user's credentials (multi-user mode). Otherwise returns an empty array.
  *
- * Refresh failures are swallowed per-account here — callers that need to
- * surface "all your tokens are dead" to the UI should use
- * `getClientsWithErrors`. Without that signal, a fully-broken account
- * silently looks like an empty inbox.
+ * If the user has accounts connected but every refresh failed, this
+ * throws — otherwise an inbox with all dead tokens would render as
+ * "empty inbox" instead of prompting a reconnect. Callers that need
+ * per-account success/failure detail should use `getClientsWithErrors`.
  */
 export async function getClients(
   forEmail?: string,
 ): Promise<
   Array<{ email: string; accessToken: string; refreshToken: string }>
 > {
-  const { clients } = await getClientsWithErrors(forEmail);
+  const { clients, errors } = await getClientsWithErrors(forEmail);
+  if (clients.length === 0 && errors.length > 0) {
+    throw new Error(
+      `All Google accounts failed to refresh: ${errors[0].error}`,
+    );
+  }
   return clients;
 }
 

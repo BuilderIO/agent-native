@@ -80,5 +80,12 @@
     "typescript": "^6.0.3",
     "vaul": "^1.1.2",
     "vite": "catalog:"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "node-pty"
+    ]
   }
 }

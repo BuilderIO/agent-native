@@ -77,9 +77,13 @@ export function GoogleConnectBanner({
 
   const isElectron = useMemo(() => /Electron/i.test(navigator.userAgent), []);
   const desktopPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const authPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const addAccountPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     return () => {
       if (desktopPollRef.current) clearInterval(desktopPollRef.current);
+      if (authPollRef.current) clearInterval(authPollRef.current);
+      if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
     };
   }, []);
 
@@ -166,37 +170,35 @@ export function GoogleConnectBanner({
   }, [fetchStatus]);
 
   // When auth URL is ready, open it and poll for connection.
-  // Gate on wantAuthUrl so a cached/refetched URL doesn't open a second
-  // popup behind the first when React Query returns stale data immediately
-  // and then refetches in the background.
   //
-  // `wantAuthUrl` is intentionally NOT in the deps array. Including it would
-  // re-run the effect when we flip it false on the line below, which runs
-  // the cleanup (clearInterval) within ~16ms — long before the 2-second
-  // poll ever fires. The early-return guard above still prevents double-
-  // opening when React Query refetches a stale URL in the background.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // `wantAuthUrl` is the user's retry intent and must be in the deps so a
+  // second click after closing the popup re-runs this effect (the cached
+  // authUrl.data won't change on its own). The interval lives in a ref so
+  // flipping wantAuthUrl false below doesn't tear down an already-running
+  // poll; cleanup happens on unmount via the dedicated effect above.
   useEffect(() => {
     if (!wantAuthUrl || !authUrl.data?.url) return;
     setWantAuthUrl(false);
     window.open(authUrl.data.url, "_blank");
 
-    const interval = setInterval(async () => {
+    if (authPollRef.current) clearInterval(authPollRef.current);
+    authPollRef.current = setInterval(async () => {
       const res = await fetch(
         agentNativePath("/_agent-native/google/status"),
       ).catch(() => null);
       if (res?.ok) {
         const data = await res.json();
         if (data.connected) {
-          clearInterval(interval);
+          if (authPollRef.current) {
+            clearInterval(authPollRef.current);
+            authPollRef.current = null;
+          }
           setDismissed(true);
           window.location.reload();
         }
       }
     }, 2000);
-
-    return () => clearInterval(interval);
-  }, [authUrl.data]);
+  }, [wantAuthUrl, authUrl.data]);
 
   // When auth URL fails with missing credentials, show wizard
   useEffect(() => {
@@ -211,31 +213,33 @@ export function GoogleConnectBanner({
     envStatus.length > 0 && envStatus.every((k) => k.configured);
 
   // When add-account URL is ready, open it and poll for new account.
-  // Same dep-list rationale as the connect effect above — `wantAddAccount`
-  // is intentionally omitted so flipping it false doesn't tear down the
-  // poll interval before it fires.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Same retry-intent rationale as the connect effect — `wantAddAccount`
+  // is in the deps so a second click rerun the effect; the polling
+  // interval lives in a ref so flipping wantAddAccount false here doesn't
+  // tear down the running poll.
   useEffect(() => {
     if (!wantAddAccount || !addAccountUrl.data?.url) return;
     window.open(addAccountUrl.data.url, "_blank");
     setWantAddAccount(false);
 
     const prevCount = accounts.length;
-    const interval = setInterval(async () => {
+    if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
+    addAccountPollRef.current = setInterval(async () => {
       const res = await fetch(
         agentNativePath("/_agent-native/google/status"),
       ).catch(() => null);
       if (res?.ok) {
         const data = await res.json();
         if (data.accounts?.length > prevCount) {
-          clearInterval(interval);
+          if (addAccountPollRef.current) {
+            clearInterval(addAccountPollRef.current);
+            addAccountPollRef.current = null;
+          }
           window.location.reload();
         }
       }
     }, 2000);
-
-    return () => clearInterval(interval);
-  }, [addAccountUrl.data, accounts.length]);
+  }, [wantAddAccount, addAccountUrl.data, accounts.length]);
 
   function handleConnect() {
     if (isElectron) {
