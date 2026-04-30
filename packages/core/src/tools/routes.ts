@@ -24,14 +24,22 @@ import {
   deleteTool,
   ensureToolsTables,
 } from "./store.js";
-import { buildToolHtml } from "./html-shell.js";
+import { buildToolHtml, TOOL_IFRAME_CSP } from "./html-shell.js";
 import { getThemeVars } from "./theme.js";
 import {
   resolveKeyReferences,
   validateUrlAllowlist,
   getKeyAllowlist,
 } from "../secrets/substitution.js";
-import { isBlockedToolUrl } from "./url-safety.js";
+import {
+  collectSecretValues,
+  normalizeToolProxyMethod,
+  readResponseTextWithLimit,
+  redactSecrets,
+  redactString,
+  sanitizeOutboundHeaders,
+} from "./proxy-security.js";
+import { isBlockedToolUrlWithDns } from "./url-safety.js";
 
 export function createToolsHandler() {
   return defineEventHandler(async (event: H3Event) => {
@@ -133,6 +141,9 @@ async function dispatch(
     const themeVars = getThemeVars(isDark);
     const html = buildToolHtml(tool.content, themeVars, isDark, parts[0]);
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+    setResponseHeader(event, "Content-Security-Policy", TOOL_IFRAME_CSP);
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    setResponseHeader(event, "Referrer-Policy", "no-referrer");
     return html;
   }
 
@@ -371,7 +382,14 @@ async function handleProxy(
     return { error: "url is required" };
   }
 
-  const method = (body.method || "GET").toUpperCase();
+  const method = normalizeToolProxyMethod(body.method || "GET");
+  if (!method) {
+    setResponseStatus(event, 405);
+    return {
+      error:
+        "Unsupported HTTP method. Allowed methods: GET, POST, PUT, PATCH, DELETE, HEAD.",
+    };
+  }
   const rawHeaders: Record<string, string> = body.headers || {};
   const rawBody = body.body;
 
@@ -379,11 +397,13 @@ async function handleProxy(
   let resolvedHeaders = JSON.stringify(rawHeaders);
   let resolvedBody = rawBody;
   const allUsedKeys: string[] = [];
+  const allSecretValues: string[] = [];
 
   try {
     const urlResult = await resolveKeyReferences(rawUrl, "user", userEmail);
     resolvedUrl = urlResult.resolved;
     allUsedKeys.push(...urlResult.usedKeys);
+    allSecretValues.push(...urlResult.secretValues);
 
     const headerResult = await resolveKeyReferences(
       resolvedHeaders,
@@ -392,6 +412,7 @@ async function handleProxy(
     );
     resolvedHeaders = headerResult.resolved;
     allUsedKeys.push(...headerResult.usedKeys);
+    allSecretValues.push(...headerResult.secretValues);
 
     if (rawBody) {
       const bodyResult = await resolveKeyReferences(
@@ -401,13 +422,15 @@ async function handleProxy(
       );
       resolvedBody = bodyResult.resolved;
       allUsedKeys.push(...bodyResult.usedKeys);
+      allSecretValues.push(...bodyResult.secretValues);
     }
   } catch (err: any) {
     setResponseStatus(event, 400);
     return { error: `Key resolution failed: ${err?.message ?? err}` };
   }
+  const secretValues = collectSecretValues(allSecretValues);
 
-  if (isBlockedToolUrl(resolvedUrl)) {
+  if (await isBlockedToolUrlWithDns(resolvedUrl)) {
     setResponseStatus(event, 403);
     return { error: "Requests to private/internal addresses are not allowed" };
   }
@@ -424,9 +447,9 @@ async function handleProxy(
 
   let headers: Record<string, string>;
   try {
-    headers = JSON.parse(resolvedHeaders);
+    headers = sanitizeOutboundHeaders(JSON.parse(resolvedHeaders));
   } catch {
-    headers = rawHeaders;
+    headers = sanitizeOutboundHeaders(rawHeaders);
   }
 
   const controller = new AbortController();
@@ -453,17 +476,33 @@ async function handleProxy(
 
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
-      if (location && isBlockedToolUrl(new URL(location, resolvedUrl).href)) {
+      const redirectUrl = location ? new URL(location, resolvedUrl).href : null;
+      if (redirectUrl && (await isBlockedToolUrlWithDns(redirectUrl))) {
         setResponseStatus(event, 403);
         return { error: "Redirect to private/internal address blocked" };
       }
+      if (redirectUrl) {
+        for (const keyName of new Set(allUsedKeys)) {
+          const allowlist = await getKeyAllowlist(keyName, "user", userEmail);
+          if (!validateUrlAllowlist(redirectUrl, allowlist)) {
+            setResponseStatus(event, 403);
+            return {
+              error: `Redirect URL is not allowed for key "${keyName}"`,
+            };
+          }
+        }
+      }
       return {
         status: response.status,
-        body: { redirect: location },
+        body: {
+          redirect: redirectUrl
+            ? redactString(redirectUrl, secretValues)
+            : location,
+        },
       };
     }
 
-    const text = await response.text();
+    const { text } = await readResponseTextWithLimit(response);
     let responseBody: unknown;
     try {
       responseBody = JSON.parse(text);
@@ -471,14 +510,22 @@ async function handleProxy(
       responseBody = text;
     }
 
-    return { status: response.status, body: responseBody };
+    return {
+      status: response.status,
+      body: redactSecrets(responseBody, secretValues),
+    };
   } catch (err: any) {
     if (err?.name === "AbortError") {
       setResponseStatus(event, 504);
       return { error: "Upstream request timed out" };
     }
     setResponseStatus(event, 502);
-    return { error: `Proxy request failed: ${err?.message ?? err}` };
+    return {
+      error: `Proxy request failed: ${redactSecrets(
+        err?.message ?? String(err),
+        secretValues,
+      )}`,
+    };
   } finally {
     clearTimeout(timeout);
   }

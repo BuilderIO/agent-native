@@ -13,9 +13,12 @@ import {
   type H3Event,
 } from "h3";
 import { readBody } from "../server/h3-helpers.js";
-import { getSession } from "../server/auth.js";
+import { DEV_MODE_USER_EMAIL, getSession } from "../server/auth.js";
 import { getOrgContext } from "../org/context.js";
-import { hasOAuthTokens } from "../oauth-tokens/store.js";
+import {
+  hasOAuthTokens,
+  listOAuthAccountsByOwner,
+} from "../oauth-tokens/store.js";
 import {
   listRequiredSecrets,
   getRequiredSecret,
@@ -51,6 +54,28 @@ export interface SecretStatusPayload {
   oauthConnectUrl?: string;
   /** Validator error message if status === "invalid". */
   error?: string;
+}
+
+function redactSecretFromMessage(message: string, secretValue: string): string {
+  if (!message || !secretValue) return message;
+  return message.split(secretValue).join("[redacted]");
+}
+
+async function hasOAuthSecretForEvent(
+  event: H3Event,
+  secret: RegisteredSecret,
+): Promise<boolean> {
+  if (!secret.oauthProvider) return false;
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) return false;
+  if (session.email === DEV_MODE_USER_EMAIL) {
+    return hasOAuthTokens(secret.oauthProvider);
+  }
+  const accounts = await listOAuthAccountsByOwner(
+    secret.oauthProvider,
+    session.email,
+  );
+  return accounts.length > 0;
 }
 
 /** Resolve the scopeId for a given scope, given the current session. */
@@ -103,7 +128,7 @@ export function createListSecretsHandler() {
         base.oauthConnectUrl = secret.oauthConnectUrl;
         if (secret.oauthProvider) {
           try {
-            const has = await hasOAuthTokens(secret.oauthProvider);
+            const has = await hasOAuthSecretForEvent(event, secret);
             base.status = has ? "set" : "unset";
           } catch {
             base.status = "unset";
@@ -198,15 +223,16 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
           typeof result === "object" && result && result.error
             ? String(result.error)
             : "Validator rejected the value";
-        return { error: err };
+        return { error: redactSecretFromMessage(err, value) };
       }
     } catch (err) {
       setResponseStatus(event, 400);
+      const message =
+        err instanceof Error
+          ? `Validator threw: ${err.message}`
+          : "Validator threw";
       return {
-        error:
-          err instanceof Error
-            ? `Validator threw: ${err.message}`
-            : "Validator threw",
+        error: redactSecretFromMessage(message, value),
       };
     }
   }
@@ -274,9 +300,9 @@ export function createTestSecretHandler() {
     }
     if (secret.kind === "oauth") {
       // For OAuth we just report whether tokens exist.
-      const has = secret.oauthProvider
-        ? await hasOAuthTokens(secret.oauthProvider).catch(() => false)
-        : false;
+      const has = await hasOAuthSecretForEvent(event, secret).catch(
+        () => false,
+      );
       return { ok: has };
     }
     if (!secret.validator) {
@@ -304,16 +330,20 @@ export function createTestSecretHandler() {
           typeof result === "object" && result && result.error
             ? String(result.error)
             : "Validator rejected the value";
-        return { ok: false, error: err };
+        return {
+          ok: false,
+          error: redactSecretFromMessage(err, stored.value),
+        };
       }
       return { ok: true };
     } catch (err) {
+      const message =
+        err instanceof Error
+          ? `Validator threw: ${err.message}`
+          : "Validator threw";
       return {
         ok: false,
-        error:
-          err instanceof Error
-            ? `Validator threw: ${err.message}`
-            : "Validator threw",
+        error: redactSecretFromMessage(message, stored.value),
       };
     }
   });

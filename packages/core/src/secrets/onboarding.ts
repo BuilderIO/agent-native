@@ -8,10 +8,17 @@
  */
 
 import { registerOnboardingStep } from "../onboarding/registry.js";
-import type { OnboardingStep } from "../onboarding/types.js";
-import { hasOAuthTokens } from "../oauth-tokens/store.js";
-import { getDbExec } from "../db/client.js";
+import type {
+  OnboardingResolveContext,
+  OnboardingStep,
+} from "../onboarding/types.js";
+import {
+  hasOAuthTokens,
+  listOAuthAccountsByOwner,
+} from "../oauth-tokens/store.js";
+import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
 import type { RegisteredSecret } from "./register.js";
+import { readAppSecretMeta } from "./storage.js";
 
 /**
  * If the secret is marked `required`, register a matching onboarding step.
@@ -61,27 +68,36 @@ export function maybeRegisterSecretOnboardingStep(
             },
           },
     ],
-    isComplete: async () => {
-      // Env var satisfies the step — lets ops teams set keys via deploy
-      // configuration without round-tripping the sidebar UI.
-      if (process.env[secret.key]) return true;
+    isComplete: async (context?: OnboardingResolveContext) => {
+      const userEmail = context?.userEmail;
+      if (!userEmail) return false;
+
       if (secret.kind === "oauth" && secret.oauthProvider) {
         try {
-          return await hasOAuthTokens(secret.oauthProvider);
+          if (userEmail === DEV_MODE_USER_EMAIL) {
+            return await hasOAuthTokens(secret.oauthProvider);
+          }
+          const accounts = await listOAuthAccountsByOwner(
+            secret.oauthProvider,
+            userEmail,
+          );
+          return accounts.length > 0;
         } catch {
           return false;
         }
       }
-      // api-key: check app_secrets for *any* row matching the key. We don't
-      // try to resolve scope here — onboarding runs per-request elsewhere, so
-      // "any configured user" counts as configured for the banner.
+
       try {
-        const exec = getDbExec();
-        const { rows } = await exec.execute({
-          sql: `SELECT 1 FROM app_secrets WHERE key = ? LIMIT 1`,
-          args: [secret.key],
+        const scopeId =
+          secret.scope === "workspace"
+            ? (context?.orgId ?? `solo:${userEmail}`)
+            : userEmail;
+        const meta = await readAppSecretMeta({
+          key: secret.key,
+          scope: secret.scope,
+          scopeId,
         });
-        return rows.length > 0;
+        return !!meta;
       } catch {
         return false;
       }

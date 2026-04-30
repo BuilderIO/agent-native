@@ -1,3 +1,6 @@
+export const TOOL_IFRAME_CSP =
+  "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self';";
+
 export function buildToolHtml(
   content: string,
   themeVars: string,
@@ -12,7 +15,7 @@ export function buildToolHtml(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; form-action 'none';" />
+  <meta http-equiv="Content-Security-Policy" content="${TOOL_IFRAME_CSP}" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet" />
@@ -117,6 +120,7 @@ export function buildToolHtml(
 	    var _toolPendingRequests = {};
 
 	    window.addEventListener('message', function(event) {
+	      if (event.source !== window.parent) return;
 	      var message = event.data || {};
 	      if (message.type !== 'agent-native-tool-response') return;
 	      var pending = _toolPendingRequests[message.requestId];
@@ -324,6 +328,7 @@ export function buildToolHtml(
 	      };
 	    };
 	    window.addEventListener('message', function(event) {
+	      if (event.source !== window.parent) return;
 	      var msg = event.data;
 	      if (!msg || msg.type !== 'agent-native-slot-context') return;
 	      window.slotContext = msg.context || {};
@@ -359,6 +364,7 @@ export function buildToolHtml(
 	    }
 
 	    window.addEventListener('message', function(event) {
+	      if (event.source !== window.parent) return;
 	      var msg = event.data;
 	      if (!msg || msg.type !== 'agent-native-theme-update') return;
 	      var root = document.documentElement;

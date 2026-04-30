@@ -131,6 +131,12 @@ function wrapDefaultExport(
   };
 }
 
+function preserveReadOnly(entry: Record<string, any>): Partial<ActionEntry> {
+  return typeof entry.readOnly === "boolean"
+    ? { readOnly: entry.readOnly }
+    : {};
+}
+
 /**
  * Resolve the actions directory from the caller's context.
  *
@@ -217,7 +223,7 @@ async function loadActionsIntoRegistry(
           tool: mod.tool,
           run: mod.run,
           ...(mod.http !== undefined ? { http: mod.http } : {}),
-          ...(mod.readOnly === true ? { readOnly: true } : {}),
+          ...preserveReadOnly(mod),
         };
       } else if (
         mod.default &&
@@ -229,7 +235,7 @@ async function loadActionsIntoRegistry(
           tool: mod.default.tool,
           run: mod.default.run,
           ...(mod.default.http !== undefined ? { http: mod.default.http } : {}),
-          ...(mod.default.readOnly === true ? { readOnly: true } : {}),
+          ...preserveReadOnly(mod.default),
         };
       } else if (typeof mod.default === "function") {
         registry[name] = wrapDefaultExport(name, mod.default);
@@ -263,7 +269,7 @@ export function loadActionsFromStaticRegistry(
         tool: mod.tool,
         run: mod.run,
         ...(mod.http !== undefined ? { http: mod.http } : {}),
-        ...(mod.readOnly === true ? { readOnly: true } : {}),
+        ...preserveReadOnly(mod),
       };
       continue;
     }
@@ -279,7 +285,7 @@ export function loadActionsFromStaticRegistry(
         tool: def.tool,
         run: def.run,
         ...(def.http !== undefined ? { http: def.http } : {}),
-        ...(def.readOnly === true ? { readOnly: true } : {}),
+        ...preserveReadOnly(def),
       };
       continue;
     }

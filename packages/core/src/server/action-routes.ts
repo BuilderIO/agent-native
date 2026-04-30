@@ -67,9 +67,16 @@ export function mountActionRoutes(
       routePath,
       defineEventHandler(async (event) => {
         const reqMethod = getMethod(event);
+        const effectiveMethod =
+          reqMethod === "HEAD" && method === "GET" ? "GET" : reqMethod;
+
+        if (reqMethod === "OPTIONS") {
+          setResponseStatus(event, 204);
+          return "";
+        }
 
         // Allow the declared method
-        if (reqMethod !== method) {
+        if (effectiveMethod !== method) {
           setResponseStatus(event, 405);
           return { error: `Method not allowed. Use ${method}.` };
         }
