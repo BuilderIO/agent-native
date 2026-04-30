@@ -90,7 +90,6 @@ export async function retryStuckPendingTasks(
       if (process.env.DEBUG) {
         console.log(
           "[integrations] pending-tasks retry job: table not present yet, skipping",
-          err,
         );
       }
     }
