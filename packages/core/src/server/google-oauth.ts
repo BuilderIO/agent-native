@@ -580,12 +580,16 @@ export function oauthCallbackResponse(
   return "";
 }
 
-/** HTML error page for OAuth failures. */
+/** HTML error page for OAuth failures. The message is HTML-escaped — most
+ *  callers pass `error.message` from a token-exchange or userinfo failure,
+ *  which can echo upstream provider strings (and historically attacker-
+ *  controlled query params via the `error_description` field). */
 export function oauthErrorPage(message: string): Response {
+  const safe = escapeHtml(message);
   return htmlResponse(
     `<!DOCTYPE html><html><body>
     <div style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
-      <p style="font-size:15px;color:#e55">${message}</p>
+      <p style="font-size:15px;color:#e55">${safe}</p>
       <p style="margin-top:16px;font-size:13px;color:#888"><a href="/" style="color:#888">Back to login</a></p>
     </div>
   </body></html>`,
