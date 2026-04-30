@@ -21,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useActionMutation } from "@agent-native/core/client";
+import { agentNativePath, useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { msToClock } from "./scrubber";
 
@@ -449,7 +449,7 @@ function CommentCard({
                       }
                       // Patch via delete+re-add isn't ideal; a dedicated action could be added.
                       // For now, store via react-to-recording at comment timestamp as a proxy.
-                      fetch(`/_agent-native/actions/react-to-recording`, {
+                      fetch(agentNativePath("/_agent-native/actions/react-to-recording"), {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({

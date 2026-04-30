@@ -9,7 +9,12 @@ import {
   IconTrash,
   IconAdjustments,
 } from "@tabler/icons-react";
-import { useDevMode, ShareButton, useSession } from "@agent-native/core/client";
+import {
+  appBasePath,
+  useDevMode,
+  ShareButton,
+  useSession,
+} from "@agent-native/core/client";
 import type { CollabUser } from "@agent-native/core/client";
 import { Pinpoint } from "@agent-native/pinpoint/react";
 import { useComposition } from "@/contexts/CompositionContext";
@@ -213,12 +218,15 @@ export default function CompositionView({
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-            const response = await fetch("/api/save-composition-defaults", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(update),
-              signal: controller.signal,
-            });
+            const response = await fetch(
+              `${appBasePath()}/api/save-composition-defaults`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(update),
+                signal: controller.signal,
+              },
+            );
 
             clearTimeout(timeoutId);
 

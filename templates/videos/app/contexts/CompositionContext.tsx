@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+import { agentNativePath } from "@agent-native/core/client";
 import { compositions, type CompositionEntry } from "@/remotion/registry";
 import type { CompSettings } from "@/components/CompSettingsEditor";
 import type { CompositionCollabData } from "@/hooks/use-composition-collab";
@@ -322,11 +323,14 @@ export function CompositionProvider({
       // Note: action routes return HTTP 200 even when the action body
       // contains `{ error }`, so we have to check the body too.
       try {
-        const res = await fetch(`/_agent-native/actions/delete-composition`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
-        });
+        const res = await fetch(
+          agentNativePath("/_agent-native/actions/delete-composition"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id }),
+          },
+        );
         if (!res.ok) {
           throw new Error(`delete-composition failed: ${res.status}`);
         }
@@ -375,11 +379,14 @@ export function CompositionProvider({
 
       // Persist to DB
       try {
-        const res = await fetch(`/_agent-native/actions/update-composition`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: selected.id, title }),
-        });
+        const res = await fetch(
+          agentNativePath("/_agent-native/actions/update-composition"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: selected.id, title }),
+          },
+        );
         if (!res.ok) {
           throw new Error(`update-composition failed: ${res.status}`);
         }

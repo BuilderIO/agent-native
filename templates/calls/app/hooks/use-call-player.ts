@@ -5,6 +5,7 @@ import {
   useState,
   type RefObject,
 } from "react";
+import { agentNativePath } from "@agent-native/core/client";
 
 export interface Bounds {
   startMs: number;
@@ -41,12 +42,15 @@ export interface CallPlayerState {
 const FRAME_MS = 1000 / 30;
 
 function writeClientAppState(key: string, value: unknown) {
-  return fetch(`/_agent-native/application-state/${key}`, {
+  return fetch(
+    agentNativePath(`/_agent-native/application-state/${encodeURIComponent(key)}`),
+    {
     method: "PUT",
     keepalive: true,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(value),
-  });
+    },
+  );
 }
 
 export function useCallPlayer(options: UseCallPlayerOptions): CallPlayerState {
