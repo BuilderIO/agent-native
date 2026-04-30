@@ -5,7 +5,7 @@ import {
   type AssistantChatProps,
   type AssistantChatHandle,
 } from "./AssistantChat.js";
-import { getFrameOrigin } from "./frame.js";
+import { isTrustedFrameMessage } from "./frame.js";
 import { cn } from "./utils.js";
 import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
 import { agentNativePath } from "./api-path.js";
@@ -702,12 +702,7 @@ export function MultiTabAssistantChat({
       `Do NOT edit any files, run any scripts, or make any changes until the user says to proceed.`;
 
     const handler = (event: MessageEvent) => {
-      if (
-        event.origin !== window.location.origin &&
-        event.origin !== getFrameOrigin()
-      ) {
-        return;
-      }
+      if (!isTrustedFrameMessage(event)) return;
       if (event.data?.type !== "builder.submitChat") return;
       const message = event.data.data?.message as string;
       if (!message) return;
