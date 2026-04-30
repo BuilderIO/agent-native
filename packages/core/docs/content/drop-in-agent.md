@@ -38,7 +38,7 @@ export default function Root() {
         "Draft a reply to the latest email",
         "Show me yesterday's signup numbers",
       ]}
-      sidebarWidth={420}
+      defaultSidebarWidth={420}
       position="right"
     >
       <YourApp />
@@ -57,7 +57,7 @@ That's it. The user now has a toggleable agent on every page — with chat histo
 - **`children`** — your app. Rendered in the main area; the sidebar overlays from the chosen side.
 - **`emptyStateText`** — greeting shown when the chat has no messages. Default: `"How can I help you?"`.
 - **`suggestions`** — starter prompts rendered as clickable chips when empty.
-- **`sidebarWidth`** — pixel width. Default: `380`.
+- **`defaultSidebarWidth`** — initial pixel width (mount-only; user resize and saved value override). Default: `380`.
 - **`position`** — `"left"` or `"right"`. Default: `"right"`.
 - **`defaultOpen`** — whether the sidebar starts open (desktop only). Default: `false`.
 

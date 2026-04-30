@@ -1425,7 +1425,10 @@ export interface AgentSidebarProps {
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
   suggestions?: string[];
-  /** Width of the agent sidebar. Default: 380 */
+  /** Initial sidebar width in pixels. Mount-only; user resize and a saved
+   *  localStorage value override this. Default: 380 */
+  defaultSidebarWidth?: number;
+  /** @deprecated Use `defaultSidebarWidth` — this prop is mount-only. */
   sidebarWidth?: number;
   /** Which side the sidebar appears on. Default: "right" */
   position?: "left" | "right";
@@ -1443,11 +1446,13 @@ export function AgentSidebar({
   children,
   emptyStateText = "How can I help you?",
   suggestions,
-  sidebarWidth = 380,
+  defaultSidebarWidth,
+  sidebarWidth,
   position = "right",
   defaultOpen = false,
   animateMobile = false,
 }: AgentSidebarProps) {
+  const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(() => {
     // On mobile viewports the sidebar would cover most of the screen, so
     // always start closed regardless of any persisted desktop preference.
@@ -1464,7 +1469,7 @@ export function AgentSidebar({
     return defaultOpen;
   });
   const [presentationMode, setPresentationMode] = useState(false);
-  const [width, setWidth] = useState(sidebarWidth);
+  const [width, setWidth] = useState(initialWidth);
   const [fullscreen, setFullscreen] = useState(() => {
     // Force-disable on mobile: a Claude-style centered column makes no sense
     // when the sidebar already covers most of the viewport.
@@ -1609,11 +1614,38 @@ export function AgentSidebar({
     return () => window.removeEventListener("message", handleMessage);
   }, [setOpenPersisted]);
 
-  // Cmd+I / Ctrl+I to focus the agent chat
+  // Cmd+I / Ctrl+I to focus the agent chat. If the user has selected text,
+  // capture it into application_state under `pending-selection-context` so
+  // the agent's next turn includes it as immediate context to act on.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "i") {
         e.preventDefault();
+        let selectionText = "";
+        try {
+          selectionText = window.getSelection()?.toString().trim() ?? "";
+        } catch {}
+        if (selectionText) {
+          fetch(
+            agentNativePath(
+              "/_agent-native/application-state/pending-selection-context",
+            ),
+            {
+              method: "PUT",
+              keepalive: true,
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                text: selectionText,
+                capturedAt: Date.now(),
+              }),
+            },
+          ).catch(() => {});
+          window.dispatchEvent(
+            new CustomEvent("agent-panel:selection-attached", {
+              detail: { text: selectionText, length: selectionText.length },
+            }),
+          );
+        }
         focusAgentChat();
       }
     };
