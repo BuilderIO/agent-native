@@ -73,7 +73,9 @@ export default defineAction({
 
     if (args.search) {
       const pat = `%${escapeLike(args.search.toLowerCase())}%`;
-      whereClauses.push(sql`LOWER(${schema.meetings.title}) LIKE ${pat}`);
+      whereClauses.push(
+        sql`LOWER(${schema.meetings.title}) LIKE ${pat} ESCAPE '\\'`,
+      );
     }
 
     const orderBy =

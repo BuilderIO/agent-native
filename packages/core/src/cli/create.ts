@@ -136,6 +136,7 @@ async function createWorkspaceInteractive(
         appName: t,
         workspaceRoot: targetDir,
         workspaceCoreName,
+        coreDependencyVersion: getCoreDependencyVersion(),
       });
       fixPackageJsonName(appDir, t);
       renameGitignore(appDir);
@@ -203,6 +204,7 @@ async function scaffoldWorkspaceRoot(
   fs.mkdirSync(path.join(targetDir, "packages"), { recursive: true });
   copyDir(coreTemplate, corePackageDir);
   replacePlaceholders(corePackageDir, name, titleCase(name));
+  rewriteCoreDependencyVersions(corePackageDir);
 
   // Ensure apps/ exists (even if empty).
   fs.mkdirSync(path.join(targetDir, "apps"), { recursive: true });
@@ -290,6 +292,7 @@ async function scaffoldOneAppIntoWorkspace(
       appName,
       workspaceRoot: workspace.workspaceRoot,
       workspaceCoreName: workspace.workspaceCoreName,
+      coreDependencyVersion: getCoreDependencyVersion(),
     });
     fixPackageJsonName(appDir, appName);
     renameGitignore(appDir);
@@ -488,8 +491,8 @@ async function scaffoldRequiredPackages(
     }
 
     // The copied package may have @agent-native/core as a workspace:* dep.
-    // Convert it to "latest" since @agent-native/core is an npm package,
-    // not a workspace member.
+    // Convert it to this CLI package's published range since
+    // @agent-native/core is an npm package, not a workspace member.
     const pkgJsonPath = path.join(targetDir, "package.json");
     if (fs.existsSync(pkgJsonPath)) {
       try {
@@ -507,7 +510,7 @@ async function scaffoldRequiredPackages(
               val.startsWith("workspace:") &&
               key === "@agent-native/core"
             ) {
-              deps[key] = "latest";
+              deps[key] = getCoreDependencyVersion();
             }
           }
         }
@@ -584,7 +587,7 @@ function postProcessStandalone(name: string, targetDir: string): void {
         if (!deps) continue;
         for (const [key, val] of Object.entries(deps)) {
           if (key === "@agent-native/core") {
-            deps[key] = "latest";
+            deps[key] = getCoreDependencyVersion();
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";
           } else if (typeof val === "string" && val === "catalog:") {
@@ -856,6 +859,38 @@ function fixPackageJsonName(appDir: string, name: string): void {
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     pkg.name = name;
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  } catch {}
+}
+
+function getCoreDependencyVersion(): string {
+  try {
+    const packageRoot = path.resolve(__dirname, "../..");
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(packageRoot, "package.json"), "utf-8"),
+    );
+    if (typeof pkg.version === "string" && pkg.version.length > 0) {
+      return `^${pkg.version}`;
+    }
+  } catch {}
+  return "latest";
+}
+
+function rewriteCoreDependencyVersions(projectDir: string): void {
+  const pkgPath = path.join(projectDir, "package.json");
+  if (!fs.existsSync(pkgPath)) return;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    for (const depType of [
+      "dependencies",
+      "devDependencies",
+      "peerDependencies",
+    ] as const) {
+      const deps = pkg[depType];
+      if (deps?.["@agent-native/core"]) {
+        deps["@agent-native/core"] = getCoreDependencyVersion();
+      }
+    }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   } catch {}
 }

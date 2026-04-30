@@ -12,6 +12,9 @@ const repoRoot = path.resolve(
 );
 const cliEntry = path.join(repoRoot, "packages/core/src/cli/index.ts");
 const tsxBin = path.join(repoRoot, "node_modules/.bin/tsx");
+const coreDependencyVersion = `^${
+  readJson(path.join(repoRoot, "packages/core/package.json")).version
+}`;
 
 function run(
   cmd: string,
@@ -173,7 +176,7 @@ function assertWorkspaceApp(
   assertScaffoldBasics(appDir);
   const pkg = readJson(path.join(appDir, "package.json"));
   assert.equal(pkg.name, appName);
-  assert.equal(pkg.dependencies["@agent-native/core"], "latest");
+  assert.equal(pkg.dependencies["@agent-native/core"], coreDependencyVersion);
   assert.equal(pkg.dependencies[workspaceCoreName], "workspace:*");
 }
 
@@ -209,7 +212,10 @@ try {
   const appDir = path.join(tmpDir, "qa-cli-app");
   const pkg = readJson(path.join(appDir, "package.json"));
   assert.equal(pkg.name, "qa-cli-app");
-  assert.equal(pkg.dependencies["@agent-native/core"], "latest");
+  assert.equal(
+    pkg.dependencies["@agent-native/core"],
+    coreDependencyVersion,
+  );
   assertNoWorkspaceProtocolDeps(pkg);
   assertScaffoldBasics(appDir);
 

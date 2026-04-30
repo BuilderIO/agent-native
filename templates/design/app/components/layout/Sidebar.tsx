@@ -73,9 +73,7 @@ export function Sidebar() {
               aria-hidden="true"
               className="hidden h-4 w-auto dark:block"
             />
-            <span className="text-sm font-semibold tracking-tight">
-              Design
-            </span>
+            <span className="text-sm font-semibold tracking-tight">Design</span>
           </div>
         )}
         <Tooltip>
