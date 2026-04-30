@@ -98,6 +98,12 @@ importers:
       '@anthropic-ai/sdk':
         specifier: '>=0.90.0'
         version: 0.90.0(zod@4.3.6)
+      '@assistant-ui/react':
+        specifier: ^0.12.19
+        version: 0.12.22(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@11.1.4)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
+      '@assistant-ui/react-markdown':
+        specifier: ^0.12.6
+        version: 0.12.8(@assistant-ui/react@0.12.22(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@11.1.4)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5)))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@clack/prompts':
         specifier: ^1.2.0
         version: 1.2.0
@@ -261,12 +267,6 @@ importers:
       '@ai-sdk/openai':
         specifier: ^3.0.53
         version: 3.0.53(zod@4.3.6)
-      '@assistant-ui/react':
-        specifier: ^0.12.19
-        version: 0.12.22(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@11.1.4)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))
-      '@assistant-ui/react-markdown':
-        specifier: ^0.12.6
-        version: 0.12.8(@assistant-ui/react@0.12.22(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@11.1.4)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5)))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@supabase/supabase-js':
         specifier: ^2.49.0
         version: 2.101.1
