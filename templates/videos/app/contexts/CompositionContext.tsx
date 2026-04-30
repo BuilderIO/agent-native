@@ -364,13 +364,33 @@ export function CompositionProvider({
   );
 
   const handleTitleChange = useCallback(
-    (title: string) => {
+    async (title: string) => {
       if (!selected) return;
       const compIndex = compositions.findIndex((c) => c.id === selected.id);
-      if (compIndex !== -1) {
-        compositions[compIndex].title = title;
-        console.log(`[Videos] Renamed composition to: ${title}`);
-        setPropsOverrides((prev) => ({ ...prev }));
+      if (compIndex === -1) return;
+
+      // Optimistically update in-memory registry and trigger re-render
+      compositions[compIndex].title = title;
+      setRegistryVersion((v) => v + 1);
+
+      // Persist to DB
+      try {
+        const res = await fetch(`/_agent-native/actions/update-composition`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: selected.id, title }),
+        });
+        if (!res.ok) {
+          throw new Error(`update-composition failed: ${res.status}`);
+        }
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        if (data?.error) {
+          throw new Error(data.error);
+        }
+      } catch (err) {
+        console.error("[Videos] Failed to persist title rename:", err);
       }
     },
     [selected],
