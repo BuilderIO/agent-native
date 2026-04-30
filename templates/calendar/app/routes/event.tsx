@@ -14,6 +14,8 @@ import { useActionQuery } from "@agent-native/core/client";
 import { postNavigate, isInAgentEmbed } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
 
+type EventPreviewResult = CalendarEvent | { error: string };
+
 export function meta() {
   return [{ title: "Event Preview" }];
 }
@@ -159,7 +161,7 @@ export default function EventPreviewRoute() {
   const id = searchParams.get("id") ?? "";
   const calendarId = searchParams.get("calendarId") ?? "primary";
 
-  const { data, isLoading, error } = useActionQuery<CalendarEvent>(
+  const { data, isLoading, error } = useActionQuery<EventPreviewResult>(
     "get-event",
     id ? { id, calendarId } : undefined,
     { enabled: !!id, retry: false },
@@ -179,17 +181,20 @@ export default function EventPreviewRoute() {
     );
   }
 
-  if (error || !data) {
+  const result = data as EventPreviewResult | undefined;
+  if (error || !result || "error" in result) {
     return (
       <ErrorCard
         message={
           error instanceof Error
             ? error.message
-            : "Event not found or access denied."
+            : result && "error" in result
+              ? result.error
+              : "Event not found or access denied."
         }
       />
     );
   }
 
-  return <EventCard event={data} />;
+  return <EventCard event={result} />;
 }

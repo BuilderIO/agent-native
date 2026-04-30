@@ -19,10 +19,10 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 | Action            | Args                                           | Purpose                 |
 | ----------------- | ---------------------------------------------- | ----------------------- |
-| `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
-| `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
+| `resource-read`   | `--path <path> [--scope personal\|shared]`     | Read a resource         |
+| `resource-write`  | `--path <path> --content <text> [--scope ...]` | Write/update a resource |
 | `resource-list`   | `[--scope personal\|shared]`                   | List all resources      |
-| `resource-delete` | `--name <name> [--scope personal\|shared]`     | Delete a resource       |
+| `resource-delete` | `--path <path> [--scope personal\|shared]`     | Delete a resource       |
 
 ## Application State
 
