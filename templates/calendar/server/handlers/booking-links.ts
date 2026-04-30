@@ -1,4 +1,5 @@
 import {
+  createError,
   defineEventHandler,
   getRouterParam,
   setResponseStatus,
@@ -13,7 +14,25 @@ import {
 } from "@agent-native/core/server/request-context";
 import type { BookingLink } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
-import { readBody } from "@agent-native/core/server";
+import {
+  getSession,
+  readBody,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+
+async function requireRequestContext<T>(
+  event: H3Event,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    fn,
+  );
+}
 
 function rowToBookingLink(
   row: typeof schema.bookingLinks.$inferSelect,
@@ -54,20 +73,23 @@ function rowToBookingLink(
 }
 
 export const listBookingLinks = defineEventHandler(async (event: H3Event) => {
-  try {
-    const rows = await getDb()
-      .select()
-      .from(schema.bookingLinks)
-      .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares))
-      .orderBy(desc(schema.bookingLinks.updatedAt));
-    return rows.map(rowToBookingLink);
-  } catch (error: any) {
-    setResponseStatus(event, 500);
-    return { error: error.message };
-  }
+  return requireRequestContext(event, async () => {
+    try {
+      const rows = await getDb()
+        .select()
+        .from(schema.bookingLinks)
+        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares))
+        .orderBy(desc(schema.bookingLinks.updatedAt));
+      return rows.map(rowToBookingLink);
+    } catch (error: any) {
+      setResponseStatus(event, error?.statusCode ?? 500);
+      return { error: error.message };
+    }
+  });
 });
 
 export const createBookingLink = defineEventHandler(async (event: H3Event) => {
+  return requireRequestContext(event, async () => {
   try {
     const body = await readBody(event);
 
@@ -128,12 +150,14 @@ export const createBookingLink = defineEventHandler(async (event: H3Event) => {
       .where(eq(schema.bookingLinks.id, id));
     return rowToBookingLink(created[0]);
   } catch (error: any) {
-    setResponseStatus(event, 500);
+    setResponseStatus(event, error?.statusCode ?? 500);
     return { error: error.message };
   }
+  });
 });
 
 export const updateBookingLink = defineEventHandler(async (event: H3Event) => {
+  return requireRequestContext(event, async () => {
   try {
     const id = getRouterParam(event, "id");
     if (!id) {
@@ -236,9 +260,11 @@ export const updateBookingLink = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, status);
     return { error: error.message };
   }
+  });
 });
 
 export const deleteBookingLink = defineEventHandler(async (event: H3Event) => {
+  return requireRequestContext(event, async () => {
   try {
     const id = getRouterParam(event, "id");
     if (!id) {
@@ -272,6 +298,7 @@ export const deleteBookingLink = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, status);
     return { error: error.message };
   }
+  });
 });
 
 // PUBLIC booking page — unauthenticated visitors fetch a link by slug to book.

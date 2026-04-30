@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import React from "react";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentTerminal } from "./AgentTerminal.js";
 
@@ -82,10 +82,16 @@ class MockWebSocket {
 }
 
 describe("AgentTerminal", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
   beforeEach(() => {
     vi.useFakeTimers();
     terminals.length = 0;
     MockWebSocket.instances.length = 0;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
     vi.stubGlobal("ResizeObserver", MockResizeObserver);
     vi.stubGlobal("WebSocket", MockWebSocket);
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
@@ -96,6 +102,8 @@ describe("AgentTerminal", () => {
   });
 
   afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -107,15 +115,21 @@ describe("AgentTerminal", () => {
     });
   }
 
+  function renderTerminal(props: React.ComponentProps<typeof AgentTerminal>) {
+    act(() => {
+      root.render(React.createElement(AgentTerminal, props));
+    });
+  }
+
   it("renders discovery errors from the terminal info endpoint", async () => {
     vi.mocked(fetch).mockResolvedValue({
       json: async () => ({ available: false, error: "Terminal disabled" }),
     } as Response);
 
-    render(<AgentTerminal />);
+    renderTerminal({});
     await flushTimers();
 
-    expect(await screen.findByText("Terminal disabled")).toBeTruthy();
+    expect(container.textContent).toContain("Terminal disabled");
   });
 
   it("discovers the WebSocket URL, including IPv6 hosts and flags", async () => {
@@ -128,8 +142,8 @@ describe("AgentTerminal", () => {
       }),
     } as Response);
 
-    render(<AgentTerminal flags="--plan" />);
-    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    renderTerminal({ flags: "--plan" });
+    await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
 
     expect(MockWebSocket.instances[0].url).toBe(
       "ws://[::1]:12345/ws?command=builder&flags=--plan",
@@ -137,8 +151,11 @@ describe("AgentTerminal", () => {
   });
 
   it("shows setup-status errors and suppresses reconnects", async () => {
-    render(<AgentTerminal wsUrl="ws://127.0.0.1:12345/ws" command="builder" />);
-    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    renderTerminal({
+      wsUrl: "ws://127.0.0.1:12345/ws",
+      command: "builder",
+    });
+    await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
 
     act(() => {
       MockWebSocket.instances[0].receive(
@@ -152,20 +169,18 @@ describe("AgentTerminal", () => {
     });
     await flushTimers();
 
-    expect(await screen.findByText("Invalid flags")).toBeTruthy();
+    expect(container.textContent).toContain("Invalid flags");
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 
   it("forwards same-origin chat submissions to the terminal only", async () => {
     const onAgentRunningChange = vi.fn();
-    render(
-      <AgentTerminal
-        wsUrl="ws://127.0.0.1:12345/ws"
-        command="builder"
-        onAgentRunningChange={onAgentRunningChange}
-      />,
-    );
-    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    renderTerminal({
+      wsUrl: "ws://127.0.0.1:12345/ws",
+      command: "builder",
+      onAgentRunningChange,
+    });
+    await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
     await flushTimers();
 
     window.dispatchEvent(
