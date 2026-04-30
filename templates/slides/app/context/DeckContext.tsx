@@ -505,6 +505,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const updateDeck = useCallback(
     (id: string, updates: Partial<Omit<Deck, "id" | "createdAt">>) => {
       // Don't push history for title changes (too noisy)
+      // Clear the external-update suppression window so a rename/update that
+      // happens within 2s of page load (or an SSE event) is not silently dropped.
+      lastExternalUpdateRef.current = 0;
       setDecks((prev) =>
         prev.map((d) =>
           d.id === id
