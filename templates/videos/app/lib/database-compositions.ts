@@ -1,5 +1,8 @@
 import { BlankComposition } from "@/remotion/compositions/BlankComposition";
-import { createStandardTracks, type CompositionEntry } from "@/remotion/registry";
+import {
+  createStandardTracks,
+  type CompositionEntry,
+} from "@/remotion/registry";
 import type { AnimationTrack } from "@/types";
 
 export type DatabaseCompositionRow = {
@@ -19,9 +22,7 @@ function numberFromData(
   fallback: number,
 ): number {
   const value = data[key];
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : fallback;
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function propsFromData(data: Record<string, unknown>): Record<string, unknown> {

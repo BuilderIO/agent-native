@@ -17,7 +17,8 @@ function compositionChanged(
     existing.fps !== next.fps ||
     existing.width !== next.width ||
     existing.height !== next.height ||
-    JSON.stringify(existing.defaultProps) !== JSON.stringify(next.defaultProps) ||
+    JSON.stringify(existing.defaultProps) !==
+      JSON.stringify(next.defaultProps) ||
     JSON.stringify(existing.tracks) !== JSON.stringify(next.tracks)
   );
 }

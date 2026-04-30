@@ -3,6 +3,7 @@ import { useParams, Navigate } from "react-router";
 import { AgentSidebar } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { compositions } from "@/remotion/registry";
+import { Spinner } from "@/components/ui/spinner";
 import { Sidebar } from "@/components/Sidebar";
 import { StudioHeader } from "@/components/StudioHeader";
 import { QuestionFlow } from "@/components/QuestionFlow";
