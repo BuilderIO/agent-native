@@ -60,6 +60,9 @@ test-*-workspace/
 # Slides export artifacts (generated PDFs/HTML/PPTX exports)
 templates/slides/data/exports/
 
+# Playwright/vitest test run state
+test-results/
+
 # Wrangler local state
 .wrangler
 
