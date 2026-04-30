@@ -3,6 +3,7 @@ import { trackEvent } from "../components/TemplateCard";
 import { IconBrandGithub, IconDownload } from "@tabler/icons-react";
 
 const DL = "https://github.com/BuilderIO/agent-native/releases/latest/download";
+const RELEASES = "https://github.com/BuilderIO/agent-native/releases";
 
 function AppleIcon() {
   return (
@@ -43,10 +44,10 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     name: "macOS",
     icon: <AppleIcon />,
     primary: {
-      label: "Download for Mac",
-      href: `${DL}/Agent-Native.dmg`,
+      label: "View Mac releases",
+      href: RELEASES,
     },
-    note: "Universal binary — works on Apple Silicon and Intel.",
+    note: "The latest Agent Native release does not currently include a macOS installer.",
   },
   windows: {
     name: "Windows",

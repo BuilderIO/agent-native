@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 import {
   IconArrowLeft,
   IconBrandGithub,
@@ -12,6 +12,26 @@ import {
   trackEvent,
   type Template,
 } from "../components/TemplateCard";
+
+function findTemplate(slug: string | undefined) {
+  return templates.find((t) => t.slug === slug);
+}
+
+export function loader({ params }: LoaderFunctionArgs) {
+  if (!findTemplate(params.slug)) {
+    throw new Response("Not Found", { status: 404 });
+  }
+  return null;
+}
+
+export const meta = ({ params }: { params: { slug?: string } }) => {
+  const template = findTemplate(params.slug);
+  if (!template) return [{ title: "Template Not Found — Agent-Native" }];
+  return [
+    { title: `${template.name} Template — Agent-Native` },
+    { name: "description", content: template.description },
+  ];
+};
 
 function TemplateFallbackArt({ template }: { template: Template }) {
   if (template.screenshot) {
@@ -72,7 +92,7 @@ function CliCopy({ template }: { template: Template }) {
 
 export default function GenericTemplatePage() {
   const { slug } = useParams();
-  const template = templates.find((t) => t.slug === slug);
+  const template = findTemplate(slug);
 
   if (!template) {
     return (

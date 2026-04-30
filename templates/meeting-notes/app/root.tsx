@@ -116,7 +116,7 @@ export default function Root() {
               </CommandMenu.Group>
             </CommandMenu>
             <Outlet />
-            <Toaster position="bottom-left" />
+            <Toaster richColors position="bottom-left" />
           </TooltipProvider>
         </QueryClientProvider>
       </ThemeProvider>

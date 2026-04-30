@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
 import { getAuthSecret } from "./better-auth-instance.js";
-import { getOrigin } from "./google-oauth.js";
+import { getAppBasePath, getOrigin } from "./google-oauth.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
@@ -166,7 +166,11 @@ export function buildBuilderCliAuthUrl(
   state: string | null = null,
 ): string {
   const normalizedOrigin = normalizeOrigin(origin);
-  const callbackUrl = new URL(BUILDER_CALLBACK_PATH, normalizedOrigin);
+  const appBasePath = getAppBasePath();
+  const callbackUrl = new URL(
+    `${appBasePath}${BUILDER_CALLBACK_PATH}`,
+    normalizedOrigin,
+  );
   if (state) {
     callbackUrl.searchParams.set(BUILDER_STATE_PARAM, state);
   }
@@ -175,7 +179,7 @@ export function buildBuilderCliAuthUrl(
   url.searchParams.set("host", BUILDER_BROWSER_HOST);
   url.searchParams.set("client_id", BUILDER_BROWSER_CLIENT_ID);
   url.searchParams.set("redirect_url", callbackUrl.toString());
-  url.searchParams.set("preview_url", normalizedOrigin);
+  url.searchParams.set("preview_url", `${normalizedOrigin}${appBasePath}`);
   url.searchParams.set("framework", "agent-native");
   return url.toString();
 }

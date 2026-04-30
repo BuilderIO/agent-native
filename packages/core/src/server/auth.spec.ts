@@ -158,6 +158,29 @@ describe("server/auth", () => {
       logSpy.mockRestore();
     });
 
+    it("recognizes auth routes under APP_BASE_PATH in the global guard", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_BASE_PATH", "/docs");
+      delete process.env.AUTH_MODE;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const app = createMockApp();
+      await autoMountAuth(app);
+      logSpy.mockRestore();
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(
+        createMockEvent({ path: "/docs/_agent-native/auth/session" }),
+      );
+      expect(result).toBeUndefined();
+    });
+
     it("supports multiple ACCESS_TOKENS", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKENS", "token1, token2, token3");
@@ -514,13 +537,15 @@ function createMockEvent(opts?: {
   cookies?: Record<string, string>;
   query?: Record<string, string>;
   headers?: Record<string, string>;
+  path?: string;
 }): any {
   const query = opts?.query || {};
   const headers = opts?.headers || {};
   const qs = Object.entries(query)
     .map(([k, v]) => `${k}=${v}`)
     .join("&");
-  const url = qs ? `/?${qs}` : "/";
+  const pathname = opts?.path || "/";
+  const url = qs ? `${pathname}?${qs}` : pathname;
   const requestHeaders = new Headers({ host: "localhost", ...headers });
   return {
     // h3 v2 shape: event.req is the web Request, event.url is a parsed URL,

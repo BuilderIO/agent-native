@@ -80,6 +80,7 @@ import {
 import {
   isElectron as isElectronRequest,
   getOrigin,
+  getAppBasePath,
   getAppUrl,
   encodeOAuthState,
   decodeOAuthState,
@@ -625,7 +626,10 @@ function createAuthGuardFn(): (
     const { loginHtml, publicPaths } = config;
 
     const url = event.node?.req?.url ?? event.path ?? "/";
-    const p = url.split("?")[0];
+    const queryStart = url.indexOf("?");
+    const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
+    const p = stripAppBasePath(rawPath);
+    const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
 
     // Emit CORS headers on every request the guard sees so that even
     // error responses (401) reach the browser.
@@ -704,7 +708,7 @@ function createAuthGuardFn(): (
     // injection) are rejected up front.
     //
     if (p === "/_agent-native/sign-in") {
-      const queryStr = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
+      const queryStr = queryStart >= 0 ? url.slice(queryStart + 1) : "";
       const safeReturn = safeReturnPath(
         new URLSearchParams(queryStr).get("return"),
       );
@@ -736,7 +740,7 @@ function createAuthGuardFn(): (
     ) {
       return;
     }
-    if (isPublicPath(url, publicPaths)) return;
+    if (isPublicPath(normalizedUrl, publicPaths)) return;
 
     const session = await getSession(event);
     if (session) return;
@@ -1026,6 +1030,16 @@ function clearUpgradePendingCookie(event: H3Event): void {
 function isPublicPath(url: string, publicPaths: string[]): boolean {
   const p = url.split("?")[0];
   return publicPaths.some((pp) => p === pp || p.startsWith(pp + "/"));
+}
+
+function stripAppBasePath(pathname: string): string {
+  const basePath = getAppBasePath();
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
 }
 
 // ---------------------------------------------------------------------------
