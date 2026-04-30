@@ -1208,9 +1208,18 @@ export function MultiTabAssistantChat({
                             )}
                             <span
                               role="button"
+                              tabIndex={0}
+                              aria-label="Close tab"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 closeTab(tab.id);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  closeTab(tab.id);
+                                }
                               }}
                               className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
                               style={{
@@ -1289,9 +1298,18 @@ export function MultiTabAssistantChat({
                             )}
                             <span
                               role="button"
+                              tabIndex={0}
+                              aria-label="Close tab"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 closeTab(tab.id);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  closeTab(tab.id);
+                                }
                               }}
                               className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
                               style={{

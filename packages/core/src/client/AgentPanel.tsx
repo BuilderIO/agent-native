@@ -614,6 +614,7 @@ export function AgentPanel({
                               )}
                               <button
                                 type="button"
+                                aria-label="Close tab"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   closeTab(tab.id);
@@ -655,6 +656,7 @@ export function AgentPanel({
                             <span>Terminal {i + 1}</span>
                             <button
                               type="button"
+                              aria-label="Close tab"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 closeCliTab(id);

@@ -17,6 +17,7 @@ import {
   assertAccess,
   ForbiddenError,
 } from "@agent-native/core/sharing";
+import { ASPECT_RATIO_VALUES } from "../../shared/aspect-ratios.js";
 
 // --- SSE for change notifications ---
 type SSEPush = (data: string) => void;
@@ -90,6 +91,20 @@ function handleForbidden(event: any, err: unknown): { error: string } {
     return { error: err.message };
   }
   throw err;
+}
+
+function validateDeckAspectRatio(
+  event: any,
+  deck: Record<string, any>,
+): boolean {
+  if (
+    "aspectRatio" in deck &&
+    !ASPECT_RATIO_VALUES.includes(deck.aspectRatio)
+  ) {
+    setResponseStatus(event, 400);
+    return false;
+  }
+  return true;
 }
 
 // SSE endpoint — client subscribes for real-time change notifications.
@@ -191,6 +206,9 @@ export const updateDeck = defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "Invalid deck data" };
   }
+  if (!validateDeckAspectRatio(event, deck)) {
+    return { error: "Invalid aspect ratio" };
+  }
 
   return withAuth(event, async ({ email, orgId }) => {
     const db = getDb();
@@ -274,6 +292,9 @@ export const createDeck = defineEventHandler(async (event) => {
   if (!deck || !deck.id) {
     setResponseStatus(event, 400);
     return { error: "Deck must have an id" };
+  }
+  if (!validateDeckAspectRatio(event, deck)) {
+    return { error: "Invalid aspect ratio" };
   }
 
   return withAuth(event, async ({ email, orgId }) => {

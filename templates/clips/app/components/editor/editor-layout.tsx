@@ -216,6 +216,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   // --- actions ------------------------------------------------------------
   const trim = useActionMutation("trim-recording" as any);
+  const split = useActionMutation("split-recording" as any);
   const undo = useActionMutation("undo-edit" as any);
 
   const callTrim = useCallback(
@@ -274,11 +275,35 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
               : Math.max(0, playheadMs - 1000),
           endMs: playheadMs,
         }));
+      } else if (e.key.toLowerCase() === "x") {
+        // Cut: trim the current selection range
+        const range = selectionRange;
+        if (range) {
+          e.preventDefault();
+          trim
+            .mutateAsync({
+              recordingId,
+              startMs: Math.round(range.startMs),
+              endMs: Math.round(range.endMs),
+            } as any)
+            .then(() => {
+              toast.success("Cut");
+              setSelectionRange(null);
+            })
+            .catch((err: any) => toast.error(err?.message ?? "Cut failed"));
+        }
+      } else if (e.key.toLowerCase() === "s") {
+        // Split at playhead
+        e.preventDefault();
+        split
+          .mutateAsync({ recordingId, atMs: Math.round(playheadMs) } as any)
+          .then(() => toast.success("Split"))
+          .catch((err: any) => toast.error(err?.message ?? "Split failed"));
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [playheadMs, recordingId, undo]);
+  }, [playheadMs, recordingId, selectionRange, split, trim, undo]);
 
   // Default selection window so the TrimHandles have something to render.
   const effectiveSelection = selectionRange ?? {

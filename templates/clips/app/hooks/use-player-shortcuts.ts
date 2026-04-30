@@ -2,29 +2,37 @@ import { useEffect } from "react";
 import type { VideoPlayerHandle } from "@/components/player/video-player";
 import { SPEED_OPTIONS } from "@/components/player/player-controls";
 
+export interface Chapter {
+  startMs: number;
+  title: string;
+}
+
 export interface UsePlayerShortcutsOpts {
   playerRef: React.RefObject<VideoPlayerHandle | null>;
   speed: number;
   setSpeed: (v: number) => void;
+  chapters?: Chapter[];
   enabled?: boolean;
 }
 
 /**
  * Wires up Clips' player-page keyboard shortcuts.
  *
- *  Space / K  → play/pause
- *  J / ←      → back 6s
- *  L / →      → forward 6s
- *  F          → fullscreen
- *  M          → mute
- *  > / .      → speed up
- *  < / ,      → speed down
- *  C          → toggle captions
+ *  Space / K      → play/pause
+ *  J / ←          → back 6s
+ *  L / →          → forward 6s
+ *  Shift+← / →   → previous/next chapter
+ *  ↑ / ↓          → volume up/down 10%
+ *  F              → fullscreen
+ *  M              → mute
+ *  > / .          → speed up
+ *  < / ,          → speed down
+ *  C              → toggle captions
  *
  * Ignores events when focus is inside an input/textarea/contenteditable.
  */
 export function usePlayerShortcuts(opts: UsePlayerShortcutsOpts) {
-  const { playerRef, speed, setSpeed, enabled = true } = opts;
+  const { playerRef, speed, setSpeed, chapters = [], enabled = true } = opts;
 
   useEffect(() => {
     if (!enabled) return;
