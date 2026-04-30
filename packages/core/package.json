@@ -41,6 +41,7 @@
     "./credentials": "./dist/credentials/index.js",
     "./event-bus": "./dist/event-bus/index.js",
     "./fetch-tool": "./dist/tools/fetch-tool.js",
+    "./tools/url-safety": "./dist/tools/url-safety.js",
     "./file-upload": "./dist/file-upload/index.js",
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",

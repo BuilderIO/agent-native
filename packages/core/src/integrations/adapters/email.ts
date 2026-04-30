@@ -567,20 +567,48 @@ async function parseSendGridWebhook(
 // Rate limiting
 // ---------------------------------------------------------------------------
 
-function isRateLimited(senderEmail: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(senderEmail);
-
-  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-    rateLimitMap.set(senderEmail, { count: 1, windowStart: now });
+/**
+ * Rate-limit heuristic backed by the `integration_pending_tasks` queue.
+ *
+ * Counts how many tasks this sender has produced in the last hour. The count
+ * INCLUDES tasks already processed (status = completed/failed) because the
+ * rows aren't deleted on completion — that's enough signal to throttle a
+ * single noisy/abusive sender without needing a dedicated counter table.
+ *
+ * Two trade-offs worth knowing:
+ *   - This is a coarse heuristic, not exact metering. Within one hour the
+ *     count is correct; rows produced more than an hour ago naturally drop
+ *     off. We don't try to be precise, only to raise the bar past the
+ *     "send 10K emails through one Lambda burst" failure mode.
+ *   - The query relies on the `idx_pending_tasks_status_created` index plus
+ *     a sender substring match. A targeted attacker could amortise the cost
+ *     by reusing one sender address — that's fine, the goal here is to bound
+ *     the attack within a single attacker identity, not to detect spoofing.
+ *
+ * If the table doesn't yet exist on this deployment (no inbound webhook has
+ * been processed before), we silently allow the message — the schema is
+ * provisioned on first task insert. See H4 in the webhook security audit.
+ */
+async function isRateLimited(senderEmail: string): Promise<boolean> {
+  const cutoff = Date.now() - RATE_LIMIT_WINDOW_MS;
+  try {
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `
+        SELECT COUNT(*) AS c
+          FROM integration_pending_tasks
+         WHERE platform = ?
+           AND created_at >= ?
+           AND payload LIKE ?
+      `,
+      args: ["email", cutoff, `%"senderId":"${senderEmail}"%`],
+    });
+    const count = Number((rows[0] as Record<string, unknown> | undefined)?.c ?? 0);
+    return count >= RATE_LIMIT_MAX;
+  } catch {
+    // Table doesn't exist yet (first webhook on a fresh deployment) — allow.
     return false;
   }
-
-  entry.count++;
-  if (entry.count > RATE_LIMIT_MAX) {
-    return true;
-  }
-  return false;
 }
 
 // ---------------------------------------------------------------------------

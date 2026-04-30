@@ -911,12 +911,19 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   // on a shared DB (Postgres, Turso, D1) this fallback would land every
   // developer on the same account and expose each other's data.
   //
+  // STRICT NODE_ENV check: this used to read `isDevEnvironment()` which
+  // also accepted `NODE_ENV=test`, meaning a misconfigured prod deploy
+  // started with `NODE_ENV=test` (or undefined NODE_ENV in some CI/build
+  // contexts) would silently bypass auth entirely. Limiting to the literal
+  // string "development" closes that footgun. Tests that need this branch
+  // to fire stub NODE_ENV explicitly to "development".
+  //
   // EXCEPTION: if the user has explicitly exited local mode (clicked "Upgrade
   // to real account"), they've signaled they want real auth. The upgrade
   // cookie suppresses this fallback so the onboarding/sign-in page is served
   // instead of silently re-authenticating them as local@localhost.
   if (
-    isDevEnvironment() &&
+    process.env.NODE_ENV === "development" &&
     isLocalDatabase() &&
     !isUpgradePending(event) &&
     !hasSignInFlag(event)
@@ -1334,6 +1341,19 @@ async function mountBetterAuthRoutes(
           const user = await userRes.json();
           const email = user.email as string;
           if (!email) throw new Error("Could not get email from Google");
+          // Reject unverified Google addresses. Google returns
+          // `verified_email: false` for accounts where ownership of the
+          // address hasn't been proven (rare on consumer accounts but
+          // reachable on Workspace tenants that allow it). Without this
+          // check, an attacker could sign up as `victim@example.com` on
+          // Google without controlling the inbox and take over a local
+          // password account that already exists at that address (Better
+          // Auth's accountLinking auto-merges trusted-provider sign-ins).
+          if (user.verified_email !== true) {
+            throw new Error(
+              "Google account email is not verified. Please verify your email with Google and try again.",
+            );
+          }
 
           const { sessionToken } = await createOAuthSession(event, email, {
             hasProductionSession: false,

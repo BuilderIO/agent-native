@@ -179,6 +179,7 @@ export function createAnthropicEngine(
 ): AgentEngine {
   const apiKey =
     (config.apiKey as string | undefined) ??
+    // guard:allow-env-credential — engine factory bootstrap. Per-user resolution happens in production-agent.ts via getOwnerActiveApiKey + isMultiTenantDeploy gate; this fallback is only reached in single-tenant / self-hosted mode.
     process.env.ANTHROPIC_API_KEY ??
     "";
   if (!apiKey) {

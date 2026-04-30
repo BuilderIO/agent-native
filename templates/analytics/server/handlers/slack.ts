@@ -1,5 +1,10 @@
-import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireCredential } from "../lib/credentials";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+import { requireCredential, runApiHandlerWithContext } from "../lib/credentials";
 import {
   listChannels,
   getChannelHistory,
@@ -14,12 +19,19 @@ function parseWorkspace(raw?: string): Workspace {
   return raw === "secondary" ? "secondary" : "primary";
 }
 
-export const handleSlackTeam = defineEventHandler(async (event) => {
-  const missing = await requireCredential(event, "SLACK_TOKEN", "Slack");
-  if (missing) return missing;
+async function requireSlackCredential(event: H3Event, workspace: Workspace) {
+  const key =
+    workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN";
+  return requireCredential(event, key, "Slack");
+}
+
+export const handleSlackTeam = defineEventHandler((event) =>
+  runApiHandlerWithContext(event, async () => {
   try {
     const { workspace: workspaceParam } = getQuery(event);
     const workspace = parseWorkspace(workspaceParam as string);
+    const missing = await requireSlackCredential(event, workspace);
+    if (missing) return missing;
     const team = await getTeamInfo(workspace);
     return { team };
   } catch (err: any) {
@@ -27,14 +39,16 @@ export const handleSlackTeam = defineEventHandler(async (event) => {
     setResponseStatus(event, 500);
     return { error: err.message };
   }
-});
+  }),
+);
 
-export const handleSlackChannels = defineEventHandler(async (event) => {
-  const missing = await requireCredential(event, "SLACK_TOKEN", "Slack");
-  if (missing) return missing;
+export const handleSlackChannels = defineEventHandler((event) =>
+  runApiHandlerWithContext(event, async () => {
   try {
     const { workspace: workspaceParam } = getQuery(event);
     const workspace = parseWorkspace(workspaceParam as string);
+    const missing = await requireSlackCredential(event, workspace);
+    if (missing) return missing;
     const channels = await listChannels(workspace);
     return { channels, total: channels.length };
   } catch (err: any) {
@@ -42,7 +56,8 @@ export const handleSlackChannels = defineEventHandler(async (event) => {
     setResponseStatus(event, 500);
     return { error: err.message };
   }
-});
+  }),
+);
 
 /** Reconstruct text from Slack blocks for better line-break formatting */
 function enrichMessages(messages: SlackMessage[]): SlackMessage[] {
@@ -64,9 +79,8 @@ function enrichMessages(messages: SlackMessage[]): SlackMessage[] {
   });
 }
 
-export const handleSlackHistory = defineEventHandler(async (event) => {
-  const missing = await requireCredential(event, "SLACK_TOKEN", "Slack");
-  if (missing) return missing;
+export const handleSlackHistory = defineEventHandler((event) =>
+  runApiHandlerWithContext(event, async () => {
   try {
     const {
       workspace: workspaceParam,
@@ -75,6 +89,8 @@ export const handleSlackHistory = defineEventHandler(async (event) => {
       cursor,
     } = getQuery(event);
     const workspace = parseWorkspace(workspaceParam as string);
+    const missing = await requireSlackCredential(event, workspace);
+    if (missing) return missing;
     const limit = parseInt((limitParam as string) || "50", 10);
 
     if (!channel) {
@@ -107,7 +123,8 @@ export const handleSlackHistory = defineEventHandler(async (event) => {
     setResponseStatus(event, 500);
     return { error: err.message };
   }
-});
+  }),
+);
 
 /**
  * Multi-channel paginated history endpoint.
@@ -115,9 +132,8 @@ export const handleSlackHistory = defineEventHandler(async (event) => {
  * merges by timestamp, and returns the top `pageSize` messages.
  * Returns per-channel cursors for next page.
  */
-export const handleSlackMultiHistory = defineEventHandler(async (event) => {
-  const missing = await requireCredential(event, "SLACK_TOKEN", "Slack");
-  if (missing) return missing;
+export const handleSlackMultiHistory = defineEventHandler((event) =>
+  runApiHandlerWithContext(event, async () => {
   try {
     const {
       workspace: workspaceParam,
@@ -127,6 +143,8 @@ export const handleSlackMultiHistory = defineEventHandler(async (event) => {
       cursors: cursorsParam,
     } = getQuery(event);
     const workspace = parseWorkspace(workspaceParam as string);
+    const missing = await requireSlackCredential(event, workspace);
+    if (missing) return missing;
     // cursors is a JSON-encoded object: { channelId: timestamp }
     const pageSize = parseInt((pageSizeParam as string) || "20", 10);
 
@@ -199,14 +217,16 @@ export const handleSlackMultiHistory = defineEventHandler(async (event) => {
     setResponseStatus(event, 500);
     return { error: err.message };
   }
-});
+  }),
+);
 
-export const handleSlackSearch = defineEventHandler(async (event) => {
-  const missing = await requireCredential(event, "SLACK_TOKEN", "Slack");
-  if (missing) return missing;
+export const handleSlackSearch = defineEventHandler((event) =>
+  runApiHandlerWithContext(event, async () => {
   try {
     const { workspace: workspaceParam, query } = getQuery(event);
     const workspace = parseWorkspace(workspaceParam as string);
+    const missing = await requireSlackCredential(event, workspace);
+    if (missing) return missing;
 
     if (!query) {
       setResponseStatus(event, 400);
@@ -226,4 +246,5 @@ export const handleSlackSearch = defineEventHandler(async (event) => {
     setResponseStatus(event, 500);
     return { error: err.message };
   }
-});
+  }),
+);

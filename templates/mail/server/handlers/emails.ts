@@ -57,6 +57,37 @@ import {
   type TrackingContext,
 } from "../lib/email-tracking.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
+import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
+
+/**
+ * Strip CRLF from any value that flows into an RFC 2822 header line. Without
+ * this, any `\r\n` in `to`/`cc`/`bcc`/`subject`/`from` injects a new header
+ * (`Subject: hi\r\nBcc: attacker@evil` would silently BCC the attacker via
+ * the user's connected Gmail account). See email-templates.ts for the same
+ * pattern applied to system emails.
+ */
+function stripCrlf(s: string): string {
+  return s.replace(/[\r\n]+/g, " ").trim();
+}
+
+/**
+ * Loose validator for an RFC 2822 address-list header value (To/Cc/Bcc).
+ * Accepts comma-separated addresses optionally wrapped in `Display Name <addr>`
+ * form. Empty input is allowed (caller guards on required-vs-optional). Real
+ * full-spec validation is intractable in regex; this catches the common
+ * "subject: foo\r\nBcc: …" / "garbage" cases after the CRLF strip and lets
+ * Gmail's server-side validation do the rest.
+ */
+function isValidAddressList(value: string): boolean {
+  if (!value) return true;
+  const stripped = value.trim();
+  if (!stripped) return true;
+  // Address regex: must have something@something.something (no whitespace
+  // inside the local-or-domain). Display-name + angle-addr form is allowed.
+  const ADDR = /(?:[^,<>]*<\s*\S+@\S+\.\S+\s*>|\s*\S+@\S+\.\S+\s*)/;
+  const parts = stripped.split(",");
+  return parts.every((p) => ADDR.test(p.trim()));
+}
 
 // ---------------------------------------------------------------------------
 // Label map cache — avoids re-fetching label names from Gmail on every request

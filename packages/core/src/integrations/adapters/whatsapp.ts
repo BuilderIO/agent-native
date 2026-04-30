@@ -13,6 +13,23 @@ import { readBody } from "../../server/h3-helpers.js";
 const WHATSAPP_MAX_LENGTH = 4096;
 
 /**
+ * One-shot warning flag — log once per process when accepting unverified
+ * webhooks (M6 in the webhook security audit).
+ */
+let _whatsappUnverifiedWarned = false;
+
+/**
+ * Returns true when the deployment is running in production mode and the
+ * operator has NOT explicitly opted into accepting unverified webhooks for
+ * local testing. In production we MUST refuse webhooks whose signature can't
+ * be verified (C2 in the webhook security audit).
+ */
+function shouldRefuseWhenSecretMissing(): boolean {
+  if (process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS === "1") return false;
+  return process.env.NODE_ENV === "production";
+}
+
+/**
  * Create a WhatsApp Cloud API platform adapter.
  *
  * Required env vars:

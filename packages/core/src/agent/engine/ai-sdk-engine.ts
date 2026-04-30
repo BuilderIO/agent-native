@@ -396,6 +396,7 @@ function capitalize(s: string): string {
 function getProviderApiKey(provider: AISDKProvider): string | undefined {
   const envVars = PROVIDER_ENV_VARS[provider];
   for (const v of envVars) {
+    // guard:allow-env-credential — engine factory bootstrap. Per-user resolution happens in production-agent.ts via getOwnerActiveApiKey + isMultiTenantDeploy gate; this fallback is only reached in single-tenant / self-hosted mode where an env-supplied deploy key is the intended path.
     if (process.env[v]) return process.env[v];
   }
   return undefined;

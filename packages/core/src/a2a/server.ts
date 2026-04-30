@@ -25,7 +25,35 @@ interface A2ATokenPayload {
   orgDomain: string | null;
 }
 
-async function verifyA2AToken(authHeader: string): Promise<A2ATokenPayload> {
+/**
+ * Resolve the audience (`aud`) value to expect in an inbound JWT. We use the
+ * receiver's app URL — it's the natural identifier of "who this token was
+ * minted for". Falls back to undefined when no app URL is configured, in
+ * which case the audience check is skipped (backward-compat with tokens
+ * minted before the audience claim shipped).
+ */
+function expectedJwtAudience(event: any | undefined): string | undefined {
+  const fromEnv =
+    process.env.APP_URL ||
+    process.env.URL ||
+    process.env.DEPLOY_URL ||
+    process.env.BETTER_AUTH_URL;
+  if (fromEnv) return String(fromEnv);
+  // Best-effort: derive from the inbound request host. This is forgeable
+  // (Host-header attack), but only useful as a hint when env-derived URL
+  // is unset; the rest of the JWT verification still uses the secret.
+  try {
+    const proto = getRequestHeader(event, "x-forwarded-proto") || "https";
+    const host = getRequestHeader(event, "host");
+    if (host) return `${proto}://${host}`;
+  } catch {}
+  return undefined;
+}
+
+async function verifyA2AToken(
+  authHeader: string,
+  event: any | undefined,
+): Promise<A2ATokenPayload> {
   const token = authHeader.replace("Bearer ", "");
 
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
@@ -34,9 +62,10 @@ async function verifyA2AToken(authHeader: string): Promise<A2ATokenPayload> {
   // with a fake org_domain, verification will fail because they don't
   // have the real secret.
   let orgDomainHint: string | undefined;
+  let unverifiedPayload: jose.JWTPayload | undefined;
   try {
-    const unverified = jose.decodeJwt(token);
-    orgDomainHint = unverified.org_domain as string | undefined;
+    unverifiedPayload = jose.decodeJwt(token);
+    orgDomainHint = unverifiedPayload.org_domain as string | undefined;
   } catch {
     // Malformed token — fall through to global secret attempt
   }
@@ -57,11 +86,25 @@ async function verifyA2AToken(authHeader: string): Promise<A2ATokenPayload> {
   if (!secret) secret = process.env.A2A_SECRET;
   if (!secret) return { email: null, orgDomain: null };
 
-  // Step 4: Verify JWT with the resolved secret
+  // Step 4: Verify JWT with the resolved secret. Pass `audience` only when
+  // the token actually carries an `aud` claim (backward-compat: tokens
+  // minted by older `signA2AToken` versions don't include one). The
+  // issuer is always present per `signA2AToken` at client.ts:42 — but
+  // we don't enforce it because operators may legitimately mint tokens
+  // from arbitrary issuer URLs (e.g. dev tunnels, behind reverse proxies).
   try {
+    const verifyOptions: jose.JWTVerifyOptions = {};
+    if (
+      unverifiedPayload &&
+      typeof unverifiedPayload.aud !== "undefined"
+    ) {
+      const aud = expectedJwtAudience(event);
+      if (aud) verifyOptions.audience = aud;
+    }
     const { payload } = await jose.jwtVerify(
       token,
       new TextEncoder().encode(secret),
+      verifyOptions,
     );
     return {
       email: (payload.sub as string) ?? null,

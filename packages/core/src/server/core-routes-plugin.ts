@@ -268,6 +268,15 @@ export function createCoreRoutesPlugin(
 
     const P = FRAMEWORK_ROUTE_PREFIX;
 
+    // Security response headers — emitted on every framework response.
+    // Mounted before route handlers so 4xx/5xx error pages also carry the
+    // headers. Routes that need to relax a specific header (e.g. the tools
+    // /render route allowing same-origin framing) override via setResponseHeader.
+    const { createSecurityHeadersMiddleware } = await import(
+      "./security-headers.js"
+    );
+    getH3App(nitroApp).use(createSecurityHeadersMiddleware());
+
     // CORS for framework routes. Desktop tray apps (Tauri/Electron) run on
     // their own dev origin (e.g. localhost:1420) and make credentialed
     // requests against the template's server at a different port. We echo
@@ -277,6 +286,9 @@ export function createCoreRoutesPlugin(
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+    const isProduction = process.env.NODE_ENV === "production";
+    const LOCALHOST_RE =
+      /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/;
     getH3App(nitroApp).use(
       defineEventHandler((event) => {
         const pathname = stripAppBasePath(
@@ -290,17 +302,69 @@ export function createCoreRoutesPlugin(
         >;
         const originRaw = reqHeaders["origin"];
         const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
-        if (!origin) return;
-        const allowed =
-          allowlist.length === 0
-            ? // Dev convenience: allow any localhost origin (tray windows,
-              // frame, docs) without requiring an explicit allowlist.
-              /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/.test(
-                origin,
-              )
-            : allowlist.includes(origin);
-        if (!allowed) return;
-        setResponseHeader(event, "Access-Control-Allow-Origin", origin);
+        const method = getMethod(event);
+
+        // Decide whether this origin is allowed. We never fall back to the
+        // first allowlist entry — that previously echoed `Access-Control-
+        // Allow-Origin: <unrelated-allowed-origin>` for disallowed callers,
+        // which is permissive enough that some clients followed through.
+        let allowedOrigin: string | null = null;
+        if (origin) {
+          if (allowlist.length > 0) {
+            if (allowlist.includes(origin)) allowedOrigin = origin;
+          } else {
+            // No allowlist configured. In production we only allow
+            // localhost-style origins (desktop tray dev usage); in dev we
+            // allow any origin echo. This prevents a fresh deploy without
+            // CORS_ALLOWED_ORIGINS from accepting credentialed requests
+            // from any origin.
+            if (isProduction) {
+              if (LOCALHOST_RE.test(origin)) allowedOrigin = origin;
+            } else {
+              if (LOCALHOST_RE.test(origin)) allowedOrigin = origin;
+            }
+          }
+        }
+
+        // Reject preflights from disallowed cross-origin callers BEFORE
+        // returning 204. Previously the OPTIONS short-circuit returned 204
+        // with no ACAO header, which the browser then treats as a CORS
+        // failure — but also short-circuited any further checks. Now we
+        // explicitly 403 disallowed cross-origin preflights.
+        if (method === "OPTIONS") {
+          if (origin && !allowedOrigin) {
+            setResponseStatus(event, 403);
+            return "";
+          }
+          if (allowedOrigin) {
+            setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
+            setResponseHeader(event, "Vary", "Origin");
+            setResponseHeader(
+              event,
+              "Access-Control-Allow-Credentials",
+              "true",
+            );
+            setResponseHeader(
+              event,
+              "Access-Control-Allow-Methods",
+              "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+            );
+            setResponseHeader(
+              event,
+              "Access-Control-Allow-Headers",
+              "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+            );
+          }
+          setResponseStatus(event, 204);
+          return "";
+        }
+
+        // Non-preflight requests: only set CORS response headers when we
+        // have an allowed origin. Same-origin / no-origin requests fall
+        // through without explicit CORS headers (browser treats them as
+        // same-origin by default).
+        if (!allowedOrigin) return;
+        setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
         setResponseHeader(event, "Vary", "Origin");
         setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
         setResponseHeader(
@@ -311,14 +375,17 @@ export function createCoreRoutesPlugin(
         setResponseHeader(
           event,
           "Access-Control-Allow-Headers",
-          "Content-Type,Authorization,X-Requested-With,X-Request-Source",
+          "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
         );
-        if (getMethod(event) === "OPTIONS") {
-          setResponseStatus(event, 204);
-          return "";
-        }
       }),
     );
+
+    // Defense-in-depth CSRF check for state-changing /_agent-native/* routes.
+    // Mounted AFTER the CORS layer so disallowed-origin OPTIONS preflights
+    // 403 first (rather than being rejected on a stale cookie heuristic).
+    // See `csrf.ts` for the threat model and allowlist.
+    const { createCsrfMiddleware } = await import("./csrf.js");
+    getH3App(nitroApp).use(createCsrfMiddleware(P));
 
     // Polling
     getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
