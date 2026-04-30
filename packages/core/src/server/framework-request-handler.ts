@@ -208,6 +208,31 @@ function registerMiddleware(
 
   const middleware = async (event: H3Event, next: () => any) => {
     let originalPathname: string | undefined;
+    let originalEventPath: string | undefined;
+    let hadEventPath = false;
+    const restoreOriginalPath = () => {
+      if (originalPathname !== undefined) {
+        try {
+          event.url.pathname = originalPathname;
+        } catch {
+          // ignore
+        }
+        originalPathname = undefined;
+      }
+      if (hadEventPath) {
+        try {
+          (event as any).path = originalEventPath;
+        } catch {
+          // ignore
+        }
+      } else {
+        try {
+          delete (event as any).path;
+        } catch {
+          // ignore
+        }
+      }
+    };
     if (path) {
       const reqPath = event.url?.pathname ?? "";
       const match = resolveMountMatch(reqPath, path);
@@ -227,6 +252,9 @@ function registerMiddleware(
         (event as any).context._mountedPathname = originalPathname;
         (event as any).context._mountPrefix = match.mountPath;
         event.url.pathname = match.strippedPath;
+        hadEventPath = "path" in (event as any);
+        originalEventPath = (event as any).path;
+        (event as any).path = `${match.strippedPath}${event.url.search || ""}`;
       } catch {
         // event.url is read-only on some runtimes — fall through. Handlers
         // that don't depend on prefix stripping (most of them) still work.
@@ -239,14 +267,7 @@ function registerMiddleware(
         // middleware sees the full URL — not the stripped mount-relative path.
         // Matches h3 v2's own sub-app middleware pattern where the restore
         // happens inside the next() callback, not after it returns.
-        if (originalPathname !== undefined) {
-          try {
-            event.url.pathname = originalPathname;
-          } catch {
-            // ignore
-          }
-          originalPathname = undefined;
-        }
+        restoreOriginalPath();
         return next();
       }
       return result;
@@ -283,13 +304,7 @@ function registerMiddleware(
     } finally {
       // Restore the original pathname so downstream middleware sees the
       // full URL.
-      if (originalPathname !== undefined) {
-        try {
-          event.url.pathname = originalPathname;
-        } catch {
-          // ignore
-        }
-      }
+      restoreOriginalPath();
     }
   };
 

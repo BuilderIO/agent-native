@@ -7,7 +7,7 @@ export { DEV_MODE_USER_EMAIL } from "./dev-mode.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
 export { useDevMode } from "./use-dev-mode.js";
 export { useBuilderEnabled } from "./use-builder-enabled.js";
-export { agentNativePath, appBasePath } from "./api-path.js";
+export { agentNativePath, appApiPath, appBasePath, appPath } from "./api-path.js";
 export { useSendToAgentChat } from "./use-send-to-agent-chat.js";
 export {
   CodeRequiredDialog,

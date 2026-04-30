@@ -29,7 +29,22 @@ export function appBasePath(): string {
   return configuredBasePath() || pathDerivedBasePath();
 }
 
+export function appPath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const basePath = appBasePath();
+  if (!basePath) return path;
+  if (path === basePath || path.startsWith(`${basePath}/`)) return path;
+  return `${basePath}${path}`;
+}
+
+export function appApiPath(path: string): string {
+  const normalized = path.startsWith("/api")
+    ? path
+    : `/api/${path.replace(/^\/+/, "")}`;
+  return appPath(normalized);
+}
+
 export function agentNativePath(path: string): string {
   if (!path.startsWith(FRAMEWORK_ROUTE_PREFIX)) return path;
-  return `${appBasePath()}${path}`;
+  return appPath(path);
 }
