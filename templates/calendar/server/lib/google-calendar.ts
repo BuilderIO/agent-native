@@ -188,15 +188,21 @@ export async function getClient(
   return { accessToken };
 }
 
+/**
+ * Get OAuth credentials. When `forEmail` is provided, returns only that
+ * user's credentials (multi-user mode). Otherwise returns an empty array.
+ *
+ * Refresh failures are swallowed per-account — the signature preserves
+ * the "empty array means no usable client" contract that existing
+ * callers rely on for graceful "no Google account connected" fallbacks.
+ * Callers that need to surface "all your tokens are dead" to the UI
+ * should use `getClientsWithErrors` directly (already wired into
+ * `listEvents` and `listOverlayEvents`).
+ */
 export async function getClients(
   forEmail?: string,
 ): Promise<Array<{ email: string; accessToken: string }>> {
-  const { clients, errors } = await getClientsWithErrors(forEmail);
-  if (clients.length === 0 && errors.length > 0) {
-    throw new Error(
-      `All Google accounts failed to refresh: ${errors[0].error}`,
-    );
-  }
+  const { clients } = await getClientsWithErrors(forEmail);
   return clients;
 }
 

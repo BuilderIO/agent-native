@@ -661,28 +661,16 @@ export function installDesktopVoiceDictation(
       await startServer("auto");
       return;
     }
-    // Hoisted so the catch handler can close it if either invoke()
-    // or recognition.start() throws before `session = next` runs.
-    // Cleared after the success path takes ownership via `session.stream`.
-    let stream: MediaStream | null = null;
     try {
       startInFlight = true;
       stopRequestedBeforeReady = false;
-      // Open a real mic stream so the waveform shows actual audio levels.
-      // Web Speech API doesn't expose its own buffers; without this we
-      // were faking the bars with a synthetic sine. The recognition engine
-      // has its own independent audio path so the two coexist fine.
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-      if (disposed || stopRequestedBeforeReady) {
-        stream.getTracks().forEach((t) => t.stop());
-        startInFlight = false;
-        stopRequestedBeforeReady = false;
-        setFlowState("idle");
-        invoke("hide_flow_bar").catch(() => {});
-        return;
-      }
+      // IMPORTANT: do NOT call getUserMedia here — opening a parallel
+      // MediaStream conflicts with webkitSpeechRecognition's own mic
+      // capture in WKWebView (they fight over the input device, and
+      // recognition.onresult silently never fires). The synthetic
+      // waveform meter below is good-enough visual feedback; the user
+      // sees the bar pulsing while they speak. We tried real meters
+      // and broke voice capture every time.
       await invoke("show_flow_bar");
       setFlowState("recording");
       // Reset any prior partial transcript display in the flow-bar.
@@ -694,7 +682,7 @@ export function installDesktopVoiceDictation(
       recognition.maxAlternatives = 1;
       const next: VoiceSession = {
         kind: "browser",
-        stream,
+        stream: null,
         recorder: null,
         chunks: [],
         audioContext: null,
@@ -784,12 +772,11 @@ export function installDesktopVoiceDictation(
         cleanup(next);
       };
       session = next;
-      // `next` now owns the stream; clear our hoisted reference so the
-      // catch handler doesn't double-close it on a later throw.
-      stream = null;
       startInFlight = false;
-      // Real audio meter from the mic stream.
-      startMeter(next);
+      // Synthetic meter — we deliberately don't open a parallel
+      // getUserMedia stream (it conflicts with webkitSpeechRecognition's
+      // mic capture in WKWebView and silently kills onresult).
+      startSyntheticMeter(next);
       try {
         recognition.start();
         console.log("[voice-dictation] recognition.start() returned");
@@ -808,20 +795,6 @@ export function installDesktopVoiceDictation(
       console.error("[voice-dictation] startBrowser failed", err);
       startInFlight = false;
       stopRequestedBeforeReady = false;
-      // Close the mic stream if we opened it but never reached the
-      // success path (covers the show_flow_bar throw case before
-      // `session = next` ran). After session takes ownership, `stream`
-      // is reset to null so we don't double-close.
-      if (stream) {
-        stream.getTracks().forEach((t) => {
-          try {
-            t.stop();
-          } catch {
-            // ignore
-          }
-        });
-        stream = null;
-      }
       // See note in startServer's catch — clear leaked session so the
       // next Fn press isn't blocked on a stale `if (session) return`.
       session = null;

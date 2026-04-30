@@ -7,6 +7,8 @@
 mod clips;
 mod config;
 mod debug;
+#[cfg(target_os = "macos")]
+mod native_speech;
 mod shortcuts;
 mod state;
 mod tray;
