@@ -415,6 +415,86 @@ function getBetterAuthSchema() {
   return isPostgres() ? pgAuthSchema : sqliteAuthSchema;
 }
 
+/**
+ * Mirror a Better Auth `account` row for Google into the `oauth_tokens`
+ * table that template code (mail's Gmail client, calendar's events fetcher)
+ * reads from. Called from the `databaseHooks.account.create.after` and
+ * `.update.after` hooks so tokens captured during the primary "Sign in
+ * with Google" flow flow straight to the apps that need them — no
+ * separate "Connect Google" page required.
+ *
+ * Resolves `account.userId` to the user's email by querying the `user`
+ * table (Better Auth always quotes "user" because it's a reserved word
+ * in Postgres; SQLite accepts the quotes too).
+ *
+ * The hook is fire-and-forget from the caller's perspective — every
+ * failure is caught upstream so a flake in `oauth_tokens` never blocks
+ * sign-in. We still no-op on missing fields here as a defense in depth.
+ */
+async function mirrorGoogleAccountToOAuthTokens(account: {
+  providerId?: string;
+  userId?: string;
+  accountId?: string;
+  accessToken?: string | null;
+  refreshToken?: string | null;
+  accessTokenExpiresAt?: Date | string | number | null;
+  scope?: string | null;
+  idToken?: string | null;
+}): Promise<void> {
+  if (!account || account.providerId !== "google") return;
+  if (!account.userId) return;
+
+  const accessToken = account.accessToken ?? undefined;
+  if (!accessToken) {
+    // Better Auth sometimes upserts an account row before tokens are
+    // attached (e.g. linking flows). Nothing to mirror yet — the next
+    // update hook will run once the access token lands.
+    return;
+  }
+
+  // Resolve user email from userId.
+  const db = getDbExec();
+  let email: string | undefined;
+  try {
+    const { rows } = await db.execute({
+      sql: 'SELECT email FROM "user" WHERE id = ?',
+      args: [account.userId],
+    });
+    email = (rows[0]?.email as string | undefined) ?? undefined;
+  } catch (err) {
+    console.error(
+      "[auth] mirror Google tokens: failed to resolve user email from userId",
+      err,
+    );
+    return;
+  }
+  if (!email) return;
+
+  // Normalise expiry to epoch ms (Google's "expiry_date" convention used
+  // throughout the templates).
+  let expiryDate: number | undefined;
+  const raw = account.accessTokenExpiresAt;
+  if (raw instanceof Date) {
+    expiryDate = raw.getTime();
+  } else if (typeof raw === "number") {
+    expiryDate = raw;
+  } else if (typeof raw === "string") {
+    const ms = Date.parse(raw);
+    expiryDate = Number.isFinite(ms) ? ms : undefined;
+  }
+
+  const tokens: Record<string, unknown> = {
+    access_token: accessToken,
+    token_type: "Bearer",
+  };
+  if (account.refreshToken) tokens.refresh_token = account.refreshToken;
+  if (expiryDate) tokens.expiry_date = expiryDate;
+  if (account.scope) tokens.scope = account.scope;
+  if (account.idToken) tokens.id_token = account.idToken;
+
+  await saveOAuthTokens("google", email, tokens, email);
+}
+
 async function ensureBetterAuthTables(): Promise<void> {
   const db = getDbExec();
   const statements = isPostgres()
@@ -624,6 +704,37 @@ async function createBetterAuthInstance(
                 err,
               );
             }
+          },
+        },
+      },
+      account: {
+        // Mirror Google account tokens into `oauth_tokens` so existing
+        // template code (mail's Gmail client, calendar's events fetcher)
+        // can pick up Gmail/Calendar credentials from the primary sign-in
+        // flow — no separate "Set up Google" page required.
+        //
+        // Better Auth fires `create` for first-time social sign-in and
+        // `update` whenever a session re-issues tokens (e.g., the user
+        // re-signs in to refresh the token). Both branches do the same
+        // mirroring work; failures never block sign-in.
+        create: {
+          after: async (account: any) => {
+            await mirrorGoogleAccountToOAuthTokens(account).catch((err) => {
+              console.error(
+                "[auth] failed to mirror Google account tokens to oauth_tokens (create)",
+                err,
+              );
+            });
+          },
+        },
+        update: {
+          after: async (account: any) => {
+            await mirrorGoogleAccountToOAuthTokens(account).catch((err) => {
+              console.error(
+                "[auth] failed to mirror Google account tokens to oauth_tokens (update)",
+                err,
+              );
+            });
           },
         },
       },
