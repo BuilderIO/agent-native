@@ -303,7 +303,7 @@ async function executeJob(
 
         // Create a chat thread for this run
         const threadTitle = `Job: ${jobName} — ${now.toLocaleDateString()}`;
-        const thread = await createThread(threadTitle);
+        const thread = await createThread(jobUserEmail, { title: threadTitle });
 
         const jobText = `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule)}\n\nExecute the following job instructions:\n\n${body}`;
         const messages = [

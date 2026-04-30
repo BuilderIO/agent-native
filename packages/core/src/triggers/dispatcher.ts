@@ -293,9 +293,9 @@ async function dispatchAgentic(
         const tools = actionsToEngineTools(actions);
 
         const engine = createAnthropicEngine({ apiKey });
-        const thread = await createThread(
-          `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
-        );
+        const thread = await createThread(jobUserEmail, {
+          title: `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
+        });
 
         let payloadStr: string;
         try {
