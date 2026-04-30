@@ -28,6 +28,7 @@ vi.mock("../server/h3-helpers.js", () => ({
 }));
 
 vi.mock("../server/auth.js", () => ({
+  DEV_MODE_USER_EMAIL: "local@localhost",
   getSession: (...args: any[]) => mockGetSession(...args),
 }));
 

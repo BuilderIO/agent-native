@@ -58,9 +58,9 @@ describe("createFetchToolEntry", () => {
       }),
     );
 
-    await expect(
-      runWebRequest("https://93.184.216.34/redirect"),
-    ).resolves.toBe("Redirect to private/internal address blocked.");
+    await expect(runWebRequest("https://93.184.216.34/redirect")).resolves.toBe(
+      "Redirect to private/internal address blocked.",
+    );
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://93.184.216.34/redirect",
       expect.objectContaining({ redirect: "manual" }),

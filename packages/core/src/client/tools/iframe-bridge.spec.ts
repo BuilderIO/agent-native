@@ -9,19 +9,24 @@ describe("tool iframe bridge", () => {
     expect(isAllowedToolPath("/_agent-native/tools/proxy", "tool-1")).toBe(
       true,
     );
-    expect(
-      isAllowedToolPath("/_agent-native/tools/sql/query", "tool-1"),
-    ).toBe(true);
+    expect(isAllowedToolPath("/_agent-native/tools/sql/query", "tool-1")).toBe(
+      true,
+    );
     expect(
       isAllowedToolPath(
         "/_agent-native/tools/data/tool-1/notes?scope=user",
         "tool-1",
       ),
     ).toBe(true);
-    expect(isAllowedToolPath("/_agent-native/actions/list-items", "tool-1"))
-      .toBe(true);
-    expect(isAllowedToolPath("/_agent-native/application-state/navigation", "tool-1"))
-      .toBe(true);
+    expect(
+      isAllowedToolPath("/_agent-native/actions/list-items", "tool-1"),
+    ).toBe(true);
+    expect(
+      isAllowedToolPath(
+        "/_agent-native/application-state/navigation",
+        "tool-1",
+      ),
+    ).toBe(true);
     expect(isAllowedToolPath("/api/custom-endpoint", "tool-1")).toBe(true);
   });
 
@@ -39,8 +44,9 @@ describe("tool iframe bridge", () => {
 
   it("blocks path traversal and absolute URL forms", () => {
     expect(isAllowedToolPath("//evil.example/path", "tool-1")).toBe(false);
-    expect(isAllowedToolPath("/api/%2e%2e/_agent-native/secrets", "tool-1"))
-      .toBe(false);
+    expect(
+      isAllowedToolPath("/api/%2e%2e/_agent-native/secrets", "tool-1"),
+    ).toBe(false);
     expect(isAllowedToolPath("/api\\secret", "tool-1")).toBe(false);
   });
 
@@ -62,8 +68,8 @@ describe("tool iframe bridge", () => {
       body: '{"ok":true}',
     });
 
-    expect(() =>
-      sanitizeToolRequestOptions({ method: "TRACE" }),
-    ).toThrowError("Tool request method is not allowed");
+    expect(() => sanitizeToolRequestOptions({ method: "TRACE" })).toThrowError(
+      "Tool request method is not allowed",
+    );
   });
 });

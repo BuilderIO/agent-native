@@ -3,9 +3,13 @@
 // Requires the `postgres` package: pnpm add postgres
 
 import { resolveCredential } from "./credentials";
-import { requireRequestCredentialContext } from "./credentials-context";
+import {
+  credentialCacheScope,
+  requireRequestCredentialContext,
+} from "./credentials-context";
+import { createHash } from "crypto";
 
-let _sql: any = null;
+const clients = new Map<string, any>();
 
 async function getConnectionUrl(): Promise<string> {
   const ctx = requireRequestCredentialContext("POSTGRES_URL");
@@ -15,21 +19,27 @@ async function getConnectionUrl(): Promise<string> {
 }
 
 export async function getPostgresClient(): Promise<any> {
-  if (!_sql) {
+  const url = await getConnectionUrl();
+  const urlHash = createHash("sha256").update(url).digest("hex");
+  const clientKey = `${credentialCacheScope("POSTGRES_URL")}:${urlHash}`;
+  const cached = clients.get(clientKey);
+  if (cached) return cached;
+  {
     try {
       // @ts-expect-error -- postgres is an optional dependency, installed by user
       const pg = await import("postgres");
       const postgres = pg.default;
-      _sql = postgres(await getConnectionUrl(), {
+      const client = postgres(url, {
         max: 5,
         idle_timeout: 30,
         connect_timeout: 10,
       });
+      clients.set(clientKey, client);
+      return client;
     } catch {
       throw new Error("postgres package not installed. Run: pnpm add postgres");
     }
   }
-  return _sql;
 }
 
 export async function runQuery(

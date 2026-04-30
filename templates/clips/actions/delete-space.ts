@@ -10,10 +10,14 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import { parseSpaceIds, stringifySpaceIds } from "../server/lib/recordings.js";
+import {
+  parseSpaceIds,
+  requireOrganizationAccess,
+  stringifySpaceIds,
+} from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -28,13 +32,19 @@ export default defineAction({
       .from(schema.spaces)
       .where(eq(schema.spaces.id, args.id));
     if (!existing) throw new Error(`Space not found: ${args.id}`);
+    await requireOrganizationAccess(existing.organizationId, ["admin"]);
 
     // Clean recordings.spaceIds — use LIKE to find rows that reference the id.
     const needle = `%"${args.id.replace(/%/g, "")}"%`;
     const affected = await db
       .select()
       .from(schema.recordings)
-      .where(sql`${schema.recordings.spaceIds} LIKE ${needle}`);
+      .where(
+        and(
+          eq(schema.recordings.organizationId, existing.organizationId),
+          sql`${schema.recordings.spaceIds} LIKE ${needle}`,
+        ),
+      );
 
     for (const r of affected) {
       const ids = parseSpaceIds(r.spaceIds).filter((x) => x !== args.id);

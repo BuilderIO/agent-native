@@ -31,11 +31,15 @@ vi.mock("@xterm/xterm", () => ({
 }));
 
 vi.mock("@xterm/addon-fit", () => ({
-  FitAddon: vi.fn(() => ({ fit })),
+  FitAddon: class {
+    fit = fit;
+  },
 }));
 
 vi.mock("@xterm/addon-web-links", () => ({
-  WebLinksAddon: vi.fn(),
+  WebLinksAddon: class {
+    constructor(public handler?: unknown) {}
+  },
 }));
 
 class MockResizeObserver {
@@ -87,6 +91,7 @@ describe("AgentTerminal", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     terminals.length = 0;
     MockWebSocket.instances.length = 0;
     container = document.createElement("div");

@@ -1,4 +1,5 @@
 import {
+  createError,
   defineEventHandler,
   getQuery,
   getRequestURL,
@@ -8,7 +9,12 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, ne, inArray } from "drizzle-orm";
-import { readBody, verifyCaptcha } from "@agent-native/core/server";
+import {
+  getSession,
+  readBody,
+  runWithRequestContext,
+  verifyCaptcha,
+} from "@agent-native/core/server";
 import { emit } from "@agent-native/core/event-bus";
 import { accessFilter } from "@agent-native/core/sharing";
 import type {
@@ -24,6 +30,20 @@ import { getDb, schema } from "../db/index.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 import { createZoomMeeting } from "../lib/zoom.js";
 
+async function requireRequestContext<T>(
+  event: H3Event,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    fn,
+  );
+}
+
 async function getBookingLinkSlugsForOwner(
   ownerEmail: string,
 ): Promise<string[]> {
@@ -35,6 +55,7 @@ async function getBookingLinkSlugsForOwner(
 }
 
 export const listBookings = defineEventHandler(async (_event: H3Event) => {
+  return requireRequestContext(_event, async () => {
   try {
     const accessibleLinks = await getDb()
       .select({ slug: schema.bookingLinks.slug })
@@ -50,9 +71,10 @@ export const listBookings = defineEventHandler(async (_event: H3Event) => {
       .orderBy(schema.bookings.start);
     return rows.map(rowToBooking);
   } catch (error: any) {
-    setResponseStatus(_event, 500);
+    setResponseStatus(_event, error?.statusCode ?? 500);
     return { error: error.message };
   }
+  });
 });
 
 export const createBooking = defineEventHandler(async (event: H3Event) => {
@@ -527,6 +549,7 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
 });
 
 export const deleteBooking = defineEventHandler(async (event: H3Event) => {
+  return requireRequestContext(event, async () => {
   try {
     const id = getRouterParam(event, "id") as string;
     const db = getDb();
@@ -559,9 +582,10 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
     await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
     return { success: true };
   } catch (error: any) {
-    setResponseStatus(event, 500);
+    setResponseStatus(event, error?.statusCode ?? 500);
     return { error: error.message };
   }
+  });
 });
 
 /** Look up a booking by its cancel token (public, no auth) */
