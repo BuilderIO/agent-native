@@ -7,6 +7,7 @@ import { AgentSidebar } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { IconMenu2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -25,10 +26,20 @@ function pageHasOwnToolbar(pathname: string): boolean {
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
+    useSidebarCollapsed();
 
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth >= 768) setSidebarOpen(false);
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const ownToolbar = pageHasOwnToolbar(location.pathname);
 
@@ -59,7 +70,18 @@ export function Layout({ children }: LayoutProps) {
                 : "-translate-x-full md:translate-x-0",
             )}
           >
-            <Sidebar />
+            <Sidebar
+              collapsed={sidebarCollapsed && !sidebarOpen}
+              // In the mobile drawer the sidebar is forced expanded, so the
+              // desktop collapse toggle would be a silent no-op (worse: it'd
+              // mutate the desktop preference). Hide it while the drawer is
+              // open.
+              onToggleCollapsed={
+                sidebarOpen
+                  ? undefined
+                  : () => setSidebarCollapsed((prev) => !prev)
+              }
+            />
           </div>
           <div className="flex h-full flex-1 flex-col overflow-hidden">
             {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}

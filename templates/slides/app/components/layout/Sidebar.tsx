@@ -1,5 +1,11 @@
 import { Link, useLocation } from "react-router";
-import { IconStack2, IconPalette, IconUsers } from "@tabler/icons-react";
+import {
+  IconStack2,
+  IconPalette,
+  IconUsers,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { FeedbackButton } from "@agent-native/core/client";
@@ -10,34 +16,94 @@ const navItems = [
   { icon: IconUsers, label: "Team", href: "/team" },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  collapsed: boolean;
+  /** Omit to hide the collapse/expand toggle (e.g. inside the mobile drawer,
+   * where toggling the desktop preference is meaningless). */
+  onToggleCollapsed?: () => void;
+}
+
+export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const location = useLocation();
+
+  const isItemActive = (href: string) =>
+    href === "/"
+      ? location.pathname === "/"
+      : location.pathname.startsWith(href);
+
+  if (collapsed) {
+    return (
+      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r border-border bg-sidebar py-2 text-sidebar-foreground">
+        {onToggleCollapsed && (
+          <button
+            onClick={onToggleCollapsed}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+            className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+          >
+            <IconLayoutSidebarLeftExpand className="h-4 w-4" />
+          </button>
+        )}
+        <nav className="flex flex-1 flex-col items-center gap-1 pt-1">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = isItemActive(item.href);
+            return (
+              <Link
+                key={item.href}
+                to={item.href}
+                title={item.label}
+                aria-label={item.label}
+                className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                  isActive
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                )}
+              >
+                <Icon className="h-4 w-4" />
+              </Link>
+            );
+          })}
+        </nav>
+      </aside>
+    );
+  }
 
   return (
     <aside className="flex h-full w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
-      <div className="flex h-12 items-center gap-2 px-4 border-b border-border">
-        <img
-          src="/agent-native-icon-light.svg"
-          alt=""
-          aria-hidden="true"
-          className="block h-4 w-auto dark:hidden"
-        />
-        <img
-          src="/agent-native-icon-dark.svg"
-          alt=""
-          aria-hidden="true"
-          className="hidden h-4 w-auto dark:block"
-        />
-        <span className="text-sm font-semibold tracking-tight">Slides</span>
+      <div className="flex h-12 items-center justify-between border-b border-border px-4">
+        <div className="flex items-center gap-2">
+          <img
+            src="/agent-native-icon-light.svg"
+            alt=""
+            aria-hidden="true"
+            className="block h-4 w-auto dark:hidden"
+          />
+          <img
+            src="/agent-native-icon-dark.svg"
+            alt=""
+            aria-hidden="true"
+            className="hidden h-4 w-auto dark:block"
+          />
+          <span className="text-sm font-semibold tracking-tight">Slides</span>
+        </div>
+        {onToggleCollapsed && (
+          <button
+            onClick={onToggleCollapsed}
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+          >
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive =
-            item.href === "/"
-              ? location.pathname === "/"
-              : location.pathname.startsWith(item.href);
+          const isActive = isItemActive(item.href);
           return (
             <Link
               key={item.href}
