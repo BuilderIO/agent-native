@@ -60,7 +60,23 @@ export function Sidebar() {
         )}
       >
         {!collapsed && (
-          <span className="text-sm font-semibold tracking-tight">Design</span>
+          <div className="flex items-center gap-2">
+            <img
+              src="/agent-native-icon-light.svg"
+              alt=""
+              aria-hidden="true"
+              className="block h-4 w-auto dark:hidden"
+            />
+            <img
+              src="/agent-native-icon-dark.svg"
+              alt=""
+              aria-hidden="true"
+              className="hidden h-4 w-auto dark:block"
+            />
+            <span className="text-sm font-semibold tracking-tight">
+              Design
+            </span>
+          </div>
         )}
         <Tooltip>
           <TooltipTrigger asChild>
