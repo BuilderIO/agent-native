@@ -174,8 +174,8 @@ export function isDuplicateEventError(err: unknown): boolean {
   const msg = String(e.message ?? "").toLowerCase();
   return (
     msg.includes("unique") ||
-    msg.includes("duplicate") ||
-    msg.includes("constraint")
+    msg.includes("duplicate entry") ||
+    msg.includes("duplicate key")
   );
 }
 

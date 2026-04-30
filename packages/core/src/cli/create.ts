@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { execFileSync } from "child_process";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
@@ -742,6 +742,8 @@ export {
   loadCatalog as _loadCatalog,
   fixPackageJsonName as _fixPackageJsonName,
   renameGitignore as _renameGitignore,
+  getCoreDependencyVersion as _getCoreDependencyVersion,
+  getGitHubTemplateRef as _getGitHubTemplateRef,
 };
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -780,7 +782,8 @@ async function downloadGitHubSubdir(
   targetDir: string,
 ): Promise<void> {
   validateRepoName(repo);
-  const tarUrl = `https://api.github.com/repos/${repo}/tarball/main`;
+  const ref = getGitHubTemplateRef();
+  const tarUrl = `https://api.github.com/repos/${repo}/tarball/${encodeURIComponent(ref)}`;
   const tmpDir = path.join(targetDir, "..", `.agent-native-tmp-${Date.now()}`);
   try {
     downloadAndExtract(tarUrl, tmpDir);
@@ -864,12 +867,39 @@ function fixPackageJsonName(appDir: string, name: string): void {
 }
 
 function getCoreDependencyVersion(): string {
-  // Always "latest" for scaffolded apps. Returning the local package.json's
-  // version (e.g. "^0.7.14") locks scaffolded standalone apps to whatever
-  // version was current when the user ran `agent-native create`, instead of
-  // tracking the published latest. The local workspace path does not call
-  // this — it uses `workspace:*` references that pnpm resolves at install.
+  const localCorePackage = findLocalPackage("core");
+  if (localCorePackage) {
+    // Local framework QA must install the local core package that matches the
+    // local templates. Otherwise temp generated apps pull npm `latest`, which
+    // can lag behind unreleased template imports.
+    return pathToFileURL(localCorePackage).href;
+  }
+
+  // Published CLIs should follow the current npm dist-tag for @agent-native/core.
+  // First-party templates are downloaded from this CLI package's version tag
+  // (see getGitHubTemplateRef), so `latest` remains compatible while still
+  // allowing users to receive patched framework builds.
   return "latest";
+}
+
+function getCorePackageVersion(): string | undefined {
+  try {
+    const packageRoot = path.resolve(__dirname, "../..");
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(packageRoot, "package.json"), "utf-8"),
+    );
+    return typeof pkg.version === "string" ? pkg.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getGitHubTemplateRef(): string {
+  const version = getCorePackageVersion();
+  if (version && /^\d+\.\d+\.\d+(?:-.+)?$/.test(version)) {
+    return `v${version}`;
+  }
+  return "main";
 }
 
 function rewriteCoreDependencyVersions(projectDir: string): void {

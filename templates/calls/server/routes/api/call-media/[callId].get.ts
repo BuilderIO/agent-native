@@ -30,7 +30,11 @@ import {
 } from "h3";
 import { readAppState } from "@agent-native/core/application-state";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import {
+  getSession,
+  runWithRequestContext,
+  verifyShortLivedToken,
+} from "@agent-native/core/server";
 
 interface CallRow {
   mediaUrl?: string | null;
@@ -108,14 +112,37 @@ export default defineEventHandler(async (event: H3Event) => {
         }
       }
 
+      // Accepts either:
+      //   - `?t=<token>` — preferred. Short-lived HMAC token minted by
+      //     public-call.get.ts / public-snippet.get.ts after the password
+      //     check passed; keeps the plaintext password out of the media
+      //     URL (and therefore out of browser history / CDN logs / Referer
+      //     headers).
+      //   - `x-password` header / `?p=<pw>` / `?password=<pw>` — legacy
+      //     fallback so existing share pages keep working during rollout.
+      // (audit 11 F-07)
       if (call.password && access.role !== "owner") {
         const headerPassword = getRequestHeader(event, "x-password");
-        const q = getQuery(event) as { p?: string; password?: string };
+        const q = getQuery(event) as {
+          p?: string;
+          password?: string;
+          t?: string;
+        };
+        const token = typeof q.t === "string" ? q.t : "";
         const supplied =
           (typeof headerPassword === "string" ? headerPassword : "") ||
           (typeof q.p === "string" ? q.p : "") ||
           (typeof q.password === "string" ? q.password : "");
-        if (!supplied || supplied !== call.password) {
+
+        let allowed = false;
+        if (token) {
+          const result = verifyShortLivedToken(token, callId);
+          if (result.ok) allowed = true;
+        }
+        if (!allowed && supplied && supplied === call.password) {
+          allowed = true;
+        }
+        if (!allowed) {
           // 404, not 401 — don't leak existence to unauthenticated viewers.
           setResponseStatus(event, 404);
           return { error: "Not found" };
@@ -149,6 +176,9 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseHeader(event, "Content-Type", mimeType);
       setResponseHeader(event, "Accept-Ranges", "bytes");
       setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+      // Don't leak the URL (which carries a short-lived token) into the
+      // Referer of any outbound link rendered alongside the player.
+      setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
       const rangeHeader = getRequestHeader(event, "range");
       if (rangeHeader) {

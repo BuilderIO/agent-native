@@ -123,7 +123,11 @@ function clearPendingSelection() {
     agentNativePath(
       `/_agent-native/application-state/${PENDING_SELECTION_KEY}`,
     ),
-    { method: "DELETE", keepalive: true },
+    {
+      method: "DELETE",
+      keepalive: true,
+      headers: { "X-Agent-Native-CSRF": "1" },
+    },
   ).catch(() => {});
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("agent-panel:selection-cleared"));
@@ -1858,7 +1862,7 @@ const AssistantChatInner = forwardRef<
                 setReconnectContent([]);
                 // Signal tab running indicator
                 window.dispatchEvent(
-                  new CustomEvent("builder.chatRunning", {
+                  new CustomEvent("agentNative.chatRunning", {
                     detail: { isRunning: true, tabId: tabId || threadId },
                   }),
                 );
@@ -1998,7 +2002,7 @@ const AssistantChatInner = forwardRef<
                     setIsReconnecting(false);
                     reconnectRunIdRef.current = null;
                     window.dispatchEvent(
-                      new CustomEvent("builder.chatRunning", {
+                      new CustomEvent("agentNative.chatRunning", {
                         detail: { isRunning: false, tabId: tabId || threadId },
                       }),
                     );
@@ -2716,7 +2720,7 @@ const AssistantChatInner = forwardRef<
                           threadRuntime.cancelRun();
 
                           window.dispatchEvent(
-                            new CustomEvent("builder.chatRunning", {
+                            new CustomEvent("agentNative.chatRunning", {
                               detail: {
                                 isRunning: false,
                                 tabId: tabId || threadId,

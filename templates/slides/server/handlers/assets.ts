@@ -7,6 +7,7 @@ import {
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { nanoid } from "nanoid";
 import { getAppBasePath, getSession } from "@agent-native/core/server";
 import { uploadedAssetUrlForBasePath } from "./assets-url.js";
 
@@ -49,12 +50,11 @@ function safeAssetFilename(originalName: string): string | null {
     ".ico",
   ]);
   if (!allowed.has(ext)) return null;
-  const base =
-    path
-      .basename(originalName, ext)
-      .replace(/[^a-zA-Z0-9_-]/g, "_")
-      .slice(0, 80) || "upload";
-  return `${base}-${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`;
+  // Filename uniqueness comes from nanoid, not `Date.now()` — second-resolution
+  // timestamps are guessable. The per-tenant subdirectory already namespaces
+  // assets by user; the leaf must also be unguessable so a peer can't probe
+  // their upload window. (audit 10 medium / audit 01 medium).
+  return `${nanoid()}${ext}`;
 }
 
 function ascii(data: Uint8Array, start: number, end: number): string {

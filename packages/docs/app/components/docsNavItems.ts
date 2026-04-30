@@ -57,6 +57,13 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: "Templates",
+    // ── DO NOT add new templates here directly. ──
+    // The public-facing template list is the strict allow-list in
+    // `packages/shared-app-config/templates.ts` (entries with `hidden: false`).
+    // To surface a new template in the docs sidebar, first flip its `hidden`
+    // flag in that file. The CI guard `scripts/guard-template-list.mjs`
+    // enforces this — adding a slug here that isn't in the allow-list will
+    // fail the build.
     items: [
       { label: "Mail", to: "/templates/mail" as const },
       { label: "Calendar", to: "/templates/calendar" as const },
@@ -65,15 +72,9 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Video", to: "/templates/video" as const },
       { label: "Analytics", to: "/templates/analytics" as const },
       { label: "Clips", to: "/templates/clips" as const },
-      { label: "Calls", to: "/templates/calls" as const },
-      { label: "Meeting Notes", to: "/templates/meeting-notes" as const },
-      { label: "Voice", to: "/templates/voice" as const },
       { label: "Design", to: "/templates/design" as const },
-      { label: "Scheduling", to: "/templates/scheduling" as const },
       { label: "Dispatch", to: "/templates/dispatch" as const },
       { label: "Forms", to: "/templates/forms" as const },
-      { label: "Issues", to: "/templates/issues" as const },
-      { label: "Recruiting", to: "/templates/recruiting" as const },
     ],
   },
   {

@@ -33,6 +33,92 @@ function parseSqlArgs(raw: string | undefined): unknown[] {
   fail("--args must be a JSON array");
 }
 
+function convertQuestionMarksToPostgresParams(sql: string): string {
+  let index = 0;
+  let out = "";
+  let state: "normal" | "single" | "double" | "line-comment" | "block-comment" =
+    "normal";
+
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (state === "line-comment") {
+      out += ch;
+      if (ch === "\n") state = "normal";
+      continue;
+    }
+
+    if (state === "block-comment") {
+      out += ch;
+      if (ch === "*" && next === "/") {
+        out += next;
+        i++;
+        state = "normal";
+      }
+      continue;
+    }
+
+    if (state === "single") {
+      out += ch;
+      if (ch === "'" && next === "'") {
+        out += next;
+        i++;
+      } else if (ch === "'") {
+        state = "normal";
+      }
+      continue;
+    }
+
+    if (state === "double") {
+      out += ch;
+      if (ch === '"' && next === '"') {
+        out += next;
+        i++;
+      } else if (ch === '"') {
+        state = "normal";
+      }
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      out += ch + next;
+      i++;
+      state = "line-comment";
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      out += ch + next;
+      i++;
+      state = "block-comment";
+      continue;
+    }
+    if (ch === "'") {
+      out += ch;
+      state = "single";
+      continue;
+    }
+    if (ch === '"') {
+      out += ch;
+      state = "double";
+      continue;
+    }
+    if (ch === "?") {
+      index++;
+      out += `$${index}`;
+      continue;
+    }
+    out += ch;
+  }
+
+  return out;
+}
+
+function normalizePostgresSql(sql: string, args: unknown[]): string {
+  if (args.length === 0 || /\$\d+\b/.test(sql)) return sql;
+  return convertQuestionMarksToPostgresParams(sql);
+}
+
 function printTable(
   rows: Record<string, unknown>[],
   finalSql: string,
@@ -149,16 +235,17 @@ Options:
         await pgSql.unsafe(stmt);
       }
 
+      const pgSqlText = normalizePostgresSql(finalSql, sqlArgs);
       const result =
         sqlArgs.length > 0
-          ? await pgSql.unsafe(finalSql, sqlArgs as any[])
-          : await pgSql.unsafe(finalSql);
+          ? await pgSql.unsafe(pgSqlText, sqlArgs as any[])
+          : await pgSql.unsafe(pgSqlText);
       const rows: Record<string, unknown>[] = Array.from(result);
       const keys = rows.length > 0 ? Object.keys(rows[0]) : [];
 
       printTable(
         rows.length > 0 ? rows : keys.length > 0 ? rows : [],
-        finalSql,
+        pgSqlText,
         parsed.format,
       );
 

@@ -22,7 +22,7 @@ describe("agentEnv", () => {
 
       const payload = JSON.parse(logged.replace("BUILDER_PARENT_MESSAGE:", ""));
       expect(payload.targetOrigin).toBe("*");
-      expect(payload.message.type).toBe("builder.setEnvVars");
+      expect(payload.message.type).toBe("agentNative.setEnvVars");
       expect(payload.message.data.vars).toEqual([{ key: "FOO", value: "bar" }]);
 
       spy.mockRestore();

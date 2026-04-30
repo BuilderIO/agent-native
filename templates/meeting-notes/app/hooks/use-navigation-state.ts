@@ -146,6 +146,7 @@ export function useNavigationState() {
     if (!navCommand) return;
     fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
+      headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
     const path = pathFromCommand(navCommand);
     navigate(path);

@@ -206,6 +206,12 @@ export {
   type EmailCta,
 } from "./email-template.js";
 export { getAppProductionUrl, getFirstPartyProdUrl } from "./app-url.js";
+export {
+  signShortLivedToken,
+  verifyShortLivedToken,
+  type ShortLivedTokenClaims,
+  type VerifyResult as ShortLivedTokenVerifyResult,
+} from "./short-lived-token.js";
 
 // SSR handler is NOT re-exported here — it uses a virtual module
 // (virtual:react-router/server-build) that only exists at Vite dev/build time.

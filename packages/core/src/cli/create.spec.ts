@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { createApp } from "./create.js";
+import { createApp, _getCoreDependencyVersion } from "./create.js";
 
 let tmpDir: string;
 
@@ -79,13 +79,15 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(fs.existsSync(gitignore)).toBe(true);
   });
 
-  it("normalizes @agent-native/core to latest for blank standalone apps", async () => {
+  it("normalizes @agent-native/core for blank standalone apps", async () => {
     await createApp("my-app", { template: "blank" });
     const pkg = JSON.parse(
       fs.readFileSync(path.join(tmpDir, "my-app", "package.json"), "utf-8"),
     );
 
-    expect(pkg.dependencies["@agent-native/core"]).toBe("latest");
+    expect(pkg.dependencies["@agent-native/core"]).toBe(
+      _getCoreDependencyVersion(),
+    );
   });
 
   it("exits with error for invalid app name", async () => {
