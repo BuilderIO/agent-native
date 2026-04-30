@@ -7,11 +7,12 @@ import {
 import path from "path";
 import fs from "fs";
 import { getAppBasePath, getSession } from "@agent-native/core/server";
+import { uploadedAssetUrlForBasePath } from "./assets-url.js";
 
 const UPLOADS_DIR = path.join(process.cwd(), "public", "uploads");
 
 export function uploadedAssetUrl(filename: string): string {
-  return `${getAppBasePath()}/uploads/${filename}`;
+  return uploadedAssetUrlForBasePath(filename, getAppBasePath());
 }
 
 async function requireSession(event: Parameters<typeof getSession>[0]) {

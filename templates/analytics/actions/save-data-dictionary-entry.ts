@@ -10,6 +10,7 @@ import {
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
+import { cliBoolean } from "./schema-helpers.js";
 
 const KEY_PREFIX = "data-dict-";
 
@@ -95,12 +96,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Person / team responsible for this metric"),
-    approved: z.coerce
-      .boolean()
+    approved: cliBoolean
       .optional()
       .describe("Whether this entry has been reviewed and approved"),
-    aiGenerated: z.coerce
-      .boolean()
+    aiGenerated: cliBoolean
       .optional()
       .describe("True when the agent proposed this entry (vs. human-authored)"),
     sourceUrl: z
