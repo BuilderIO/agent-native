@@ -46,9 +46,9 @@ export default defineAction({
     }
 
     if (args.search) {
-      const pat = `%${args.search}%`;
+      const pat = `%${escapeLike(args.search)}%`;
       whereClauses.push(
-        sql`(LOWER(${schema.dictationSnippets.trigger}) LIKE LOWER(${pat}) OR LOWER(${schema.dictationSnippets.expansion}) LIKE LOWER(${pat}))`,
+        sql`(LOWER(${schema.dictationSnippets.trigger}) LIKE LOWER(${pat}) ESCAPE '\\' OR LOWER(${schema.dictationSnippets.expansion}) LIKE LOWER(${pat}) ESCAPE '\\')`,
       );
     }
 
