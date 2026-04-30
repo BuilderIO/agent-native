@@ -330,6 +330,22 @@ export function buildToolHtml(
     var _toolId = ${toolIdJson};
     var _toolBinding = ${bindingJson};
     window.toolBinding = _toolBinding;
+    // SECURITY (audit H4): announce the resolved binding to the parent so the
+    // host bridge can gate dangerous helpers based on viewer role. Sent
+    // BEFORE the user-authored content has a chance to run, so a malicious
+    // tool body cannot suppress or rewrite the announcement. The parent
+    // ignores subsequent announcements for the same iframe; see
+    // ToolViewer.tsx / EmbeddedTool.tsx.
+    try {
+      window.parent.postMessage(
+        {
+          type: 'agent-native-tool-binding',
+          toolId: _toolId,
+          binding: _toolBinding,
+        },
+        '*',
+      );
+    } catch (_) {}
     // SECURITY: when the viewer is not the author of this tool, emit a clear
     // console warning. The bridge currently runs every helper with the
     // viewer's session — a malicious shared tool can call any action, read

@@ -13,6 +13,8 @@ import {
 import {
   isAllowedToolPath,
   sanitizeToolRequestOptions,
+  checkBridgePolicy,
+  type ToolBridgeRole,
 } from "./iframe-bridge.js";
 
 const THEME_CSS_VARS = [
@@ -144,6 +146,17 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
   const [refreshKey, setRefreshKey] = useState(0);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const queryClient = useQueryClient();
+  // (audit H4) Role plumbed through from the iframe's render binding. Until
+  // the iframe announces its role we deny non-trivial helper calls — that
+  // way a malicious tool body that races the announcement can't briefly
+  // operate at higher privilege than the viewer's actual role.
+  const bridgeContextRef = useRef<{
+    role: ToolBridgeRole;
+    isAuthor: boolean;
+  }>({
+    role: "viewer",
+    isAuthor: false,
+  });
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -181,6 +194,41 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
       if (event.source !== iframeRef.current?.contentWindow) return;
       const message = event.data;
       if (!message) return;
+
+      if (message.type === "agent-native-tool-binding") {
+        // (audit H4) The iframe announced its render binding. Trust the role
+        // value because the iframe's binding is generated server-side in
+        // tools/routes.ts (resolveAccess), not by user-authored content.
+        const binding = message.binding ?? {};
+        const role: ToolBridgeRole =
+          binding.role === "owner" ||
+          binding.role === "admin" ||
+          binding.role === "editor" ||
+          binding.role === "viewer"
+            ? binding.role
+            : "viewer";
+        bridgeContextRef.current = {
+          role,
+          isAuthor: !!binding.isAuthor,
+        };
+        return;
+      }
+
+      if (
+        message.type === "agent-native-tool-consent-granted" ||
+        message.type === "agent-native-tool-consent-cancelled"
+      ) {
+        // (audit C1) The consent stub fired; force a reload of the iframe so
+        // the next render returns the tool body (granted) or stays on the
+        // stub (cancelled — viewer can also navigate away).
+        if (message.type === "agent-native-tool-consent-granted") {
+          // Invalidate the cached tool record — author may have edited
+          // since the cache was warmed.
+          queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
+          setRefreshKey((k) => k + 1);
+        }
+        return;
+      }
 
       if (message.type === "agent-native-tool-keydown") {
         document.dispatchEvent(
@@ -271,6 +319,30 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
       try {
         const options = sanitizeToolRequestOptions(message.options);
+        // (audit H4) Role-aware policy gate. Allow consent grants through
+        // even before the binding has been announced — the consent stub
+        // fires its grant POST as the iframe's first interaction, and
+        // we don't have role info yet at that point. The grant route
+        // itself enforces "viewer must have at least viewer access".
+        const isConsentGrant = path.endsWith("/grant-consent");
+        if (!isConsentGrant) {
+          const policy = checkBridgePolicy(
+            path,
+            options.method ?? "GET",
+            bridgeContextRef.current,
+          );
+          if (!policy.ok) {
+            respond({
+              response: {
+                ok: false,
+                status: 403,
+                statusText: "Forbidden",
+                body: { error: policy.error },
+              },
+            });
+            return;
+          }
+        }
         const res = await fetch(agentNativePath(path), {
           ...options,
           credentials: "same-origin",
@@ -299,7 +371,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [toolId]);
+  }, [toolId, queryClient]);
 
   const { data: tool, isLoading } = useQuery<Tool>({
     queryKey: ["tool", toolId],
