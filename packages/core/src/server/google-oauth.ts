@@ -278,10 +278,36 @@ function getStateSigningKey(): string {
 }
 
 /**
+ * Options for the named-argument form of {@link encodeOAuthState}.
+ * Prefer this form — the positional overload is easy to misuse (the mail
+ * and calendar templates historically passed `flowId` in the `returnUrl`
+ * slot, smuggling state into a defence-in-depth path).
+ */
+export interface EncodeOAuthStateOptions {
+  redirectUri: string;
+  owner?: string;
+  desktop?: boolean;
+  addAccount?: boolean;
+  app?: string;
+  returnUrl?: string;
+  flowId?: string;
+}
+
+/**
  * Encode OAuth state into a signed base64url string.
  * The state is HMAC-signed so the callback can verify it wasn't forged,
  * preventing CSRF attacks on the OAuth flow.
+ *
+ * Two call shapes are supported:
+ *   - Recommended: pass an options object — clear, mismatch-proof.
+ *     `encodeOAuthState({ redirectUri, owner, desktop, ... })`
+ *   - Legacy positional form (kept working for backward compatibility):
+ *     `encodeOAuthState(redirectUri, owner, desktop, addAccount, app, returnUrl, flowId)`.
+ *     Callers should migrate to the options form — see the audit on
+ *     templates/mail and templates/calendar where the positional shape
+ *     led to `flowId` being smuggled in via the `returnUrl` slot.
  */
+export function encodeOAuthState(opts: EncodeOAuthStateOptions): string;
 export function encodeOAuthState(
   redirectUri: string,
   owner?: string,
@@ -290,18 +316,40 @@ export function encodeOAuthState(
   app?: string,
   returnUrl?: string,
   flowId?: string,
+): string;
+export function encodeOAuthState(
+  redirectUriOrOpts: string | EncodeOAuthStateOptions,
+  owner?: string,
+  desktop?: boolean,
+  addAccount?: boolean,
+  app?: string,
+  returnUrl?: string,
+  flowId?: string,
 ): string {
+  const opts: EncodeOAuthStateOptions =
+    typeof redirectUriOrOpts === "string"
+      ? {
+          redirectUri: redirectUriOrOpts,
+          owner,
+          desktop,
+          addAccount,
+          app,
+          returnUrl,
+          flowId,
+        }
+      : redirectUriOrOpts;
+
   const nonce = crypto.randomBytes(8).toString("hex");
   const payload: Record<string, string | boolean> = {
     n: nonce,
-    r: redirectUri,
+    r: opts.redirectUri,
   };
-  if (owner) payload.o = owner;
-  if (desktop) payload.d = true;
-  if (addAccount) payload.a = true;
-  if (app) payload.app = app;
-  if (returnUrl) payload.r2 = returnUrl;
-  if (flowId) payload.f = flowId;
+  if (opts.owner) payload.o = opts.owner;
+  if (opts.desktop) payload.d = true;
+  if (opts.addAccount) payload.a = true;
+  if (opts.app) payload.app = opts.app;
+  if (opts.returnUrl) payload.r2 = opts.returnUrl;
+  if (opts.flowId) payload.f = opts.flowId;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
     .createHmac("sha256", getStateSigningKey())

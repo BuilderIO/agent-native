@@ -1194,7 +1194,12 @@ const migrateLocalDataHandler = defineEventHandler(async (event) => {
     setResponseStatus(event, 500);
     return {
       error: e?.message || "Migration failed",
-      stack: isDevEnvironment() ? e?.stack : undefined,
+      // Only surface the stack when explicitly enabled. `isDevEnvironment()`
+      // returns true on preview deploys and Lambda contexts that forget
+      // NODE_ENV=production, which leaked stack traces to clients. Use
+      // AGENT_NATIVE_DEBUG_ERRORS=1 for opt-in debug visibility.
+      stack:
+        process.env.AGENT_NATIVE_DEBUG_ERRORS === "1" ? e?.stack : undefined,
     };
   }
 });
