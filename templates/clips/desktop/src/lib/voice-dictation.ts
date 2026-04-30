@@ -399,12 +399,22 @@ export function installDesktopVoiceDictation(
         groq: !!data.groq,
         browser: true,
       };
+      providerStatusFetchedAt = Date.now();
+      return providerStatus;
     } catch (err) {
-      console.warn(
-        "[voice-dictation] provider status fetch failed, defaulting to browser-only:",
-        err,
-      );
-      providerStatus = {
+      console.warn("[voice-dictation] provider status fetch failed:", err);
+      // CRITICAL: do NOT cache a failed lookup. Otherwise a transient
+      // server-down (dev server still booting, auth churn, network
+      // blip) poisons the cache for 60s and every dictation press in
+      // that window resolves to "browser" → no webkitSpeechRecognition
+      // in WKWebView → fallback to startServer("auto") → server 400s.
+      // Letting the next press re-attempt the fetch is the right
+      // failure mode.
+      providerStatus = null;
+      providerStatusFetchedAt = 0;
+      // Return a transient browser-only snapshot so the immediate call
+      // has something to work with, but don't persist it.
+      return {
         builder: false,
         gemini: false,
         openai: false,
@@ -412,8 +422,6 @@ export function installDesktopVoiceDictation(
         browser: true,
       };
     }
-    providerStatusFetchedAt = Date.now();
-    return providerStatus;
   };
 
   /**
