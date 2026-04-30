@@ -175,7 +175,7 @@ function HelpTooltip({ content }: { content: string }) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="text-muted-foreground/60 hover:text-foreground"
+          className="text-muted-foreground/60 hover:text-foreground cursor-pointer"
         >
           <IconInfoCircle className="h-3.5 w-3.5" />
         </button>

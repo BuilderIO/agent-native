@@ -80,6 +80,13 @@ function DbSyncSetup() {
       "list-dispatch-audit",
       "get-dispatch-settings",
       "list-connected-agents",
+      "list-vault-secrets",
+      "list-vault-grants",
+      "list-vault-requests",
+      "list-vault-audit",
+      "list-workspace-resources",
+      "list-workspace-resource-grants",
+      "list-integrations-catalog",
     ],
     ignoreSource: TAB_ID,
   });

@@ -264,7 +264,7 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
     <div className="rounded-xl border bg-card">
       <button
         type="button"
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
         {expanded ? (
@@ -310,7 +310,7 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
             <button
               type="button"
               onClick={() => setShowValue(!showValue)}
-              className="text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground cursor-pointer"
             >
               {showValue ? <IconEyeOff size={14} /> : <IconEye size={14} />}
             </button>

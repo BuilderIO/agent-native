@@ -28,6 +28,39 @@ export function meta() {
   return [{ title: "Destinations — Dispatch" }];
 }
 
+function QuickSendRow({
+  destination,
+}: {
+  destination: { id: string; name: string };
+}) {
+  const [text, setText] = useState("");
+  const send = useActionMutation("send-platform-message", {
+    onSuccess: () => {
+      toast.success("Message sent");
+      setText("");
+    },
+  });
+  return (
+    <div className="mt-3 flex gap-2">
+      <Input
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        placeholder="Quick test message"
+      />
+      <Button
+        onClick={() =>
+          send.mutate({
+            destinationId: destination.id,
+            text: text || `Test message to ${destination.name}`,
+          })
+        }
+      >
+        Send
+      </Button>
+    </div>
+  );
+}
+
 export default function DestinationsRoute() {
   const { data } = useActionQuery("list-destinations", {});
   const [form, setForm] = useState({
@@ -36,7 +69,6 @@ export default function DestinationsRoute() {
     destination: "",
     threadRef: "",
     notes: "",
-    text: "",
   });
 
   const upsert = useActionMutation("upsert-destination", {
@@ -53,9 +85,6 @@ export default function DestinationsRoute() {
   });
   const remove = useActionMutation("delete-destination", {
     onSuccess: () => toast.success("Destination removed"),
-  });
-  const send = useActionMutation("send-platform-message", {
-    onSuccess: () => toast.success("Message sent"),
   });
 
   return (
@@ -117,29 +146,7 @@ export default function DestinationsRoute() {
                     </AlertDialogContent>
                   </AlertDialog>
                 </div>
-                <div className="mt-3 flex gap-2">
-                  <Input
-                    value={form.text}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        text: event.target.value,
-                      }))
-                    }
-                    placeholder="Quick test message"
-                  />
-                  <Button
-                    onClick={() =>
-                      send.mutate({
-                        destinationId: destination.id,
-                        text:
-                          form.text || `Test message to ${destination.name}`,
-                      })
-                    }
-                  >
-                    Send
-                  </Button>
-                </div>
+                <QuickSendRow destination={destination} />
               </div>
             ))}
             {(data?.length || 0) === 0 && (

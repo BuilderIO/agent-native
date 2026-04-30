@@ -300,7 +300,7 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
     <div className="rounded-xl border bg-card">
       <button
         type="button"
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
         {expanded ? (
