@@ -82,22 +82,16 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::Space);
         let is_escape = shortcut.matches(Modifiers::empty(), Code::Escape);
         if is_escape {
-            eprintln!(
-                "[clips-tray][esc] Escape fired, state={:?}",
-                event.state()
-            );
             if event.state() != tauri_plugin_global_shortcut::ShortcutState::Pressed {
                 return;
             }
             // Don't dismiss mid-recording — same guard as the React-side Esc
             // handler. The user would lose the recorder handle.
             if is_recording_active(app) {
-                eprintln!("[clips-tray][esc] recording active, ignoring Escape");
                 return;
             }
             if let Some(window) = app.get_webview_window("popover") {
                 let _ = window.hide();
-                eprintln!("[clips-tray][esc] popover hidden via Escape");
             }
             let _ = app.emit("clips:popover-visible", false);
             return;
