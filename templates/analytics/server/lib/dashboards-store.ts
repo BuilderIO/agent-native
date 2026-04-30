@@ -27,6 +27,7 @@ import {
   deleteUserSetting,
   deleteSetting,
 } from "@agent-native/core/settings";
+import { DEV_MODE_USER_EMAIL } from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
 
 export type DashboardKind = "explorer" | "sql";
@@ -68,6 +69,7 @@ interface AccessCtx {
 const SQL_PREFIX = "sql-dashboard-";
 const EXPLORER_PREFIX = "dashboard-";
 const ANALYSIS_PREFIX = "adhoc-analysis-";
+const LOCAL_EMAIL = DEV_MODE_USER_EMAIL;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -197,25 +199,29 @@ async function findLegacyDashboard(
         visibility: "private",
       };
   }
-  // Global fallback for both shapes
-  const sqlGlobal = await getSetting(`${SQL_PREFIX}${id}`);
-  if (sqlGlobal)
-    return {
-      data: sqlGlobal,
-      kind: "sql",
-      ownerEmail: ctx.email,
-      orgId: null,
-      visibility: "private",
-    };
-  const explorerGlobal = await getSetting(`${EXPLORER_PREFIX}${id}`);
-  if (explorerGlobal)
-    return {
-      data: explorerGlobal,
-      kind: "explorer",
-      ownerEmail: ctx.email,
-      orgId: null,
-      visibility: "private",
-    };
+  // Legacy unscoped settings are only visible in local/dev mode. In
+  // production, letting every signed-in user fall back to these keys leaks
+  // dashboards across tenants.
+  if (ctx.email === LOCAL_EMAIL) {
+    const sqlGlobal = await getSetting(`${SQL_PREFIX}${id}`);
+    if (sqlGlobal)
+      return {
+        data: sqlGlobal,
+        kind: "sql",
+        ownerEmail: ctx.email,
+        orgId: null,
+        visibility: "private",
+      };
+    const explorerGlobal = await getSetting(`${EXPLORER_PREFIX}${id}`);
+    if (explorerGlobal)
+      return {
+        data: explorerGlobal,
+        kind: "explorer",
+        ownerEmail: ctx.email,
+        orgId: null,
+        visibility: "private",
+      };
+  }
   return null;
 }
 
@@ -380,8 +386,10 @@ export async function removeDashboard(
       await deleteUserSetting(ctx.email, `${SQL_PREFIX}${id}`);
       await deleteUserSetting(ctx.email, `${EXPLORER_PREFIX}${id}`);
     }
-    await deleteSetting(`${SQL_PREFIX}${id}`);
-    await deleteSetting(`${EXPLORER_PREFIX}${id}`);
+    if (ctx.email === LOCAL_EMAIL) {
+      await deleteSetting(`${SQL_PREFIX}${id}`);
+      await deleteSetting(`${EXPLORER_PREFIX}${id}`);
+    }
   } catch {
     // legacy cleanup is best-effort
   }
@@ -449,14 +457,16 @@ async function findLegacyAnalysis(
         visibility: "private",
       };
   }
-  const global = await getSetting(key);
-  if (global)
-    return {
-      data: global,
-      ownerEmail: ctx.email,
-      orgId: null,
-      visibility: "private",
-    };
+  if (ctx.email === LOCAL_EMAIL) {
+    const global = await getSetting(key);
+    if (global)
+      return {
+        data: global,
+        ownerEmail: ctx.email,
+        orgId: null,
+        visibility: "private",
+      };
+  }
   return null;
 }
 
@@ -548,6 +558,7 @@ export async function listAnalyses(ctx: AccessCtx): Promise<AnalysisRecord[]> {
       ) {
         id = key.slice(`u:${ctx.email}:${ANALYSIS_PREFIX}`.length);
       } else if (
+        ctx.email === LOCAL_EMAIL &&
         key.startsWith(ANALYSIS_PREFIX) &&
         !key.startsWith("u:") &&
         !key.startsWith("o:")
@@ -650,7 +661,7 @@ export async function removeAnalysis(
     if (ctx.orgId) await deleteOrgSetting(ctx.orgId, `${ANALYSIS_PREFIX}${id}`);
     if (ctx.email)
       await deleteUserSetting(ctx.email, `${ANALYSIS_PREFIX}${id}`);
-    await deleteSetting(`${ANALYSIS_PREFIX}${id}`);
+    if (ctx.email === LOCAL_EMAIL) await deleteSetting(`${ANALYSIS_PREFIX}${id}`);
   } catch {
     // best-effort
   }

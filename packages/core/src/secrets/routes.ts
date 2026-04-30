@@ -15,6 +15,32 @@ import {
 import { readBody } from "../server/h3-helpers.js";
 import { DEV_MODE_USER_EMAIL, getSession } from "../server/auth.js";
 import { getOrgContext } from "../org/context.js";
+
+/**
+ * Workspace-scoped secret writes/deletes are deployment-wide for every
+ * org member who shares the resolved scopeId — a curious or malicious
+ * member could otherwise overwrite `OPENAI_API_KEY` (or any unregistered
+ * key) with their own value, redirecting every other member's automations
+ * through their key for skimming, billing abuse, or DoS by deletion.
+ *
+ * Allow workspace-scope writes only for org owners/admins. The "solo"
+ * fallback scopeId (`solo:<email>`) is single-user, so it bypasses the
+ * check. A normal session with no active org also passes — there's no
+ * privilege gradient to enforce in that case.
+ *
+ * Returns true if the request is allowed to write/delete this scope.
+ */
+async function canMutateWorkspaceScope(
+  event: H3Event,
+  scopeId: string,
+): Promise<boolean> {
+  // Solo / dev fallback scope — single user, no privilege gradient.
+  if (scopeId.startsWith("solo:")) return true;
+  const ctx = await getOrgContext(event).catch(() => null);
+  // No active org — single-tenant flow, allow.
+  if (!ctx?.orgId) return true;
+  return ctx.role === "owner" || ctx.role === "admin";
+}
 import {
   hasOAuthTokens,
   listOAuthAccountsByOwner,
@@ -212,6 +238,17 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
   if (!scopeId) {
     setResponseStatus(event, 401);
     return { error: reason ?? "Unable to resolve scope" };
+  }
+
+  if (
+    secret.scope === "workspace" &&
+    !(await canMutateWorkspaceScope(event, scopeId))
+  ) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Only organization owners and admins can set workspace-scoped secrets",
+    };
   }
 
   // Run validator if registered — return the validator's error on failure.

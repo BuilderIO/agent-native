@@ -618,7 +618,8 @@ function desktopSuccessPage(
   sessionToken?: string,
   state?: string,
 ): Response {
-  const msg = email ? `Connected ${email}!` : "Connected!";
+  const safeEmail = email ? escapeHtml(email) : "";
+  const msg = safeEmail ? `Connected ${safeEmail}!` : "Connected!";
   if (sessionToken) {
     const deepLink = buildOAuthCompleteDeepLink(sessionToken, state);
     const deepLinkJson = JSON.stringify(deepLink);
