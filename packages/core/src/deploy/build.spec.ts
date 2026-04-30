@@ -179,4 +179,59 @@ export default (event) =>
     );
     expect(missingApi.status).toBe(404);
   });
+
+  it("strips mounted base path for auto-mounted action routes under /_agent-native/actions/", async () => {
+    const dir = makeTempDir();
+    const actionPath = path.join(dir, "ping-action.mjs");
+    fs.writeFileSync(
+      actionPath,
+      `
+export default {
+  run: async (params) => ({ ok: true, echo: params }),
+};
+`,
+    );
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "ping", absPath: actionPath, method: "post" }],
+      ),
+    );
+
+    // With APP_BASE_PATH=/docs the client calls /docs/_agent-native/actions/ping.
+    // Without the fix the request arrives at H3 with the prefix still attached,
+    // misses the literal `/_agent-native/actions/ping` registration, and 404s.
+    const mountedResponse = await worker.fetch(
+      new Request("https://app.test/docs/_agent-native/actions/ping", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hello: "world" }),
+      }),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+    expect(mountedResponse.status).toBe(200);
+    await expect(mountedResponse.json()).resolves.toEqual({
+      ok: true,
+      echo: { hello: "world" },
+    });
+
+    // No base path — original behavior still works.
+    const unmountedResponse = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/ping", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hello: "again" }),
+      }),
+      {},
+      {},
+    );
+    expect(unmountedResponse.status).toBe(200);
+    await expect(unmountedResponse.json()).resolves.toEqual({
+      ok: true,
+      echo: { hello: "again" },
+    });
+  });
 });
