@@ -518,8 +518,11 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_flow_bar invoked");
 
     let (mw, mh) = primary_monitor_physical_size(&app).unwrap_or((2880, 1800));
-    let w: u32 = 400;
-    let h: u32 = 120;
+    // Wider + taller than the pill alone so the live transcript chip
+    // can stack above it. Height accommodates: bottom-anchored 32px pill
+    // + 6px gap + ~28px transcript chip + drop-shadow margin.
+    let w: u32 = 800;
+    let h: u32 = 180;
     let x: i32 = ((mw as i32 - w as i32) / 2).max(0);
     // Bottom margin: ~14 logical px ≈ 28 physical px, matching Wispr Flow.
     let y: i32 = (mh as i32 - h as i32 - 28).max(0);
