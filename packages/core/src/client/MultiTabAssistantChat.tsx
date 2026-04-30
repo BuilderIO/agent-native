@@ -693,14 +693,6 @@ export function MultiTabAssistantChat({
 
   // Listen for builder.submitChat postMessages
   useEffect(() => {
-    const execModeKey = `agent-native-exec-mode${keyPrefix}`;
-    const PLAN_MODE_INSTRUCTION =
-      `PLAN MODE ACTIVE: Before making any changes, you MUST:\n` +
-      `1. Explore the codebase to understand what's needed\n` +
-      `2. Write a plan to \`.builder/plans/YYYY-MM-DD-<topic>.md\`\n` +
-      `3. Present your approach clearly and wait for the user's explicit approval\n` +
-      `Do NOT edit any files, run any scripts, or make any changes until the user says to proceed.`;
-
     const handler = (event: MessageEvent) => {
       if (!isTrustedFrameMessage(event)) return;
       if (event.data?.type !== "agentNative.submitChat") return;
@@ -718,22 +710,12 @@ export function MultiTabAssistantChat({
         window.dispatchEvent(new CustomEvent("agent-panel:open"));
       }
 
-      const isPlanMode = (() => {
-        if (!props.execMode) return false;
-        try {
-          return localStorage.getItem(execModeKey) === "plan";
-        } catch {
-          return false;
-        }
-      })();
-
-      const baseMessage = context
+      // Plan-mode instruction prefix is injected by the chat adapter at
+      // request time (see agent-chat-adapter.ts). The user-visible message
+      // text stays clean here so it doesn't appear in the chat history.
+      const fullMessage = context
         ? `${message}\n\n<context>\n${context}\n</context>`
         : message;
-
-      const fullMessage = isPlanMode
-        ? `${PLAN_MODE_INSTRUCTION}\n\n${baseMessage}`
-        : baseMessage;
 
       const sendToTab = (threadId: string) => {
         // If a model override was specified, apply it only if we recognize it
@@ -777,7 +759,7 @@ export function MultiTabAssistantChat({
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [keyPrefix, availableModels, createThread, switchThread]);
+  }, [availableModels, createThread, switchThread]);
 
   // Process pending sends when refs mount
   useEffect(() => {
