@@ -24,8 +24,9 @@ import type {
   UseQueryOptions,
   UseMutationOptions,
 } from "@tanstack/react-query";
+import { agentNativePath } from "./api-path.js";
 
-const ACTION_PREFIX = "/_agent-native/actions";
+const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
 
 // ---------------------------------------------------------------------------
 // Action type registry — augmented by generated code

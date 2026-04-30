@@ -5,6 +5,52 @@ import { getDb, schema } from "../server/db/index.js";
 import { parseSpaceIds, parseJson } from "../server/lib/calls.js";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
 
+function normalizeTextItems(raw: unknown[]): Array<{ text: string }> {
+  return raw
+    .map((item) => {
+      if (typeof item === "string") return { text: item };
+      if (item && typeof item === "object" && "text" in item) {
+        return item as { text: string };
+      }
+      return null;
+    })
+    .filter((item): item is { text: string } => !!item?.text);
+}
+
+function normalizeTopics(
+  raw: unknown[],
+): Array<{ title: string; startMs: number; endMs?: number }> {
+  return raw
+    .map((item) => {
+      if (typeof item === "string") return { title: item, startMs: 0 };
+      if (item && typeof item === "object" && "title" in item) {
+        return item as { title: string; startMs: number; endMs?: number };
+      }
+      return null;
+    })
+    .filter(
+      (item): item is { title: string; startMs: number; endMs?: number } =>
+        !!item?.title,
+    );
+}
+
+function normalizeQuestions(
+  raw: unknown[],
+): Array<{ askedByLabel?: string; text: string; ms: number }> {
+  return raw
+    .map((item) => {
+      if (typeof item === "string") return { text: item, ms: 0 };
+      if (item && typeof item === "object" && "text" in item) {
+        return item as { askedByLabel?: string; text: string; ms: number };
+      }
+      return null;
+    })
+    .filter(
+      (item): item is { askedByLabel?: string; text: string; ms: number } =>
+        !!item?.text,
+    );
+}
+
 export default defineAction({
   description:
     "Fetch everything the call page needs in a single response: the call row, transcript (segments + full text), summary, participants, tracker hits (with tracker metadata joined), tags, top 20 comments, and snippets on this call.",
@@ -159,11 +205,21 @@ export default defineAction({
       summary: summary
         ? {
             recap: summary.recap,
-            keyPoints: parseJson<string[]>(summary.keyPointsJson, []),
-            nextSteps: parseJson<string[]>(summary.nextStepsJson, []),
-            topics: parseJson<string[]>(summary.topicsJson, []),
-            questions: parseJson<string[]>(summary.questionsJson, []),
-            actionItems: parseJson<unknown[]>(summary.actionItemsJson, []),
+            keyPoints: normalizeTextItems(
+              parseJson<unknown[]>(summary.keyPointsJson, []),
+            ),
+            nextSteps: normalizeTextItems(
+              parseJson<unknown[]>(summary.nextStepsJson, []),
+            ),
+            topics: normalizeTopics(
+              parseJson<unknown[]>(summary.topicsJson, []),
+            ),
+            questions: normalizeQuestions(
+              parseJson<unknown[]>(summary.questionsJson, []),
+            ),
+            actionItems: normalizeTextItems(
+              parseJson<unknown[]>(summary.actionItemsJson, []),
+            ),
             sentiment: summary.sentiment,
             generatedBy: summary.generatedBy,
             generatedAt: summary.generatedAt,

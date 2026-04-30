@@ -201,13 +201,14 @@ async function readSettings(): Promise<{
     ? await getUserSetting(ownerEmail, "mail-settings")
     : undefined;
   if (data && typeof (data as any).name === "string") {
+    const email = (data as any).email || ownerEmail || "";
     return {
       name: (data as any).name ?? "",
-      email: (data as any).email ?? "",
+      email,
       tracking: (data as any).tracking,
     };
   }
-  return { name: "", email: "" };
+  return { name: "", email: ownerEmail || "" };
 }
 
 function buildTrackingContext(

@@ -19,6 +19,7 @@ import {
   IconEyeOff,
   IconCloudUpload,
 } from "@tabler/icons-react";
+import { agentNativePath } from "../api-path.js";
 import { DEV_MODE_USER_EMAIL } from "../dev-mode.js";
 import {
   useOrg,
@@ -766,9 +767,12 @@ function LocalModeSignInCard() {
         // localStorage may be unavailable (private mode) — migration just
         // won't auto-run. The user can still sign in.
       }
-      const res = await fetch("/_agent-native/auth/exit-local-mode", {
-        method: "POST",
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/auth/exit-local-mode"),
+        {
+          method: "POST",
+        },
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || "Failed to exit local mode");
@@ -929,10 +933,13 @@ function useMigrateLocalDataOnSignIn(
       });
 
       try {
-        const coreRes = await fetch("/_agent-native/auth/migrate-local-data", {
-          method: "POST",
-          credentials: "include",
-        });
+        const coreRes = await fetch(
+          agentNativePath("/_agent-native/auth/migrate-local-data"),
+          {
+            method: "POST",
+            credentials: "include",
+          },
+        );
         const coreBody = await coreRes.json().catch(() => ({}));
         if (!coreRes.ok) {
           throw new Error(

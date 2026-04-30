@@ -14,6 +14,10 @@ import { nanoid, stringifySpaceIds } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 
+const cliBoolean = z
+  .union([z.boolean(), z.enum(["true", "false"])])
+  .transform((value) => value === true || value === "true");
+
 export default defineAction({
   description:
     "Partially update a recording's metadata and flags. All fields are optional — only the ones you pass get updated. Tags replace the existing tag set when provided.",
@@ -24,11 +28,11 @@ export default defineAction({
     folderId: z.string().nullish(),
     spaceIds: z.array(z.string()).optional(),
     tags: z.array(z.string()).optional(),
-    enableComments: z.boolean().optional(),
-    enableReactions: z.boolean().optional(),
-    enableDownloads: z.boolean().optional(),
+    enableComments: z.union([z.boolean(), cliBoolean]).optional(),
+    enableReactions: z.union([z.boolean(), cliBoolean]).optional(),
+    enableDownloads: z.union([z.boolean(), cliBoolean]).optional(),
     defaultSpeed: z.string().optional(),
-    animatedThumbnailEnabled: z.boolean().optional(),
+    animatedThumbnailEnabled: z.union([z.boolean(), cliBoolean]).optional(),
     password: z.string().nullish(),
     expiresAt: z.string().nullish(),
     chaptersJson: z.string().optional(),

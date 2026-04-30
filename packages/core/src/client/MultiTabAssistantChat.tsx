@@ -293,7 +293,7 @@ export function MultiTabAssistantChat({
   renderHeader,
   renderOverlay,
   contentHidden = false,
-  apiUrl = "/_agent-native/agent-chat",
+  apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
   ...props
 }: MultiTabAssistantChatProps) {

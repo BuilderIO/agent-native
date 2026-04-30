@@ -16,6 +16,7 @@ import {
 import * as Select from "@radix-ui/react-select";
 import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
+import { agentNativePath } from "../api-path.js";
 
 export interface ShareDialogProps {
   open: boolean;
@@ -68,7 +69,7 @@ function useOrgMembers(): OrgMember[] {
   const [members, setMembers] = useState<OrgMember[]>([]);
   useEffect(() => {
     let cancelled = false;
-    fetch("/_agent-native/org/members")
+    fetch(agentNativePath("/_agent-native/org/members"))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled || !data) return;

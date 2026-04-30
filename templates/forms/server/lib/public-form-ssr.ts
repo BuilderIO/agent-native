@@ -1,4 +1,4 @@
-import { getRequestURL, type H3Event } from "h3";
+import { getMethod, getRequestURL, type H3Event } from "h3";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import type { FormField, FormSettings } from "../../shared/types.js";
@@ -156,7 +156,10 @@ export async function renderPublicForm(event: H3Event) {
     headers["Cache-Control"] =
       "public, s-maxage=60, stale-while-revalidate=300";
   }
-  return new Response(html, { status, headers });
+  return new Response(getMethod(event) === "HEAD" ? null : html, {
+    status,
+    headers,
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -16,16 +16,24 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { agentNativePath } from "../api-path.js";
 
-export type VoiceProvider = "openai" | "browser" | "builder";
+export type VoiceProvider =
+  | "openai"
+  | "browser"
+  | "builder"
+  | "gemini"
+  | "groq";
 
 export interface VoicePrefs {
   provider: VoiceProvider;
 }
 
 const PREFS_KEY = "voice-transcription-prefs";
-const PREFS_URL = `/_agent-native/application-state/${PREFS_KEY}`;
-const TRANSCRIBE_URL = "/_agent-native/transcribe-voice";
+const PREFS_URL = agentNativePath(
+  `/_agent-native/application-state/${PREFS_KEY}`,
+);
+const TRANSCRIBE_URL = agentNativePath("/_agent-native/transcribe-voice");
 
 export type VoiceState =
   | "idle"

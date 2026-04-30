@@ -1340,7 +1340,7 @@ export function BuilderCtaCard({
   reason,
   usageCents,
   limitCents,
-  apiUrl = "/_agent-native/agent-chat",
+  apiUrl = agentNativePath("/_agent-native/agent-chat"),
 }: {
   reason: "usage_limit" | "code_changes" | "cli_tab";
   usageCents?: number;
@@ -2656,7 +2656,12 @@ export const AssistantChat = forwardRef<
   AssistantChatHandle,
   AssistantChatProps
 >(function AssistantChat(
-  { apiUrl = "/_agent-native/agent-chat", tabId, threadId, ...props },
+  {
+    apiUrl = agentNativePath("/_agent-native/agent-chat"),
+    tabId,
+    threadId,
+    ...props
+  },
   ref,
 ) {
   const modelRef = useRef<string | undefined>(props.selectedModel);

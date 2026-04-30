@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { agentNativePath } from "./api-path.js";
 
 // Module-level cache so multiple components sharing the same email don't race
 const _cache = new Map<string, string | null>();
@@ -23,7 +24,9 @@ async function fetchAvatar(email: string): Promise<string | null> {
   if (_cache.has(email)) return _cache.get(email)!;
   if (_inFlight.has(email)) return _inFlight.get(email)!;
 
-  const p = fetch(`/_agent-native/avatar/${encodeURIComponent(email)}`)
+  const p = fetch(
+    agentNativePath(`/_agent-native/avatar/${encodeURIComponent(email)}`),
+  )
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       const url = d?.image ?? null;
@@ -108,7 +111,7 @@ async function compressAvatar(file: File): Promise<string> {
 /** Compress and upload an avatar image for the given user. */
 export async function uploadAvatar(file: File, email: string): Promise<void> {
   const image = await compressAvatar(file);
-  const res = await fetch("/_agent-native/avatar", {
+  const res = await fetch(agentNativePath("/_agent-native/avatar"), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ image }),

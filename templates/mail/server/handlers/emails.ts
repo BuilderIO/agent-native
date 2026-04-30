@@ -296,9 +296,13 @@ async function writeLabels(
 async function readSettings(email: string): Promise<UserSettings> {
   const data = await getUserSetting(email, "mail-settings");
   if (data) {
-    return { ...DEFAULT_SETTINGS, ...(data as any) } as UserSettings;
+    return {
+      ...DEFAULT_SETTINGS,
+      ...(data as any),
+      email: (data as any).email || email,
+    } as UserSettings;
   }
-  return { ...DEFAULT_SETTINGS };
+  return { ...DEFAULT_SETTINGS, email };
 }
 
 function recomputeUnreadCounts(

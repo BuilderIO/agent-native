@@ -14,16 +14,16 @@ This document summarizes an autonomous overnight QA sweep across the framework a
 
 ## Headline Numbers
 
-| Metric | Count |
-|---|---|
-| Total commits on `updates-203` vs `main` | **74** |
-| Fix commits | **53** |
-| Feature / perf commits | **8** |
-| Chore / doc / test commits | **13** |
+| Metric                                        | Count                                            |
+| --------------------------------------------- | ------------------------------------------------ |
+| Total commits on `updates-203` vs `main`      | **74**                                           |
+| Fix commits                                   | **53**                                           |
+| Feature / perf commits                        | **8**                                            |
+| Chore / doc / test commits                    | **13**                                           |
 | Critical findings deferred for morning review | **10** (see `OVERNIGHT_QA_CRITICAL_FINDINGS.md`) |
-| Tests | 520 / 520 passing |
-| Guards | 6 / 6 passing |
-| TypeCheck | clean |
+| Tests                                         | 520 / 520 passing                                |
+| Guards                                        | 6 / 6 passing                                    |
+| TypeCheck                                     | clean                                            |
 
 ---
 
@@ -149,22 +149,22 @@ Approval policy is now correctly org-gated via `getApprovalRequest` scoping fix.
 
 ## Framework-Level Fixes Shipped
 
-| Area | Fix |
-|---|---|
-| **A2A identity leak (CRITICAL — FIXED)** | `metadata.orgDomain` and `metadata.userEmail` fallbacks removed from `handleSend`; identity now only resolved from JWT-verified fields. CLI env fallback scoped to CLI-only path. |
-| **MCP SSRF** | `validateRemoteUrl` now blocks RFC1918 / link-local / metadata IPs and internal hostnames. Previously any authenticated user could point an MCP server at internal endpoints. |
-| **MCP isError propagation** | `isError` tool results now throw so the production agent marks them as errors instead of treating them as successful tool output. |
-| **transcribe-voice auth** | Unauthenticated POST to `/_agent-native/voice/transcribe` now returns 401 in production. Was previously open. |
-| **Webhook double-readBody** | Resend and SendGrid webhook handlers were calling `readBody()` twice (h3 v2 streams are consume-once); second read hung forever. Fixed. |
-| **Webhook timing attack** | SendGrid webhook verification migrated to `timingSafeEqual`; Zoom webhooks now enforce a 5-minute timestamp window to block replay attacks. |
-| **File upload auth** | 4 upload endpoints across mail, slides (×2), and core file-upload had no session check. All now require `getSession()` + 401 on miss. |
-| **SVG XSS via upload** | SVG added to content-type blocklist in upload allowlist; all uploads force `Content-Disposition: attachment` to prevent inline rendering. |
-| **Tools indexes** | Added DB indexes on `owner_email`, `org_id`, and `tool_shares.resource_id` to fix unbounded table scans on every tool share lookup. |
-| **fetch-tool SSRF** | `fetch-tool` now blocks private IPs, metadata endpoints, and DNS rebind suffixes before proxying requests. Covered by new spec. |
-| **NotificationsBell mounted** | `NotificationsBell` was exported from core/client but never mounted in the content template Header. Now mounted. |
-| **agent-chat refresh-signal** | `DbSyncSetup` in the agent chat plugin was not handling `refresh-signal` events; agent edits did not update the UI. Fixed. |
-| **SSR `wrapWithAnalytics` guard** | `entry.server.ts` files in clips, slides, issues, and macros templates were calling `wrapWithAnalytics()` without checking if the import resolved; crashed SSR on cold starts. All guarded. |
-| **A2A JWT identity** | `fix(a2a): resolve caller identity from JWT-verified email` — cross-app deck/document ownership now matches the signed-in user's verified JWT email, not unverified metadata. |
+| Area                                     | Fix                                                                                                                                                                                         |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A2A identity leak (CRITICAL — FIXED)** | `metadata.orgDomain` and `metadata.userEmail` fallbacks removed from `handleSend`; identity now only resolved from JWT-verified fields. CLI env fallback scoped to CLI-only path.           |
+| **MCP SSRF**                             | `validateRemoteUrl` now blocks RFC1918 / link-local / metadata IPs and internal hostnames. Previously any authenticated user could point an MCP server at internal endpoints.               |
+| **MCP isError propagation**              | `isError` tool results now throw so the production agent marks them as errors instead of treating them as successful tool output.                                                           |
+| **transcribe-voice auth**                | Unauthenticated POST to `/_agent-native/voice/transcribe` now returns 401 in production. Was previously open.                                                                               |
+| **Webhook double-readBody**              | Resend and SendGrid webhook handlers were calling `readBody()` twice (h3 v2 streams are consume-once); second read hung forever. Fixed.                                                     |
+| **Webhook timing attack**                | SendGrid webhook verification migrated to `timingSafeEqual`; Zoom webhooks now enforce a 5-minute timestamp window to block replay attacks.                                                 |
+| **File upload auth**                     | 4 upload endpoints across mail, slides (×2), and core file-upload had no session check. All now require `getSession()` + 401 on miss.                                                       |
+| **SVG XSS via upload**                   | SVG added to content-type blocklist in upload allowlist; all uploads force `Content-Disposition: attachment` to prevent inline rendering.                                                   |
+| **Tools indexes**                        | Added DB indexes on `owner_email`, `org_id`, and `tool_shares.resource_id` to fix unbounded table scans on every tool share lookup.                                                         |
+| **fetch-tool SSRF**                      | `fetch-tool` now blocks private IPs, metadata endpoints, and DNS rebind suffixes before proxying requests. Covered by new spec.                                                             |
+| **NotificationsBell mounted**            | `NotificationsBell` was exported from core/client but never mounted in the content template Header. Now mounted.                                                                            |
+| **agent-chat refresh-signal**            | `DbSyncSetup` in the agent chat plugin was not handling `refresh-signal` events; agent edits did not update the UI. Fixed.                                                                  |
+| **SSR `wrapWithAnalytics` guard**        | `entry.server.ts` files in clips, slides, issues, and macros templates were calling `wrapWithAnalytics()` without checking if the import resolved; crashed SSR on cold starts. All guarded. |
+| **A2A JWT identity**                     | `fix(a2a): resolve caller identity from JWT-verified email` — cross-app deck/document ownership now matches the signed-in user's verified JWT email, not unverified metadata.               |
 
 ---
 
@@ -172,18 +172,18 @@ Approval policy is now correctly org-gated via `getApprovalRequest` scoping fix.
 
 See `OVERNIGHT_QA_CRITICAL_FINDINGS.md` for full detail. Top items:
 
-| # | Severity | Summary |
-|---|---|---|
-| 1 | CRITICAL | Shared mutable `_currentRunOwner` + 6 sibling variables in `agent-chat-plugin.ts` — concurrent requests overwrite each other's identity. Cross-user automation/secret execution possible. |
-| 2 | CRITICAL | `Promise.all` parallel tool calls corrupt global `console.log` / `process.stdout` monkey-patching — progressive log loss on multi-tool agent turns. |
-| 3 | MEDIUM | `process.env.AGENT_USER_EMAIL` mutation race — concurrent requests can read the wrong user's email from `process.env`. |
-| 4 | MEDIUM | `canManage` in `ShareButton.tsx` evaluates `true` when `data.role` is `undefined` — shows management UI to users with undefined role (server still rejects). |
-| 5 | MEDIUM | `highestShareRole` does an unbounded table scan on every auth check — no `principalId` filter or LIMIT pushed to SQL. |
-| 6 | FEATURE GAP | Cmd+I text selection capture not implemented — `handleKeyDown` calls `focusAgentChat()` but never captures `window.getSelection()`. |
-| 7 | MEDIUM | `<span role="button">` for tab-close X in `MultiTabAssistantChat` — not keyboard focusable, invalid nested interactive HTML. |
-| 8 | MEDIUM | `HistoryPopover`/`HelpPopover` may clip inside `overflow-hidden` agent sidebar. |
-| 9 | LOW | `generate-title` endpoint has no per-user rate limit — authenticated users can exhaust Anthropic API credits. |
-| 10 | LOW | `sidebarWidth` prop change after mount is silently ignored — prop appears reactive but is mount-only. |
+| #   | Severity    | Summary                                                                                                                                                                                   |
+| --- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | CRITICAL    | Shared mutable `_currentRunOwner` + 6 sibling variables in `agent-chat-plugin.ts` — concurrent requests overwrite each other's identity. Cross-user automation/secret execution possible. |
+| 2   | CRITICAL    | `Promise.all` parallel tool calls corrupt global `console.log` / `process.stdout` monkey-patching — progressive log loss on multi-tool agent turns.                                       |
+| 3   | MEDIUM      | `process.env.AGENT_USER_EMAIL` mutation race — concurrent requests can read the wrong user's email from `process.env`.                                                                    |
+| 4   | MEDIUM      | `canManage` in `ShareButton.tsx` evaluates `true` when `data.role` is `undefined` — shows management UI to users with undefined role (server still rejects).                              |
+| 5   | MEDIUM      | `highestShareRole` does an unbounded table scan on every auth check — no `principalId` filter or LIMIT pushed to SQL.                                                                     |
+| 6   | FEATURE GAP | Cmd+I text selection capture not implemented — `handleKeyDown` calls `focusAgentChat()` but never captures `window.getSelection()`.                                                       |
+| 7   | MEDIUM      | `<span role="button">` for tab-close X in `MultiTabAssistantChat` — not keyboard focusable, invalid nested interactive HTML.                                                              |
+| 8   | MEDIUM      | `HistoryPopover`/`HelpPopover` may clip inside `overflow-hidden` agent sidebar.                                                                                                           |
+| 9   | LOW         | `generate-title` endpoint has no per-user rate limit — authenticated users can exhaust Anthropic API credits.                                                                             |
+| 10  | LOW         | `sidebarWidth` prop change after mount is silently ignored — prop appears reactive but is mount-only.                                                                                     |
 
 Findings #1 and #2 are the most urgent. Both are structural concurrency bugs in core framework code that affect every template simultaneously under any real production load.
 
@@ -237,5 +237,5 @@ The following patterns surfaced repeatedly across templates. Some have CI guards
 
 ---
 
-*Generated 2026-04-30 by autonomous overnight QA sweep (8 rounds, ~25 sub-agents).*
-*See `OVERNIGHT_QA_CRITICAL_FINDINGS.md` for detailed analysis of deferred findings.*
+_Generated 2026-04-30 by autonomous overnight QA sweep (8 rounds, ~25 sub-agents)._
+_See `OVERNIGHT_QA_CRITICAL_FINDINGS.md` for detailed analysis of deferred findings._

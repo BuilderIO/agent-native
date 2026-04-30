@@ -21,6 +21,10 @@ const VIEW_QUERIES: Record<string, string> = {
   all: "",
 };
 
+const cliBoolean = z
+  .union([z.boolean(), z.enum(["true", "false"])])
+  .transform((value) => value === true || value === "true");
+
 function toCompact(emails: any[]): any[] {
   return emails.map((e) => ({
     id: e.id,
@@ -73,8 +77,7 @@ export default defineAction({
       .number()
       .optional()
       .describe("Max number of emails to return (default: 50)"),
-    compact: z.coerce
-      .boolean()
+    compact: cliBoolean
       .optional()
       .describe("Set to true for compact output"),
   }),
