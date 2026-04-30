@@ -27,29 +27,53 @@ interface QueuedEvent {
   headers?: Record<string, string>;
 }
 
-let _queue: QueuedEvent[] = [];
-let _timer: ReturnType<typeof setTimeout> | null = null;
+// Use globalThis so multiple ESM graph instances (Vite dev + Nitro symlinks)
+// share one queue, matching the same pattern as the tracking registry.
+const QUEUE_KEY = Symbol.for("@agent-native/core/tracking.queue");
+const TIMER_KEY = Symbol.for("@agent-native/core/tracking.timer");
+
+interface GlobalWithQueue {
+  [QUEUE_KEY]?: QueuedEvent[];
+  [TIMER_KEY]?: ReturnType<typeof setTimeout> | null;
+}
+
+function getQueue(): QueuedEvent[] {
+  const g = globalThis as unknown as GlobalWithQueue;
+  if (!g[QUEUE_KEY]) g[QUEUE_KEY] = [];
+  return g[QUEUE_KEY]!;
+}
+
+function getTimer(): ReturnType<typeof setTimeout> | null {
+  const g = globalThis as unknown as GlobalWithQueue;
+  return g[TIMER_KEY] ?? null;
+}
+
+function setTimer(t: ReturnType<typeof setTimeout> | null): void {
+  (globalThis as unknown as GlobalWithQueue)[TIMER_KEY] = t;
+}
 
 function enqueue(
   url: string,
   body: string,
   headers?: Record<string, string>,
 ): void {
-  _queue.push({ url, body, headers });
-  if (_queue.length >= MAX_BATCH_SIZE) {
+  const queue = getQueue();
+  queue.push({ url, body, headers });
+  if (queue.length >= MAX_BATCH_SIZE) {
     drainQueue();
-  } else if (!_timer) {
-    _timer = setTimeout(drainQueue, BATCH_INTERVAL_MS);
+  } else if (!getTimer()) {
+    setTimer(setTimeout(drainQueue, BATCH_INTERVAL_MS));
   }
 }
 
 function drainQueue(): void {
-  if (_timer) {
-    clearTimeout(_timer);
-    _timer = null;
+  const t = getTimer();
+  if (t) {
+    clearTimeout(t);
+    setTimer(null);
   }
-  const batch = _queue;
-  _queue = [];
+  const queue = getQueue();
+  const batch = queue.splice(0, queue.length);
   for (const item of batch) {
     fetch(item.url, {
       method: "POST",

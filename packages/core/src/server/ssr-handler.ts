@@ -39,7 +39,11 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
     try {
       const request = event.req as Request;
       if (request.method === "HEAD") {
-        const getRequest = new Request(request, { method: "GET" });
+        const getRequest = new Request(request.url, {
+          method: "GET",
+          headers: request.headers,
+          signal: request.signal,
+        });
         const response = await handler(getRequest);
         return new Response(null, {
           status: response.status,

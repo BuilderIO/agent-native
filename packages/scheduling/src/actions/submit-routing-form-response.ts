@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { eq } from "drizzle-orm";
 import { getSchedulingContext } from "../server/context.js";
 
 export default defineAction({
@@ -15,6 +16,18 @@ export default defineAction({
   }),
   run: async (args) => {
     const { getDb, schema } = getSchedulingContext();
+    const [form] = await getDb()
+      .select({
+        id: schema.routingForms.id,
+        disabled: schema.routingForms.disabled,
+      })
+      .from(schema.routingForms)
+      .where(eq(schema.routingForms.id, args.formId))
+      .limit(1);
+    if (!form || form.disabled) {
+      throw new Error(`Routing form not found: ${args.formId}`);
+    }
+
     const id = nanoid();
     await getDb()
       .insert(schema.routingFormResponses)
