@@ -2,7 +2,14 @@ import { redirect, type LoaderFunctionArgs } from "react-router";
 import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
-  return [{ title: "Dispatch" }];
+  return [
+    { title: "Dispatch" },
+    {
+      name: "description",
+      content:
+        "Central control plane — Slack/Telegram routing, secrets vault, jobs, memory, approvals, and A2A agent delegation.",
+    },
+  ];
 }
 
 /**
