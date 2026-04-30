@@ -42,7 +42,11 @@ import {
   useGoogleAuthUrl,
   useGoogleAddAccountUrl,
 } from "@/hooks/use-google-auth";
-import { useSession, FeedbackButton } from "@agent-native/core/client";
+import {
+  useSession,
+  FeedbackButton,
+  DEV_MODE_USER_EMAIL,
+} from "@agent-native/core/client";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
 import {
   useOverlayPeople,
@@ -470,7 +474,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const removeExternal = useRemoveExternalCalendar();
   const updateExternalColor = useUpdateExternalCalendarColor();
   const isConnected = googleStatus.data?.connected ?? false;
-  const isLocalMode = session?.email === "local@localhost";
+  const isLocalMode = session?.email === DEV_MODE_USER_EMAIL;
 
   return (
     <>

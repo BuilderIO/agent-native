@@ -1,7 +1,9 @@
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 export function getCurrentOwnerEmail(): string {
-  return getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
+  return email;
 }
 
 export function nanoid(size = 12): string {

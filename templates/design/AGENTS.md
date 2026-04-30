@@ -151,11 +151,12 @@ Every design starts from this skeleton:
 
 Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
 
-| State Key        | Purpose                                   | Direction                  |
-| ---------------- | ----------------------------------------- | -------------------------- |
-| `navigation`     | Current view, design ID                   | UI -> Agent (read-only)    |
-| `navigate`       | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
-| `show-questions` | Trigger question flow overlay in the UI   | Agent -> UI                |
+| State Key         | Purpose                                                | Direction                  |
+| ----------------- | ------------------------------------------------------ | -------------------------- |
+| `navigation`      | Current view, design ID                                | UI -> Agent (read-only)    |
+| `navigate`        | Navigate command (one-shot, auto-deleted)              | Agent -> UI (auto-deleted) |
+| `show-questions`  | Trigger pre-generation question overlay                | Agent -> UI (auto-deleted) |
+| `design-variants` | 2-5 candidate designs the user picks between in a grid | Agent -> UI (auto-deleted) |
 
 ### Navigation state (read what the user sees)
 
@@ -375,38 +376,86 @@ Designs are **private by default** — only the creator sees them. These actions
 
 ## Design Generation Flow
 
-This is the core workflow. The agent generates complete HTML designs and saves them as files in a design project.
+This is the core workflow. The agent generates complete HTML designs and saves them as files in a design project. The canonical flow has four phases — match it precisely so the UX feels like Claude Design.
 
-### Creating a New Design
+### Phase 1 — Ask before generating (when ambiguous)
 
-**Default flow — create project then generate files:**
+For any non-trivial first prompt, write structured questions to `application-state/show-questions` BEFORE generating. The editor renders them as a full-canvas overlay. The user submits or skips, and the answers come back to you as a chat message. See "Question Flow Protocol" below for the exact JSON shape and when to ask vs skip.
 
-1. Create the project: `create-design --title "X"`
-2. Navigate to it: `navigate --view editor --designId <returned-id>`
-3. Generate the HTML content and save it: `generate-design --designId <id> --prompt "..." --files '[{"filename":"index.html","content":"<html>...","fileType":"html"}]'`
+### Phase 2 — Generate three variations side-by-side
 
-### Updating an Existing Design
+For new designs, default to **three** variations side-by-side. Don't skip straight to a single design — Claude Design's "smartest UX choice" is showing 3 directions on first generation so users pick before refining. Write the candidates to `application-state/design-variants`:
 
-When the user says "change the color" or "add a navigation bar":
+```json
+{
+  "designId": "<the design id>",
+  "prompt": "Pick a direction",
+  "variants": [
+    {
+      "id": "a",
+      "label": "Editorial Serif",
+      "content": "<!DOCTYPE html>...full self-contained HTML..."
+    },
+    { "id": "b", "label": "Bold Brutalist", "content": "<!DOCTYPE html>..." },
+    { "id": "c", "label": "Soft & Spacious", "content": "<!DOCTYPE html>..." }
+  ]
+}
+```
 
-1. Read the current design: `get-design --id <designId>` to get existing files
+Each `content` MUST be a complete, self-contained HTML document (Alpine.js + Tailwind via CDN, full `<head>`, `:root` CSS variables, etc.). Variations should be **stylistically/structurally distinct** — different typography schools, layout grammars, or color moods — NOT just color swaps. Label them with concrete style names users can connect to.
+
+The editor surfaces these in a full-canvas grid; when the user clicks "Use this one", the framework persists the chosen variant as `index.html` via `generate-design` automatically and clears the picker. Do NOT call `generate-design` yourself in this phase — only write `design-variants`.
+
+When the user explicitly asks for "more options" / "alternatives" / "another direction", write a fresh batch to `design-variants`. Otherwise stop offering variants after the first generation and refine the picked one in place.
+
+### Phase 3 — Save final design with `generate-design`
+
+Use `generate-design` directly (skipping variants) only for:
+
+- Refinements to an already-picked design ("change the color", "add a nav bar")
+- Multi-screen additions to an existing design (`mobile.html`, `page-pricing.html`)
+- One-off prompts where the user clearly knows the direction ("re-skin this with my brand colors")
+
+Always include the latest `tweaks` array (see Phase 4) when calling `generate-design` so user-tunable knobs survive content updates.
+
+### Phase 4 — Generate tweak knobs with the design
+
+Every `generate-design` call SHOULD include 3-6 `tweaks` definitions bound to CSS custom properties the design's `:root` block actually defines. The editor renders these as live controls (color swatches, segmented controls, sliders, toggles) that the user adjusts without re-prompting. Pick the most impactful knobs for THIS design's grammar — accent color, density, radius, font choice, dark-mode toggle. Don't ship a generic preset; let the design's structure guide which knobs make sense. See "Tweaks Panel Generation" below for the exact shape.
+
+### Multi-screen designs
+
+A single design holds many files. Use one design row + multiple files for:
+
+- Multi-page prototypes: `index.html`, `pricing.html`, `dashboard.html`
+- Responsive variants: `index.html` (desktop), `mobile.html`
+- Flow steps: `step-1-signup.html`, `step-2-onboarding.html`
+
+The editor exposes an Overview button that lays all files out as a Figma-style pannable lineup. When generating multi-screen flows, name files in a way that reads well in that lineup (lowercase, dashed, descriptive — `pricing.html` not `untitled-2.html`).
+
+### Updating an existing design
+
+When the user asks "change the color" / "add a navigation bar" / "make this responsive":
+
+1. Read the current design: `get-design --id <designId>` to get existing files + tweaks
 2. Modify the HTML content based on the request
-3. Save with `generate-design` (which creates or updates files by filename match)
+3. Save with `generate-design` — pass the updated tweaks array so knobs survive
 
 ### Why `generate-design` is preferred over individual `create-file` calls
 
-- `generate-design` is atomic — creates/updates all files in one transaction
-- It stores the generation prompt and metadata
-- It updates `designSystemId` and `projectType` on the design
-- It handles filename-based upsert (if `index.html` exists, it updates; otherwise creates)
+- Atomic: creates/updates all files (and merges tweaks into `data`) in one transaction
+- Records `lastPrompt`, `generatedAt`, file count, and tweaks in `data`
+- Updates `designSystemId` and `projectType` on the design
+- Filename-based upsert: existing files update in place; new ones are added
 
-### Single File Updates
+### Single-file surgical updates
 
-For surgical edits to one file (e.g., changing a single color or fixing text):
+For tiny edits to one file (changing a single color, fixing text):
 
 ```bash
 pnpm action update-file --id <fileId> --content "<updated HTML>"
 ```
+
+This bypasses the tweak-merge logic, so use it for cosmetic fixes — full regenerations should still go through `generate-design`.
 
 ---
 

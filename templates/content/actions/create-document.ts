@@ -47,7 +47,8 @@ export default defineAction({
 
     const parentId = args.parentId || null;
     const icon = args.icon || null;
-    const ownerEmail = getRequestUserEmail() ?? "local@localhost";
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId() ?? null;
     const db = getDb();
 

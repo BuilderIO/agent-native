@@ -2,6 +2,7 @@
 // Fetches accounts, issues, and contacts
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 
 const API_BASE = "https://api.usepylon.com";
 
@@ -10,8 +11,9 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
 
 async function getToken(): Promise<string> {
-  const token = await resolveCredential("PYLON_API_KEY");
-  if (!token) throw new Error("PYLON_API_KEY env var required");
+  const ctx = requireRequestCredentialContext("PYLON_API_KEY");
+  const token = await resolveCredential("PYLON_API_KEY", ctx);
+  if (!token) throw new Error("PYLON_API_KEY not configured");
   return token;
 }
 

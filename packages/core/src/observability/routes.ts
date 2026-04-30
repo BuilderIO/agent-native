@@ -27,7 +27,7 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { getSession } from "../server/auth.js";
+import { getSession, DEV_MODE_USER_EMAIL } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   getObservabilityOverview,
@@ -61,7 +61,11 @@ function nanoid(size = 21): string {
 
 async function resolveOwner(event: H3Event): Promise<string> {
   const session = await getSession(event).catch(() => null);
-  return session?.email || "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return session.email;
 }
 
 function parseSince(q: Record<string, any>): number {
@@ -91,7 +95,7 @@ export function createObservabilityHandler() {
     const parts = pathname ? pathname.split("/") : [];
 
     const owner = await resolveOwner(event);
-    if (!owner || owner === "local@localhost") {
+    if (!owner || owner === DEV_MODE_USER_EMAIL) {
       const isLocal =
         process.env.NODE_ENV !== "production" ||
         process.env.AUTH_MODE === "local";

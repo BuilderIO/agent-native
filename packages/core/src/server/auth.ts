@@ -203,7 +203,7 @@ async function isLocalModeEnabled(): Promise<boolean> {
  * Check if we're in a development/test environment.
  * Used for cookie security settings, not for auth bypass.
  */
-function isDevEnvironment(): boolean {
+export function isDevEnvironment(): boolean {
   const env = process.env.NODE_ENV;
   return env === "development" || env === "test";
 }
@@ -517,7 +517,18 @@ export async function runAuthGuard(
   return _authGuardFn(event);
 }
 
-const LOCAL_SESSION: AuthSession = { email: "local@localhost" };
+/**
+ * The framework's dev-mode bypass identity. When `AUTH_MODE=local` (or
+ * dev-mode falls back), `getSession()` returns `{ email: DEV_MODE_USER_EMAIL }`.
+ * Production code that needs to check whether the current request is the
+ * dev-mode user (or filter it out of mailers, dashboards, etc.) should
+ * compare against this constant instead of inlining the literal —
+ * `guard-no-localhost-fallback.mjs` blocks the literal everywhere except
+ * `auth.ts` and a handful of dev-mode helpers.
+ */
+export const DEV_MODE_USER_EMAIL = "local@localhost";
+
+const LOCAL_SESSION: AuthSession = { email: DEV_MODE_USER_EMAIL };
 
 // ---------------------------------------------------------------------------
 // Auth guard factory
@@ -1075,7 +1086,7 @@ async function setAuthModeLocal(): Promise<boolean> {
     const fs = await getFs();
     fs.mkdirSync(path.dirname(LOCAL_MODE_MARKER_PATH), { recursive: true });
     fs.writeFileSync(LOCAL_MODE_MARKER_PATH, "local\n", "utf-8");
-    process.env.AUTH_MODE = "local";
+    process.env.AUTH_MODE = "local"; // guard:allow-env-mutation — escape-hatch writes the local-mode marker file; mirrored into env so the in-flight process honors the change without restart
     return true;
   } catch {
     return false;
@@ -1342,15 +1353,41 @@ async function mountBetterAuthRoutes(
       const isResetPassword =
         reqPath.includes("reset-password") && getMethod(event) === "POST";
 
-      // Pre-read the body for reset-password so we can extract the
-      // token after Better Auth consumes the stream.
+      // Pre-read the body for reset-password so we can auto-verify the
+      // user's email after they save the new password. CRUCIAL: clone
+      // the Request first — h3 v2 `event.req` is the live web Request,
+      // and `.text()`/`.json()` consume the stream. The same `event.req`
+      // is handed to Better Auth below; without the clone, Better Auth
+      // sees an empty body, fails Zod validation, and returns 400 —
+      // which the reset page renders as "the link may have expired".
       let resetToken: string | undefined;
+      let resetUserId: string | undefined;
       if (isResetPassword) {
         try {
-          const body = await readBody(event);
+          const cloned = (event.req as Request).clone();
+          const body = (await cloned.json().catch(() => undefined)) as
+            | { token?: string }
+            | undefined;
           resetToken = body?.token;
         } catch {
           // ignore — Better Auth will handle validation
+        }
+        // Look up userId BEFORE calling auth.handler — Better Auth deletes
+        // the verification row as part of the reset, so by the time the
+        // handler returns 200 the row is gone and we can't recover the user.
+        if (resetToken) {
+          try {
+            const { getDbExec } = await import("../db/client.js");
+            const db = getDbExec();
+            const rows = await db.execute({
+              sql: "SELECT value FROM verification WHERE identifier = ?",
+              args: [`reset-password:${resetToken}`],
+            });
+            resetUserId = rows.rows[0]?.value as string | undefined;
+          } catch {
+            // Best-effort — if we can't read the verification row we just
+            // skip auto-verify; the user can verify normally.
+          }
         }
       }
 
@@ -1360,8 +1397,14 @@ async function mountBetterAuthRoutes(
         typeof (response as any).status === "number" &&
         typeof (response as any).headers?.get === "function";
 
-      // After email verification, add ?verified to the redirect so the
-      // login page can show a "Email verified!" success message.
+      // After email verification, add ?verified=1 to the redirect so the
+      // login page can show "Email verified!". MUTATE the response in
+      // place — `new Response(null, { headers: new Headers(response.headers) })`
+      // collapses multiple Set-Cookie headers into one comma-joined value,
+      // which browsers reject. With `autoSignInAfterVerification: true`
+      // Better Auth emits 2–3 Set-Cookie headers (session token + cookie
+      // cache + dontRememberToken); losing them strands the user on the
+      // login page even though verification succeeded.
       if (
         reqPath.includes("verify-email") &&
         isResponse &&
@@ -1371,20 +1414,17 @@ async function mountBetterAuthRoutes(
         const loc = response.headers.get("location");
         if (loc && !/[?&]verified=/.test(loc)) {
           const sep = loc.includes("?") ? "&" : "?";
-          const newResponse = new Response(null, {
-            status: response.status,
-            headers: new Headers(response.headers),
-          });
-          newResponse.headers.set("location", loc + sep + "verified=1");
-          return newResponse;
+          response.headers.set("location", loc + sep + "verified=1");
         }
       }
 
       // Auto-verify email after a successful password reset. The user
-      // proved email ownership by receiving and using the reset link.
+      // proved email ownership by receiving and using the reset link, so
+      // we don't want them stuck behind `requireEmailVerification` after
+      // resetting — that's the exact escape hatch they just used.
       if (
         isResetPassword &&
-        resetToken &&
+        resetUserId &&
         isResponse &&
         (response as Response).status >= 200 &&
         (response as Response).status < 300
@@ -1392,21 +1432,14 @@ async function mountBetterAuthRoutes(
         try {
           const { getDbExec } = await import("../db/client.js");
           const db = getDbExec();
-          // Better Auth stores the reset token in its `verification`
-          // table with the user's identifier. Look up the user via the
-          // token and mark their email as verified — they proved
-          // ownership by receiving and using the email-delivered link.
-          const rows = await db.execute({
-            sql: "SELECT identifier FROM verification WHERE value = ?",
-            args: [resetToken],
+          // Use boolean literals for cross-dialect portability: Postgres
+          // stores `email_verified` as BOOLEAN and rejects integer 1/0,
+          // SQLite accepts TRUE/FALSE as aliases for 1/0 (since 3.23).
+          // Quote `"user"` because it's a reserved keyword in Postgres.
+          await db.execute({
+            sql: 'UPDATE "user" SET email_verified = TRUE WHERE id = ? AND (email_verified = FALSE OR email_verified IS NULL)',
+            args: [resetUserId],
           });
-          const email = rows.rows[0]?.identifier as string | undefined;
-          if (email) {
-            await db.execute({
-              sql: "UPDATE user SET email_verified = 1 WHERE email = ? AND (email_verified = 0 OR email_verified IS NULL)",
-              args: [email],
-            });
-          }
         } catch {
           // Best-effort — don't block the response
         }

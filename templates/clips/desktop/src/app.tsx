@@ -12,6 +12,7 @@ import { startNativeRecording, type RecorderHandle } from "./lib/recorder";
 import {
   installDesktopVoiceDictation,
   type VoiceMode,
+  type VoiceProvider,
   type VoiceShortcutPreference,
 } from "./lib/voice-dictation";
 import { UpdateBanner } from "./components/UpdateBanner";
@@ -33,6 +34,7 @@ const MODE_KEY = "clips:last-mode";
 const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
 const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
 const VOICE_MODE_KEY = "clips:voice-mode";
+const VOICE_PROVIDER_KEY = "clips:voice-provider";
 const SOURCE_KEY = "clips:last-source";
 const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";
@@ -133,6 +135,17 @@ export function App() {
     const saved = loadString(VOICE_MODE_KEY, "push-to-talk");
     return saved === "toggle" ? "toggle" : "push-to-talk";
   });
+  const [voiceProvider, setVoiceProvider] = useState<VoiceProvider>(() => {
+    const saved = loadString(VOICE_PROVIDER_KEY, "auto");
+    return saved === "auto" ||
+      saved === "browser" ||
+      saved === "builder" ||
+      saved === "gemini" ||
+      saved === "openai" ||
+      saved === "groq"
+      ? saved
+      : "auto";
+  });
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [showRecent, setShowRecent] = useState(false);
@@ -167,8 +180,15 @@ export function App() {
       serverUrl,
       shortcut: voiceShortcut,
       mode: voiceMode,
+      provider: voiceProvider,
     });
-  }, [featureConfig?.voiceEnabled, serverUrl, voiceShortcut, voiceMode]);
+  }, [
+    featureConfig?.voiceEnabled,
+    serverUrl,
+    voiceShortcut,
+    voiceMode,
+    voiceProvider,
+  ]);
 
   // ---- auth status --------------------------------------------------------
   // The Tauri WebView has its own cookie jar (separate from the user's
@@ -707,6 +727,10 @@ export function App() {
     [voiceShortcut],
   );
   useEffect(() => saveString(VOICE_MODE_KEY, voiceMode), [voiceMode]);
+  useEffect(
+    () => saveString(VOICE_PROVIDER_KEY, voiceProvider),
+    [voiceProvider],
+  );
   useEffect(() => saveString(SOURCE_KEY, source), [source]);
   useEffect(() => saveString(CAM_KEY, cameraId), [cameraId]);
   useEffect(() => saveString(MIC_KEY, micId), [micId]);
@@ -1045,10 +1069,13 @@ export function App() {
         {showSettings ? (
           <Setup
             initial={serverUrl}
+            serverUrl={serverUrl}
             voiceShortcut={voiceShortcut}
             voiceMode={voiceMode}
+            voiceProvider={voiceProvider}
             onVoiceShortcutChange={updateVoiceShortcut}
             onVoiceModeChange={setVoiceMode}
+            onVoiceProviderChange={setVoiceProvider}
             onConnect={(url) => {
               saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
               setServerUrl(url.replace(/\/+$/, ""));
@@ -1152,11 +1179,14 @@ export function App() {
       {showSettings ? (
         <Setup
           initial={serverUrl}
+          serverUrl={serverUrl}
           signedInAs={signedInAs}
           voiceShortcut={voiceShortcut}
           voiceMode={voiceMode}
+          voiceProvider={voiceProvider}
           onVoiceShortcutChange={updateVoiceShortcut}
           onVoiceModeChange={setVoiceMode}
+          onVoiceProviderChange={setVoiceProvider}
           onSignOut={signOut}
           onConnect={(url) => {
             saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
@@ -1845,32 +1875,91 @@ function ClockIcon() {
 
 // ---------------------------------------------------------------------------
 
+type VoiceProviderStatus = {
+  browser: true;
+  builder: boolean;
+  gemini: boolean;
+  openai: boolean;
+  groq: boolean;
+};
+
 function Setup({
   initial,
+  serverUrl,
   signedInAs,
   voiceShortcut,
   voiceMode,
+  voiceProvider,
   onVoiceShortcutChange,
   onVoiceModeChange,
+  onVoiceProviderChange,
   onConnect,
   onCancel,
   onSignOut,
 }: {
   initial?: string | null;
+  serverUrl?: string;
   signedInAs?: string | null;
   voiceShortcut: VoiceShortcutPreference;
   voiceMode: VoiceMode;
+  voiceProvider: VoiceProvider;
   onVoiceShortcutChange: (value: VoiceShortcutPreference) => void;
   onVoiceModeChange: (value: VoiceMode) => void;
+  onVoiceProviderChange: (value: VoiceProvider) => void;
   onConnect: (url: string) => void;
   onCancel?: () => void;
   onSignOut?: () => void;
 }) {
   const [url, setUrl] = useState(initial ?? DEFAULT_URL);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const [providerStatus, setProviderStatus] =
+    useState<VoiceProviderStatus | null>(null);
+  const [providerStatusLoading, setProviderStatusLoading] = useState(true);
+
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
+    let cancelled = false;
+    setProviderStatusLoading(true);
+    (async () => {
+      try {
+        const res = await fetch(
+          `${base}/_agent-native/voice-providers/status`,
+          { credentials: "include" },
+        );
+        if (!res.ok) {
+          if (!cancelled) {
+            setProviderStatus(null);
+            setProviderStatusLoading(false);
+          }
+          return;
+        }
+        const json = (await res.json().catch(() => null)) as Partial<
+          Omit<VoiceProviderStatus, "browser">
+        > | null;
+        if (cancelled) return;
+        setProviderStatus({
+          browser: true,
+          builder: Boolean(json?.builder),
+          gemini: Boolean(json?.gemini),
+          openai: Boolean(json?.openai),
+          groq: Boolean(json?.groq),
+        });
+        setProviderStatusLoading(false);
+      } catch {
+        if (!cancelled) {
+          setProviderStatus(null);
+          setProviderStatusLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [serverUrl, initial]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1878,6 +1967,25 @@ function Setup({
     if (!trimmed) return;
     onConnect(trimmed);
   }
+
+  const statusRowStyle: React.CSSProperties = {
+    fontSize: 12,
+    color: "var(--fg-muted)",
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  };
+  const statusListStyle: React.CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    marginTop: 6,
+  };
+  const explainerStyle: React.CSSProperties = {
+    fontSize: 12,
+    color: "var(--fg-muted)",
+    margin: 0,
+  };
 
   return (
     <form className="setup" onSubmit={handleSubmit}>
@@ -1893,6 +2001,80 @@ function Setup({
       <button className="primary" type="submit">
         Connect
       </button>
+      <div className="setup-section">
+        <label className="setup-label" htmlFor="voice-provider">
+          Voice transcription
+        </label>
+        <select
+          id="voice-provider"
+          className="setup-select"
+          value={voiceProvider}
+          onChange={(event) =>
+            onVoiceProviderChange(event.target.value as VoiceProvider)
+          }
+        >
+          <option value="auto">Auto (recommended)</option>
+          <option value="browser">Browser (free, built-in)</option>
+          <option value="builder">Builder.io</option>
+          <option value="gemini">Google Gemini Flash Lite</option>
+          <option value="openai">OpenAI Whisper</option>
+          <option value="groq">Groq Whisper</option>
+        </select>
+        <p style={explainerStyle}>
+          Bring your own API key for higher-quality transcription, or use the
+          free macOS built-in dictation. Auto picks the best available.
+        </p>
+        <div style={statusListStyle}>
+          {providerStatusLoading ? (
+            <div style={statusRowStyle}>Loading providers…</div>
+          ) : providerStatus ? (
+            <>
+              <div style={statusRowStyle}>
+                <span>{"✓"}</span>
+                <span>Browser (always available)</span>
+              </div>
+              <div style={statusRowStyle}>
+                <span>{providerStatus.builder ? "✓" : "⊘"}</span>
+                <span>
+                  Builder.io
+                  {providerStatus.builder
+                    ? ""
+                    : " — add BUILDER_PRIVATE_KEY in .env or Settings → API Keys"}
+                </span>
+              </div>
+              <div style={statusRowStyle}>
+                <span>{providerStatus.gemini ? "✓" : "⊘"}</span>
+                <span>
+                  Gemini
+                  {providerStatus.gemini
+                    ? ""
+                    : " — add GEMINI_API_KEY in .env or Settings → API Keys"}
+                </span>
+              </div>
+              <div style={statusRowStyle}>
+                <span>{providerStatus.openai ? "✓" : "⊘"}</span>
+                <span>
+                  OpenAI
+                  {providerStatus.openai
+                    ? ""
+                    : " — add OPENAI_API_KEY in .env or Settings → API Keys"}
+                </span>
+              </div>
+              <div style={statusRowStyle}>
+                <span>{providerStatus.groq ? "✓" : "⊘"}</span>
+                <span>
+                  Groq
+                  {providerStatus.groq
+                    ? ""
+                    : " — add GROQ_API_KEY in .env or Settings → API Keys"}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div style={statusRowStyle}>Could not load provider status.</div>
+          )}
+        </div>
+      </div>
       <div className="setup-section">
         <label className="setup-label" htmlFor="voice-shortcut">
           Voice shortcut

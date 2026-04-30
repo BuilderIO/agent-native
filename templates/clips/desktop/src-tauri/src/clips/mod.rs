@@ -444,6 +444,19 @@ pub async fn close_bubble(app: AppHandle) -> Result<(), String> {
 /// pick a fixed popover size that fits every state.
 #[tauri::command]
 pub async fn resize_popover(app: AppHandle, height: f64) -> Result<(), String> {
+    // CRITICAL: bail out when the popover is parked at 2x2 for voice
+    // wake-up. The React shell's ResizeObserver fires on every mount
+    // and would un-park the window back to full size, making the
+    // Clips UI flash on every Fn press AND steal focus from the
+    // foreground app. The window must stay invisible-but-alive until
+    // hide_flow_bar clears the wake flag.
+    let voice_woken = app
+        .try_state::<VoiceWakePopover>()
+        .and_then(|state| state.0.lock().ok().map(|g| *g))
+        .unwrap_or(false);
+    if voice_woken {
+        return Ok(());
+    }
     if let Some(w) = app.get_webview_window("popover") {
         let clamped = height.clamp(200.0, 820.0);
         let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
@@ -513,11 +526,12 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
 
     if let Some(existing) = app.get_webview_window(FLOW_BAR_LABEL) {
         // Reposition (in case the user changed display geometry between
-        // sessions) and bring it back into view. State reset is handled
-        // by the JS side emitting voice:state-change.
+        // sessions) and bring it back into view WITHOUT stealing focus
+        // from the user's foreground app. State reset is handled by the
+        // JS side emitting voice:state-change.
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
         let _ = existing.set_position(PhysicalPosition::new(x, y));
-        let _ = existing.show();
+        crate::util::show_without_activation(&existing);
         return Ok(());
     }
 
@@ -540,7 +554,7 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     let _ = win.set_position(PhysicalPosition::new(x, y));
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
-    let _ = win.show();
+    crate::util::show_without_activation(&win);
     let app_for_timeout = app.clone();
     thread::spawn(move || {
         // Long-tail safety net: if the JS cleanup path doesn't reach
@@ -596,10 +610,11 @@ pub async fn hide_flow_bar(app: AppHandle) -> Result<(), String> {
 pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<(), String> {
     let trimmed = text.trim().to_string();
     if trimmed.is_empty() {
+        eprintln!("[clips-tray] complete_voice_dictation: empty text — nothing to paste");
         return Ok(());
     }
-    dlog!(
-        "[clips-tray] complete_voice_dictation chars={}",
+    eprintln!(
+        "[clips-tray] complete_voice_dictation: writing {} chars to clipboard + Cmd+V",
         trimmed.chars().count()
     );
     if let Some(last) = app.try_state::<LastTranscript>() {

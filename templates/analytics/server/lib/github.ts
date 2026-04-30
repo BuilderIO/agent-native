@@ -3,6 +3,7 @@
 // Mirrors patterns from server/lib/gong.ts
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 
 const REST_BASE = "https://api.github.com";
 const GRAPHQL_URL = "https://api.github.com/graphql";
@@ -12,8 +13,9 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 200;
 
 async function getToken(): Promise<string> {
-  const token = await resolveCredential("GITHUB_TOKEN");
-  if (!token) throw new Error("GITHUB_TOKEN env var is required");
+  const ctx = requireRequestCredentialContext("GITHUB_TOKEN");
+  const token = await resolveCredential("GITHUB_TOKEN", ctx);
+  if (!token) throw new Error("GITHUB_TOKEN not configured");
   return token;
 }
 

@@ -17,6 +17,7 @@ import {
   oauthCallbackResponse,
   oauthErrorPage,
   setDesktopExchange,
+  DEV_MODE_USER_EMAIL,
 } from "@agent-native/core/server";
 import {
   getAuthUrl,
@@ -46,7 +47,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       `${getOrigin(event)}/_agent-native/google/callback`;
     const session = await getSession(event);
     const owner =
-      session?.email && session.email !== "local@localhost"
+      session?.email && session.email !== DEV_MODE_USER_EMAIL
         ? session.email
         : undefined;
     const desktop =

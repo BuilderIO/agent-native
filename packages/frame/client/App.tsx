@@ -213,6 +213,7 @@ export function App() {
         event.source?.postMessage(
           {
             type: "builder.userInfo",
+            // guard:allow-localhost-fallback — Frame is a dev-only iframe wrapper that identifies itself to the Builder editor as the framework's dev-mode user; this is the dev identity, not a session-pooling fallback
             data: { name: "Developer", email: "local@localhost" },
           },
           { targetOrigin: event.origin },

@@ -1,5 +1,6 @@
 import { defineEventHandler, createError } from "h3";
 import { resolveCredential } from "../../../lib/credentials";
+import { withRequestContextFromEvent } from "../../../lib/credentials";
 import { readBody } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event) => {
@@ -15,30 +16,41 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: "metrics required" });
   }
 
-  const propertyId = await resolveCredential("GA4_PROPERTY_ID");
-  const credsJson = await resolveCredential(
-    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-  );
+  const result = await withRequestContextFromEvent(event, async (ctx) => {
+    const propertyId = await resolveCredential("GA4_PROPERTY_ID", ctx);
+    const credsJson = await resolveCredential(
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      ctx,
+    );
 
-  if (!propertyId || !credsJson) {
-    throw createError({
-      statusCode: 400,
-      statusMessage:
-        "GA4 not configured. Set GA4_PROPERTY_ID and GOOGLE_APPLICATION_CREDENTIALS_JSON in Data Sources.",
+    if (!propertyId || !credsJson) {
+      throw createError({
+        statusCode: 400,
+        statusMessage:
+          "GA4 not configured. Set GA4_PROPERTY_ID and GOOGLE_APPLICATION_CREDENTIALS_JSON in Data Sources.",
+      });
+    }
+
+    const { runReport } = await import("../../../lib/google-analytics");
+
+    const report = await runReport(dimensions ?? [], metrics, {
+      startDate: startDate ?? "7daysAgo",
+      endDate: endDate ?? "today",
     });
-  }
 
-  const { runReport } = await import("../../../lib/google-analytics");
-
-  const report = await runReport(dimensions ?? [], metrics, {
-    startDate: startDate ?? "7daysAgo",
-    endDate: endDate ?? "today",
+    return {
+      dimensionHeaders: report.dimensionHeaders ?? [],
+      metricHeaders: report.metricHeaders ?? [],
+      rows: report.rows ?? [],
+      rowCount: report.rowCount ?? 0,
+    };
   });
 
-  return {
-    dimensionHeaders: report.dimensionHeaders ?? [],
-    metricHeaders: report.metricHeaders ?? [],
-    rows: report.rows ?? [],
-    rowCount: report.rowCount ?? 0,
-  };
+  if (result === null) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: "Sign in to query GA4.",
+    });
+  }
+  return result;
 });

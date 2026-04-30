@@ -8,7 +8,8 @@ export default defineAction({
   parameters: {},
   http: { method: "GET" },
   run: async () => {
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const data = await getUserSetting(email, "calendar-overlay-people");
     return (data as { people: OverlayPerson[] } | null)?.people ?? [];
   },

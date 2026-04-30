@@ -209,9 +209,11 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
 
     const hostEmail =
-      (bookingLink as any)?.ownerEmail ||
-      (bookingLink as any)?.owner_email ||
-      "local@localhost";
+      (bookingLink as any)?.ownerEmail || (bookingLink as any)?.owner_email;
+    if (!hostEmail) {
+      setResponseStatus(event, 500);
+      return { error: "Booking link has no host email" };
+    }
 
     // For Zoom, create a real meeting via the host's connected OAuth
     // account. The booking link's owner_email is the host.

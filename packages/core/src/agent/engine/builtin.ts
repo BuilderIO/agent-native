@@ -47,7 +47,7 @@ export function registerBuiltinEngines(): void {
     name: "builder",
     label: "Builder.io Gateway",
     description:
-      "Managed LLM access via Builder.io — Claude, GPT, Gemini, and more through a single connection. Free during beta.",
+      "Managed LLM access via Builder.io — Claude, GPT, Gemini, and more through a single connection.",
     capabilities: BUILDER_CAPABILITIES,
     defaultModel: BUILDER_DEFAULT_MODEL,
     supportedModels: BUILDER_SUPPORTED_MODELS,
