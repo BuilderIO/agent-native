@@ -195,14 +195,16 @@ function isApiPath(pathname) {
   return pathname === "/api" || pathname.startsWith("/api/");
 }
 
-function stripMountedApiPrefix(event) {
+function requestWithMountedApiPrefixStripped(request) {
   const basePath = getAppBasePath();
-  if (!basePath) return;
-  const url = new URL(event.req.url);
+  if (!basePath) return request;
+  const url = new URL(request.url);
   const strippedPathname = stripAppBasePath(url.pathname);
-  if (!isApiPath(strippedPathname)) return;
+  if (!isApiPath(strippedPathname) || strippedPathname === url.pathname) {
+    return request;
+  }
   url.pathname = strippedPathname;
-  event.req = new Request(url, event.req);
+  return new Request(url, request);
 }
 
 function prefixMountedPath(path, basePath) {
@@ -294,7 +296,6 @@ async function getHandler() {
 
   // CORS — applied as global middleware via .use(handler)
   app.use(defineEventHandler((event) => {
-    stripMountedApiPrefix(event);
     if (event.req.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
@@ -385,7 +386,7 @@ export default {
     }
 
     const handler = await getHandler();
-    return handler(request);
+    return handler(requestWithMountedApiPrefixStripped(request));
   }
 };
 `;

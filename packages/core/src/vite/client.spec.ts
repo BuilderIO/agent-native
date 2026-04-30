@@ -22,9 +22,7 @@ describe("dev server mounted path helpers", () => {
 
   it("recognizes framework paths with and without the mounted base", () => {
     expect(isFrameworkDevPath("/_agent-native/ping", "/docs/")).toBe(true);
-    expect(isFrameworkDevPath("/docs/_agent-native/ping", "/docs/")).toBe(
-      true,
-    );
+    expect(isFrameworkDevPath("/docs/_agent-native/ping", "/docs/")).toBe(true);
     expect(isFrameworkDevPath("/docs/_agent-native", "/docs/")).toBe(true);
     expect(isFrameworkDevPath("/docs-extra/_agent-native/ping", "/docs/")).toBe(
       false,
