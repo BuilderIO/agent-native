@@ -272,9 +272,8 @@ export function createCoreRoutesPlugin(
     // Mounted before route handlers so 4xx/5xx error pages also carry the
     // headers. Routes that need to relax a specific header (e.g. the tools
     // /render route allowing same-origin framing) override via setResponseHeader.
-    const { createSecurityHeadersMiddleware } = await import(
-      "./security-headers.js"
-    );
+    const { createSecurityHeadersMiddleware } =
+      await import("./security-headers.js");
     getH3App(nitroApp).use(createSecurityHeadersMiddleware());
 
     // CORS for framework routes. Desktop tray apps (Tauri/Electron) run on
@@ -337,7 +336,11 @@ export function createCoreRoutesPlugin(
             return "";
           }
           if (allowedOrigin) {
-            setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
+            setResponseHeader(
+              event,
+              "Access-Control-Allow-Origin",
+              allowedOrigin,
+            );
             setResponseHeader(event, "Vary", "Origin");
             setResponseHeader(
               event,
@@ -1277,9 +1280,13 @@ export function createCoreRoutesPlugin(
             >;
             // Scope the test event to the current user so only their
             // automations fire, not those owned by other tenants.
-            emit("test.event.fired", { data: body.data ?? {} }, {
-              owner: session.email,
-            });
+            emit(
+              "test.event.fired",
+              { data: body.data ?? {} },
+              {
+                owner: session.email,
+              },
+            );
             return { ok: true };
           } catch (err: any) {
             setResponseStatus(event, 500);

@@ -1,5 +1,8 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireCredential, runApiHandlerWithContext } from "../lib/credentials";
+import {
+  requireCredential,
+  runApiHandlerWithContext,
+} from "../lib/credentials";
 import { getCalls, searchCalls, getUsers } from "../lib/gong";
 
 export const handleGongCalls = defineEventHandler(async (event) => {

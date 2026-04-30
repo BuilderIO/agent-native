@@ -1,5 +1,8 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireCredential, runApiHandlerWithContext } from "../lib/credentials";
+import {
+  requireCredential,
+  runApiHandlerWithContext,
+} from "../lib/credentials";
 import { getAccounts, getIssues } from "../lib/pylon";
 
 export const handlePylonIssues = defineEventHandler(async (event) => {

@@ -42,10 +42,7 @@ async function apiGet<T>(
     qs = parts.length ? "?" + parts.join("&") : "";
   }
   const url = `${API_BASE}${path}${qs}`;
-  const key = scopedCredentialCacheKey(
-    cacheKey ?? url,
-    "STRIPE_SECRET_KEY",
-  );
+  const key = scopedCredentialCacheKey(cacheKey ?? url, "STRIPE_SECRET_KEY");
 
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {

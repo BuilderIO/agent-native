@@ -425,8 +425,7 @@ async function handleSend(
   // requests. Async is also refused entirely when no auth is configured in
   // production — see the additional gate below.
   const asyncMode =
-    params.async === true ||
-    (event && event.context?.__a2aForceAsync === true);
+    params.async === true || (event && event.context?.__a2aForceAsync === true);
 
   if (asyncMode) {
     // Refuse async mode entirely when no auth is configured in production.
@@ -437,11 +436,7 @@ async function handleSend(
     // form of auth so the verifiedEmail is bound to the task.
     const hasA2ASecret = !!process.env.A2A_SECRET;
     const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
-    if (
-      process.env.NODE_ENV === "production" &&
-      !hasA2ASecret &&
-      !hasApiKey
-    ) {
+    if (process.env.NODE_ENV === "production" && !hasA2ASecret && !hasApiKey) {
       return {
         ...jsonRpcError(
           0,

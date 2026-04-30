@@ -139,9 +139,7 @@ export default defineEventHandler(async (event) => {
   // it only as a non-attributing display claim.
   const viewerEmail = sessionEmail ?? null;
   const claimedViewerEmail =
-    !sessionEmail &&
-    body.viewerEmail &&
-    typeof body.viewerEmail === "string"
+    !sessionEmail && body.viewerEmail && typeof body.viewerEmail === "string"
       ? body.viewerEmail
       : null;
   const viewerName =

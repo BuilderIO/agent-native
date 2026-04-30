@@ -17,7 +17,11 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
-function getCacheKey(apiKey: string, username: string, cursor?: string): string {
+function getCacheKey(
+  apiKey: string,
+  username: string,
+  cursor?: string,
+): string {
   const keyHash = createHash("sha256").update(apiKey).digest("hex");
   const input = `tweets:${keyHash}:${username.toLowerCase()}:${cursor ?? ""}`;
   return createHash("sha256").update(input).digest("hex");

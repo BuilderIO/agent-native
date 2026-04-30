@@ -661,7 +661,8 @@ export async function removeAnalysis(
     if (ctx.orgId) await deleteOrgSetting(ctx.orgId, `${ANALYSIS_PREFIX}${id}`);
     if (ctx.email)
       await deleteUserSetting(ctx.email, `${ANALYSIS_PREFIX}${id}`);
-    if (ctx.email === LOCAL_EMAIL) await deleteSetting(`${ANALYSIS_PREFIX}${id}`);
+    if (ctx.email === LOCAL_EMAIL)
+      await deleteSetting(`${ANALYSIS_PREFIX}${id}`);
   } catch {
     // best-effort
   }

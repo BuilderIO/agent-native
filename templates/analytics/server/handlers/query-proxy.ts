@@ -1,5 +1,8 @@
 import { defineEventHandler, setResponseStatus } from "h3";
-import { requireCredential, runApiHandlerWithContext } from "../lib/credentials";
+import {
+  requireCredential,
+  runApiHandlerWithContext,
+} from "../lib/credentials";
 import { runQuery } from "../lib/bigquery";
 import { readBody } from "@agent-native/core/server";
 

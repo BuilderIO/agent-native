@@ -602,7 +602,9 @@ async function isRateLimited(senderEmail: string): Promise<boolean> {
       `,
       args: ["email", cutoff, `%"senderId":"${senderEmail}"%`],
     });
-    const count = Number((rows[0] as Record<string, unknown> | undefined)?.c ?? 0);
+    const count = Number(
+      (rows[0] as Record<string, unknown> | undefined)?.c ?? 0,
+    );
     return count >= RATE_LIMIT_MAX;
   } catch {
     // Table doesn't exist yet (first webhook on a fresh deployment) — allow.
@@ -728,7 +730,10 @@ function getThreadRootId(messageId: string, references?: string[]): string {
  * from the same sender on the same conversation thread, so reply behaviour
  * is unchanged.
  */
-function scopeThreadIdToSender(rawThreadId: string, senderEmail: string): string {
+function scopeThreadIdToSender(
+  rawThreadId: string,
+  senderEmail: string,
+): string {
   return `${senderEmail.toLowerCase()}::${rawThreadId}`;
 }
 

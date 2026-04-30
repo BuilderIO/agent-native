@@ -123,6 +123,8 @@ async function createWorkspaceInteractive(
   try {
     await scaffoldWorkspaceRoot(targetDir, name);
     const workspaceCoreName = `@${name}/core-module`;
+    const firstApp = templates[0];
+    updateWorkspaceDevScript(targetDir, firstApp);
 
     for (const t of templates) {
       const appDir = path.join(targetDir, "apps", t);
@@ -149,7 +151,6 @@ async function createWorkspaceInteractive(
 
   tryGitInit(targetDir);
 
-  const firstApp = templates[0];
   clack.outro(
     [
       `Done! Next steps:`,
@@ -845,6 +846,20 @@ function fixPackageJsonName(appDir: string, name: string): void {
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     pkg.name = name;
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  } catch {}
+}
+
+function updateWorkspaceDevScript(
+  workspaceRoot: string,
+  appName: string,
+): void {
+  const pkgPath = path.join(workspaceRoot, "package.json");
+  if (!fs.existsSync(pkgPath)) return;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    pkg.scripts = pkg.scripts ?? {};
+    pkg.scripts.dev = `pnpm --filter ${appName} dev`;
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   } catch {}
 }

@@ -86,7 +86,11 @@ const MAX_L1_ENTRIES = 200;
 
 const l1Cache = new Map<string, L1Entry>();
 
-function getCacheKey(sql: string, projectId: string, cacheScope: string): string {
+function getCacheKey(
+  sql: string,
+  projectId: string,
+  cacheScope: string,
+): string {
   // Scope by caller as well as project so a warm server process cannot serve
   // cached warehouse results across tenants that happen to query the same
   // project/table names.

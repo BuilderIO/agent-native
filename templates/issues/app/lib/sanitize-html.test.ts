@@ -44,7 +44,7 @@ describe("sanitizeHtml", () => {
 
   it("strips svg payloads entirely", () => {
     const out = sanitizeHtml(
-      '<p>note</p><svg><foreignObject><script>alert(1)</script></foreignObject></svg>',
+      "<p>note</p><svg><foreignObject><script>alert(1)</script></foreignObject></svg>",
     );
     expect(out).not.toContain("svg");
     expect(out).not.toContain("foreignObject");

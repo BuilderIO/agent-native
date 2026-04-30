@@ -26,7 +26,8 @@ try {
  * (combined argv item) forms.
  */
 const SECRET_FLAG_RE = /^--?(token|key|secret|password|api[_-]?key)$/i;
-const SECRET_FLAG_EQ_RE = /^(--?(token|key|secret|password|api[_-]?key))=(.*)$/i;
+const SECRET_FLAG_EQ_RE =
+  /^(--?(token|key|secret|password|api[_-]?key))=(.*)$/i;
 function buildRedactedCommandTag(argv: string[]): string {
   const out: string[] = [];
   for (let i = 0; i < argv.length; i++) {

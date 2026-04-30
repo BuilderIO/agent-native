@@ -30,7 +30,9 @@ function getOwner(): string {
  * jobs created by other org members. Returns false when there is no org,
  * no user, no membership, or any error querying — fail closed.
  */
-async function isCurrentUserOrgAdmin(orgId: string | undefined): Promise<boolean> {
+async function isCurrentUserOrgAdmin(
+  orgId: string | undefined,
+): Promise<boolean> {
   if (!orgId) return false;
   const email = getRequestUserEmail();
   if (!email) return false;

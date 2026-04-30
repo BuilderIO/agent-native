@@ -91,8 +91,7 @@ async function verifyAuth(
       return {
         authed: true,
         identity: {
-          userEmail:
-            typeof payload.sub === "string" ? payload.sub : undefined,
+          userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
           orgDomain:
             typeof payload.org_domain === "string"
               ? (payload.org_domain as string)

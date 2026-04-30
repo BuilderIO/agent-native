@@ -4,7 +4,10 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { requireCredential, runApiHandlerWithContext } from "../lib/credentials";
+import {
+  requireCredential,
+  runApiHandlerWithContext,
+} from "../lib/credentials";
 import {
   getCustomersByEmail,
   getCustomerById,

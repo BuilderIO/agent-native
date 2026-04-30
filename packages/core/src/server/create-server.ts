@@ -216,7 +216,11 @@ export function createServer(
         // ACAO entirely and let the browser apply its same-origin default.
 
         if (allowedOrigin) {
-          setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
+          setResponseHeader(
+            event,
+            "Access-Control-Allow-Origin",
+            allowedOrigin,
+          );
           setResponseHeader(event, "Vary", "Origin");
           // A specific origin means we can honor credentialed requests
           // (fetch with `credentials: "include"` — used by desktop tray

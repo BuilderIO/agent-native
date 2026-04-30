@@ -63,9 +63,10 @@ function hmacSign(payload: string, secret: string): string {
  * state blobs without a `sig` simply fall back to `"/"` rather than
  * exploding the flow for already-issued OAuth links.
  */
-function verifyStateSignature(
-  state: Record<string, any>,
-): { ok: boolean; redirectPath: string | null } {
+function verifyStateSignature(state: Record<string, any>): {
+  ok: boolean;
+  redirectPath: string | null;
+} {
   const secret = getStateSecret();
   if (!secret) {
     // Without a secret we cannot verify — refuse to honour any
@@ -129,8 +130,6 @@ export default defineEventHandler(async (event) => {
   // signature failure so a forged state never produces an open redirect.
   const state = decodeStateJson(stateParam);
   const verified = verifyStateSignature(state);
-  const target = verified.ok
-    ? safeReturnPathLocal(verified.redirectPath)
-    : "/";
+  const target = verified.ok ? safeReturnPathLocal(verified.redirectPath) : "/";
   return sendRedirect(event, target, 302);
 });

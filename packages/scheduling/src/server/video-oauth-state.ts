@@ -42,9 +42,7 @@ function b64url(buf: Buffer): string {
 }
 
 function hmac(message: string, secret: string): string {
-  return b64url(
-    crypto.createHmac("sha256", secret).update(message).digest(),
-  );
+  return b64url(crypto.createHmac("sha256", secret).update(message).digest());
 }
 
 function safeFragment(value: string): string {

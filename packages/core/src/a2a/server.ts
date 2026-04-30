@@ -111,10 +111,7 @@ async function verifyA2AToken(
   // from arbitrary issuer URLs (e.g. dev tunnels, behind reverse proxies).
   try {
     const verifyOptions: jose.JWTVerifyOptions = {};
-    if (
-      unverifiedPayload &&
-      typeof unverifiedPayload.aud !== "undefined"
-    ) {
+    if (unverifiedPayload && typeof unverifiedPayload.aud !== "undefined") {
       const aud = expectedJwtAudience(event);
       if (aud) verifyOptions.audience = aud;
     }
@@ -183,10 +180,7 @@ export function mountA2A(
         return !id.startsWith("mcp__user_") && !id.startsWith("mcp__org_");
       });
 
-      return generateAgentCard(
-        { ...config, skills: filteredSkills },
-        baseUrl,
-      );
+      return generateAgentCard({ ...config, skills: filteredSkills }, baseUrl);
     }),
   );
 
@@ -277,9 +271,7 @@ export function mountA2A(
       // the agent loop unauthenticated. In development, log a one-time
       // warning but allow so local templates work out of the box.
       const hasA2ASecret = !!process.env.A2A_SECRET;
-      const hasApiKey = !!(
-        config.apiKeyEnv && process.env[config.apiKeyEnv]
-      );
+      const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
       if (!hasA2ASecret && !hasApiKey) {
         if (process.env.NODE_ENV === "production") {
           setResponseStatus(event, 503);

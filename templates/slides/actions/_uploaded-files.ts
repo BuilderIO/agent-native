@@ -13,7 +13,9 @@ export function resolveUserUploadedFile(filePath: string): string {
     : path.join(process.cwd(), filePath);
   const resolved = path.resolve(absPath);
 
-  if (!(resolved === allowedDir || resolved.startsWith(allowedDir + path.sep))) {
+  if (
+    !(resolved === allowedDir || resolved.startsWith(allowedDir + path.sep))
+  ) {
     throw new Error("Access denied: file path must be within your uploads");
   }
   if (!fs.existsSync(resolved)) {
