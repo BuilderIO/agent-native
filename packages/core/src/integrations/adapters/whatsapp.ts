@@ -81,17 +81,48 @@ export function whatsappAdapter(): PlatformAdapter {
     async handleVerification(
       event: H3Event,
     ): Promise<{ handled: boolean; response?: unknown }> {
-      // WhatsApp uses GET request for webhook verification
       const method = event.node?.req?.method || "POST";
-      if (method !== "GET") return { handled: false };
 
+      // For POST flows, pre-cache the raw body so verifyWebhook (HMAC) and
+      // parseIncomingMessage don't both try to consume the request body
+      // stream — h3 v2's body stream is consume-once, so a second read
+      // hangs (M3 in the webhook security audit). Mirrors the Slack /
+      // Telegram adapters' pattern.
+      if (method === "POST") {
+        try {
+          if (!event.context.__rawBody) {
+            const body = await readBody(event);
+            const raw = typeof body === "string" ? body : JSON.stringify(body);
+            event.context.__rawBody = raw;
+          }
+        } catch {
+          // Surfaces in verifyWebhook / parseIncomingMessage if it actually matters.
+        }
+        return { handled: false };
+      }
+
+      // GET: WhatsApp's challenge handshake.
       const query = getQuery(event);
       const mode = query["hub.mode"];
       const token = query["hub.verify_token"];
       const challenge = query["hub.challenge"];
+      const expected = process.env.WHATSAPP_VERIFY_TOKEN;
 
-      if (mode === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN) {
-        return { handled: true, response: challenge };
+      if (mode === "subscribe" && expected && typeof token === "string") {
+        // Timing-safe compare so an attacker can't measure character-wise
+        // mismatch latency (H6 in the webhook security audit).
+        const a = Buffer.from(String(token));
+        const b = Buffer.from(String(expected));
+        if (a.length === b.length) {
+          try {
+            const crypto = await import("node:crypto");
+            if (crypto.timingSafeEqual(a, b)) {
+              return { handled: true, response: challenge };
+            }
+          } catch {
+            // fall through
+          }
+        }
       }
 
       return { handled: false };

