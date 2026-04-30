@@ -204,6 +204,11 @@ export default function SlideEditor({
   designSystem,
   aspectRatio,
 }: SlideEditorProps) {
+  const content = typeof slide.content === "string" ? slide.content : "";
+  const isHtmlSlide =
+    content.includes('class="fmd-slide"') ||
+    ["blank", "section", "statement", "full-image"].includes(slide.layout);
+
   const [isHoveringText, setIsHoveringText] = useState(false);
   const [imageOverlay, setImageOverlay] = useState<{
     rect: DOMRect;
@@ -473,10 +478,6 @@ export default function SlideEditor({
       // Per-block inline editing only works for HTML-backed slides
       // (fmd-slide / raw HTML layouts). Markdown-rendered slides would
       // round-trip through React reconciliation and lose content.
-      const content = typeof slide.content === "string" ? slide.content : "";
-      const isHtmlSlide =
-        content.includes('class="fmd-slide"') ||
-        ["blank", "section", "statement", "full-image"].includes(slide.layout);
       if (!isHtmlSlide) return;
 
       // Find the nearest smart block (leaf OR group of leaves) and edit it.
@@ -491,7 +492,7 @@ export default function SlideEditor({
       e.stopPropagation();
       enterInlineEdit(block);
     },
-    [showImageOverlay, enterInlineEdit, slide.content, slide.layout],
+    [showImageOverlay, enterInlineEdit, isHtmlSlide],
   );
 
   return (
