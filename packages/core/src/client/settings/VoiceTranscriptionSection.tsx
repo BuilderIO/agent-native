@@ -198,7 +198,10 @@ export function VoiceTranscriptionSection() {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                const url = `${window.location.origin}/_agent-native/builder/connect`;
+                const url = new URL(
+                  agentNativePath("/_agent-native/builder/connect"),
+                  window.location.origin,
+                ).href;
                 window.open(
                   url,
                   "_blank",
