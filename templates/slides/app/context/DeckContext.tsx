@@ -540,7 +540,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       pendingCreateIdsRef.current.add(newId);
 
       // Fire the action in the background. On error, roll back.
-      fetch("/_agent-native/actions/duplicate-deck", {
+      fetch(`${appBasePath()}/_agent-native/actions/duplicate-deck`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deckId: sourceDeckId, newId, title }),
