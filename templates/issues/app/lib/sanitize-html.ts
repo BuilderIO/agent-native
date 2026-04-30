@@ -46,7 +46,11 @@ const ALLOWED_ATTRS = new Set([
   "rowspan",
 ]);
 
-const SAFE_URL_PATTERN = /^(?:https?:\/\/|mailto:|tel:|\/|#)/i;
+function isSafeUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("//")) return false;
+  return /^(?:https?:\/\/|mailto:|tel:|\/|#)/i.test(trimmed);
+}
 
 /** Sanitize HTML using an allowlist of safe tags and attributes. */
 export function sanitizeHtml(html: string): string {
@@ -72,7 +76,7 @@ export function sanitizeHtml(html: string): string {
           if (!ALLOWED_ATTRS.has(attrName)) continue;
           if (
             (attrName === "href" || attrName === "src") &&
-            !SAFE_URL_PATTERN.test(attrValue)
+            !isSafeUrl(attrValue)
           )
             continue;
           safeAttrs.push(`${attrName}="${attrValue.replace(/"/g, "&quot;")}"`);

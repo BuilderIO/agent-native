@@ -190,7 +190,9 @@ describe("createPtyWebSocketServer", () => {
     ws.send(JSON.stringify({ type: "resize", cols: 200_000, rows: 0 }));
     ws.send(JSON.stringify({ type: "resize", cols: "nope", rows: 30 }));
     ws.send("hello");
-    await vi.waitFor(() => expect(ptys[0]?.write).toHaveBeenCalledWith("hello"));
+    await vi.waitFor(() =>
+      expect(ptys[0]?.write).toHaveBeenCalledWith("hello"),
+    );
     await vi.waitFor(() => expect(ptys[0].resize).toHaveBeenCalledTimes(1));
 
     expect(spawn).toHaveBeenCalledWith(

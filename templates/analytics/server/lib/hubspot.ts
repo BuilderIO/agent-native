@@ -169,7 +169,10 @@ export function getMetricsPipelines(pipelines: Pipeline[]): Pipeline[] {
 
 export async function getAllDeals(): Promise<Deal[]> {
   // Check full-result cache first
-  const fullCacheKey = "all-deals-full";
+  const fullCacheKey = scopedCredentialCacheKey(
+    "all-deals-full",
+    "HUBSPOT_ACCESS_TOKEN",
+  );
   const cached = cache.get(fullCacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as Deal[];

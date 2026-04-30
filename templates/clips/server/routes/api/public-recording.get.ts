@@ -48,11 +48,8 @@ export default defineEventHandler(async (event) => {
   }
 
   if (rec.visibility !== "public") {
-    setResponseStatus(event, 401);
-    return {
-      error: "Not publicly shared",
-      visibility: rec.visibility,
-    };
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
   }
 
   // Expiry check
@@ -144,7 +141,7 @@ export default defineEventHandler(async (event) => {
     if (rec.password && resolvedVideoUrl.startsWith("/api/video/")) {
       const sep = resolvedVideoUrl.includes("?") ? "&" : "?";
       resolvedVideoUrl =
-        resolvedVideoUrl + sep + "password=" + encodeURIComponent(rec.password);
+        resolvedVideoUrl + sep + "password=" + encodeURIComponent(password);
     }
     if (resolvedVideoUrl.startsWith("/")) {
       resolvedVideoUrl = appPath(resolvedVideoUrl);
@@ -154,7 +151,6 @@ export default defineEventHandler(async (event) => {
   return {
     recording: {
       id: rec.id,
-      organizationId: rec.organizationId,
       title: rec.title,
       description: rec.description,
       thumbnailUrl: rec.thumbnailUrl,

@@ -2,10 +2,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  AgentTerminal,
-  formatWebSocketHostname,
-} from "./AgentTerminal.js";
+import { AgentTerminal, formatWebSocketHostname } from "./AgentTerminal.js";
 
 const terminals: MockTerminal[] = [];
 

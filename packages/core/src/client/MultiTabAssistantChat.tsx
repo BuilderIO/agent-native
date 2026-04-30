@@ -219,6 +219,7 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
           </span>
           <button
             onClick={onClose}
+            aria-label="Close help"
             className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
           >
             <IconX size={12} />
@@ -1247,11 +1248,13 @@ export function MultiTabAssistantChat({
                         onClick={addTab}
                         className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
                         title="New chat"
+                        aria-label="New chat"
                       >
                         <IconPlus size={12} />
                       </button>
                       <button
                         onClick={() => setShowHistory(!showHistory)}
+                        aria-label="Chat history"
                         className={cn(
                           "flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
                           showHistory && "bg-accent text-foreground",
