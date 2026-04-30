@@ -655,7 +655,7 @@ export function MultiTabAssistantChat({
   // A margin keeps the active tab from sitting flush against either container
   // edge — at the right edge it was landing directly under the +/history/menu
   // buttons, which visually clipped the tab label.
-  const activeTabRefCb = useCallback((el: HTMLButtonElement | null) => {
+  const activeTabRefCb = useCallback((el: HTMLElement | null) => {
     if (!el) return;
     const container = el.parentElement;
     if (!container) return;
@@ -1195,35 +1195,33 @@ export function MultiTabAssistantChat({
                           (tab.id === focusParentId &&
                             activeTab?.parentThreadId === tab.id);
                         return (
-                          <button
+                          <div
                             key={tab.id}
                             ref={isActive ? activeTabRefCb : undefined}
-                            onClick={() => switchThread(tab.id)}
                             className={cn(
-                              "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
+                              "agent-tab relative flex items-center rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
                               isActive
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent",
                             )}
                           >
-                            <span className="truncate pr-1">{tab.label}</span>
-                            {tab.status === "running" && (
-                              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
-                            )}
-                            <span
-                              role="button"
-                              tabIndex={0}
+                            <button
+                              type="button"
+                              onClick={() => switchThread(tab.id)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 min-w-0 flex-1 text-left"
+                            >
+                              <span className="truncate pr-1">{tab.label}</span>
+                              {tab.status === "running" && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
                               aria-label="Close tab"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                e.preventDefault();
                                 closeTab(tab.id);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  closeTab(tab.id);
-                                }
                               }}
                               className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
                               style={{
@@ -1238,9 +1236,9 @@ export function MultiTabAssistantChat({
                                   "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                               }}
                             >
-                              <IconX size={8} />
-                            </span>
-                          </button>
+                              <IconX size={12} />
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -1279,41 +1277,39 @@ export function MultiTabAssistantChat({
                           Main
                         </button>
                         {childTabs.map((tab) => (
-                          <button
+                          <div
                             key={tab.id}
                             ref={
                               tab.id === activeThreadId
                                 ? activeTabRefCb
                                 : undefined
                             }
-                            onClick={() => switchThread(tab.id)}
                             className={cn(
-                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer max-w-[130px]",
+                              "agent-tab relative flex shrink-0 items-center rounded-md text-[10px] font-medium max-w-[130px]",
                               tab.id === activeThreadId
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
                             )}
                           >
-                            <span className="truncate pr-1">
-                              {tab.subAgentName || tab.label}
-                            </span>
-                            {tab.status === "running" && (
-                              <span className="w-1 h-1 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
-                            )}
-                            <span
-                              role="button"
-                              tabIndex={0}
+                            <button
+                              type="button"
+                              onClick={() => switchThread(tab.id)}
+                              className="flex items-center gap-1 px-2 py-1 min-w-0 flex-1 text-left"
+                            >
+                              <span className="truncate pr-1">
+                                {tab.subAgentName || tab.label}
+                              </span>
+                              {tab.status === "running" && (
+                                <span className="w-1 h-1 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
                               aria-label="Close tab"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                e.preventDefault();
                                 closeTab(tab.id);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  closeTab(tab.id);
-                                }
                               }}
                               className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
                               style={{
@@ -1328,9 +1324,9 @@ export function MultiTabAssistantChat({
                                   "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                               }}
                             >
-                              <IconX size={8} />
-                            </span>
-                          </button>
+                              <IconX size={12} />
+                            </button>
+                          </div>
                         ))}
                       </div>
                     </div>
