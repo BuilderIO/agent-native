@@ -57,9 +57,7 @@ export function createOAuth2Client(
         const code = (data as any).error;
         const desc = (data as any).error_description;
         const detail =
-          code && desc
-            ? `${code}: ${desc}`
-            : code || desc || res.statusText;
+          code && desc ? `${code}: ${desc}` : code || desc || res.statusText;
         throw new Error(`OAuth token exchange failed: ${detail}`);
       }
       const typed = data as {
@@ -94,9 +92,7 @@ export function createOAuth2Client(
         const code = (data as any).error;
         const desc = (data as any).error_description;
         const detail =
-          code && desc
-            ? `${code}: ${desc}`
-            : code || desc || res.statusText;
+          code && desc ? `${code}: ${desc}` : code || desc || res.statusText;
         throw new Error(`OAuth token refresh failed: ${detail}`);
       }
       const typed = data as {

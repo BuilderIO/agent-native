@@ -180,6 +180,15 @@ export function GoogleConnectBanner({
   // Gate on wantAuthUrl so a cached/refetched URL doesn't open a second
   // popup behind the first when React Query returns stale data immediately
   // and then refetches in the background.
+  //
+  // `wantAuthUrl` is intentionally NOT in the deps array. Including it would
+  // re-run the effect when we flip it false on line below, which runs the
+  // cleanup (clearInterval) within ~16ms — long before the 2-second poll
+  // ever fires. The early-return guard above still prevents double-opening
+  // when React Query refetches a stale URL in the background. _This dep-list
+  // bug, alongside the Netlify-Lambda Set-Cookie drop in the OAuth callback,
+  // is what produced the "Set up Google" loop reported on 2026-04-30._
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!wantAuthUrl || !authUrl.data?.url) return;
     const url = authUrl.data.url;
@@ -210,7 +219,7 @@ export function GoogleConnectBanner({
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [wantAuthUrl, authUrl.data]);
+  }, [authUrl.data]);
 
   // When auth URL fails, show wizard (for missing credentials) or an error message
   useEffect(() => {
@@ -227,7 +236,11 @@ export function GoogleConnectBanner({
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
 
-  // When add-account URL is ready, open it and poll for new account
+  // When add-account URL is ready, open it and poll for new account.
+  // Same dep-list rationale as the connect effect above — `wantAddAccount`
+  // is intentionally omitted so flipping it false doesn't tear down the
+  // poll interval before it fires.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!wantAddAccount || !addAccountUrl.data?.url) return;
     const isNativeWebView =
@@ -256,7 +269,7 @@ export function GoogleConnectBanner({
 
       return () => clearInterval(interval);
     }
-  }, [wantAddAccount, addAccountUrl.data, accounts.length]);
+  }, [addAccountUrl.data, accounts.length]);
 
   function handleConnect() {
     if (isElectron) {

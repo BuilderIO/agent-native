@@ -8,13 +8,7 @@
  */
 
 import crypto from "node:crypto";
-import {
-  getHeader,
-  getQuery,
-  setCookie,
-  sendRedirect,
-  type H3Event,
-} from "h3";
+import { getHeader, getQuery, setCookie, sendRedirect, type H3Event } from "h3";
 import {
   addSession,
   getSession,

@@ -83,10 +83,7 @@ async function getValidAccessToken(
   owner?: string,
 ): Promise<string> {
   // Check if token is expired (with 5-minute buffer)
-  if (
-    tokens.expiry_date &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000
-  ) {
+  if (tokens.expiry_date && tokens.expiry_date < Date.now() + 5 * 60 * 1000) {
     if (!tokens.refresh_token) {
       // No refresh token means we can never recover this account; drop it
       // so the UI prompts a reconnect instead of using an expired token.
