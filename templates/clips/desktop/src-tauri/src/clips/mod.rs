@@ -894,19 +894,42 @@ pub fn toggle_popover(app: &AppHandle) {
     let Some(window) = app.get_webview_window("popover") else {
         return;
     };
-    if window.is_visible().unwrap_or(false) {
+    // Voice-wake parks the popover at 2x2 px and leaves it "visible" from
+    // AppKit's perspective so its JS keeps running. If a tray click lands
+    // while the wake flag is still set, the user wants to OPEN the
+    // popover normally — not toggle it shut. Treat the parked state as
+    // "user-invisible" so we always show full size on click. Without
+    // this, the user has to click the tray icon twice to see the popover
+    // after any voice dictation: first click hides the parked window,
+    // second click finally shows it.
+    let voice_woken = app
+        .try_state::<VoiceWakePopover>()
+        .and_then(|s| s.0.lock().ok().map(|g| *g))
+        .unwrap_or(false);
+    let user_visible = window.is_visible().unwrap_or(false) && !voice_woken;
+    if user_visible {
         let _ = window.hide();
         let _ = app.emit("clips:popover-visible", false);
-    } else {
-        // Restore normal size in case the window was shrunk to a pinhole
-        // during recording — otherwise it would reappear as a 2x2 dot.
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
-        position_popover(app, &window);
-        mark_popover_shown(app);
-        let _ = window.show();
-        let _ = window.set_focus();
-        let _ = app.emit("clips:popover-visible", true);
+        return;
     }
+    if voice_woken {
+        // Voice wake is over from the user's POV — clear the flag so the
+        // hide_flow_bar safety net doesn't double-hide the popover later.
+        if let Some(state) = app.try_state::<VoiceWakePopover>() {
+            if let Ok(mut g) = state.0.lock() {
+                *g = false;
+            }
+        }
+    }
+    // Restore normal size in case the window was shrunk to a pinhole
+    // during recording / voice-wake — otherwise it would reappear as a
+    // 2x2 dot.
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(360.0, 520.0)));
+    position_popover(app, &window);
+    mark_popover_shown(app);
+    let _ = window.show();
+    let _ = window.set_focus();
+    let _ = app.emit("clips:popover-visible", true);
 }
 
 pub fn position_popover(app: &AppHandle, window: &WebviewWindow) {

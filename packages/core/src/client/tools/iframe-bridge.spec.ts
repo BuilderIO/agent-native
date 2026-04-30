@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isAllowedToolPath,
   sanitizeToolRequestOptions,
+  checkBridgePolicy,
 } from "./iframe-bridge.js";
 
 describe("tool iframe bridge", () => {
@@ -77,5 +78,115 @@ describe("tool iframe bridge", () => {
     expect(() => sanitizeToolRequestOptions({ method: "TRACE" })).toThrowError(
       "Tool request method is not allowed",
     );
+  });
+});
+
+describe("checkBridgePolicy (audit H4)", () => {
+  const owner = { role: "owner" as const, isAuthor: true };
+  const editor = { role: "editor" as const, isAuthor: false };
+  const viewer = { role: "viewer" as const, isAuthor: false };
+
+  it("authors and owners pass every helper", () => {
+    expect(
+      checkBridgePolicy("/_agent-native/actions/foo", "POST", owner).ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/tools/sql/exec", "POST", owner).ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/tools/proxy", "POST", owner).ok,
+    ).toBe(true);
+  });
+
+  it("editors keep mutating bridge surfaces", () => {
+    expect(
+      checkBridgePolicy("/_agent-native/actions/foo", "POST", editor).ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/tools/sql/exec", "POST", editor).ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/tools/proxy", "POST", editor).ok,
+    ).toBe(true);
+  });
+
+  it("denies SQL helpers entirely for viewers", () => {
+    const queryRes = checkBridgePolicy(
+      "/_agent-native/tools/sql/query",
+      "POST",
+      viewer,
+    );
+    expect(queryRes.ok).toBe(false);
+    expect(queryRes.error).toMatch(/dbQuery/);
+
+    const execRes = checkBridgePolicy(
+      "/_agent-native/tools/sql/exec",
+      "POST",
+      viewer,
+    );
+    expect(execRes.ok).toBe(false);
+    expect(execRes.error).toMatch(/dbExec/);
+    expect(execRes.error).toMatch(/'viewer'/);
+  });
+
+  it("denies appAction (any method) for viewers", () => {
+    const res = checkBridgePolicy(
+      "/_agent-native/actions/share-resource",
+      "POST",
+      viewer,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/appAction/);
+
+    // Even a GET action is denied — viewers can't trigger side-effects.
+    const getRes = checkBridgePolicy(
+      "/_agent-native/actions/list-things",
+      "GET",
+      viewer,
+    );
+    expect(getRes.ok).toBe(false);
+  });
+
+  it("denies toolFetch for viewers (the proxy POST surface)", () => {
+    const res = checkBridgePolicy("/_agent-native/tools/proxy", "POST", viewer);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/toolFetch/);
+  });
+
+  it("allows viewers to read tool-data (GET) but not write/delete", () => {
+    expect(
+      checkBridgePolicy("/_agent-native/tools/data/tool-1/notes", "GET", viewer)
+        .ok,
+    ).toBe(true);
+    const writeRes = checkBridgePolicy(
+      "/_agent-native/tools/data/tool-1/notes",
+      "POST",
+      viewer,
+    );
+    expect(writeRes.ok).toBe(false);
+    expect(writeRes.error).toMatch(/toolData/);
+    const delRes = checkBridgePolicy(
+      "/_agent-native/tools/data/tool-1/notes/x",
+      "DELETE",
+      viewer,
+    );
+    expect(delRes.ok).toBe(false);
+  });
+
+  it("allows application-state reads but blocks writes for viewers", () => {
+    expect(
+      checkBridgePolicy(
+        "/_agent-native/application-state/navigation",
+        "GET",
+        viewer,
+      ).ok,
+    ).toBe(true);
+    const writeRes = checkBridgePolicy(
+      "/_agent-native/application-state/navigation",
+      "POST",
+      viewer,
+    );
+    expect(writeRes.ok).toBe(false);
+    expect(writeRes.error).toMatch(/appFetch/);
   });
 });
