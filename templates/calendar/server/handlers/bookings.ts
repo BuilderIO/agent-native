@@ -542,6 +542,20 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
       return { error: "Booking not found" };
     }
 
+    // Verify the caller has access to the booking link that owns this booking.
+    // Bookings have no ownerEmail of their own — scoping is via the slug →
+    // bookingLink ownership/sharing chain.
+    const accessibleLinks = await db
+      .select({ slug: schema.bookingLinks.slug })
+      .from(schema.bookingLinks)
+      .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+    const accessibleSlugs = new Set(accessibleLinks.map((l) => l.slug));
+
+    if (!accessibleSlugs.has(existing.slug)) {
+      setResponseStatus(event, 403);
+      return { error: "Access denied" };
+    }
+
     await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
     return { success: true };
   } catch (error: any) {
