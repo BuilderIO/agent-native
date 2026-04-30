@@ -19,6 +19,7 @@ export type VoiceMode = "push-to-talk" | "toggle";
 export type VoiceProvider =
   | "auto"
   | "browser"
+  | "macos-native"
   | "builder"
   | "gemini"
   | "openai"
@@ -33,6 +34,10 @@ interface ProviderStatus {
   openai: boolean;
   groq: boolean;
   browser: true;
+  // Apple's SFSpeechRecognizer + AVAudioEngine driven from Rust. The
+  // server reports `true` whenever the desktop client builds for macOS;
+  // non-macOS builds shouldn't see this picked.
+  native: boolean;
 }
 
 interface DesktopVoiceDictationOptions {
@@ -50,9 +55,11 @@ interface VoiceShortcutEvent {
 interface VoiceSession {
   // "server" sessions capture audio with MediaRecorder and POST it to
   // the transcribe-voice endpoint. "browser" sessions use WebKit's
-  // built-in webkitSpeechRecognition for real-time on-device dictation —
-  // no server round-trip, no API keys, no "Polishing..." state.
-  kind: "server" | "browser";
+  // webkitSpeechRecognition (works in Safari and Chromium WebViews,
+  // broken in Tauri WKWebView). "native" sessions drive Apple's
+  // SFSpeechRecognizer + AVAudioEngine through Tauri commands —
+  // on-device, real-time partials, free, macOS-only.
+  kind: "server" | "browser" | "native";
   // server-only fields
   stream: MediaStream | null;
   recorder: MediaRecorder | null;
@@ -393,6 +400,7 @@ export function installDesktopVoiceDictation(
         openai: !!data.openai,
         groq: !!data.groq,
         browser: true,
+        native: !!data.native,
       };
       providerStatusFetchedAt = Date.now();
       return providerStatus;
@@ -415,6 +423,7 @@ export function installDesktopVoiceDictation(
         openai: false,
         groq: false,
         browser: true,
+        native: false,
       };
     }
   };
@@ -429,12 +438,14 @@ export function installDesktopVoiceDictation(
    */
   const resolveProvider = async (): Promise<
     | { kind: "browser" }
+    | { kind: "native" }
     | {
         kind: "server";
         providerPref: "auto" | "builder" | "gemini" | "openai" | "groq";
       }
   > => {
     if (provider === "browser") return { kind: "browser" };
+    if (provider === "macos-native") return { kind: "native" };
     if (provider !== "auto") {
       // User picked a specific server provider — honor it even if the
       // status check says it's not configured. The server will return a
@@ -493,6 +504,8 @@ export function installDesktopVoiceDictation(
     const resolved = await resolveProvider();
     if (resolved.kind === "browser") {
       await startBrowser();
+    } else if (resolved.kind === "native") {
+      await startNative();
     } else {
       await startServer(resolved.providerPref);
     }
@@ -646,6 +659,75 @@ export function installDesktopVoiceDictation(
   };
 
   /**
+   * Native macOS path: drive Apple's SFSpeechRecognizer + AVAudioEngine
+   * from Rust via the `native_speech_*` Tauri commands. Partial and final
+   * transcripts arrive as `voice:partial-transcript` / `voice:final-transcript`
+   * Tauri events (wired up below at install time) and we accumulate them
+   * into `next.browserTranscript` so the existing immediate-paste logic in
+   * `stop()` works the same way as for the browser path.
+   *
+   * No `getUserMedia()` here — the audio engine handles the mic on the Rust
+   * side. The synthetic meter still drives the flow-bar's waveform.
+   */
+  const startNative = async () => {
+    console.log("[voice-dictation] startNative: invoke native_speech_start");
+    try {
+      startInFlight = true;
+      stopRequestedBeforeReady = false;
+      await invoke("show_flow_bar");
+      setFlowState("recording");
+      // Reset any prior partial transcript display in the flow-bar.
+      emit("voice:partial-transcript", { text: "" }).catch(() => {});
+      const next: VoiceSession = {
+        kind: "native",
+        stream: null,
+        recorder: null,
+        chunks: [],
+        audioContext: null,
+        analyser: null,
+        raf: null,
+        mimeType: "",
+        recognition: null,
+        browserTranscript: "",
+        startedAt: Date.now(),
+        stopping: false,
+        transcribeAbort: null,
+        cancelled: false,
+      };
+      session = next;
+      startInFlight = false;
+      // Pulse the waveform without opening a parallel mic stream — the
+      // Rust side owns the audio device and we don't want to fight over
+      // it in the WebView layer.
+      startSyntheticMeter(next);
+      try {
+        await invoke("native_speech_start", {
+          locale: navigator.language || "en-US",
+        });
+        console.log("[voice-dictation] native_speech_start ok");
+      } catch (err) {
+        console.error("[voice-dictation] native_speech_start failed:", err);
+        if (session === next) session = null;
+        throw err;
+      }
+      if (stopRequestedBeforeReady) {
+        stop();
+      }
+    } catch (err) {
+      console.error("[voice-dictation] startNative failed", err);
+      startInFlight = false;
+      stopRequestedBeforeReady = false;
+      session = null;
+      setFlowState("error");
+      window.setTimeout(() => {
+        if (disposed || session) return;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+      }, 800);
+    }
+  };
+
+  /**
    * Browser-path: real-time on-device transcription via WKWebView's
    * webkitSpeechRecognition. No server round-trip — text is ready the
    * moment we stop the recognizer, so we paste immediately and skip
@@ -661,28 +743,16 @@ export function installDesktopVoiceDictation(
       await startServer("auto");
       return;
     }
-    // Hoisted so the catch handler can close it if either invoke()
-    // or recognition.start() throws before `session = next` runs.
-    // Cleared after the success path takes ownership via `session.stream`.
-    let stream: MediaStream | null = null;
     try {
       startInFlight = true;
       stopRequestedBeforeReady = false;
-      // Open a real mic stream so the waveform shows actual audio levels.
-      // Web Speech API doesn't expose its own buffers; without this we
-      // were faking the bars with a synthetic sine. The recognition engine
-      // has its own independent audio path so the two coexist fine.
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-      if (disposed || stopRequestedBeforeReady) {
-        stream.getTracks().forEach((t) => t.stop());
-        startInFlight = false;
-        stopRequestedBeforeReady = false;
-        setFlowState("idle");
-        invoke("hide_flow_bar").catch(() => {});
-        return;
-      }
+      // IMPORTANT: do NOT call getUserMedia here — opening a parallel
+      // MediaStream conflicts with webkitSpeechRecognition's own mic
+      // capture in WKWebView (they fight over the input device, and
+      // recognition.onresult silently never fires). The synthetic
+      // waveform meter below is good-enough visual feedback; the user
+      // sees the bar pulsing while they speak. We tried real meters
+      // and broke voice capture every time.
       await invoke("show_flow_bar");
       setFlowState("recording");
       // Reset any prior partial transcript display in the flow-bar.
@@ -694,7 +764,7 @@ export function installDesktopVoiceDictation(
       recognition.maxAlternatives = 1;
       const next: VoiceSession = {
         kind: "browser",
-        stream,
+        stream: null,
         recorder: null,
         chunks: [],
         audioContext: null,
@@ -784,12 +854,11 @@ export function installDesktopVoiceDictation(
         cleanup(next);
       };
       session = next;
-      // `next` now owns the stream; clear our hoisted reference so the
-      // catch handler doesn't double-close it on a later throw.
-      stream = null;
       startInFlight = false;
-      // Real audio meter from the mic stream.
-      startMeter(next);
+      // Synthetic meter — we deliberately don't open a parallel
+      // getUserMedia stream (it conflicts with webkitSpeechRecognition's
+      // mic capture in WKWebView and silently kills onresult).
+      startSyntheticMeter(next);
       try {
         recognition.start();
         console.log("[voice-dictation] recognition.start() returned");
@@ -808,20 +877,6 @@ export function installDesktopVoiceDictation(
       console.error("[voice-dictation] startBrowser failed", err);
       startInFlight = false;
       stopRequestedBeforeReady = false;
-      // Close the mic stream if we opened it but never reached the
-      // success path (covers the show_flow_bar throw case before
-      // `session = next` ran). After session takes ownership, `stream`
-      // is reset to null so we don't double-close.
-      if (stream) {
-        stream.getTracks().forEach((t) => {
-          try {
-            t.stop();
-          } catch {
-            // ignore
-          }
-        });
-        stream = null;
-      }
       // See note in startServer's catch — clear leaked session so the
       // next Fn press isn't blocked on a stale `if (session) return`.
       session = null;
@@ -854,6 +909,12 @@ export function installDesktopVoiceDictation(
           // recorder.stop can throw if not in 'recording' state — fall
           // through to the cleanup below regardless.
         }
+      } else if (current.kind === "native") {
+        // Tear the Rust-side session down without delivering a final
+        // transcript.
+        invoke("native_speech_cancel").catch((err) => {
+          console.warn("[voice-dictation] native_speech_cancel failed:", err);
+        });
       } else {
         try {
           current.recognition?.abort();
@@ -896,6 +957,8 @@ export function installDesktopVoiceDictation(
         } catch {
           // ignore
         }
+      } else if (current.kind === "native") {
+        invoke("native_speech_cancel").catch(() => {});
       }
       cleanup(current);
       return;
@@ -903,6 +966,41 @@ export function installDesktopVoiceDictation(
     try {
       if (current.kind === "server") {
         current.recorder?.stop();
+      } else if (current.kind === "native") {
+        // NATIVE PATH: same immediate-dismiss + immediate-paste behavior as
+        // the browser path. We've been accumulating partials in
+        // `browserTranscript` from the `voice:partial-transcript` listener,
+        // so the latest hypothesis is already in hand. We tell Rust to
+        // `endAudio()` (`native_speech_stop`) so the recognizer can deliver
+        // its final result, but we don't wait for it — pasting the partial
+        // is faster and more responsive. The tail of the final transcript
+        // (if any) won't double-paste because `complete_voice_dictation`
+        // already fired and the Rust task gets cleared on the final result.
+        const text = current.browserTranscript.trim();
+        current.browserTranscript = "";
+        if (session === current) session = null;
+        startInFlight = false;
+        stopRequestedBeforeReady = false;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+        emit("voice:partial-transcript", { text: "" }).catch(() => {});
+        invoke("native_speech_stop").catch((err) => {
+          console.warn("[voice-dictation] native_speech_stop failed:", err);
+        });
+        stopMeter(current);
+        if (text) {
+          console.log(
+            `[voice-dictation] native paste on Fn release (${text.length} chars):`,
+            text.slice(0, 120),
+          );
+          invoke("complete_voice_dictation", { text }).catch((err) => {
+            console.error("[voice-dictation] paste failed:", err);
+          });
+        } else {
+          console.warn(
+            "[voice-dictation] no transcript captured — native recognizer didn't produce results",
+          );
+        }
       } else {
         // BROWSER PATH: dismiss the bar IMMEDIATELY and paste whatever
         // transcript we have right now. recognition.stop() / .abort()
@@ -953,6 +1051,41 @@ export function installDesktopVoiceDictation(
   // press doesn't pay a round-trip latency to figure out which provider
   // to use.
   refreshProviderStatus().catch(() => {});
+
+  // Native (SFSpeechRecognizer) event subscriptions. These are always
+  // installed — the events only fire when the Rust side has an active
+  // session, so subscribing on non-native sessions is harmless. The
+  // flow-bar listens to `voice:partial-transcript` independently so we
+  // don't re-emit it here.
+  listen<{ text: string }>("voice:partial-transcript", (ev) => {
+    const current = session;
+    if (!current || current.kind !== "native") return;
+    if (current.cancelled || current.stopping) return;
+    current.browserTranscript = (ev.payload.text || "").trim();
+  })
+    .then((u) => unlistens.push(u))
+    .catch(() => {});
+  listen<{ text: string }>("voice:final-transcript", (ev) => {
+    const current = session;
+    if (!current || current.kind !== "native") return;
+    if (current.cancelled) return;
+    // Final beats partial — overwrite so a `complete_voice_dictation`
+    // from a late stop() picks up the better text.
+    current.browserTranscript = (ev.payload.text || "").trim();
+  })
+    .then((u) => unlistens.push(u))
+    .catch(() => {});
+  listen<{ error: string }>("voice:speech-error", (ev) => {
+    const current = session;
+    console.error("[voice-dictation] native speech error:", ev.payload.error);
+    if (!current || current.kind !== "native") return;
+    setFlowState("error");
+    window.setTimeout(() => {
+      if (!disposed && session === current) cleanup(current);
+    }, 800);
+  })
+    .then((u) => unlistens.push(u))
+    .catch(() => {});
 
   listen<VoiceShortcutEvent>("voice:shortcut-start", (event) => {
     if (!acceptsShortcut(event.payload?.source)) return;

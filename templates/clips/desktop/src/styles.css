@@ -2159,11 +2159,10 @@ button {
   justify-content: center;
   width: 18px;
   height: 18px;
-  /* Pill is 32px tall × chip is 18px → 7px above/below auto via flex
-     centering. Match that 7px on the right so the chip has uniform
-     padding to the pill's top/bottom/right edges. Left can be tighter
-     so the chip doesn't float away from the waveform/text. */
-  margin: 0 7px 0 6px;
+  /* Tight against the right edge — the chip should feel like it lives
+     at the pill's perimeter, not inset. Vertical centering is automatic
+     via flex (pill 32px ÷ chip 18px → 7px above/below). */
+  margin: 0 4px 0 6px;
   padding: 0;
   border: none;
   border-radius: 50%;

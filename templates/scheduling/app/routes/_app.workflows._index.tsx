@@ -6,6 +6,11 @@ import { getDb, schema } from "../../server/db";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+
+export function meta() {
+  return [{ title: "Workflows — Scheduling" }];
+}
+
 import {
   Dialog,
   DialogContent,

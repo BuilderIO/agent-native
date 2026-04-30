@@ -11,7 +11,14 @@ import { sendToAgentChat, openAgentSidebar } from "@agent-native/core/client";
 import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
-  return [{ title: "Agent Native App" }];
+  return [
+    { title: "Starter — Agent Native" },
+    {
+      name: "description",
+      content:
+        "Minimal scaffold for building agent-native apps — agent chat and core architecture wired up.",
+    },
+  ];
 }
 
 export function HydrateFallback() {

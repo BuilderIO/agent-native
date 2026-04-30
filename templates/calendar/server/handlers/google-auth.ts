@@ -101,10 +101,19 @@ export const handleGoogleCallback = defineEventHandler(
       const email = await exchangeCode(code, undefined, redirectUri, owner);
 
       // 3. Create session token (after we have the email)
-      const { sessionToken } = await createOAuthSession(event, email, {
-        hasProductionSession,
-        desktop,
-      });
+      // Skip for add-account flows — adding a second account must not switch
+      // the current session. If the selected Google account differs from the
+      // current owner, treat it as add-account even if older state omitted the
+      // flag; otherwise the UI reloads as the newly selected account and loses
+      // sight of the tokens that were saved under the original owner.
+      const isAddAccount =
+        addAccount || (owner !== undefined && email !== owner);
+      const { sessionToken } = isAddAccount
+        ? { sessionToken: undefined }
+        : await createOAuthSession(event, email, {
+            hasProductionSession,
+            desktop,
+          });
 
       if (flowId && sessionToken) {
         setDesktopExchange(flowId, sessionToken, email);
@@ -114,7 +123,7 @@ export const handleGoogleCallback = defineEventHandler(
       return oauthCallbackResponse(event, email, {
         sessionToken,
         desktop,
-        addAccount,
+        addAccount: isAddAccount,
         flowId,
       });
     } catch (error: any) {

@@ -6,7 +6,14 @@ import { Spinner } from "@/components/ui/spinner";
 import { useDocuments } from "@/hooks/use-documents";
 
 export function meta() {
-  return [{ title: "Content" }];
+  return [
+    { title: "Content" },
+    {
+      name: "description",
+      content:
+        "Agent-native docs — write and organize alongside an agent that can read, edit, and search every page.",
+    },
+  ];
 }
 
 export function HydrateFallback() {
