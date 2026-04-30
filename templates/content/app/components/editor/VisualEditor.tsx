@@ -620,7 +620,16 @@ export function VisualEditor({
     };
   }, [content, editor, documentId, ydoc]);
 
-  if (!editor) return null;
+  if (!editor) {
+    return (
+      <div className="flex flex-col gap-3 px-8 py-6 animate-pulse">
+        <div className="h-4 w-2/3 rounded bg-muted" />
+        <div className="h-4 w-full rounded bg-muted" />
+        <div className="h-4 w-5/6 rounded bg-muted" />
+        <div className="h-4 w-3/4 rounded bg-muted" />
+      </div>
+    );
+  }
 
   return (
     <div className="visual-editor-wrapper">
