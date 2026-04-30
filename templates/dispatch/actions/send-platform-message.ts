@@ -15,6 +15,23 @@ function getAdapter(platform: "slack" | "telegram" | "email") {
   return platform === "slack" ? slackAdapter() : telegramAdapter();
 }
 
+function assertOutboundConfigured(platform: "slack" | "telegram" | "email") {
+  if (platform === "slack" && !process.env.SLACK_BOT_TOKEN) {
+    throw new Error("Slack outbound messaging is not configured");
+  }
+  if (platform === "telegram" && !process.env.TELEGRAM_BOT_TOKEN) {
+    throw new Error("Telegram outbound messaging is not configured");
+  }
+  if (platform === "email") {
+    const hasProvider = !!(
+      process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY
+    );
+    if (!process.env.EMAIL_AGENT_ADDRESS || !hasProvider) {
+      throw new Error("Email outbound messaging is not configured");
+    }
+  }
+}
+
 export default defineAction({
   description:
     "Send a proactive message to a saved Slack, Telegram, or email destination.",
@@ -40,6 +57,8 @@ export default defineAction({
     if (!resolvedPlatform || !resolvedDestination) {
       throw new Error("A platform and destination are required");
     }
+
+    assertOutboundConfigured(resolvedPlatform);
 
     const adapter = getAdapter(resolvedPlatform);
     if (!adapter.sendMessageToTarget) {
