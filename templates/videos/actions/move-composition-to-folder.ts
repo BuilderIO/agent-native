@@ -20,15 +20,31 @@ export default defineAction({
   run: async ({ compositionId, folderId }) => {
     const db = getDb();
 
+    const compositionAccess = await assertAccess(
+      "composition",
+      compositionId,
+      "editor",
+    );
+
+    let folderAccess: Awaited<ReturnType<typeof assertAccess>> | null = null;
+    if (folderId) {
+      folderAccess = await assertAccess("folder", folderId, "editor");
+      if (
+        compositionAccess.resource.orgId &&
+        folderAccess.resource.orgId &&
+        compositionAccess.resource.orgId !== folderAccess.resource.orgId
+      ) {
+        throw new Error("Composition and folder belong to different orgs");
+      }
+    }
+
     await db
       .delete(schema.folderMemberships)
       .where(eq(schema.folderMemberships.compositionId, compositionId));
 
-    if (!folderId) {
+    if (!folderId || !folderAccess) {
       return { compositionId, folderId: null };
     }
-
-    await assertAccess("folder", folderId, "editor");
 
     await db.insert(schema.folderMemberships).values({
       id: nanoid(),

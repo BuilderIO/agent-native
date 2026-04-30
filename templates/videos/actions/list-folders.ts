@@ -2,10 +2,12 @@ import { defineAction } from "@agent-native/core";
 import { desc, inArray } from "drizzle-orm";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "List all library folders accessible to the current user, with the composition IDs filed into each.",
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
     const db = getDb();
