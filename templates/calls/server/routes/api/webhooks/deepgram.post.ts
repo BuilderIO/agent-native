@@ -34,6 +34,7 @@ import {
 } from "../../../lib/calls.js";
 import { parseDeepgramResponse } from "../../../lib/transcription/deepgram.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
 function verifySignature(
   rawBody: Buffer,
@@ -94,7 +95,12 @@ export default defineEventHandler(async (event: H3Event) => {
   const db = getDb();
 
   const [call] = await db
-    .select({ id: schema.calls.id, status: schema.calls.status })
+    .select({
+      id: schema.calls.id,
+      status: schema.calls.status,
+      ownerEmail: schema.calls.ownerEmail,
+      orgId: schema.calls.orgId,
+    })
     .from(schema.calls)
     .where(eq(schema.calls.id, callId))
     .limit(1);
@@ -103,79 +109,86 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Call not found" };
   }
 
-  const now = new Date().toISOString();
+  return runWithRequestContext(
+    { userEmail: call.ownerEmail, orgId: call.orgId ?? undefined },
+    async () => {
+      const now = new Date().toISOString();
 
-  const [existingTranscript] = await db
-    .select({ callId: schema.callTranscripts.callId })
-    .from(schema.callTranscripts)
-    .where(eq(schema.callTranscripts.callId, callId))
-    .limit(1);
+      const [existingTranscript] = await db
+        .select({ callId: schema.callTranscripts.callId })
+        .from(schema.callTranscripts)
+        .where(eq(schema.callTranscripts.callId, callId))
+        .limit(1);
 
-  if (existingTranscript) {
-    await db
-      .update(schema.callTranscripts)
-      .set({
-        provider: "deepgram",
-        status: "ready",
-        language: parsed.language || "en",
-        segmentsJson: JSON.stringify(parsed.segments),
-        fullText: parsed.fullText,
-        failureReason: null,
-        updatedAt: now,
-      })
-      .where(eq(schema.callTranscripts.callId, callId));
-  } else {
-    await db.insert(schema.callTranscripts).values({
-      callId,
-      provider: "deepgram",
-      status: "ready",
-      language: parsed.language || "en",
-      segmentsJson: JSON.stringify(parsed.segments),
-      fullText: parsed.fullText,
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
+      if (existingTranscript) {
+        await db
+          .update(schema.callTranscripts)
+          .set({
+            ownerEmail: call.ownerEmail,
+            provider: "deepgram",
+            status: "ready",
+            language: parsed.language || "en",
+            segmentsJson: JSON.stringify(parsed.segments),
+            fullText: parsed.fullText,
+            failureReason: null,
+            updatedAt: now,
+          })
+          .where(eq(schema.callTranscripts.callId, callId));
+      } else {
+        await db.insert(schema.callTranscripts).values({
+          callId,
+          ownerEmail: call.ownerEmail,
+          provider: "deepgram",
+          status: "ready",
+          language: parsed.language || "en",
+          segmentsJson: JSON.stringify(parsed.segments),
+          fullText: parsed.fullText,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
 
-  // Materialize participants from diarized segments. Replace the whole set
-  // so a re-transcribe collapses any leftover rows from an earlier pass.
-  const talkStats = computeTalkStats(parsed.segments);
-  await db
-    .delete(schema.callParticipants)
-    .where(eq(schema.callParticipants.callId, callId));
-  for (const p of talkStats.participants) {
-    await db.insert(schema.callParticipants).values({
-      id: nanoid(),
-      callId,
-      speakerLabel: p.speakerLabel,
-      color: colorForSpeaker(p.speakerLabel),
-      talkMs: p.talkMs,
-      talkPct: p.talkPct,
-      longestMonologueMs: p.longestMonologueMs,
-      interruptionsCount: p.interruptionsCount,
-      questionsCount: p.questionsCount,
-      createdAt: now,
-    });
-  }
+      // Materialize participants from diarized segments. Replace the whole set
+      // so a re-transcribe collapses any leftover rows from an earlier pass.
+      const talkStats = computeTalkStats(parsed.segments);
+      await db
+        .delete(schema.callParticipants)
+        .where(eq(schema.callParticipants.callId, callId));
+      for (const p of talkStats.participants) {
+        await db.insert(schema.callParticipants).values({
+          id: nanoid(),
+          callId,
+          speakerLabel: p.speakerLabel,
+          color: colorForSpeaker(p.speakerLabel),
+          talkMs: p.talkMs,
+          talkPct: p.talkPct,
+          longestMonologueMs: p.longestMonologueMs,
+          interruptionsCount: p.interruptionsCount,
+          questionsCount: p.questionsCount,
+          createdAt: now,
+        });
+      }
 
-  await db
-    .update(schema.calls)
-    .set({ status: "analyzing", updatedAt: now })
-    .where(eq(schema.calls.id, callId));
+      await db
+        .update(schema.calls)
+        .set({ status: "analyzing", updatedAt: now })
+        .where(eq(schema.calls.id, callId));
 
-  // Queue the AI pipeline — the agent chat polls for ai-delegations-* keys.
-  await writeAppState(`ai-delegations-${callId}`, {
-    callId,
-    kind: "call-ready-for-analysis",
-    requestedAt: now,
-    tasks: ["summary", "trackers", "topics", "questions"],
-  });
-  await writeAppState("refresh-signal", { ts: Date.now() });
+      // Queue the AI pipeline — the agent chat polls for ai-delegations-* keys.
+      await writeAppState(`ai-delegations-${callId}`, {
+        callId,
+        kind: "call-ready-for-analysis",
+        requestedAt: now,
+        tasks: ["summary", "trackers", "topics", "questions"],
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
 
-  return {
-    ok: true,
-    callId,
-    segments: parsed.segments.length,
-    participants: talkStats.participants.length,
-  };
+      return {
+        ok: true,
+        callId,
+        segments: parsed.segments.length,
+        participants: talkStats.participants.length,
+      };
+    },
+  );
 });
