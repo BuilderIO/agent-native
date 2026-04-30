@@ -195,3 +195,4 @@ export {
   type UseCollaborativeArrayOptions,
   type UseCollaborativeArrayResult,
 } from "../collab/client-struct.js";
+export { NotificationsBell } from "./notifications/index.js";
