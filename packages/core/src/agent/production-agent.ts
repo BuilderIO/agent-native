@@ -129,9 +129,9 @@ function isMultiTenantDeploy(): boolean {
  * In multi-tenant deploys we deliberately refuse the deploy-level
  * deploy-level fallback for authenticated users. Without that gate any
  * signed-in user who hasn't configured their own provider key would silently
- * inherit the deployment's key (free-tier abuse, billing
- * mis-attribution, prompt logging tied to the deployment owner) — exactly
- * the prior-incident pattern we hit on 2026-04-29.
+ * inherit the deployment's key (uncapped billing on the owner's account,
+ * prompt logging tied to the deployment owner) — exactly the prior-incident
+ * pattern we hit on 2026-04-29.
  *
  * Single-tenant (local-dev, self-hosted SQLite) keeps the env fallback.
  *
@@ -233,10 +233,6 @@ export interface ProductionAgentOptions {
   onEngineResolved?: (engine: AgentEngine, model: string) => void;
   /** Resolve the owner email from the H3 event (for usage tracking) */
   resolveOwnerEmail?: (event: any) => string | Promise<string>;
-  /** Enable per-user usage limit checking and token tracking */
-  trackUsage?: boolean;
-  /** Usage limit in cents (default: 100 = $1.00) */
-  usageLimitCents?: number;
   /**
    * Skip auto-injecting the workspace files/skills/agents inventory on the
    * first message of a conversation. Useful for minimal/voice apps where
@@ -732,9 +728,8 @@ export function createProductionAgentHandler(
     }
 
     // Resolve owner first so we can look up a per-owner API key. Users
-    // who bring their own key bypass the platform's free-tier usage limit
-    // and use their key for this request (which is also durable across
-    // serverless cold starts via the settings table).
+    // who bring their own key use their key for this request (durable
+    // across serverless cold starts via the settings table).
     let ownerEmail: string | null = null;
     if (options.resolveOwnerEmail) {
       try {
@@ -825,43 +820,6 @@ export function createProductionAgentHandler(
           controller.close();
         },
       });
-    }
-
-    // Check usage limit before starting a run (production hosted mode).
-    // Skip when the user has provided their own key — they're paying
-    // Anthropic directly, so the platform's free tier doesn't apply.
-    if (
-      !userApiKey &&
-      options.trackUsage &&
-      options.resolveOwnerEmail &&
-      ownerEmail &&
-      ownerEmail !== DEV_MODE_USER_EMAIL
-    ) {
-      try {
-        const { checkUsageLimit } = await import("../usage/store.js");
-        const result = await checkUsageLimit(
-          ownerEmail,
-          options.usageLimitCents,
-        );
-        if (!result.allowed) {
-          setResponseHeader(event, "Content-Type", "text/event-stream");
-          setResponseHeader(event, "Cache-Control", "no-cache");
-          setResponseHeader(event, "Connection", "keep-alive");
-          const encoder = new TextEncoder();
-          return new ReadableStream({
-            start(controller) {
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ type: "usage_limit_reached", usageCents: result.usageCents, limitCents: result.limitCents })}\n\n`,
-                ),
-              );
-              controller.close();
-            },
-          });
-        }
-      } catch {
-        // Usage check failed — allow the request to proceed
-      }
     }
 
     // Run all independent pre-send steps in parallel. Each of these hits
@@ -1412,10 +1370,8 @@ export function createProductionAgentHandler(
           loopUsage = await runAgentLoop(agentLoopOpts);
         }
 
-        // Record token usage for cost monitoring. Always on (not gated by
-        // trackUsage) so the Usage panel in settings works in every mode,
-        // including local dev. `trackUsage` only controls the pre-request
-        // *limit check*; recording happens unconditionally.
+        // Record token usage for cost monitoring so the Usage panel in
+        // settings works in every mode, including local dev.
         try {
           const ownerEmail = options.resolveOwnerEmail
             ? await options.resolveOwnerEmail(event)

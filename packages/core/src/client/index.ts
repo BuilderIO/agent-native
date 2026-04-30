@@ -44,7 +44,6 @@ export {
 } from "./frame.js";
 export {
   AssistantChat,
-  BuilderCtaCard,
   clearChatStorage,
   type AssistantChatProps,
   type AssistantChatHandle,

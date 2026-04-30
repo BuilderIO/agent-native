@@ -1434,160 +1434,6 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
   );
 }
 
-// ─── Builder.io CTA Card (usage limit / code changes / CLI) ─────────────────
-
-export function BuilderCtaCard({
-  reason,
-  usageCents,
-  limitCents,
-  apiUrl = agentNativePath("/_agent-native/agent-chat"),
-}: {
-  reason: "usage_limit" | "code_changes" | "cli_tab";
-  usageCents?: number;
-  limitCents?: number;
-  apiUrl?: string;
-}) {
-  const appName =
-    typeof window !== "undefined"
-      ? window.location.hostname.split(".")[0]
-      : "app";
-  const cloneCommand = `npx agent-native create ${appName}`;
-
-  const [apiKey, setApiKey] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSave = async () => {
-    if (!apiKey.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch(`${apiUrl}/save-key`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: apiKey.trim(), provider: "anthropic" }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save");
-      }
-      setSaved(true);
-      setTimeout(() => window.location.reload(), 1000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const title =
-    reason === "usage_limit"
-      ? "Free usage limit reached"
-      : reason === "code_changes"
-        ? "Code changes require a local setup"
-        : "Get full access";
-
-  const description =
-    reason === "usage_limit"
-      ? null
-      : reason === "code_changes"
-        ? "This app is running in hosted mode. To make code changes, add your own Anthropic API key or clone and run locally."
-        : "This hosted app has limited AI features. Add your own Anthropic API key for the full experience, or clone and run locally.";
-
-  if (saved) {
-    return (
-      <div className="mx-4 my-6 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
-        <div className="flex items-center gap-2 text-sm text-emerald-400">
-          <IconCheck className="h-4 w-4" />
-          API key saved. Reloading...
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mx-4 my-6 rounded-lg border border-border bg-card p-5">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
-          <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-foreground">{title}</h3>
-          {description && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {description}
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <div className="rounded-md bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground leading-relaxed">
-          <p>
-            Paste an Anthropic API key (
-            <a
-              href="https://console.anthropic.com/settings/keys"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline text-foreground/80 hover:text-foreground"
-            >
-              console.anthropic.com/settings/keys
-            </a>
-            ) to skip the free-tier limit.
-          </p>
-        </div>
-
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => {
-            setApiKey(e.target.value);
-            setError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSave();
-          }}
-          placeholder="sk-ant-..."
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-1 focus:ring-ring"
-          autoComplete="off"
-        />
-
-        {error && <p className="text-xs text-destructive">{error}</p>}
-
-        <button
-          onClick={handleSave}
-          disabled={saving || !apiKey.trim()}
-          className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {saving ? "Saving..." : "Save API key"}
-        </button>
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-border" />
-          </div>
-          <div className="relative flex justify-center text-xs">
-            <span className="bg-card px-2 text-muted-foreground">or</span>
-          </div>
-        </div>
-
-        <div className="rounded-md bg-muted/50 px-3 py-2.5">
-          <p className="text-xs text-muted-foreground mb-1.5">
-            Clone and run locally:
-          </p>
-          <code className="block text-xs text-foreground/80 font-mono break-all select-all">
-            {cloneCommand}
-          </code>
-        </div>
-
-        {/* Builder CTA — live Connect flow, replaces the old waitlist link. */}
-        <BuilderConnectCta variant="compact" />
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export interface AssistantChatHandle {
@@ -1734,10 +1580,6 @@ const AssistantChatInner = forwardRef<
   const [missingApiKey, setMissingApiKey] = useState(false);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
-  } | null>(null);
-  const [usageLimitReached, setUsageLimitReached] = useState<{
-    usageCents: number;
-    limitCents: number;
   } | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<
     Array<{
@@ -2225,20 +2067,6 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:auth-error", handler);
   }, []);
 
-  // Listen for usage limit reached events from the adapter
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      setUsageLimitReached({
-        usageCents: detail?.usageCents ?? 0,
-        limitCents: detail?.limitCents ?? 100,
-      });
-    };
-    window.addEventListener("agent-chat:usage-limit-reached", handler);
-    return () =>
-      window.removeEventListener("agent-chat:usage-limit-reached", handler);
-  }, []);
-
   // Listen for loop-limit events from the adapter
   useEffect(() => {
     const handler = (e: Event) => {
@@ -2527,15 +2355,6 @@ const AssistantChatInner = forwardRef<
               ) : missingApiKey ? (
                 <div className="flex flex-col items-center justify-center h-full px-2">
                   <ApiKeySetupCard apiUrl={apiUrl} />
-                </div>
-              ) : usageLimitReached ? (
-                <div className="flex flex-col items-center justify-center h-full px-2">
-                  <BuilderCtaCard
-                    reason="usage_limit"
-                    usageCents={usageLimitReached.usageCents}
-                    limitCents={usageLimitReached.limitCents}
-                    apiUrl={apiUrl}
-                  />
                 </div>
               ) : isRestoring ? (
                 <div className="flex flex-col gap-3 p-4">
