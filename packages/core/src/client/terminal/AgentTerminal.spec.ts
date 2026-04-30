@@ -109,7 +109,9 @@ describe("AgentTerminal", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
-    vi.runOnlyPendingTimers();
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -123,6 +125,14 @@ describe("AgentTerminal", () => {
   function renderTerminal(props: React.ComponentProps<typeof AgentTerminal>) {
     act(() => {
       root.render(React.createElement(AgentTerminal, props));
+    });
+  }
+
+  async function waitForSocketCount(count: number) {
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(MockWebSocket.instances).toHaveLength(count),
+      );
     });
   }
 
@@ -154,7 +164,7 @@ describe("AgentTerminal", () => {
 
     renderTerminal({ flags: "--plan" });
     await flushTimers();
-    await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    await waitForSocketCount(1);
 
     expect(MockWebSocket.instances[0].url).toBe(
       `ws://${window.location.hostname}:12345/ws?command=builder&flags=--plan`,
@@ -166,7 +176,7 @@ describe("AgentTerminal", () => {
       wsUrl: "ws://127.0.0.1:12345/ws",
       command: "builder",
     });
-    await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    await waitForSocketCount(1);
 
     act(() => {
       MockWebSocket.instances[0].receive(
@@ -191,7 +201,7 @@ describe("AgentTerminal", () => {
       command: "builder",
       onAgentRunningChange,
     });
-    await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
+    await waitForSocketCount(1);
     await flushTimers();
 
     window.dispatchEvent(
