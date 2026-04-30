@@ -537,7 +537,7 @@ export function VisualEditor({
         // this prevents overwriting DB content with empty string
         if (!normalized.trim() && ydoc) return;
         lastEmittedRef.current = normalized;
-        onChangeRef.current(normalized);
+        queueMicrotask(() => onChangeRef.current(normalized));
       } catch (err: any) {
         toast.error("Markdown serialization error: " + err.message);
         console.error("Markdown serialization error:", err);

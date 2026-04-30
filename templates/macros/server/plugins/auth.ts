@@ -51,11 +51,13 @@ button:hover{background:#d4d4d4}button:disabled{opacity:.5;cursor:not-allowed}
 <button type="submit" id="b">Sign in</button><p class="e" id="e"></p>
 </form></div>
 <script>
+function appBasePath(){var marker='/_agent-native/';var path=window.location.pathname||'';var index=path.indexOf(marker);if(index<=0)return '';return path.slice(0,index).replace(/\\/+$/,'')}
+function appPath(path){return appBasePath()+path}
 document.getElementById('f').onsubmit=async e=>{
 e.preventDefault();const b=document.getElementById('b'),err=document.getElementById('e');
 b.disabled=true;b.textContent='Signing in...';err.style.display='none';
-try{const r=await fetch('/_agent-native/auth/supabase-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,password:document.getElementById('password').value})});
-const d=await r.json();if(d.ok)window.location.href='/';else{err.textContent=d.error||'Sign in failed';err.style.display='block'}}
+try{const r=await fetch(appPath('/_agent-native/auth/supabase-login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,password:document.getElementById('password').value})});
+const d=await r.json();if(d.ok)window.location.href=appPath('/');else{err.textContent=d.error||'Sign in failed';err.style.display='block'}}
 catch{err.textContent='Network error';err.style.display='block'}
 finally{b.disabled=false;b.textContent='Sign in'}};
 </script></body></html>`;

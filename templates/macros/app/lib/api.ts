@@ -1,10 +1,11 @@
 import { TAB_ID } from "./tab-id";
+import { agentNativePath } from "@agent-native/core/client";
 
 export async function apiFetch(
   url: string,
   options?: RequestInit,
 ): Promise<any> {
-  const res = await fetch(url, {
+  const res = await fetch(agentNativePath(url), {
     ...options,
     headers: {
       "Content-Type": "application/json",

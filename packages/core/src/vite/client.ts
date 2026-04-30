@@ -502,6 +502,9 @@ function baseRedirectGuard(): Plugin {
           try {
             const url = new URL(relativeUrl, "http://agent-native.local");
             const publicDir = server.config.publicDir;
+            if (typeof publicDir !== "string") {
+              return next();
+            }
             const publicPath = path.normalize(
               path.join(publicDir, decodeURIComponent(url.pathname)),
             );
