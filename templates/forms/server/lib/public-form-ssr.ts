@@ -209,6 +209,7 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
     </div>
 
     <form id="mainForm" novalidate>
+      <input type="text" id="_hp" name="website" tabindex="-1" aria-hidden="true" autocomplete="off" style="position:absolute;left:-9999px;opacity:0;pointer-events:none">
       <div class="fields-card">
         ${fieldsHtml || '<p class="empty">This form has no fields yet.</p>'}
       </div>
@@ -388,6 +389,7 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
   }
 
   // Submit
+  var PAGE_LOAD_T = Date.now();
   var submitting = false;
   document.getElementById("mainForm").onsubmit = function(e) {
     e.preventDefault();
@@ -399,11 +401,12 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
     var btn = document.getElementById("submitBtn");
     btn.textContent = "Submitting...";
     btn.disabled = true;
+    var hp = (document.getElementById("_hp") || {}).value || "";
 
     fetch("/api/submit/" + FORM_ID, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: data, captchaToken: captchaToken }),
+      body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T }),
     })
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
     .then(function(res) {
