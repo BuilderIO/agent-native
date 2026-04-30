@@ -20,6 +20,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+export function meta() {
+  return [{ title: "Routing form" }];
+}
+
 function safeExternalUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
   try {

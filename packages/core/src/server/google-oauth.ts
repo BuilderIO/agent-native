@@ -8,7 +8,14 @@
  */
 
 import crypto from "node:crypto";
-import { getHeader, getQuery, setCookie, sendRedirect, type H3Event } from "h3";
+import {
+  getHeader,
+  getQuery,
+  setCookie,
+  setResponseStatus,
+  setResponseHeader,
+  type H3Event,
+} from "h3";
 import {
   addSession,
   getSession,
@@ -566,18 +573,31 @@ export function oauthCallbackResponse(
   // Web: redirect to the requested return path (validated same-origin) or
   // "/" if no return was supplied / the return failed validation.
   //
-  // Use h3's `sendRedirect` rather than the manual `setResponseStatus +
-  // setResponseHeader + return ""` pattern: under the Nitro Netlify-Lambda
-  // adapter, a handler that returns an empty body can have its Set-Cookie
-  // headers dropped by the response transformer that builds the Lambda
-  // result. `sendRedirect` writes a small HTML body, which forces the
-  // adapter's full-response path that preserves headers — including the
-  // `an_session_<app>` cookie set inside `createOAuthSession`.
+  // Why we don't use `sendRedirect` or return an HTTPResponse: h3 v2's
+  // `prepareResponse` skips the header-merge for any response with
+  // `!val.ok` — redirects (302/3xx) qualify, so the new HTTPResponse it
+  // builds drops the `Set-Cookie` headers that `createOAuthSession`
+  // wrote to `event.res.headers` via `setCookie(event, ...)`. Returning
+  // a plain string body keeps the response on h3's `prepareResponseBody`
+  // → `FastResponse` path, which DOES merge the prepared event headers
+  // (Location + Set-Cookie). The body is a meta-refresh fallback in case
+  // the 302 itself is rewritten by an intermediate proxy that strips
+  // Location — clients that understand 302 honor it before parsing HTML.
   //
-  // _The previous form of this code caused the "Set up Google" loop reported
-  // by users on 2026-04-30 — popup-tab cookie set, original-tab polling
-  // never sees it, getAuthStatus stays anonymous → connected:false forever._
-  return sendRedirect(event, safeReturnPath(opts.returnUrl), 302);
+  // _The plain `return ""` form previously here also took this path but
+  // produced an empty body that the Nitro Netlify-Lambda adapter could
+  // serialize via a fast path that lost Set-Cookie. A non-empty body
+  // forces the full-response serialization path that preserves them.
+  // This was the root cause of the "Set up Google" loop reported on
+  // 2026-04-30 — cookie set on popup, original-tab polling never sees
+  // it, getAuthStatus stays anonymous → connected:false forever._
+  const location = safeReturnPath(opts.returnUrl);
+  setResponseStatus(event, 302);
+  setResponseHeader(event, "Location", location);
+  const safeLocationAttr = location.replace(/[&"<>]/g, (c) =>
+    c === "&" ? "&amp;" : c === '"' ? "&quot;" : c === "<" ? "&lt;" : "&gt;",
+  );
+  return `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url=${safeLocationAttr}" /><title>Connected</title></head><body style="font-family:system-ui;text-align:center;margin-top:40vh;color:#888"><p>Redirecting…</p></body></html>`;
 }
 
 /** HTML error page for OAuth failures. The message is HTML-escaped — most

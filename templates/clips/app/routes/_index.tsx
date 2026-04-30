@@ -2,7 +2,14 @@ import { redirect, type LoaderFunctionArgs } from "react-router";
 import { DefaultSpinner } from "@agent-native/core/client";
 
 export function meta() {
-  return [{ title: "Clips" }];
+  return [
+    { title: "Clips" },
+    {
+      name: "description",
+      content:
+        "Async screen recording with auto-transcription, chapters, and shareable links — agent-native by default.",
+    },
+  ];
 }
 
 /**

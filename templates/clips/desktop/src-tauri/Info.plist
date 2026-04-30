@@ -6,6 +6,8 @@
     <string>Clips uses your camera for screen recordings with camera overlay.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Clips uses your microphone to record audio with screen recordings.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Clips uses speech recognition for on-device voice dictation.</string>
     <key>CFBundleIconName</key>
     <string>agent-native</string>
 </dict>

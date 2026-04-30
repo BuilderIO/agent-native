@@ -66,6 +66,7 @@ describe("voice providers status route", () => {
       openai: true,
       groq: true,
       browser: true,
+      native: true,
     });
     expect(JSON.stringify(result)).not.toContain("secret");
     expect(mockResolveCredential).toHaveBeenCalledWith("GROQ_API_KEY", {

@@ -1,6 +1,11 @@
 import { useMemo, useState } from "react";
 import { callAction } from "@/lib/api";
 import { agentNativePath, useSendToAgentChat } from "@agent-native/core/client";
+
+export function meta() {
+  return [{ title: "Apps — Scheduling" }];
+}
+
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";

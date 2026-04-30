@@ -22,6 +22,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import type { Meal, Exercise } from "@shared/types";
 
+export function meta() {
+  return [
+    { title: "Macros" },
+    {
+      name: "description",
+      content:
+        "Agent-native macro tracking. Log meals, exercises, and weight by typing or voice — the agent estimates calories and macros for you.",
+    },
+  ];
+}
+
 export default function IndexPage() {
   const [date, setDate] = useState(new Date());
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);

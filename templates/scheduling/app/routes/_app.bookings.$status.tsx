@@ -2,6 +2,18 @@ import { useLoaderData, Link, NavLink, useRevalidator } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 import { useMemo, useState } from "react";
 import { TZDate } from "@date-fns/tz";
+
+export function meta() {
+  return [
+    { title: "Bookings — Scheduling" },
+    {
+      name: "description",
+      content:
+        "Upcoming, past, pending, and cancelled bookings — reschedule, cancel, or mark no-shows.",
+    },
+  ];
+}
+
 import {
   format,
   isToday,

@@ -19,6 +19,10 @@ import {
   IconX,
 } from "@tabler/icons-react";
 
+export function meta() {
+  return [{ title: "Booking — Scheduling" }];
+}
+
 export async function loader({ params, request }: LoaderFunctionArgs) {
   const booking = await getBookingByUid(params.uid!);
   if (!booking) throw new Response("Not found", { status: 404 });

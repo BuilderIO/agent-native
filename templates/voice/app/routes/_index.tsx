@@ -20,6 +20,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
+export function meta() {
+  return [
+    { title: "Voice" },
+    {
+      name: "description",
+      content:
+        "Voice dictation with context-aware formatting, snippets, and a custom dictionary — speak to type anywhere.",
+    },
+  ];
+}
+
 type TabId = "dictation" | "snippets" | "dictionary" | "styles";
 
 interface Dictation {

@@ -28,6 +28,17 @@ import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 
 const GOAL_CALORIES = 2000;
 
+export function meta() {
+  return [
+    { title: "Analytics — Macros" },
+    {
+      name: "description",
+      content:
+        "Calorie, macro, and weight trends across the last week, month, or quarter.",
+    },
+  ];
+}
+
 export default function AnalyticsPage() {
   const [timeRange, setTimeRange] = useState("30");
 

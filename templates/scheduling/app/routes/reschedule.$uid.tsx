@@ -7,6 +7,10 @@ import {
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { Booker } from "@/components/booker/Booker";
 
+export function meta() {
+  return [{ title: "Reschedule — Scheduling" }];
+}
+
 export async function loader({ params, request }: LoaderFunctionArgs) {
   const booking = await getBookingByUid(params.uid!);
   if (!booking || booking.status === "cancelled")

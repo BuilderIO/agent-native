@@ -2,7 +2,14 @@ import { redirect, type LoaderFunctionArgs } from "react-router";
 import { DefaultSpinner } from "@agent-native/core/client";
 
 export function meta() {
-  return [{ title: "Calls" }];
+  return [
+    { title: "Calls" },
+    {
+      name: "description",
+      content:
+        "Agent-native sales call recording — transcribe, analyze, and review conversations with AI insights.",
+    },
+  ];
 }
 
 /**

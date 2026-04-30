@@ -4,6 +4,11 @@
 import { useEffect, useState } from "react";
 import { callAction } from "@/lib/api";
 import { appPath } from "@agent-native/core/client";
+
+export function meta() {
+  return [{ title: "Conferencing — Scheduling" }];
+}
+
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {

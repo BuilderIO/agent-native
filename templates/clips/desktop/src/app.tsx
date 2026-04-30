@@ -144,6 +144,7 @@ export function App() {
     const saved = loadString(VOICE_PROVIDER_KEY, "browser");
     return saved === "auto" ||
       saved === "browser" ||
+      saved === "macos-native" ||
       saved === "builder" ||
       saved === "gemini" ||
       saved === "openai" ||
@@ -1907,6 +1908,10 @@ function ClockIcon() {
 
 type VoiceProviderStatus = {
   browser: true;
+  // Apple's SFSpeechRecognizer + AVAudioEngine driven from Rust. The
+  // server reports `true` whenever it's available; the desktop client
+  // additionally has it gated to macOS at the Tauri-command layer.
+  "macos-native": boolean;
   builder: boolean;
   gemini: boolean;
   openai: boolean;
@@ -1978,12 +1983,18 @@ function Setup({
           }
           return;
         }
-        const json = (await res.json().catch(() => null)) as Partial<
-          Omit<VoiceProviderStatus, "browser">
-        > | null;
+        // Server emits `native` (no namespace); the client uses
+        // `"macos-native"` as the provider key throughout — remap on the
+        // way in.
+        const json = (await res.json().catch(() => null)) as
+          | (Partial<Omit<VoiceProviderStatus, "browser" | "macos-native">> & {
+              native?: boolean;
+            })
+          | null;
         if (cancelled) return;
         setProviderStatus({
           browser: true,
+          "macos-native": Boolean(json?.native),
           builder: Boolean(json?.builder),
           gemini: Boolean(json?.gemini),
           openai: Boolean(json?.openai),
@@ -2011,7 +2022,9 @@ function Setup({
 
   const providerHint: Record<VoiceProvider, string> = {
     auto: "Picks the best available provider for your setup.",
-    browser: "Free macOS dictation, no key needed. Quality varies.",
+    browser: "Free Web Speech dictation. Cross-platform; quality varies.",
+    "macos-native":
+      "Apple's on-device dictation via SFSpeechRecognizer. Fastest and most reliable on macOS.",
     builder: "Builder.io's transcription. Needs BUILDER_PRIVATE_KEY.",
     gemini: "Google Gemini Flash Lite. Needs GEMINI_API_KEY.",
     openai: "OpenAI Whisper. Needs OPENAI_API_KEY.",
@@ -2032,7 +2045,13 @@ function Setup({
   // showing four "missing key" rows at all times.
   const providerWarning: string | null = (() => {
     if (providerStatusLoading || !providerStatus) return null;
-    if (voiceProvider === "browser" || voiceProvider === "auto") return null;
+    if (
+      voiceProvider === "browser" ||
+      voiceProvider === "macos-native" ||
+      voiceProvider === "auto"
+    ) {
+      return null;
+    }
     if (providerStatus[voiceProvider]) return null;
     const envKey = {
       builder: "BUILDER_PRIVATE_KEY",
@@ -2110,6 +2129,9 @@ function Setup({
             >
               <option value="auto">Auto (recommended)</option>
               <option value="browser">Browser (free, built-in)</option>
+              <option value="macos-native">
+                macOS native (on-device, fastest)
+              </option>
               <option value="builder">Builder.io</option>
               <option value="gemini">Google Gemini Flash Lite</option>
               <option value="openai">OpenAI Whisper</option>

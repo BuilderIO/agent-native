@@ -3,6 +3,11 @@ import { useLoaderData, useRevalidator, Link } from "react-router";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../../server/db";
+
+export function meta() {
+  return [{ title: "Routing forms — Scheduling" }];
+}
+
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {

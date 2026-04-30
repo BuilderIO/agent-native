@@ -239,7 +239,10 @@ export function GoogleConnectBanner({
         }
       }
     }, 2000);
-  }, [wantAddAccount, addAccountUrl.data, accounts.length]);
+    // accounts.length is captured into prevCount above; including it in deps
+    // would tear down and recreate the interval whenever the count changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantAddAccount, addAccountUrl.data]);
 
   function handleConnect() {
     if (isElectron) {

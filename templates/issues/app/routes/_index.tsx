@@ -2,7 +2,14 @@ import { redirect, type LoaderFunctionArgs } from "react-router";
 import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
-  return [{ title: "Issues" }];
+  return [
+    { title: "Issues" },
+    {
+      name: "description",
+      content:
+        "Agent-native issue tracking — manage projects, issues, and sprints with an agent that triages and updates tickets for you.",
+    },
+  ];
 }
 
 /**

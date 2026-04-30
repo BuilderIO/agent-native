@@ -309,22 +309,19 @@ export async function getClientFromAccount(account: {
  * Get OAuth credentials. When `forEmail` is provided, returns only that
  * user's credentials (multi-user mode). Otherwise returns an empty array.
  *
- * If the user has accounts connected but every refresh failed, this
- * throws — otherwise an inbox with all dead tokens would render as
- * "empty inbox" instead of prompting a reconnect. Callers that need
- * per-account success/failure detail should use `getClientsWithErrors`.
+ * Refresh failures are swallowed per-account — the signature preserves
+ * the "empty array means no usable client" contract that existing
+ * callers (search-emails, view-screen, list-emails) rely on for graceful
+ * "no Google account connected" fallbacks. Callers that need to surface
+ * "all your tokens are dead" to the UI should use `getClientsWithErrors`
+ * directly, which is already wired into `listGmailMessagesUncached`.
  */
 export async function getClients(
   forEmail?: string,
 ): Promise<
   Array<{ email: string; accessToken: string; refreshToken: string }>
 > {
-  const { clients, errors } = await getClientsWithErrors(forEmail);
-  if (clients.length === 0 && errors.length > 0) {
-    throw new Error(
-      `All Google accounts failed to refresh: ${errors[0].error}`,
-    );
-  }
+  const { clients } = await getClientsWithErrors(forEmail);
   return clients;
 }
 
