@@ -1,6 +1,29 @@
 export const TOOL_IFRAME_CSP =
   "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self';";
 
+/**
+ * SECURITY — TOOL CONTENT IS UNTRUSTED.
+ *
+ * `${content}` (line ~Body) interpolates raw HTML/JS authored by a user. This
+ * file is the boundary between framework-controlled HTML and user-controlled
+ * HTML. Two non-negotiable invariants for every change here:
+ *
+ *   1. The iframe MUST be rendered with a `sandbox` attribute that does NOT
+ *      include `allow-same-origin`. The viewer (`ToolViewer.tsx`,
+ *      `EmbeddedTool.tsx`) sets `sandbox="allow-scripts allow-forms"` — and
+ *      that is the only acceptable shape. Adding `allow-same-origin` would
+ *      give the tool full DOM access to the parent window via cross-frame
+ *      script.
+ *
+ *   2. Every reachable parent action must treat the postMessage payload as
+ *      hostile. The bridge in `iframe-bridge.ts` enforces a path allowlist,
+ *      header sanitization, and method allowlist; do not relax those gates
+ *      for "convenience" in this file or any caller.
+ *
+ * For the trust model rationale, see audit 05-tools-sandbox.md (C1) and the
+ * `tools` skill. When in doubt, fail closed.
+ */
+
 export function buildToolHtml(
   content: string,
   themeVars: string,
@@ -73,8 +96,26 @@ export function buildToolHtml(
       _collectError(msg, stack);
     });
   </script>
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+  <!--
+    SECURITY: pinned to exact patch versions + SRI integrity hashes. A
+    malicious republish of @tailwindcss/browser@4.x or alpinejs@3.x would
+    otherwise inject code into every tool. To bump these versions:
+      1. npm view @tailwindcss/browser version  (or alpinejs)
+      2. curl -sL https://cdn.jsdelivr.net/npm/@tailwindcss/browser@<v> \
+         | openssl dgst -sha384 -binary | openssl base64 -A
+      3. Update the URL + integrity hash below in lockstep.
+  -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4"
+    integrity="sha384-yNSZBFvuOWcmww494a9+1zNuvgUGEXoWkein7cxP8wHUTi3iXCU4vJ7hr3tzBCml"
+    crossorigin="anonymous"
+  ></script>
+  <script
+    defer
+    src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
+    integrity="sha384-WPtu0YHhJ3arcykfnv1JgUffWDSKRnqnDeTpJUbOc2os2moEmLkIdaeR0trPN4be"
+    crossorigin="anonymous"
+  ></script>
   <style>${themeVars}</style>
   <style type="text/tailwindcss">
     @custom-variant dark (&:where(.dark, .dark *));

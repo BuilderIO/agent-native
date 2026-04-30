@@ -65,6 +65,12 @@ export interface CollabPluginOptions {
    * Omit only for resources that are always public (no sharing model).
    */
   resourceType?: string;
+  /**
+   * Map the collab document id to the shareable resource id. Many templates
+   * use route-specific collab ids (for example, one doc per slide inside a
+   * deck) while sharing is enforced at the parent resource level.
+   */
+  resolveResourceId?: (docId: string) => string | null | Promise<string | null>;
 }
 
 export function createCollabPlugin(
@@ -76,6 +82,7 @@ export function createCollabPlugin(
     idColumn = "id",
     autoSeed = true,
     resourceType,
+    resolveResourceId,
   } = options;
 
   return async (nitroApp: any) => {
@@ -120,6 +127,13 @@ export function createCollabPlugin(
         return runWithRequestContext({ userEmail, orgId }, async () => {
           // Access check — require at least viewer for reads, editor for writes
           if (resourceType) {
+            const resourceId = resolveResourceId
+              ? await resolveResourceId(docId)
+              : docId;
+            if (!resourceId) {
+              setResponseStatus(event, 404);
+              return { error: "Not found" };
+            }
             const isWrite =
               (action === "update" && method === "POST") ||
               (action === "text" && method === "POST") ||
@@ -129,10 +143,10 @@ export function createCollabPlugin(
 
             if (isWrite) {
               // assertAccess throws ForbiddenError (→ 403) if no editor access
-              await assertAccess(resourceType, docId, "editor");
+              await assertAccess(resourceType, resourceId, "editor");
             } else {
               // resolveAccess returns null when no access; return 404 to avoid leaking existence
-              const access = await resolveAccess(resourceType, docId);
+              const access = await resolveAccess(resourceType, resourceId);
               if (!access) {
                 setResponseStatus(event, 404);
                 return { error: "Not found" };

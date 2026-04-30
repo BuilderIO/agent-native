@@ -6,4 +6,6 @@ export default createCollabPlugin({
   idColumn: "id",
   autoSeed: true,
   resourceType: "composition",
+  resolveResourceId: (docId) =>
+    docId.startsWith("comp-") ? docId.slice("comp-".length) : docId,
 });

@@ -2931,13 +2931,35 @@ export function createAgentChatPlugin(
           }
         });
 
-        // Emit agent.turn.completed for automation triggers
+        // Emit agent.turn.completed for automation triggers.
+        //
+        // SECURITY: include `owner` so the trigger dispatcher's tenant-scope
+        // check engages (see triggers/dispatcher.ts:212-218). Without an
+        // owner, every user's matching `agent.turn.completed` trigger
+        // would fire when ANY user's chat turn completes — cross-tenant
+        // fan-out (audit 12 #9). Owner comes from the thread row when
+        // available (most reliable; persisted at thread create time),
+        // falling back to the current run context's owner. If neither
+        // resolves we skip emission entirely rather than emit unowned.
         try {
-          const { emit } = await import("../event-bus/index.js");
-          emit("agent.turn.completed", {
-            threadId,
-            model: resolvedModel,
-          });
+          let ownerEmail: string | undefined;
+          try {
+            const ownerThread = await getThread(threadId);
+            ownerEmail = ownerThread?.ownerEmail;
+          } catch {
+            // ignore — fall through to run-context owner
+          }
+          if (!ownerEmail) {
+            ownerEmail = getRequestRunContext()?.owner;
+          }
+          if (ownerEmail) {
+            const { emit } = await import("../event-bus/index.js");
+            emit(
+              "agent.turn.completed",
+              { threadId, model: resolvedModel },
+              { owner: ownerEmail },
+            );
+          }
         } catch {
           // Event bus not available — skip
         }
@@ -3011,7 +3033,7 @@ export function createAgentChatPlugin(
       const resolvedModel = options?.model ?? DEFAULT_MODEL;
 
       const teamTools = createTeamTools({
-        getOwner: () => getCurrentRunOwner(),
+        getOwner: () => requireCurrentRunOwner("spawn or manage sub-agents"),
         getSystemPrompt: () =>
           getRequestRunContext()?.systemPrompt ?? basePrompt,
         getActions: () =>
