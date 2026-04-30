@@ -470,12 +470,24 @@ async function handleProxy(
       redirect: "manual",
     };
     if (resolvedBody && ["POST", "PUT", "PATCH"].includes(method)) {
-      fetchOpts.body =
-        typeof resolvedBody === "string"
-          ? resolvedBody
-          : JSON.stringify(resolvedBody);
-      if (!headers["content-type"] && !headers["Content-Type"]) {
-        headers["Content-Type"] = "application/json";
+      const isStringBody = typeof resolvedBody === "string";
+      fetchOpts.body = isStringBody
+        ? resolvedBody
+        : JSON.stringify(resolvedBody);
+      // Only inject Content-Type when (a) the caller didn't set one and
+      // (b) the body is actually JSON-shaped (object or stringified JSON).
+      // Otherwise leave it unset so the runtime fetch picks an appropriate
+      // default and we don't misrepresent text/plain bodies as JSON.
+      const hasContentType = Object.keys(headers).some(
+        (k) => k.toLowerCase() === "content-type",
+      );
+      if (!hasContentType) {
+        const isJsonShaped =
+          !isStringBody ||
+          (typeof resolvedBody === "string" &&
+            /^\s*[{[]/.test(resolvedBody) &&
+            isLikelyJson(resolvedBody));
+        if (isJsonShaped) headers["Content-Type"] = "application/json";
       }
     }
 
@@ -648,6 +660,15 @@ const POSITIONAL_INSERT_RE = /\bINSERT\s+INTO\s+["'`]?\w+["'`]?\s+VALUES\b/i;
 
 function stripSqlComments(sql: string): string {
   return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
+}
+
+function isLikelyJson(text: string): boolean {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed !== null && typeof parsed === "object";
+  } catch {
+    return false;
+  }
 }
 
 async function handleSqlExec(event: H3Event): Promise<unknown> {

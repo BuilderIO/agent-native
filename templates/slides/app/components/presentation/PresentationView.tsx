@@ -261,9 +261,7 @@ export default function PresentationView({
           }
           break;
         case "Escape":
-          if (!document.fullscreenElement) {
-            exit();
-          }
+          exit();
           break;
       }
     };
@@ -344,6 +342,7 @@ export default function PresentationView({
   return (
     <div
       className="fixed inset-0 z-[100] bg-black overflow-hidden"
+      style={{ height: "100dvh" }}
       onClick={goNext}
     >
       {/* Exiting slide — rendered only during transition */}

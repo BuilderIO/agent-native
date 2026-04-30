@@ -23,11 +23,10 @@ export async function exportDeckAsPdf(
   // on negative letter-spacing (very visible on our 900-weight headings).
   // JPEG (vs PNG) keeps a typical 8-slide deck under ~10 MB instead of
   // ~100 MB — at 0.92 quality the difference is invisible on slide content.
-  // Use Function constructor to bypass Vite's static import-analysis scan,
-  // which errors if the package wasn't installed when the dev server started.
-  const dynamicImport = new Function("m", "return import(m)");
-  const { domToJpeg } = await dynamicImport("modern-screenshot");
-  const { jsPDF } = await dynamicImport("jspdf");
+  const [{ domToJpeg }, { jsPDF }] = await Promise.all([
+    import(/* @vite-ignore */ "modern-screenshot"),
+    import(/* @vite-ignore */ "jspdf"),
+  ]);
 
   // Web fonts (Poppins) must finish loading before capture — otherwise
   // text lays out with fallback metrics and draws with the real font,

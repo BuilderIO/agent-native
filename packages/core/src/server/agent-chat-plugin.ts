@@ -2336,18 +2336,41 @@ export function createAgentChatPlugin(
       // in `runWithRequestContext({ userEmail }, …)` without going through
       // `prepareRun` (recurring jobs, trigger dispatcher) still see the
       // correct owner.
-      const getCurrentRunOwner = (): string =>
-        getRequestRunContext()?.owner ??
-        getRequestUserEmail() ??
-        DEV_MODE_USER_EMAIL;
+      //
+      // SECURITY: returns `null` when neither the run context nor the
+      // request user-email is populated. Consumers MUST short-circuit
+      // with an explicit error rather than fall back to a sentinel
+      // identity (e.g. DEV_MODE_USER_EMAIL). The previous fallback to
+      // `local@localhost` slipped past `guard-no-localhost-fallback`
+      // because the literal was hidden behind a symbolic alias —
+      // any agent loop that reached this code without a populated
+      // session would resolve `${keys.NAME}` against the dev-shim's
+      // `app_secrets WHERE scope_id='local@localhost'` rows. See
+      // audit 02 (HIGH: getCurrentRunOwner) and the
+      // 2026-04-29 credentials-leak incident for the prior shape.
+      const getCurrentRunOwner = (): string | null =>
+        getRequestRunContext()?.owner ?? getRequestUserEmail() ?? null;
+      const requireCurrentRunOwner = (operation: string): string => {
+        const owner = getCurrentRunOwner();
+        if (!owner) {
+          throw new Error(
+            `[agent-chat] No authenticated owner in run context — ` +
+              `refusing to ${operation}. Ensure the request goes through ` +
+              `prepareRun() or is wrapped in runWithRequestContext({ userEmail, ... }).`,
+          );
+        }
+        return owner;
+      };
 
-      // Automation tools + fetch tool — depend on owner via callback
+      // Automation tools + fetch tool — depend on owner via callback.
+      // Each callback short-circuits with a clear error when the run context
+      // has no authenticated owner (see SECURITY note on getCurrentRunOwner).
       let automationTools: Record<string, ActionEntry> = {};
       try {
         const { createAutomationToolEntries } =
           await import("../triggers/actions.js");
         automationTools = createAutomationToolEntries(() =>
-          getCurrentRunOwner(),
+          requireCurrentRunOwner("manage automations"),
         );
       } catch {}
       let notificationTools: Record<string, ActionEntry> = {};
@@ -2355,14 +2378,16 @@ export function createAgentChatPlugin(
         const { createNotificationToolEntries } =
           await import("../notifications/actions.js");
         notificationTools = createNotificationToolEntries(() =>
-          getCurrentRunOwner(),
+          requireCurrentRunOwner("manage notifications"),
         );
       } catch {}
       let progressTools: Record<string, ActionEntry> = {};
       try {
         const { createProgressToolEntries } =
           await import("../progress/actions.js");
-        progressTools = createProgressToolEntries(() => getCurrentRunOwner());
+        progressTools = createProgressToolEntries(() =>
+          requireCurrentRunOwner("manage progress"),
+        );
       } catch {}
       let fetchTool: Record<string, ActionEntry> = {};
       try {
@@ -2371,13 +2396,17 @@ export function createAgentChatPlugin(
           await import("../secrets/substitution.js");
         fetchTool = createFetchToolEntry({
           resolveKeys: async (text) =>
-            resolveKeyReferences(text, "user", getCurrentRunOwner()),
+            resolveKeyReferences(
+              text,
+              "user",
+              requireCurrentRunOwner("resolve key references"),
+            ),
           validateUrl: async (url, usedKeys) => {
             for (const keyName of usedKeys) {
               const allowlist = await getKeyAllowlist(
                 keyName,
                 "user",
-                getCurrentRunOwner(),
+                requireCurrentRunOwner("validate URL allowlist"),
               );
               if (allowlist && !validateUrlAllowlist(url, allowlist)) {
                 return false;
