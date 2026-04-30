@@ -49,7 +49,9 @@ export function EmptyState() {
       await createDocument.mutateAsync({ id, title: "" });
     } catch (err) {
       queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
-      queryClient.removeQueries({ queryKey: ["action", "get-document", { id }] });
+      queryClient.removeQueries({
+        queryKey: ["action", "get-document", { id }],
+      });
       navigate("/");
       toast.error("Failed to create page", {
         description:

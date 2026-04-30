@@ -69,12 +69,9 @@ describe("server/request-context", () => {
 
   describe("getRequestTimezone", () => {
     it("returns the per-request timezone when a context is set", () => {
-      runWithRequestContext(
-        { timezone: "America/Los_Angeles" },
-        () => {
-          expect(getRequestTimezone()).toBe("America/Los_Angeles");
-        },
-      );
+      runWithRequestContext({ timezone: "America/Los_Angeles" }, () => {
+        expect(getRequestTimezone()).toBe("America/Los_Angeles");
+      });
     });
 
     it("falls back to AGENT_USER_TIMEZONE only when no request context is active", () => {

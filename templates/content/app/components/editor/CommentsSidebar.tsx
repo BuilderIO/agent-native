@@ -6,13 +6,7 @@ import {
   type CommentThread,
 } from "@/hooks/use-comments";
 import { sendToAgentChat } from "@agent-native/core/client";
-import {
-  IconCheck,
-  IconDots,
-  IconMessageCircle,
-  IconArrowUp,
-  IconAt,
-} from "@tabler/icons-react";
+import { IconCheck, IconMessageCircle, IconArrowUp } from "@tabler/icons-react";
 import {
   Tooltip,
   TooltipContent,
