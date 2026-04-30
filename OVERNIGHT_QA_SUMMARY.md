@@ -7,8 +7,9 @@ This document summarizes an autonomous overnight QA sweep across the framework a
 ## Scope
 
 - **9 core templates tested:** mail, calendar, content, slides, videos, clips, analytics, dispatch, forms
-- **Framework-level:** agent-chat-plugin, action routing, polling, sharing/access, A2A, MCP, integration webhooks, voice transcription, automations, observability, notifications
-- **8 rounds of parallel agent fanout, ~25 sub-agents total**
+- **8 non-core templates audited (round 9):** meeting-notes, scheduling, voice, calls, recruiting, design, macros, issues
+- **Framework-level:** agent-chat-plugin, action routing, polling, sharing/access, A2A, MCP, integration webhooks, voice transcription, automations, observability, notifications, recurring jobs, docs site
+- **10 rounds of parallel agent fanout, ~30 sub-agents total**
 
 ---
 
@@ -16,10 +17,12 @@ This document summarizes an autonomous overnight QA sweep across the framework a
 
 | Metric                                        | Count                                            |
 | --------------------------------------------- | ------------------------------------------------ |
-| Total commits on `updates-203` vs `main`      | **74**                                           |
-| Fix commits                                   | **53**                                           |
-| Feature / perf commits                        | **8**                                            |
-| Chore / doc / test commits                    | **13**                                           |
+| Metric                                        | Count                                            |
+| --------------------------------------------- | ------------------------------------------------ |
+| Total commits on `updates-203` vs `main`      | **90**                                           |
+| Fix commits                                   | **63**                                           |
+| Feature / perf commits                        | **12**                                           |
+| Chore / doc / test commits                    | **15**                                           |
 | Critical findings deferred for morning review | **10** (see `OVERNIGHT_QA_CRITICAL_FINDINGS.md`) |
 | Tests                                         | 520 / 520 passing                                |
 | Guards                                        | 6 / 6 passing                                    |
@@ -197,6 +200,82 @@ These areas were reviewed and are well-built:
 - **Observability + experiments** — well-built; 2 race-fix bonuses already in HEAD before the sweep started
 - **Calendar event CRUD** — handlers correctly scoped, no privilege escalation in event operations
 - **Slides access scoping** — clean after prior fix; deck ownership and sharing correctly enforced
+- **Non-core templates (scheduling, voice, recruiting, issues)** — audited in round 9; no bugs found beyond what was addressed in the core sweep
+
+---
+
+## Round 9 — Non-Core Templates + Edge-State + Cron + Docs
+
+### Non-core templates audited
+
+8 templates reviewed: meeting-notes, scheduling, voice, calls, recruiting, design, macros, issues.
+
+**Bugs found and fixed:**
+
+- **meeting-notes** — sparkle icon used in NotesWorkspace; replaced with Tabler equivalent. Also fixed `useEffect` misuse for side effects in NotesWorkspace.
+- **calls** — robot icon and sparkle icon in player UI; both replaced with Tabler icons.
+- **design** — `GenerateDesign` button auto-submitted a hardcoded prompt without capturing user input. Fixed with a popover that collects the user's intent before submitting (matches "capture user input first" convention).
+- **macros** — `create`/`update`/`delete` mutations were missing `onError` handlers; silent failures with no user feedback. Added `toast.error` to all three.
+
+**Templates with no bugs found:** scheduling, voice, recruiting, issues — all clean after core-sweep fixes propagated.
+
+### Edge-state fixes shipped
+
+6 targeted fixes for silent-failure and feedback gaps:
+
+- **videos** — silent delete/rename: added `toast.error` on composition delete and rename failures (`fix(videos): toast on delete/rename composition failures`)
+- **content** — document delete had no error feedback; wrapped in `try/catch` with `toast.error` (`fix(content): wrap document delete in try/catch with toast.error`)
+- **content** — `VisualEditor` showed a blank screen while the editor initialized; added loading skeleton (`fix(content): show loading skeleton in VisualEditor while editor initializes`)
+- **analytics** — optimistic preference update was not rolled back on error; fixed with cache rollback + toast (`fix(analytics): rollback optimistic pref update on error + toast`)
+- **forms** — `create`/`update`/`delete` form mutations all missing `onError` toast handlers; added (`fix(forms): add onError toast to create/update/delete form mutations`)
+- **clips** — upload overlay had no escape hatch; added cancel button (`fix(clips): add cancel button to upload overlay so users can escape`)
+
+### Cron + recurring jobs deep dive
+
+2 bugs found and fixed in the framework jobs scheduler:
+
+- **Stuck-running job recovery** — jobs that were `running` when the server crashed would remain stuck forever with no retry. Fixed by treating any job that has been `running` for more than 10 minutes as eligible for re-queue on the next cron tick (`fix(core+templates): jobs cron+scheduler tightening`).
+- **`@midnight` alias regression** — `cron-parser` v5 dropped support for the `@midnight` shorthand alias; the scheduler was throwing a parse error on any job using `@midnight`. Fixed by normalizing `@midnight` → `0 0 * * *` before handing to the parser.
+
+### Docs site (packages/docs) audit
+
+6 bugs found and fixed in the framework documentation site:
+
+- **Broken footer GitHub link** — the footer linked to an outdated/wrong GitHub URL. Fixed.
+- **Hardcoded download URL** — desktop download button had a hardcoded version URL; updated to always resolve to latest.
+- **Emoji icon** — a nav item was using an emoji instead of a Tabler icon. Replaced.
+- **Missing `/docs/observability` route** — the observability docs page existed but had no registered route; navigating to it returned a 404. Route added.
+- **Pinch-zoom a11y violation** — `<meta name="viewport">` included `user-scalable=no`, blocking pinch-to-zoom for users with visual impairment. Removed the restriction.
+- **Incorrect meta description** — the "sharing" docs page had a meta description saying "share state through files", which is wrong. Corrected to accurately describe the sharing model.
+
+### Performance indexes
+
+3 DB indexes added to fix unbounded table scans on every tool share lookup:
+
+- `tool_shares.resource_id`
+- `tools.owner_email`
+- `tools.org_id`
+
+`highestShareRole` query rewritten to filter SQL-side with a `LIMIT 1` instead of fetching all shares into JS and reducing. These fixes were originally logged as a deferred finding (#5 in `OVERNIGHT_QA_CRITICAL_FINDINGS.md`); now resolved.
+
+---
+
+## Round 10 — Final Fixes + Smoke Test
+
+### Fixes shipped in round 10
+
+- **VoiceProvider Gemini/Groq support** — voice provider selection was not correctly reading `prefs.value.provider` as a fallback to the legacy `prefs.provider` field, breaking Gemini and Groq provider switching. Fixed with a `??`-chain lookup (`fix(voice): read provider from prefs.value.provider as fallback to legacy prefs.provider`; `fix(voice): simplify prefs.provider/value.provider lookup with ?? chain`).
+- **Gemini model ID correction** — the Gemini model ID used in voice transcription was outdated; corrected to the current production model ID.
+- **NotificationsBell per-item delete** — `NotificationsBell` was missing a per-notification dismiss button; only bulk-clear was available. Per-item delete added.
+- **MCP duplicate tool ID warning** — the MCP registry was silently overwriting tools when two servers registered the same tool name prefix. Added a console warning when a duplicate `mcp__<server-id>__<name>` is detected at registration time.
+- **MultiTabAssistantChat polish** — several small interaction issues fixed: `<span role="button">` for tab-close X replaced with a proper `<button>`, improving keyboard accessibility (`fix(core): MultiTabAssistantChat polish`).
+- **APP_BASE_PATH support** — framework routes and all client-side `/_agent-native/*` fetches now route correctly when the app is mounted under a path prefix via `APP_BASE_PATH`. Both server normalization and a client `agentNativePath()` helper shipped (`feat(core): app-base-path support`; `feat(core): migrate client-side fetches to agentNativePath() helper`).
+
+### Final smoke test
+
+- TypeCheck: clean
+- Guards (6/6): passing — `guard-no-drizzle-push`, `guard-no-unscoped-queries`, and 4 others all green
+- Tests (520/520): passing
 
 ---
 
@@ -229,7 +308,7 @@ The following patterns surfaced repeatedly across templates. Some have CI guards
 
 ## Concurrent-Agent Coordination Notes
 
-- ~25 sub-agents ran across 8 rounds over the course of the night
+- ~30 sub-agents ran across 10 rounds over the course of the night
 - Playwright / Chrome MCP is single-session and caused contention; most agents fell back to source code review rather than browser-based testing
 - Multiple agents converged on the same fixes in a few cases (notably `wrapWithAnalytics` guard and A2A identity fixes); concurrent commits on the same files were handled cleanly because agents were scoped to different templates
 - All agents stayed on `updates-203` branch as instructed; no pushes occurred

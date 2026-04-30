@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import type { AgentMessage, AgentChatEvent } from "../agent/types.js";
 import { formatChatErrorText } from "./error-format.js";
+import { agentNativePath } from "./api-path.js";
 
 export interface ProductionAgentMessage {
   id: string;
@@ -29,7 +30,7 @@ export interface UseProductionAgentResult {
 export function useProductionAgent(
   options?: UseProductionAgentOptions,
 ): UseProductionAgentResult {
-  const apiUrl = options?.apiUrl ?? "/_agent-native/agent-chat";
+  const apiUrl = options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const [messages, setMessages] = useState<ProductionAgentMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
