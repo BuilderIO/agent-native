@@ -34,11 +34,22 @@ function runCli(args: string[], cwd: string): string {
 }
 
 function assertCliFails(args: string[], cwd: string, pattern: RegExp): void {
-  assert.throws(
-    () => runCli(args, cwd),
-    pattern,
-    `agent-native ${args.join(" ")} must fail with ${pattern}`,
-  );
+  try {
+    runCli(args, cwd);
+  } catch (error) {
+    const err = error as {
+      message?: string;
+      stdout?: Buffer | string;
+      stderr?: Buffer | string;
+    };
+    const output = [err.stdout, err.stderr, err.message]
+      .filter(Boolean)
+      .map(String)
+      .join("\n");
+    assert.match(output, pattern);
+    return;
+  }
+  assert.fail(`agent-native ${args.join(" ")} must fail with ${pattern}`);
 }
 
 function readJson(file: string): any {
