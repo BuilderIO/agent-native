@@ -63,8 +63,7 @@ export default defineAction({
   run: async ({ title, slides, deckId, aspectRatio }) => {
     const db = getDb();
     const now = new Date().toISOString();
-    const appUrl =
-      process.env.APP_URL || "https://slides.agent-native.com";
+    const appUrl = process.env.APP_URL || "https://slides.agent-native.com";
 
     if (deckId) {
       // Update existing deck — requires editor access.
@@ -121,6 +120,11 @@ export default defineAction({
 
     notifyClients(id);
     await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
-    return { id, title, slideCount: slides.length, url: `${appUrl}/deck/${id}` };
+    return {
+      id,
+      title,
+      slideCount: slides.length,
+      url: `${appUrl}/deck/${id}`,
+    };
   },
 });
