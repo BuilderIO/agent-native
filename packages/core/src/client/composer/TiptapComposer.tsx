@@ -642,7 +642,16 @@ export function TiptapComposer({
 
         event.preventDefault();
         void Promise.all(
-          files.map((file) => composerRuntime.addAttachment(file)),
+          files.map((file) => {
+            // SimpleImageAttachmentAdapter uses file.name as the attachment id.
+            // Clipboard images (e.g. screenshots) are typically all named
+            // "image.png", so a second paste would replace the first instead of
+            // appending. Prepend a unique token so each paste gets a distinct id.
+            const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}`;
+            return composerRuntime.addAttachment(
+              new File([file], uniqueName, { type: file.type }),
+            );
+          }),
         ).catch((error) => {
           console.error("Error adding pasted attachment:", error);
         });
