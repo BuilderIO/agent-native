@@ -152,11 +152,7 @@ async function dispatch(
 
   // POST /:id/grant-consent — viewer approves running this exact content.
   // (audit C1) Required before a non-author's tool render emits the bridge.
-  if (
-    method === "POST" &&
-    parts.length === 2 &&
-    parts[1] === "grant-consent"
-  ) {
+  if (method === "POST" && parts.length === 2 && parts[1] === "grant-consent") {
     return handleGrantConsent(event, parts[0], userEmail);
   }
 
