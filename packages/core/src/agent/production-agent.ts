@@ -127,9 +127,9 @@ function isMultiTenantDeploy(): boolean {
  * Resolve the active engine's provider and look up the user's API key for it.
  *
  * In multi-tenant deploys we deliberately refuse the deploy-level
- * `process.env[envVar]` fallback for authenticated users. Without that gate
- * any signed-in user who hasn't configured their own provider key would
- * silently inherit the deployment's key (free-tier abuse, billing
+ * deploy-level fallback for authenticated users. Without that gate any
+ * signed-in user who hasn't configured their own provider key would silently
+ * inherit the deployment's key (free-tier abuse, billing
  * mis-attribution, prompt logging tied to the deployment owner) — exactly
  * the prior-incident pattern we hit on 2026-04-29.
  *
@@ -137,8 +137,7 @@ function isMultiTenantDeploy(): boolean {
  *
  * Callers in `agent-chat-plugin.ts`, `triggers/dispatcher.ts`,
  * `jobs/scheduler.ts`, and `integrations/plugin.ts` historically layer
- * another `?? process.env.ANTHROPIC_API_KEY` after this — those redundant
- * fallbacks must be removed when the matching files are next edited.
+ * another deployment-key fallback after this must keep the same gate.
  */
 export async function getOwnerActiveApiKey(
   ownerEmail: string | null | undefined,
@@ -720,9 +719,9 @@ export function createProductionAgentHandler(
 
     // `options.apiKey` is the value the template constructed the plugin with
     // (e.g. wired from a deployment env var). On a multi-tenant deploy this
-    // is the same hazard as `process.env.ANTHROPIC_API_KEY` — accepting it
-    // as the final fallback would silently bill every key-less user to the
-    // deployment's account. Only honour it in single-tenant mode.
+    // is the same cross-tenant hazard as any deploy-level provider key:
+    // accepting it as the final fallback would silently bill every key-less
+    // user to the deployment's account. Only honour it in single-tenant mode.
     const effectiveApiKey = isMultiTenantDeploy()
       ? userApiKey
       : (userApiKey ??

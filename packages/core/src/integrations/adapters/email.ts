@@ -10,7 +10,6 @@ import type {
 } from "../types.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { getIntegrationConfig } from "../config-store.js";
-import { readBody } from "../../server/h3-helpers.js";
 import { getDbExec } from "../../db/client.js";
 import {
   sendEmail,
@@ -904,11 +903,16 @@ ${bodyHtml}
 // Raw body reader (matches Slack adapter pattern)
 // ---------------------------------------------------------------------------
 
-/** Read the raw body as a string (H3 may have already parsed it) */
+/**
+ * Read the raw request body as a string and cache on the event context.
+ * Reads raw bytes from the request stream — never re-stringifies a parsed
+ * body, since the Resend / Svix HMAC is computed over the exact bytes sent
+ * (M2 in the webhook security audit).
+ */
 async function readRawBody(event: H3Event): Promise<string> {
-  if (event.context.__rawBody) return event.context.__rawBody as string;
-  const body = await readBody(event);
-  const raw = typeof body === "string" ? body : JSON.stringify(body);
+  const cached = event.context.__rawBody;
+  if (typeof cached === "string") return cached;
+  const raw = (await h3ReadRawBody(event)) ?? "";
   event.context.__rawBody = raw;
   return raw;
 }

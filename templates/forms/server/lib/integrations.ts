@@ -1,3 +1,4 @@
+import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
 import type {
   FormIntegration,
   FormField,
@@ -139,6 +140,17 @@ export async function fireIntegrations(
 
   await Promise.allSettled(
     enabled.map(async (integration) => {
+      // SSRF guard — a form-author can persist any URL in their integration
+      // config. Anonymous submissions then trigger a server-side POST. Block
+      // private IPs, cloud-metadata endpoints, and non-http(s) schemes
+      // before the fetch fires.
+      if (isBlockedToolUrl(integration.url)) {
+        console.warn(
+          `[integrations] ${integration.type} "${integration.name}" rejected: blocked URL`,
+        );
+        return;
+      }
+
       const buildPayload =
         payloadBuilders[integration.type] ?? buildWebhookPayload;
       const payload = buildPayload(submission);

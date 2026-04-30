@@ -1,19 +1,22 @@
 /**
  * Deepgram async-transcription callback.
  *
- * When we kick off transcription with `?callback=<this-url>?callId=<id>`
+ * When we kick off transcription with `?callback=<this-url>?callId=<id>&token=<hmac>`
  * Deepgram POSTs the response here once transcription is ready.
  *
  * This handler:
- *   1. Optionally verifies `dg-signature` if DEEPGRAM_WEBHOOK_SECRET is set.
- *   2. Parses the response via parseDeepgramResponse.
- *   3. Upserts `call_transcripts` (status="ready", segments, fullText).
- *   4. Materializes `call_participants` from unique speakerLabels.
- *   5. Flips `calls.status` transcribing → analyzing and bumps refresh-signal.
- *   6. Queues `ai-delegations:<callId>` in app-state so the agent chat picks
+ *   1. Verifies `dg-signature` against DEEPGRAM_WEBHOOK_SECRET (required in prod).
+ *   2. Verifies the per-call HMAC token bound to (callId, ownerEmail). Without
+ *      this, an attacker who guesses any callId could overwrite the
+ *      transcript by POSTing a forged Deepgram-shaped JSON body.
+ *   3. Parses the response via parseDeepgramResponse.
+ *   4. Upserts `call_transcripts` (status="ready", segments, fullText).
+ *   5. Materializes `call_participants` from unique speakerLabels.
+ *   6. Flips `calls.status` transcribing → analyzing and bumps refresh-signal.
+ *   7. Queues `ai-delegations:<callId>` in app-state so the agent chat picks
  *      up the summary / tracker pipeline.
  *
- * Route: POST /api/webhooks/deepgram?callId=<id>
+ * Route: POST /api/webhooks/deepgram?callId=<id>&token=<hmac>
  */
 
 import {
@@ -32,7 +35,10 @@ import {
   computeTalkStats,
   nanoid,
 } from "../../../lib/calls.js";
-import { parseDeepgramResponse } from "../../../lib/transcription/deepgram.js";
+import {
+  parseDeepgramResponse,
+  verifyDeepgramCallbackToken,
+} from "../../../lib/transcription/deepgram.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
@@ -56,8 +62,9 @@ function verifySignature(
 }
 
 export default defineEventHandler(async (event: H3Event) => {
-  const q = getQuery(event) as { callId?: string };
+  const q = getQuery(event) as { callId?: string; token?: string };
   const callId = q.callId;
+  const callbackToken = q.token;
   if (!callId) {
     setResponseStatus(event, 400);
     return { error: "callId is required" };
@@ -77,9 +84,22 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 401);
       return { error: "Invalid signature" };
     }
+  } else if (
+    process.env.NODE_ENV === "production" &&
+    process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS !== "1"
+  ) {
+    // Fail-closed in production: an attacker who knows or guesses any
+    // callId can overwrite call transcripts and queue AI delegations under
+    // the call owner's identity. Set AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1
+    // for staging only.
+    console.error(
+      "[calls] DEEPGRAM_WEBHOOK_SECRET not configured — refusing webhook",
+    );
+    setResponseStatus(event, 401);
+    return { error: "DEEPGRAM_WEBHOOK_SECRET not configured" };
   } else {
     console.warn(
-      "[calls] DEEPGRAM_WEBHOOK_SECRET not set — accepting webhook without verification",
+      "[calls] DEEPGRAM_WEBHOOK_SECRET not set — accepting webhook without verification (dev only)",
     );
   }
 
@@ -107,6 +127,29 @@ export default defineEventHandler(async (event: H3Event) => {
   if (!call) {
     setResponseStatus(event, 404);
     return { error: "Call not found" };
+  }
+
+  // Per-call HMAC token: even with a valid `dg-signature`, an attacker who
+  // captured (or replayed) a Deepgram payload can't pivot it onto a
+  // different callId without re-deriving the per-call token. The token is
+  // bound to (callId, ownerEmail) and signed with the same shared secret.
+  // If the secret is set we require the token; if not (dev only) we skip.
+  if (secret) {
+    if (!callbackToken) {
+      setResponseStatus(event, 401);
+      return { error: "Missing callback token" };
+    }
+    if (
+      !verifyDeepgramCallbackToken(
+        callbackToken,
+        callId,
+        call.ownerEmail,
+        secret,
+      )
+    ) {
+      setResponseStatus(event, 401);
+      return { error: "Invalid callback token" };
+    }
   }
 
   return runWithRequestContext(

@@ -169,9 +169,22 @@ export async function ensureObservabilityTables(): Promise<void> {
           assignment_level TEXT NOT NULL DEFAULT 'user',
           started_at ${intType()},
           ended_at ${intType()},
-          created_at ${intType()} NOT NULL
+          created_at ${intType()} NOT NULL,
+          owner_email TEXT
         )
       `);
+      // Additive migration for DBs created before the owner column shipped
+      // (any pre-existing rows have NULL owner — see `updateExperiment` for
+      // the migration semantics). Mutations on those rows fall back to the
+      // standard authentication gate but cannot enforce per-owner scoping
+      // until they're re-saved.
+      try {
+        await client.execute(
+          `ALTER TABLE agent_experiments ADD COLUMN owner_email TEXT`,
+        );
+      } catch {
+        // Column already exists — expected after first run.
+      }
 
       await client.execute(`
         CREATE TABLE IF NOT EXISTS agent_experiment_assignments (
@@ -752,8 +765,8 @@ export async function insertExperiment(exp: Experiment): Promise<void> {
   await client.execute({
     sql: `INSERT INTO agent_experiments
       (id, name, status, variants, metrics, assignment_level,
-       started_at, ended_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       started_at, ended_at, created_at, owner_email)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       exp.id,
       exp.name,
@@ -764,6 +777,7 @@ export async function insertExperiment(exp: Experiment): Promise<void> {
       exp.startedAt,
       exp.endedAt,
       exp.createdAt,
+      exp.ownerEmail ?? null,
     ],
   });
 }
@@ -1111,6 +1125,10 @@ function rowToExperiment(row: Record<string, any>): Experiment {
     startedAt: row.started_at ? Number(row.started_at) : null,
     endedAt: row.ended_at ? Number(row.ended_at) : null,
     createdAt: Number(row.created_at),
+    ownerEmail:
+      typeof row.owner_email === "string" && row.owner_email
+        ? row.owner_email
+        : null,
   };
 }
 

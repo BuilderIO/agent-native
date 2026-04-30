@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -9,7 +10,7 @@ import { getDashboard } from "../server/lib/dashboards-store";
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, dashboard config (if on a dashboard), and any active URL filter params. Always call this first before taking any action.",
-  parameters: {},
+  schema: z.object({}),
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");

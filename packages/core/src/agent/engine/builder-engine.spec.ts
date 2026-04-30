@@ -6,20 +6,23 @@ import {
 } from "./builder-engine.js";
 import type { EngineStreamOptions } from "./types.js";
 
-// Mock the credential provider so tests resolve keys from process.env
-// without hitting the DB (app_secrets table).
+const credentialState = vi.hoisted(() => ({
+  builderPrivateKey: "bpk-test" as string | null,
+}));
+
+// Mock the credential provider so tests do not hit the DB (app_secrets table).
 vi.mock("../../server/credential-provider.js", async (importOriginal) => {
   const original =
     (await importOriginal()) as typeof import("../../server/credential-provider.js");
   return {
     ...original,
     resolveBuilderCredential: vi.fn(async (key: string) => {
-      // guard:allow-env-credential — test mock that mirrors the real resolver shape; runs only in vitest.
-      return process.env[key] || null;
+      return key === "BUILDER_PRIVATE_KEY"
+        ? credentialState.builderPrivateKey
+        : null;
     }),
     resolveBuilderAuthHeader: vi.fn(async () => {
-      // guard:allow-env-credential — test mock; runs only in vitest.
-      const key = process.env.BUILDER_PRIVATE_KEY;
+      const key = credentialState.builderPrivateKey;
       return key ? `Bearer ${key}` : null;
     }),
     getBuilderGatewayBaseUrl: original.getBuilderGatewayBaseUrl,
@@ -64,6 +67,7 @@ const BASE_OPTS: EngineStreamOptions = {
 
 describe("createBuilderEngine", () => {
   beforeEach(() => {
+    credentialState.builderPrivateKey = "bpk-test";
     vi.stubEnv("BUILDER_PRIVATE_KEY", "bpk-test");
     vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
   });
@@ -85,6 +89,7 @@ describe("createBuilderEngine", () => {
   });
 
   it("emits a missing-credentials stop-error when BUILDER_PRIVATE_KEY is unset", async () => {
+    credentialState.builderPrivateKey = null;
     vi.unstubAllEnvs();
     const engine = createBuilderEngine();
     const events = await collectEvents(engine.stream(BASE_OPTS));

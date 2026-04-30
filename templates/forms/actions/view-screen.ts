@@ -3,9 +3,11 @@ import { readAppState } from "@agent-native/core/application-state";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
 
 export default defineAction({
   description: "See what the user is currently looking at on screen.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");

@@ -271,6 +271,14 @@ export async function fetchICalEvents(
 ): Promise<CalendarEvent[]> {
   const httpUrl = normalizeUrl(url);
 
+  try {
+    assertSafeICalUrl(httpUrl);
+  } catch {
+    // Silently degrade — never echo the URL or reason back. A loud error
+    // helps an attacker map internal infrastructure via probe responses.
+    return [];
+  }
+
   let icsText: string;
   try {
     const response = await fetch(httpUrl, {

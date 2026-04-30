@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { getContentCalendar } from "../server/lib/notion";
 
 export default defineAction({
   description: "Get all entries from the Notion content calendar.",
-  parameters: {},
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
     const entries = await getContentCalendar();

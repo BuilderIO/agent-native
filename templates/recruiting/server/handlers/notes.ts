@@ -108,8 +108,7 @@ export const deleteNoteHandler = defineEventHandler(async (event) => {
   }
 
   const isAuthor = existing.ownerEmail === ctx.email;
-  const role = (ctx as { role?: string }).role;
-  const isOrgAdmin = role === "owner" || role === "admin";
+  const isOrgAdmin = ctx.role === "owner" || ctx.role === "admin";
   if (!isAuthor && !isOrgAdmin) {
     throw createError({
       statusCode: 403,

@@ -1,4 +1,5 @@
 import { defineEventHandler, setResponseStatus, getMethod } from "h3";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import type {
@@ -255,10 +256,26 @@ export function createIntegrationsPlugin(
           return { error: "taskId required" };
         }
 
-        // Auth: HMAC token. Falls open when A2A_SECRET is unset (the SQL
-        // atomic claim is then the only gating factor — same posture as
-        // the A2A endpoint when no secret is configured).
-        if (process.env.A2A_SECRET) {
+        // Auth: HMAC token bound to the task id.
+        //
+        // In production we MUST require A2A_SECRET — a publicly-callable
+        // process-task endpoint lets attackers re-trigger any queued task
+        // by guessing or sniffing its id (C3 in the webhook security audit).
+        // The atomic SQL claim only prevents *double*-processing, not the
+        // first attacker-driven processing.
+        //
+        // In dev we keep the loose posture so contributors don't have to
+        // configure A2A_SECRET to play with the integration locally.
+        if (!process.env.A2A_SECRET) {
+          if (process.env.NODE_ENV === "production") {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "A2A_SECRET not configured — internal token signing is required to process integration tasks in production.",
+            };
+          }
+          // Dev: fall through unsigned (the atomic claim still gates double-processing).
+        } else {
           const tok = extractBearerToken(
             getRequestHeader(event, "authorization"),
           );
@@ -299,8 +316,13 @@ export function createIntegrationsPlugin(
               ? String(err.message).slice(0, 1000)
               : "processor failed",
           );
+          // Log the detail server-side; never return the raw error message
+          // to the caller. Raw messages have leaked DB error codes, schema
+          // names, and stack hints in the past (L3 in the webhook security
+          // audit). Sentry / log providers still see the full error.
+          console.error("[integrations] process-task failure:", err);
           setResponseStatus(event, 500);
-          return { error: err?.message ?? String(err) };
+          return { error: "Internal task failed" };
         }
       }),
     );

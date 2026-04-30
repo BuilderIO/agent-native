@@ -9,6 +9,10 @@ import {
   isNotNull,
   sql,
 } from "drizzle-orm";
+
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -106,7 +110,7 @@ export default defineAction({
     }
 
     if (args.search) {
-      const pat = `%${args.search}%`;
+      const pat = `%${escapeLike(args.search)}%`;
       whereClauses.push(
         sql`(${schema.recordings.title} LIKE ${pat} OR ${schema.recordings.description} LIKE ${pat})`,
       );

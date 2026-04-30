@@ -11,6 +11,10 @@
 
 import { defineAction } from "@agent-native/core";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -68,7 +72,7 @@ export default defineAction({
     }
 
     if (args.search) {
-      const pat = `%${args.search.toLowerCase()}%`;
+      const pat = `%${escapeLike(args.search.toLowerCase())}%`;
       whereClauses.push(sql`LOWER(${schema.meetings.title}) LIKE ${pat}`);
     }
 

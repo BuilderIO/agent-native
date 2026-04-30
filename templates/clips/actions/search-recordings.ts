@@ -1,10 +1,14 @@
 import { defineAction } from "@agent-native/core";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 
 const SNIPPET_RADIUS = 80;
+
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
 
 function buildSnippet(fullText: string, query: string): string | null {
   if (!fullText || !query) return null;
@@ -28,7 +32,7 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
-    const pattern = `%${args.query}%`;
+    const pattern = `%${escapeLike(args.query)}%`;
 
     // Title/description matches on the recordings table
     const recMatches = await db
@@ -52,42 +56,50 @@ export default defineAction({
       )
       .limit(args.limit);
 
-    // Transcript matches on recording_transcripts.fullText
-    const transcriptMatches = await db
+    // Transcript matches — join recordings so accessFilter is applied upfront,
+    // preventing cross-user transcript ID leakage via timing side-channels.
+    const transcriptRows = await db
       .select({
         recordingId: schema.recordingTranscripts.recordingId,
         fullText: schema.recordingTranscripts.fullText,
+        id: schema.recordings.id,
+        title: schema.recordings.title,
+        description: schema.recordings.description,
+        thumbnailUrl: schema.recordings.thumbnailUrl,
+        durationMs: schema.recordings.durationMs,
+        ownerEmail: schema.recordings.ownerEmail,
+        visibility: schema.recordings.visibility,
+        createdAt: schema.recordings.createdAt,
+        updatedAt: schema.recordings.updatedAt,
       })
       .from(schema.recordingTranscripts)
-      .where(sql`${schema.recordingTranscripts.fullText} LIKE ${pattern}`)
+      .innerJoin(
+        schema.recordings,
+        eq(schema.recordingTranscripts.recordingId, schema.recordings.id),
+      )
+      .where(
+        and(
+          accessFilter(schema.recordings, schema.recordingShares),
+          sql`${schema.recordingTranscripts.fullText} LIKE ${pattern}`,
+        ),
+      )
       .limit(args.limit);
 
-    const transcriptIds = transcriptMatches
-      .map((t) => t.recordingId)
-      .filter((id): id is string => !!id);
-
-    let transcriptRecordings: any[] = [];
-    if (transcriptIds.length > 0) {
-      transcriptRecordings = await db
-        .select({
-          id: schema.recordings.id,
-          title: schema.recordings.title,
-          description: schema.recordings.description,
-          thumbnailUrl: schema.recordings.thumbnailUrl,
-          durationMs: schema.recordings.durationMs,
-          ownerEmail: schema.recordings.ownerEmail,
-          visibility: schema.recordings.visibility,
-          createdAt: schema.recordings.createdAt,
-          updatedAt: schema.recordings.updatedAt,
-        })
-        .from(schema.recordings)
-        .where(
-          and(
-            accessFilter(schema.recordings, schema.recordingShares),
-            inArray(schema.recordings.id, transcriptIds),
-          ),
-        );
-    }
+    const transcriptMatches = transcriptRows.map((r) => ({
+      recordingId: r.recordingId,
+      fullText: r.fullText,
+    }));
+    const transcriptRecordings = transcriptRows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      description: r.description,
+      thumbnailUrl: r.thumbnailUrl,
+      durationMs: r.durationMs,
+      ownerEmail: r.ownerEmail,
+      visibility: r.visibility,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }));
 
     // Merge matches by id. Prefer transcript snippet if present.
     const snippetById = new Map<string, string | null>();

@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { runQuery } from "../server/lib/bigquery";
 
 export default defineAction({
   description:
     "Check contacts with signup timestamps from BigQuery dim_hs_contacts.",
-  parameters: {},
+  schema: z.object({}),
   http: false,
   run: async () => {
     const sql = `

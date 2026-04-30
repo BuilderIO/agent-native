@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -140,6 +141,7 @@ async function fetchScreen() {
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, job/candidate details, and list data. Always call this first before taking any action.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     const orgId = getRequestOrgId() ?? null;

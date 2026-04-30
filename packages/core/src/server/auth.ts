@@ -911,11 +911,11 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     if (session) return session;
     // Desktop SSO broker: even with BYOA auth, fall back to the broker
     // for Electron requests so cross-template SSO works for custom-auth
-    // templates too.
-    if (isElectronRequest(event)) {
-      const sso = await readDesktopSso();
-      if (sso?.email) return { email: sso.email, token: sso.token };
-    }
+    // templates too. Gated on `readDesktopSsoSafely` so a non-loopback
+    // request that spoofs `User-Agent: ... Electron/...` cannot read the
+    // home-dir broker file (and so production builds never consult it).
+    const sso = await readDesktopSsoSafely(event);
+    if (sso?.email) return { email: sso.email, token: sso.token };
     // Fall through to mobile _session check
   } else {
     // 4. Better Auth session (cookie or Bearer token)
@@ -951,14 +951,14 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     // a session token created by one template doesn't resolve in another.
     // When an Electron request has no resolvable session, trust the
     // home-dir SSO record written by whichever template the user signed
-    // into. Gated on Electron user-agent so no non-desktop code path
-    // consults the file.
-    if (isElectronRequest(event)) {
-      const sso = await readDesktopSso();
-      if (sso?.email) {
-        clearUpgradePendingCookie(event);
-        return { email: sso.email, token: sso.token };
-      }
+    // into. Gated on `readDesktopSsoSafely`: requires Electron User-Agent,
+    // a loopback (127.0.0.1 / ::1) source IP, and a non-production NODE_ENV
+    // — anything else is rejected so a hostile network request cannot
+    // impersonate whichever email last signed into the desktop app.
+    const sso = await readDesktopSsoSafely(event);
+    if (sso?.email) {
+      clearUpgradePendingCookie(event);
+      return { email: sso.email, token: sso.token };
     }
   }
 

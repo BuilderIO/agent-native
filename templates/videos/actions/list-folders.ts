@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { desc, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 import { z } from "zod";
@@ -27,7 +27,16 @@ export default defineAction({
           compositionId: schema.folderMemberships.compositionId,
         })
         .from(schema.folderMemberships)
-        .where(inArray(schema.folderMemberships.folderId, folderIds));
+        .innerJoin(
+          schema.compositions,
+          eq(schema.folderMemberships.compositionId, schema.compositions.id),
+        )
+        .where(
+          and(
+            inArray(schema.folderMemberships.folderId, folderIds),
+            accessFilter(schema.compositions, schema.compositionShares),
+          ),
+        );
     }
 
     const compositionsByFolder = new Map<string, string[]>();

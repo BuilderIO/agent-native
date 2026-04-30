@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { TranscriptSegment } from "../../../shared/api.js";
 
 export interface TranscribeOptions {
@@ -6,6 +7,45 @@ export interface TranscribeOptions {
   mediaBytes?: Uint8Array | ArrayBuffer;
   mimeType?: string;
   callbackUrl?: string;
+}
+
+/**
+ * Sign a per-call HMAC token bound to (callId, ownerEmail). The kickoff
+ * caller adds this token to the `?callback=...&token=<hmac>` URL it gives
+ * Deepgram, and the webhook handler refuses any callback without a valid
+ * token. Defends against an attacker who can guess a callId from
+ * pivoting a captured Deepgram payload onto another user's call row.
+ */
+export function signDeepgramCallbackToken(
+  callId: string,
+  ownerEmail: string | null | undefined,
+  secret: string,
+): string {
+  return createHmac("sha256", secret)
+    .update(`deepgram-callback:${callId}:${ownerEmail ?? ""}`)
+    .digest("hex");
+}
+
+/**
+ * Verify a per-call HMAC token. Constant-time compare of the supplied
+ * token against the expected signature for (callId, ownerEmail).
+ */
+export function verifyDeepgramCallbackToken(
+  supplied: string | undefined,
+  callId: string,
+  ownerEmail: string | null | undefined,
+  secret: string,
+): boolean {
+  if (!supplied) return false;
+  const expected = signDeepgramCallbackToken(callId, ownerEmail, secret);
+  try {
+    const a = Buffer.from(expected, "hex");
+    const b = Buffer.from(supplied, "hex");
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
 
 export interface TranscribeResult {

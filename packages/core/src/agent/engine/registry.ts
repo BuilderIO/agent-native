@@ -212,7 +212,6 @@ export function isStoredEngineUsable(
 ): boolean {
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
-  // guard:allow-env-credential — deploy-level engine usability check (whether the deploy has the env vars to run this engine), not per-user credential resolution.
   return entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v));
 }
 

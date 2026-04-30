@@ -402,11 +402,6 @@ describe("AgentEngine registry", () => {
     });
 
     it("resolveEngine routes to Builder when the user has Builder creds in app_secrets and no env-level keys", async () => {
-      // guard:allow-env-credential — test fixture; clears env state for the test.
-      delete process.env.BUILDER_PRIVATE_KEY;
-      // guard:allow-env-credential — test fixture; clears env state for the test.
-      delete process.env.ANTHROPIC_API_KEY;
-
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "brent@example.com",
       }));
