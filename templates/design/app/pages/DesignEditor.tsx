@@ -49,6 +49,7 @@ import type {
   DrawAnnotation,
 } from "@/components/design/types";
 import { ZOOM_PRESETS } from "@/components/design/types";
+import { prettyScreenName } from "@/lib/screen-names";
 import type { TweakDefinition } from "@shared/api";
 
 const TAB_ID = generateTabId();
@@ -476,20 +477,23 @@ export default function DesignEditor() {
         </div>
       </header>
 
-      {/* Viewport tabs */}
+      {/* Viewport tabs. Filenames map to friendly screen names — designers
+          shouldn't see "mobile.html" in the chrome of their canvas. The
+          full filename is still the title attribute for power users + a11y. */}
       {viewportTabs.length > 1 && (
         <div className="h-8 border-b border-border flex items-center gap-1 px-3 shrink-0">
           {viewportTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveFileId(tab.id)}
+              title={tab.filename}
               className={`px-2.5 py-1 rounded text-xs cursor-pointer ${
                 tab.id === activeFileId
                   ? "bg-accent text-foreground/90"
                   : "text-muted-foreground hover:text-muted-foreground"
               }`}
             >
-              {tab.filename}
+              {prettyScreenName(tab.filename)}
             </button>
           ))}
         </div>

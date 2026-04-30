@@ -330,12 +330,6 @@ function ThreadView({
             </TooltipTrigger>
             <TooltipContent>Resolve</TooltipContent>
           </Tooltip>
-          <button
-            onClick={(e) => e.stopPropagation()}
-            className="p-1.5 text-muted-foreground hover:text-foreground rounded-r-md hover:bg-accent"
-          >
-            <IconDots size={14} />
-          </button>
         </div>
 
         {/* Comments */}
@@ -399,9 +393,6 @@ function ThreadView({
               className="w-full bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none pr-16"
             />
             <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-              <button className="p-1 text-muted-foreground/40 hover:text-muted-foreground">
-                <IconAt size={16} />
-              </button>
               <button
                 onClick={onSubmitReply}
                 disabled={!replyText.trim()}

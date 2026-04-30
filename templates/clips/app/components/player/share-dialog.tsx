@@ -116,7 +116,7 @@ export function ShareRecordingPopover({
     : "Share recording";
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent align="end" className="w-[440px] p-0">
         <div className="px-4 pt-3 pb-3 border-b border-border">

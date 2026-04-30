@@ -158,6 +158,20 @@ export function LibraryGrid({
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
+      {/* Share popover — programmatically opened from the card context menu */}
+      {sharingRec && (
+        <ShareRecordingPopover
+          recordingId={sharingRec.id}
+          recordingTitle={sharingRec.title}
+          open={!!sharingRec}
+          onOpenChange={(open) => {
+            if (!open) setSharingRec(null);
+          }}
+        >
+          <span />
+        </ShareRecordingPopover>
+      )}
+
       {/* Rename dialog */}
       <Dialog
         open={!!renamingRec}

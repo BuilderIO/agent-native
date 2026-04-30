@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { prettyScreenName } from "@/lib/screen-names";
 
 interface ScreenFile {
   id: string;

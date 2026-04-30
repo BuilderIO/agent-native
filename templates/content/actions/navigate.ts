@@ -22,7 +22,7 @@ export default defineAction({
     let path = args.path;
 
     if (!path && args.documentId) {
-      path = `/${args.documentId}`;
+      path = `/page/${args.documentId}`;
     }
 
     if (!path) {

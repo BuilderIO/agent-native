@@ -1466,8 +1466,7 @@ export function Timeline({
                         >
                           <div
                             className={cn(
-                              "w-2 h-2 rotate-45 transition-transform relative",
-                              !isPlaying && "group-hover:scale-125",
+                              "w-2 h-2 rotate-45 relative",
                             )}
                             style={{
                               // Different styles for cursor keyframes based on what changed
@@ -1666,8 +1665,7 @@ export function Timeline({
                     <div
                       className={cn(
                         "absolute top-1/2 -translate-y-1/2 -translate-x-1/2",
-                        "w-2 h-2 rotate-45 cursor-pointer transition-all",
-                        !isPlaying && "hover:scale-125",
+                        "w-2 h-2 rotate-45 cursor-pointer",
                       )}
                       style={{
                         left: `${keyframePos}%`,
