@@ -56,6 +56,30 @@ function getOAuth2Credentials(): {
  * Get a valid access token for the given stored tokens, refreshing if expired.
  * Returns the (possibly refreshed) access token and updates stored tokens if refreshed.
  */
+/**
+ * Permanent OAuth refresh failures Google can return. When we hit one of
+ * these, the refresh_token is dead — keeping the row around makes
+ * `getAuthStatus` lie ("connected": true) and `listEmails` silently return
+ * an empty list (no clients, no surfaced errors). Drop the row so the UI
+ * shows the "Connect Google" banner instead of an empty inbox.
+ *
+ * Causes we've seen:
+ * - `invalid_grant`: user revoked access, password changed, or token aged out
+ * - `unauthorized_client`: the app's GOOGLE_CLIENT_ID was rotated in env;
+ *   tokens issued by the old client cannot be refreshed by the new one
+ * - `invalid_client`: client_id/secret mismatch
+ */
+const PERMANENT_REFRESH_ERRORS = [
+  "invalid_grant",
+  "unauthorized_client",
+  "invalid_client",
+];
+
+function isPermanentRefreshError(message: string): boolean {
+  const m = message.toLowerCase();
+  return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
+}
+
 async function getValidAccessToken(
   accountId: string,
   tokens: GoogleTokens,
@@ -72,15 +96,28 @@ async function getValidAccessToken(
 
   // Token is expired or about to expire — refresh it
   if (!tokens.refresh_token) {
+    // No refresh_token means we can never recover this account; drop it so
+    // the UI prompts a reconnect instead of showing a permanently-broken row.
+    await deleteOAuthTokens("google", accountId);
     throw new Error(
-      `No refresh token available for ${accountId}, cannot refresh access token`,
+      `No refresh token available for ${accountId} — please reconnect.`,
     );
   }
 
   const { clientId, clientSecret } = getOAuth2Credentials();
   const redirectUri = "http://localhost:8080/_agent-native/google/callback";
   const oauth2 = createOAuth2Client(clientId, clientSecret, redirectUri);
-  const refreshed = await oauth2.refreshToken(tokens.refresh_token);
+  let refreshed;
+  try {
+    refreshed = await oauth2.refreshToken(tokens.refresh_token);
+  } catch (err: any) {
+    if (isPermanentRefreshError(err?.message || "")) {
+      // Drop the dead row so isOAuthConnected returns false and the UI
+      // surfaces the connect banner instead of an empty-inbox illusion.
+      await deleteOAuthTokens("google", accountId);
+    }
+    throw err;
+  }
 
   const updatedTokens: GoogleTokens = {
     ...tokens,
@@ -258,21 +295,42 @@ export async function getClientFromAccount(account: {
 
 /**
  * Get OAuth credentials. When `forEmail` is provided, returns only that
- * user's credentials (multi-user mode). Otherwise returns all (legacy).
+ * user's credentials (multi-user mode). Otherwise returns an empty array.
+ *
+ * Refresh failures are swallowed per-account here — callers that need to
+ * surface "all your tokens are dead" to the UI should use
+ * `getClientsWithErrors`. Without that signal, a fully-broken account
+ * silently looks like an empty inbox.
  */
 export async function getClients(
   forEmail?: string,
 ): Promise<
   Array<{ email: string; accessToken: string; refreshToken: string }>
 > {
-  if (!forEmail) return [];
+  const { clients } = await getClientsWithErrors(forEmail);
+  return clients;
+}
+
+/**
+ * Same as `getClients`, but also returns per-account refresh errors so
+ * callers can distinguish "no accounts connected" (empty errors) from
+ * "all accounts failed to refresh" (errors populated). The mail list
+ * handler uses this to return a 502 with the underlying reason instead
+ * of silently rendering an empty inbox.
+ */
+export async function getClientsWithErrors(forEmail?: string): Promise<{
+  clients: Array<{ email: string; accessToken: string; refreshToken: string }>;
+  errors: Array<{ email: string; error: string }>;
+}> {
+  if (!forEmail) return { clients: [], errors: [] };
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
 
-  const results: Array<{
+  const clients: Array<{
     email: string;
     accessToken: string;
     refreshToken: string;
   }> = [];
+  const errors: Array<{ email: string; error: string }> = [];
 
   for (const account of accounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
@@ -294,17 +352,20 @@ export async function getClients(
         ownerForRefresh,
       );
 
-      results.push({
+      clients.push({
         email: accountId,
         accessToken,
         refreshToken: tokens.refresh_token || "",
       });
-    } catch {
-      // Skip accounts with expired/invalid tokens so other accounts still work
+    } catch (err: any) {
+      errors.push({
+        email: accountId,
+        error: err?.message || "Unknown refresh error",
+      });
     }
   }
 
-  return results;
+  return { clients, errors };
 }
 
 /**
@@ -919,10 +980,15 @@ async function listGmailMessagesUncached(
   forEmail?: string,
   pageTokens?: Record<string, string>,
 ): Promise<ListResult> {
-  const clients = await getClients(forEmail);
-  if (clients.length === 0) return { messages: [], errors: [] };
+  const { clients, errors: refreshErrors } =
+    await getClientsWithErrors(forEmail);
+  // Seed the per-fetch error list with refresh failures so a fully-dead
+  // connection (every account's refresh_token revoked or invalidated by a
+  // GOOGLE_CLIENT_ID rotation) reaches the handler — otherwise the list
+  // looks indistinguishable from "empty inbox" and the user sees no error.
+  const errors: Array<{ email: string; error: string }> = [...refreshErrors];
+  if (clients.length === 0) return { messages: [], errors };
 
-  const errors: Array<{ email: string; error: string }> = [];
   const nextPageTokens: Record<string, string> = {};
   let totalEstimate = 0;
 

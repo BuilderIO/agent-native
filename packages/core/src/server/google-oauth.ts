@@ -8,15 +8,7 @@
  */
 
 import crypto from "node:crypto";
-import {
-  getHeader,
-  getQuery,
-  setCookie,
-  sendRedirect,
-  setResponseStatus,
-  setResponseHeader,
-  type H3Event,
-} from "h3";
+import { getHeader, getQuery, setCookie, sendRedirect, type H3Event } from "h3";
 import {
   addSession,
   getSession,
@@ -511,7 +503,7 @@ export function oauthCallbackResponse(
     returnUrl?: string;
     flowId?: string;
   },
-): Response | string | void | Promise<Response | string | void> {
+): Response | string | unknown | Promise<Response | string | unknown> {
   const mobile = isMobile(event);
   const query = getQuery(event);
   const callbackState =
@@ -573,11 +565,19 @@ export function oauthCallbackResponse(
 
   // Web: redirect to the requested return path (validated same-origin) or
   // "/" if no return was supplied / the return failed validation.
-  // Use h3's native redirect (not web Response) to preserve Set-Cookie headers
-  // from createOAuthSession — a raw `new Response()` drops them.
-  setResponseStatus(event, 302);
-  setResponseHeader(event, "Location", safeReturnPath(opts.returnUrl));
-  return "";
+  //
+  // Use h3's `sendRedirect` rather than the manual `setResponseStatus +
+  // setResponseHeader + return ""` pattern: under the Nitro Netlify-Lambda
+  // adapter, a handler that returns an empty body can have its Set-Cookie
+  // headers dropped by the response transformer that builds the Lambda
+  // result. `sendRedirect` writes a small HTML body, which forces the
+  // adapter's full-response path that preserves headers — including the
+  // `an_session_<app>` cookie set inside `createOAuthSession`.
+  //
+  // _The previous form of this code caused the "Set up Google" loop reported
+  // by users on 2026-04-30 — popup-tab cookie set, original-tab polling
+  // never sees it, getAuthStatus stays anonymous → connected:false forever._
+  return sendRedirect(event, safeReturnPath(opts.returnUrl), 302);
 }
 
 /** HTML error page for OAuth failures. The message is HTML-escaped — most

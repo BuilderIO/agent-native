@@ -14,7 +14,6 @@ import type {
   EngineStreamOptions,
 } from "./types.js";
 import { getSetting } from "../../settings/store.js";
-import { DEV_MODE_USER_EMAIL } from "../../server/auth.js";
 import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 
 export interface AgentEngineEntry {
@@ -119,9 +118,11 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
  * on the docs site (Loom 2026-04-28: "It doesn't seem to realize I'm
  * connected once I do a chat").
  *
- * Returns `null` for unauthenticated requests and for `local@localhost`
- * — both rely on env-based detection (the dev box's deploy-level keys
- * are unambiguous, and unauthenticated requests have no user to scope by).
+ * Includes the local dev session (`local@localhost`): the Builder
+ * OAuth flow writes credentials scoped to that email when run from
+ * `pnpm dev`, so detection has to consult those rows or the dev user
+ * sees the same "Connect your AI" card after they've already connected
+ * (Sami, 2026-04-30). Returns `null` only for unauthenticated requests.
  */
 export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | null> {
   let email: string | undefined;
@@ -132,7 +133,7 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
   } catch {
     return null;
   }
-  if (!email || email === DEV_MODE_USER_EMAIL) return null;
+  if (!email) return null;
 
   let readAppSecret: typeof import("../../secrets/storage.js").readAppSecret;
   try {

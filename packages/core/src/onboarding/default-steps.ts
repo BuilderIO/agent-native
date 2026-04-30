@@ -88,7 +88,6 @@ const llmStep: OnboardingStep = {
       primary: true,
       payload: {
         scope: "llm",
-        waitlistUrl: "https://forms.agent-native.com/f/builder-waitlist/36GWqf",
       },
     },
   ],
