@@ -5,7 +5,7 @@ import {
 } from "./iframe-bridge.js";
 
 describe("tool iframe bridge", () => {
-  it("allows documented helper and app paths", () => {
+  it("allows documented helper paths under /_agent-native/", () => {
     expect(isAllowedToolPath("/_agent-native/tools/proxy", "tool-1")).toBe(
       true,
     );
@@ -27,7 +27,13 @@ describe("tool iframe bridge", () => {
         "tool-1",
       ),
     ).toBe(true);
-    expect(isAllowedToolPath("/api/custom-endpoint", "tool-1")).toBe(true);
+  });
+
+  it("blocks template /api/* routes — tools must use actions", () => {
+    expect(isAllowedToolPath("/api/custom-endpoint", "tool-1")).toBe(false);
+    expect(isAllowedToolPath("/api/uploads", "tool-1")).toBe(false);
+    expect(isAllowedToolPath("/api/billing/charge", "tool-1")).toBe(false);
+    expect(isAllowedToolPath("/auth/sign-out", "tool-1")).toBe(false);
   });
 
   it("blocks sensitive framework paths and cross-tool data paths", () => {

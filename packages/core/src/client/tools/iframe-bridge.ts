@@ -30,6 +30,19 @@ const BLOCKED_HEADERS = new Set([
 
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
+/**
+ * Path allowlist for the tool postMessage bridge.
+ *
+ * Tools can only call paths under `/_agent-native/*` (the framework's own
+ * namespace). Template-defined `/api/*` routes are intentionally rejected:
+ * those routes are written by app authors who may not consistently apply the
+ * `accessFilter`/`assertAccess` access scoping helpers. A shared/org tool
+ * running with the viewer's session should not be able to reach surfaces
+ * outside the framework's own well-audited namespace.
+ *
+ * If a template needs a tool to reach a custom route, expose it via an
+ * action (`defineAction` auto-mounts under `/_agent-native/actions/<name>`).
+ */
 export function isAllowedToolPath(path: string, toolId: string): boolean {
   if (!path.startsWith("/") || path.startsWith("//")) return false;
   if (path.includes("\\") || path.includes("\0")) return false;
@@ -46,7 +59,6 @@ export function isAllowedToolPath(path: string, toolId: string): boolean {
   const rawPathname = path.split("?")[0].split("#")[0];
   if (pathname !== rawPathname || pathname.includes("..")) return false;
 
-  if (pathname === "/api" || pathname.startsWith("/api/")) return true;
   if (pathname.startsWith("/_agent-native/actions/")) return true;
   if (pathname.startsWith("/_agent-native/application-state/")) return true;
 
