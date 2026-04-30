@@ -4,6 +4,9 @@ import { defineAction } from "../../action.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
+import { sendEmail, isEmailConfigured } from "../../server/email.js";
+import { renderEmail, emailStrong } from "../../server/email-template.js";
+import { getAppProductionUrl } from "../../server/app-url.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -69,6 +72,39 @@ export default defineAction({
       createdBy: actor,
       createdAt: new Date().toISOString(),
     });
+
+    if (args.principalType === "user" && isEmailConfigured()) {
+      try {
+        const titleCol = reg.titleColumn ?? "title";
+        const [resource] = await db
+          .select()
+          .from(reg.resourceTable)
+          .where(eq(reg.resourceTable.id, args.resourceId));
+        const resourceTitle: string =
+          (resource?.[titleCol] as string | undefined) ?? args.resourceType;
+        const appUrl = getAppProductionUrl();
+        const appName =
+          process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
+        const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
+        const { html, text } = renderEmail({
+          preheader: subject,
+          heading: "You've been given access",
+          paragraphs: [
+            `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
+            `You can access it by visiting ${emailStrong(appName)}.`,
+          ],
+          cta: { label: `Open ${reg.displayName}`, url: appUrl },
+          footer: `You received this because ${actor} granted you ${args.role} access.`,
+        });
+        await sendEmail({ to: args.principalId, subject, html, text });
+      } catch (err) {
+        console.error(
+          "[share-resource] failed to send share notification:",
+          err,
+        );
+      }
+    }
+
     return { id, updated: false };
   },
 });
