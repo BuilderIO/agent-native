@@ -163,29 +163,29 @@ cd templates/videos && pnpm action <name> [args]
 
 ### Actions
 
-| Action                        | Args                                                              | Purpose                                   |
-| ----------------------------- | ----------------------------------------------------------------- | ----------------------------------------- |
-| `view-screen`                 |                                                                   | See current UI state + context            |
-| `navigate`                    | `--compositionId <id>` or `--view home`                           | Navigate the UI                           |
-| `list-compositions`           | `[--compact]`                                                     | List all compositions                     |
-| `get-composition`             | `--id <id>`                                                       | Get a composition with tracks             |
-| `save-composition`            | `--id <id> --title "..." --type <type>`                           | Create or update a composition            |
-| `update-composition`          | `--id <id> [--title] [--tracks <json>] [--durationInFrames] ...`  | Update composition fields                 |
-| `delete-composition`          | `--id <id>`                                                       | Delete a composition                      |
-| `generate-animated-component` | `--name <name> [--elements A,B]`                                  | Generate an animated component            |
-| `validate-compositions`       |                                                                   | Validate all compositions                 |
-| `import-code`                 | `--url <url>`                                                     | Import a composition from a code URL      |
-| `import-from-url`             | `--url <url>`                                                     | Import content from a URL                 |
-| `import-document`             | `--filePath <path>`                                               | Import document content for a composition |
-| `import-design-project`       | `--projectId <id>`                                                | Import from a design project              |
-| `import-github`               | `--owner <o> --repo <r> [--path]`                                 | Import from a GitHub repository           |
-| `create-design-system`        | `--title "X" [--description "..."] --data '<json>'`               | Create a new design system                |
-| `update-design-system`        | `--id <id> [--title "X"] [--data '<json>']`                       | Update design system tokens               |
-| `get-design-system`           | `--id <id>`                                                       | Get design system with all tokens         |
-| `list-design-systems`         | `[--compact]`                                                     | List all accessible design systems        |
-| `set-default-design-system`   | `--id <id>`                                                       | Set one as the default                    |
-| `apply-design-system`         | `--compositionId <id> --designSystemId <id>`                      | Link a design system to a composition     |
-| `analyze-brand-assets`        | `[--websiteUrl "..."] [--companyName "..."] [--brandNotes "..."]` | Gather brand data for analysis            |
+| Action                        | Args                                                                         | Purpose                               |
+| ----------------------------- | ---------------------------------------------------------------------------- | ------------------------------------- |
+| `view-screen`                 |                                                                              | See current UI state + context        |
+| `navigate`                    | `--compositionId <id>` or `--view home`                                      | Navigate the UI                       |
+| `list-compositions`           | `[--compact]`                                                                | List all compositions                 |
+| `get-composition`             | `--id <id>`                                                                  | Get a composition with tracks         |
+| `save-composition`            | `--id <id> --title "..." --type <type> [--data '<json>']`                    | Create or update a composition        |
+| `update-composition`          | `--id <id> [--title "..."] [--type <type>] [--data '<json>']`                | Update composition fields             |
+| `delete-composition`          | `--id <id>`                                                                  | Delete a composition                  |
+| `generate-animated-component` | `--name <name> [--elements A,B]`                                             | Generate an animated component        |
+| `validate-compositions`       |                                                                              | Validate all compositions             |
+| `import-code`                 | `--files '[{\"filename\":\"...\",\"content\":\"...\"}]'`                     | Analyze uploaded code files           |
+| `import-from-url`             | `--url <url>`                                                                | Import content from a URL             |
+| `import-document`             | `--files '[{\"filename\":\"...\",\"fileType\":\".pdf\",\"sizeBytes\":123}]'` | Analyze uploaded document metadata    |
+| `import-design-project`       | `--designSystemId <id>`                                                      | Import from a design system           |
+| `import-github`               | `--repoUrl <org/repo-or-url>`                                                | Import from a GitHub repository       |
+| `create-design-system`        | `--title "X" [--description "..."] --data '<json>' [--assets '<json>']`      | Create a new design system            |
+| `update-design-system`        | `--id <id> [--title "X"] [--data '<json>'] [--assets '<json>']`              | Update design system tokens           |
+| `get-design-system`           | `--id <id>`                                                                  | Get design system with all tokens     |
+| `list-design-systems`         | `[--compact]`                                                                | List all accessible design systems    |
+| `set-default-design-system`   | `--id <id>`                                                                  | Set one as the default                |
+| `apply-design-system`         | `--compositionId <id> --designSystemId <id>`                                 | Link a design system to a composition |
+| `analyze-brand-assets`        | `[--websiteUrl "..."] [--companyName "..."] [--brandNotes "..."]`            | Gather brand data for analysis        |
 
 ### Common Tasks
 
