@@ -63,7 +63,7 @@ export function CanvasCommentPins({
 }: CanvasCommentPinsProps) {
   const [pins, setPins] = useState<CanvasPin[]>([]);
   const [activePinId, setActivePinId] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLElement | null>(null);
 
   // Reset pins when the context (slide) changes — they're scoped to one view.
   useEffect(() => {

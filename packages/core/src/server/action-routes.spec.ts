@@ -11,6 +11,12 @@ vi.mock("h3", () => ({
   setResponseStatus: (event: any, status: number) => {
     event._status = status;
   },
+  setResponseHeader: (event: any, name: string, value: string) => {
+    event._responseHeaders = {
+      ...(event._responseHeaders ?? {}),
+      [name.toLowerCase()]: value,
+    };
+  },
 }));
 
 vi.mock("./framework-request-handler.js", () => ({
@@ -171,6 +177,35 @@ describe("mountActionRoutes", () => {
 
     expect(result).toBe("");
     expect(event._status).toBe(204);
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(actions.mutate.run).not.toHaveBeenCalled();
+  });
+
+  it("rejects OPTIONS from disallowed cross-origin callers", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "owner@example.com");
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      mutate: {
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, { getOwnerFromEvent });
+
+    const event = {
+      _method: "OPTIONS",
+      _headers: { origin: "https://evil.example" },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toBe("");
+    expect(event._status).toBe(403);
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
     expect(actions.mutate.run).not.toHaveBeenCalled();
   });

@@ -120,12 +120,12 @@ export default function Header() {
             <img
               src="/agent-native-logo-light.svg"
               alt="Agent-Native"
-              className="block h-3.5 w-auto dark:hidden"
+              className="block h-[1.05rem] w-auto dark:hidden"
             />
             <img
               src="/agent-native-logo-dark.svg"
               alt="Agent-Native"
-              className="hidden h-3.5 w-auto dark:block"
+              className="hidden h-[1.05rem] w-auto dark:block"
             />
           </Link>
 
