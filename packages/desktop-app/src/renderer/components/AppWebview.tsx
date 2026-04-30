@@ -293,7 +293,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
     return (
       <div
-        className={`webview-slot${isActive ? "" : " webview-slot--hidden"}${isFullscreen ? " webview-slot--fullscreen" : ""}`}
+        className={`webview-slot${isActive ? " webview-slot--active" : " webview-slot--hidden"}${isFullscreen ? " webview-slot--fullscreen" : ""}`}
         onClick={() => {
           // Re-focus the webview when clicking the content area so
           // keyboard shortcuts (Tab, etc.) route into the app.

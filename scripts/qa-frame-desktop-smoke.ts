@@ -126,6 +126,30 @@ assert.match(
   /setAttribute\("src", url\)/,
   "desktop webview must update its src when app URL/mode changes",
 );
+assert.match(
+  appWebview,
+  /webview-slot--active/,
+  "desktop webview slots must mark the active native guest surface explicitly",
+);
+
+const desktopShell = read("packages/desktop-app/src/renderer/shell.css");
+assert.doesNotMatch(
+  desktopShell,
+  /\.webview-slot--hidden\s*\{[^}]*visibility:\s*hidden/s,
+  "desktop hidden webview slots must not rely on visibility:hidden; Electron can leave stale native-surface pixels composited",
+);
+assert.match(
+  desktopShell,
+  /\.webview-slot--hidden\s*\{[^}]*translate3d\(-200vw/s,
+  "desktop hidden webview slots must move inactive native guest surfaces offscreen",
+);
+
+const desktopApp = read("packages/desktop-app/src/renderer/App.tsx");
+assert.match(
+  desktopApp,
+  /enabledApps\.find\(\(app\) => app\.id === activeSidebarAppId\)/,
+  "desktop shell must mount only the active app's webviews to avoid stale Electron native guest surfaces",
+);
 
 const frameClient = read("packages/frame/client/App.tsx");
 assert.match(
