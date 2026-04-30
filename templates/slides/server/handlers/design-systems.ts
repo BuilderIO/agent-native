@@ -1,4 +1,9 @@
-import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getRouterParam,
+  setResponseStatus,
+  createError,
+} from "h3";
 import { eq, desc } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { readBody } from "@agent-native/core/server";
@@ -80,7 +85,13 @@ export const createDesignSystem = defineEventHandler(async (event) => {
           : JSON.stringify(body.assets)
         : null,
     isDefault: body.isDefault ?? false,
-    ownerEmail: body.ownerEmail ?? "local@localhost",
+    ownerEmail: (() => {
+      if (body.ownerEmail) return body.ownerEmail as string;
+      throw createError({
+        statusCode: 401,
+        statusMessage: "ownerEmail required",
+      });
+    })(),
     orgId: body.orgId ?? null,
     createdAt: now,
     updatedAt: now,

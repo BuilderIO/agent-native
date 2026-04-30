@@ -14,6 +14,7 @@ import {
 } from "../agent/production-agent.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import { resolveEngine, createAnthropicEngine } from "../agent/engine/index.js";
+import { DEFAULT_MODEL } from "../agent/default-model.js";
 import type {
   ActionTool,
   MentionProvider,
@@ -47,7 +48,7 @@ import {
   getHeader,
 } from "h3";
 import { agentEnv } from "../shared/agent-env.js";
-import { getSession } from "./auth.js";
+import { getSession, DEV_MODE_USER_EMAIL } from "./auth.js";
 import { getOrigin } from "./google-oauth.js";
 import {
   createThread,
@@ -2337,7 +2338,7 @@ export function createAgentChatPlugin(
       // Mutable owner — set per-request by the production handler, read by
       // automation tools and fetch tool via closure. Declared here (before
       // allScripts) so the tools are in scope when allScripts is built.
-      let _currentRunOwner = "local@localhost";
+      let _currentRunOwner = DEV_MODE_USER_EMAIL;
 
       // Automation tools + fetch tool — depend on _currentRunOwner via callback
       let automationTools: Record<string, ActionEntry> = {};
@@ -2481,7 +2482,7 @@ export function createAgentChatPlugin(
           }
 
           if (userEmail) {
-            process.env.AGENT_USER_EMAIL = userEmail;
+            process.env.AGENT_USER_EMAIL = userEmail; // guard:allow-env-mutation — back-compat for legacy CLI scripts/integration handlers that still read process.env directly; per-request truth lives in runWithRequestContext
           }
 
           const text = message.parts
@@ -2513,7 +2514,8 @@ export function createAgentChatPlugin(
           const handler = devActive && devHandler ? devHandler : prodHandler;
 
           // Build the same system prompt the interactive agent uses
-          const owner = userEmail || "local@localhost";
+          if (!userEmail) throw new Error("no authenticated user");
+          const owner = userEmail;
           const resources = await loadResourcesForPrompt(owner, lazyContext);
           const schemaBlock = lazyContext
             ? ""
@@ -2522,7 +2524,7 @@ export function createAgentChatPlugin(
             ? devPrompt + resources + schemaBlock
             : basePrompt + resources + schemaBlock;
 
-          const model = options?.model ?? "claude-sonnet-4-6";
+          const model = options?.model ?? DEFAULT_MODEL;
 
           // Build tools — same as interactive handler but WITHOUT call-agent
           // to prevent infinite recursive A2A loops (agent calling itself).
@@ -2660,7 +2662,7 @@ export function createAgentChatPlugin(
             engineOption: options?.engine,
             apiKey: options?.apiKey,
           });
-          const model = options?.model ?? "claude-sonnet-4-6";
+          const model = options?.model ?? DEFAULT_MODEL;
 
           // Same actions as A2A — without call-agent to prevent loops.
           // In dev mode, template actions go through shell, not native tools.
@@ -2690,12 +2692,12 @@ export function createAgentChatPlugin(
           const mcpTools = actionsToEngineTools(mcpActions);
 
           const resources = await loadResourcesForPrompt(
-            "local@localhost",
+            DEV_MODE_USER_EMAIL,
             lazyContext,
           );
           const schemaBlock = lazyContext
             ? ""
-            : await buildSchemaBlock("local@localhost", devActiveMcp);
+            : await buildSchemaBlock(DEV_MODE_USER_EMAIL, devActiveMcp);
           // Build the MCP handler's own prompt — always use the shell-based
           // dev prompt in dev mode because mcpActions routes template actions
           // through shell (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
@@ -2737,12 +2739,15 @@ export function createAgentChatPlugin(
 
       // Resolve owner from the H3 event's session — matches how resources are created
       const getOwnerFromEvent = async (event: any): Promise<string> => {
-        try {
-          const session = await getSession(event);
-          return session?.email || "local@localhost";
-        } catch {
-          return "local@localhost";
+        const session = await getSession(event);
+        if (!session?.email) {
+          const { createError } = await import("h3");
+          throw createError({
+            statusCode: 401,
+            statusMessage: "Unauthenticated",
+          });
         }
+        return session.email;
       };
 
       // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
@@ -2959,7 +2964,7 @@ export function createAgentChatPlugin(
       // instead of silently falling back to Anthropic + Claude.
       let _currentRunEngine: AgentEngine | undefined;
       let _currentRunModel: string | undefined;
-      const resolvedModel = options?.model ?? "claude-sonnet-4-6";
+      const resolvedModel = options?.model ?? DEFAULT_MODEL;
 
       const teamTools = createTeamTools({
         getOwner: () => _currentRunOwner,
@@ -3116,7 +3121,7 @@ export function createAgentChatPlugin(
             basePrompt + resources + schemaBlock + extra;
           return _currentRunSystemPrompt;
         },
-        model: options?.model ?? "claude-sonnet-4-6",
+        model: options?.model ?? DEFAULT_MODEL,
         apiKey: options?.apiKey,
         skipFilesContext: leanPrompt,
         onEngineResolved: (engine, model) => {
@@ -3293,7 +3298,7 @@ export function createAgentChatPlugin(
           const trimmedKey = key.trim();
 
           const ownerEmail = await getOwnerFromEvent(event);
-          if (!ownerEmail || ownerEmail === "local@localhost") {
+          if (!ownerEmail || ownerEmail === DEV_MODE_USER_EMAIL) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
           }
@@ -3381,7 +3386,7 @@ export function createAgentChatPlugin(
           // Query resources
           try {
             const resources = currentDevMode
-              ? await resourceListAccessible("local@localhost")
+              ? await resourceListAccessible(DEV_MODE_USER_EMAIL)
               : await resourceList(SHARED_OWNER);
             for (const r of resources) {
               if (!seen.has(r.path)) {
@@ -3484,7 +3489,7 @@ export function createAgentChatPlugin(
           // Query resources with skills/ prefix
           try {
             const resourceSkills = currentDevMode
-              ? await resourceListAccessible("local@localhost", "skills/")
+              ? await resourceListAccessible(DEV_MODE_USER_EMAIL, "skills/")
               : await resourceList(SHARED_OWNER, "skills/");
             for (const r of resourceSkills) {
               // Try to get content to parse frontmatter
@@ -3633,7 +3638,7 @@ export function createAgentChatPlugin(
               (async () => {
                 try {
                   const resources = currentDevMode
-                    ? await resourceListAccessible("local@localhost")
+                    ? await resourceListAccessible(DEV_MODE_USER_EMAIL)
                     : await resourceList(SHARED_OWNER);
                   flush(
                     resources.map((r) => {
@@ -4226,9 +4231,9 @@ export function createAgentChatPlugin(
           }
 
           // Also set process.env for backwards compat (CLI scripts, legacy readers)
-          process.env.AGENT_USER_EMAIL = owner;
+          process.env.AGENT_USER_EMAIL = owner; // guard:allow-env-mutation — back-compat for legacy CLI scripts/readers; per-request truth lives in runWithRequestContext below
           if (resolvedOrgId) {
-            process.env.AGENT_ORG_ID = resolvedOrgId;
+            process.env.AGENT_ORG_ID = resolvedOrgId; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext below
           } else {
             delete process.env.AGENT_ORG_ID;
           }
@@ -4243,7 +4248,7 @@ export function createAgentChatPlugin(
             tzRaw.trim().length < 64
               ? tzRaw.trim()
               : undefined;
-          if (timezone) process.env.AGENT_USER_TIMEZONE = timezone;
+          if (timezone) process.env.AGENT_USER_TIMEZONE = timezone; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext below
 
           return runWithRequestContext(
             { userEmail: owner, orgId: resolvedOrgId, timezone },

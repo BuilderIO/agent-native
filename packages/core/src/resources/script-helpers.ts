@@ -18,9 +18,16 @@ import {
 } from "./store.js";
 import { getRequestUserEmail } from "../server/request-context.js";
 
+// Dev-mode fallback identity. Scripts run as standalone CLI processes
+// without HTTP context — when no AGENT_USER_EMAIL is set we fall back to
+// "local@localhost" so a developer running `pnpm action` locally without
+// signing in still gets a usable scope. Production multi-user deployments
+// always set AGENT_USER_EMAIL via the agent runtime.
+const DEV_FALLBACK_OWNER = "local@localhost";
+
 function getOwner(shared?: boolean): string {
   if (shared) return SHARED_OWNER;
-  return getRequestUserEmail() || "local@localhost";
+  return getRequestUserEmail() ?? DEV_FALLBACK_OWNER;
 }
 
 export async function readResource(
@@ -60,6 +67,6 @@ export async function listResources(
 export async function listAllResources(
   prefix?: string,
 ): Promise<ResourceMeta[]> {
-  const userEmail = getRequestUserEmail() || "local@localhost";
+  const userEmail = getRequestUserEmail() ?? DEV_FALLBACK_OWNER;
   return resourceListAccessible(userEmail, prefix);
 }

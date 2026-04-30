@@ -14,3 +14,4 @@ export {
   type MentionProvider,
   type MentionProviderItem,
 } from "./types.js";
+export { DEFAULT_MODEL } from "./default-model.js";

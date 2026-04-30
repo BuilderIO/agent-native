@@ -16,6 +16,7 @@ export {
   getSessionEmail,
   runAuthGuard,
   setDesktopExchange,
+  DEV_MODE_USER_EMAIL,
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
@@ -118,6 +119,7 @@ export {
   getRequestUserEmail,
   getRequestOrgId,
   getRequestTimezone,
+  getCredentialContext,
   type RequestContext,
 } from "./request-context.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";

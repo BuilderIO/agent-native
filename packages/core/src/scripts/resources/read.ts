@@ -14,6 +14,7 @@ import {
   SHARED_OWNER,
 } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { DEV_MODE_USER_EMAIL } from "../../server/auth.js";
 
 export default async function resourceReadScript(
   args: string[],
@@ -36,7 +37,7 @@ Options:
   }
 
   const scope = parsed.scope;
-  const owner = getRequestUserEmail() ?? "local@localhost";
+  const owner = getRequestUserEmail() ?? DEV_MODE_USER_EMAIL;
 
   // Seed personal AGENTS.md + LEARNINGS.md on first access
   if (scope !== "shared") {

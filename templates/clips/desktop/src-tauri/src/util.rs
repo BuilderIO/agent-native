@@ -79,6 +79,61 @@ pub fn set_capture_excluded(_window: &WebviewWindow) {
     // Windows API; Linux doesn't even have a universal screen-capture API.
 }
 
+/// Show a Tauri WebviewWindow on screen WITHOUT making it the key window or
+/// activating Clips — the user's current foreground app stays focused.
+///
+/// Tauri's `WebviewWindow::show()` ultimately calls
+/// `[NSWindow makeKeyAndOrderFront:]` which steals key-window status from the
+/// frontmost app. For the voice-dictation overlays (parked popover, flow-bar)
+/// we want a "passive HUD" appearance — visible, on top, but never grabbing
+/// keyboard focus or interrupting whatever the user is typing into.
+///
+/// Uses NSWindow's `orderFrontRegardless` (orders the window in without
+/// touching key/main status) and `setHidesOnDeactivate: NO` (so it stays
+/// visible across app-switches). Both must run on the main thread because
+/// AppKit is main-thread-only.
+#[cfg(target_os = "macos")]
+pub fn show_without_activation(window: &WebviewWindow) {
+    let win = window.clone();
+    if let Err(err) = win.clone().run_on_main_thread(move || {
+        let label = win.label().to_string();
+        let ns_window_ptr = match win.ns_window() {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!(
+                    "[clips-tray] show_without_activation({label}): ns_window() failed: {err}"
+                );
+                return;
+            }
+        };
+        if ns_window_ptr.is_null() {
+            eprintln!("[clips-tray] show_without_activation({label}): ns_window is null");
+            return;
+        }
+        unsafe {
+            let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+            // Stay visible when the user switches apps (otherwise AppKit
+            // would auto-hide on Clips deactivation, which happens
+            // immediately because we never become key).
+            let _: () = objc2::msg_send![&*obj, setHidesOnDeactivate: false];
+            // Order in without making key/main. Equivalent of NSPanel's
+            // non-activating behavior on a vanilla NSWindow.
+            let _: () = objc2::msg_send![&*obj, orderFrontRegardless];
+        }
+        dlog!("[clips-tray] show_without_activation({label}): orderFrontRegardless");
+    }) {
+        eprintln!("[clips-tray] show_without_activation: run_on_main_thread failed: {err}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn show_without_activation(window: &WebviewWindow) {
+    // On non-macOS we just fall back to the standard show. Focus stealing
+    // is a macOS-flavored complaint; if it shows up on Windows / Linux
+    // we'll add a per-platform fix.
+    let _ = window.show();
+}
+
 pub fn primary_monitor_physical_size(app: &AppHandle) -> Option<(u32, u32)> {
     let window = app.get_webview_window("popover")?;
     let monitor = window

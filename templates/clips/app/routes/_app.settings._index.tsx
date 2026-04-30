@@ -55,7 +55,7 @@ async function saveSettings(value: ClipsUserSettings): Promise<void> {
 
 export default function SettingsIndexRoute() {
   const { session } = useSession();
-  const email = session?.email ?? "local@localhost";
+  const email = session?.email ?? "";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [defaultSpeed, setDefaultSpeed] = useState("1.2");

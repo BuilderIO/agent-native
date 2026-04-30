@@ -20,7 +20,6 @@ protocols:
       - agentnative
 
 mac:
-  icon: build/icon-v2.icns
   category: public.app-category.developer-tools
   identity: "Builder.io, Inc (W3PMF2T3MW)"
   notarize: true

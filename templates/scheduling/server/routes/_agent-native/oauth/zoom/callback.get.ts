@@ -31,7 +31,11 @@ export default defineEventHandler(async (event: H3Event) => {
     }
 
     const session = await getSession(event);
-    const userEmail = session?.email ?? "local@localhost";
+    if (!session?.email) {
+      setResponseStatus(event, 401);
+      return errorPage("Unauthenticated — please sign in and retry.");
+    }
+    const userEmail = session.email;
     const redirectUri = `${getOrigin(event)}/_agent-native/oauth/zoom/callback`;
 
     await completeVideoOAuth({

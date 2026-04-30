@@ -1,4 +1,10 @@
-import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
+import {
+  getDbExec,
+  isConnectionError,
+  isPostgres,
+  intType,
+  type DbExec,
+} from "../db/client.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 import type { StoreWriteOptions } from "../settings/store.js";
 
@@ -26,14 +32,21 @@ export async function appStateGet(
   sessionId: string,
   key: string,
 ): Promise<Record<string, unknown> | null> {
-  await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT value FROM application_state WHERE session_id = ? AND key = ?`,
-    args: [sessionId, key],
-  });
-  if (rows.length === 0) return null;
-  return JSON.parse(rows[0].value as string);
+  try {
+    await ensureTable();
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `SELECT value FROM application_state WHERE session_id = ? AND key = ?`,
+      args: [sessionId, key],
+    });
+    if (rows.length === 0) return null;
+    return JSON.parse(rows[0].value as string);
+  } catch (err) {
+    // Transient WS / connection drops (Neon serverless) — caller polls every
+    // 2s and will see the value on the next tick. Swallow rather than 500.
+    if (isConnectionError(err)) return null;
+    throw err;
+  }
 }
 
 export async function appStatePut(

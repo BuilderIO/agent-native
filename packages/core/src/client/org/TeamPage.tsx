@@ -19,6 +19,7 @@ import {
   IconEyeOff,
   IconCloudUpload,
 } from "@tabler/icons-react";
+import { DEV_MODE_USER_EMAIL } from "../dev-mode.js";
 import {
   useOrg,
   useOrgMembers,
@@ -903,7 +904,7 @@ function useMigrateLocalDataOnSignIn(
   });
 
   useEffect(() => {
-    if (!email || email === "local@localhost") return;
+    if (!email || email === DEV_MODE_USER_EMAIL) return;
     let flag: string | null = null;
     try {
       flag = localStorage.getItem(MIGRATE_FLAG_KEY);
@@ -1011,15 +1012,15 @@ export function TeamPage({
         </section>
       )}
 
-      {!isLoading && org?.email === "local@localhost" && (
+      {!isLoading && org?.email === DEV_MODE_USER_EMAIL && (
         <LocalModeSignInCard />
       )}
 
-      {!isLoading && org?.email !== "local@localhost" && (
+      {!isLoading && org?.email !== DEV_MODE_USER_EMAIL && (
         <MigrationStatusCard state={migration} />
       )}
 
-      {!isLoading && org?.email !== "local@localhost" && !isMigrating && (
+      {!isLoading && org?.email !== DEV_MODE_USER_EMAIL && !isMigrating && (
         <>
           <PendingInvitationsCard />
           {!org?.orgId ? (

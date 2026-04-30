@@ -21,12 +21,15 @@ export default defineAction({
       .describe("Date in YYYY-MM-DD format (defaults to today)"),
   }),
   run: async (args) => {
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
+
     const date = args.date || todayInTimezone();
 
     const result = await db()
       .insert(schema.meals)
       .values({
-        owner_email: getRequestUserEmail() ?? null,
+        owner_email: ownerEmail,
         name: args.name,
         calories: args.calories || 0,
         protein: args.protein ?? null,

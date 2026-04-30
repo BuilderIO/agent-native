@@ -10,7 +10,8 @@ import { db, schema } from "../server/db/index.js";
 import type { AgentNote } from "@shared/types";
 
 function getContext() {
-  const email = getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
   const orgId = getRequestOrgId() || null;
   return { email, orgId };
 }
@@ -52,7 +53,7 @@ async function createNote(candidateId: number, content: string, type: string) {
     content,
     type,
     createdAt: now,
-    ownerEmail: ctx.email !== "local@localhost" ? ctx.email : null,
+    ownerEmail: ctx.email,
     orgId: ctx.orgId,
   });
 

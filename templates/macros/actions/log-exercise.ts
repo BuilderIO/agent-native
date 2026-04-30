@@ -21,12 +21,15 @@ export default defineAction({
       .describe("Date in YYYY-MM-DD format (defaults to today)"),
   }),
   run: async (args) => {
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
+
     const date = args.date || todayInTimezone();
 
     const result = await db()
       .insert(schema.exercises)
       .values({
-        owner_email: getRequestUserEmail() ?? null,
+        owner_email: ownerEmail,
         name: args.name,
         calories_burned: args.calories_burned || 0,
         duration_minutes: args.duration_minutes ?? null,

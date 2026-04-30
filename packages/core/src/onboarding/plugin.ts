@@ -20,7 +20,7 @@ import {
   getH3App,
 } from "../server/framework-request-handler.js";
 import { appStateGet, appStatePut } from "../application-state/store.js";
-import { getSession } from "../server/auth.js";
+import { getSession, DEV_MODE_USER_EMAIL } from "../server/auth.js";
 import { listOnboardingSteps } from "./registry.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
 import type { OnboardingStepStatus } from "./types.js";
@@ -40,7 +40,7 @@ export interface OnboardingPluginOptions {
 async function resolveSessionId(event: H3Event): Promise<string> {
   const session = await getSession(event);
   if (!session) return "local";
-  if (session.email === "local@localhost") return "local";
+  if (session.email === DEV_MODE_USER_EMAIL) return "local";
   return session.email;
 }
 

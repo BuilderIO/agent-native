@@ -19,6 +19,7 @@ vi.mock("./store.js", () => ({
 const mockDbExecute = vi.fn();
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockDbExecute }),
+  isLocalDatabase: () => true,
 }));
 
 describe("application-state script-helpers", () => {

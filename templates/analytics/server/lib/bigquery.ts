@@ -1,11 +1,14 @@
 import { createHash } from "crypto";
 import { getAccessToken } from "./gcloud";
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 import { getDbExec } from "@agent-native/core/db";
 
 async function getProjectId(): Promise<string> {
+  const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
   return (
-    (await resolveCredential("BIGQUERY_PROJECT_ID")) || "your-gcp-project-id"
+    (await resolveCredential("BIGQUERY_PROJECT_ID", ctx)) ||
+    "your-gcp-project-id"
   );
 }
 
