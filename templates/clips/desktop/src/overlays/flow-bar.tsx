@@ -157,18 +157,23 @@ export function FlowBar() {
     emit("voice:cancel").catch(() => {});
   };
 
-  // Show live transcript above the pill while recording / processing,
-  // so the user can see the words being recognized in real time. Empties
-  // out as soon as the bar closes.
-  const showTranscript =
-    (state === "recording" || state === "processing") &&
-    partialTranscript.length > 0;
+  // The transcript chip is independent of the pill — it can linger on
+  // its own after Fn release while the pill dismisses snappily. Voice-
+  // dictation.ts emits an empty payload to clear it once the linger
+  // window expires.
+  const showTranscript = partialTranscript.length > 0;
+  // Pill is hidden when state goes idle (e.g. on Fn release while the
+  // transcript chip lingers). Without this gate the empty `.flow-bar`
+  // div would still paint a 32px-tall colored pill with no content.
+  const showPill =
+    state === "recording" || state === "processing" || state === "error";
 
   return (
     <div className="flow-bar-root">
       {showTranscript && (
         <div className="flow-bar-transcript">{partialTranscript}</div>
       )}
+      {showPill && (
       <div className={`flow-bar flow-bar-${state}`}>
         {state === "recording" ? (
           <div className="flow-bar-recording">
@@ -200,6 +205,7 @@ export function FlowBar() {
           </button>
         )}
       </div>
+      )}
     </div>
   );
 }
