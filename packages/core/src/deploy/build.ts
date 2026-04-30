@@ -71,6 +71,11 @@ function generateWorkerEntry(
     routeRegistrations.push(
       `  app.on(${JSON.stringify(r.method.toUpperCase())}, ${JSON.stringify(r.route)}, ${varName});`,
     );
+    if (r.method.toLowerCase() === "get") {
+      routeRegistrations.push(
+        `  app.on("HEAD", ${JSON.stringify(r.route)}, ${varName});`,
+      );
+    }
   }
 
   // Action route imports and registrations
@@ -219,6 +224,19 @@ ${actionRegistrations.join("\n")}
   // SSR catch-all for React Router
   const rrHandler = createRequestHandler(() => serverBuild);
   app.all("/**", defineEventHandler(async (event) => {
+    if (event.req.method === "HEAD") {
+      const getRequest = new Request(event.req.url, {
+        method: "GET",
+        headers: event.req.headers,
+        signal: event.req.signal,
+      });
+      const response = await rrHandler(getRequest);
+      return new Response(null, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    }
     return rrHandler(event.req);
   }));
 
