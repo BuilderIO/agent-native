@@ -28,6 +28,7 @@ import {
   emailToName,
   useSession,
   agentNativePath,
+  appApiPath,
   type CollabUser,
 } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
@@ -68,7 +69,7 @@ const TAB_ID = generateTabId();
 
 async function fetchWithAuth(url: string, options?: RequestInit) {
   const token = await getIdToken();
-  return fetch(url, {
+  return fetch(appApiPath(url), {
     ...options,
     headers: {
       "Content-Type": "application/json",

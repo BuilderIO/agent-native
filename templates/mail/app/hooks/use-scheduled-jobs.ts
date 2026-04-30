@@ -62,14 +62,17 @@ export function useSnoozeEmail() {
       runAt: number;
       accountEmail?: string;
     }) => {
-      const res = await fetch(appApiPath(`/api/emails/${data.emailId}/snooze`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          runAt: data.runAt,
-          accountEmail: data.accountEmail,
-        }),
-      });
+      const res = await fetch(
+        appApiPath(`/api/emails/${data.emailId}/snooze`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            runAt: data.runAt,
+            accountEmail: data.accountEmail,
+          }),
+        },
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.error || "Failed to snooze email");

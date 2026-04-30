@@ -1238,9 +1238,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       label: "DELETE DRAFT",
                       onClick: () => {
                         if (snapshot.savedDraftId) {
-                          fetch(appApiPath(`/api/emails/${snapshot.savedDraftId}`), {
-                            method: "DELETE",
-                          });
+                          fetch(
+                            appApiPath(`/api/emails/${snapshot.savedDraftId}`),
+                            {
+                              method: "DELETE",
+                            },
+                          );
                         }
                       },
                     },
@@ -1271,9 +1274,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       onClick: () => {
                         for (const snap of snapshots) {
                           if (snap.savedDraftId) {
-                            fetch(appApiPath(`/api/emails/${snap.savedDraftId}`), {
-                              method: "DELETE",
-                            });
+                            fetch(
+                              appApiPath(`/api/emails/${snap.savedDraftId}`),
+                              {
+                                method: "DELETE",
+                              },
+                            );
                           }
                         }
                       },

@@ -1,6 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import {
+  appApiPath,
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client";
 
 // ---------------------------------------------------------------------------
 // Admin hooks (authenticated)
@@ -60,7 +64,7 @@ export function usePublicForm(formId: string) {
   return useQuery({
     queryKey: ["public-form", formId],
     queryFn: () =>
-      fetch(`/api/forms/public/${formId}`).then((r) => {
+      fetch(appApiPath(`/api/forms/public/${formId}`)).then((r) => {
         if (!r.ok) throw new Error("Form not found");
         return r.json();
       }),
@@ -84,7 +88,7 @@ export function useSubmitForm() {
       _hp?: string;
       _t?: number;
     }) =>
-      fetch(`/api/submit/${formId}`, {
+      fetch(appApiPath(`/api/submit/${formId}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data, captchaToken, _hp, _t }),

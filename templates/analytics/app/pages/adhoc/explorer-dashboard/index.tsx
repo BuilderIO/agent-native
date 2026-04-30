@@ -40,6 +40,7 @@ import {
   emailToName,
   useSession,
   agentNativePath,
+  appApiPath,
   type CollabUser,
 } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
@@ -80,7 +81,7 @@ const TAB_ID = generateTabId();
 
 async function fetchWithAuth(url: string, options?: RequestInit) {
   const token = await getIdToken();
-  return fetch(url, {
+  return fetch(appApiPath(url), {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -382,12 +383,15 @@ export default function ExplorerDashboardPage() {
                   onClick={async () => {
                     if (!dashboardId) return;
                     const token = await getIdToken();
-                    await fetch(`/api/explorer-dashboards/${dashboardId}`, {
+                    await fetch(
+                      appApiPath(`/api/explorer-dashboards/${dashboardId}`),
+                      {
                       method: "DELETE",
-                      headers: token
-                        ? { Authorization: `Bearer ${token}` }
-                        : {},
-                    });
+                        headers: token
+                          ? { Authorization: `Bearer ${token}` }
+                          : {},
+                      },
+                    );
                     queryClient.invalidateQueries({
                       queryKey: ["explorer-dashboards-sidebar"],
                     });

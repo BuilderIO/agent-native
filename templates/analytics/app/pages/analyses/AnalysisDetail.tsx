@@ -29,7 +29,7 @@ import {
   IconDatabase,
 } from "@tabler/icons-react";
 import { Link, useNavigate } from "react-router";
-import { ShareButton } from "@agent-native/core/client";
+import { ShareButton, appApiPath } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import Markdown from "@/components/Markdown";
@@ -54,7 +54,7 @@ interface Analysis {
 
 async function fetchAnalysis(id: string): Promise<Analysis | null> {
   const token = await getIdToken();
-  const res = await fetch(`/api/analyses/${id}`, {
+  const res = await fetch(appApiPath(`/api/analyses/${id}`), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return null;
@@ -63,7 +63,7 @@ async function fetchAnalysis(id: string): Promise<Analysis | null> {
 
 async function deleteAnalysis(id: string): Promise<void> {
   const token = await getIdToken();
-  await fetch(`/api/analyses/${id}`, {
+  await fetch(appApiPath(`/api/analyses/${id}`), {
     method: "DELETE",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

@@ -139,11 +139,14 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           signal: request.signal,
         });
         const response = await handler(getRequest);
-        return new Response(null, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        });
+        return await rewriteMountedResponse(
+          new Response(null, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+          }),
+          basePath,
+        );
       }
       return await rewriteMountedResponse(await handler(request), basePath);
     } catch (err) {

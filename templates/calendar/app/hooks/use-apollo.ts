@@ -7,8 +7,8 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(
     url.startsWith("/api/") ? appApiPath(url) : agentNativePath(url),
     {
-    headers: { "Content-Type": "application/json" },
-    ...options,
+      headers: { "Content-Type": "application/json" },
+      ...options,
     },
   );
   if (!res.ok) throw new Error(`${res.status}`);

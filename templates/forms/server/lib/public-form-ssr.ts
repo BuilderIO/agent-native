@@ -1,5 +1,6 @@
 import { getMethod, getRequestURL, type H3Event } from "h3";
 import { eq } from "drizzle-orm";
+import { getAppBasePath } from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
 import type { FormField, FormSettings } from "../../shared/types.js";
 
@@ -129,7 +130,13 @@ export async function renderPublicFormHtml(
   url: string,
 ): Promise<{ html: string; status: number }> {
   // Extract everything after /f/ as the slug (may contain slashes for legacy URLs)
-  const slugOrId = decodeURIComponent(url.split("?")[0].replace(/^\/f\//, ""));
+  const basePath = getAppBasePath();
+  const pathname = url.split("?")[0];
+  const pathWithoutBase =
+    basePath && pathname.startsWith(`${basePath}/`)
+      ? pathname.slice(basePath.length)
+      : pathname;
+  const slugOrId = decodeURIComponent(pathWithoutBase.replace(/^\/f\//, ""));
   const form = slugOrId ? await getFormBySlugOrId(slugOrId) : null;
 
   if (!form) {
@@ -176,6 +183,7 @@ function renderFormPage(form: {
   const settings: FormSettings = form.settings || {};
   const fields: FormField[] = form.fields || [];
   const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY || "";
+  const submitPath = `${getAppBasePath()}/api/submit/`;
 
   const fieldsHtml = fields.map(renderField).join("\n");
 
@@ -406,7 +414,7 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
     btn.disabled = true;
     var hp = (document.getElementById("_hp") || {}).value || "";
 
-    fetch("/api/submit/" + FORM_ID, {
+    fetch(${JSON.stringify(submitPath)} + FORM_ID, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T }),

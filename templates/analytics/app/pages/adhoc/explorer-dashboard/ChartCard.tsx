@@ -27,6 +27,7 @@ import { ExplorerChart } from "../explorer/components/ExplorerChart";
 import { buildSql } from "../explorer/sql-builder";
 import type { ExplorerConfig } from "../explorer/types";
 import type { DashboardChart } from "./index";
+import { appApiPath } from "@agent-native/core/client";
 
 interface ChartCardProps {
   chart: DashboardChart;
@@ -38,7 +39,7 @@ interface ChartCardProps {
 
 async function fetchConfig(id: string): Promise<ExplorerConfig | null> {
   const token = await getIdToken();
-  const res = await fetch(`/api/explorer-configs/${id}`, {
+  const res = await fetch(appApiPath(`/api/explorer-configs/${id}`), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return null;

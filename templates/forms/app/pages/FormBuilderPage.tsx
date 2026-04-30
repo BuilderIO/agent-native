@@ -42,6 +42,7 @@ import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
   AgentToggleButton,
   ShareButton,
+  appPath,
   useSendToAgentChat,
 } from "@agent-native/core/client";
 import {
@@ -365,7 +366,7 @@ export function FormBuilderPage() {
       setShowCloudUpgrade(true);
       return;
     }
-    const url = `${window.location.origin}/f/${form.slug}`;
+    const url = `${window.location.origin}${appPath(`/f/${form.slug}`)}`;
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -419,7 +420,11 @@ export function FormBuilderPage() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                  <a href={`/f/${form.slug}`} target="_blank" rel="noopener">
+                  <a
+                    href={appPath(`/f/${form.slug}`)}
+                    target="_blank"
+                    rel="noopener"
+                  >
                     <IconExternalLink className="h-4 w-4" />
                   </a>
                 </Button>

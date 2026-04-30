@@ -62,4 +62,39 @@ describe("createH3SSRHandler", () => {
     expect(response.status).toBe(404);
     expect(mocks.requestHandler).not.toHaveBeenCalled();
   });
+
+  it("prefixes root-relative links in mounted SSR HTML", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response(
+        '<a href="/templates/mail">Mail</a><img src="/logo.svg"><form action="/api/search"></form><script src="/docs/app.js"></script>',
+        { headers: { "content-type": "text/html; charset=utf-8" } },
+      ),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/docs/"));
+    const html = await response.text();
+
+    expect(html).toContain('href="/docs/templates/mail"');
+    expect(html).toContain('src="/docs/logo.svg"');
+    expect(html).toContain('action="/docs/api/search"');
+    expect(html).toContain('src="/docs/app.js"');
+  });
+
+  it("prefixes mounted SSR redirects", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: "/login" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/docs/private"));
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/docs/login");
+  });
 });
