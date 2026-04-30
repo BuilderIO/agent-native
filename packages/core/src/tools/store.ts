@@ -28,6 +28,9 @@ import {
   TOOLS_OWNER_INDEX_SQL,
   TOOLS_ORG_INDEX_SQL,
   TOOL_SHARES_RESOURCE_INDEX_SQL,
+  TOOL_CONSENTS_CREATE_SQL,
+  TOOL_CONSENTS_CREATE_SQL_PG,
+  TOOL_CONSENTS_VIEWER_INDEX_SQL,
 } from "./schema.js";
 
 const getDb = createGetDb({ tools, toolShares });
@@ -55,6 +58,11 @@ export async function ensureToolsTables(): Promise<void> {
       await client.execute(TOOLS_OWNER_INDEX_SQL);
       await client.execute(TOOLS_ORG_INDEX_SQL);
       await client.execute(TOOL_SHARES_RESOURCE_INDEX_SQL);
+      // Per-viewer consent gate for non-author tool runs (audit C1).
+      await client.execute(
+        pg ? TOOL_CONSENTS_CREATE_SQL_PG : TOOL_CONSENTS_CREATE_SQL,
+      );
+      await client.execute(TOOL_CONSENTS_VIEWER_INDEX_SQL);
     })();
   }
   return _initPromise;
