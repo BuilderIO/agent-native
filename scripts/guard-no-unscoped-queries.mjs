@@ -961,7 +961,8 @@ async function scanMentionProviders(ownablesByDir) {
       let searchMatch;
       while ((searchMatch = searchRe.exec(mpBody)) !== null) {
         // Find the matching `}` for this closure.
-        const closureStart = mpStart + searchMatch.index + searchMatch[0].length - 1; // position of the `{`
+        const closureStart =
+          mpStart + searchMatch.index + searchMatch[0].length - 1; // position of the `{`
         let closureDepth = 0;
         let closureEnd = -1;
         let closureInStr = null;
@@ -1049,7 +1050,9 @@ if (violations.length > 0 || mentionViolations.length > 0) {
     console.error("`orgId` in their WHERE clause (or in the enclosing block).");
     console.error("That is how the slides leak happened on 2026-04-28 —");
     console.error("anyone signing in saw every other user's decks. Same");
-    console.error("class of bug for inserts that don't set ownerEmail from the");
+    console.error(
+      "class of bug for inserts that don't set ownerEmail from the",
+    );
     console.error("request context.");
     console.error("");
     for (const v of violations) {
@@ -1076,9 +1079,7 @@ if (violations.length > 0 || mentionViolations.length > 0) {
     console.error(
       "mentionProviders run in a shared server context — every user who",
     );
-    console.error(
-      "types `@` in the chat would see rows owned by other users.",
-    );
+    console.error("types `@` in the chat would see rows owned by other users.");
     console.error("");
     for (const v of mentionViolations) {
       console.error(
@@ -1109,9 +1110,7 @@ if (violations.length > 0 || mentionViolations.length > 0) {
     "    wrap the call with `runWithRequestContext({ userEmail, orgId },",
   );
   console.error("    fn)` after reading the session via `getSession(event)`.");
-  console.error(
-    "  - mentionProviders search closures: use accessFilter() or",
-  );
+  console.error("  - mentionProviders search closures: use accessFilter() or");
   console.error(
     "    eq(table.ownerEmail, getCurrentOwnerEmail()) in the WHERE clause.",
   );
