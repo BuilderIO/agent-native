@@ -248,6 +248,25 @@ function generateRunId(): string {
 }
 
 /** Check if an error is transient and should be retried */
+function isContextTooLongError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  if (
+    msg.includes("context_length_exceeded") ||
+    msg.includes("input_too_long") ||
+    msg.includes("too many tokens") ||
+    msg.includes("prompt is too long") ||
+    msg.includes("reduce the length")
+  )
+    return true;
+  if (err instanceof EngineError) {
+    const code = (err.errorCode ?? "").toLowerCase();
+    if (code.includes("context_length") || code.includes("input_too_long"))
+      return true;
+  }
+  return false;
+}
+
 function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
@@ -526,6 +545,12 @@ export async function runAgentLoop(opts: {
         break;
       } catch (err: unknown) {
         if (signal.aborted) throw err;
+        if (isContextTooLongError(err)) {
+          throw new EngineError(
+            "Conversation has grown too long. Start a new conversation to continue.",
+            { errorCode: "context_length_exceeded" },
+          );
+        }
         if (retry < MAX_RETRIES && isRetryableError(err)) {
           // Clear partial text from the failed attempt so the retry
           // doesn't produce garbled duplicate output
