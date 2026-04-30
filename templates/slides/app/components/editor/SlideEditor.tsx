@@ -523,8 +523,8 @@ export default function SlideEditor({
                     designSystem={designSystem}
                     aspectRatio={aspectRatio}
                   />
-                  {/* Double-click hint */}
-                  {isHoveringText && !editingEl && (
+                  {/* Double-click hint — only shown for HTML slides that support inline editing */}
+                  {isHoveringText && !editingEl && isHtmlSlide && (
                     <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-white/40 pointer-events-none select-none bg-black/60 px-2 py-0.5 rounded">
                       Double-click any text to edit
                     </div>
