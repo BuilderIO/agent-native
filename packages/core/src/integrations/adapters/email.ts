@@ -641,6 +641,20 @@ function getThreadRootId(messageId: string, references?: string[]): string {
   return messageId;
 }
 
+/**
+ * Scope a raw thread root id by the sender's email address. Two different
+ * senders crafting the same `References:` header value should NOT collide
+ * onto the same internal thread mapping — that's the email-side fix for the
+ * thread-injection finding (M1 in the webhook security audit).
+ *
+ * The returned id is opaque to callers and stays stable across messages
+ * from the same sender on the same conversation thread, so reply behaviour
+ * is unchanged.
+ */
+function scopeThreadIdToSender(rawThreadId: string, senderEmail: string): string {
+  return `${senderEmail.toLowerCase()}::${rawThreadId}`;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers — reply building
 // ---------------------------------------------------------------------------

@@ -407,16 +407,50 @@ async function handleSend(
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
 
+  // The JWT-verified caller email (set by mountA2A in server.ts) is the
+  // single source of truth for task ownership — bound at creation, checked
+  // on every subsequent tasks/get and tasks/cancel call. Caller-supplied
+  // metadata.userEmail is NEVER used for ownership; that would re-introduce
+  // the IDOR class fixed here.
+  const ownerEmailForTask =
+    (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
+
   // Async mode: return the task immediately in `working` state, run the
   // handler in the background, and let the caller poll `tasks/get`. This is
   // the workaround for Netlify's ~26s function / 30s gateway timeout when the
   // handler runs LLM + tool loops that can exceed those bounds.
+  // SECURITY: only honor the explicit top-level `params.async`. The
+  // metadata.async fallback was caller-controlled and could force async
+  // dispatch (which has weaker auth than the sync path) on otherwise sync
+  // requests. Async is also refused entirely when no auth is configured in
+  // production — see the additional gate below.
   const asyncMode =
     params.async === true ||
-    (metadata && (metadata as any).async === true) ||
     (event && event.context?.__a2aForceAsync === true);
 
   if (asyncMode) {
+    // Refuse async mode entirely when no auth is configured in production.
+    // The async dispatch path self-fires the `_process-task` route, which
+    // accepts unsigned dispatches when A2A_SECRET is unset — that combined
+    // with the lack of caller identity here would let any unauthenticated
+    // attacker queue and trigger handler runs. In production, require some
+    // form of auth so the verifiedEmail is bound to the task.
+    const hasA2ASecret = !!process.env.A2A_SECRET;
+    const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
+    if (
+      process.env.NODE_ENV === "production" &&
+      !hasA2ASecret &&
+      !hasApiKey
+    ) {
+      return {
+        ...jsonRpcError(
+          0,
+          -32001,
+          "A2A async mode is not available — A2A_SECRET or apiKeyEnv must be configured.",
+        ),
+        _id: 0,
+      };
+    }
     // Resolve identity up front (cheap), bake it into the task's metadata,
     // and dispatch the actual handler run to a SEPARATE function execution.
     // On serverless hosts (Netlify, Vercel, Cloudflare) detached promises get
@@ -440,7 +474,12 @@ async function handleSend(
         callerMetadata: metadata ?? null,
       },
     };
-    const task = await createTask(message, contextId, taskMetadata);
+    const task = await createTask(
+      message,
+      contextId,
+      taskMetadata,
+      ownerEmailForTask,
+    );
     const working = await updateTask(task.id, { state: "working" });
 
     fireProcessTaskDispatch(event, task.id).catch((err) => {
@@ -451,7 +490,12 @@ async function handleSend(
   }
 
   return withA2ARequestContext(metadata, event, async () => {
-    const task = await createTask(message, contextId);
+    const task = await createTask(
+      message,
+      contextId,
+      undefined,
+      ownerEmailForTask,
+    );
     await updateTask(task.id, { state: "working" });
 
     const ctx = makeHandlerContext(task.id, contextId, metadata);
@@ -520,9 +564,16 @@ async function handleStream(
 
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
+  const ownerEmailForTask =
+    (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
 
   await withA2ARequestContext(metadata, event, async () => {
-    const task = await createTask(message, contextId);
+    const task = await createTask(
+      message,
+      contextId,
+      undefined,
+      ownerEmailForTask,
+    );
 
     await updateTask(task.id, { state: "working" });
 

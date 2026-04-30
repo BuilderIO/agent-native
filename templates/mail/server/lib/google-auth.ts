@@ -240,7 +240,9 @@ export async function getClientForAccount(
  * have the accounts list loaded (watch renewal, bootstrap).
  */
 export async function getClientFromAccount(
-  account: Awaited<ReturnType<typeof listOAuthAccounts>>[number],
+  account: Awaited<ReturnType<typeof listOAuthAccounts>>[number] & {
+    owner?: string;
+  },
 ): Promise<{ accessToken: string; email: string } | null> {
   const tokens = account.tokens as unknown as GoogleTokens;
   if (!tokens) return null;
