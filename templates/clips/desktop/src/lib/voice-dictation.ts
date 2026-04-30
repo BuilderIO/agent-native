@@ -989,18 +989,25 @@ export function installDesktopVoiceDictation(
       if (current.kind === "server") {
         current.recorder?.stop();
       } else if (current.kind === "native") {
-        // NATIVE PATH: don't dismiss the bar yet — let the user see the
-        // final word land before we tear down. Tell Rust to `endAudio()`
-        // so SFSpeechRecognizer can emit its `voice:final-transcript`,
-        // wait for that event (or a safety timeout), then paste, linger
-        // ~1s with the text on screen, and finally dismiss.
+        // NATIVE PATH: dismiss the pill *immediately* (snappy UX) but
+        // leave the transcript chip lingering. Tell Rust to `endAudio()`
+        // so SFSpeechRecognizer can deliver its final hypothesis. When
+        // `voice:final-transcript` lands (or after a safety timeout),
+        // paste the text and let the chip sit for ~1s with the final
+        // word visible — like a notification fading — then dismiss.
         invoke("native_speech_stop").catch((err) => {
           console.warn("[voice-dictation] native_speech_stop failed:", err);
         });
+        // Pill goes RIGHT NOW. The flow-bar window stays open (we'll
+        // hide it after the linger) but renders only the transcript
+        // chip in idle state.
+        setFlowState("idle");
+        stopMeter(current);
+        stopTracks(current);
 
         const stopAtMs = Date.now();
         console.log(
-          "[voice-dictation] native stop — awaiting voice:final-transcript",
+          "[voice-dictation] native stop — pill dismissed, awaiting final",
         );
         let finalized = false;
         const finalize = (reason: "final" | "timeout" | "manual") => {
@@ -1022,26 +1029,29 @@ export function installDesktopVoiceDictation(
             invoke("complete_voice_dictation", { text }).catch((err) => {
               console.error("[voice-dictation] paste failed:", err);
             });
+            // Make sure the chip displays the FINAL text (the
+            // install-time final listener also pushes this, but we
+            // emit explicitly so the chip is up-to-date in case the
+            // listener fired before HMR refreshed the flow-bar).
+            emit("voice:partial-transcript", { text }).catch(() => {});
           } else {
             console.warn(
               "[voice-dictation] no transcript captured — native recognizer didn't produce results",
             );
           }
-          // Linger ~1s with the final transcript visible above the
-          // pill, then dismiss everything.
-          console.log("[voice-dictation] starting 1s linger");
+          // Linger ~1.2s with the transcript chip visible (no pill,
+          // just the floating text), then clear the chip + hide the
+          // window.
+          console.log("[voice-dictation] starting linger");
           window.setTimeout(() => {
             console.log("[voice-dictation] linger done — dismissing");
             if (disposed) return;
-            stopMeter(current);
-            stopTracks(current);
-            setFlowState("idle");
             invoke("hide_flow_bar").catch(() => {});
             emit("voice:partial-transcript", { text: "" }).catch(() => {});
             if (session === current) session = null;
             startInFlight = false;
             stopRequestedBeforeReady = false;
-          }, 1000);
+          }, 1200);
         };
 
         // The install-time `voice:final-transcript` listener calls
