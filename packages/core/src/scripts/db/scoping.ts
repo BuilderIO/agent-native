@@ -254,8 +254,9 @@ export async function buildScopingSqlite(client: any): Promise<ScopingContext> {
     orgIdTables: new Set(),
   };
 
-  if (!isProd()) return inactive;
-
+  // Scoping is always active when there is a request user (dev, preview, and
+  // prod). Previously this short-circuited outside production, which created
+  // a cross-user read in dev mode. See audit 05-tools-sandbox.md (C3.d).
   const userEmail = getUserEmail();
   if (!userEmail) return inactive;
 

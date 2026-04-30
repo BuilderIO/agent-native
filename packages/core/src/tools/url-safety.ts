@@ -145,3 +145,79 @@ export async function isBlockedToolUrlWithDns(url: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Build an undici Dispatcher whose connect-time DNS lookup runs through a
+ * private-IP guard. This closes the TOCTOU gap where:
+ *   1. We resolve hostname → public IP and pass.
+ *   2. Between that lookup and the actual connect, DNS rebinding flips the
+ *      record to a private IP.
+ *   3. fetch() resolves again and connects to the private IP.
+ *
+ * With a custom dispatcher, the same lookup that produces the IP also gates
+ * the connect: if the IP is in the private set, the connect throws.
+ *
+ * Returns `null` if undici / node:dns are not available (e.g. some edge
+ * runtimes); the caller should fall back to the regular `fetch` path —
+ * `isBlockedToolUrlWithDns` will still have caught most rebinding cases.
+ */
+export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
+  let undici: typeof import("undici");
+  let dnsModule: typeof import("node:dns");
+  try {
+    undici = await import("undici");
+    dnsModule = await import("node:dns");
+  } catch {
+    return null;
+  }
+
+  const { Agent } = undici;
+  const { lookup } = dnsModule;
+
+  return new Agent({
+    connect: {
+      // Override DNS lookup at connect time so the IP we hand to undici's
+      // socket is the one we authorized. Reject any record in the private
+      // set BEFORE the TCP handshake.
+      lookup: (
+        hostname: string,
+        options: any,
+        callback: (
+          err: NodeJS.ErrnoException | null,
+          address?: string | { address: string; family: number }[],
+          family?: number,
+        ) => void,
+      ) => {
+        lookup(
+          hostname,
+          { all: true, verbatim: true },
+          (err: NodeJS.ErrnoException | null, addresses: any) => {
+            if (err) return callback(err);
+            const list: { address: string; family: number }[] = Array.isArray(
+              addresses,
+            )
+              ? addresses
+              : [{ address: addresses, family: 4 }];
+            for (const record of list) {
+              if (isPrivateHost(record.address)) {
+                const e = new Error(
+                  `Connect blocked: ${hostname} resolved to private address ${record.address}`,
+                ) as NodeJS.ErrnoException;
+                e.code = "EAI_BLOCKED";
+                return callback(e);
+              }
+            }
+            // Mirror Node's lookup behavior: when `all` is true, return the
+            // array; otherwise the first entry. undici's connect honors
+            // `options.all`.
+            if (options && options.all) {
+              return callback(null, list as any);
+            }
+            const first = list[0];
+            return callback(null, first.address, first.family);
+          },
+        );
+      },
+    },
+  });
+}

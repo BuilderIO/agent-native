@@ -258,6 +258,58 @@ async function handleEvent(
   }
 }
 
+/**
+ * Validate that the run-as user still exists and (if scoped to an org) is
+ * still a member of that org. Mirrors the recurring-jobs scheduler check
+ * (audit 12 #10): event-triggered automations must stop firing when the
+ * creator is removed/demoted.
+ */
+async function isTriggerRunAsStillValid(
+  jobUserEmail: string,
+  jobOrgId: string | undefined,
+): Promise<{ ok: boolean; reason?: string }> {
+  if (jobUserEmail === "local@localhost") return { ok: true };
+  if (jobUserEmail === "__shared__") return { ok: true };
+  try {
+    const { getDbExec } = await import("../db/client.js");
+    const db = getDbExec();
+    const userResult = await db.execute({
+      sql: `SELECT 1 FROM "user" WHERE email = ? LIMIT 1`,
+      args: [jobUserEmail],
+    });
+    if (!userResult.rows || userResult.rows.length === 0) {
+      return { ok: false, reason: `user "${jobUserEmail}" no longer exists` };
+    }
+    if (jobOrgId) {
+      const memberResult = await db.execute({
+        sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = LOWER(?) LIMIT 1`,
+        args: [jobOrgId, jobUserEmail],
+      });
+      if (!memberResult.rows || memberResult.rows.length === 0) {
+        return {
+          ok: false,
+          reason: `user "${jobUserEmail}" is no longer a member of org "${jobOrgId}"`,
+        };
+      }
+    }
+    return { ok: true };
+  } catch (err: any) {
+    const msg = err?.message?.toLowerCase() ?? "";
+    if (
+      msg.includes("does not exist") ||
+      msg.includes("no such table") ||
+      msg.includes("undefined table")
+    ) {
+      return { ok: true };
+    }
+    console.warn(
+      `[triggers] User/membership validation failed for "${jobUserEmail}":`,
+      err?.message,
+    );
+    return { ok: true };
+  }
+}
+
 async function dispatchAgentic(
   resource: { path: string; owner: string; content: string },
   meta: TriggerFrontmatter,
@@ -271,6 +323,30 @@ async function dispatchAgentic(
   const triggerName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
   const now = new Date();
 
+  const jobUserEmail = meta.createdBy || resource.owner;
+  const jobOrgId = meta.orgId ?? undefined;
+
+  // SECURITY (audit 12 #10): re-validate the run-as user/membership on
+  // every dispatch. Sharing revocation, user deletion, and org-member
+  // removal must take effect for already-scheduled triggers. Skip the
+  // dispatch on failure; leave the trigger entry alone for admin review.
+  const validity = await isTriggerRunAsStillValid(jobUserEmail, jobOrgId);
+  if (!validity.ok) {
+    console.warn(
+      `[triggers] Skipping trigger "${triggerName}": ${validity.reason}. ` +
+        `User/membership no longer valid — leaving entry for admin review.`,
+    );
+    meta.lastRun = now.toISOString();
+    meta.lastStatus = "skipped";
+    meta.lastError = validity.reason;
+    await resourcePut(
+      resource.owner,
+      resource.path,
+      buildTriggerContent(meta, body),
+    );
+    return;
+  }
+
   // Mark as running
   meta.lastRun = now.toISOString();
   meta.lastStatus = "running";
@@ -280,9 +356,6 @@ async function dispatchAgentic(
     resource.path,
     buildTriggerContent(meta, body),
   );
-
-  const jobUserEmail = meta.createdBy || resource.owner;
-  const jobOrgId = meta.orgId ?? undefined;
 
   await runWithRequestContext(
     { userEmail: jobUserEmail, orgId: jobOrgId },
