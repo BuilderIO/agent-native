@@ -10,6 +10,7 @@ import {
   emailToColor,
   emailToName,
   useSession,
+  appApiPath,
   type CollabUser,
 } from "@agent-native/core/client";
 import { IconLoader2 } from "@tabler/icons-react";
@@ -156,7 +157,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
             if (status?.pageId && !status.hasConflict) {
               try {
                 const res = await fetch(
-                  `/api/documents/${documentId}/notion/push`,
+                  appApiPath(`/api/documents/${documentId}/notion/push`),
                   { method: "POST" },
                 );
                 if (res.ok) {

@@ -1,10 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getIdToken } from "@/lib/auth";
+import { appApiPath } from "@agent-native/core/client";
 
 async function fetchWithAuth(url: string, options?: RequestInit) {
   const token = await getIdToken();
-  return fetch(url, {
+  return fetch(appApiPath(url), {
     ...options,
     headers: {
       "Content-Type": "application/json",

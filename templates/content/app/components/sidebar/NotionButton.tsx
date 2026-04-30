@@ -20,7 +20,7 @@ import {
 import { useNotionConnection, useDisconnectNotion } from "@/hooks/use-notion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, appApiPath } from "@agent-native/core/client";
 
 // ─── Notion SVG icon ────────────────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ export function NotionButton() {
 
   const redirectUri =
     typeof window !== "undefined"
-      ? `${window.location.origin}/api/notion/callback`
+      ? `${window.location.origin}${appApiPath("/api/notion/callback")}`
       : "";
 
   const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);
@@ -141,7 +141,9 @@ export function NotionButton() {
 
     // Poll for connection
     pollRef.current = setInterval(async () => {
-      const res = await fetch("/api/notion/status").catch(() => null);
+      const res = await fetch(appApiPath("/api/notion/status")).catch(
+        () => null,
+      );
       if (res?.ok) {
         const data = await res.json();
         if (data.connected) {
