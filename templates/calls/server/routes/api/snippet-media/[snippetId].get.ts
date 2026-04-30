@@ -17,6 +17,7 @@ import {
   getRouterParam,
   getRequestHeader,
   getQuery,
+  setResponseHeader,
   setResponseStatus,
   sendRedirect,
   type H3Event,
@@ -24,7 +25,11 @@ import {
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../../db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import {
+  getSession,
+  runWithRequestContext,
+  signShortLivedToken,
+} from "@agent-native/core/server";
 
 interface SnippetRow {
   id: string;
@@ -106,11 +111,21 @@ export default defineEventHandler(async (event: H3Event) => {
           ? call.mediaUrl
           : `/api/call-media/${call.id}`;
 
+      // For password-protected first-party media URLs, mint a short-lived
+      // HMAC token bound to the parent call id and redirect the viewer
+      // through `?t=<token>` instead of `?p=<password>`. The downstream
+      // call-media route still accepts `?p=<password>` as a legacy
+      // fallback. (audit 11 F-07)
       let target = base;
       if (call.password && !/^https?:\/\//i.test(base)) {
+        const token = signShortLivedToken({ resourceId: call.id });
         const sep = target.includes("?") ? "&" : "?";
-        target = `${target}${sep}p=${encodeURIComponent(call.password)}`;
+        target = `${target}${sep}t=${encodeURIComponent(token)}`;
       }
+
+      // Don't leak the parent-call URL (which carries a short-lived token)
+      // into the Referer of any outbound link.
+      setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
       return sendRedirect(
         event,
