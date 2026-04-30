@@ -74,7 +74,7 @@ function handleOptionsRequest(event: any): string {
     setResponseHeader(
       event,
       "Access-Control-Allow-Headers",
-      "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+      "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id",
     );
   }
 
@@ -125,6 +125,27 @@ export function mountActionRoutes(
         if (effectiveMethod !== method) {
           setResponseStatus(event, 405);
           return { error: `Method not allowed. Use ${method}.` };
+        }
+
+        // (audit H5) Per-action `toolCallable` opt-out for the tools-iframe
+        // bridge. The bridge tags every outbound action call with
+        // X-Agent-Native-Tool-Bridge: 1. When that header is present and the
+        // action declares `toolCallable: false`, we 403 — used by the
+        // framework's share-resource / unshare-resource /
+        // set-resource-visibility for defense-in-depth on auth-adjacent
+        // operations. Undefined defaults to allow: tools are intra-org and
+        // typically authored by trusted teammates, so the default is to
+        // trust the org-level access controls.
+        // The header is set by the parent (the React host), not by the
+        // iframe's user-authored content; sanitizeToolRequestOptions strips
+        // iframe attempts to spoof it.
+        const fromToolBridge =
+          getHeader(event, "x-agent-native-tool-bridge") === "1";
+        if (fromToolBridge && entry.toolCallable === false) {
+          setResponseStatus(event, 403);
+          return {
+            error: `Action '${name}' is not callable from tools.`,
+          };
         }
 
         // Resolve auth context for per-request scoping

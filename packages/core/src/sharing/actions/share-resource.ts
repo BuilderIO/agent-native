@@ -35,6 +35,11 @@ function nanoid(size = 12): string {
 export default defineAction({
   description:
     "Grant a user or org access to a shareable resource. Owner or admin role required.",
+  // (audit H5) Sharing-grant operations are admin-tier and let a caller
+  // expand who can read/write a resource. Refuse from the tools iframe
+  // bridge so a malicious shared tool can't silently re-share its
+  // viewer's resources to an attacker-controlled email.
+  toolCallable: false,
   schema: z.object({
     resourceType: z
       .string()

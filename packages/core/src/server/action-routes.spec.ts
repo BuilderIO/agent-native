@@ -239,4 +239,124 @@ describe("mountActionRoutes", () => {
       key: "mutating-read",
     });
   });
+
+  // ---------------------------------------------------------------------
+  // Tools-bridge gating (audit H5)
+  // ---------------------------------------------------------------------
+
+  it("refuses tools-bridge calls when toolCallable === false", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "share-resource": {
+        toolCallable: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "POST",
+      _headers: { "x-agent-native-tool-bridge": "1" },
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(403);
+    expect(result).toEqual({
+      error: "Action 'share-resource' is not callable from tools.",
+    });
+    expect(actions["share-resource"].run).not.toHaveBeenCalled();
+  });
+
+  it("allows tools-bridge calls when toolCallable === true", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "list-things": {
+        toolCallable: true,
+        http: { method: "GET" },
+        readOnly: true,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "GET",
+      _headers: { "x-agent-native-tool-bridge": "1" },
+      req: { url: "http://app.test/_agent-native/actions/list-things" },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("allows tools-bridge calls when toolCallable is undefined (default-allow)", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "legacy-action": {
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = {
+      _method: "POST",
+      _headers: { "x-agent-native-tool-bridge": "1" },
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(actions["legacy-action"].run).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("does not gate non-bridge calls (header absent) on toolCallable", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "share-resource": {
+        toolCallable: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    // No X-Agent-Native-Tool-Bridge header — this is a regular UI/agent call.
+    const event = {
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({ ok: true });
+    expect(actions["share-resource"].run).toHaveBeenCalledTimes(1);
+  });
 });

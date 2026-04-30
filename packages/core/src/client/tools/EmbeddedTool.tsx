@@ -146,30 +146,33 @@ export function EmbeddedTool({
 
       try {
         const options = sanitizeToolRequestOptions(message.options);
-        // (audit H4) Role-aware gating. Consent grant is exempt because it
-        // fires before the binding announcement; the server still checks
-        // viewer access on the tool.
-        const isConsentGrant = path.endsWith("/grant-consent");
-        if (!isConsentGrant) {
-          const policy = checkBridgePolicy(
-            path,
-            options.method ?? "GET",
-            bridgeContextRef.current,
-          );
-          if (!policy.ok) {
-            respond({
-              response: {
-                ok: false,
-                status: 403,
-                statusText: "Forbidden",
-                body: { error: policy.error },
-              },
-            });
-            return;
-          }
+        // (audit H4) Role-aware gating: viewer-shared tools can read but not
+        // write. The bridge policy is decided here in the parent before the
+        // request leaves; the server enforces a second layer.
+        const policy = checkBridgePolicy(
+          path,
+          options.method ?? "GET",
+          bridgeContextRef.current,
+        );
+        if (!policy.ok) {
+          respond({
+            response: {
+              ok: false,
+              status: 403,
+              statusText: "Forbidden",
+              body: { error: policy.error },
+            },
+          });
+          return;
         }
+        // (audit H5) Same tool-bridge tagging as <ToolViewer>. action-routes
+        // uses these headers to enforce per-action `toolCallable` opt-in.
+        const finalHeaders = new Headers(options.headers ?? undefined);
+        finalHeaders.set("X-Agent-Native-Tool-Bridge", "1");
+        finalHeaders.set("X-Agent-Native-Tool-Id", toolId);
         const res = await fetch(agentNativePath(path), {
           ...options,
+          headers: finalHeaders,
           credentials: "same-origin",
         });
         const text = await res.text();

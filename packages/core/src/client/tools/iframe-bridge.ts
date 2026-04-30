@@ -66,25 +66,6 @@ export function isAllowedToolPath(path: string, toolId: string): boolean {
   if (pathname === "/_agent-native/tools/sql/query") return true;
   if (pathname === "/_agent-native/tools/sql/exec") return true;
 
-  // (audit C1) Consent grant path for shared-tool viewers. Scoped to THIS
-  // tool — a tool's iframe can only grant consent for its own id. Without
-  // this allowlist entry, the consent stub embedded in the render output
-  // would be rejected by sanitizeToolRequestOptions before reaching the
-  // server.
-  const consentParts = pathname.split("/");
-  if (
-    consentParts.length === 5 &&
-    consentParts[1] === "_agent-native" &&
-    consentParts[2] === "tools" &&
-    consentParts[4] === "grant-consent"
-  ) {
-    try {
-      return decodeURIComponent(consentParts[3]) === toolId;
-    } catch {
-      return false;
-    }
-  }
-
   const parts = pathname.split("/");
   if (
     parts.length >= 6 &&
