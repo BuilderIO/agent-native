@@ -254,11 +254,14 @@ function MissingOpenAiKeyCard({ onRetry }: { onRetry?: () => void }) {
     if (!value.trim() || saving) return;
     setSaving(true);
     try {
-      const res = await fetch(agentNativePath("/_agent-native/secrets/OPENAI_API_KEY"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: value.trim() }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/secrets/OPENAI_API_KEY"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: value.trim() }),
+        },
+      );
       if (!res.ok) {
         const err = await res
           .json()

@@ -24,7 +24,9 @@ import { toast } from "sonner";
 async function readAppStateClient<T = unknown>(key: string): Promise<T | null> {
   try {
     const r = await fetch(
-      agentNativePath(`/_agent-native/application-state/${encodeURIComponent(key)}`),
+      agentNativePath(
+        `/_agent-native/application-state/${encodeURIComponent(key)}`,
+      ),
     );
     if (!r.ok) return null;
     return (await r.json()) as T;
@@ -35,7 +37,9 @@ async function readAppStateClient<T = unknown>(key: string): Promise<T | null> {
 async function writeAppStateClient(key: string, value: unknown): Promise<void> {
   try {
     await fetch(
-      agentNativePath(`/_agent-native/application-state/${encodeURIComponent(key)}`),
+      agentNativePath(
+        `/_agent-native/application-state/${encodeURIComponent(key)}`,
+      ),
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

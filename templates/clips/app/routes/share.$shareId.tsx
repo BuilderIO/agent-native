@@ -293,15 +293,20 @@ export default function ShareRoute() {
                     return;
                   }
                   tracking.reportReaction(emoji);
-                  fetch(agentNativePath("/_agent-native/actions/react-to-recording"), {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      recordingId: recording.id,
-                      emoji,
-                      videoTimestampMs: currentMs,
-                    }),
-                  })
+                  fetch(
+                    agentNativePath(
+                      "/_agent-native/actions/react-to-recording",
+                    ),
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        recordingId: recording.id,
+                        emoji,
+                        videoTimestampMs: currentMs,
+                      }),
+                    },
+                  )
                     .then(() => dataQ.refetch())
                     .catch(() => {});
                 }}

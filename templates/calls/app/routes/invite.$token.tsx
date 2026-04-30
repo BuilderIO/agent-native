@@ -85,11 +85,14 @@ export default function InviteAcceptRoute() {
     if (!token) return;
     setAccepting(true);
     try {
-      const res = await fetch(agentNativePath("/_agent-native/actions/accept-invite"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/accept-invite"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        },
+      );
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
         throw new Error(json.error ?? `Accept failed (${res.status})`);

@@ -506,6 +506,14 @@ function baseRedirectGuard(): Plugin {
           req.url = req.url.slice(base.length - 1);
         }
         if (
+          req.method === "HEAD" &&
+          req.url &&
+          !req.url.startsWith("/_agent-native/") &&
+          !(base && base !== "/" && req.url.startsWith(`${base}_agent-native/`))
+        ) {
+          req.method = "GET";
+        }
+        if (
           base &&
           base !== "/" &&
           (req.url === "/" || req.url === "/index.html")

@@ -478,15 +478,20 @@ export default function RecordingPage() {
                 disabled={!recording.enableReactions}
                 onReact={(emoji) => {
                   tracking.reportReaction(emoji);
-                  fetch(agentNativePath("/_agent-native/actions/react-to-recording"), {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      recordingId: recording.id,
-                      emoji,
-                      videoTimestampMs: currentMs,
-                    }),
-                  })
+                  fetch(
+                    agentNativePath(
+                      "/_agent-native/actions/react-to-recording",
+                    ),
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        recordingId: recording.id,
+                        emoji,
+                        videoTimestampMs: currentMs,
+                      }),
+                    },
+                  )
                     .then(() => playerDataQ.refetch())
                     .catch(() => {});
                 }}
@@ -558,11 +563,16 @@ export default function RecordingPage() {
                     // have set their OPENAI_API_KEY (or after a one-off
                     // network error). The action flips the row to 'pending'
                     // first, so the UI will swap back to "Transcribing…".
-                    fetch(agentNativePath("/_agent-native/actions/request-transcript"), {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ recordingId: recording.id }),
-                    })
+                    fetch(
+                      agentNativePath(
+                        "/_agent-native/actions/request-transcript",
+                      ),
+                      {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ recordingId: recording.id }),
+                      },
+                    )
                       .then((res) => {
                         if (!res.ok) throw new Error(`HTTP ${res.status}`);
                       })

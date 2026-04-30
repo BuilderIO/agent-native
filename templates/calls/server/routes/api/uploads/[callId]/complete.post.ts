@@ -85,7 +85,9 @@ export default defineEventHandler(async (event: H3Event) => {
               mediaSizeBytes:
                 typeof body.sizeBytes === "number" ? body.sizeBytes : undefined,
               durationMs:
-                typeof body.durationMs === "number" ? body.durationMs : undefined,
+                typeof body.durationMs === "number"
+                  ? body.durationMs
+                  : undefined,
               width: typeof body.width === "number" ? body.width : undefined,
               height: typeof body.height === "number" ? body.height : undefined,
               progressPct: 100,
