@@ -2116,6 +2116,21 @@ button {
   pointer-events: auto;
   /* Subtle fade-in so the pill doesn't hard-pop on appear. */
   animation: flow-bar-in 140ms ease-out;
+  /* Fade out to opacity 0 when state goes idle (after Fn release).
+     Keeping the pill in the DOM means the transcript chip above
+     doesn't reflow when the pill "goes away" — important for the
+     linger UX where the chip stays put while the pill dissolves. */
+  transition: opacity 220ms ease-out;
+}
+
+/* When the dictation engine reports idle (e.g. mid-linger after Fn
+   release on the browser path), fade the pill out without unmounting
+   it. The canvas keeps its last-frame so the user sees the waveform
+   smoothly fade rather than pop into nothing. Pointer-events go off
+   so the now-invisible chip can't catch clicks. */
+.flow-bar-idle {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .flow-bar-recording {
