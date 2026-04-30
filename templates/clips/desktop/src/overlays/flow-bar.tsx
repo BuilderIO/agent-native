@@ -162,50 +162,48 @@ export function FlowBar() {
   // dictation.ts emits an empty payload to clear it once the linger
   // window expires.
   const showTranscript = partialTranscript.length > 0;
-  // Pill is hidden when state goes idle (e.g. on Fn release while the
-  // transcript chip lingers). Without this gate the empty `.flow-bar`
-  // div would still paint a 32px-tall colored pill with no content.
-  const showPill =
-    state === "recording" || state === "processing" || state === "error";
 
   return (
     <div className="flow-bar-root">
       {showTranscript && (
         <div className="flow-bar-transcript">{partialTranscript}</div>
       )}
-      {showPill && (
-        <div className={`flow-bar flow-bar-${state}`}>
-          {state === "recording" ? (
-            <div className="flow-bar-recording">
-              <canvas ref={canvasRef} className="flow-bar-canvas" />
-            </div>
-          ) : null}
+      {/* Pill is ALWAYS mounted — when state goes idle we fade the
+          opacity to 0 (see CSS) instead of removing it from the DOM,
+          so the transcript chip above doesn't reflow when the pill
+          "goes away". Inner content keeps its last frame rendered
+          during the fade so the canvas doesn't pop. */}
+      <div className={`flow-bar flow-bar-${state}`}>
+        {(state === "recording" || state === "idle") && (
+          <div className="flow-bar-recording">
+            <canvas ref={canvasRef} className="flow-bar-canvas" />
+          </div>
+        )}
 
-          {state === "processing" ? (
-            <div className="flow-bar-processing">
-              <span className="flow-bar-shimmer">Polishing...</span>
-            </div>
-          ) : null}
+        {state === "processing" ? (
+          <div className="flow-bar-processing">
+            <span className="flow-bar-shimmer">Polishing...</span>
+          </div>
+        ) : null}
 
-          {state === "error" ? (
-            <div className="flow-bar-processing">
-              <span className="flow-bar-error">Could not transcribe</span>
-            </div>
-          ) : null}
+        {state === "error" ? (
+          <div className="flow-bar-processing">
+            <span className="flow-bar-error">Could not transcribe</span>
+          </div>
+        ) : null}
 
-          {(state === "recording" || state === "processing") && (
-            <button
-              type="button"
-              className="flow-bar-cancel"
-              onClick={handleCancel}
-              aria-label="Cancel dictation"
-              title="Cancel"
-            >
-              <IconX size={12} stroke={2.5} />
-            </button>
-          )}
-        </div>
-      )}
+        {(state === "recording" || state === "processing") && (
+          <button
+            type="button"
+            className="flow-bar-cancel"
+            onClick={handleCancel}
+            aria-label="Cancel dictation"
+            title="Cancel"
+          >
+            <IconX size={12} stroke={2.5} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

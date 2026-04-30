@@ -1056,9 +1056,19 @@ export function installDesktopVoiceDictation(
         // hide it after the linger) but renders only the transcript
         // chip in idle state.
         setFlowState("idle");
+        // Free the global session-startup guards immediately, matching the
+        // browser paths below. Deferring these to the end of the 1.2s
+        // linger meant a rapid second Fn tap during linger silently no-op'd
+        // because `start()` early-returns while `startInFlight` is true.
+        // The captured `current` ref is what `finalize()` and the timers
+        // operate on, so detaching `session`/flags from it here is safe.
+        if (session === current) session = null;
+        startInFlight = false;
+        stopRequestedBeforeReady = false;
         stopMeter(current);
         stopTracks(current);
 
+        const lingering = current;
         const stopAtMs = Date.now();
         console.log(
           "[voice-dictation] native stop — pill dismissed, awaiting final",
@@ -1070,11 +1080,16 @@ export function installDesktopVoiceDictation(
           console.log(
             `[voice-dictation] native finalize (${reason}, +${Date.now() - stopAtMs}ms)`,
           );
-          // If the user cancelled (X button) during the wait window,
-          // skip paste + linger. cleanup() already ran via cancel().
-          if (current.cancelled) return;
-          const text = current.browserTranscript.trim();
-          current.browserTranscript = "";
+          // If the user cancelled (X button) during the wait window or a
+          // brand-new session has started (Fn re-tapped during linger),
+          // skip paste + linger. cleanup() already ran via cancel() in the
+          // cancelled case; in the new-session case the new `session` owns
+          // the flow-bar now and we'd otherwise paste stale text against
+          // it.
+          if (lingering.cancelled) return;
+          if (session && session !== lingering) return;
+          const text = lingering.browserTranscript.trim();
+          lingering.browserTranscript = "";
           if (text) {
             console.log(
               `[voice-dictation] native paste (${text.length} chars):`,
@@ -1095,22 +1110,20 @@ export function installDesktopVoiceDictation(
           }
           // Linger ~1.2s with the transcript chip visible (no pill,
           // just the floating text), then clear the chip + hide the
-          // window.
+          // window. Don't clobber a new session's flow-bar if one started.
           console.log("[voice-dictation] starting linger");
           window.setTimeout(() => {
             console.log("[voice-dictation] linger done — dismissing");
             if (disposed) return;
+            if (session && session !== lingering) return;
             invoke("hide_flow_bar").catch(() => {});
             emit("voice:partial-transcript", { text: "" }).catch(() => {});
-            if (session === current) session = null;
-            startInFlight = false;
-            stopRequestedBeforeReady = false;
           }, 1200);
         };
 
         // The install-time `voice:final-transcript` listener calls
         // `current.onNativeFinalize` when the final result arrives.
-        current.onNativeFinalize = () => finalize("final");
+        lingering.onNativeFinalize = () => finalize("final");
         // Safety timer: if final never arrives (unsupported locale,
         // crash, etc.), proceed after 3s with whatever partial we have.
         window.setTimeout(() => finalize("timeout"), 3000);
