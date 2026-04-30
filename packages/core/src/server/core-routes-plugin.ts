@@ -571,32 +571,40 @@ export function createCoreRoutesPlugin(
           return { error: "A signed-in user is required to run Builder" };
         }
         const userEmail = session.email;
-        const { resolveBuilderCredential: resolveBuilderCred } =
-          await import("./credential-provider.js");
-        const builderUserId =
-          (await resolveBuilderCred("BUILDER_USER_ID")) || undefined;
-        // Server-controlled projectId — don't let clients target arbitrary
-        // Builder projects with our private key. When this feature graduates
-        // past the hardcoded preview, the projectId will come from
-        // workspace/org config, still resolved server-side.
-        try {
-          const result = await runBuilderAgent({
-            prompt,
-            projectId: DEFAULT_BUILDER_PROJECT_ID,
-            branchName:
-              typeof body?.branchName === "string"
-                ? body.branchName
-                : undefined,
-            userEmail,
-            userId: builderUserId,
-          });
-          return result;
-        } catch (e) {
-          setResponseStatus(event, 500);
-          return {
-            error: e instanceof Error ? e.message : "Builder run failed",
-          };
-        }
+        // Wrap in runWithRequestContext so resolveBuilderCredential() inside
+        // runBuilderAgent() resolves per-user app_secrets rather than falling
+        // through to process.env — the same pattern the /builder/status endpoint
+        // uses. Without this, per-user Builder keys stored in app_secrets are
+        // invisible to the run path and the call throws "Builder keys are not
+        // configured" even though the status endpoint correctly reports configured=true.
+        return runWithRequestContext({ userEmail }, async () => {
+          const { resolveBuilderCredential: resolveBuilderCred } =
+            await import("./credential-provider.js");
+          const builderUserId =
+            (await resolveBuilderCred("BUILDER_USER_ID")) || undefined;
+          // Server-controlled projectId — don't let clients target arbitrary
+          // Builder projects with our private key. When this feature graduates
+          // past the hardcoded preview, the projectId will come from
+          // workspace/org config, still resolved server-side.
+          try {
+            const result = await runBuilderAgent({
+              prompt,
+              projectId: DEFAULT_BUILDER_PROJECT_ID,
+              branchName:
+                typeof body?.branchName === "string"
+                  ? body.branchName
+                  : undefined,
+              userEmail,
+              userId: builderUserId,
+            });
+            return result;
+          } catch (e) {
+            setResponseStatus(event, 500);
+            return {
+              error: e instanceof Error ? e.message : "Builder run failed",
+            };
+          }
+        });
       }),
     );
 
