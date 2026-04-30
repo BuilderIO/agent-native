@@ -134,7 +134,7 @@ cd templates/forms && pnpm action <name> [args]
 | `view-screen`    |                                       | See what the user sees now    |
 | `list-forms`     | `[--status draft\|published\|closed]` | List all forms with counts    |
 | `get-form`       | `--id <form-id>`                      | Get full form detail + fields |
-| `list-responses` | `--form <id> [--limit N]`             | List responses for a form     |
+| `list-responses` | `--formId <id> [--limit N]`           | List responses for a form     |
 
 ### Creating & Modifying
 
@@ -182,7 +182,7 @@ Forms are ownable. Each form has an owner (`ownerEmail`), a `visibility` (`priva
 | "Create a contact form"         | `create-form --title "Contact Form" --fields '[...]'`                           |
 | "Add a rating field"            | `view-screen`, get form, `update-form --id <id> --fields '[...existing + new]'` |
 | "Publish this form"             | `view-screen`, get formId, `update-form --id <id> --status published`           |
-| "Show me responses"             | `view-screen`, then `list-responses --form <id>`                                |
+| "Show me responses"             | `view-screen`, then `list-responses --formId <id>`                              |
 | "Export responses to CSV"       | `export-responses --form <id> --output data/export.csv`                         |
 | "What am I looking at?"         | `view-screen`                                                                   |
 | "Open the contact form"         | `list-forms` to find ID, then `navigate --view=form --formId=<id>`              |
@@ -200,7 +200,7 @@ Forms are ownable. Each form has an owner (`ownerEmail`), a `visibility` (`priva
 | "Create a survey"       | `pnpm action create-form --title "Survey" --fields '[...]'`         |
 | "Update the form title" | `pnpm action update-form --id <id> --title "New Title"`             |
 | "Publish it"            | `pnpm action update-form --id <id> --status published`              |
-| "Show responses"        | `pnpm action list-responses --form <id>`                            |
+| "Show responses"        | `pnpm action list-responses --formId <id>`                          |
 | "Export to CSV"         | `pnpm action export-responses --form <id> --output data/export.csv` |
 | "Go to forms list"      | `pnpm action navigate --view=forms`                                 |
 | "Open form responses"   | `pnpm action navigate --view=responses --formId=<id>`               |

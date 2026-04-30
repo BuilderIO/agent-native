@@ -1,6 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { readSetting } from "@agent-native/core/settings";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { getUserSetting, readSetting } from "@agent-native/core/settings";
+import type { AvailabilityConfig } from "../shared/api.js";
 
 interface AvailabilitySchedule {
   timezone: string;
@@ -18,6 +20,34 @@ function formatMinutes(minutes: number): string {
   const period = h >= 12 ? "PM" : "AM";
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+function normalizeAvailability(stored: unknown): AvailabilitySchedule | null {
+  if (!stored || typeof stored !== "object") return null;
+  const value = stored as Partial<AvailabilitySchedule> &
+    Partial<AvailabilityConfig>;
+
+  if (value.schedule) {
+    return {
+      timezone: value.timezone || "America/New_York",
+      schedule: value.schedule,
+    };
+  }
+
+  if (!value.weeklySchedule) return null;
+
+  const schedule: AvailabilitySchedule["schedule"] = {};
+  for (const [day, daySchedule] of Object.entries(value.weeklySchedule)) {
+    schedule[day] =
+      daySchedule.enabled && Array.isArray(daySchedule.slots)
+        ? daySchedule.slots
+        : [];
+  }
+
+  return {
+    timezone: value.timezone || "America/New_York",
+    schedule,
+  };
 }
 
 export default defineAction({
@@ -40,12 +70,18 @@ export default defineAction({
     const dateStr = args.date;
     const duration = args.duration;
 
-    let availability: AvailabilitySchedule;
-    const stored = await readSetting("calendar-availability");
+    const ownerEmail = getRequestUserEmail();
+    const stored = ownerEmail
+      ? ((await getUserSetting(ownerEmail, "calendar-availability")) ??
+        (await readSetting("calendar-availability")))
+      : await readSetting("calendar-availability");
     if (!stored) {
       throw new Error("No availability configuration found");
     }
-    availability = stored as unknown as AvailabilitySchedule;
+    const availability = normalizeAvailability(stored);
+    if (!availability) {
+      throw new Error("Invalid availability configuration found");
+    }
 
     const date = new Date(dateStr + "T00:00:00");
     const dayNames = [
@@ -81,8 +117,12 @@ export default defineAction({
 
     try {
       const googleCalendar = await import("../server/lib/google-calendar.js");
-      if (await googleCalendar.isConnected()) {
-        const { events } = await googleCalendar.listEvents(dayStart, dayEnd);
+      if (await googleCalendar.isConnected(ownerEmail)) {
+        const { events } = await googleCalendar.listEvents(
+          dayStart,
+          dayEnd,
+          ownerEmail,
+        );
         for (const event of events) {
           dayEvents.push({
             title: event.title,

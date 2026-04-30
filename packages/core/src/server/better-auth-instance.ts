@@ -134,6 +134,13 @@ function appendEnvLocalSecret(envLocalPath: string, secret: string): void {
   }
 }
 
+export function shouldSkipEmailVerification(): boolean {
+  const value = process.env.AUTH_SKIP_EMAIL_VERIFICATION;
+  if (value == null) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized !== "" && normalized !== "0" && normalized !== "false";
+}
+
 /** Read-only accessor for the resolved auth secret. */
 export function getAuthSecret(): string {
   return resolveAuthSecret();
@@ -447,6 +454,8 @@ async function createBetterAuthInstance(
   const secret = resolveAuthSecret();
 
   const appUrl = getAppProductionUrl();
+  const requireEmailVerification =
+    isEmailConfigured() && !shouldSkipEmailVerification();
 
   const auth = betterAuth({
     basePath,
@@ -458,8 +467,10 @@ async function createBetterAuthInstance(
       minPasswordLength: 8,
       // Only require email verification when an email provider is configured.
       // Without a provider, verification emails can't be sent, so requiring
-      // verification would lock users out of signup entirely.
-      requireEmailVerification: isEmailConfigured(),
+      // verification would lock users out of signup entirely. QA deployments
+      // can opt out with AUTH_SKIP_EMAIL_VERIFICATION=1 so +qa accounts can
+      // sign up without waiting on inbox delivery.
+      requireEmailVerification,
       sendResetPassword: async ({ user, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
         // reset link must include that prefix so the page resolves correctly.
@@ -480,7 +491,7 @@ async function createBetterAuthInstance(
       // Fire verification email right after signup, before the user has a
       // session — pairs with requireEmailVerification above. Only enabled
       // when an email provider is configured.
-      sendOnSignUp: isEmailConfigured(),
+      sendOnSignUp: requireEmailVerification,
       // Auto-create a session once the user clicks the link. Without this,
       // verified users would have to go back and sign in manually, which is
       // a confusing dead-end on the verify screen.

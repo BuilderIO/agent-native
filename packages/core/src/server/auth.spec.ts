@@ -12,6 +12,30 @@ describe("server/auth", () => {
     vi.resetModules();
   });
 
+  describe("shouldSkipEmailVerification", () => {
+    it("is enabled by AUTH_SKIP_EMAIL_VERIFICATION=1", async () => {
+      vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "1");
+      const { shouldSkipEmailVerification } =
+        await import("./better-auth-instance.js");
+
+      expect(shouldSkipEmailVerification()).toBe(true);
+    });
+
+    it("treats blank, false, and 0 as disabled", async () => {
+      const { shouldSkipEmailVerification } =
+        await import("./better-auth-instance.js");
+
+      vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "");
+      expect(shouldSkipEmailVerification()).toBe(false);
+
+      vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "false");
+      expect(shouldSkipEmailVerification()).toBe(false);
+
+      vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "0");
+      expect(shouldSkipEmailVerification()).toBe(false);
+    });
+  });
+
   describe("autoMountAuth", () => {
     it("throws when app is null/undefined in production mode", async () => {
       vi.stubEnv("NODE_ENV", "production");

@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
-import { Star } from "lucide-react";
+import { IconStar, IconStarFilled } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import type { FormField } from "@shared/types";
 
@@ -181,14 +181,11 @@ export function FieldRenderer({
               disabled={disabled}
               aria-label={`${star} star${star !== 1 ? "s" : ""}`}
             >
-              <Star
-                className={cn(
-                  "h-7 w-7 sm:h-6 sm:w-6",
-                  (value as number) >= star
-                    ? "fill-amber-400 text-amber-400"
-                    : "text-muted-foreground/30",
-                )}
-              />
+              {(value as number) >= star ? (
+                <IconStarFilled className="h-7 w-7 sm:h-6 sm:w-6 text-amber-400" />
+              ) : (
+                <IconStar className="h-7 w-7 sm:h-6 sm:w-6 text-muted-foreground/30" />
+              )}
             </button>
           ))}
         </div>

@@ -498,16 +498,21 @@ export default function DesignEditor() {
       {/* Main canvas area */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Question flow overlay — full canvas takeover, blocks editing while
-            the user answers. Closes itself on submit/skip. */}
-        {pendingQuestions && pendingQuestions.length > 0 && (
-          <div className="absolute inset-0 z-40 bg-background">
-            <QuestionFlow
-              questions={pendingQuestions}
-              onSubmit={handleQuestionsSubmit}
-              onSkip={handleQuestionsSkip}
-            />
-          </div>
-        )}
+            the user answers. Closes itself on submit/skip.
+            Variants take precedence: when both states are set (rare race when
+            the agent hasn't cleared the question flow before opening variants),
+            we hide questions so the user only sees the most recent step. */}
+        {pendingQuestions &&
+          pendingQuestions.length > 0 &&
+          !pendingVariants && (
+            <div className="absolute inset-0 z-40 bg-background">
+              <QuestionFlow
+                questions={pendingQuestions}
+                onSubmit={handleQuestionsSubmit}
+                onSkip={handleQuestionsSkip}
+              />
+            </div>
+          )}
 
         {/* Variant grid overlay — full canvas takeover with 2-5 candidate
             designs. "Use this one" persists the chosen content as index.html. */}
@@ -535,7 +540,7 @@ export default function DesignEditor() {
             <div className="flex-1 overflow-hidden">
               <VariantGrid
                 variants={pendingVariants.variants}
-                onSelect={() => {}}
+                onSelect={handleUseVariant}
                 onUse={handleUseVariant}
               />
             </div>

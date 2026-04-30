@@ -6,17 +6,23 @@ import type { FormResponse } from "../shared/types.js";
 
 export default defineAction({
   description: "List responses for a form.",
-  schema: z.object({
-    formId: z.string().describe("Form ID (required)"),
-    limit: z.coerce
-      .number()
-      .optional()
-      .default(100)
-      .describe("Max responses to return (default 100)"),
-  }),
+  schema: z
+    .object({
+      formId: z.string().optional().describe("Form ID"),
+      form: z.string().optional().describe("Form ID (legacy alias for formId)"),
+      limit: z.coerce
+        .number()
+        .optional()
+        .default(100)
+        .describe("Max responses to return (default 100)"),
+    })
+    .refine((args) => args.formId || args.form, {
+      message: "formId is required",
+    }),
   http: { method: "GET" },
   run: async (args) => {
-    const formId = args.formId;
+    const formId = args.formId ?? args.form;
+    if (!formId) throw new Error("formId is required");
     const db = getDb();
     const [form] = await db
       .select()
