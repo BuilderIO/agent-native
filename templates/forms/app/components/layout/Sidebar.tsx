@@ -72,7 +72,7 @@ export function Sidebar() {
 
   const newFormButton = (
     <PopoverTrigger asChild>
-      <button className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground min-h-[44px]">
+      <button className="cursor-pointer flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground min-h-[44px]">
         <IconPlus size={14} className="shrink-0" />
         <span>New form</span>
       </button>
