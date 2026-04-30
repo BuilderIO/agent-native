@@ -144,9 +144,13 @@ export function emailAdapter(): PlatformAdapter {
 
       if (!parsed) return null;
 
-      // Rate limiting
+      // Rate limiting (SQL-backed heuristic — counts the sender's already-queued
+      // tasks within the last hour). The previous in-memory map reset on every
+      // serverless cold start, so the actual ceiling per attacker was
+      // RATE_LIMIT_MAX × number_of_active_instances. SQL-backed counting holds
+      // across instances. See H4 in the webhook security audit.
       const senderEmail = parsed.from.email.toLowerCase();
-      if (isRateLimited(senderEmail)) {
+      if (await isRateLimited(senderEmail)) {
         console.warn(
           `[email] Rate limited sender: ${senderEmail} (>${RATE_LIMIT_MAX}/hr)`,
         );

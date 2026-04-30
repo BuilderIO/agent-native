@@ -1,9 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getNotionConnectionForOwner } from "../server/lib/notion.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Check Notion connection status for the current user.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     const owner = getRequestUserEmail();

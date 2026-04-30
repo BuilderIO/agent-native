@@ -1,9 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { sql } from "drizzle-orm";
 import { getDb } from "../server/db/index.js";
+import { z } from "zod";
 
 export default defineAction({
   description: "Check database health and connectivity",
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
     const isLocal = (
