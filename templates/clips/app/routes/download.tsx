@@ -5,6 +5,7 @@ import {
   IconDownload,
   IconPlayerRecord,
 } from "@tabler/icons-react";
+import { appBasePath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 
 export function meta() {
@@ -34,7 +35,7 @@ interface PlatformVariant {
   icon: typeof IconBrandApple;
 }
 
-const LATEST_JSON_URL = "/api/clips-latest.json";
+const LATEST_JSON_URL = `${appBasePath()}/api/clips-latest.json`;
 
 const RELEASE_PAGE_URL =
   "https://github.com/BuilderIO/agent-native/releases?q=clips-v";

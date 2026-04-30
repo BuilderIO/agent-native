@@ -14,13 +14,19 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
+const cliBoolean = z.preprocess((value) => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return value;
+}, z.boolean());
+
 export default defineAction({
   description:
     "Mark a comment as resolved/unresolved. If --resolved is omitted, toggles the current value.",
   schema: z.object({
     id: z.string().describe("Comment ID"),
     resolved: z
-      .boolean()
+      .union([z.boolean(), cliBoolean])
       .optional()
       .describe("Explicit resolved value. Omit to toggle."),
   }),

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
+import { appBasePath } from "@agent-native/core/client";
 import {
   IconDots,
   IconPlayerPlayFilled,
@@ -121,7 +122,7 @@ export function CallCard({
     return totals.map((t) => ({ ...t, width: (t.pct / sum) * 100 }));
   }, [participants]);
 
-  const thumbnailUrl = `/api/call-thumbnail/${call.id}`;
+  const thumbnailUrl = `${appBasePath()}/api/call-thumbnail/${call.id}`;
 
   function openCall() {
     navigate(`/calls/${call.id}`);
