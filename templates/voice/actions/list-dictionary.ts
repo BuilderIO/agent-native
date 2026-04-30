@@ -12,6 +12,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/helpers.js";
 
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
+
 export default defineAction({
   description:
     "List custom dictionary terms. These are words or phrases the transcription model should recognize or correct.",
@@ -34,9 +38,9 @@ export default defineAction({
     ];
 
     if (args.search) {
-      const pat = `%${args.search}%`;
+      const pat = `%${escapeLike(args.search)}%`;
       whereClauses.push(
-        sql`(LOWER(${schema.dictationDictionary.term}) LIKE LOWER(${pat}) OR LOWER(${schema.dictationDictionary.correction}) LIKE LOWER(${pat}))`,
+        sql`(LOWER(${schema.dictationDictionary.term}) LIKE LOWER(${pat}) ESCAPE '\\' OR LOWER(${schema.dictationDictionary.correction}) LIKE LOWER(${pat}) ESCAPE '\\')`,
       );
     }
 

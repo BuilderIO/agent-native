@@ -226,7 +226,7 @@ export function DocumentSidebar({
       {/* Header */}
       <div className="flex items-center justify-between h-12 px-3 border-b border-border">
         <span className="text-base font-semibold tracking-tight text-foreground">
-          Documents
+          Content
         </span>
         <div className="flex items-center gap-0.5">
           <button

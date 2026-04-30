@@ -29,10 +29,13 @@ export interface WorkspacifyOptions {
   workspaceRoot: string;
   /** Core module package name (e.g. "@my-company/core-module") */
   workspaceCoreName: string;
+  /** Version range to use for the published @agent-native/core package */
+  coreDependencyVersion?: string;
 }
 
 export function workspacifyApp(opts: WorkspacifyOptions): void {
   const { appDir, workspaceCoreName } = opts;
+  const coreDependencyVersion = opts.coreDependencyVersion ?? "latest";
 
   // 1) Rewrite package.json to add the workspace core dep and resolve
   //    @agent-native/core workspace:* refs to `latest` (it's an npm package,
@@ -56,7 +59,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
             val.startsWith("workspace:") &&
             key === "@agent-native/core"
           ) {
-            deps[key] = "latest";
+            deps[key] = coreDependencyVersion;
           }
         }
       }

@@ -88,9 +88,23 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {/* Sidebar header */}
           <div className="flex h-12 items-center justify-between border-b border-border px-3">
             {!sidebarCollapsed && (
-              <span className="text-sm font-semibold text-foreground">
-                Issues
-              </span>
+              <div className="flex items-center gap-2">
+                <img
+                  src="/agent-native-icon-light.svg"
+                  alt=""
+                  aria-hidden="true"
+                  className="block h-4 w-auto shrink-0 dark:hidden"
+                />
+                <img
+                  src="/agent-native-icon-dark.svg"
+                  alt=""
+                  aria-hidden="true"
+                  className="hidden h-4 w-auto shrink-0 dark:block"
+                />
+                <span className="text-sm font-semibold text-foreground">
+                  Issues
+                </span>
+              </div>
             )}
             <button
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}

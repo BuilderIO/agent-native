@@ -133,7 +133,19 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 function SidebarContent({ pathname }: { pathname: string }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-12 items-center px-4 border-b border-border">
+      <div className="flex h-12 items-center gap-2 px-4 border-b border-border">
+        <img
+          src="/agent-native-icon-light.svg"
+          alt=""
+          aria-hidden="true"
+          className="block h-4 w-auto shrink-0 dark:hidden"
+        />
+        <img
+          src="/agent-native-icon-dark.svg"
+          alt=""
+          aria-hidden="true"
+          className="hidden h-4 w-auto shrink-0 dark:block"
+        />
         <span className="font-logo font-bold tracking-tight text-sm text-foreground">
           Macros
         </span>
