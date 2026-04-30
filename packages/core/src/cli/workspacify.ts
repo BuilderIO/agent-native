@@ -5,7 +5,7 @@
  * workspace. The transform:
  *
  *   1. Rewrites package.json:
- *      - @agent-native/core stays as a regular npm dep (`latest`)
+ *      - @agent-native/core stays as a regular npm dep
  *      - Adds @<workspace-scope>/core-module as a workspace:* dep so the app
  *        inherits shared plugins/skills/AGENTS.md via the three-layer model.
  *   2. Removes files that only make sense in standalone apps
@@ -38,8 +38,8 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   const coreDependencyVersion = opts.coreDependencyVersion ?? "latest";
 
   // 1) Rewrite package.json to add the workspace core dep and resolve
-  //    @agent-native/core workspace:* refs to `latest` (it's an npm package,
-  //    not a workspace member). Other workspace:* deps (e.g.
+  //    @agent-native/core workspace:* refs to the CLI package's published
+  //    range (it's an npm package, not a workspace member). Other workspace:* deps (e.g.
   //    @agent-native/scheduling) stay as-is — they resolve within the workspace
   //    because the required package is scaffolded alongside the app.
   const pkgPath = path.join(appDir, "package.json");

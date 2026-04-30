@@ -212,10 +212,7 @@ try {
   const appDir = path.join(tmpDir, "qa-cli-app");
   const pkg = readJson(path.join(appDir, "package.json"));
   assert.equal(pkg.name, "qa-cli-app");
-  assert.equal(
-    pkg.dependencies["@agent-native/core"],
-    coreDependencyVersion,
-  );
+  assert.equal(pkg.dependencies["@agent-native/core"], coreDependencyVersion);
   assertNoWorkspaceProtocolDeps(pkg);
   assertScaffoldBasics(appDir);
 
@@ -231,7 +228,10 @@ try {
   const dispatchDir = path.join(tmpDir, "qa-dispatch-app");
   const dispatchPkg = readJson(path.join(dispatchDir, "package.json"));
   assert.equal(dispatchPkg.name, "qa-dispatch-app");
-  assert.equal(dispatchPkg.dependencies["@agent-native/core"], "latest");
+  assert.equal(
+    dispatchPkg.dependencies["@agent-native/core"],
+    coreDependencyVersion,
+  );
   assertNoWorkspaceProtocolDeps(dispatchPkg);
   assertScaffoldBasics(dispatchDir);
   assert.equal(
