@@ -730,10 +730,15 @@ export function installDesktopVoiceDictation(
             interim += r[0].transcript;
           }
         }
-        next.browserTranscript = finalSoFar;
-        const live = (finalSoFar + interim).trim();
+        // Include interim in browserTranscript so an abort() in stop()
+        // captures the words the user just said — without it we'd lose
+        // the tail because Web Speech only marks a segment as `isFinal`
+        // after a confidence-threshold pass.
+        next.browserTranscript = (finalSoFar + interim).trim();
         // Stream the live transcript to the flow-bar.
-        emit("voice:partial-transcript", { text: live }).catch(() => {});
+        emit("voice:partial-transcript", {
+          text: next.browserTranscript,
+        }).catch(() => {});
       };
       recognition.onerror = (ev) => {
         if (ev.error !== "no-speech" && ev.error !== "aborted") {
@@ -875,10 +880,41 @@ export function installDesktopVoiceDictation(
       if (current.kind === "server") {
         current.recorder?.stop();
       } else {
-        // recognition.stop() lets pending interim results finalize
-        // before firing onend (where we paste). abort() would discard
-        // them — we want stop().
-        current.recognition?.stop();
+        // BROWSER PATH: dismiss the bar IMMEDIATELY and paste whatever
+        // transcript we have right now. recognition.stop() / .abort()
+        // can take 1-5 seconds to fire onend in WKWebView — we don't
+        // want the user staring at a stuck bar that long. We tracked
+        // interim results in browserTranscript above, so the latest
+        // spoken text is captured. Null out browserTranscript before
+        // calling abort() so the late onend doesn't double-paste.
+        const text = current.browserTranscript.trim();
+        current.browserTranscript = "";
+        if (session === current) session = null;
+        startInFlight = false;
+        stopRequestedBeforeReady = false;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+        emit("voice:partial-transcript", { text: "" }).catch(() => {});
+        try {
+          current.recognition?.abort();
+        } catch {
+          // ignore
+        }
+        stopMeter(current);
+        stopTracks(current);
+        if (text) {
+          console.log(
+            `[voice-dictation] pasting on Fn release (${text.length} chars):`,
+            text.slice(0, 120),
+          );
+          invoke("complete_voice_dictation", { text }).catch((err) => {
+            console.error("[voice-dictation] paste failed:", err);
+          });
+        } else {
+          console.warn(
+            "[voice-dictation] no transcript captured — recognition didn't produce results",
+          );
+        }
       }
     } catch (err) {
       console.error("[voice-dictation] stop failed", err);
