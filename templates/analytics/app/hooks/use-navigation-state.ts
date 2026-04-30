@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
 
 interface NavigationState {
   view: string;
@@ -45,7 +46,7 @@ export function useNavigationState() {
       state.view = "about";
     }
 
-    fetch("/_agent-native/application-state/navigation", {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       keepalive: true,
       headers: { "Content-Type": "application/json" },
@@ -58,7 +59,9 @@ export function useNavigationState() {
     queryKey: ["navigate-command"],
     queryFn: async () => {
       try {
-        const res = await fetch("/_agent-native/application-state/navigate");
+        const res = await fetch(
+          agentNativePath("/_agent-native/application-state/navigate"),
+        );
         if (!res.ok || res.status === 204) return null;
         const text = await res.text();
         if (!text) return null;
@@ -81,7 +84,7 @@ export function useNavigationState() {
   useEffect(() => {
     if (!navCommand) return;
     // Delete the one-shot command AFTER reading it
-    fetch("/_agent-native/application-state/navigate", {
+    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
     }).catch(() => {});
     const cmd = navCommand as NavigationState;

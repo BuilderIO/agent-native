@@ -3,6 +3,7 @@ import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
   description:
