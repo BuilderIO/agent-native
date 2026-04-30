@@ -114,6 +114,27 @@ function assertAgentSymlinks(projectDir: string): void {
   );
 }
 
+function assertNoLocalArtifacts(projectDir: string): void {
+  const forbidden = [
+    ".env",
+    ".env.local",
+    ".netlify",
+    ".generated",
+    ".react-router",
+    ".output",
+    "build",
+    "node_modules",
+  ];
+  const present = forbidden.filter((name) =>
+    fs.existsSync(path.join(projectDir, name)),
+  );
+  assert.deepEqual(
+    present,
+    [],
+    "scaffold must not copy local runtime/build artifacts",
+  );
+}
+
 function assertScaffoldBasics(projectDir: string): void {
   assert.equal(
     fs.existsSync(path.join(projectDir, ".gitignore")),
@@ -126,6 +147,7 @@ function assertScaffoldBasics(projectDir: string): void {
     "create must not leave _gitignore behind",
   );
   assertAgentSymlinks(projectDir);
+  assertNoLocalArtifacts(projectDir);
   assertNoUnresolvedPlaceholders(projectDir);
 }
 
@@ -141,17 +163,6 @@ function assertWorkspaceApp(
   assert.equal(pkg.name, appName);
   assert.equal(pkg.dependencies["@agent-native/core"], "latest");
   assert.equal(pkg.dependencies[workspaceCoreName], "workspace:*");
-}
-
-function pnpm(args: string[], cwd: string): string {
-  return execFileSync(tsxBin, [cliEntry, ...args], {
-    cwd,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      NO_COLOR: "1",
-    },
-  });
 }
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-cli-smoke-"));
@@ -206,7 +217,9 @@ try {
   assertNoWorkspaceProtocolDeps(dispatchPkg);
   assertScaffoldBasics(dispatchDir);
   assert.equal(
-    fs.existsSync(path.join(dispatchDir, "actions", "send-platform-message.ts")),
+    fs.existsSync(
+      path.join(dispatchDir, "actions", "send-platform-message.ts"),
+    ),
     true,
     "dispatch standalone scaffold must include dispatch actions",
   );
