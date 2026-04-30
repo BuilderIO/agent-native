@@ -50,16 +50,16 @@ export async function uploadFile(
   input: FileUploadInput,
 ): Promise<FileUploadResult | null> {
   const provider = getActiveFileUploadProvider();
-  if (provider) {
+  // Only trust user-registered providers (S3, etc.) from the sync check.
+  // The builder builtin's isConfigured() only checks process.env, which causes
+  // hard failures for authenticated non-local users on multi-tenant deployments
+  // where BUILDER_PRIVATE_KEY is set at the deploy level but the user has no
+  // personal credentials. Always resolve builder credentials asynchronously.
+  if (provider && provider !== builderFileUploadProvider) {
     return provider.upload(input);
   }
 
-  // getActiveFileUploadProvider() uses the synchronous isConfigured() which only
-  // checks process.env.BUILDER_PRIVATE_KEY. When the user connected Builder via
-  // OAuth, credentials live in app_secrets (DB) and resolveBuilderPrivateKey()
-  // finds them — but isConfigured() misses them.
-  //
-  // Resolve credentials asynchronously first (works when request context is set
+  // Resolve credentials asynchronously (works when request context is set
   // via runWithRequestContext — actions always have one via action-routes.ts).
   // Two separate try-catch blocks ensure a real upload failure is never
   // silently swallowed as a "no credentials" case.

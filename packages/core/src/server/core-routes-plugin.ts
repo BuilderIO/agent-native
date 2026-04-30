@@ -970,9 +970,26 @@ export function createCoreRoutesPlugin(
         } catch {
           // fall back to env check above
         }
+        // When the builder builtin is selected via env var, its sync
+        // isConfigured() doesn't reflect per-user OAuth credentials. Use the
+        // async builderConfigured check so the status accurately represents
+        // whether this specific user can actually upload (thread 7 fix).
+        const isBuilderEnvActive = active?.id === "builder";
+        const configured = isBuilderEnvActive
+          ? builderConfigured
+          : !!active || builderConfigured;
+        const activeProvider = isBuilderEnvActive
+          ? builderConfigured
+            ? { id: "builder", name: "Builder.io" }
+            : null
+          : active
+            ? { id: active.id, name: active.name }
+            : builderConfigured
+              ? { id: "builder", name: "Builder.io" }
+              : null;
         return {
-          configured: !!active || builderConfigured,
-          activeProvider: active ? { id: active.id, name: active.name } : null,
+          configured,
+          activeProvider,
           providers: listFileUploadProviders().map((p) => ({
             id: p.id,
             name: p.name,
