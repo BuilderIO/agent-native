@@ -134,6 +134,7 @@ function assertNoLocalArtifacts(projectDir: string): void {
     ".react-router",
     ".output",
     "build",
+    "dist",
     "node_modules",
   ];
   const present = forbidden.filter((name) =>

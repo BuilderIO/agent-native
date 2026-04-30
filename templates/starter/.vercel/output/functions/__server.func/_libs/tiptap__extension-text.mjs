@@ -1,0 +1,1 @@
+import{a as e}from"./@tiptap/core+[...].mjs";var t=e.create({name:`text`,group:`inline`,parseMarkdown:e=>({type:`text`,text:e.text||``}),renderMarkdown:e=>e.text||``});export{t};

@@ -117,11 +117,19 @@ export default function Header() {
           <Link
             prefetch="render"
             to="/"
+            aria-label="Agent-Native"
             className="flex shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
           >
-            <span className="text-base font-bold tracking-tight">
-              Agent-Native
-            </span>
+            <img
+              src="/agent-native-logo-light.svg"
+              alt="Agent-Native"
+              className="block h-5 w-auto dark:hidden"
+            />
+            <img
+              src="/agent-native-logo-dark.svg"
+              alt="Agent-Native"
+              className="hidden h-5 w-auto dark:block"
+            />
           </Link>
 
           {/* Desktop nav links */}

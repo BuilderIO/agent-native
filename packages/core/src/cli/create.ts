@@ -130,6 +130,7 @@ async function createWorkspaceInteractive(
     for (const t of templates) {
       const appDir = path.join(targetDir, "apps", t);
       await scaffoldAppTemplate(appDir, t);
+      replacePlaceholders(appDir, t, titleCase(t), name);
       workspacifyApp({
         appDir,
         appName: t,
@@ -278,6 +279,12 @@ async function scaffoldOneAppIntoWorkspace(
 
   try {
     await scaffoldAppTemplate(appDir, templateName);
+    replacePlaceholders(
+      appDir,
+      appName,
+      titleCase(appName),
+      path.basename(workspace.workspaceRoot),
+    );
     workspacifyApp({
       appDir,
       appName,
@@ -979,6 +986,7 @@ function shouldSkipScaffoldEntry(name: string): boolean {
     name === ".react-router" ||
     name === ".output" ||
     name === "build" ||
+    name === "dist" ||
     name === ".DS_Store"
   ) {
     return true;
