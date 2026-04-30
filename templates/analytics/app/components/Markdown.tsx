@@ -91,12 +91,12 @@ function renderInline(text: string): string {
       .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, rawUrl) => {
         const safe = sanitizeUrl(rawUrl, "image");
         if (safe === "#") return "";
-        return `<img src="${escapeHtml(safe)}" alt="${alt}" loading="lazy" />`;
+        return `<img src="${escapeHtml(safe)}" alt="${escapeHtml(alt)}" loading="lazy" />`;
       })
       // Links — sanitize URL to block javascript:/data:/vbscript:/file:
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, rawUrl) => {
         const safe = sanitizeUrl(rawUrl);
-        return `<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+        return `<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
       })
   );
 }

@@ -14,6 +14,7 @@ import {
   defineEventHandler,
   getMethod,
   getQuery,
+  getRequestIP,
   sendRedirect,
   setResponseHeader,
   setResponseStatus,

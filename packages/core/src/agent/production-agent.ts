@@ -6,6 +6,7 @@ import {
 } from "h3";
 import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
 import { isLocalDatabase } from "../db/client.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import type { EventHandler as H3EventHandler } from "h3";
 import type {
   ActionTool,
@@ -158,8 +159,7 @@ export async function getOwnerActiveApiKey(
       return undefined;
     }
     const envVar = PROVIDER_TO_ENV[provider];
-    // guard:allow-env-credential — single-tenant fallback. isMultiTenantDeploy() above blocks this branch on hosted shared-DB deploys.
-    return envVar ? process.env[envVar] || undefined : undefined;
+    return envVar ? readDeployCredentialEnv(envVar) : undefined;
   } catch {
     return undefined;
   }
@@ -712,8 +712,7 @@ export function createProductionAgentHandler(
         // key for an authenticated user (see getOwnerActiveApiKey for the
         // full rationale).
         const envVar = PROVIDER_TO_ENV[provider];
-        // guard:allow-env-credential — single-tenant fallback (gated by !isMultiTenantDeploy() above).
-        userApiKey = envVar ? process.env[envVar] || undefined : undefined;
+        userApiKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
       }
     } else {
       userApiKey = await getOwnerActiveApiKey(ownerEmail);
@@ -726,8 +725,9 @@ export function createProductionAgentHandler(
     // deployment's account. Only honour it in single-tenant mode.
     const effectiveApiKey = isMultiTenantDeploy()
       ? userApiKey
-      : // guard:allow-env-credential — single-tenant fallback (gated by isMultiTenantDeploy() above).
-        (userApiKey ?? options.apiKey ?? process.env.ANTHROPIC_API_KEY);
+      : (userApiKey ??
+        options.apiKey ??
+        readDeployCredentialEnv("ANTHROPIC_API_KEY"));
 
     // Resolve engine — per-request engine override takes priority
     let engine: AgentEngine;

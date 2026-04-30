@@ -20,6 +20,7 @@ import {
   anthropicContentToEngine,
   anthropicChunkToEngineEvents,
 } from "./translate-anthropic.js";
+import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 
 export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -172,15 +173,14 @@ class AnthropicEngine implements AgentEngine {
 
 /**
  * Create an AnthropicEngine instance.
- * Falls back to ANTHROPIC_API_KEY env var if no key is provided.
+ * Falls back to the deployment Anthropic key if no key is provided.
  */
 export function createAnthropicEngine(
   config: Record<string, unknown> = {},
 ): AgentEngine {
   const apiKey =
     (config.apiKey as string | undefined) ??
-    // guard:allow-env-credential — engine factory bootstrap. Per-user resolution happens in production-agent.ts via getOwnerActiveApiKey + isMultiTenantDeploy gate; this fallback is only reached in single-tenant / self-hosted mode.
-    process.env.ANTHROPIC_API_KEY ??
+    readDeployCredentialEnv("ANTHROPIC_API_KEY") ??
     "";
   if (!apiKey) {
     // Return a "missing key" engine that immediately errors

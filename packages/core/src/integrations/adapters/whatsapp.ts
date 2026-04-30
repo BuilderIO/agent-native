@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { getQuery, getHeader } from "h3";
+import { getQuery, getHeader, readRawBody as h3ReadRawBody } from "h3";
 import type {
   PlatformAdapter,
   IncomingMessage,
@@ -86,15 +86,12 @@ export function whatsappAdapter(): PlatformAdapter {
       // For POST flows, pre-cache the raw body so verifyWebhook (HMAC) and
       // parseIncomingMessage don't both try to consume the request body
       // stream — h3 v2's body stream is consume-once, so a second read
-      // hangs (M3 in the webhook security audit). Mirrors the Slack /
-      // Telegram adapters' pattern.
+      // hangs (M3 in the webhook security audit). Reads raw bytes; never
+      // re-stringifies a parsed body, since Meta computes HMAC over the
+      // exact bytes it sent (M2 in the audit).
       if (method === "POST") {
         try {
-          if (!event.context.__rawBody) {
-            const body = await readBody(event);
-            const raw = typeof body === "string" ? body : JSON.stringify(body);
-            event.context.__rawBody = raw;
-          }
+          await readRawBody(event);
         } catch {
           // Surfaces in verifyWebhook / parseIncomingMessage if it actually matters.
         }
@@ -173,19 +170,16 @@ export function whatsappAdapter(): PlatformAdapter {
     async parseIncomingMessage(
       event: H3Event,
     ): Promise<IncomingMessage | null> {
-      // Prefer the pre-cached raw body (set by handleVerification) — h3 v2's
-      // request body stream is consume-once, so a second readBody call
-      // hangs.
-      const raw = event.context.__rawBody as string | undefined;
+      // Always read via the cached raw body so HMAC and parse see identical
+      // bytes — h3 v2's body stream is consume-once, and re-stringifying a
+      // parsed body breaks Meta's signature check (M2/M3 in the audit).
+      const raw = await readRawBody(event);
+      if (!raw) return null;
       let body: any;
-      if (raw !== undefined) {
-        try {
-          body = JSON.parse(raw);
-        } catch {
-          return null;
-        }
-      } else {
-        body = await readBody(event);
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        return null;
       }
       if (!body) return null;
 
@@ -298,10 +292,18 @@ export function whatsappAdapter(): PlatformAdapter {
   };
 }
 
+/**
+ * Read the raw request body as a string and cache it on the event context.
+ *
+ * Reads raw bytes from the request stream, NEVER `JSON.stringify`s a parsed
+ * body — Meta's signature is computed over the exact bytes Meta sent
+ * (M2/M3 in the webhook security audit). h3 v2's body stream is consume-once
+ * so we cache the raw string after the first read.
+ */
 async function readRawBody(event: H3Event): Promise<string> {
-  if (event.context.__rawBody) return event.context.__rawBody as string;
-  const body = await readBody(event);
-  const raw = typeof body === "string" ? body : JSON.stringify(body);
+  const cached = event.context.__rawBody;
+  if (typeof cached === "string") return cached;
+  const raw = (await h3ReadRawBody(event)) ?? "";
   event.context.__rawBody = raw;
   return raw;
 }

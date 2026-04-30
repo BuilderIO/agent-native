@@ -56,43 +56,83 @@ function getAccessTokens(): string[] {
   return tokens;
 }
 
-async function verifyAuth(authHeader: string | undefined): Promise<boolean> {
-  // No auth configured → allow (dev mode)
+/**
+ * Verify the inbound auth header. Returns:
+ *   - { authed: true, identity } when verified — `identity` may be empty
+ *     when authed via a static ACCESS_TOKEN (no caller email available).
+ *   - { authed: false } on rejection.
+ *
+ * When A2A_SECRET is set we extract the JWT's `sub` (caller email) and
+ * `org_domain` claims so the MCP endpoint can wrap tool runs in
+ * `runWithRequestContext({ userEmail, orgId })`. Without that wrap, the
+ * MCP endpoint loses tenant identity and downstream `accessFilter` /
+ * `resolveCredential` calls fall back to platform-wide defaults.
+ */
+async function verifyAuth(
+  authHeader: string | undefined,
+): Promise<{ authed: boolean; identity?: MCPCallerIdentity }> {
+  // No auth configured → allow (dev mode), but no identity to propagate.
   const accessTokens = getAccessTokens();
   const hasA2ASecret = !!process.env.A2A_SECRET;
   if (accessTokens.length === 0 && !hasA2ASecret) {
-    return true;
+    return { authed: true };
   }
 
-  if (!authHeader?.startsWith("Bearer ")) return false;
+  if (!authHeader?.startsWith("Bearer ")) return { authed: false };
   const token = authHeader.slice(7);
 
   // Try JWT via A2A_SECRET
   if (hasA2ASecret) {
     try {
-      await jose.jwtVerify(
+      const { payload } = await jose.jwtVerify(
         token,
         new TextEncoder().encode(process.env.A2A_SECRET!),
       );
-      return true;
+      return {
+        authed: true,
+        identity: {
+          userEmail:
+            typeof payload.sub === "string" ? payload.sub : undefined,
+          orgDomain:
+            typeof payload.org_domain === "string"
+              ? (payload.org_domain as string)
+              : undefined,
+        },
+      };
     } catch {
       // Not a valid JWT — fall through to token check
     }
   }
 
-  // Try ACCESS_TOKEN / ACCESS_TOKENS exact match
-  if (accessTokens.length > 0) {
-    return accessTokens.includes(token);
+  // Try ACCESS_TOKEN / ACCESS_TOKENS exact match (no per-caller identity).
+  if (accessTokens.length > 0 && accessTokens.includes(token)) {
+    return { authed: true };
   }
 
-  return false;
+  return { authed: false };
+}
+
+async function resolveOrgIdFromDomain(
+  orgDomain: string | undefined,
+): Promise<string | undefined> {
+  if (!orgDomain) return undefined;
+  try {
+    const { resolveOrgByDomain } = await import("../org/context.js");
+    const org = await resolveOrgByDomain(orgDomain);
+    return org?.orgId ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------
 // MCP Server creation — converts ActionEntry registry to MCP tools
 // ---------------------------------------------------------------------------
 
-async function createMCPServerForRequest(config: MCPConfig) {
+async function createMCPServerForRequest(
+  config: MCPConfig,
+  identity: MCPCallerIdentity | undefined,
+) {
   const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
   const { ListToolsRequestSchema, CallToolRequestSchema } =
     await import("@modelcontextprotocol/sdk/types.js");
@@ -102,48 +142,95 @@ async function createMCPServerForRequest(config: MCPConfig) {
     { capabilities: { tools: {} } },
   );
 
-  // tools/list — return all actions + ask-agent meta-tool
+  // Resolve orgId once per request (DB lookup) so subsequent wraps are
+  // synchronous. The caller identity may be undefined for ACCESS_TOKEN
+  // auth — in that case we run with no userEmail/orgId, which makes
+  // downstream tools that require per-user scope return empty results
+  // rather than cross-tenant data (the safe default).
+  const orgIdPromise = resolveOrgIdFromDomain(identity?.orgDomain);
+
+  /**
+   * Wrap a callback in `runWithRequestContext({ userEmail, orgId }, fn)`.
+   * Both the tools/list and tools/call handlers go through this so
+   * downstream `accessFilter`, `resolveCredential`, and per-user MCP
+   * visibility checks see the verified caller's identity.
+   */
+  async function withCallerContext<T>(fn: () => Promise<T>): Promise<T> {
+    const orgId = await orgIdPromise;
+    return runWithRequestContext(
+      { userEmail: identity?.userEmail, orgId },
+      fn,
+    ) as Promise<T>;
+  }
+
+  // tools/list — return all actions + ask-agent meta-tool. Wrapped in the
+  // request context so per-user MCP visibility (mcp-client/visibility.ts)
+  // applies to the listing too.
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const tools = Object.entries(config.actions).map(([name, entry]) => ({
-      name,
-      description: entry.tool.description ?? name,
-      inputSchema: entry.tool.parameters ?? {
-        type: "object" as const,
-        properties: {},
-      },
-    }));
-
-    if (config.askAgent) {
-      tools.push({
-        name: "ask-agent",
-        description:
-          "Send a natural-language message to the app's AI agent and get a response. " +
-          "Use this for complex, multi-step tasks that require the agent's reasoning " +
-          "and full context about the app.",
-        inputSchema: {
+    return withCallerContext(async () => {
+      const tools = Object.entries(config.actions).map(([name, entry]) => ({
+        name,
+        description: entry.tool.description ?? name,
+        inputSchema: entry.tool.parameters ?? {
           type: "object" as const,
-          properties: {
-            message: {
-              type: "string",
-              description: "The message to send to the agent",
-            },
-          },
-          required: ["message"],
+          properties: {},
         },
-      });
-    }
+      }));
 
-    return { tools };
+      if (config.askAgent) {
+        tools.push({
+          name: "ask-agent",
+          description:
+            "Send a natural-language message to the app's AI agent and get a response. " +
+            "Use this for complex, multi-step tasks that require the agent's reasoning " +
+            "and full context about the app.",
+          inputSchema: {
+            type: "object" as const,
+            properties: {
+              message: {
+                type: "string",
+                description: "The message to send to the agent",
+              },
+            },
+            required: ["message"],
+          },
+        });
+      }
+
+      return { tools };
+    });
   });
 
-  // tools/call — dispatch to action registry or ask-agent
+  // tools/call — dispatch to action registry or ask-agent. Wrapped in the
+  // request context so the action's `run(args)` and `askAgent()` execute
+  // with the verified caller's identity, not the platform default.
   server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
-    const { name, arguments: args } = request.params;
+    return withCallerContext(async () => {
+      const { name, arguments: args } = request.params;
 
-    if (name === "ask-agent" && config.askAgent) {
-      const message = args?.message ?? "";
+      if (name === "ask-agent" && config.askAgent) {
+        const message = args?.message ?? "";
+        try {
+          const result = await config.askAgent(message);
+          return { content: [{ type: "text", text: result }] };
+        } catch (err: any) {
+          return {
+            content: [{ type: "text", text: `Error: ${err.message}` }],
+            isError: true,
+          };
+        }
+      }
+
+      const entry = config.actions[name];
+      if (!entry) {
+        return {
+          content: [{ type: "text", text: `Unknown tool: ${name}` }],
+          isError: true,
+        };
+      }
+
       try {
-        const result = await config.askAgent(message);
+        const result = await entry.run((args as Record<string, string>) ?? {});
         return { content: [{ type: "text", text: result }] };
       } catch (err: any) {
         return {
@@ -151,25 +238,7 @@ async function createMCPServerForRequest(config: MCPConfig) {
           isError: true,
         };
       }
-    }
-
-    const entry = config.actions[name];
-    if (!entry) {
-      return {
-        content: [{ type: "text", text: `Unknown tool: ${name}` }],
-        isError: true,
-      };
-    }
-
-    try {
-      const result = await entry.run((args as Record<string, string>) ?? {});
-      return { content: [{ type: "text", text: result }] };
-    } catch (err: any) {
-      return {
-        content: [{ type: "text", text: `Error: ${err.message}` }],
-        isError: true,
-      };
-    }
+    });
   });
 
   return server;
@@ -200,10 +269,11 @@ export function mountMCP(
     defineEventHandler(async (event) => {
       const method = getMethod(event);
 
-      // Auth check
+      // Auth check — also extracts the caller's identity from the JWT so
+      // downstream tools run inside `runWithRequestContext`.
       const authHeader = getRequestHeader(event, "authorization");
-      const authed = await verifyAuth(authHeader);
-      if (!authed) {
+      const authResult = await verifyAuth(authHeader);
+      if (!authResult.authed) {
         setResponseStatus(event, 401);
         return { error: "Unauthorized" };
       }
@@ -233,7 +303,10 @@ export function mountMCP(
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined, // stateless
       });
-      const server = await createMCPServerForRequest(config);
+      const server = await createMCPServerForRequest(
+        config,
+        authResult.identity,
+      );
       await server.connect(transport);
 
       // Delegate to the transport — it writes directly to the Node response.
