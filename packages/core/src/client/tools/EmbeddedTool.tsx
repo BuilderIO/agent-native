@@ -65,7 +65,9 @@ export function EmbeddedTool({
 
   const iframeSrc = useMemo(() => {
     const v = encodeURIComponent(tool?.updatedAt ?? "");
-    return `/_agent-native/tools/${toolId}/render?slot=${encodeURIComponent(slotId)}&dark=${isDark}&v=${v}`;
+    return agentNativePath(
+      `/_agent-native/tools/${toolId}/render?slot=${encodeURIComponent(slotId)}&dark=${isDark}&v=${v}`,
+    );
   }, [toolId, slotId, isDark, tool?.updatedAt]);
 
   // Forward slot context whenever it changes. The iframe's own load handler
@@ -113,7 +115,7 @@ export function EmbeddedTool({
 
       try {
         const options = sanitizeToolRequestOptions(message.options);
-        const res = await fetch(path, {
+        const res = await fetch(agentNativePath(path), {
           ...options,
           credentials: "same-origin",
         });

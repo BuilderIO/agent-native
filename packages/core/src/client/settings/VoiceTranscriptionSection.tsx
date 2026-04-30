@@ -11,6 +11,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from "react";
+import { agentNativePath } from "../api-path.js";
 import {
   IconCheck,
   IconExternalLink,
@@ -30,8 +31,10 @@ interface SecretStatus {
   status: "set" | "unset" | "invalid";
 }
 
-const PREFS_URL = "/_agent-native/application-state/voice-transcription-prefs";
-const SECRETS_URL = "/_agent-native/secrets";
+const PREFS_URL = agentNativePath(
+  "/_agent-native/application-state/voice-transcription-prefs",
+);
+const SECRETS_URL = agentNativePath("/_agent-native/secrets");
 const DEFAULT_PROVIDER: Provider = "browser";
 
 export function VoiceTranscriptionSection() {

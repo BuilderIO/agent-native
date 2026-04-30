@@ -78,7 +78,7 @@ export function NotificationsBell({
     if (browserNotifications) {
       try {
         const res = await fetch(
-          "/_agent-native/notifications?unread=true&limit=20",
+          agentNativePath("/_agent-native/notifications?unread=true&limit=20"),
         );
         if (!res.ok) return;
         const rows = (await res.json()) as NotificationDto[];

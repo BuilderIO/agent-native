@@ -133,7 +133,9 @@ export function AutomationsSection() {
       setTogglingId(item.id);
       try {
         const res = await fetch(
-          `/_agent-native/resources/${encodeURIComponent(item.id)}`,
+          agentNativePath(
+            `/_agent-native/resources/${encodeURIComponent(item.id)}`,
+          ),
         );
         if (!res.ok) {
           showToast("err", "Failed to read automation");
@@ -149,7 +151,9 @@ export function AutomationsSection() {
         );
 
         const putRes = await fetch(
-          `/_agent-native/resources/${encodeURIComponent(item.id)}`,
+          agentNativePath(
+            `/_agent-native/resources/${encodeURIComponent(item.id)}`,
+          ),
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -174,7 +178,9 @@ export function AutomationsSection() {
       setDeletingId(item.id);
       try {
         const res = await fetch(
-          `/_agent-native/resources/${encodeURIComponent(item.id)}`,
+          agentNativePath(
+            `/_agent-native/resources/${encodeURIComponent(item.id)}`,
+          ),
           { method: "DELETE" },
         );
         if (!res.ok) {

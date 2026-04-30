@@ -267,7 +267,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
       try {
         const options = sanitizeToolRequestOptions(message.options);
-        const res = await fetch(path, {
+        const res = await fetch(agentNativePath(path), {
           ...options,
           credentials: "same-origin",
         });
@@ -312,7 +312,9 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
   const iframeSrc = useMemo(
     () =>
-      `/_agent-native/tools/${toolId}/render?dark=${document.documentElement.classList.contains("dark")}&v=${encodeURIComponent(tool?.updatedAt ?? "")}&r=${refreshKey}`,
+      agentNativePath(
+        `/_agent-native/tools/${toolId}/render?dark=${document.documentElement.classList.contains("dark")}&v=${encodeURIComponent(tool?.updatedAt ?? "")}&r=${refreshKey}`,
+      ),
     [toolId, tool?.updatedAt, refreshKey],
   );
 
