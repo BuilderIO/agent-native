@@ -24,9 +24,39 @@ import {
 import type { H3Event } from "h3";
 import type { H3AppShim } from "./framework-request-handler.js";
 
-// In h3 v2, `event.req` IS the web Request — no conversion needed.
+// In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
+// runtime), event.url and event.req share the same underlying URL object.
+// When registerMiddleware strips the mount prefix from event.url.pathname, it
+// also mutates event.req.url (NodeRequestURL setter updates nodeReq.url).
+// Better Auth's router uses new URL(request.url).pathname to extract the
+// sub-route, so it must receive the original full URL — not the stripped one.
+// registerMiddleware saves the original pathname in event.context so we can
+// reconstruct a fresh Request with the correct URL here.
 function toWebRequest(event: H3Event): Request {
-  return (event as any).req as Request;
+  const req = (event as any).req as Request;
+  const ctx = (event as any).context as
+    | { _mountedPathname?: string; _mountPrefix?: string }
+    | undefined;
+  if (ctx?._mountedPathname && ctx._mountPrefix) {
+    try {
+      const url = new URL(req.url);
+      if (url.pathname !== ctx._mountedPathname) {
+        url.pathname = ctx._mountedPathname;
+        return new Request(url.href, {
+          method: req.method,
+          headers: req.headers,
+          // Body may already be partially consumed; pass through as-is.
+          body: req.body,
+          // Undici duplex option required for streaming bodies.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          duplex: "half",
+        } as any);
+      }
+    } catch {
+      // URL reconstruction failed — fall through and use original req.
+    }
+  }
+  return req;
 }
 
 type H3App = H3AppShim;
