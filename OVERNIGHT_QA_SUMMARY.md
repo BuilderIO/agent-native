@@ -312,9 +312,9 @@ The following patterns surfaced repeatedly across templates. Some have CI guards
 - Playwright / Chrome MCP is single-session and caused contention; most agents fell back to source code review rather than browser-based testing
 - Multiple agents converged on the same fixes in a few cases (notably `wrapWithAnalytics` guard and A2A identity fixes); concurrent commits on the same files were handled cleanly because agents were scoped to different templates
 - All agents stayed on `updates-203` branch as instructed; no pushes occurred
-- Commit coordination was clean: `git log --oneline ^main` shows 74 commits with no merge conflicts or revert pairs
+- Commit coordination was clean: `git log --oneline ^main` shows 90 commits with no merge conflicts or revert pairs
 
 ---
 
-_Generated 2026-04-30 by autonomous overnight QA sweep (8 rounds, ~25 sub-agents)._
+_Generated 2026-04-30 by autonomous overnight QA sweep (10 rounds, ~30 sub-agents)._
 _See `OVERNIGHT_QA_CRITICAL_FINDINGS.md` for detailed analysis of deferred findings._
