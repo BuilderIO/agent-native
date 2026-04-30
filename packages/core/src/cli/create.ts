@@ -983,5 +983,7 @@ function shouldSkipScaffoldEntry(name: string): boolean {
   ) {
     return true;
   }
-  return /^qa-.*\.db(?:-shm|-wal)?$/.test(name) || /\.db-(?:shm|wal)$/.test(name);
+  return (
+    /^qa-.*\.db(?:-shm|-wal)?$/.test(name) || /\.db-(?:shm|wal)$/.test(name)
+  );
 }
