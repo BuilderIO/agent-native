@@ -2,7 +2,11 @@ import { createContext, useContext, useState, useEffect } from "react";
 import { useLocation } from "react-router";
 import { IconMenu } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  NotificationsBell,
+} from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { Sidebar } from "./Sidebar";
 import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
@@ -182,6 +186,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 </Button>
                 <span className="ml-2 text-sm font-semibold">Calendar</span>
               </div>
+              <NotificationsBell />
               <AgentToggleButton className="ml-auto h-8 w-8 rounded-md hover:bg-accent" />
             </header>
 

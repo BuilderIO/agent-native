@@ -48,6 +48,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   FeedbackButton,
+  NotificationsBell,
 } from "@agent-native/core/client";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
@@ -989,6 +990,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 </Popover>
               )}
 
+              <NotificationsBell />
               <AgentToggleButton />
             </header>
 
