@@ -17,6 +17,34 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 
+/**
+ * Per-request agent-run state. Lives on `RequestContext.run` so the
+ * agent-chat plugin can populate fields as the run progresses (owner,
+ * resolved API key, system prompt, engine, model, threadId) without
+ * mutating module-scope `let` bindings — those leak across concurrent
+ * requests on a single Node.js process.
+ *
+ * Mutated in-place by `prepareRun`, `onEngineResolved`, `onRunStart` so
+ * tool factory closures (automation, fetch, team, builder-browser) read
+ * the live per-request value via `getRequestRunContext()`.
+ */
+export interface RequestRunContext {
+  /** Origin of the current request (used by the builder-browser tool). */
+  requestOrigin?: string;
+  /** Resolved owner email (set by prepareRun). */
+  owner?: string;
+  /** Owner's active Anthropic API key (set by prepareRun). */
+  userApiKey?: string;
+  /** Thread ID for the current run (set by onRunStart). */
+  threadId?: string;
+  /** System prompt actually sent to the model for this run. */
+  systemPrompt?: string;
+  /** Engine instance for this run (set by onEngineResolved). */
+  engine?: import("../agent/engine/types.js").AgentEngine;
+  /** Model name for this run (set by onEngineResolved). */
+  model?: string;
+}
+
 export interface RequestContext {
   userEmail?: string;
   orgId?: string;
@@ -29,6 +57,11 @@ export interface RequestContext {
    * normal agent-chat callers (5+ min budget) unaffected.
    */
   isIntegrationCaller?: boolean;
+  /**
+   * Mutable per-request agent-run state. Populated by the agent-chat plugin
+   * during a run; tool closures dereference it on each invocation.
+   */
+  run?: RequestRunContext;
 }
 
 const als = new AsyncLocalStorage<RequestContext>();
@@ -116,4 +149,29 @@ export function getCredentialContext(): {
   const userEmail = getRequestUserEmail();
   if (!userEmail) return null;
   return { userEmail, orgId: getRequestOrgId() ?? null };
+}
+
+/**
+ * Get the active request's mutable agent-run state. Returns `undefined` when
+ * called outside an agent run (e.g. before `prepareRun` or in a non-agent
+ * code path). Callers must tolerate the field absence; use the helper
+ * `requireRequestRunContext()` if missing context is a programming error.
+ */
+export function getRequestRunContext(): RequestRunContext | undefined {
+  const store = als.getStore();
+  if (!store) return undefined;
+  return store.run;
+}
+
+/**
+ * Ensure a `RequestRunContext` exists on the active request store and
+ * return it. Used by the agent-chat handler to attach run state once it
+ * starts processing a chat request. Returns `undefined` if there is no
+ * active request store (caller should not be invoking this outside ALS).
+ */
+export function ensureRequestRunContext(): RequestRunContext | undefined {
+  const store = als.getStore();
+  if (!store) return undefined;
+  if (!store.run) store.run = {};
+  return store.run;
 }

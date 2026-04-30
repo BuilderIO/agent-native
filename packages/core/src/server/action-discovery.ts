@@ -28,6 +28,7 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import nodePath from "node:path";
+import { captureCliOutput } from "./cli-capture.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // Avoids require() which bundlers convert to createRequire() that crashes on CF Workers.
@@ -48,15 +49,6 @@ const SKIP_FILES = new Set([
   "db-status",
   "registry",
 ]);
-
-/** Sentinel thrown by our process.exit interceptor */
-class ExitIntercepted extends Error {
-  code: number;
-  constructor(code: number) {
-    super(`process.exit(${code})`);
-    this.code = code;
-  }
-}
 
 /**
  * Split a string into shell-like tokens, handling double and single quotes.
@@ -99,7 +91,10 @@ function splitShellArgs(input: string): string[] {
 
 /**
  * Wrap a CLI-style action (that writes to console.log) as an ActionEntry
- * by capturing stdout/stderr and intercepting process.exit.
+ * by capturing stdout/stderr and intercepting process.exit. Uses the
+ * shared AsyncLocalStorage-backed capture so concurrent invocations do
+ * not corrupt the global `console.log` / `process.stdout.write` /
+ * `process.exit` pointers (see `cli-capture.ts`).
  */
 function wrapDefaultExport(
   name: string,
@@ -131,44 +126,7 @@ function wrapDefaultExport(
           cliArgs.push(`--${k}`, v);
         }
       }
-
-      const logs: string[] = [];
-      const origLog = console.log;
-      const origError = console.error;
-      const origStdoutWrite = process.stdout.write;
-      const origExit = process.exit;
-
-      console.log = (...a: unknown[]) => {
-        logs.push(a.map(String).join(" "));
-      };
-      console.error = (...a: unknown[]) => {
-        logs.push(a.map(String).join(" "));
-      };
-      process.stdout.write = ((chunk: any) => {
-        if (typeof chunk === "string") {
-          logs.push(chunk);
-        } else if (Buffer.isBuffer(chunk)) {
-          logs.push(chunk.toString());
-        }
-        return true;
-      }) as any;
-      process.exit = ((code?: number) => {
-        throw new ExitIntercepted(code ?? 0);
-      }) as never;
-
-      try {
-        await defaultFn(cliArgs);
-      } catch (err: any) {
-        if (!(err instanceof ExitIntercepted)) {
-          logs.push(`Error: ${err?.message ?? String(err)}`);
-        }
-      } finally {
-        console.log = origLog;
-        console.error = origError;
-        process.stdout.write = origStdoutWrite;
-        process.exit = origExit;
-      }
-      return logs.join("\n") || "(no output)";
+      return captureCliOutput(() => defaultFn(cliArgs));
     },
   };
 }

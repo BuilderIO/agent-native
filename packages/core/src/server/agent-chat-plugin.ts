@@ -1,4 +1,9 @@
-import { runWithRequestContext, getRequestOrgId } from "./request-context.js";
+import {
+  runWithRequestContext,
+  getRequestOrgId,
+  getRequestRunContext,
+  ensureRequestRunContext,
+} from "./request-context.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import { getH3App, trackPluginInit } from "./framework-request-handler.js";
 import {
@@ -72,6 +77,7 @@ import {
 import nodePath from "node:path";
 import { readBody } from "./h3-helpers.js";
 import { getBuilderBrowserConnectUrl } from "./builder-browser.js";
+import { captureCliOutput } from "./cli-capture.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -86,7 +92,9 @@ async function lazyFs(): Promise<typeof import("fs")> {
 
 /**
  * Wraps a core CLI script (that writes to console.log) as a ActionEntry
- * by capturing stdout.
+ * by capturing stdout. Uses an AsyncLocalStorage-backed capture so
+ * concurrent tool calls do not corrupt the global console/stdout pointers
+ * (see `cli-capture.ts`).
  */
 function wrapCliScript(
   tool: ActionTool,
@@ -101,36 +109,7 @@ function wrapCliScript(
       for (const [k, v] of Object.entries(args)) {
         cliArgs.push(`--${k}`, v);
       }
-      const logs: string[] = [];
-      const origLog = console.log;
-      const origError = console.error;
-      const origStdoutWrite = process.stdout.write;
-      console.log = (...a: unknown[]) => {
-        logs.push(a.map(String).join(" "));
-      };
-      console.error = (...a: unknown[]) => {
-        logs.push(a.map(String).join(" "));
-      };
-      // Intercept process.stdout.write so scripts that write directly
-      // (e.g. resource-read) have their output captured
-      process.stdout.write = ((chunk: any, ...rest: any[]) => {
-        if (typeof chunk === "string") {
-          logs.push(chunk);
-        } else if (Buffer.isBuffer(chunk)) {
-          logs.push(chunk.toString());
-        }
-        return true;
-      }) as any;
-      try {
-        await cliDefault(cliArgs);
-      } catch (err: any) {
-        logs.push(`Error: ${err?.message ?? String(err)}`);
-      } finally {
-        console.log = origLog;
-        console.error = origError;
-        process.stdout.write = origStdoutWrite;
-      }
-      return logs.join("\n") || "(no output)";
+      return captureCliOutput(() => cliDefault(cliArgs));
     },
   };
 }
@@ -222,6 +201,13 @@ function createRefreshScreenEntry(): Record<string, ActionEntry> {
 
 /** Well-known application-state key used by the refresh-screen tool. */
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
+
+/**
+ * In-memory rate-limit tracker for `/generate-title`. Keyed by user email,
+ * value is recent invocation timestamps within the rolling window. Stale
+ * entries are pruned on read.
+ */
+const generateTitleRateLimit = new Map<string, number[]>();
 
 /**
  * Creates the `set-search-params` / `set-url-path` tools. Writes a one-shot
@@ -2196,9 +2182,9 @@ export function createAgentChatPlugin(
         ...engineScripts,
       };
       const callAgentScript = await createCallAgentScriptEntry(options?.appId);
-      let _currentRequestOrigin = "http://localhost:3000";
       const browserTools = createBuilderBrowserTool({
-        getOrigin: () => _currentRequestOrigin,
+        getOrigin: () =>
+          getRequestRunContext()?.requestOrigin ?? "http://localhost:3000",
       });
 
       // Auto-mount A2A protocol endpoints so every app is discoverable
@@ -2337,31 +2323,36 @@ export function createAgentChatPlugin(
             );
         } catch {}
       }
-      // Mutable owner — set per-request by the production handler, read by
-      // automation tools and fetch tool via closure. Declared here (before
-      // allScripts) so the tools are in scope when allScripts is built.
-      let _currentRunOwner = DEV_MODE_USER_EMAIL;
+      // Per-request owner is read from the AsyncLocalStorage run context
+      // (populated by prepareRun). Module-scope `let` would race across
+      // concurrent requests on a long-lived Node process — overlapping
+      // tool calls would observe whichever request wrote last. ALS gives
+      // each async call-chain its own view of the owner.
+      const getCurrentRunOwner = (): string =>
+        getRequestRunContext()?.owner ?? DEV_MODE_USER_EMAIL;
 
-      // Automation tools + fetch tool — depend on _currentRunOwner via callback
+      // Automation tools + fetch tool — depend on owner via callback
       let automationTools: Record<string, ActionEntry> = {};
       try {
         const { createAutomationToolEntries } =
           await import("../triggers/actions.js");
-        automationTools = createAutomationToolEntries(() => _currentRunOwner);
+        automationTools = createAutomationToolEntries(() =>
+          getCurrentRunOwner(),
+        );
       } catch {}
       let notificationTools: Record<string, ActionEntry> = {};
       try {
         const { createNotificationToolEntries } =
           await import("../notifications/actions.js");
-        notificationTools = createNotificationToolEntries(
-          () => _currentRunOwner,
+        notificationTools = createNotificationToolEntries(() =>
+          getCurrentRunOwner(),
         );
       } catch {}
       let progressTools: Record<string, ActionEntry> = {};
       try {
         const { createProgressToolEntries } =
           await import("../progress/actions.js");
-        progressTools = createProgressToolEntries(() => _currentRunOwner);
+        progressTools = createProgressToolEntries(() => getCurrentRunOwner());
       } catch {}
       let fetchTool: Record<string, ActionEntry> = {};
       try {
@@ -2370,13 +2361,13 @@ export function createAgentChatPlugin(
           await import("../secrets/substitution.js");
         fetchTool = createFetchToolEntry({
           resolveKeys: async (text) =>
-            resolveKeyReferences(text, "user", _currentRunOwner),
+            resolveKeyReferences(text, "user", getCurrentRunOwner()),
           validateUrl: async (url, usedKeys) => {
             for (const keyName of usedKeys) {
               const allowlist = await getKeyAllowlist(
                 keyName,
                 "user",
-                _currentRunOwner,
+                getCurrentRunOwner(),
               );
               if (allowlist && !validateUrlAllowlist(url, allowlist)) {
                 return false;
@@ -2884,10 +2875,11 @@ export function createAgentChatPlugin(
 
             // Store debug metadata so we can inspect what the LLM actually
             // received (system prompt, model, engine) when diagnosing issues.
+            const runCtx = getRequestRunContext();
             repo._debug = {
-              systemPrompt: _currentRunSystemPrompt,
-              model: _currentRunModel ?? resolvedModel,
-              engine: _currentRunEngine?.name ?? "unknown",
+              systemPrompt: runCtx?.systemPrompt,
+              model: runCtx?.model ?? resolvedModel,
+              engine: runCtx?.engine?.name ?? "unknown",
               timestamp: Date.now(),
             };
 
@@ -2981,19 +2973,12 @@ export function createAgentChatPlugin(
         string,
         (event: import("../agent/types.js").AgentChatEvent) => void
       >();
-      let _currentRunUserApiKey: string | undefined;
-      let _currentRunThreadId = "";
-      let _currentRunSystemPrompt = basePrompt;
-      // Populated by onEngineResolved per request so sub-agents inherit
-      // whichever provider + model the user configured (OpenRouter, Groq, …)
-      // instead of silently falling back to Anthropic + Claude.
-      let _currentRunEngine: AgentEngine | undefined;
-      let _currentRunModel: string | undefined;
       const resolvedModel = options?.model ?? DEFAULT_MODEL;
 
       const teamTools = createTeamTools({
-        getOwner: () => _currentRunOwner,
-        getSystemPrompt: () => _currentRunSystemPrompt,
+        getOwner: () => getCurrentRunOwner(),
+        getSystemPrompt: () =>
+          getRequestRunContext()?.systemPrompt ?? basePrompt,
         getActions: () =>
           isDevMode()
             ? {
@@ -3015,22 +3000,27 @@ export function createAgentChatPlugin(
                 ...urlTools,
                 ...chatScripts,
               },
-        getEngine: () =>
-          _currentRunEngine ??
-          createAnthropicEngine({
-            // Sub-agents must inherit the parent run's resolved key so a
-            // BYO-key user can't bypass the free-tier check on the parent
-            // run and then have agent-teams spawn delegations bill the platform key.
-            apiKey:
-              _currentRunUserApiKey ??
-              options?.apiKey ??
-              process.env.ANTHROPIC_API_KEY,
-          }),
-        getModel: () => _currentRunModel ?? resolvedModel,
-        getParentThreadId: () => _currentRunThreadId,
+        getEngine: () => {
+          const runCtx = getRequestRunContext();
+          return (
+            runCtx?.engine ??
+            createAnthropicEngine({
+              // Sub-agents must inherit the parent run's resolved key so a
+              // BYO-key user can't bypass the free-tier check on the parent
+              // run and then have agent-teams spawn delegations bill the platform key.
+              apiKey:
+                runCtx?.userApiKey ??
+                options?.apiKey ??
+                process.env.ANTHROPIC_API_KEY,
+            })
+          );
+        },
+        getModel: () => getRequestRunContext()?.model ?? resolvedModel,
+        getParentThreadId: () => getRequestRunContext()?.threadId ?? "",
         getSend: () => {
           // Return the send for the current run's thread
-          const send = _runSendByThread.get(_currentRunThreadId);
+          const threadId = getRequestRunContext()?.threadId ?? "";
+          const send = _runSendByThread.get(threadId);
           return send ?? null;
         },
       });
@@ -3112,20 +3102,31 @@ export function createAgentChatPlugin(
       const leanBasePrompt = (options?.systemPrompt ?? "") + prodActionsPrompt;
 
       // Per-request preamble shared by both prod and dev handlers. Resolves
-      // owner + user API key (stashed on the closure so downstream tools can
-      // reach them) and the template-authored `extraContext`. `extraContext`
-      // runs in every prompt variant (lean, lazy, full) — if a template
-      // defined it, they opted in; framework-provided content is what the
-      // token-saving modes strip.
+      // owner + user API key onto the AsyncLocalStorage run context so
+      // downstream tool closures (automation, fetch, team) read the
+      // current request's identity without racing against concurrent
+      // requests. `extraContext` runs in every prompt variant (lean, lazy,
+      // full) — if a template defined it, they opted in; framework-provided
+      // content is what the token-saving modes strip.
       const prepareRun = async (event: any) => {
-        _currentRequestOrigin = getOrigin(event);
         const owner = await getOwnerFromEvent(event);
-        _currentRunOwner = owner;
         const { getOwnerActiveApiKey } =
           await import("../agent/production-agent.js");
-        _currentRunUserApiKey = await getOwnerActiveApiKey(owner);
+        const userApiKey = await getOwnerActiveApiKey(owner);
+        const runCtx = ensureRequestRunContext();
+        if (runCtx) {
+          runCtx.requestOrigin = getOrigin(event);
+          runCtx.owner = owner;
+          runCtx.userApiKey = userApiKey;
+        }
         const extra = await resolveExtraContext(event, owner);
         return { owner, extra };
+      };
+
+      const setSystemPromptOnContext = (prompt: string): string => {
+        const runCtx = ensureRequestRunContext();
+        if (runCtx) runCtx.systemPrompt = prompt;
+        return prompt;
       };
 
       const prodHandler = createProductionAgentHandler({
@@ -3133,8 +3134,7 @@ export function createAgentChatPlugin(
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
           if (leanPrompt) {
-            _currentRunSystemPrompt = leanBasePrompt + extra;
-            return _currentRunSystemPrompt;
+            return setSystemPromptOnContext(leanBasePrompt + extra);
           }
           const resources = await loadResourcesForPrompt(owner, lazyContext);
           // In lazy context mode, skip embedding the full schema — the agent
@@ -3142,23 +3142,27 @@ export function createAgentChatPlugin(
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, false);
-          _currentRunSystemPrompt =
-            basePrompt + resources + schemaBlock + extra;
-          return _currentRunSystemPrompt;
+          return setSystemPromptOnContext(
+            basePrompt + resources + schemaBlock + extra,
+          );
         },
         model: options?.model ?? DEFAULT_MODEL,
         apiKey: options?.apiKey,
         skipFilesContext: leanPrompt,
         onEngineResolved: (engine, model) => {
-          _currentRunEngine = engine;
-          _currentRunModel = model;
+          const runCtx = ensureRequestRunContext();
+          if (runCtx) {
+            runCtx.engine = engine;
+            runCtx.model = model;
+          }
         },
         onRunStart: (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,
         ) => {
           _runSendByThread.set(threadId, send);
-          _currentRunThreadId = threadId;
+          const runCtx = ensureRequestRunContext();
+          if (runCtx) runCtx.threadId = threadId;
         },
         onRunComplete: async (run: any, threadId: string | undefined) => {
           if (threadId) _runSendByThread.delete(threadId);
@@ -3219,30 +3223,33 @@ export function createAgentChatPlugin(
           systemPrompt: async (event: any) => {
             const { owner, extra } = await prepareRun(event);
             if (leanPrompt) {
-              _currentRunSystemPrompt = leanBasePrompt + extra;
-              return _currentRunSystemPrompt;
+              return setSystemPromptOnContext(leanBasePrompt + extra);
             }
             const resources = await loadResourcesForPrompt(owner, lazyContext);
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(owner, true);
-            _currentRunSystemPrompt =
-              devPrompt + resources + schemaBlock + extra;
-            return _currentRunSystemPrompt;
+            return setSystemPromptOnContext(
+              devPrompt + resources + schemaBlock + extra,
+            );
           },
           model: options?.model,
           apiKey: options?.apiKey,
           skipFilesContext: leanPrompt,
           onEngineResolved: (engine, model) => {
-            _currentRunEngine = engine;
-            _currentRunModel = model;
+            const runCtx = ensureRequestRunContext();
+            if (runCtx) {
+              runCtx.engine = engine;
+              runCtx.model = model;
+            }
           },
           onRunStart: (
             send: (event: import("../agent/types.js").AgentChatEvent) => void,
             threadId: string,
           ) => {
             _runSendByThread.set(threadId, send);
-            _currentRunThreadId = threadId;
+            const runCtx = ensureRequestRunContext();
+            if (runCtx) runCtx.threadId = threadId;
           },
           onRunComplete: async (run: any, threadId: string | undefined) => {
             if (threadId) _runSendByThread.delete(threadId);
@@ -3812,6 +3819,23 @@ export function createAgentChatPlugin(
             return { error: "Method not allowed" };
           }
           const ownerEmail = await getOwnerFromEvent(event);
+
+          // Per-user rate limit: 10 calls / 60s. Prevents an authenticated
+          // user from spamming the endpoint to exhaust shared Anthropic
+          // credits on platform-key deployments.
+          const now = Date.now();
+          const limitWindowMs = 60_000;
+          const limitMax = 10;
+          const recent = (generateTitleRateLimit.get(ownerEmail) ?? []).filter(
+            (t) => now - t < limitWindowMs,
+          );
+          if (recent.length >= limitMax) {
+            setResponseStatus(event, 429);
+            return { error: "Rate limit exceeded" };
+          }
+          recent.push(now);
+          generateTitleRateLimit.set(ownerEmail, recent);
+
           const body = await readBody(event);
           const message = body?.message;
           if (!message || typeof message !== "string") {
@@ -4255,14 +4279,6 @@ export function createAgentChatPlugin(
             }
           }
 
-          // Also set process.env for backwards compat (CLI scripts, legacy readers)
-          process.env.AGENT_USER_EMAIL = owner; // guard:allow-env-mutation — back-compat for legacy CLI scripts/readers; per-request truth lives in runWithRequestContext below
-          if (resolvedOrgId) {
-            process.env.AGENT_ORG_ID = resolvedOrgId; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext below
-          } else {
-            delete process.env.AGENT_ORG_ID;
-          }
-
           // Propagate the caller's IANA timezone from `x-user-timezone` so that
           // tool calls made by the agent (e.g. log-meal with no explicit date)
           // resolve "today" in the user's local timezone instead of server UTC.
@@ -4273,11 +4289,6 @@ export function createAgentChatPlugin(
             tzRaw.trim().length < 64
               ? tzRaw.trim()
               : undefined;
-          if (timezone) {
-            process.env.AGENT_USER_TIMEZONE = timezone; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext below
-          } else {
-            delete process.env.AGENT_USER_TIMEZONE;
-          }
 
           return runWithRequestContext(
             { userEmail: owner, orgId: resolvedOrgId, timezone },
