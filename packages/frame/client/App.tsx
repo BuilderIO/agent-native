@@ -229,8 +229,12 @@ export function App() {
         return;
       }
       if (event.data.type === "builder.submitChat") {
+        const host = window.location.hostname || "localhost";
         const allowedOrigins = new Set(
-          TEMPLATES.map((a) => `http://localhost:${a.devPort || 8080}`),
+          TEMPLATES.flatMap((a) => [
+            `http://localhost:${a.devPort || 8080}`,
+            `http://${host}:${a.devPort || 8080}`,
+          ]),
         );
         if (allowedOrigins.has(event.origin)) {
           window.postMessage(event.data, window.location.origin);
