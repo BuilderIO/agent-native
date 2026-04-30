@@ -4533,8 +4533,11 @@ export function getGlobalMcpManager(): McpClientManager | null {
 }
 
 function mountMcpHubStatusRoute(nitroApp: any): void {
-  if ((globalThis as any).__agentNativeMcpHubStatusMounted) return;
-  (globalThis as any).__agentNativeMcpHubStatusMounted = true;
+  const mountedApps: WeakSet<object> = ((
+    globalThis as any
+  ).__agentNativeMcpHubStatusMountedApps ??= new WeakSet<object>());
+  if (mountedApps.has(nitroApp)) return;
+  mountedApps.add(nitroApp);
   try {
     getH3App(nitroApp).use(
       "/_agent-native/mcp/hub/status",
@@ -4555,9 +4558,12 @@ function mountMcpHubStatusRoute(nitroApp: any): void {
 }
 
 function mountMcpStatusRoute(nitroApp: any, manager: McpClientManager): void {
-  // Idempotent — agent-chat-plugin can be invoked once per process; guard anyway.
-  if ((globalThis as any).__agentNativeMcpStatusMounted) return;
-  (globalThis as any).__agentNativeMcpStatusMounted = true;
+  // Idempotent per Nitro app; dev-all may host multiple templates in one process.
+  const mountedApps: WeakSet<object> = ((
+    globalThis as any
+  ).__agentNativeMcpStatusMountedApps ??= new WeakSet<object>());
+  if (mountedApps.has(nitroApp)) return;
+  mountedApps.add(nitroApp);
   try {
     getH3App(nitroApp).use(
       "/_agent-native/mcp/status",

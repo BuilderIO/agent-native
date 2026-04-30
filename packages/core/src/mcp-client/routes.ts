@@ -200,8 +200,11 @@ export function mountMcpServersRoutes(
   nitroApp: any,
   manager: McpClientManager,
 ): void {
-  if ((globalThis as any).__agentNativeMcpServersMounted) return;
-  (globalThis as any).__agentNativeMcpServersMounted = true;
+  const mountedApps: WeakSet<object> = ((
+    globalThis as any
+  ).__agentNativeMcpServersMountedApps ??= new WeakSet<object>());
+  if (mountedApps.has(nitroApp)) return;
+  mountedApps.add(nitroApp);
 
   try {
     getH3App(nitroApp).use(

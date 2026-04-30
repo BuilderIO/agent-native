@@ -147,8 +147,11 @@ function checkBearer(event: H3Event): string | null {
 }
 
 export function mountMcpHubRoutes(nitroApp: any): void {
-  if ((globalThis as any).__agentNativeMcpHubMounted) return;
-  (globalThis as any).__agentNativeMcpHubMounted = true;
+  const mountedApps: WeakSet<object> = ((
+    globalThis as any
+  ).__agentNativeMcpHubMountedApps ??= new WeakSet<object>());
+  if (mountedApps.has(nitroApp)) return;
+  mountedApps.add(nitroApp);
 
   try {
     getH3App(nitroApp).use(

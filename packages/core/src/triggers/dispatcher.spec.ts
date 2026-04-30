@@ -36,12 +36,16 @@ vi.mock("./condition-evaluator.js", () => ({
   evaluateCondition: vi.fn(async () => true),
 }));
 
-// Mock the user/membership validation lookup so triggers don't get
-// skipped during tests (audit 12 #10).
-vi.mock("../db/client.js", () => ({
-  getDbExec: getDbExecMock,
-  isPostgres: vi.fn(() => false),
-}));
+// Partial-mock db/client so the user/membership validation lookup is
+// stubbed (audit 12 #10) but other consumers (auth shim, onboarding HTML
+// loaded transitively via `getDbExec`) still see real exports.
+vi.mock(import("../db/client.js"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getDbExec: getDbExecMock,
+  };
+});
 
 describe("trigger dispatcher", () => {
   beforeEach(() => {
