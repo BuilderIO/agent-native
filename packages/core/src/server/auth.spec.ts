@@ -141,6 +141,78 @@ describe("server/auth", () => {
       errorSpy.mockRestore();
     });
 
+    it("mounts generic Google OAuth routes by default when credentials are configured", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+      delete process.env.AUTH_MODE;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+            listOrganizations: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const paths = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .filter((path: unknown): path is string => typeof path === "string");
+      expect(paths).toContain("/_agent-native/google/auth-url");
+      expect(paths).toContain("/_agent-native/google/callback");
+    });
+
+    it("lets templates own Google OAuth routes when opted out", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+      delete process.env.AUTH_MODE;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+            listOrganizations: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        googleOnly: true,
+        mountGoogleOAuthRoutes: false,
+      });
+
+      const paths = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .filter((path: unknown): path is string => typeof path === "string");
+      expect(paths).not.toContain("/_agent-native/google/auth-url");
+      expect(paths).not.toContain("/_agent-native/google/callback");
+      expect(paths).toContain("/_agent-native/auth/ba");
+    });
+
     it("mounts auth when ACCESS_TOKEN is set in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
