@@ -168,7 +168,7 @@ export default function Root() {
         <AgentSidebar
           position="right"
           defaultOpen={false}
-          sidebarWidth={400}
+          defaultSidebarWidth={400}
           emptyStateText="Ask me anything about Agent-Native"
           suggestions={[
             "How do I get started with Agent-Native?",
