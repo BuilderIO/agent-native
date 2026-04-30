@@ -153,6 +153,27 @@ export interface AuthOptions {
    */
   mountGoogleOAuthRoutes?: boolean;
   /**
+   * Additional Google OAuth scopes to request beyond the default identity
+   * scopes (`openid`, `email`, `profile`). When set, Better Auth's Google
+   * social provider asks for these up front, requests a refresh token
+   * (`access_type=offline`), and forces the consent screen so the refresh
+   * token is reissued on every sign-in.
+   *
+   * Tokens land in Better Auth's `account` table, and a database hook
+   * mirrors them into `oauth_tokens` so template code (mail's Gmail client,
+   * calendar's events fetcher, etc.) can pick them up without a separate
+   * "Connect Google" round-trip.
+   *
+   * Example for the mail template:
+   * ```ts
+   * googleScopes: [
+   *   "https://www.googleapis.com/auth/gmail.readonly",
+   *   "https://www.googleapis.com/auth/gmail.send",
+   * ],
+   * ```
+   */
+  googleScopes?: string[];
+  /**
    * Product marketing content shown alongside the sign-in form.
    * When provided, the page uses a split layout: marketing on the left,
    * sign-in form on the right.
@@ -1540,8 +1561,15 @@ async function mountBetterAuthRoutes(
 
   const accessTokens = getAccessTokens();
 
-  // Initialize Better Auth
-  const auth = await getBetterAuth(options.betterAuth);
+  // Initialize Better Auth. Forward `googleScopes` into the BetterAuthConfig
+  // so the social provider requests the broader product scopes (Gmail,
+  // Calendar, etc.) up front during the primary sign-in — eliminating the
+  // need for a separate "Connect Google" page.
+  const betterAuthConfig: BetterAuthConfig = {
+    ...(options.betterAuth ?? {}),
+    ...(options.googleScopes ? { googleScopes: options.googleScopes } : {}),
+  };
+  const auth = await getBetterAuth(betterAuthConfig);
 
   // Mount Better Auth catch-all handler at /_agent-native/auth/ba/*
   app.use(

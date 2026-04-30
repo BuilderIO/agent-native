@@ -21,6 +21,7 @@ import {
 import { getAppProductionUrl } from "./app-url.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
+import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import {
   getDialect,
   getDatabaseUrl,
@@ -210,6 +211,21 @@ export interface BetterAuthConfig {
   socialProviders?: BetterAuthOptions["socialProviders"];
   /** Additional Better Auth plugins */
   plugins?: BetterAuthOptions["plugins"];
+  /**
+   * Additional Google OAuth scopes (Gmail, Calendar, etc.) to request
+   * up front during the primary "Sign in with Google" flow, beyond the
+   * default identity scopes (`openid`, `email`, `profile`).
+   *
+   * When set, the Google social provider also opts into:
+   * - `accessType: "offline"` — so a refresh token is issued
+   * - `prompt: "consent"` — so the refresh token is reissued every sign-in
+   *
+   * Tokens are mirrored into `oauth_tokens` via a databaseHooks.account
+   * hook so existing template code that reads from `oauth_tokens` (mail's
+   * Gmail client, calendar's events fetcher) works without any separate
+   * "Connect Google" page.
+   */
+  googleScopes?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -480,9 +496,26 @@ async function createBetterAuthInstance(
   };
 
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    // When the template requests broader scopes (Gmail, Calendar, etc.)
+    // ask for them on the primary sign-in flow so a separate "Connect
+    // Google" round-trip isn't needed. `accessType: "offline"` plus
+    // `prompt: "consent"` ensures we always receive a refresh token back —
+    // Google only re-issues a refresh token on consent, so re-signing in
+    // (e.g. after switching machines) would otherwise leave us with an
+    // access token that can't be refreshed.
+    const extraScopes = config?.googleScopes ?? [];
+    const baseScopes = ["openid", "email", "profile"];
+    const mergedScopes = Array.from(new Set([...baseScopes, ...extraScopes]));
     socialProviders.google = {
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      ...(extraScopes.length > 0
+        ? {
+            scope: mergedScopes,
+            accessType: "offline" as const,
+            prompt: "consent" as const,
+          }
+        : {}),
     };
   }
 
