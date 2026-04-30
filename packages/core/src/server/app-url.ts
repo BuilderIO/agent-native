@@ -11,7 +11,10 @@
  *      calendar, analytics, …) use e.g. `analytics.agent-native.com`
  *      instead of their Netlify preview hostname.
  *   4. Incoming request's origin (when an H3Event is available)
- *   5. `http://localhost:3000`
+ *   5. Platform-injected URL (Netlify `URL`, Vercel `VERCEL_URL`) —
+ *      automatically set by the hosting platform, so user-deployed apps
+ *      get a real hostname in emails without needing to set `APP_URL`.
+ *   6. `http://localhost:3000`
  */
 import { getRequestURL, type H3Event } from "h3";
 import path from "node:path";
@@ -83,6 +86,16 @@ export function getAppProductionUrl(event?: H3Event): string {
   if (process.env.NODE_ENV === "production" || !isLocalDatabase()) {
     const firstParty = getFirstPartyProdUrl();
     if (firstParty) return stripTrailingSlash(firstParty);
+
+    // Netlify injects `URL` (main site URL, always https) and `DEPLOY_URL`
+    // (deploy-specific URL). Prefer `URL` so emails always link to the
+    // primary domain rather than a preview branch URL.
+    const netlifyUrl = process.env.URL || process.env.DEPLOY_URL;
+    if (netlifyUrl) return stripTrailingSlash(netlifyUrl);
+
+    // Vercel injects `VERCEL_URL` without a protocol — it's always https.
+    const vercelUrl = process.env.VERCEL_URL;
+    if (vercelUrl) return `https://${stripTrailingSlash(vercelUrl)}`;
   }
 
   return "http://localhost:3000";
