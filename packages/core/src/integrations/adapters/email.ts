@@ -422,7 +422,8 @@ async function verifySendGridWebhook(
 // ---------------------------------------------------------------------------
 
 async function parseResendWebhook(event: H3Event): Promise<ParsedEmail | null> {
-  const body = await readBody(event);
+  const raw = await readRawBody(event);
+  const body = JSON.parse(raw);
   if (!body || body.type !== "email.received") return null;
 
   const data = body.data;
@@ -461,7 +462,8 @@ async function parseResendWebhook(event: H3Event): Promise<ParsedEmail | null> {
 async function parseSendGridWebhook(
   event: H3Event,
 ): Promise<ParsedEmail | null> {
-  const body = await readBody(event);
+  const raw = await readRawBody(event);
+  const body = JSON.parse(raw);
   if (!body) return null;
 
   // SendGrid Inbound Parse sends form data with fields:
