@@ -225,7 +225,12 @@ if (existsSync(CLIPS_TAURI_ICONS)) {
       { stdio: ["ignore", "ignore", "inherit"] },
     );
     // ictool writes 16-bit PNGs; Tauri requires 8-bit RGBA at runtime.
-    for (const name of ["icon.png", "32x32.png", "128x128.png", "128x128@2x.png"]) {
+    for (const name of [
+      "icon.png",
+      "32x32.png",
+      "128x128.png",
+      "128x128@2x.png",
+    ]) {
       force8BitRgba(join(CLIPS_TAURI_ICONS, name));
     }
   } else {
