@@ -81,6 +81,22 @@ export async function withRequestContextFromEvent<T>(
   );
 }
 
+export async function runApiHandlerWithContext<T>(
+  event: H3Event,
+  fn: (ctx: CredentialContext) => Promise<T>,
+): Promise<T | MissingKeyResponse> {
+  const result = await withRequestContextFromEvent(event, fn);
+  if (result !== null) return result;
+  setResponseStatus(event, 401);
+  return {
+    error: "missing_api_key",
+    key: "AUTH",
+    label: "Authentication",
+    message: "Sign in to access this data source.",
+    settingsPath: "/data-sources",
+  };
+}
+
 /**
  * Async replacement for requireEnvKey that checks the per-user / per-org
  * SQL settings store. Returns a structured "missing_api_key" response if the
