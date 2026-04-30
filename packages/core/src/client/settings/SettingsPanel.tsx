@@ -1194,19 +1194,6 @@ export function SettingsPanel({
   const connectUrl = builder?.connectUrl;
   const orgName = builder?.orgName;
 
-  // ENABLE_BUILDER flag — read from env-status (always available)
-  const [builderEnabled, setBuilderEnabled] = useState(false);
-  useEffect(() => {
-    fetch(agentNativePath("/_agent-native/env-status"))
-      .then((r) => (r.ok ? r.json() : []))
-      .then((keys: Array<{ key: string; configured: boolean }>) => {
-        if (keys.find((k) => k.key === "ENABLE_BUILDER")?.configured) {
-          setBuilderEnabled(true);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
   // Detect whether the app registered any secrets — controls whether the
   // "API Keys & Connections" section renders at all.
   const [focusSecretKey, setFocusSecretKey] = useState<string | undefined>(
@@ -1273,7 +1260,6 @@ export function SettingsPanel({
 
       {/* LLM */}
       <LLMSectionInner
-        builderEnabled={builderEnabled}
         builderLoading={builderLoading}
         connectUrl={connectUrl}
         connected={connected}
