@@ -34,18 +34,14 @@ export default defineAction({
     chaptersJson: z.string().optional(),
   }),
   run: async (args) => {
+    await assertAccess("recording", args.id, "editor");
+
     const db = getDb();
-    const ownerEmail = getCurrentOwnerEmail();
 
     const [existing] = await db
       .select()
       .from(schema.recordings)
-      .where(
-        and(
-          eq(schema.recordings.id, args.id),
-          eq(schema.recordings.ownerEmail, ownerEmail),
-        ),
-      );
+      .where(eq(schema.recordings.id, args.id));
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
 
     const patch: Record<string, unknown> = {
