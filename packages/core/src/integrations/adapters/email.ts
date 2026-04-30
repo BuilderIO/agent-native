@@ -155,8 +155,17 @@ export function emailAdapter(): PlatformAdapter {
         !toAddresses.includes(agentAddress) &&
         ccAddresses.includes(agentAddress);
 
-      // Build thread ID from References chain (Gmail-style: oldest Message-ID is thread root)
-      const threadRootId = getThreadRootId(parsed.messageId, parsed.references);
+      // Build thread ID from References chain (Gmail-style: oldest Message-ID is thread root).
+      // Scope the thread root by sender so an attacker who can forge a `References:`
+      // header pointing at someone else's thread root can't graft into that thread.
+      // Without this scoping, a third party could craft an inbound email whose
+      // References chain matches a known victim's Message-ID and inject messages into
+      // the victim's existing conversation — leaking prior content via the agent's
+      // reply (M1 in the webhooks security audit).
+      const threadRootId = scopeThreadIdToSender(
+        getThreadRootId(parsed.messageId, parsed.references),
+        senderEmail,
+      );
 
       // Build body text
       let bodyText = parsed.text || stripHtmlForPlainText(parsed.html || "");

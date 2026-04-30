@@ -4,11 +4,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server";
 import { readAppState } from "@agent-native/core/application-state";
-import {
-  getOrgSetting,
-  getSetting,
-  getUserSetting,
-} from "@agent-native/core/settings";
+import { getDashboard } from "../server/lib/dashboards-store";
 
 export default defineAction({
   description:
@@ -44,14 +40,15 @@ export default defineAction({
 
     if (nav?.view === "adhoc" && nav?.dashboardId) {
       try {
-        const key = `dashboard-${nav.dashboardId}`;
         const orgId = getRequestOrgId() || null;
         const email = getRequestUserEmail();
-        const config =
-          (orgId ? await getOrgSetting(orgId, key) : null) ||
-          (email ? await getUserSetting(email, key) : null) ||
-          (await getSetting(key));
-        if (config) screen.dashboard = config;
+        if (email) {
+          const dashboard = await getDashboard(nav.dashboardId, {
+            email,
+            orgId,
+          });
+          if (dashboard) screen.dashboard = dashboard.config;
+        }
       } catch {
         // Dashboard config not found
       }

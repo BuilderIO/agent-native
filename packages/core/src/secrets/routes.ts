@@ -584,8 +584,16 @@ async function handleAdHocDelete(event: H3Event, name: string) {
   const removed = await deleteAppSecret({ key: name, scope, scopeId });
   if (!removed) {
     // Fall back to workspace scope so the agent / UI can clean up shared keys.
+    // Gate the fallback behind the org-admin check so a regular member can't
+    // DoS every other member's automations by deleting shared workspace keys.
     const workspaceContext = await resolveScopeId(event, "workspace");
     if (workspaceContext.scopeId) {
+      if (!(await canMutateWorkspaceScope(event, workspaceContext.scopeId))) {
+        // No-op silently for non-admins — the user-scope row didn't exist
+        // and they don't have permission to touch the workspace row, so
+        // there's nothing to remove from their point of view.
+        return { ok: true, removed: false };
+      }
       const removedWorkspace = await deleteAppSecret({
         key: name,
         scope: "workspace",
