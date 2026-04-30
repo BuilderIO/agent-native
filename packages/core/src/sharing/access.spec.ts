@@ -56,12 +56,13 @@ async function insertDoc(values: {
 async function listVisible(
   ctx: { userEmail?: string; orgId?: string },
   minRole: ShareRole = "viewer",
+  options: { includePublic?: boolean } = {},
 ) {
   return runWithRequestContext(ctx, async () => {
     const rows = await db
       .select()
       .from(docs)
-      .where(accessFilter(docs, docShares, undefined, minRole));
+      .where(accessFilter(docs, docShares, undefined, minRole, options));
     return rows.map((row) => row.id).sort();
   });
 }
@@ -152,25 +153,29 @@ describe("shareable resource access helpers", () => {
       },
     ]);
 
+    // Public visibility is intentionally omitted from list queries by default
+    // — public means "anyone with the link," not "appears in everyone's list."
     await expect(
       listVisible({ userEmail: ownerEmail, orgId }),
-    ).resolves.toEqual(["owned", "public-other", "same-org", "shared-org"]);
+    ).resolves.toEqual(["owned", "same-org", "shared-org"]);
     await expect(
       listVisible({ userEmail: viewerEmail, orgId }),
-    ).resolves.toEqual([
-      "public-other",
-      "same-org",
-      "shared-org",
-      "shared-user",
-    ]);
+    ).resolves.toEqual(["same-org", "shared-org", "shared-user"]);
     await expect(listVisible({ userEmail: viewerEmail })).resolves.toEqual([
-      "public-other",
       "shared-user",
     ]);
-    await expect(listVisible({})).resolves.toEqual(["public-other"]);
+    await expect(listVisible({})).resolves.toEqual([]);
     await expect(
       listVisible({ userEmail: viewerEmail, orgId }, "editor"),
     ).resolves.toEqual(["shared-org"]);
+
+    // Opt-in: callers that want cross-user public discovery in a list
+    // (e.g. a public template gallery) pass `{ includePublic: true }`.
+    await expect(
+      listVisible({ userEmail: viewerEmail }, "viewer", {
+        includePublic: true,
+      }),
+    ).resolves.toEqual(["public-other", "shared-user"]);
   });
 
   it("resolves read and write roles without letting visibility imply edit access", async () => {
