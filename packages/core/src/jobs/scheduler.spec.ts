@@ -27,7 +27,10 @@ vi.mock("../agent/production-agent.js", () => ({
 }));
 
 describe("processRecurringJobs", () => {
+  const originalEnv = { ...process.env };
+
   beforeEach(() => {
+    process.env = { ...originalEnv };
     vi.clearAllMocks();
     resourceListAllOwnersMock.mockResolvedValue([
       {
@@ -92,5 +95,20 @@ Summarize the inbox.`,
     expect(getSystemPrompt).toHaveBeenCalledWith(
       "alice+jobs@agent-native.test",
     );
+  });
+
+  it("does not publish job ownership through process.env", async () => {
+    process.env.AGENT_USER_EMAIL = "stale@example.com";
+    process.env.AGENT_ORG_ID = "stale-org";
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: {} as any,
+      model: "test-model",
+    });
+
+    expect(process.env.AGENT_USER_EMAIL).toBe("stale@example.com");
+    expect(process.env.AGENT_ORG_ID).toBe("stale-org");
   });
 });

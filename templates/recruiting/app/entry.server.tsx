@@ -45,8 +45,11 @@ export default async function handleRequest(
       await body.allReady;
     }
 
+    const responseBody =
+      typeof wrapWithAnalytics === "function" ? wrapWithAnalytics(body) : body;
+
     responseHeaders.set("Content-Type", "text/html");
-    return new Response(wrapWithAnalytics(body), {
+    return new Response(responseBody, {
       headers: responseHeaders,
       status: responseStatusCode,
     });

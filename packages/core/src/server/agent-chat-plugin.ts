@@ -2505,10 +2505,6 @@ export function createAgentChatPlugin(
             }
           }
 
-          if (userEmail) {
-            process.env.AGENT_USER_EMAIL = userEmail; // guard:allow-env-mutation — back-compat for legacy CLI scripts/integration handlers that still read process.env directly; per-request truth lives in runWithRequestContext
-          }
-
           const text = message.parts
             .filter(
               (p): p is { type: "text"; text: string } => p.type === "text",

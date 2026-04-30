@@ -78,13 +78,31 @@ export function runWithRequestContext<T>(
 }
 
 /**
+ * Return the active request context, if this call chain is running under one.
+ *
+ * This is intentionally distinct from `getRequestUserEmail()`: callers that
+ * have an active context with no authenticated user must not fall through to
+ * process-wide CLI fallbacks such as `AGENT_USER_EMAIL` or "latest session".
+ */
+export function getRequestContext(): RequestContext | undefined {
+  return als.getStore();
+}
+
+/**
+ * True when AsyncLocalStorage has an active context for this call chain.
+ * Useful for helpers that support both HTTP requests and standalone CLI runs.
+ */
+export function hasRequestContext(): boolean {
+  return als.getStore() !== undefined;
+}
+
+/**
  * Get the current request's user email.
  *
  * - If a request context exists (HTTP/A2A path), returns its `userEmail` —
  *   even when that value is `undefined`. The env fallback MUST NOT fire here:
- *   on serverless platforms `process.env.AGENT_USER_EMAIL` is mutated as a
- *   back-compat hack on every request, so a previous request's identity
- *   would leak into an unauthenticated A2A call (e.g. unsigned or API-key
+ *   a stale process-wide `AGENT_USER_EMAIL` from a CLI run or previous bug
+ *   would leak into an unauthenticated A2A/API call (e.g. unsigned or API-key
  *   modes where `runWithRequestContext({ userEmail: undefined })` is used).
  * - Only when there is NO request context (CLI scripts) do we fall back to
  *   `process.env.AGENT_USER_EMAIL`.

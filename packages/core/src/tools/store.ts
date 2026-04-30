@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
-import { accessFilter, assertAccess } from "../sharing/access.js";
+import {
+  accessFilter,
+  assertAccess,
+  resolveAccess,
+} from "../sharing/access.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -149,10 +153,8 @@ export async function listTools(): Promise<ToolRow[]> {
 
 export async function getTool(id: string): Promise<ToolRow | null> {
   await ensureToolsTables();
-  await assertAccess("tool", id, "viewer");
-  const db = getDb();
-  const rows = await db.select().from(tools).where(eq(tools.id, id));
-  return (rows[0] as ToolRow) ?? null;
+  const access = await resolveAccess("tool", id);
+  return (access?.resource as ToolRow | undefined) ?? null;
 }
 
 export interface CreateToolData {

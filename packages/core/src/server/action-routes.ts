@@ -83,24 +83,6 @@ export function mountActionRoutes(
           : undefined;
         const timezone = readTimezoneHeader(event);
 
-        // Also set process.env for backwards compat with scripts that
-        // read it directly (CLI invocations, legacy code paths).
-        if (userEmail) {
-          process.env.AGENT_USER_EMAIL = userEmail; // guard:allow-env-mutation — back-compat for legacy CLI scripts that read process.env directly; runWithRequestContext below is the per-request-safe source of truth, migrate readers off env over time
-        } else {
-          delete process.env.AGENT_USER_EMAIL;
-        }
-        if (orgId) {
-          process.env.AGENT_ORG_ID = orgId; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext
-        } else {
-          delete process.env.AGENT_ORG_ID;
-        }
-        if (timezone) {
-          process.env.AGENT_USER_TIMEZONE = timezone; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext
-        } else {
-          delete process.env.AGENT_USER_TIMEZONE;
-        }
-
         return runWithRequestContext(
           { userEmail, orgId, timezone },
           async () => {

@@ -51,17 +51,25 @@ describe("mountActionRoutes", () => {
     expect(event._status).toBe(403);
   });
 
-  it("clears legacy env request context when later action requests omit values", async () => {
+  it("isolates request context without mutating process.env", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestOrgId, getRequestTimezone, getRequestUserEmail } =
+      await import("./request-context.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     const nitroApp = {
       use: vi.fn((path: string, handler: any) =>
         mounted.push({ path, handler }),
       ),
     };
+    process.env.AGENT_USER_EMAIL = "stale@example.com";
+    process.env.AGENT_ORG_ID = "stale-org";
+    process.env.AGENT_USER_TIMEZONE = "UTC";
     const actions: Record<string, ActionEntry> = {
       ping: {
         run: vi.fn(async () => ({
+          userEmail: getRequestUserEmail(),
+          orgId: getRequestOrgId(),
+          timezone: getRequestTimezone(),
           envUserEmail: process.env.AGENT_USER_EMAIL,
           envOrgId: process.env.AGENT_ORG_ID,
           envTimezone: process.env.AGENT_USER_TIMEZONE,
@@ -93,12 +101,15 @@ describe("mountActionRoutes", () => {
     const result = await mounted[0].handler(second);
 
     expect(result).toEqual({
-      envUserEmail: undefined,
-      envOrgId: undefined,
-      envTimezone: undefined,
+      userEmail: undefined,
+      orgId: undefined,
+      timezone: undefined,
+      envUserEmail: "stale@example.com",
+      envOrgId: "stale-org",
+      envTimezone: "UTC",
     });
-    expect(process.env.AGENT_USER_EMAIL).toBeUndefined();
-    expect(process.env.AGENT_ORG_ID).toBeUndefined();
-    expect(process.env.AGENT_USER_TIMEZONE).toBeUndefined();
+    expect(process.env.AGENT_USER_EMAIL).toBe("stale@example.com");
+    expect(process.env.AGENT_ORG_ID).toBe("stale-org");
+    expect(process.env.AGENT_USER_TIMEZONE).toBe("UTC");
   });
 });

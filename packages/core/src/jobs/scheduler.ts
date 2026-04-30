@@ -277,14 +277,6 @@ async function executeJob(
       : resource.owner;
   const jobOrgId = meta.orgId ?? undefined;
 
-  // Also set process.env for backwards compat with CLI scripts
-  process.env.AGENT_USER_EMAIL = jobUserEmail; // guard:allow-env-mutation — back-compat for legacy CLI scripts spawned by jobs; per-request truth lives in runWithRequestContext below
-  if (jobOrgId) {
-    process.env.AGENT_ORG_ID = jobOrgId; // guard:allow-env-mutation — back-compat for legacy CLI scripts spawned by jobs; per-request truth lives in runWithRequestContext below
-  } else {
-    delete process.env.AGENT_ORG_ID;
-  }
-
   await runWithRequestContext(
     { userEmail: jobUserEmail, orgId: jobOrgId },
     async () => {

@@ -22,6 +22,7 @@ const KEY_REFERENCE_REGEX = /\$\{keys\.([A-Za-z0-9_-]+)\}/g;
 export interface ResolveKeyReferencesResult {
   resolved: string;
   usedKeys: string[];
+  secretValues: string[];
 }
 
 /**
@@ -39,10 +40,11 @@ export async function resolveKeyReferences(
   const usedKeys: string[] = [];
   const matches = Array.from(text.matchAll(KEY_REFERENCE_REGEX));
   if (matches.length === 0) {
-    return { resolved: text, usedKeys };
+    return { resolved: text, usedKeys, secretValues: [] };
   }
 
   const resolutions = new Map<string, string>();
+  const secretValues: string[] = [];
   for (const match of matches) {
     const name = match[1];
     if (resolutions.has(name)) continue;
@@ -62,6 +64,7 @@ export async function resolveKeyReferences(
     }
     resolutions.set(name, result.value);
     usedKeys.push(name);
+    if (result.value) secretValues.push(result.value);
   }
 
   const resolved = text.replace(KEY_REFERENCE_REGEX, (_, name: string) => {
@@ -72,7 +75,7 @@ export async function resolveKeyReferences(
     return value;
   });
 
-  return { resolved, usedKeys };
+  return { resolved, usedKeys, secretValues };
 }
 
 /**
