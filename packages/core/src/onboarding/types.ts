@@ -71,7 +71,15 @@ export interface OnboardingStep {
   required?: boolean;
   methods: OnboardingMethod[];
   /** Resolver — called on every `GET /_agent-native/onboarding/steps` request. */
-  isComplete: () => boolean | Promise<boolean>;
+  isComplete: (
+    context?: OnboardingResolveContext,
+  ) => boolean | Promise<boolean>;
+}
+
+export interface OnboardingResolveContext {
+  sessionId: string;
+  userEmail?: string;
+  orgId?: string | null;
 }
 
 /** Serialized shape returned by `GET /_agent-native/onboarding/steps`. */

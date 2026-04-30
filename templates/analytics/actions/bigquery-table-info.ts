@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 
 const TABLE_INFO = `## BigQuery Tables
 
@@ -34,7 +35,7 @@ const TABLE_INFO = `## BigQuery Tables
 export default defineAction({
   description:
     "Print BigQuery table/column mappings, join paths, and SQL patterns. Call this before writing SQL so you know the correct table and column names.",
-  parameters: {},
+  schema: z.object({}),
   http: false,
   run: async () => {
     return TABLE_INFO;

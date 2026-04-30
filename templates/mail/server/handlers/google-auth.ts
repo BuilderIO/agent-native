@@ -54,14 +54,16 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
-    const state = encodeOAuthState(
+    // Use the named-arg overload — the positional form smuggled `flowId`
+    // into the `returnUrl` slot in earlier revisions, which broke desktop
+    // OAuth completion. See encodeOAuthState's docs.
+    const state = encodeOAuthState({
       redirectUri,
       owner,
       desktop,
-      false,
-      undefined,
+      addAccount: false,
       flowId,
-    );
+    });
     const url = getAuthUrl(undefined, redirectUri, state);
     if (q.redirect === "1") {
       return sendRedirect(event, url, 302);
@@ -211,14 +213,13 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const desktop =
         isElectron(event) || q.desktop === "1" || q.desktop === "true";
       const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
-      const state = encodeOAuthState(
+      const state = encodeOAuthState({
         redirectUri,
-        session.email,
+        owner: session.email,
         desktop,
-        true,
-        undefined,
+        addAccount: true,
         flowId,
-      );
+      });
       const url = getAuthUrl(undefined, redirectUri, state);
       if (q.redirect === "1") {
         return sendRedirect(event, url, 302);

@@ -20,6 +20,7 @@ import {
   anthropicContentToEngine,
   anthropicChunkToEngineEvents,
 } from "./translate-anthropic.js";
+import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 
 export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -172,14 +173,14 @@ class AnthropicEngine implements AgentEngine {
 
 /**
  * Create an AnthropicEngine instance.
- * Falls back to ANTHROPIC_API_KEY env var if no key is provided.
+ * Falls back to the deployment Anthropic key if no key is provided.
  */
 export function createAnthropicEngine(
   config: Record<string, unknown> = {},
 ): AgentEngine {
   const apiKey =
     (config.apiKey as string | undefined) ??
-    process.env.ANTHROPIC_API_KEY ??
+    readDeployCredentialEnv("ANTHROPIC_API_KEY") ??
     "";
   if (!apiKey) {
     // Return a "missing key" engine that immediately errors

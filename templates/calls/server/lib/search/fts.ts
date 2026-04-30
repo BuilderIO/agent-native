@@ -1,4 +1,4 @@
-import { and, or, like, not, type SQL } from "drizzle-orm";
+import { and, or, not, sql, type SQL } from "drizzle-orm";
 import type { AnyColumn } from "drizzle-orm";
 
 export interface SearchTerms {
@@ -50,10 +50,10 @@ function likePattern(term: string): string {
 }
 
 function anyColumnMatches(pattern: string, cols: AnyColumn[]): SQL | undefined {
-  const parts = cols.map((c) => like(c, pattern));
+  const parts = cols.map((c) => sql`${c} LIKE ${pattern} ESCAPE '\\'`);
   if (parts.length === 0) return undefined;
   if (parts.length === 1) return parts[0];
-  return or(...parts);
+  return or(...(parts as SQL[]));
 }
 
 export function applySearchWhere(

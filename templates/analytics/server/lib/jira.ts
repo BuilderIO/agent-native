@@ -2,7 +2,10 @@
 // Uses Basic auth (email + API token)
 
 import { resolveCredential } from "./credentials";
-import { requireRequestCredentialContext } from "./credentials-context";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_V3 = "/rest/api/3";
 const API_AGILE = "/rest/agile/1.0";
@@ -40,9 +43,11 @@ async function jiraGet<T>(
   params?: Record<string, string>,
   cacheKey?: string,
 ): Promise<T> {
-  const key =
+  const key = scopedCredentialCacheKey(
     cacheKey ??
-    path + (params ? "?" + new URLSearchParams(params).toString() : "");
+      path + (params ? "?" + new URLSearchParams(params).toString() : ""),
+    "JIRA_BASE_URL",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

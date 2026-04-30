@@ -9,6 +9,7 @@
  */
 
 import {
+  createError,
   defineEventHandler,
   getQuery,
   setResponseHeader,
@@ -23,8 +24,12 @@ export default defineEventHandler(async (event: H3Event) => {
     typeof query.organizationId === "string" ? query.organizationId : undefined;
 
   const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, message: "Unauthorized" });
+  }
+
   const result = await runWithRequestContext(
-    { userEmail: session?.email, orgId: session?.orgId },
+    { userEmail: session.email, orgId: session.orgId },
     () => exportInsightsCsv.run({ organizationId }),
   );
 

@@ -30,6 +30,8 @@ export {
   parseMergedKey,
   hashEmail,
   toHttpServerConfig,
+  toHttpServerConfigAsync,
+  materializeHeaders,
   type RemoteMcpScope,
   type StoredRemoteMcpServer,
 } from "./remote-store.js";

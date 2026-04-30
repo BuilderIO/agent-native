@@ -2,14 +2,14 @@
  * Public read endpoint used by the share page to fetch a call's metadata
  * without an authenticated session.
  *
- * GET /api/public-call?callId=<id>[&password=<pw>]
+ * GET /api/public-call?callId=<id>[&password=<pw>|&p=<pw>]
  *
  * Returns the call + media URL + (optionally) summary + (optionally)
  * transcript based on `share_includes_summary` / `share_includes_transcript`.
  *
  * Returns 404 for unknown IDs, non-public calls without a valid share grant,
- * expired calls, and missing/invalid passwords — we do not distinguish
- * between those states so we don't leak call existence.
+ * and expired calls. Password-protected public calls return 401 with
+ * passwordRequired so the share route can render its unlock form.
  */
 
 import {
@@ -22,6 +22,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { parseJson, parseSpaceIds } from "../../lib/calls.js";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 
 function notFound(event: H3Event) {
   setResponseStatus(event, 404);
@@ -35,10 +36,27 @@ function appPath(path: string): string {
   return base ? `/${base}${path}` : path;
 }
 
-export default defineEventHandler(async (event) => {
-  const q = getQuery(event) as { callId?: string; password?: string };
+export default defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event).catch(() => null);
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    () => handlePublicCall(event),
+  );
+});
+
+async function handlePublicCall(event: H3Event) {
+  const q = getQuery(event) as {
+    callId?: string;
+    password?: string;
+    p?: string;
+  };
   const callId = q.callId;
-  const password = typeof q.password === "string" ? q.password : "";
+  const password =
+    typeof q.password === "string"
+      ? q.password
+      : typeof q.p === "string"
+        ? q.p
+        : "";
 
   if (!callId) {
     setResponseStatus(event, 400);
@@ -59,7 +77,10 @@ export default defineEventHandler(async (event) => {
   }
 
   if (call.password && access.role !== "owner") {
-    if (!password || password !== call.password) return notFound(event);
+    if (!password || password !== call.password) {
+      setResponseStatus(event, 401);
+      return { error: "Password required", passwordRequired: true };
+    }
   }
 
   const db = getDb();
@@ -157,4 +178,4 @@ export default defineEventHandler(async (event) => {
         }
       : null,
   };
-});
+}

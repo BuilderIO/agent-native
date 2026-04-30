@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { desc } from "drizzle-orm";
 import { accessFilter } from "@agent-native/core/sharing";
+import { z } from "zod";
 import type { BookingLink } from "../shared/api.js";
 import { getDb, schema } from "../server/db/index.js";
 
@@ -44,7 +45,7 @@ function rowToBookingLink(
 
 export default defineAction({
   description: "List all booking links",
-  parameters: {},
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
     const rows = await getDb()

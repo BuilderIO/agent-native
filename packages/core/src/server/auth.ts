@@ -14,6 +14,7 @@ import {
   defineEventHandler,
   getMethod,
   getQuery,
+  getRequestIP,
   sendRedirect,
   setResponseHeader,
   setResponseStatus,
@@ -88,6 +89,8 @@ import {
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
+  resolveOAuthRedirectUri,
+  isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
 
 /**
@@ -263,6 +266,81 @@ export function safeReturnPath(raw: string | null | undefined): string {
   } catch {
     return "/";
   }
+}
+
+/**
+ * Read the desktop-SSO broker file, but only if the request is plausibly
+ * from the Electron desktop app *and* coming from the local machine.
+ *
+ * The broker file lives in the user's home directory and trusts the local
+ * trust boundary — a non-loopback request that pretends to be Electron
+ * via User-Agent must NEVER be allowed to read it. We additionally refuse
+ * any read in production builds: the desktop app launches with
+ * `NODE_ENV=development` (or unset), and any web-hosted production deploy
+ * has no business consulting a per-user file on the server's homedir
+ * even if one exists.
+ *
+ * Returns null when the safety checks fail or the file isn't present.
+ */
+async function readDesktopSsoSafely(
+  event: H3Event,
+): Promise<Awaited<ReturnType<typeof readDesktopSso>>> {
+  if (process.env.NODE_ENV === "production") return null;
+  if (!isElectronRequest(event)) return null;
+  // Loopback-only: 127.0.0.1, ::1, and the IPv4-mapped form.
+  let ip: string | undefined;
+  try {
+    ip = getRequestIP(event) ?? undefined;
+  } catch {
+    ip = undefined;
+  }
+  // Strip an optional zone id (e.g. "fe80::1%en0") before comparing.
+  const normalised = (ip ?? "").split("%")[0];
+  const isLoopback =
+    normalised === "127.0.0.1" ||
+    normalised === "::1" ||
+    normalised === "::ffff:127.0.0.1" ||
+    normalised.startsWith("127.");
+  if (!isLoopback) return null;
+  return await readDesktopSso();
+}
+
+/**
+ * Extract the framework session token from a Better Auth response's
+ * Set-Cookie headers, if any. Used by the password-reset path to skip
+ * the freshly-minted session when revoking sibling sessions for the
+ * user. Returns undefined if no session cookie was minted (the common
+ * case — Better Auth's reset doesn't auto-sign-in by default).
+ */
+function extractSessionTokenFromSetCookies(
+  response: Response,
+): string | undefined {
+  try {
+    // Headers may have multiple Set-Cookie entries; iterate via getSetCookie
+    // when available (Node 20+ / undici), else fall back to comma split.
+    const headers = response.headers as Headers & {
+      getSetCookie?: () => string[];
+    };
+    const setCookies =
+      typeof headers.getSetCookie === "function"
+        ? headers.getSetCookie()
+        : (headers.get("set-cookie") ?? "")
+            .split(/,(?=[^;]+=)/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+    for (const sc of setCookies) {
+      // Better Auth's session cookie name is configurable but defaults to
+      // `<prefix>.session_token`. Match either the Better Auth default or
+      // our COOKIE_NAME (`an_session`) on the same line.
+      const match = sc.match(
+        /(?:^|\s|;)(an_session|[\w.-]*session_token)=([^;]+)/i,
+      );
+      if (match) return match[2];
+    }
+  } catch {
+    // Best-effort; treat as no token.
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -576,7 +654,10 @@ const LOCAL_SESSION: AuthSession = { email: DEV_MODE_USER_EMAIL };
  * so that a custom plugin can update them after the default has already
  * installed this middleware (the production race condition fix).
  */
-function applyCorsHeaders(event: H3Event): void {
+function applyCorsHeaders(event: H3Event): {
+  hasOrigin: boolean;
+  allowed: boolean;
+} {
   // Framework-level CORS. The auth guard runs before any of the app's own
   // route handlers, so we need to set CORS here too — otherwise a 401
   // response would be missing the Allow-Origin header and the browser
@@ -588,7 +669,7 @@ function applyCorsHeaders(event: H3Event): void {
   >;
   const originRaw = reqHeaders["origin"];
   const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
-  if (!origin) return;
+  if (!origin) return { hasOrigin: false, allowed: true };
   // Dev convenience: always allow localhost origins across ports (Tauri
   // tray apps, the frame, docs). In prod, the CORS_ALLOWED_ORIGINS env
   // var is the safe-list.
@@ -602,7 +683,7 @@ function applyCorsHeaders(event: H3Event): void {
           origin,
         )
       : allowlist.includes(origin);
-  if (!allowed) return;
+  if (!allowed) return { hasOrigin: true, allowed: false };
   setResponseHeader(event, "Access-Control-Allow-Origin", origin);
   setResponseHeader(event, "Vary", "Origin");
   setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
@@ -614,8 +695,9 @@ function applyCorsHeaders(event: H3Event): void {
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    "Content-Type,Authorization,X-Requested-With,X-Request-Source",
+    "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
   );
+  return { hasOrigin: true, allowed: true };
 }
 
 function createAuthGuardFn(): (
@@ -634,10 +716,14 @@ function createAuthGuardFn(): (
 
     // Emit CORS headers on every request the guard sees so that even
     // error responses (401) reach the browser.
-    applyCorsHeaders(event);
+    const cors = applyCorsHeaders(event);
     // Preflight short-circuit: the browser sends OPTIONS before the real
     // credentialed request. Must return success without invoking auth.
     if (getMethod(event) === "OPTIONS") {
+      if (cors.hasOrigin && !cors.allowed) {
+        setResponseStatus(event, 403);
+        return "";
+      }
       setResponseStatus(event, 204);
       return "";
     }
@@ -835,11 +921,11 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     if (session) return session;
     // Desktop SSO broker: even with BYOA auth, fall back to the broker
     // for Electron requests so cross-template SSO works for custom-auth
-    // templates too.
-    if (isElectronRequest(event)) {
-      const sso = await readDesktopSso();
-      if (sso?.email) return { email: sso.email, token: sso.token };
-    }
+    // templates too. Gated on `readDesktopSsoSafely` so a non-loopback
+    // request that spoofs `User-Agent: ... Electron/...` cannot read the
+    // home-dir broker file (and so production builds never consult it).
+    const sso = await readDesktopSsoSafely(event);
+    if (sso?.email) return { email: sso.email, token: sso.token };
     // Fall through to mobile _session check
   } else {
     // 4. Better Auth session (cookie or Bearer token)
@@ -875,14 +961,14 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     // a session token created by one template doesn't resolve in another.
     // When an Electron request has no resolvable session, trust the
     // home-dir SSO record written by whichever template the user signed
-    // into. Gated on Electron user-agent so no non-desktop code path
-    // consults the file.
-    if (isElectronRequest(event)) {
-      const sso = await readDesktopSso();
-      if (sso?.email) {
-        clearUpgradePendingCookie(event);
-        return { email: sso.email, token: sso.token };
-      }
+    // into. Gated on `readDesktopSsoSafely`: requires Electron User-Agent,
+    // a loopback (127.0.0.1 / ::1) source IP, and a non-production NODE_ENV
+    // — anything else is rejected so a hostile network request cannot
+    // impersonate whichever email last signed into the desktop app.
+    const sso = await readDesktopSsoSafely(event);
+    if (sso?.email) {
+      clearUpgradePendingCookie(event);
+      return { email: sso.email, token: sso.token };
     }
   }
 
@@ -911,12 +997,19 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   // on a shared DB (Postgres, Turso, D1) this fallback would land every
   // developer on the same account and expose each other's data.
   //
+  // STRICT NODE_ENV check: this used to read `isDevEnvironment()` which
+  // also accepted `NODE_ENV=test`, meaning a misconfigured prod deploy
+  // started with `NODE_ENV=test` (or undefined NODE_ENV in some CI/build
+  // contexts) would silently bypass auth entirely. Limiting to the literal
+  // string "development" closes that footgun. Tests that need this branch
+  // to fire stub NODE_ENV explicitly to "development".
+  //
   // EXCEPTION: if the user has explicitly exited local mode (clicked "Upgrade
   // to real account"), they've signaled they want real auth. The upgrade
   // cookie suppresses this fallback so the onboarding/sign-in page is served
   // instead of silently re-authenticating them as local@localhost.
   if (
-    isDevEnvironment() &&
+    process.env.NODE_ENV === "development" &&
     isLocalDatabase() &&
     !isUpgradePending(event) &&
     !hasSignInFlag(event)
@@ -1160,7 +1253,7 @@ async function removeAuthModeLocal(): Promise<boolean> {
     } catch {
       // Marker already absent
     }
-    delete process.env.AUTH_MODE;
+    delete process.env.AUTH_MODE; // guard:allow-env-mutation — escape-hatch removes the local-mode marker; mirrored into env so the in-flight process honors the change without restart
     return true;
   } catch {
     return false;
@@ -1194,7 +1287,12 @@ const migrateLocalDataHandler = defineEventHandler(async (event) => {
     setResponseStatus(event, 500);
     return {
       error: e?.message || "Migration failed",
-      stack: isDevEnvironment() ? e?.stack : undefined,
+      // Only surface the stack when explicitly enabled. `isDevEnvironment()`
+      // returns true on preview deploys and Lambda contexts that forget
+      // NODE_ENV=production, which leaked stack traces to clients. Use
+      // AGENT_NATIVE_DEBUG_ERRORS=1 for opt-in debug visibility.
+      stack:
+        process.env.AGENT_NATIVE_DEBUG_ERRORS === "1" ? e?.stack : undefined,
     };
   }
 });
@@ -1239,9 +1337,16 @@ async function mountBetterAuthRoutes(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const redirectUri =
-          (getQuery(event).redirect_uri as string) ||
-          getAppUrl(event, "/_agent-native/google/callback");
+        // Validate the user-supplied `redirect_uri` against the framework's
+        // server-side allowlist (must be same-origin and under
+        // `/_agent-native/...`). Reject anything else so an attacker can't
+        // smuggle a different already-registered redirect URI past Google's
+        // host-prefix matching. See HIGH-1 in 09-oauth-session.md.
+        const redirectUri = resolveOAuthRedirectUri(event);
+        if (redirectUri === null) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid redirect_uri" };
+        }
         const q = getQuery(event);
         const desktop =
           isElectronRequest(event) || q.desktop === "1" || q.desktop === "true";
@@ -1299,6 +1404,15 @@ async function mountBetterAuthRoutes(
             query.state as string | undefined,
             getAppUrl(event, "/_agent-native/google/callback"),
           );
+          // Defence in depth: the state is HMAC-signed, but if the signing
+          // key ever leaked an attacker could mint state with their own
+          // redirect_uri. Re-validate against the same allowlist used at
+          // auth-url time so the token exchange is always sent to a URI we
+          // own.
+          if (!isAllowedOAuthRedirectUri(redirectUri, event)) {
+            setResponseStatus(event, 400);
+            return { error: "Invalid redirect_uri in state" };
+          }
 
           const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
             method: "POST",
@@ -1329,6 +1443,19 @@ async function mountBetterAuthRoutes(
           const user = await userRes.json();
           const email = user.email as string;
           if (!email) throw new Error("Could not get email from Google");
+          // Reject unverified Google addresses. Google returns
+          // `verified_email: false` for accounts where ownership of the
+          // address hasn't been proven (rare on consumer accounts but
+          // reachable on Workspace tenants that allow it). Without this
+          // check, an attacker could sign up as `victim@example.com` on
+          // Google without controlling the inbox and take over a local
+          // password account that already exists at that address (Better
+          // Auth's accountLinking auto-merges trusted-provider sign-ins).
+          if (user.verified_email !== true) {
+            throw new Error(
+              "Google account email is not verified. Please verify your email with Google and try again.",
+            );
+          }
 
           const { sessionToken } = await createOAuthSession(event, email, {
             hasProductionSession: false,
@@ -1499,6 +1626,65 @@ async function mountBetterAuthRoutes(
             sql: 'UPDATE "user" SET email_verified = TRUE WHERE id = ? AND (email_verified = FALSE OR email_verified IS NULL)',
             args: [resetUserId],
           });
+
+          // Revoke every existing session for this user so a stolen
+          // cookie doesn't outlive the password it was paired with. We
+          // do this AFTER Better Auth's response has been generated so
+          // the freshly-minted post-reset session (if any) is captured
+          // by the response's Set-Cookie header — but `auth.handler` for
+          // reset-password does not auto-sign-in by default, so the
+          // common path is "wipe everything; user signs in with new
+          // password." The legacy `sessions` table is also wiped by
+          // joining through the `user.email` column.
+          //
+          // Skip the freshly-minted Better Auth session id when present
+          // (auto-sign-in plugins / future config). Reading it from the
+          // response avoids racing against Better Auth's own writes.
+          const newSessionToken = extractSessionTokenFromSetCookies(
+            response as Response,
+          );
+
+          // 1. Better Auth `session` table — keyed by user_id.
+          if (newSessionToken) {
+            await db.execute({
+              sql: 'DELETE FROM "session" WHERE user_id = ? AND token <> ?',
+              args: [resetUserId, newSessionToken],
+            });
+          } else {
+            await db.execute({
+              sql: 'DELETE FROM "session" WHERE user_id = ?',
+              args: [resetUserId],
+            });
+          }
+
+          // 2. Legacy `sessions` table — keyed by `email` column. The
+          // reset-password verification row holds the user's id, not
+          // their email, so we look up the email first. Best-effort —
+          // skip silently if the lookup fails so the response still ships.
+          try {
+            const { rows } = await db.execute({
+              sql: 'SELECT email FROM "user" WHERE id = ?',
+              args: [resetUserId],
+            });
+            const userEmail = (rows[0]?.email ?? rows[0]?.[0]) as
+              | string
+              | undefined;
+            if (userEmail) {
+              if (newSessionToken) {
+                await db.execute({
+                  sql: "DELETE FROM sessions WHERE email = ? AND token <> ?",
+                  args: [userEmail, newSessionToken],
+                });
+              } else {
+                await db.execute({
+                  sql: "DELETE FROM sessions WHERE email = ?",
+                  args: [userEmail],
+                });
+              }
+            }
+          } catch {
+            // Best-effort — don't block the response
+          }
         } catch {
           // Best-effort — don't block the response
         }
@@ -1688,6 +1874,75 @@ async function mountBetterAuthRoutes(
       if (isElectronRequest(event)) await clearDesktopSso();
 
       return { ok: true };
+    }),
+  );
+
+  // POST /_agent-native/auth/logout-all — revoke every session row for
+  // the authenticated user across both auth tables. Companion to the
+  // password-reset session-revocation logic; lets a user sign out
+  // everywhere from one device. Requires an authenticated session.
+  app.use(
+    "/_agent-native/auth/logout-all",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const session = await getSession(event);
+      if (!session?.email) {
+        setResponseStatus(event, 401);
+        return { error: "Not authenticated" };
+      }
+      try {
+        const db = getDbExec();
+        // 1. Resolve user_id from email so we can wipe Better Auth sessions
+        // by their FK column.
+        let userId: string | undefined;
+        try {
+          const { rows } = await db.execute({
+            sql: 'SELECT id FROM "user" WHERE email = ?',
+            args: [session.email],
+          });
+          userId = (rows[0]?.id ?? rows[0]?.[0]) as string | undefined;
+        } catch {
+          // User table may not exist on token-only deployments — skip.
+        }
+        if (userId) {
+          try {
+            await db.execute({
+              sql: 'DELETE FROM "session" WHERE user_id = ?',
+              args: [userId],
+            });
+          } catch {
+            // Best-effort.
+          }
+        }
+
+        // 2. Legacy `sessions` table — keyed by `email` column.
+        try {
+          await db.execute({
+            sql: "DELETE FROM sessions WHERE email = ?",
+            args: [session.email],
+          });
+        } catch {
+          // Best-effort.
+        }
+
+        // 3. Drop the current request's cookie and best-effort sign out
+        // of Better Auth (so the response sets the proper expiry header).
+        deleteCookie(event, COOKIE_NAME, { path: "/" });
+        try {
+          await auth.api.signOut({ headers: event.headers });
+        } catch {
+          // Ignore — sessions are already gone in DB.
+        }
+
+        if (isElectronRequest(event)) await clearDesktopSso();
+        return { ok: true };
+      } catch (e: any) {
+        setResponseStatus(event, 500);
+        return { error: e?.message || "Failed to revoke sessions" };
+      }
     }),
   );
 

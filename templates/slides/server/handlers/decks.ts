@@ -246,17 +246,12 @@ export const updateDeck = defineEventHandler(async (event) => {
           updatedAt: now,
         });
       } catch (err) {
-        // Primary-key collision = the id is taken by a deck the caller
-        // cannot see. Return 404 to match the read-side privacy contract.
-        const msg = err instanceof Error ? err.message : String(err);
-        if (
-          /unique|duplicate|primary key|UNIQUE constraint/i.test(msg) ||
-          (err as { code?: string })?.code === "23505"
-        ) {
-          setResponseStatus(event, 404);
-          return { error: "Deck not found" };
-        }
-        throw err;
+        // The common case is a primary-key collision with a deck the caller
+        // cannot access. Some DB adapters wrap duplicate-key failures in a
+        // generic query error that includes bound params, so never surface the
+        // raw error here.
+        setResponseStatus(event, 404);
+        return { error: "Deck not found" };
       }
     } else if (
       access.role === "owner" ||

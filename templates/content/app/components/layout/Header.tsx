@@ -6,7 +6,7 @@ import {
 } from "@agent-native/core/client";
 
 const pageTitles: Record<string, string> = {
-  "/": "Documents",
+  "/": "Content",
   "/team": "Team",
 };
 
@@ -16,7 +16,7 @@ function resolveTitle(pathname: string): string {
   if (pathname.startsWith("/page/")) return "Document";
   if (pathname.startsWith("/tools")) return "Tools";
 
-  return "Documents";
+  return "Content";
 }
 
 export function Header() {

@@ -26,6 +26,7 @@ import {
   aiSdkStepToAssistantContent,
 } from "./translate-ai-sdk.js";
 import { DEFAULT_MODEL } from "../default-model.js";
+import { readDeployCredentialEnv } from "../../server/credential-provider.js";
 
 // ---------------------------------------------------------------------------
 // Provider definitions
@@ -396,7 +397,8 @@ function capitalize(s: string): string {
 function getProviderApiKey(provider: AISDKProvider): string | undefined {
   const envVars = PROVIDER_ENV_VARS[provider];
   for (const v of envVars) {
-    if (process.env[v]) return process.env[v];
+    const value = readDeployCredentialEnv(v);
+    if (value) return value;
   }
   return undefined;
 }

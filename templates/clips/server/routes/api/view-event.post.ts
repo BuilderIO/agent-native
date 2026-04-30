@@ -28,9 +28,14 @@ import { defineEventHandler, readBody, setResponseStatus } from "h3";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { nanoid, shouldCountView } from "../../lib/recordings.js";
-import { DEV_MODE_USER_EMAIL, getSession } from "@agent-native/core/server";
+import {
+  DEV_MODE_USER_EMAIL,
+  getSession,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
+import { resolveAccess } from "@agent-native/core/sharing";
 
 interface ViewEventBody {
   recordingId?: string;
@@ -124,139 +129,132 @@ export default defineEventHandler(async (event) => {
     return { error: "Rate limit exceeded" };
   }
 
-  const db = getDb();
-  const session = await getSession(event);
+  const session = await getSession(event).catch(() => null);
   const sessionEmail =
     session?.email && session.email !== DEV_MODE_USER_EMAIL
       ? session.email
       : undefined;
-  const viewerEmail =
-    (body.viewerEmail && typeof body.viewerEmail === "string"
-      ? body.viewerEmail
-      : undefined) ??
-    sessionEmail ??
-    null;
+  const viewerEmail = sessionEmail ?? null;
   const viewerName = body.viewerName ?? sessionEmail?.split("@")[0] ?? null;
   const now = new Date().toISOString();
 
-  // Verify the recording exists (don't leak existence for non-public ones —
-  // we just accept the event silently).
-  const [rec] = await db
-    .select({
-      id: schema.recordings.id,
-      visibility: schema.recordings.visibility,
-      ownerEmail: schema.recordings.ownerEmail,
-    })
-    .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId))
-    .limit(1);
-  if (!rec) {
-    setResponseStatus(event, 404);
-    return { error: "Recording not found" };
-  }
+  return runWithRequestContext(
+    { userEmail: sessionEmail, orgId: session?.orgId },
+    async () => {
+      const access = await resolveAccess("recording", recordingId);
+      if (!access) {
+        // Do not leak whether a private/org-only recording exists. Public
+        // share pages and authenticated players both have resolveAccess().
+        return { ok: true, ignored: true };
+      }
 
-  // Find or create a recording_viewers row keyed by viewerEmail (if present)
-  // else sessionId. We store the session id in the viewer_name column as a
-  // best-effort fallback so anon sessions don't conflate.
-  const viewerKey = viewerEmail ?? `anon:${sessionId}`;
+      const db = getDb();
+      const rec = access.resource;
 
-  // Try to find an existing row for this viewer.
-  // (Using a simple scan is acceptable here — indexes are per-DB-dialect.)
-  const existingRows = await db
-    .select()
-    .from(schema.recordingViewers)
-    .where(eq(schema.recordingViewers.recordingId, recordingId));
-  const existing = existingRows.find((r) => {
-    if (viewerEmail) return r.viewerEmail === viewerEmail;
-    return r.viewerEmail === null && r.viewerName === viewerKey;
-  });
+      // Find or create a recording_viewers row keyed by viewerEmail (if
+      // present) else sessionId. We store the session id in the viewer_name
+      // column as a best-effort fallback so anon sessions don't conflate.
+      const viewerKey = viewerEmail ?? `anon:${sessionId}`;
 
-  let viewerId: string;
-  let countedView = existing?.countedView ?? false;
-  const newTotalWatchMs = Math.max(
-    existing?.totalWatchMs ?? 0,
-    Math.floor(totalWatchMs),
-  );
-  const newCompletedPct = Math.max(
-    existing?.completedPct ?? 0,
-    Math.floor(completedPct),
-  );
+      // Try to find an existing row for this viewer.
+      // (Using a simple scan is acceptable here — indexes are per-DB-dialect.)
+      const existingRows = await db
+        .select()
+        .from(schema.recordingViewers)
+        .where(eq(schema.recordingViewers.recordingId, recordingId));
+      const existing = existingRows.find((r) => {
+        if (viewerEmail) return r.viewerEmail === viewerEmail;
+        return r.viewerEmail === null && r.viewerName === viewerKey;
+      });
 
-  const meetsThreshold = shouldCountView(
-    newTotalWatchMs,
-    newCompletedPct,
-    Boolean(scrubbedToEnd),
-  );
-  if (meetsThreshold) countedView = true;
-
-  const ctaClicked =
-    kind === "cta-click" ? true : (existing?.ctaClicked ?? false);
-
-  if (existing) {
-    viewerId = existing.id;
-    await db
-      .update(schema.recordingViewers)
-      .set({
-        lastViewedAt: now,
-        totalWatchMs: newTotalWatchMs,
-        completedPct: newCompletedPct,
-        countedView,
-        ctaClicked,
-      })
-      .where(
-        and(
-          eq(schema.recordingViewers.id, existing.id),
-          eq(schema.recordingViewers.recordingId, recordingId),
-        ),
+      let viewerId: string;
+      let countedView = existing?.countedView ?? false;
+      const newTotalWatchMs = Math.max(
+        existing?.totalWatchMs ?? 0,
+        Math.floor(totalWatchMs),
       );
-  } else {
-    viewerId = nanoid();
-    await db.insert(schema.recordingViewers).values({
-      id: viewerId,
-      recordingId,
-      viewerEmail,
-      viewerName: viewerEmail ? viewerName : viewerKey,
-      firstViewedAt: now,
-      lastViewedAt: now,
-      totalWatchMs: newTotalWatchMs,
-      completedPct: newCompletedPct,
-      countedView,
-      ctaClicked,
-    });
-  }
-
-  await db.insert(schema.recordingEvents).values({
-    id: nanoid(),
-    recordingId,
-    viewerId,
-    kind,
-    timestampMs: Math.max(0, Math.floor(timestampMs)),
-    payload: JSON.stringify(payload ?? {}),
-    createdAt: now,
-  });
-
-  // Only broadcast a refresh signal on "meaningful" events to avoid spamming
-  // the polling clients every 2s with watch-progress heartbeats.
-  if (kind !== "watch-progress") {
-    await writeAppState("refresh-signal", { ts: Date.now() });
-  }
-
-  // Emit clip.viewed event on view-start — best-effort, never block the response.
-  if (kind === "view-start") {
-    try {
-      emit(
-        "clip.viewed",
-        {
-          clipId: recordingId,
-          viewerEmail: viewerEmail ?? null,
-          viewedAt: now,
-        },
-        { owner: rec.ownerEmail ?? undefined },
+      const newCompletedPct = Math.max(
+        existing?.completedPct ?? 0,
+        Math.floor(completedPct),
       );
-    } catch (err) {
-      console.warn("[view-event] clip.viewed emit failed:", err);
-    }
-  }
 
-  return { ok: true, viewerId, countedView };
+      const meetsThreshold = shouldCountView(
+        newTotalWatchMs,
+        newCompletedPct,
+        Boolean(scrubbedToEnd),
+      );
+      if (meetsThreshold) countedView = true;
+
+      const ctaClicked =
+        kind === "cta-click" ? true : (existing?.ctaClicked ?? false);
+
+      if (existing) {
+        viewerId = existing.id;
+        await db
+          .update(schema.recordingViewers)
+          .set({
+            lastViewedAt: now,
+            totalWatchMs: newTotalWatchMs,
+            completedPct: newCompletedPct,
+            countedView,
+            ctaClicked,
+          })
+          .where(
+            and(
+              eq(schema.recordingViewers.id, existing.id),
+              eq(schema.recordingViewers.recordingId, recordingId),
+            ),
+          );
+      } else {
+        viewerId = nanoid();
+        await db.insert(schema.recordingViewers).values({
+          id: viewerId,
+          recordingId,
+          viewerEmail,
+          viewerName: viewerEmail ? viewerName : viewerKey,
+          firstViewedAt: now,
+          lastViewedAt: now,
+          totalWatchMs: newTotalWatchMs,
+          completedPct: newCompletedPct,
+          countedView,
+          ctaClicked,
+        });
+      }
+
+      await db.insert(schema.recordingEvents).values({
+        id: nanoid(),
+        recordingId,
+        viewerId,
+        kind,
+        timestampMs: Math.max(0, Math.floor(timestampMs)),
+        payload: JSON.stringify(payload ?? {}),
+        createdAt: now,
+      });
+
+      // Only broadcast a refresh signal on "meaningful" events to avoid
+      // spamming the polling clients every 2s with watch-progress heartbeats.
+      if (kind !== "watch-progress") {
+        await writeAppState("refresh-signal", { ts: Date.now() });
+      }
+
+      // Emit clip.viewed event on view-start — best-effort, never block the response.
+      if (kind === "view-start") {
+        try {
+          emit(
+            "clip.viewed",
+            {
+              clipId: recordingId,
+              viewerEmail: viewerEmail ?? null,
+              viewedAt: now,
+            },
+            { owner: rec.ownerEmail ?? undefined },
+          );
+        } catch (err) {
+          console.warn("[view-event] clip.viewed emit failed:", err);
+        }
+      }
+
+      return { ok: true, viewerId, countedView };
+    },
+  );
 });

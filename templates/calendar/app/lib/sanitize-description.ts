@@ -46,7 +46,11 @@ const ALLOWED_ATTRS = new Set([
   "rowspan",
 ]);
 
-const SAFE_URL_RE = /^(?:https?:\/\/|mailto:|tel:|\/|#)/i;
+function isSafeUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("//")) return false;
+  return /^(?:https?:\/\/|mailto:|tel:|\/|#)/i.test(trimmed);
+}
 
 /** Recursively walk a DOM node, keeping only allowed tags/attrs. */
 function walkNode(node: Node, doc: Document): Node | null {
@@ -78,8 +82,7 @@ function walkNode(node: Node, doc: Document): Node | null {
   for (const attr of Array.from(el.attributes)) {
     const name = attr.name.toLowerCase();
     if (!ALLOWED_ATTRS.has(name)) continue;
-    if ((name === "href" || name === "src") && !SAFE_URL_RE.test(attr.value))
-      continue;
+    if ((name === "href" || name === "src") && !isSafeUrl(attr.value)) continue;
     out.setAttribute(name, attr.value);
   }
 

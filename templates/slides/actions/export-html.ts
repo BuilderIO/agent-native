@@ -1,12 +1,39 @@
 import { defineAction } from "@agent-native/core";
+import fs from "fs";
+import path from "path";
 import { z } from "zod";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  safeGeneratedFilename,
+  tenantExportDir,
+} from "../server/lib/tenant-files.js";
 import {
   type AspectRatio,
   getAspectRatioDims,
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
+
+/**
+ * Minimal server-side HTML sanitizer for exported slide content.
+ * DOMParser is not available in Node/Nitro, so we use a regex pass to strip
+ * scripts, event handlers, and dangerous URL schemes before embedding slide
+ * HTML into the standalone export file.
+ */
+function sanitizeSlideContent(html: string): string {
+  return html
+    .replace(
+      /<(script|iframe|object|embed|form|meta|base|link)\b[\s\S]*?<\/\1>/gi,
+      "",
+    )
+    .replace(
+      /<(script|iframe|object|embed|form|meta|base|link)\b[^>]*\/?>/gi,
+      "",
+    )
+    .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+}
 
 function buildStandaloneHtml(
   title: string,
@@ -17,7 +44,7 @@ function buildStandaloneHtml(
   const slideHtmlSections = slides
     .map(
       (slide, i) =>
-        `<section class="slide" data-index="${i}" style="display: ${i === 0 ? "flex" : "none"};">${slide.content}</section>`,
+        `<section class="slide" data-index="${i}" style="display: ${i === 0 ? "flex" : "none"};">${sanitizeSlideContent(slide.content)}</section>`,
     )
     .join("\n");
 
@@ -236,6 +263,9 @@ export default defineAction({
     deckId: z.string().describe("Deck ID to export"),
   }),
   run: async ({ deckId }) => {
+    const userEmail = getRequestUserEmail();
+    if (!userEmail) throw new Error("no authenticated user");
+
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);
 
@@ -255,12 +285,9 @@ export default defineAction({
 
     const html = buildStandaloneHtml(row.title, slides, aspectRatio);
 
-    // Save to exports directory
-    const fs = await import("fs");
-    const path = await import("path");
-    const exportDir = path.join(process.cwd(), "data", "exports");
+    const exportDir = tenantExportDir(userEmail);
     fs.mkdirSync(exportDir, { recursive: true });
-    const filename = `${row.title.replace(/[^a-zA-Z0-9]/g, "-")}-${Date.now()}.html`;
+    const filename = safeGeneratedFilename(row.title, ".html");
     const filePath = path.join(exportDir, filename);
     fs.writeFileSync(filePath, html);
 

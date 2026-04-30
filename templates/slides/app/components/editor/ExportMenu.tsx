@@ -12,6 +12,7 @@ import {
   IconCode,
   IconCopy,
   IconShare2,
+  IconBrandGoogle,
 } from "@tabler/icons-react";
 import { toast } from "@/hooks/use-toast";
 import { agentNativePath, appBasePath } from "@agent-native/core/client";
@@ -70,6 +71,49 @@ export function ExportMenu({
       toast({
         title: "Export failed",
         description: "Something went wrong exporting as PPTX.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleExportGoogleSlides = async () => {
+    try {
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/export-google-slides"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deckId }),
+        },
+      );
+      const data = await res.json();
+      if (!data.filename) {
+        toast({
+          title: "Export failed",
+          description: data.error || "Could not generate Google Slides export.",
+          variant: "destructive",
+        });
+        return;
+      }
+      // Always download the .pptx — Google Slides' direct-import URL needs
+      // an unauthenticated public file URL, which our /api/exports route
+      // (per-user gated) intentionally is not. Open the importer in a new
+      // tab as a convenience so the user can drop the file straight in.
+      triggerDownload(data.filename);
+      const importerUrl =
+        data.googleSlidesImportDialogUrl ||
+        "https://docs.google.com/presentation/u/0/?usp=import";
+      window.open(importerUrl, "_blank", "noopener,noreferrer");
+      toast({
+        title: "Open in Google Slides",
+        description:
+          "We downloaded the .pptx and opened Google Slides — choose File → Import slides and drop the file in.",
+      });
+    } catch (err) {
+      console.error("Export failed:", err);
+      toast({
+        title: "Export failed",
+        description: "Something went wrong exporting to Google Slides.",
         variant: "destructive",
       });
     }
@@ -141,6 +185,13 @@ export function ExportMenu({
         <DropdownMenuItem onClick={handleExportPptx} className="cursor-pointer">
           <IconDownload className="w-4 h-4 mr-2" />
           Export as PPTX
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={handleExportGoogleSlides}
+          className="cursor-pointer"
+        >
+          <IconBrandGoogle className="w-4 h-4 mr-2" />
+          Export to Google Slides
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onDuplicate} className="cursor-pointer">

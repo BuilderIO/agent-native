@@ -36,6 +36,35 @@ if (IS_DEV) {
 }
 
 let pendingDeepLink: string | null = null;
+const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const pendingOAuthStates = new Map<string, number>();
+
+function prunePendingOAuthStates(now = Date.now()) {
+  for (const [state, expiresAt] of pendingOAuthStates) {
+    if (expiresAt <= now) pendingOAuthStates.delete(state);
+  }
+}
+
+function rememberOAuthState(url: string) {
+  try {
+    const state = new URL(url).searchParams.get("state");
+    if (!state) return;
+    prunePendingOAuthStates();
+    pendingOAuthStates.set(state, Date.now() + PENDING_OAUTH_STATE_TTL_MS);
+  } catch {
+    // Malformed URL — ignore
+  }
+}
+
+function consumeOAuthState(state: string | null): boolean {
+  if (!state) return false;
+  const now = Date.now();
+  prunePendingOAuthStates(now);
+  const expiresAt = pendingOAuthStates.get(state);
+  if (!expiresAt || expiresAt <= now) return false;
+  pendingOAuthStates.delete(state);
+  return true;
+}
 
 async function handleDeepLink(url: string) {
   try {
@@ -43,6 +72,12 @@ async function handleDeepLink(url: string) {
     if (parsed.host === "oauth-complete") {
       const token = parsed.searchParams.get("token");
       if (token) {
+        if (!consumeOAuthState(parsed.searchParams.get("state"))) {
+          console.warn(
+            "[main] rejected oauth-complete deep link without matching OAuth state",
+          );
+          return;
+        }
         await injectSessionAndReload(token);
       } else {
         reloadAllWebviews();
@@ -311,8 +346,7 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       contextIsolation: true,
       webviewTag: true,
-      // Allow webviews to load localhost apps without CORS errors
-      webSecurity: false,
+      webSecurity: true,
     },
   });
 
@@ -561,6 +595,7 @@ function openOAuthWindow(
   sourceSession: Electron.Session | undefined,
   provider: OAuthProvider,
 ) {
+  rememberOAuthState(url);
   const mainWin = BrowserWindow.getAllWindows()[0];
 
   // Critical: the popup MUST share the source webview's session so the

@@ -298,7 +298,15 @@ function registerMiddleware(
       }
       return {
         error: e?.message || "Internal server error",
-        ...(status >= 500 && process.env.NODE_ENV !== "production" && e?.stack
+        // Only surface the stack to clients when explicitly enabled.
+        // `NODE_ENV !== "production"` was unsafe — preview deploys and
+        // any host that forgets to set NODE_ENV=production leaked stack
+        // traces (file paths, dependency versions, internal route
+        // topology) to anonymous callers. Operators who want stacks in
+        // dev set `AGENT_NATIVE_DEBUG_ERRORS=1` explicitly.
+        ...(status >= 500 &&
+        process.env.AGENT_NATIVE_DEBUG_ERRORS === "1" &&
+        e?.stack
           ? { stack: e.stack }
           : {}),
       };

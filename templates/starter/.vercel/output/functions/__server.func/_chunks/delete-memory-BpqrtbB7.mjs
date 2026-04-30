@@ -1,0 +1,4 @@
+import{i as e}from"./request-context-60tSGHqu.mjs";import"./auth-Dww4On4H.mjs";import{a as t,r as n,u as r}from"./store-D6lpoHgL.mjs";import{r as i,t as a}from"./utils-Bt3wDA98.mjs";async function o(o){let s=i(o).name;s||a(`--name is required (e.g. 'coding-style')`);let c=e()??`local@localhost`,l=`memory/${s}.md`,u=`memory/MEMORY.md`,d=!1;try{await n(c,l),d=!0}catch{}try{let e=await t(c,u);if(e?.content){let t=`- [${s}]`,n=e.content.split(`
+`),i=n.filter(e=>!e.startsWith(t));i.length!==n.length&&(await r(c,u,i.join(`
+`).trimEnd()+`
+`,`text/markdown`),d=!0)}}catch{}console.log(d?`Deleted memory "${s}".`:`Memory "${s}" not found.`)}export{o as default};

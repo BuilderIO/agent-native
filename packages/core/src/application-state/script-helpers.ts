@@ -4,7 +4,7 @@
  * The session ID determines which user's application state is read/written.
  * Resolution order:
  *   1. Per-request context (AsyncLocalStorage) — set by the HTTP handler
- *   2. AGENT_USER_EMAIL env var — set by agent runtime or CLI
+ *   2. AGENT_USER_EMAIL env var — CLI only
  *   3. Most recent session in the DB — fallback for CLI scripts
  *   4. "local" — last resort
  *
@@ -39,13 +39,20 @@ let _cliFallbackSessionId: string | undefined;
 async function resolveSessionId(): Promise<string> {
   // 1. Per-request context (AsyncLocalStorage) — always preferred
   try {
-    const { getRequestUserEmail } =
+    const { getRequestUserEmail, hasRequestContext } =
       await import("../server/request-context.js");
     const ctxEmail = getRequestUserEmail();
     if (ctxEmail && ctxEmail !== DEV_MODE_USER_EMAIL) return ctxEmail;
     if (ctxEmail === DEV_MODE_USER_EMAIL) return "local";
+    if (hasRequestContext()) {
+      throw new Error(
+        "Application state access requires an authenticated request context",
+      );
+    }
   } catch {
-    // request-context module not available (e.g. edge runtime) — fall through
+    throw new Error(
+      "Application state access requires an authenticated request context",
+    );
   }
 
   // 2. AGENT_USER_EMAIL env var (CLI scripts)

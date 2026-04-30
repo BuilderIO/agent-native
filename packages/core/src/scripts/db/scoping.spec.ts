@@ -13,23 +13,29 @@ describe("scoping", () => {
   });
 
   describe("buildScopingSqlite", () => {
-    it("returns inactive scoping in dev mode", async () => {
+    it("activates scoping in dev mode when a user is set (was previously inactive — now scopes always when user is present)", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("AGENT_USER_EMAIL", "user@test.com");
       const { buildScopingSqlite } = await import("./scoping.js");
 
       const mockClient = {
-        execute: vi.fn().mockResolvedValue({ rows: [] }),
+        execute: vi.fn().mockImplementation((sql: string) => {
+          if (sql.includes("sqlite_master")) {
+            return { rows: [{ name: "scoped_t" }] };
+          }
+          return {
+            rows: [{ name: "id" }, { name: "owner_email" }, { name: "data" }],
+          };
+        }),
       };
 
       const ctx = await buildScopingSqlite(mockClient);
-      expect(ctx.active).toBe(false);
-      expect(ctx.setup).toEqual([]);
-      expect(ctx.teardown).toEqual([]);
-      expect(ctx.userEmail).toBeNull();
+      expect(ctx.active).toBe(true);
+      expect(ctx.userEmail).toBe("user@test.com");
+      expect(ctx.setup.length).toBeGreaterThan(0);
     });
 
-    it("returns inactive scoping when no AGENT_USER_EMAIL in prod", async () => {
+    it("returns inactive scoping when there is no request user", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "");
       const { buildScopingSqlite } = await import("./scoping.js");
@@ -273,17 +279,22 @@ describe("scoping", () => {
   });
 
   describe("buildScopingPostgres", () => {
-    it("returns inactive scoping in dev mode", async () => {
+    it("activates scoping in dev mode when a user is set (was previously inactive — now scopes always when user is present)", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("AGENT_USER_EMAIL", "user@test.com");
       const { buildScopingPostgres } = await import("./scoping.js");
 
-      const mockPgSql: any = {};
+      const mockPgSql: any = async function (
+        _strings: TemplateStringsArray,
+      ): Promise<any[]> {
+        return [{ table_name: "tasks", column_name: "owner_email" }];
+      };
       const ctx = await buildScopingPostgres(mockPgSql);
-      expect(ctx.active).toBe(false);
+      expect(ctx.active).toBe(true);
+      expect(ctx.userEmail).toBe("user@test.com");
     });
 
-    it("returns inactive scoping when no AGENT_USER_EMAIL", async () => {
+    it("returns inactive scoping when there is no request user", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_USER_EMAIL", "");
       const { buildScopingPostgres } = await import("./scoping.js");
@@ -291,6 +302,25 @@ describe("scoping", () => {
       const mockPgSql: any = {};
       const ctx = await buildScopingPostgres(mockPgSql);
       expect(ctx.active).toBe(false);
+    });
+
+    it("emits WITH LOCAL CHECK OPTION on scoped views (Postgres) so INSERTs/UPDATEs through the view can't escape the WHERE filter", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_USER_EMAIL", "alice@test.com");
+      const { buildScopingPostgres } = await import("./scoping.js");
+
+      const mockPgSql: any = async function (): Promise<any[]> {
+        return [
+          { table_name: "tasks", column_name: "id" },
+          { table_name: "tasks", column_name: "owner_email" },
+          { table_name: "tasks", column_name: "data" },
+        ];
+      };
+
+      const ctx = await buildScopingPostgres(mockPgSql);
+      const tasksView = ctx.setup.find((s) => s.includes('"tasks"'));
+      expect(tasksView).toBeDefined();
+      expect(tasksView).toContain("WITH LOCAL CHECK OPTION");
     });
 
     it("builds scoping views for postgres with public. qualifier", async () => {

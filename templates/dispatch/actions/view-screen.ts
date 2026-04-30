@@ -9,6 +9,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
 import { listOverview } from "../server/lib/dispatch-store.js";
 import {
   listVaultOverview,
@@ -20,6 +21,7 @@ import {
 export default defineAction({
   description:
     "See what the user is currently looking at in the dispatch UI, including navigation state and a compact operational summary.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     const [navigation, overview, vaultOverview] = await Promise.all([

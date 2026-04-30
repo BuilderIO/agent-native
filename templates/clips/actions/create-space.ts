@@ -9,10 +9,7 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  nanoid,
-  requireActiveOrganizationId,
-} from "../server/lib/recordings.js";
+import { nanoid, requireOrganizationAccess } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -35,8 +32,10 @@ export default defineAction({
   }),
   run: async (args) => {
     const db = getDb();
-    const organizationId =
-      args.organizationId || (await requireActiveOrganizationId());
+    const { organizationId } = await requireOrganizationAccess(
+      args.organizationId,
+      ["admin"],
+    );
 
     const id = nanoid();
     const now = new Date().toISOString();

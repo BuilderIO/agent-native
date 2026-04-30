@@ -35,3 +35,20 @@ export const designSystems = table("design_systems", {
 });
 
 export const designSystemShares = createSharesTable("design_system_shares");
+
+export const folders = table("folders", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+  ...ownableColumns(),
+});
+
+export const folderShares = createSharesTable("folder_shares");
+
+export const folderMemberships = table("folder_memberships", {
+  id: text("id").primaryKey(),
+  folderId: text("folder_id").notNull(),
+  compositionId: text("composition_id").notNull(),
+  createdAt: text("created_at").default(now()),
+});

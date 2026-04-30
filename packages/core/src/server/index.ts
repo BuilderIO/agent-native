@@ -17,6 +17,7 @@ export {
   runAuthGuard,
   setDesktopExchange,
   DEV_MODE_USER_EMAIL,
+  safeReturnPath,
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
@@ -116,10 +117,13 @@ export {
 } from "./action-routes.js";
 export {
   runWithRequestContext,
+  hasRequestContext,
+  getRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
   getRequestTimezone,
   getCredentialContext,
+  isIntegrationCallerRequest,
   type RequestContext,
 } from "./request-context.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
@@ -184,6 +188,7 @@ export {
   resolveBuilderCredential,
   writeBuilderCredentials,
   deleteBuilderCredentials,
+  resolveSecret,
 } from "./credential-provider.js";
 
 export {

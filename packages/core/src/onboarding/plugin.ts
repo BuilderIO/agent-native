@@ -23,7 +23,10 @@ import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getSession, DEV_MODE_USER_EMAIL } from "../server/auth.js";
 import { listOnboardingSteps } from "./registry.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
-import type { OnboardingStepStatus } from "./types.js";
+import type {
+  OnboardingResolveContext,
+  OnboardingStepStatus,
+} from "./types.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -36,12 +39,24 @@ export interface OnboardingPluginOptions {
   skipDefaultSteps?: boolean;
 }
 
-/** Resolve the session id to use for application-state scoping. */
-async function resolveSessionId(event: H3Event): Promise<string> {
+/** Resolve the caller context used for onboarding and application-state scoping. */
+async function resolveOnboardingContext(
+  event: H3Event,
+): Promise<OnboardingResolveContext> {
   const session = await getSession(event);
-  if (!session) return "local";
-  if (session.email === DEV_MODE_USER_EMAIL) return "local";
-  return session.email;
+  if (!session) return { sessionId: "local" };
+  if (session.email === DEV_MODE_USER_EMAIL) {
+    return {
+      sessionId: "local",
+      userEmail: session.email,
+      orgId: session.orgId ?? null,
+    };
+  }
+  return {
+    sessionId: session.email,
+    userEmail: session.email,
+    orgId: session.orgId ?? null,
+  };
 }
 
 async function hasOverride(
@@ -66,7 +81,7 @@ async function hasOverride(
  * dev overlay can render the new-user flow without touching real state.
  */
 async function serializeSteps(
-  sessionId: string,
+  context: OnboardingResolveContext,
   options: { preview?: boolean } = {},
 ): Promise<OnboardingStepStatus[]> {
   const steps = listOnboardingSteps();
@@ -75,12 +90,12 @@ async function serializeSteps(
     let complete = false;
     if (!options.preview) {
       try {
-        complete = (await step.isComplete()) === true;
+        complete = (await step.isComplete(context)) === true;
       } catch {
         complete = false;
       }
       if (!complete) {
-        complete = await hasOverride(sessionId, step.id);
+        complete = await hasOverride(context.sessionId, step.id);
       }
     }
     out.push({
@@ -129,10 +144,10 @@ export function createOnboardingPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const sessionId = await resolveSessionId(event);
+          const context = await resolveOnboardingContext(event);
           const query = getQuery(event) as Record<string, unknown>;
           const preview = query.preview === "1" || query.preview === 1;
-          return serializeSteps(sessionId, { preview });
+          return serializeSteps(context, { preview });
         }
 
         // Override endpoint — POST /steps/:id/complete
@@ -146,7 +161,7 @@ export function createOnboardingPlugin(
             setResponseStatus(event, 400);
             return { error: "id required" };
           }
-          const sessionId = await resolveSessionId(event);
+          const { sessionId } = await resolveOnboardingContext(event);
           await appStatePut(
             sessionId,
             `${OVERRIDE_KEY_PREFIX}${id}`,
@@ -169,7 +184,7 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const sessionId = await resolveSessionId(event);
+        const { sessionId } = await resolveOnboardingContext(event);
         await appStatePut(
           sessionId,
           DISMISSED_KEY,
@@ -188,7 +203,7 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const sessionId = await resolveSessionId(event);
+        const { sessionId } = await resolveOnboardingContext(event);
         await appStatePut(
           sessionId,
           DISMISSED_KEY,
@@ -207,16 +222,16 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const sessionId = await resolveSessionId(event);
+        const context = await resolveOnboardingContext(event);
         // On flaky networks (or transient Neon hiccups) the DB call below
         // can throw — return safe defaults so a transient connection error
         // doesn't surface as a 500 to the client.
         try {
-          const value = await appStateGet(sessionId, DISMISSED_KEY);
+          const value = await appStateGet(context.sessionId, DISMISSED_KEY);
           const dismissed = !!(
             value && (value as { dismissed?: boolean }).dismissed
           );
-          const statuses = await serializeSteps(sessionId);
+          const statuses = await serializeSteps(context);
           return {
             dismissed,
             allComplete: allRequiredComplete(statuses),

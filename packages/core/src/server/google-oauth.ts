@@ -10,6 +10,7 @@
 import crypto from "node:crypto";
 import {
   getHeader,
+  getQuery,
   setCookie,
   sendRedirect,
   setResponseStatus,
@@ -37,6 +38,20 @@ function htmlResponse(html: string, status = 200): Response {
   });
 }
 
+/**
+ * HTML escape — minimal but covers the cases that matter when interpolating
+ * user-controlled values into our OAuth callback HTML. Mirrors the helper in
+ * email-template.ts; kept inline here to avoid a circular import.
+ */
+function escapeHtml(s: string): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /** Detect requests from the Electron desktop app webview. */
 export function isElectron(event: H3Event): boolean {
   return /Electron/i.test(getHeader(event, "user-agent") || "");
@@ -47,11 +62,59 @@ export function isMobile(event: H3Event): boolean {
   return /iPhone|iPad|iPod|Android/i.test(getHeader(event, "user-agent") || "");
 }
 
-/** Get the origin from forwarded headers or Host. */
+/**
+ * Build the static allowlist of origins we trust for `getOrigin`. Reads
+ * `APP_URL` and `BETTER_AUTH_URL` (both are deployment-known public URLs).
+ * Each entry is normalised to `${proto}://${host}` (no path). Duplicates
+ * collapse, invalid entries are dropped silently.
+ */
+function getConfiguredOriginAllowlist(): Set<string> {
+  const out = new Set<string>();
+  for (const raw of [process.env.APP_URL, process.env.BETTER_AUTH_URL]) {
+    if (!raw) continue;
+    try {
+      const u = new URL(raw);
+      out.add(`${u.protocol}//${u.host}`);
+    } catch {
+      // Ignore — env value isn't a parseable URL.
+    }
+  }
+  return out;
+}
+
+/**
+ * Get the origin from forwarded headers or Host.
+ *
+ * Defends against Host-header injection: in production we require the
+ * resolved origin to match `APP_URL` / `BETTER_AUTH_URL`, falling back to
+ * those values when the inbound headers are missing or don't match. In
+ * dev we accept the inbound `Host` so localhost / ngrok / preview hosts
+ * keep working without configuration. The protocol defaults to `https`
+ * in production (so a TLS-terminating proxy that drops `x-forwarded-proto`
+ * doesn't downgrade us to plain HTTP).
+ */
 export function getOrigin(event: H3Event): string {
-  const host = getHeader(event, "x-forwarded-host") || getHeader(event, "host");
-  const proto = getHeader(event, "x-forwarded-proto") || "http";
-  return `${proto}://${host}`;
+  const headerHost =
+    getHeader(event, "x-forwarded-host") || getHeader(event, "host");
+  const isProd = process.env.NODE_ENV === "production";
+  const headerProto =
+    getHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");
+
+  if (isProd) {
+    const allow = getConfiguredOriginAllowlist();
+    // If the deploy declares its public URL, prefer it over inbound headers.
+    if (allow.size > 0) {
+      const inbound = headerHost ? `${headerProto}://${headerHost}` : "";
+      if (inbound && allow.has(inbound)) return inbound;
+      // Inbound didn't match — fall back to the first configured origin.
+      return [...allow][0];
+    }
+    // No allowlist configured: still default to https, but accept the
+    // inbound Host (best we can do without a configured base URL).
+    return `${headerProto}://${headerHost ?? ""}`;
+  }
+
+  return `${headerProto}://${headerHost ?? "localhost"}`;
 }
 
 function normalizeAppBasePath(value: string | undefined): string {
@@ -74,6 +137,85 @@ export function getAppUrl(event: H3Event, path = "/"): string {
   return `${getOrigin(event)}${getAppBasePath()}${cleanPath}`;
 }
 
+// ─── redirect_uri Allowlist ──────────────────────────────────────────────────
+
+/**
+ * Validate a user-supplied `redirect_uri` for OAuth flows.
+ *
+ * Defends against authorization-code interception (RFC 6819 §4.4.1.7):
+ * even though the upstream provider (Google/Atlassian/Zoom) refuses
+ * unregistered redirect URIs, prefix-style registrations and side
+ * registrations on the same host let a malicious caller swap in an
+ * attacker-controlled URI that the provider still accepts. We reject any
+ * candidate that isn't on this server's own origin AND under the
+ * framework's `/_agent-native/` namespace. Returns the validated URI on
+ * success, or `undefined` on rejection — callers must treat `undefined`
+ * as a 400.
+ *
+ * The intentional shape is exact-prefix:
+ *   - Origin must equal `getOrigin(event)` — no Host-header injection
+ *     reusing somebody else's registered redirect URI.
+ *   - Path must start with `${appBasePath}/_agent-native/` so we never
+ *     hand auth codes to a public marketing or open-redirect endpoint
+ *     on the same registered host.
+ *
+ * For desktop / native flows that need ephemeral `http://127.0.0.1:<port>`
+ * loopback URIs, callers should validate those at the template level
+ * with a dedicated allowlist — this helper rejects them by design.
+ */
+export function isAllowedOAuthRedirectUri(
+  candidate: string,
+  event: H3Event,
+): boolean {
+  if (typeof candidate !== "string" || candidate.length === 0) return false;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return false;
+  }
+  // Must be same origin as our server.
+  const expectedOrigin = getOrigin(event);
+  let expectedUrl: URL;
+  try {
+    expectedUrl = new URL(expectedOrigin);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== expectedUrl.protocol) return false;
+  if (url.host !== expectedUrl.host) return false;
+  // Must live under the framework's namespace.
+  const basePath = getAppBasePath();
+  const required = `${basePath}/_agent-native/`;
+  if (!url.pathname.startsWith(required)) return false;
+  return true;
+}
+
+/**
+ * Resolve the `redirect_uri` for an outbound OAuth `auth-url` request.
+ *
+ * Reads `?redirect_uri=` from the query and validates it via
+ * `isAllowedOAuthRedirectUri`. Returns:
+ *   - the validated URI when supplied and allowed, OR
+ *   - the framework default when no override was supplied, OR
+ *   - `null` when an override was supplied but rejected — callers must
+ *     respond with 400 in that case.
+ *
+ * Templates that need a non-default redirect path can pass it via
+ * `defaultPath` (e.g. `"/_agent-native/google/desktop-callback"` for
+ * desktop flows).
+ */
+export function resolveOAuthRedirectUri(
+  event: H3Event,
+  defaultPath = "/_agent-native/google/callback",
+): string | null {
+  const supplied = getQuery(event).redirect_uri;
+  if (typeof supplied === "string" && supplied.length > 0) {
+    return isAllowedOAuthRedirectUri(supplied, event) ? supplied : null;
+  }
+  return getAppUrl(event, defaultPath);
+}
+
 // ─── OAuth State ─────────────────────────────────────────────────────────────
 
 export interface OAuthStatePayload {
@@ -93,30 +235,79 @@ export interface OAuthStatePayload {
 }
 
 /**
- * Derive a signing key for HMAC verification of OAuth state.
- * Uses the first available OAuth client secret — prevents CSRF without
- * requiring a specific provider's credentials.
+ * Ephemeral in-memory state-signing key for development. Generated lazily
+ * on first read so dev sessions don't depend on filesystem writability or
+ * env-var configuration. Sessions reset on each restart, which is fine
+ * for dev — no real users / production data are involved.
+ */
+let _devStateSigningKey: string | undefined;
+
+/**
+ * Derive a server-only signing key for HMAC verification of OAuth state.
+ *
+ * Uses a dedicated secret — never an OAuth client secret. Reusing a
+ * client_secret (which is shared with Google / GitHub / Atlassian) as our
+ * own HMAC key conflates two trust domains: rotating the client secret
+ * silently invalidates every in-flight OAuth state, and any leak of the
+ * client secret also lets an attacker forge our state envelopes.
+ *
+ * Resolution order:
+ *   1. OAUTH_STATE_SECRET (preferred — dedicated to this purpose)
+ *   2. BETTER_AUTH_SECRET (already used by Better Auth as a server secret)
+ *   3. In dev only, an ephemeral random key (per-process)
+ *
+ * In production, throws if neither secret is set.
  */
 function getStateSigningKey(): string {
   const secret =
-    process.env.GOOGLE_CLIENT_SECRET ||
-    process.env.ATLASSIAN_CLIENT_SECRET ||
-    process.env.GITHUB_CLIENT_SECRET ||
-    process.env.OAUTH_STATE_SECRET;
-  if (!secret) {
+    process.env.OAUTH_STATE_SECRET || process.env.BETTER_AUTH_SECRET;
+  if (secret) return secret;
+
+  const isProd = process.env.NODE_ENV === "production";
+  if (isProd) {
     throw new Error(
-      "An OAuth client secret is required for state signing. " +
-        "Set GOOGLE_CLIENT_SECRET, ATLASSIAN_CLIENT_SECRET, GITHUB_CLIENT_SECRET, or OAUTH_STATE_SECRET.",
+      "OAuth state signing requires a server secret. " +
+        "Set OAUTH_STATE_SECRET or BETTER_AUTH_SECRET in production.",
     );
   }
-  return secret;
+
+  if (!_devStateSigningKey) {
+    _devStateSigningKey = crypto.randomBytes(32).toString("hex");
+  }
+  return _devStateSigningKey;
+}
+
+/**
+ * Options for the named-argument form of {@link encodeOAuthState}.
+ * Prefer this form — the positional overload is easy to misuse (the mail
+ * and calendar templates historically passed `flowId` in the `returnUrl`
+ * slot, smuggling state into a defence-in-depth path).
+ */
+export interface EncodeOAuthStateOptions {
+  redirectUri: string;
+  owner?: string;
+  desktop?: boolean;
+  addAccount?: boolean;
+  app?: string;
+  returnUrl?: string;
+  flowId?: string;
 }
 
 /**
  * Encode OAuth state into a signed base64url string.
  * The state is HMAC-signed so the callback can verify it wasn't forged,
  * preventing CSRF attacks on the OAuth flow.
+ *
+ * Two call shapes are supported:
+ *   - Recommended: pass an options object — clear, mismatch-proof.
+ *     `encodeOAuthState({ redirectUri, owner, desktop, ... })`
+ *   - Legacy positional form (kept working for backward compatibility):
+ *     `encodeOAuthState(redirectUri, owner, desktop, addAccount, app, returnUrl, flowId)`.
+ *     Callers should migrate to the options form — see the audit on
+ *     templates/mail and templates/calendar where the positional shape
+ *     led to `flowId` being smuggled in via the `returnUrl` slot.
  */
+export function encodeOAuthState(opts: EncodeOAuthStateOptions): string;
 export function encodeOAuthState(
   redirectUri: string,
   owner?: string,
@@ -125,18 +316,40 @@ export function encodeOAuthState(
   app?: string,
   returnUrl?: string,
   flowId?: string,
+): string;
+export function encodeOAuthState(
+  redirectUriOrOpts: string | EncodeOAuthStateOptions,
+  owner?: string,
+  desktop?: boolean,
+  addAccount?: boolean,
+  app?: string,
+  returnUrl?: string,
+  flowId?: string,
 ): string {
+  const opts: EncodeOAuthStateOptions =
+    typeof redirectUriOrOpts === "string"
+      ? {
+          redirectUri: redirectUriOrOpts,
+          owner,
+          desktop,
+          addAccount,
+          app,
+          returnUrl,
+          flowId,
+        }
+      : redirectUriOrOpts;
+
   const nonce = crypto.randomBytes(8).toString("hex");
   const payload: Record<string, string | boolean> = {
     n: nonce,
-    r: redirectUri,
+    r: opts.redirectUri,
   };
-  if (owner) payload.o = owner;
-  if (desktop) payload.d = true;
-  if (addAccount) payload.a = true;
-  if (app) payload.app = app;
-  if (returnUrl) payload.r2 = returnUrl;
-  if (flowId) payload.f = flowId;
+  if (opts.owner) payload.o = opts.owner;
+  if (opts.desktop) payload.d = true;
+  if (opts.addAccount) payload.a = true;
+  if (opts.app) payload.app = opts.app;
+  if (opts.returnUrl) payload.r2 = opts.returnUrl;
+  if (opts.flowId) payload.f = opts.flowId;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
     .createHmac("sha256", getStateSigningKey())
@@ -300,12 +513,18 @@ export function oauthCallbackResponse(
   },
 ): Response | string | void | Promise<Response | string | void> {
   const mobile = isMobile(event);
+  const query = getQuery(event);
+  const callbackState =
+    typeof query.state === "string" && query.state.length > 0
+      ? query.state
+      : undefined;
 
   // Mobile: deep link back to native app
   if (mobile) {
-    const deepLink = opts.sessionToken
-      ? `agentnative://oauth-complete?token=${opts.sessionToken}`
-      : `agentnative://oauth-complete`;
+    const deepLink = buildOAuthCompleteDeepLink(
+      opts.sessionToken,
+      callbackState,
+    );
     return htmlResponse(
       `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to app…</p><script>window.location.href=${JSON.stringify(deepLink)};setTimeout(function(){window.location.href="/"},1500)</script></body></html>`,
     );
@@ -314,7 +533,8 @@ export function oauthCallbackResponse(
   // Desktop add-account: close-tab page (must come before general desktop check
   // to ensure no deep link fires and the existing session is never switched).
   if (opts.desktop && opts.addAccount) {
-    const msg = email ? `Connected ${email}!` : "Connected!";
+    const safeEmail = email ? escapeHtml(email) : "";
+    const msg = safeEmail ? `Connected ${safeEmail}!` : "Connected!";
     return htmlResponse(
       `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
     );
@@ -323,7 +543,8 @@ export function oauthCallbackResponse(
   // Desktop exchange flow (Tauri tray app): the tray app polls the
   // desktop-exchange endpoint for the token — no deep link needed.
   if (opts.desktop && opts.flowId) {
-    const msg = email ? `Signed in as ${email}!` : "Signed in!";
+    const safeEmail = email ? escapeHtml(email) : "";
+    const msg = safeEmail ? `Signed in as ${safeEmail}!` : "Signed in!";
     return htmlResponse(
       `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Clips.</p></body></html>`,
     );
@@ -331,12 +552,16 @@ export function oauthCallbackResponse(
 
   // Desktop login: deep link back to Electron app
   if (opts.desktop) {
-    return desktopSuccessPage(event, email, opts.sessionToken);
+    return desktopSuccessPage(event, email, opts.sessionToken, callbackState);
   }
 
-  // Add-account web flow: close-tab page
+  // Add-account web flow: close-tab page. The email is rendered into the
+  // page via DOM `textContent` (safe), but we still JSON-stringify so a
+  // payload containing `</script>` can't break out of the script tag —
+  // and explicitly assert it's a string so a callbacks like `null` or
+  // an object won't end up serialised into the page.
   if (opts.addAccount) {
-    const safeEmail = JSON.stringify(email);
+    const safeEmail = JSON.stringify(typeof email === "string" ? email : "");
     return htmlResponse(`<!DOCTYPE html><html><body><script>
         window.close();
         var p = document.createElement('p');
@@ -355,12 +580,16 @@ export function oauthCallbackResponse(
   return "";
 }
 
-/** HTML error page for OAuth failures. */
+/** HTML error page for OAuth failures. The message is HTML-escaped — most
+ *  callers pass `error.message` from a token-exchange or userinfo failure,
+ *  which can echo upstream provider strings (and historically attacker-
+ *  controlled query params via the `error_description` field). */
 export function oauthErrorPage(message: string): Response {
+  const safe = escapeHtml(message);
   return htmlResponse(
     `<!DOCTYPE html><html><body>
     <div style="font-family:system-ui;max-width:420px;margin:30vh auto;text-align:center">
-      <p style="font-size:15px;color:#e55">${message}</p>
+      <p style="font-size:15px;color:#e55">${safe}</p>
       <p style="margin-top:16px;font-size:13px;color:#888"><a href="/" style="color:#888">Back to login</a></p>
     </div>
   </body></html>`,
@@ -370,14 +599,29 @@ export function oauthErrorPage(message: string): Response {
 
 // ─── Internal ────────────────────────────────────────────────────────────────
 
+function buildOAuthCompleteDeepLink(
+  sessionToken?: string,
+  state?: string,
+): string {
+  const params = new URLSearchParams();
+  if (sessionToken) params.set("token", sessionToken);
+  if (state) params.set("state", state);
+  const suffix = params.toString();
+  return suffix
+    ? `agentnative://oauth-complete?${suffix}`
+    : "agentnative://oauth-complete";
+}
+
 function desktopSuccessPage(
   _event: H3Event,
   email?: string,
   sessionToken?: string,
+  state?: string,
 ): Response {
-  const msg = email ? `Connected ${email}!` : "Connected!";
+  const safeEmail = email ? escapeHtml(email) : "";
+  const msg = safeEmail ? `Connected ${safeEmail}!` : "Connected!";
   if (sessionToken) {
-    const deepLink = `agentnative://oauth-complete?token=${sessionToken}`;
+    const deepLink = buildOAuthCompleteDeepLink(sessionToken, state);
     const deepLinkJson = JSON.stringify(deepLink);
     return htmlResponse(
       `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title><style>@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}.spinner{width:28px;height:28px;border:2px solid #333;border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}.fallback{display:none;flex-direction:column;align-items:center;gap:8px;animation:fadeIn .2s ease-out}.fallback.show{display:flex}</style></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px"><p style="font-size:16px;margin:0">${msg}</p><div id="loading" class="spinner"></div><div id="fallback" class="fallback"><a href=${deepLinkJson} style="display:inline-block;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent Native</a><p style="font-size:12px;color:#666;margin:0">If the app didn\u2019t open automatically, click the button above.</p></div><script>window.location.href=${deepLinkJson};setTimeout(function(){document.getElementById("loading").style.display="none";document.getElementById("fallback").classList.add("show")},3000)</script></body></html>`,

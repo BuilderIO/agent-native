@@ -82,6 +82,18 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800",
   },
   {
+    name: "Forms",
+    slug: "forms",
+    replaces: "Replaces or augments Typeform, Google Forms",
+    cliCommand: "npx @agent-native/core create my-forms-app --template forms",
+    demoUrl: "https://forms.agent-native.com",
+    description:
+      "Agent-native form builder. Generate forms from a prompt, branch logic with the agent, and own every response in your own database.",
+    color: "#06B6D4",
+    screenshot:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190c3fabd51f4c1bba5aa4e091ad4e9b?format=webp&width=800",
+  },
+  {
     name: "Clips",
     slug: "clips",
     replaces: "Replaces or augments Loom",
@@ -94,40 +106,6 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7366585df5a545e697e254bb0138182d?format=webp&width=800",
   },
   {
-    name: "Calls",
-    slug: "calls",
-    replaces: "Replaces or augments Gong, Chorus",
-    cliCommand: "npx @agent-native/core create my-calls-app --template calls",
-    demoUrl: "https://calls.agent-native.com",
-    description:
-      "Record, transcribe, and analyze sales calls with accounts, spaces, comments, trackers, snippets, and agent-generated summaries.",
-    color: "#111111",
-    screenshot: "",
-  },
-  {
-    name: "Meeting Notes",
-    slug: "meeting-notes",
-    replaces: "Replaces or augments Otter, meeting note takers",
-    cliCommand:
-      "npx @agent-native/core create my-meeting-notes-app --template meeting-notes",
-    demoUrl: "https://meeting-notes.agent-native.com",
-    description:
-      "Capture meetings, enhance rough notes into reusable templates, and organize people, companies, decisions, and follow-ups.",
-    color: "#16A34A",
-    screenshot: "",
-  },
-  {
-    name: "Voice",
-    slug: "voice",
-    replaces: "Replaces or augments Wispr Flow",
-    cliCommand: "npx @agent-native/core create my-voice-app --template voice",
-    demoUrl: "https://voice.agent-native.com",
-    description:
-      "Voice dictation with context-aware formatting, snippets, custom vocabulary, style presets, history, and usage stats.",
-    color: "#8B5CF6",
-    screenshot: "",
-  },
-  {
     name: "Design",
     slug: "design",
     replaces: "Replaces or augments Figma, Canva",
@@ -138,18 +116,6 @@ export const templates = [
     color: "#F472B6",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800",
-  },
-  {
-    name: "Scheduling",
-    slug: "scheduling",
-    replaces: "Replaces or augments Calendly",
-    cliCommand:
-      "npx @agent-native/core create my-scheduling-app --template scheduling",
-    demoUrl: "https://scheduling.agent-native.com",
-    description:
-      "Full scheduling with event types, availability, bookings, routing forms, workflows, team round-robin, and calendar integrations.",
-    color: "#7C3AED",
-    screenshot: "",
   },
   {
     name: "Dispatch",
@@ -165,27 +131,51 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F104b3ad8d1dc461aa33ab9bff37a4482?format=webp&width=800",
   },
   {
-    name: "Forms",
-    slug: "forms",
-    replaces: "Replaces or augments Typeform, Google Forms",
-    cliCommand: "npx @agent-native/core create my-forms-app --template forms",
-    demoUrl: "https://forms.agent-native.com",
+    name: "Calls",
+    slug: "calls",
+    replaces: "Replaces or augments Gong, call intelligence",
+    cliCommand: "npx @agent-native/core create my-calls-app --template calls",
     description:
-      "Agent-native form builder. Generate forms from a prompt, branch logic with the agent, and own every response in your own database.",
-    color: "#06B6D4",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190c3fabd51f4c1bba5aa4e091ad4e9b?format=webp&width=800",
+      "Conversation intelligence workspace for uploaded or recorded calls, transcripts, speaker diarization, summaries, tracker hits, snippets, comments, and agent-assisted follow-up.",
+    color: "#7c3aed",
+  },
+  {
+    name: "Meeting Notes",
+    slug: "meeting-notes",
+    replaces: "Replaces or augments Granola, meeting notes",
+    cliCommand:
+      "npx @agent-native/core create my-notes-app --template meeting-notes",
+    description:
+      "Meeting notes app for scheduled and ad-hoc meetings, raw notes, transcripts, enhanced summaries, people, companies, templates, and an agent that can find decisions and action items.",
+    color: "#2563eb",
+  },
+  {
+    name: "Voice",
+    slug: "voice",
+    replaces: "Replaces or augments Wispr Flow, voice dictation",
+    cliCommand: "npx @agent-native/core create my-voice-app --template voice",
+    description:
+      "Voice dictation workspace with push-to-talk sessions, snippets, dictionary terms, style presets, history, and an agent that helps tune spoken workflows.",
+    color: "#16a34a",
+  },
+  {
+    name: "Scheduling",
+    slug: "scheduling",
+    replaces: "Replaces or augments Calendly, routing forms",
+    cliCommand:
+      "npx @agent-native/core create my-scheduling-app --template scheduling",
+    description:
+      "Team scheduling system with event types, availability, bookings, private links, routing forms, workflows, calendar integrations, and round-robin assignment.",
+    color: "#f97316",
   },
   {
     name: "Issues",
     slug: "issues",
-    replaces: "Replaces or augments Jira, Linear",
+    replaces: "Replaces or augments Jira",
     cliCommand: "npx @agent-native/core create my-issues-app --template issues",
-    demoUrl: "https://issues.agent-native.com",
     description:
-      "Project and issue tracking with boards, sprints, comments, transitions, search, and an agent that can triage work.",
-    color: "#6366F1",
-    screenshot: "",
+      "Agent-native project management client for issues, boards, sprints, projects, status transitions, JQL-style search, and agent-assisted triage.",
+    color: "#0f766e",
   },
   {
     name: "Recruiting",
@@ -193,22 +183,19 @@ export const templates = [
     replaces: "Replaces or augments Greenhouse",
     cliCommand:
       "npx @agent-native/core create my-recruiting-app --template recruiting",
-    demoUrl: "https://recruiting.agent-native.com",
     description:
-      "Manage recruiting pipelines, candidates, jobs, interviews, scorecards, action items, and AI candidate notes around Greenhouse data.",
-    color: "#16A34A",
-    screenshot: "",
+      "Recruiting workspace for jobs, candidates, pipelines, interviews, resume analysis, notes, and agent-assisted hiring workflows.",
+    color: "#dc2626",
   },
   {
     name: "Starter",
     slug: "starter",
-    replaces: "Minimal agent-native scaffold",
+    replaces: "Blank agent-native app scaffold",
     cliCommand:
-      "npx @agent-native/core create my-agent-native-app --template starter",
+      "npx @agent-native/core create my-starter-app --template starter",
     description:
-      "A small starting point with the agent chat, shared state, actions, routing, and the framework conventions already wired up.",
-    color: "#71717A",
-    screenshot: "",
+      "Minimal app scaffold with shared SQL state, actions, navigation state, tools, settings, and the agent sidebar ready for custom product development.",
+    color: "#64748b",
   },
 ];
 

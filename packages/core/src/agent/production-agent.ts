@@ -5,6 +5,8 @@ import {
   getMethod,
 } from "h3";
 import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
+import { isLocalDatabase } from "../db/client.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import type { EventHandler as H3EventHandler } from "h3";
 import type {
   ActionTool,
@@ -101,8 +103,41 @@ export function engineToProvider(engineName: string): string {
 }
 
 /**
+ * Returns true when this process is acting as a multi-tenant deployment —
+ * i.e. a hosted shared-DB environment where one user's identity must NOT be
+ * silently substituted with the deploy-level API key.
+ *
+ * Mirrors the gate in `resolveBuilderCredential` (server/credential-provider.ts).
+ *
+ * Heuristic:
+ *   - `NODE_ENV === "production"`, AND
+ *   - The DB is not a local file (i.e. it's Neon/Postgres/Turso/D1 — any
+ *     backend that could be shared across multiple users).
+ *
+ * Self-hosted single-tenant deployments (a local sqlite file, or NODE_ENV
+ * unset/development) keep the env-var fallback so the original BYO-server
+ * UX continues to work without a per-user key.
+ */
+function isMultiTenantDeploy(): boolean {
+  if (process.env.NODE_ENV !== "production") return false;
+  return !isLocalDatabase();
+}
+
+/**
  * Resolve the active engine's provider and look up the user's API key for it.
- * Falls back to the provider's env var if no per-user key is stored.
+ *
+ * In multi-tenant deploys we deliberately refuse the deploy-level
+ * deploy-level fallback for authenticated users. Without that gate any
+ * signed-in user who hasn't configured their own provider key would silently
+ * inherit the deployment's key (free-tier abuse, billing
+ * mis-attribution, prompt logging tied to the deployment owner) — exactly
+ * the prior-incident pattern we hit on 2026-04-29.
+ *
+ * Single-tenant (local-dev, self-hosted SQLite) keeps the env fallback.
+ *
+ * Callers in `agent-chat-plugin.ts`, `triggers/dispatcher.ts`,
+ * `jobs/scheduler.ts`, and `integrations/plugin.ts` historically layer
+ * another deployment-key fallback after this must keep the same gate.
  */
 export async function getOwnerActiveApiKey(
   ownerEmail: string | null | undefined,
@@ -115,8 +150,15 @@ export async function getOwnerActiveApiKey(
     const provider = engineToProvider(activeEngine);
     const userKey = await getOwnerApiKey(provider, ownerEmail);
     if (userKey) return userKey;
+    if (isMultiTenantDeploy()) {
+      // Multi-tenant: refuse the env fallback. A null user (unauthenticated /
+      // background context with no owner) gets undefined here too — there's
+      // no user to bill, and the call site must surface a "configure a key"
+      // error to the requester rather than silently using the deploy key.
+      return undefined;
+    }
     const envVar = PROVIDER_TO_ENV[provider];
-    return envVar ? process.env[envVar] || undefined : undefined;
+    return envVar ? readDeployCredentialEnv(envVar) : undefined;
   } catch {
     return undefined;
   }
@@ -206,6 +248,25 @@ function generateRunId(): string {
 }
 
 /** Check if an error is transient and should be retried */
+function isContextTooLongError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  if (
+    msg.includes("context_length_exceeded") ||
+    msg.includes("input_too_long") ||
+    msg.includes("too many tokens") ||
+    msg.includes("prompt is too long") ||
+    msg.includes("reduce the length")
+  )
+    return true;
+  if (err instanceof EngineError) {
+    const code = (err.errorCode ?? "").toLowerCase();
+    if (code.includes("context_length") || code.includes("input_too_long"))
+      return true;
+  }
+  return false;
+}
+
 function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
@@ -484,6 +545,12 @@ export async function runAgentLoop(opts: {
         break;
       } catch (err: unknown) {
         if (signal.aborted) throw err;
+        if (isContextTooLongError(err)) {
+          throw new EngineError(
+            "Conversation has grown too long. Start a new conversation to continue.",
+            { errorCode: "context_length_exceeded" },
+          );
+        }
         if (retry < MAX_RETRIES && isRetryableError(err)) {
           // Clear partial text from the failed attempt so the retry
           // doesn't produce garbled duplicate output
@@ -541,14 +608,27 @@ export async function runAgentLoop(opts: {
           input: toolCall.input as Record<string, string>,
         });
 
+        const MAX_TOOL_RESULT_CHARS = 50_000;
+        const TOOL_TIMEOUT_MS = 60_000;
         let result: string;
         let isError = false;
         try {
-          const raw = await actionEntry.run(
-            toolCall.input as Record<string, string>,
-            { send },
-          );
-          result = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+          const timeoutSignal = AbortSignal.timeout(TOOL_TIMEOUT_MS);
+          const raw = await Promise.race([
+            actionEntry.run(toolCall.input as Record<string, string>, { send }),
+            new Promise<never>((_, reject) => {
+              timeoutSignal.addEventListener("abort", () =>
+                reject(new Error("Tool call timed out after 60 seconds")),
+              );
+            }),
+          ]);
+          let resultStr =
+            typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+          if (resultStr.length > MAX_TOOL_RESULT_CHARS) {
+            const truncated = resultStr.slice(0, MAX_TOOL_RESULT_CHARS);
+            resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${MAX_TOOL_RESULT_CHARS.toLocaleString()} shown]`;
+          }
+          result = resultStr;
         } catch (err: any) {
           result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
           isError = true;
@@ -663,16 +743,28 @@ export function createProductionAgentHandler(
     if (requestEngine) {
       const provider = engineToProvider(requestEngine);
       userApiKey = await getOwnerApiKey(provider, ownerEmail);
-      if (!userApiKey) {
+      if (!userApiKey && !isMultiTenantDeploy()) {
+        // Single-tenant only: env fallback for the requested provider.
+        // Multi-tenant deploys never silently substitute the deploy-level
+        // key for an authenticated user (see getOwnerActiveApiKey for the
+        // full rationale).
         const envVar = PROVIDER_TO_ENV[provider];
-        userApiKey = envVar ? process.env[envVar] || undefined : undefined;
+        userApiKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
       }
     } else {
       userApiKey = await getOwnerActiveApiKey(ownerEmail);
     }
 
-    const effectiveApiKey =
-      userApiKey ?? options.apiKey ?? process.env.ANTHROPIC_API_KEY;
+    // `options.apiKey` is the value the template constructed the plugin with
+    // (e.g. wired from a deployment env var). On a multi-tenant deploy this
+    // is the same cross-tenant hazard as any deploy-level provider key:
+    // accepting it as the final fallback would silently bill every key-less
+    // user to the deployment's account. Only honour it in single-tenant mode.
+    const effectiveApiKey = isMultiTenantDeploy()
+      ? userApiKey
+      : (userApiKey ??
+        options.apiKey ??
+        readDeployCredentialEnv("ANTHROPIC_API_KEY"));
 
     // Resolve engine — per-request engine override takes priority
     let engine: AgentEngine;
@@ -829,6 +921,31 @@ export function createProductionAgentHandler(
       return "";
     })();
 
+    // Selection context: written by the client when the user presses Cmd+I
+    // with text selected on the page. Treat anything older than 5 minutes
+    // as stale and ignore it.
+    const SELECTION_TTL_MS = 5 * 60 * 1000;
+    const selectionContextPromise = (async (): Promise<string> => {
+      try {
+        const sel = (await readAppState("pending-selection-context")) as {
+          text?: string;
+          capturedAt?: number;
+        } | null;
+        if (!sel?.text) return "";
+        const capturedAt =
+          typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
+        if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
+        return (
+          `\n\nThe user has selected the following text and pressed Cmd+I to focus the agent. ` +
+          `Treat this as the immediate context to act on:\n` +
+          `<selection>\n${sel.text}\n</selection>`
+        );
+      } catch {
+        // DB not ready — skip silently
+      }
+      return "";
+    })();
+
     // On the first message of a conversation, inject workspace inventory
     // so the agent knows what files, skills, jobs, and custom agents exist.
     // Templates can opt out via `skipFilesContext: true` when the inventory
@@ -924,11 +1041,12 @@ export function createProductionAgentHandler(
       return filesContext;
     })();
 
-    const [systemPrompt, screenBlock, urlBlock, filesContext] =
+    const [systemPrompt, screenBlock, urlBlock, selectionBlock, filesContext] =
       await Promise.all([
         systemPromptPromise,
         screenContextPromise,
         urlContextPromise,
+        selectionContextPromise,
         filesContextPromise,
       ]);
 
@@ -948,7 +1066,7 @@ export function createProductionAgentHandler(
         },
       });
     }
-    const screenContext = screenBlock + urlBlock;
+    const screenContext = screenBlock + urlBlock + selectionBlock;
 
     // Pre-compute agent references for A2A resolution inside the run
     const agentRefs = references.filter((r) => r.type === "agent");
@@ -968,6 +1086,19 @@ export function createProductionAgentHandler(
         })),
       { role: "user" as const, content: userContent },
     ];
+
+    // If there's already an active run for this thread, reject with 409 so
+    // the client can queue or wait rather than silently aborting the existing run.
+    if (threadId) {
+      const existingRun = getActiveRunForThread(threadId);
+      if (existingRun && existingRun.status === "running") {
+        setResponseStatus(event, 409);
+        return {
+          error: "Run already in progress for this thread",
+          activeRunId: existingRun.runId,
+        };
+      }
+    }
 
     // Start agent loop in background via run-manager
     const runId = generateRunId();

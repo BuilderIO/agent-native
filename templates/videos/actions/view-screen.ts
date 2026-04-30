@@ -10,10 +10,12 @@
 
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view and composition details. Always call this first before taking any action.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");
@@ -27,7 +29,9 @@ export default defineAction({
       screen.context = {
         view: "composition",
         compositionId: nav.compositionId,
-        hint: "User is editing a composition. Use the registry in app/remotion/registry.ts for composition details.",
+        folderId: nav.folderId ?? null,
+        folderName: nav.folderName ?? null,
+        hint: "User is editing a composition. Use the registry in app/remotion/registry.ts for composition details. Use list-folders to inspect library folders.",
       };
     } else {
       screen.context = {

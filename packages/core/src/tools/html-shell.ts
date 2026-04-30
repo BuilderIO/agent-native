@@ -1,18 +1,74 @@
+export const TOOL_IFRAME_CSP =
+  "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self';";
+
+/**
+ * SECURITY — TOOL CONTENT IS UNTRUSTED.
+ *
+ * `${content}` (line ~Body) interpolates raw HTML/JS authored by a user. This
+ * file is the boundary between framework-controlled HTML and user-controlled
+ * HTML. Two non-negotiable invariants for every change here:
+ *
+ *   1. The iframe MUST be rendered with a `sandbox` attribute that does NOT
+ *      include `allow-same-origin`. The viewer (`ToolViewer.tsx`,
+ *      `EmbeddedTool.tsx`) sets `sandbox="allow-scripts allow-forms"` — and
+ *      that is the only acceptable shape. Adding `allow-same-origin` would
+ *      give the tool full DOM access to the parent window via cross-frame
+ *      script.
+ *
+ *   2. Every reachable parent action must treat the postMessage payload as
+ *      hostile. The bridge in `iframe-bridge.ts` enforces a path allowlist,
+ *      header sanitization, and method allowlist; do not relax those gates
+ *      for "convenience" in this file or any caller.
+ *
+ * For the trust model rationale, see audit 05-tools-sandbox.md (C1) and the
+ * `tools` skill. When in doubt, fail closed.
+ */
+
+export interface ToolRenderBinding {
+  /** Email of the user who authored / owns the tool. */
+  authorEmail: string;
+  /** Email of the user currently viewing/running the tool. */
+  viewerEmail: string;
+  /** True when viewer === author. */
+  isAuthor: boolean;
+  /**
+   * Resolved role for the viewer ("owner" | "admin" | "editor" | "viewer").
+   *
+   * TODO(security, audit H4): the host-side bridge does not yet gate any
+   * helper based on this value — every viewer gets the same powers as the
+   * author. The role is plumbed through so a follow-up PR can constrain
+   * `appAction` / `dbExec` / `toolFetch` for non-author viewers (and
+   * eventually require an explicit consent step before running a shared
+   * tool, audit C1). For now this is metadata only.
+   */
+  role: "owner" | "admin" | "editor" | "viewer";
+}
+
 export function buildToolHtml(
   content: string,
   themeVars: string,
   isDark: boolean,
   toolId?: string,
+  binding?: ToolRenderBinding,
 ): string {
   const toolIdJson = JSON.stringify(toolId ?? "");
   const toolIdAttr = escapeHtmlAttribute(toolId ?? "");
+  const bindingJson = JSON.stringify(
+    binding ?? {
+      authorEmail: "",
+      viewerEmail: "",
+      isAuthor: true,
+      role: "owner",
+    },
+  );
 
   return `<!DOCTYPE html>
 <html lang="en"${isDark ? ' class="dark"' : ""}>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; form-action 'none';" />
+  <meta http-equiv="Content-Security-Policy" content="${TOOL_IFRAME_CSP}" />
+  ${binding && !binding.isAuthor ? `<meta name="agent-native-tool-author" content="${escapeHtmlAttribute(binding.authorEmail)}" />` : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet" />
@@ -70,8 +126,26 @@ export function buildToolHtml(
       _collectError(msg, stack);
     });
   </script>
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+  <!--
+    SECURITY: pinned to exact patch versions + SRI integrity hashes. A
+    malicious republish of @tailwindcss/browser@4.x or alpinejs@3.x would
+    otherwise inject code into every tool. To bump these versions:
+      1. npm view @tailwindcss/browser version  (or alpinejs)
+      2. curl -sL https://cdn.jsdelivr.net/npm/@tailwindcss/browser@<v> \
+         | openssl dgst -sha384 -binary | openssl base64 -A
+      3. Update the URL + integrity hash below in lockstep.
+  -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4"
+    integrity="sha384-yNSZBFvuOWcmww494a9+1zNuvgUGEXoWkein7cxP8wHUTi3iXCU4vJ7hr3tzBCml"
+    crossorigin="anonymous"
+  ></script>
+  <script
+    defer
+    src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
+    integrity="sha384-WPtu0YHhJ3arcykfnv1JgUffWDSKRnqnDeTpJUbOc2os2moEmLkIdaeR0trPN4be"
+    crossorigin="anonymous"
+  ></script>
   <style>${themeVars}</style>
   <style type="text/tailwindcss">
     @custom-variant dark (&:where(.dark, .dark *));
@@ -117,6 +191,7 @@ export function buildToolHtml(
 	    var _toolPendingRequests = {};
 
 	    window.addEventListener('message', function(event) {
+	      if (event.source !== window.parent) return;
 	      var message = event.data || {};
 	      if (message.type !== 'agent-native-tool-response') return;
 	      var pending = _toolPendingRequests[message.requestId];
@@ -248,6 +323,24 @@ export function buildToolHtml(
     }
 
     var _toolId = ${toolIdJson};
+    var _toolBinding = ${bindingJson};
+    window.toolBinding = _toolBinding;
+    // SECURITY: when the viewer is not the author of this tool, emit a clear
+    // console warning. The bridge currently runs every helper with the
+    // viewer's session — a malicious shared tool can call any action, read
+    // any owned table row in scope, and resolve any user-scope secret. A
+    // full consent step is tracked as TODO C1 in audit 05-tools-sandbox.md.
+    if (_toolBinding && !_toolBinding.isAuthor) {
+      try {
+        console.warn(
+          '[agent-native] Shared tool — running with viewer\\'s session. ' +
+            'Author: ' + (_toolBinding.authorEmail || '<unknown>') + '. ' +
+            'Bridge calls (appAction, dbExec, toolFetch) execute under ' +
+            'your account; they are gated by your permissions, not the ' +
+            'author\\'s. Do not run untrusted shared tools.',
+        );
+      } catch (_) {}
+    }
 
     var toolData = {
 	      async list(collection, opts) {
@@ -324,6 +417,7 @@ export function buildToolHtml(
 	      };
 	    };
 	    window.addEventListener('message', function(event) {
+	      if (event.source !== window.parent) return;
 	      var msg = event.data;
 	      if (!msg || msg.type !== 'agent-native-slot-context') return;
 	      window.slotContext = msg.context || {};
@@ -359,6 +453,7 @@ export function buildToolHtml(
 	    }
 
 	    window.addEventListener('message', function(event) {
+	      if (event.source !== window.parent) return;
 	      var msg = event.data;
 	      if (!msg || msg.type !== 'agent-native-theme-update') return;
 	      var root = document.documentElement;

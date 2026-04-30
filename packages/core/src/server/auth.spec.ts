@@ -219,6 +219,37 @@ describe("server/auth", () => {
       );
     });
 
+    it("rejects disallowed cross-origin preflight before auth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      delete process.env.AUTH_MODE;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/_agent-native/actions/list-decks",
+        headers: {
+          origin: "https://evil.example",
+          "access-control-request-method": "GET",
+        },
+      });
+      event.req.method = "OPTIONS";
+      event.node.req.method = "OPTIONS";
+
+      const result = await guard(event);
+
+      expect(result).toBe("");
+      expect(event.res.status).toBe(403);
+      expect(event.res.headers.get("access-control-allow-origin")).toBeNull();
+    });
+
     it("accepts HEAD on the auth session endpoint", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

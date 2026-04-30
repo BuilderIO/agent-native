@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { getHeader } from "h3";
+import { getHeader, readRawBody as h3ReadRawBody } from "h3";
 import { timingSafeEqual } from "node:crypto";
 import type {
   PlatformAdapter,
@@ -10,7 +10,7 @@ import type {
 } from "../types.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { getIntegrationConfig } from "../config-store.js";
-import { readBody } from "../../server/h3-helpers.js";
+import { getDbExec } from "../../db/client.js";
 import {
   sendEmail,
   isEmailConfigured,
@@ -25,8 +25,27 @@ const RATE_LIMIT_MAX = 20;
 /** Rate limit window in ms (1 hour) */
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
-/** In-memory rate limiter keyed by sender email address */
-const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
+/**
+ * One-shot warning flags so we don't spam logs on every webhook.
+ * Cleared per process — one warning per cold start is enough to surface
+ * a misconfiguration without leaking config status to anyone with log access
+ * (M6 in the webhook security audit).
+ */
+let _resendUnverifiedWarned = false;
+let _sendgridUnverifiedWarned = false;
+
+/**
+ * Returns true when the deployment is running in production mode and the
+ * operator has NOT explicitly opted into accepting unverified webhooks for
+ * local testing. In production we MUST refuse webhooks whose signature can't
+ * be verified — accepting them with attacker-controlled `from:` addresses
+ * lets the dispatch owner-resolution path run as the victim (C1 in the
+ * webhook security audit).
+ */
+function shouldRefuseWhenSecretMissing(): boolean {
+  if (process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS === "1") return false;
+  return process.env.NODE_ENV === "production";
+}
 
 /**
  * Create an Email platform adapter for inbound/outbound email via
@@ -124,9 +143,13 @@ export function emailAdapter(): PlatformAdapter {
 
       if (!parsed) return null;
 
-      // Rate limiting
+      // Rate limiting (SQL-backed heuristic — counts the sender's already-queued
+      // tasks within the last hour). The previous in-memory map reset on every
+      // serverless cold start, so the actual ceiling per attacker was
+      // RATE_LIMIT_MAX × number_of_active_instances. SQL-backed counting holds
+      // across instances. See H4 in the webhook security audit.
       const senderEmail = parsed.from.email.toLowerCase();
-      if (isRateLimited(senderEmail)) {
+      if (await isRateLimited(senderEmail)) {
         console.warn(
           `[email] Rate limited sender: ${senderEmail} (>${RATE_LIMIT_MAX}/hr)`,
         );
@@ -155,8 +178,17 @@ export function emailAdapter(): PlatformAdapter {
         !toAddresses.includes(agentAddress) &&
         ccAddresses.includes(agentAddress);
 
-      // Build thread ID from References chain (Gmail-style: oldest Message-ID is thread root)
-      const threadRootId = getThreadRootId(parsed.messageId, parsed.references);
+      // Build thread ID from References chain (Gmail-style: oldest Message-ID is thread root).
+      // Scope the thread root by sender so an attacker who can forge a `References:`
+      // header pointing at someone else's thread root can't graft into that thread.
+      // Without this scoping, a third party could craft an inbound email whose
+      // References chain matches a known victim's Message-ID and inject messages into
+      // the victim's existing conversation — leaking prior content via the agent's
+      // reply (M1 in the webhooks security audit).
+      const threadRootId = scopeThreadIdToSender(
+        getThreadRootId(parsed.messageId, parsed.references),
+        senderEmail,
+      );
 
       // Build body text
       let bodyText = parsed.text || stripHtmlForPlainText(parsed.html || "");
@@ -331,9 +363,22 @@ async function verifyResendWebhook(
   secret?: string,
 ): Promise<boolean> {
   if (!secret) {
-    console.warn(
-      "[email] EMAIL_INBOUND_WEBHOOK_SECRET not set — accepting Resend webhook without verification",
-    );
+    if (shouldRefuseWhenSecretMissing()) {
+      if (!_resendUnverifiedWarned) {
+        _resendUnverifiedWarned = true;
+        console.error(
+          "[email] EMAIL_INBOUND_WEBHOOK_SECRET not set — refusing Resend webhook in production. " +
+            "Set EMAIL_INBOUND_WEBHOOK_SECRET, or set AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1 for local testing only.",
+        );
+      }
+      return false;
+    }
+    if (!_resendUnverifiedWarned) {
+      _resendUnverifiedWarned = true;
+      console.warn(
+        "[email] EMAIL_INBOUND_WEBHOOK_SECRET not set — accepting Resend webhook without verification (dev mode)",
+      );
+    }
     return true;
   }
 
@@ -400,9 +445,22 @@ async function verifySendGridWebhook(
   secret?: string,
 ): Promise<boolean> {
   if (!secret) {
-    console.warn(
-      "[email] EMAIL_INBOUND_WEBHOOK_SECRET not set — accepting SendGrid webhook without verification",
-    );
+    if (shouldRefuseWhenSecretMissing()) {
+      if (!_sendgridUnverifiedWarned) {
+        _sendgridUnverifiedWarned = true;
+        console.error(
+          "[email] EMAIL_INBOUND_WEBHOOK_SECRET not set — refusing SendGrid webhook in production. " +
+            "Set EMAIL_INBOUND_WEBHOOK_SECRET, or set AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1 for local testing only.",
+        );
+      }
+      return false;
+    }
+    if (!_sendgridUnverifiedWarned) {
+      _sendgridUnverifiedWarned = true;
+      console.warn(
+        "[email] EMAIL_INBOUND_WEBHOOK_SECRET not set — accepting SendGrid webhook without verification (dev mode)",
+      );
+    }
     return true;
   }
 
@@ -508,20 +566,50 @@ async function parseSendGridWebhook(
 // Rate limiting
 // ---------------------------------------------------------------------------
 
-function isRateLimited(senderEmail: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(senderEmail);
-
-  if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-    rateLimitMap.set(senderEmail, { count: 1, windowStart: now });
+/**
+ * Rate-limit heuristic backed by the `integration_pending_tasks` queue.
+ *
+ * Counts how many tasks this sender has produced in the last hour. The count
+ * INCLUDES tasks already processed (status = completed/failed) because the
+ * rows aren't deleted on completion — that's enough signal to throttle a
+ * single noisy/abusive sender without needing a dedicated counter table.
+ *
+ * Two trade-offs worth knowing:
+ *   - This is a coarse heuristic, not exact metering. Within one hour the
+ *     count is correct; rows produced more than an hour ago naturally drop
+ *     off. We don't try to be precise, only to raise the bar past the
+ *     "send 10K emails through one Lambda burst" failure mode.
+ *   - The query relies on the `idx_pending_tasks_status_created` index plus
+ *     a sender substring match. A targeted attacker could amortise the cost
+ *     by reusing one sender address — that's fine, the goal here is to bound
+ *     the attack within a single attacker identity, not to detect spoofing.
+ *
+ * If the table doesn't yet exist on this deployment (no inbound webhook has
+ * been processed before), we silently allow the message — the schema is
+ * provisioned on first task insert. See H4 in the webhook security audit.
+ */
+async function isRateLimited(senderEmail: string): Promise<boolean> {
+  const cutoff = Date.now() - RATE_LIMIT_WINDOW_MS;
+  try {
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `
+        SELECT COUNT(*) AS c
+          FROM integration_pending_tasks
+         WHERE platform = ?
+           AND created_at >= ?
+           AND payload LIKE ?
+      `,
+      args: ["email", cutoff, `%"senderId":"${senderEmail}"%`],
+    });
+    const count = Number(
+      (rows[0] as Record<string, unknown> | undefined)?.c ?? 0,
+    );
+    return count >= RATE_LIMIT_MAX;
+  } catch {
+    // Table doesn't exist yet (first webhook on a fresh deployment) — allow.
     return false;
   }
-
-  entry.count++;
-  if (entry.count > RATE_LIMIT_MAX) {
-    return true;
-  }
-  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -630,6 +718,23 @@ function getThreadRootId(messageId: string, references?: string[]): string {
     return references[0];
   }
   return messageId;
+}
+
+/**
+ * Scope a raw thread root id by the sender's email address. Two different
+ * senders crafting the same `References:` header value should NOT collide
+ * onto the same internal thread mapping — that's the email-side fix for the
+ * thread-injection finding (M1 in the webhook security audit).
+ *
+ * The returned id is opaque to callers and stays stable across messages
+ * from the same sender on the same conversation thread, so reply behaviour
+ * is unchanged.
+ */
+function scopeThreadIdToSender(
+  rawThreadId: string,
+  senderEmail: string,
+): string {
+  return `${senderEmail.toLowerCase()}::${rawThreadId}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -803,11 +908,16 @@ ${bodyHtml}
 // Raw body reader (matches Slack adapter pattern)
 // ---------------------------------------------------------------------------
 
-/** Read the raw body as a string (H3 may have already parsed it) */
+/**
+ * Read the raw request body as a string and cache on the event context.
+ * Reads raw bytes from the request stream — never re-stringifies a parsed
+ * body, since the Resend / Svix HMAC is computed over the exact bytes sent
+ * (M2 in the webhook security audit).
+ */
 async function readRawBody(event: H3Event): Promise<string> {
-  if (event.context.__rawBody) return event.context.__rawBody as string;
-  const body = await readBody(event);
-  const raw = typeof body === "string" ? body : JSON.stringify(body);
+  const cached = event.context.__rawBody;
+  if (typeof cached === "string") return cached;
+  const raw = (await h3ReadRawBody(event)) ?? "";
   event.context.__rawBody = raw;
   return raw;
 }

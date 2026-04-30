@@ -6,6 +6,8 @@ on:
     paths:
       - "packages/core/package.json"
       - "packages/desktop-app/package.json"
+      - "packages/scheduling/package.json"
+      - "packages/pinpoint/package.json"
   workflow_dispatch:
     inputs:
       version_bump:
@@ -111,6 +113,8 @@ jobs:
     outputs:
       core-changed: ${{ steps.check.outputs.core-changed }}
       desktop-changed: ${{ steps.check.outputs.desktop-changed }}
+      scheduling-changed: ${{ steps.check.outputs.scheduling-changed }}
+      pinpoint-changed: ${{ steps.check.outputs.pinpoint-changed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -119,25 +123,28 @@ jobs:
       - name: Check for version bumps
         id: check
         run: |
-          core_old=$(git show HEAD~1:packages/core/package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version" 2>/dev/null || echo "")
-          core_new=$(node -p "require('./packages/core/package.json').version")
-          if [ -n "$core_old" ] && [ "$core_old" != "$core_new" ]; then
-            echo "core-changed=true" >> "$GITHUB_OUTPUT"
-            echo "Core version changed: $core_old -> $core_new"
-          else
-            echo "core-changed=false" >> "$GITHUB_OUTPUT"
-            echo "Core version unchanged: $core_new"
-          fi
+          # Helper: compare HEAD~1 vs HEAD for a given package path; emit
+          # <pkg>-changed=true|false. Treats first-publish (no prior version
+          # in HEAD~1) as a change so initial publishes go through.
+          check_pkg() {
+            local key="$1"
+            local path="$2"
+            local old new
+            old=$(git show "HEAD~1:${path}/package.json" 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version" 2>/dev/null || echo "")
+            new=$(node -p "require('./${path}/package.json').version")
+            if [ -z "$old" ] || [ "$old" != "$new" ]; then
+              echo "${key}-changed=true" >> "$GITHUB_OUTPUT"
+              echo "${key} version changed: ${old:-<new>} -> $new"
+            else
+              echo "${key}-changed=false" >> "$GITHUB_OUTPUT"
+              echo "${key} version unchanged: $new"
+            fi
+          }
 
-          desktop_old=$(git show HEAD~1:packages/desktop-app/package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version" 2>/dev/null || echo "")
-          desktop_new=$(node -p "require('./packages/desktop-app/package.json').version")
-          if [ -n "$desktop_old" ] && [ "$desktop_old" != "$desktop_new" ]; then
-            echo "desktop-changed=true" >> "$GITHUB_OUTPUT"
-            echo "Desktop version changed: $desktop_old -> $desktop_new"
-          else
-            echo "desktop-changed=false" >> "$GITHUB_OUTPUT"
-            echo "Desktop version unchanged: $desktop_new"
-          fi
+          check_pkg core packages/core
+          check_pkg desktop packages/desktop-app
+          check_pkg scheduling packages/scheduling
+          check_pkg pinpoint packages/pinpoint
 
   publish-core:
     name: Publish @agent-native/core
@@ -192,6 +199,121 @@ jobs:
       - name: Publish to npm
         working-directory: packages/core
         run: npx npm@11 publish --access public --provenance
+
+  publish-scheduling:
+    name: Publish @agent-native/scheduling
+    needs: detect-changes
+    if: needs.detect-changes.outputs.scheduling-changed == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build scheduling package
+        run: pnpm --filter @agent-native/scheduling build
+
+      - name: Run tests
+        run: pnpm --filter @agent-native/scheduling test
+
+      - name: Tag release
+        working-directory: packages/scheduling
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "scheduling-v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag scheduling-v${VERSION} already exists, skipping"
+          else
+            git tag "scheduling-v${VERSION}"
+            git push origin "scheduling-v${VERSION}"
+          fi
+
+      - name: Publish to npm
+        working-directory: packages/scheduling
+        # `pnpm publish` rewrites any remaining workspace:* refs to the
+        # actual versions before publishing, which is what we need since
+        # this package's devDependencies still point at workspace:*. Use
+        # --no-git-checks because we don't want pnpm bouncing on a clean
+        # check after the tag step (working tree may show the tag ref).
+        run: pnpm publish --access public --provenance --no-git-checks
+
+  publish-pinpoint:
+    name: Publish @agent-native/pinpoint
+    needs: detect-changes
+    if: needs.detect-changes.outputs.pinpoint-changed == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build pinpoint package
+        run: pnpm --filter @agent-native/pinpoint build
+
+      - name: Run tests
+        run: pnpm --filter @agent-native/pinpoint test
+
+      - name: Tag release
+        working-directory: packages/pinpoint
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "pinpoint-v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag pinpoint-v${VERSION} already exists, skipping"
+          else
+            git tag "pinpoint-v${VERSION}"
+            git push origin "pinpoint-v${VERSION}"
+          fi
+
+      - name: Publish to npm
+        working-directory: packages/pinpoint
+        # See note in publish-scheduling — pnpm publish handles workspace:*
+        # rewriting that npm publish doesn't.
+        run: pnpm publish --access public --provenance --no-git-checks
 
   publish-desktop:
     name: Publish desktop app

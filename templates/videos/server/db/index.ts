@@ -22,3 +22,12 @@ registerShareableResource({
   titleColumn: "title",
   getDb,
 });
+
+registerShareableResource({
+  type: "folder",
+  resourceTable: schema.folders,
+  sharesTable: schema.folderShares,
+  displayName: "Folder",
+  titleColumn: "name",
+  getDb,
+});

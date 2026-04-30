@@ -6,6 +6,8 @@ const resourcePutMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
+const dbExecuteMock = vi.hoisted(() => vi.fn());
+const getDbExecMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   resourceListAllOwners: resourceListAllOwnersMock,
@@ -34,9 +36,23 @@ vi.mock("./condition-evaluator.js", () => ({
   evaluateCondition: vi.fn(async () => true),
 }));
 
+// Partial-mock db/client so the user/membership validation lookup is
+// stubbed (audit 12 #10) but other consumers (auth shim, onboarding HTML
+// loaded transitively via `getDbExec`) still see real exports.
+vi.mock(import("../db/client.js"), async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getDbExec: getDbExecMock,
+  };
+});
+
 describe("trigger dispatcher", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: user exists and (when checked) is an org member.
+    dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }] });
+    getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-1",

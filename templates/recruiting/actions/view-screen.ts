@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -132,7 +133,10 @@ async function fetchScreen() {
   }
 
   if (Object.keys(screen).length === 0) {
-    throw new Error("No application state found. Is the app running?");
+    return {
+      message: "No application state found. The UI may not be open.",
+      hint: "Open the recruiting app in a browser so navigation state can be written before calling view-screen.",
+    };
   }
   return screen;
 }
@@ -140,6 +144,7 @@ async function fetchScreen() {
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, job/candidate details, and list data. Always call this first before taking any action.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     const orgId = getRequestOrgId() ?? null;

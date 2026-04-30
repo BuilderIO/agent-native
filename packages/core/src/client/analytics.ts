@@ -26,12 +26,80 @@ function ensureAmplitude(): boolean {
   return true;
 }
 
+/**
+ * Query parameters that may carry sensitive values in the URL bar. Browser
+ * Sentry collects `event.request.url` automatically; without scrubbing,
+ * share tokens, password params (F-07), email-confirm tokens, etc. land in
+ * Sentry events and become a recon vector for anyone with project access.
+ */
+const SENSITIVE_QUERY_PARAMS = new Set([
+  "password",
+  "p",
+  "token",
+  "state",
+  "code",
+  "share",
+  "share_token",
+]);
+
+function scrubUrl(url: string | undefined): string | undefined {
+  if (!url || typeof url !== "string") return url;
+  try {
+    // Parse using a base origin so relative URLs still work.
+    const u = new URL(url, "http://placeholder.local");
+    let mutated = false;
+    for (const key of Array.from(u.searchParams.keys())) {
+      if (SENSITIVE_QUERY_PARAMS.has(key.toLowerCase())) {
+        u.searchParams.set(key, "<redacted>");
+        mutated = true;
+      }
+    }
+    if (!mutated) return url;
+    // If the original URL was relative, return only the path/query/fragment.
+    if (u.origin === "http://placeholder.local") {
+      return `${u.pathname}${u.search}${u.hash}`;
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 function ensureSentry(): void {
   if (_sentryInitialized) return;
   const dsn = (import.meta.env as Record<string, string | undefined>)
     ?.VITE_SENTRY_CLIENT_DSN;
   if (!dsn) return;
-  Sentry.init({ dsn });
+  Sentry.init({
+    dsn,
+    beforeSend(event) {
+      // Strip sensitive query params from the request URL. React Router
+      // history can include share tokens, ?signin=1, password reset codes,
+      // public-share password params (audit F-07), etc.
+      if (event.request?.url) {
+        event.request.url = scrubUrl(event.request.url);
+      }
+      // Clean the same params from breadcrumb URLs (Sentry captures
+      // history.pushState breadcrumbs by default).
+      if (Array.isArray(event.breadcrumbs)) {
+        for (const crumb of event.breadcrumbs) {
+          if (crumb && typeof crumb === "object" && "data" in crumb) {
+            const data = crumb.data as Record<string, unknown> | undefined;
+            if (data && typeof data.url === "string") {
+              data.url = scrubUrl(data.url);
+            }
+            if (data && typeof data.from === "string") {
+              data.from = scrubUrl(data.from);
+            }
+            if (data && typeof data.to === "string") {
+              data.to = scrubUrl(data.to);
+            }
+          }
+        }
+      }
+      return event;
+    },
+  });
   _sentryInitialized = true;
 }
 

@@ -6,18 +6,25 @@ import {
 } from "./builder-engine.js";
 import type { EngineStreamOptions } from "./types.js";
 
-// Mock the credential provider so tests resolve keys from process.env
-// without hitting the DB (app_secrets table).
+const credentialState = vi.hoisted(() => ({
+  builderPrivateKey: "bpk-test" as string | null,
+  builderOrgName: null as string | null,
+}));
+
+// Mock the credential provider so tests do not hit the DB (app_secrets table).
 vi.mock("../../server/credential-provider.js", async (importOriginal) => {
   const original =
     (await importOriginal()) as typeof import("../../server/credential-provider.js");
   return {
     ...original,
     resolveBuilderCredential: vi.fn(async (key: string) => {
-      return process.env[key] || null;
+      if (key === "BUILDER_PRIVATE_KEY")
+        return credentialState.builderPrivateKey;
+      if (key === "BUILDER_ORG_NAME") return credentialState.builderOrgName;
+      return null;
     }),
     resolveBuilderAuthHeader: vi.fn(async () => {
-      const key = process.env.BUILDER_PRIVATE_KEY;
+      const key = credentialState.builderPrivateKey;
       return key ? `Bearer ${key}` : null;
     }),
     getBuilderGatewayBaseUrl: original.getBuilderGatewayBaseUrl,
@@ -62,6 +69,8 @@ const BASE_OPTS: EngineStreamOptions = {
 
 describe("createBuilderEngine", () => {
   beforeEach(() => {
+    credentialState.builderPrivateKey = "bpk-test";
+    credentialState.builderOrgName = null;
     vi.stubEnv("BUILDER_PRIVATE_KEY", "bpk-test");
     vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
   });
@@ -83,6 +92,7 @@ describe("createBuilderEngine", () => {
   });
 
   it("emits a missing-credentials stop-error when BUILDER_PRIVATE_KEY is unset", async () => {
+    credentialState.builderPrivateKey = null;
     vi.unstubAllEnvs();
     const engine = createBuilderEngine();
     const events = await collectEvents(engine.stream(BASE_OPTS));
@@ -282,6 +292,7 @@ describe("createBuilderEngine", () => {
   });
 
   it("deep-links upgradeUrl to the org billing page when BUILDER_ORG_NAME is set", async () => {
+    credentialState.builderOrgName = "acme-corp";
     vi.stubEnv("BUILDER_ORG_NAME", "acme-corp");
     vi.stubGlobal(
       "fetch",
@@ -346,6 +357,7 @@ describe("createBuilderEngine", () => {
   });
 
   it("treats bare 402 (no structured code) as a credits-limit with upgrade CTA", async () => {
+    credentialState.builderOrgName = "acme";
     vi.stubEnv("BUILDER_ORG_NAME", "acme");
     vi.stubGlobal(
       "fetch",

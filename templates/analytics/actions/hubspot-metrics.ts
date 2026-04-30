@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import {
   getAllDeals,
   getDealPipelines,
@@ -8,7 +9,7 @@ import {
 export default defineAction({
   description:
     "Get computed HubSpot sales metrics: win rate, ACV, pipeline value, etc.",
-  parameters: {},
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
     const [deals, pipelines] = await Promise.all([

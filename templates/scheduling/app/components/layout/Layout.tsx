@@ -60,7 +60,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
             className="mx-1 mb-3 flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-muted/60"
           >
             <span className="flex h-6 w-6 items-center justify-center rounded-md bg-foreground text-background">
-              <IconCalendarTime className="h-3.5 w-3.5" />
+              <img
+                src="/agent-native-icon-light.svg"
+                alt=""
+                aria-hidden="true"
+                className="block h-3.5 w-auto shrink-0 dark:hidden"
+              />
+              <img
+                src="/agent-native-icon-dark.svg"
+                alt=""
+                aria-hidden="true"
+                className="hidden h-3.5 w-auto shrink-0 dark:block"
+              />
             </span>
             Scheduling
           </Link>

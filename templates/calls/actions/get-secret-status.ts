@@ -1,6 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { getDb } from "../server/db/index.js";
+import { getRequiredSecret, readAppSecret } from "@agent-native/core/secrets";
+import { resolveSecret } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 
 const namesParam = z.preprocess((value) => {
   if (Array.isArray(value)) return value;
@@ -9,13 +14,28 @@ const namesParam = z.preprocess((value) => {
 }, z.array(z.string()).default([]));
 
 async function hasStoredSecret(name: string): Promise<boolean> {
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) return false;
+
+  // User-scoped secrets: use the framework helper that strictly checks the
+  // current request's user. resolveSecret returns null when no per-user row
+  // exists; it deliberately does NOT fall back to `process.env[name]` for
+  // an authenticated request (multi-tenant impersonation guard).
+  const registration = getRequiredSecret(name);
+  const scope = registration?.scope ?? "user";
+  if (scope === "user") {
+    return (await resolveSecret(name)) != null;
+  }
+
+  // Workspace-scoped secret: scope by the active org's id.
+  const scopeId = getRequestOrgId() ?? `solo:${userEmail}`;
   try {
-    const db = getDb() as any;
-    const result = await db.execute({
-      sql: "SELECT 1 FROM app_secrets WHERE key = ? LIMIT 1",
-      args: [name],
+    const result = await readAppSecret({
+      key: name,
+      scope: "workspace",
+      scopeId,
     });
-    return (result.rows?.length ?? 0) > 0;
+    return Boolean(result?.value);
   } catch {
     return false;
   }
@@ -34,7 +54,7 @@ export default defineAction({
 
     for (const name of names) {
       secrets[name] = {
-        configured: Boolean(process.env[name]) || (await hasStoredSecret(name)),
+        configured: await hasStoredSecret(name),
       };
     }
 

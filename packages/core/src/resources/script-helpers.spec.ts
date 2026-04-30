@@ -59,6 +59,19 @@ describe("resources script-helpers", () => {
       );
     });
 
+    it("does not fall back to stale env identity inside an unauthenticated request context", async () => {
+      process.env.AGENT_USER_EMAIL = "stale@test.com";
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+
+      await expect(
+        runWithRequestContext({ userEmail: undefined }, () =>
+          readResource("file.md"),
+        ),
+      ).rejects.toThrow("authenticated request context");
+      expect(mockResourceGetByPath).not.toHaveBeenCalled();
+    });
+
     it("uses __shared__ owner when shared option is true", async () => {
       process.env.AGENT_USER_EMAIL = "alice@test.com";
       mockResourceGetByPath.mockResolvedValue(null);

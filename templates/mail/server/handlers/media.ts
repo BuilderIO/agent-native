@@ -110,6 +110,12 @@ export const serveMedia = defineEventHandler(async (event: H3Event) => {
     "Cache-Control",
     "public, max-age=31536000, immutable",
   );
+  // Always send X-Content-Type-Options: nosniff so browsers don't MIME-sniff
+  // a polyglot upload (e.g. an SVG/HTML file uploaded with a `.png` extension)
+  // into HTML and execute any embedded `<script>`. The Content-Disposition
+  // attachment fallback below covers the documented SVG/HTML extensions; this
+  // header closes the polyglot bypass for every other type too.
+  setResponseHeader(event, "X-Content-Type-Options", "nosniff");
   // Force download for SVG and other types that could execute scripts inline.
   if (ext === ".svg" || ext === ".html" || ext === ".htm") {
     setResponseHeader(

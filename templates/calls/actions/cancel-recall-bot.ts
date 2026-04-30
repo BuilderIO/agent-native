@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
-import { parseJson } from "../server/lib/calls.js";
+import { getCurrentOwnerEmail, parseJson } from "../server/lib/calls.js";
+import { resolveRecallApiKey } from "../server/lib/recall.js";
 
 export default defineAction({
   description:
@@ -13,19 +14,22 @@ export default defineAction({
   }),
   http: { method: "POST" },
   run: async (args) => {
-    const apiKey =
-      typeof process !== "undefined"
-        ? process.env.RECALL_AI_API_KEY
-        : undefined;
+    const apiKey = await resolveRecallApiKey();
     if (!apiKey) {
-      throw new Error("RECALL_AI_API_KEY is not configured.");
+      throw new Error("RECALL_AI_API_KEY is not configured for this user.");
     }
 
     const db = getDb();
+    const ownerEmail = getCurrentOwnerEmail();
     const [existing] = await db
       .select()
       .from(schema.recallBots)
-      .where(eq(schema.recallBots.id, args.botId));
+      .where(
+        and(
+          eq(schema.recallBots.id, args.botId),
+          eq(schema.recallBots.createdBy, ownerEmail),
+        ),
+      );
     if (!existing) throw new Error(`Recall bot not found: ${args.botId}`);
 
     let apiError: string | null = null;

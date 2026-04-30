@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -8,7 +9,7 @@ import { listAnalyses } from "../server/lib/dashboards-store";
 export default defineAction({
   description:
     "List all saved ad-hoc analyses. Returns their IDs, names, descriptions, and last updated timestamps.",
-  parameters: {},
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
     const orgId = getRequestOrgId() || null;

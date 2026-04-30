@@ -4,10 +4,8 @@
  * Writes the selection to application_state under `voice-transcription-prefs`
  * so the composer's `useVoiceDictation` hook picks it up on next record.
  *
- * Providers:
- *   - "openai"  — best quality, requires OPENAI_API_KEY (user-scoped secret)
- *   - "builder" — coming soon (disabled placeholder)
- *   - "browser" — default; Web Speech API, low quality, works offline
+ * Provider status comes from `/_agent-native/voice-providers/status`, which
+ * mirrors the server transcription route's key/env resolution.
  */
 
 import React, { useCallback, useEffect, useState } from "react";
@@ -31,10 +29,21 @@ interface SecretStatus {
   status: "set" | "unset" | "invalid";
 }
 
+interface ProviderStatus {
+  builder: boolean;
+  gemini: boolean;
+  openai: boolean;
+  groq: boolean;
+  browser: true;
+}
+
 const PREFS_URL = agentNativePath(
   "/_agent-native/application-state/voice-transcription-prefs",
 );
 const SECRETS_URL = agentNativePath("/_agent-native/secrets");
+const PROVIDER_STATUS_URL = agentNativePath(
+  "/_agent-native/voice-providers/status",
+);
 const DEFAULT_PROVIDER: Provider = "browser";
 
 export function VoiceTranscriptionSection() {
@@ -77,15 +86,26 @@ export function VoiceTranscriptionSection() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(SECRETS_URL)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((list: SecretStatus[]) => {
+    fetch(PROVIDER_STATUS_URL)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((status: ProviderStatus | null) => {
         if (cancelled) return;
-        const find = (key: string) =>
-          Array.isArray(list) ? list.find((s) => s.key === key) : null;
-        setOpenAiConfigured(find("OPENAI_API_KEY")?.status === "set");
-        setGeminiConfigured(find("GEMINI_API_KEY")?.status === "set");
-        setGroqConfigured(find("GROQ_API_KEY")?.status === "set");
+        if (status) {
+          setOpenAiConfigured(status.openai);
+          setGeminiConfigured(status.gemini);
+          setGroqConfigured(status.groq);
+          return;
+        }
+        return fetch(SECRETS_URL)
+          .then((r) => (r.ok ? r.json() : []))
+          .then((list: SecretStatus[]) => {
+            if (cancelled) return;
+            const find = (key: string) =>
+              Array.isArray(list) ? list.find((s) => s.key === key) : null;
+            setOpenAiConfigured(find("OPENAI_API_KEY")?.status === "set");
+            setGeminiConfigured(find("GEMINI_API_KEY")?.status === "set");
+            setGroqConfigured(find("GROQ_API_KEY")?.status === "set");
+          });
       })
       .catch(() => {
         if (!cancelled) {
@@ -310,12 +330,26 @@ function ProviderOption({
   subtitle,
   rightSlot,
 }: ProviderOptionProps) {
+  const select = () => {
+    if (!disabled) onSelect();
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onSelect();
+    }
+  };
+
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      disabled={disabled}
+    <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      onClick={select}
+      onKeyDown={onKeyDown}
       aria-pressed={selected}
+      aria-disabled={disabled || undefined}
       className={`w-full text-left rounded-md border px-2.5 py-2 flex items-start gap-2 ${
         selected
           ? "border-[#625DF5] bg-[#625DF5]/10"
@@ -342,7 +376,7 @@ function ProviderOption({
           <p className="text-[10px] text-muted-foreground mt-0.5">{subtitle}</p>
         )}
       </div>
-    </button>
+    </div>
   );
 }
 

@@ -140,9 +140,21 @@ export function Sidebar() {
       <div className="flex h-12 items-center justify-between border-b border-border px-4">
         <Link
           to="/forms"
-          className="text-base font-semibold tracking-tight text-foreground hover:text-foreground/80"
+          className="flex items-center gap-2 text-base font-semibold tracking-tight text-foreground hover:text-foreground/80"
           onClick={() => isMobile && setMobileOpen(false)}
         >
+          <img
+            src="/agent-native-icon-light.svg"
+            alt=""
+            aria-hidden="true"
+            className="block h-4 w-auto shrink-0 dark:hidden"
+          />
+          <img
+            src="/agent-native-icon-dark.svg"
+            alt=""
+            aria-hidden="true"
+            className="hidden h-4 w-auto shrink-0 dark:block"
+          />
           Forms
         </Link>
         {isMobile && (

@@ -1,10 +1,14 @@
 import { defineEventHandler } from "h3";
-import { putSetting } from "@agent-native/core/settings";
 import { readBody } from "@agent-native/core/server";
+import {
+  putScopedSettingRecord,
+  resolveSettingsScope,
+} from "../../lib/scoped-settings";
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);
   const theme = body?.theme === "light" ? "light" : "dark";
-  await putSetting("analytics-theme", { theme });
+  const scope = await resolveSettingsScope(event);
+  await putScopedSettingRecord(scope, "analytics-theme", { theme });
   return { theme };
 });

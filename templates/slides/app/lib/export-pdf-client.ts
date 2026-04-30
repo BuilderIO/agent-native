@@ -12,6 +12,54 @@
  */
 import { type AspectRatio, getAspectRatioDims } from "./aspect-ratios";
 
+/**
+ * Cross-origin <img> elements without an explicit `crossOrigin="anonymous"`
+ * attribute taint the canvas when rasterized via <foreignObject>, producing
+ * a blank rect for the entire image. The browser will not retroactively
+ * apply CORS to an already-decoded image — we have to force a re-fetch by
+ * setting the attribute and re-assigning the same src. This is the root
+ * cause of the "blank images in exported PDF" bug Rochkind reported.
+ */
+async function preloadImagesWithCors(root: HTMLElement): Promise<void> {
+  const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+  await Promise.all(
+    imgs.map(async (img) => {
+      const src = img.currentSrc || img.src;
+      if (!src || src.startsWith("data:") || src.startsWith("blob:")) return;
+      let isCrossOrigin = false;
+      try {
+        isCrossOrigin =
+          new URL(src, window.location.href).origin !== window.location.origin;
+      } catch {
+        isCrossOrigin = false;
+      }
+      if (!isCrossOrigin) return;
+      if (img.crossOrigin === "anonymous") {
+        // Already CORS-enabled; just make sure it's decoded.
+        try {
+          await img.decode();
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      img.crossOrigin = "anonymous";
+      // Re-set src to retrigger the load with the new CORS attribute.
+      img.src = src;
+      try {
+        await img.decode();
+      } catch (err) {
+        // Server didn't return Access-Control-Allow-Origin. The screenshot
+        // will be blank for this image — log so the user can swap the host.
+        console.warn(
+          `[export-pdf] CORS-tainted image likely caused blank render: ${src}`,
+          err,
+        );
+      }
+    }),
+  );
+}
+
 export async function exportDeckAsPdf(
   deckTitle: string,
   slideIds: string[],
@@ -23,11 +71,10 @@ export async function exportDeckAsPdf(
   // on negative letter-spacing (very visible on our 900-weight headings).
   // JPEG (vs PNG) keeps a typical 8-slide deck under ~10 MB instead of
   // ~100 MB — at 0.92 quality the difference is invisible on slide content.
-  // Use Function constructor to bypass Vite's static import-analysis scan,
-  // which errors if the package wasn't installed when the dev server started.
-  const dynamicImport = new Function("m", "return import(m)");
-  const { domToJpeg } = await dynamicImport("modern-screenshot");
-  const { jsPDF } = await dynamicImport("jspdf");
+  const [{ domToJpeg }, { jsPDF }] = await Promise.all([
+    import(/* @vite-ignore */ "modern-screenshot"),
+    import(/* @vite-ignore */ "jspdf"),
+  ]);
 
   // Web fonts (Poppins) must finish loading before capture — otherwise
   // text lays out with fallback metrics and draws with the real font,
@@ -72,12 +119,25 @@ export async function exportDeckAsPdf(
       el.offsetWidth > best.offsetWidth ? el : best,
     );
 
+    // Force CORS-enabled re-fetch on every cross-origin <img> before
+    // capture — otherwise the canvas tainting check inside modern-screenshot
+    // produces a blank rect for the image.
+    await preloadImagesWithCors(source);
+
     const dataUrl = await domToJpeg(source, {
       width: dims.width,
       height: dims.height,
       scale: 2, // 2x for crisp text
       backgroundColor: "#000000",
       quality: 0.92,
+      // Pair with the in-DOM CORS preload above. modern-screenshot's
+      // internal image fetcher needs no-cache so re-issued requests don't
+      // get served the original tainted (no-CORS) response from the HTTP
+      // cache, and an anonymous-CORS request mode so the response itself
+      // is usable on a clean canvas.
+      fetch: {
+        requestInit: { cache: "no-cache", mode: "cors", credentials: "omit" },
+      },
     });
 
     if (i > 0) pdf.addPage([dims.width, dims.height], orientation);

@@ -40,10 +40,6 @@ interface ScopedTable {
   viewSql: string;
 }
 
-function isProd(): boolean {
-  return process.env.NODE_ENV === "production";
-}
-
 function getUserEmail(): string | null {
   return getRequestUserEmail() || null;
 }
@@ -115,6 +111,14 @@ function buildScopedTables(
   const safeEmail = escapeSqlString(userEmail);
   const safeOrgId = orgId ? escapeSqlString(orgId) : null;
 
+  // WITH CHECK OPTION ensures INSERTs/UPDATEs through the auto-updatable view
+  // can't write rows that violate the WHERE filter. Without it, an attacker
+  // could `INSERT INTO recordings (..., owner_email) VALUES (..., 'victim@x')`
+  // through the view and the row would land in the base table under the
+  // victim's identity. SQLite views are not auto-updatable in the same way
+  // (they require triggers), so this clause is a no-op there but harmless.
+  const checkOption = isPostgres ? " WITH LOCAL CHECK OPTION" : "";
+
   for (const [table, columns] of columnsByTable) {
     // Check core table scoping
     const coreScoping = CORE_TABLE_SCOPING[table];
@@ -135,7 +139,7 @@ function buildScopedTables(
       }
       scoped.push({
         name: table,
-        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${whereSql}`,
+        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${whereSql}${checkOption}`,
       });
       continue;
     }
@@ -156,7 +160,7 @@ function buildScopedTables(
       const realTable = `${qualifiedPrefix}"${table}"`;
       scoped.push({
         name: table,
-        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${clauses.join(" AND ")}`,
+        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${clauses.join(" AND ")}${checkOption}`,
       });
     }
   }
@@ -200,8 +204,9 @@ export async function buildScopingPostgres(
     orgIdTables: new Set(),
   };
 
-  if (!isProd()) return inactive;
-
+  // Scoping is always active when there is a request user (dev, preview, and
+  // prod). Previously this short-circuited outside production, which created
+  // a cross-user read in dev mode. See audit 05-tools-sandbox.md (C3.d).
   const userEmail = getUserEmail();
   if (!userEmail) return inactive;
 
@@ -249,8 +254,9 @@ export async function buildScopingSqlite(client: any): Promise<ScopingContext> {
     orgIdTables: new Set(),
   };
 
-  if (!isProd()) return inactive;
-
+  // Scoping is always active when there is a request user (dev, preview, and
+  // prod). Previously this short-circuited outside production, which created
+  // a cross-user read in dev mode. See audit 05-tools-sandbox.md (C3.d).
   const userEmail = getUserEmail();
   if (!userEmail) return inactive;
 

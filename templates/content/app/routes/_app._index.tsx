@@ -6,7 +6,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useDocuments } from "@/hooks/use-documents";
 
 export function meta() {
-  return [{ title: "Documents" }];
+  return [{ title: "Content" }];
 }
 
 export function HydrateFallback() {

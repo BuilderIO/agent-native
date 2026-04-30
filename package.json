@@ -20,6 +20,7 @@
     "fmt": "prettier --write --log-level warn .",
     "fmt:check": "prettier --check --log-level warn .",
     "test": "pnpm --filter @agent-native/core test && pnpm --filter @agent-native/docs test",
+    "qa:cli": "tsx scripts/qa-cli-smoke.ts",
     "lint": "pnpm fmt:check && pnpm typecheck",
     "guard:no-drizzle-push": "node scripts/guard-no-drizzle-push.mjs",
     "guard:no-unscoped-queries": "node scripts/guard-no-unscoped-queries.mjs",

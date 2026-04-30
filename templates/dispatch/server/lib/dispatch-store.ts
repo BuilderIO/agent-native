@@ -141,13 +141,14 @@ export async function recordAudit(input: {
   metadata?: unknown;
   actor?: string;
   ownerEmail?: string;
+  orgId?: string | null;
 }) {
   const db = getDb();
   const timestamp = now();
   await db.insert(schema.dispatchAuditEvents).values({
     id: id(),
     ownerEmail: input.ownerEmail || currentOwnerEmail(),
-    orgId: currentOrgId(),
+    orgId: input.orgId !== undefined ? input.orgId : currentOrgId(),
     actor: input.actor || currentOwnerEmail(),
     action: input.action,
     targetType: input.targetType,
@@ -602,7 +603,7 @@ export async function resolveLinkedOwner(
   if (!externalUserId) return null;
   const db = getDb();
   const orgId = currentOrgId();
-  const [row] = await db
+  const rows = await db
     .select()
     .from(schema.dispatchIdentityLinks)
     .where(
@@ -616,7 +617,7 @@ export async function resolveLinkedOwner(
     )
     .orderBy(desc(schema.dispatchIdentityLinks.updatedAt))
     .limit(1);
-  return row?.ownerEmail || null;
+  return rows[0]?.ownerEmail || null;
 }
 
 export async function consumeLinkToken(input: {
@@ -629,7 +630,7 @@ export async function consumeLinkToken(input: {
     throw new Error("Linking requires a platform user id");
   }
   const db = getDb();
-  const [tokenRow] = await db
+  const tokenRows = await db
     .select()
     .from(schema.dispatchLinkTokens)
     .where(
@@ -639,7 +640,11 @@ export async function consumeLinkToken(input: {
       ),
     )
     .orderBy(desc(schema.dispatchLinkTokens.createdAt))
-    .limit(1);
+    .limit(2);
+  if (tokenRows.length > 1) {
+    throw new Error("Link token is ambiguous. Create a fresh token and retry.");
+  }
+  const tokenRow = tokenRows[0];
   if (!tokenRow) throw new Error("Link token not found");
   if (tokenRow.claimedAt)
     throw new Error("Link token has already been claimed");
@@ -653,6 +658,9 @@ export async function consumeLinkToken(input: {
       and(
         eq(schema.dispatchIdentityLinks.platform, input.platform),
         eq(schema.dispatchIdentityLinks.externalUserId, input.externalUserId),
+        tokenRow.orgId
+          ? eq(schema.dispatchIdentityLinks.orgId, tokenRow.orgId)
+          : isNull(schema.dispatchIdentityLinks.orgId),
       ),
     )
     .limit(1);
@@ -695,6 +703,7 @@ export async function consumeLinkToken(input: {
   await recordAudit({
     actor: tokenRow.createdBy,
     ownerEmail: tokenRow.ownerEmail,
+    orgId: tokenRow.orgId,
     action: "identity.linked",
     targetType: "identity-link",
     targetId: input.externalUserId,

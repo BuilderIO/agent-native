@@ -1,20 +1,28 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "Start or renew a Gmail push-notification watch for every connected Google account. Normally the 12h renewal cron handles this; run this manually to bootstrap immediately after enabling push (GMAIL_WATCH_TOPIC) or to recover from a lapsed watch.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     if (!process.env.GMAIL_WATCH_TOPIC) {
       return "Skipped: GMAIL_WATCH_TOPIC is not set. Push notifications are not configured in this environment.";
     }
 
-    const { listOAuthAccounts } =
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) {
+      return "Gmail watch bootstrap requires a signed-in user.";
+    }
+
+    const { listOAuthAccountsByOwner } =
       await import("@agent-native/core/oauth-tokens");
-    const { getClientForAccount, startWatch } =
+    const { getClientFromAccount, startWatch } =
       await import("../server/lib/google-auth.js");
 
-    const accounts = await listOAuthAccounts("google");
+    const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
     if (accounts.length === 0) {
       return "No connected Google accounts found.";
     }
@@ -24,7 +32,7 @@ export default defineAction({
     let failed = 0;
     for (const acc of accounts) {
       try {
-        const client = await getClientForAccount(acc.accountId);
+        const client = await getClientFromAccount(acc);
         if (!client) {
           failed += 1;
           results.push(`  ${acc.accountId}: no valid token (skipped)`);

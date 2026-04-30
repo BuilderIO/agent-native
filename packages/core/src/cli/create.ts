@@ -120,18 +120,23 @@ async function createWorkspaceInteractive(
   const s = clack.spinner();
   s.start(`Scaffolding workspace with ${templates.length} app(s)...`);
 
+  const firstApp = templates[0];
+
   try {
     await scaffoldWorkspaceRoot(targetDir, name);
     const workspaceCoreName = `@${name}/core-module`;
+    updateWorkspaceDevScript(targetDir, firstApp);
 
     for (const t of templates) {
       const appDir = path.join(targetDir, "apps", t);
       await scaffoldAppTemplate(appDir, t);
+      replacePlaceholders(appDir, t, titleCase(t), name);
       workspacifyApp({
         appDir,
         appName: t,
         workspaceRoot: targetDir,
         workspaceCoreName,
+        coreDependencyVersion: getCoreDependencyVersion(),
       });
       fixPackageJsonName(appDir, t);
       renameGitignore(appDir);
@@ -142,20 +147,19 @@ async function createWorkspaceInteractive(
     await scaffoldRequiredPackages(templates, targetDir);
 
     s.stop("Workspace scaffolded.");
-  } catch (err) {
+  } catch (err: any) {
     s.stop("Failed to scaffold workspace.");
-    throw err;
+    clack.cancel(err?.message ?? String(err));
+    process.exit(1);
   }
 
   tryGitInit(targetDir);
 
-  const firstApp = templates[0];
   clack.outro(
     [
       `Done! Next steps:`,
       ``,
       `  cd ${name}`,
-      `  cp .env.example .env     # ANTHROPIC_API_KEY, DATABASE_URL, BETTER_AUTH_SECRET`,
       `  pnpm install`,
       `  pnpm --filter ${firstApp} dev`,
       ``,
@@ -200,6 +204,7 @@ async function scaffoldWorkspaceRoot(
   fs.mkdirSync(path.join(targetDir, "packages"), { recursive: true });
   copyDir(coreTemplate, corePackageDir);
   replacePlaceholders(corePackageDir, name, titleCase(name));
+  rewriteCoreDependencyVersions(corePackageDir);
 
   // Ensure apps/ exists (even if empty).
   fs.mkdirSync(path.join(targetDir, "apps"), { recursive: true });
@@ -276,20 +281,28 @@ async function scaffoldOneAppIntoWorkspace(
 
   try {
     await scaffoldAppTemplate(appDir, templateName);
+    replacePlaceholders(
+      appDir,
+      appName,
+      titleCase(appName),
+      path.basename(workspace.workspaceRoot),
+    );
     workspacifyApp({
       appDir,
       appName,
       workspaceRoot: workspace.workspaceRoot,
       workspaceCoreName: workspace.workspaceCoreName,
+      coreDependencyVersion: getCoreDependencyVersion(),
     });
     fixPackageJsonName(appDir, appName);
     renameGitignore(appDir);
     setupAgentSymlinks(appDir);
     await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
     s.stop(`Scaffolded apps/${appName}.`);
-  } catch (err) {
+  } catch (err: any) {
     s.stop(`Failed to scaffold apps/${appName}.`);
-    throw err;
+    clack.cancel(err?.message ?? String(err));
+    process.exit(1);
   }
 
   clack.outro(`Done!\n\n  pnpm install\n  pnpm --filter ${appName} dev`);
@@ -346,9 +359,10 @@ async function createStandaloneApp(
     await scaffoldAppTemplate(targetDir, template);
     postProcessStandalone(name, targetDir);
     s.stop("App created!");
-  } catch (err) {
+  } catch (err: any) {
     s.stop("Failed to create app.");
-    throw err;
+    clack.cancel(err?.message ?? String(err));
+    process.exit(1);
   }
 
   tryGitInit(targetDir);
@@ -477,8 +491,8 @@ async function scaffoldRequiredPackages(
     }
 
     // The copied package may have @agent-native/core as a workspace:* dep.
-    // Convert it to "latest" since @agent-native/core is an npm package,
-    // not a workspace member.
+    // Convert it to this CLI package's published range since
+    // @agent-native/core is an npm package, not a workspace member.
     const pkgJsonPath = path.join(targetDir, "package.json");
     if (fs.existsSync(pkgJsonPath)) {
       try {
@@ -496,7 +510,7 @@ async function scaffoldRequiredPackages(
               val.startsWith("workspace:") &&
               key === "@agent-native/core"
             ) {
-              deps[key] = "latest";
+              deps[key] = getCoreDependencyVersion();
             }
           }
         }
@@ -573,7 +587,7 @@ function postProcessStandalone(name: string, targetDir: string): void {
         if (!deps) continue;
         for (const [key, val] of Object.entries(deps)) {
           if (key === "@agent-native/core") {
-            deps[key] = "latest";
+            deps[key] = getCoreDependencyVersion();
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";
           } else if (typeof val === "string" && val === "catalog:") {
@@ -849,6 +863,48 @@ function fixPackageJsonName(appDir: string, name: string): void {
   } catch {}
 }
 
+function getCoreDependencyVersion(): string {
+  // Always "latest" for scaffolded apps. Returning the local package.json's
+  // version (e.g. "^0.7.14") locks scaffolded standalone apps to whatever
+  // version was current when the user ran `agent-native create`, instead of
+  // tracking the published latest. The local workspace path does not call
+  // this — it uses `workspace:*` references that pnpm resolves at install.
+  return "latest";
+}
+
+function rewriteCoreDependencyVersions(projectDir: string): void {
+  const pkgPath = path.join(projectDir, "package.json");
+  if (!fs.existsSync(pkgPath)) return;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    for (const depType of [
+      "dependencies",
+      "devDependencies",
+      "peerDependencies",
+    ] as const) {
+      const deps = pkg[depType];
+      if (deps?.["@agent-native/core"]) {
+        deps["@agent-native/core"] = getCoreDependencyVersion();
+      }
+    }
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  } catch {}
+}
+
+function updateWorkspaceDevScript(
+  workspaceRoot: string,
+  appName: string,
+): void {
+  const pkgPath = path.join(workspaceRoot, "package.json");
+  if (!fs.existsSync(pkgPath)) return;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    pkg.scripts = pkg.scripts ?? {};
+    pkg.scripts.dev = `pnpm --filter ${appName} dev`;
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  } catch {}
+}
+
 function tryGitInit(dir: string): boolean {
   try {
     execFileSync("git", ["init"], { cwd: dir, stdio: "pipe" });
@@ -923,7 +979,7 @@ function copyDir(src: string, dest: string, root?: string): void {
   const resolvedRoot = root ?? path.resolve(src);
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    if (entry.name === "node_modules") continue;
+    if (shouldSkipScaffoldEntry(entry.name)) continue;
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isSymbolicLink()) {
@@ -949,4 +1005,24 @@ function copyDir(src: string, dest: string, root?: string): void {
       fs.copyFileSync(srcPath, destPath);
     }
   }
+}
+
+function shouldSkipScaffoldEntry(name: string): boolean {
+  if (
+    name === "node_modules" ||
+    name === ".env" ||
+    name === ".env.local" ||
+    name === ".netlify" ||
+    name === ".generated" ||
+    name === ".react-router" ||
+    name === ".output" ||
+    name === "build" ||
+    name === "dist" ||
+    name === ".DS_Store"
+  ) {
+    return true;
+  }
+  return (
+    /^qa-.*\.db(?:-shm|-wal)?$/.test(name) || /\.db-(?:shm|wal)$/.test(name)
+  );
 }

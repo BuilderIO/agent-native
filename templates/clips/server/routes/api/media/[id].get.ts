@@ -22,7 +22,6 @@ const MIME_BY_EXT: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".gif": "image/gif",
   ".webp": "image/webp",
-  ".svg": "image/svg+xml",
 };
 
 export default defineEventHandler((event: H3Event) => {
@@ -39,6 +38,7 @@ export default defineEventHandler((event: H3Event) => {
   const ext = path.extname(id).toLowerCase();
   const mime = MIME_BY_EXT[ext] ?? "application/octet-stream";
   setResponseHeader(event, "Content-Type", mime);
+  setResponseHeader(event, "X-Content-Type-Options", "nosniff");
   setResponseHeader(
     event,
     "Cache-Control",

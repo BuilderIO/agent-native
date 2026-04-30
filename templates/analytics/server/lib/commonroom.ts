@@ -2,7 +2,10 @@
 // Fetches community members, activities, and segments
 
 import { resolveCredential } from "./credentials";
-import { requireRequestCredentialContext } from "./credentials-context";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_BASE = "https://api.commonroom.io/community/v1";
 
@@ -18,7 +21,10 @@ async function getToken(): Promise<string> {
 }
 
 async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
-  const key = cacheKey ?? path;
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? path,
+    "COMMONROOM_API_TOKEN",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;
@@ -52,7 +58,10 @@ async function apiPost<T>(
   body: unknown,
   cacheKey?: string,
 ): Promise<T> {
-  const key = cacheKey ?? `POST:${path}:${JSON.stringify(body)}`;
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? `POST:${path}:${JSON.stringify(body)}`,
+    "COMMONROOM_API_TOKEN",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

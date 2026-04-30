@@ -2,7 +2,10 @@
 // Queries events, active users, and user segmentation
 
 import { resolveCredential } from "./credentials";
-import { requireRequestCredentialContext } from "./credentials-context";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_BASE = "https://amplitude.com/api/2";
 
@@ -32,7 +35,7 @@ function cacheSet(key: string, data: unknown) {
 }
 
 async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
-  const key = cacheKey ?? path;
+  const key = scopedCredentialCacheKey(cacheKey ?? path, "AMPLITUDE_API_KEY");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

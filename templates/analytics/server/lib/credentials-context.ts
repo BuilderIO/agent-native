@@ -51,4 +51,23 @@ export function tryRequestCredentialContext(): CredentialContext | null {
   return getCredentialContext();
 }
 
+/**
+ * Stable namespace for in-process/provider caches. Any cache whose payload
+ * depends on a user's credential must include this namespace in the key, or a
+ * warm server process can serve one tenant's provider data to another.
+ */
+export function credentialCacheScope(
+  credentialKey = "credential cache",
+): string {
+  const ctx = requireRequestCredentialContext(credentialKey);
+  return ctx.orgId ? `o:${ctx.orgId}` : `u:${ctx.userEmail}`;
+}
+
+export function scopedCredentialCacheKey(
+  key: string,
+  credentialKey = "credential cache",
+): string {
+  return `${credentialCacheScope(credentialKey)}:${key}`;
+}
+
 export type { RequestContext, CredentialContext };
