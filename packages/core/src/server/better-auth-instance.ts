@@ -67,9 +67,28 @@ import {
 function resolveAuthSecret(): string {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
 
-  // Only persist on a real filesystem (not edge / workers). If fs writes
-  // fail we quietly fall through to the legacy fallback chain so the app
-  // still boots.
+  // In production, never auto-generate or fall back. A regenerated/derived
+  // secret invalidates every signed session cookie on the next cold start
+  // (serverless filesystems aren't persistent), and the legacy hardcoded
+  // fallback is identical across every deploy that hits it — both are
+  // serious enough to fail the boot loudly so the deployer notices.
+  if (process.env.NODE_ENV === "production") {
+    const sample = crypto.randomBytes(32).toString("hex");
+    throw new Error(
+      "[agent-native] BETTER_AUTH_SECRET is not set. This is required in production " +
+        "so signed session cookies stay valid across deploys. Set it as a deploy " +
+        "environment variable (any 32-byte hex string), e.g.:\n\n" +
+        `  BETTER_AUTH_SECRET=${sample}\n\n` +
+        "Generate your own with `openssl rand -hex 32`. If you already have a " +
+        "running deploy on the legacy hardcoded fallback and need to preserve " +
+        "existing sessions, set BETTER_AUTH_SECRET=agent-native-local-dev-secret-k9x2m7q4w8 " +
+        "first, then rotate to a real value.",
+    );
+  }
+
+  // Dev: persist a generated secret to .env.local so sessions survive
+  // dev-server restarts. Falls through to a hardcoded value only if the
+  // filesystem isn't writable (rare in dev, e.g. read-only mounts).
   try {
     const envLocalPath = path.resolve(process.cwd(), ".env.local");
     const existing = readEnvLocalSecret(envLocalPath);
@@ -88,10 +107,6 @@ function resolveAuthSecret(): string {
     );
     return generated;
   } catch {
-    // Filesystem not writable — fall through to the legacy chain. The
-    // hardcoded default keeps every restart stable so sessions persist
-    // even here; it's only an issue on shared/public deployments, which
-    // should set BETTER_AUTH_SECRET explicitly anyway.
     return (
       process.env.GOOGLE_CLIENT_SECRET ||
       process.env.ACCESS_TOKEN ||
