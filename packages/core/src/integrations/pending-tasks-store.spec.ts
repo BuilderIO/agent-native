@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executeMock = vi.hoisted(() => vi.fn());
+const isPostgresMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
-  isPostgres: () => false,
+  isPostgres: isPostgresMock,
   intType: () => "INTEGER",
 }));
 
@@ -16,6 +17,7 @@ async function loadStore() {
 describe("integration pending task store", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    isPostgresMock.mockReturnValue(false);
   });
 
   it("claims pending tasks and increments attempts", async () => {
@@ -87,5 +89,29 @@ describe("integration pending task store", () => {
     });
 
     await expect(claimPendingTask("task-failed")).resolves.toBeNull();
+  });
+
+  it("does not claim failed tasks on the Postgres RETURNING path", async () => {
+    isPostgresMock.mockReturnValue(true);
+    const { claimPendingTask } = await loadStore();
+    executeMock.mockImplementation(async (query: string | { sql: string }) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (sql.includes("UPDATE integration_pending_tasks")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    await expect(claimPendingTask("task-failed")).resolves.toBeNull();
+
+    const updateCall = executeMock.mock.calls.find(([query]) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      return sql.includes("UPDATE integration_pending_tasks");
+    });
+    expect(updateCall?.[0]).toEqual(
+      expect.objectContaining({
+        sql: expect.stringContaining("WHERE id = ? AND status = 'pending'"),
+      }),
+    );
   });
 });

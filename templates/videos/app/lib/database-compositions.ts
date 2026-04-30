@@ -61,6 +61,7 @@ export function databaseRowToComposition(
     height,
     defaultProps: propsFromData(data),
     tracks: tracksFromData(data, durationInFrames),
+    storage: "database",
     version: numberFromData(data, "version", 1),
   };
 }
