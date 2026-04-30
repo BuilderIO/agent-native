@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   IconArrowRight,
+  IconArrowUpRight,
   IconDatabase,
   IconBolt,
   IconRefresh,
@@ -85,6 +86,7 @@ export default function IndexPage() {
     const text = prompt.trim();
     if (!text) return;
     markVisited();
+    openAgentSidebar();
     sendToAgentChat({ message: text });
     setPrompt("");
   }
@@ -98,38 +100,48 @@ export default function IndexPage() {
       <div className="flex flex-1 flex-col items-center justify-center px-6">
         <div className="w-full max-w-xl space-y-6">
           <h1 className="text-center text-3xl font-semibold tracking-tight text-foreground">
-            What do you want to build?
+            {isFirstVisit
+              ? "What do you want to build?"
+              : "Pick up where you left off"}
           </h1>
 
-          <div className="rounded-xl border border-border bg-card shadow-sm">
-            <textarea
-              ref={textareaRef}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  submit();
-                }
-              }}
-              placeholder="Describe what you'd like the agent to build..."
-              rows={4}
-              className="w-full resize-none rounded-t-xl bg-transparent px-4 pt-4 pb-2 text-sm text-foreground placeholder:text-muted-foreground/60 outline-none"
-            />
-            <div className="flex items-center justify-between px-4 pb-3">
-              <span className="text-[11px] text-muted-foreground/50">
-                Enter to submit
-              </span>
-              <button
-                onClick={submit}
-                disabled={!prompt.trim()}
-                aria-label="Submit prompt"
-                className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background disabled:opacity-20 cursor-pointer"
-              >
-                <IconArrowRight className="h-3.5 w-3.5" />
-              </button>
+          {isFirstVisit && (
+            <div className="space-y-2">
+              <div className="rounded-xl border border-border bg-card shadow-sm">
+                <textarea
+                  ref={textareaRef}
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      submit();
+                    }
+                  }}
+                  placeholder="Describe what you'd like the agent to build..."
+                  rows={4}
+                  className="w-full resize-none rounded-t-xl bg-transparent px-4 pt-4 pb-2 text-sm text-foreground placeholder:text-muted-foreground/60 outline-none"
+                />
+                <div className="flex items-center justify-between px-4 pb-3">
+                  <span className="text-[11px] text-muted-foreground/50">
+                    Enter to submit
+                  </span>
+                  <button
+                    onClick={submit}
+                    disabled={!prompt.trim()}
+                    aria-label="Submit prompt"
+                    className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background disabled:opacity-20 cursor-pointer"
+                  >
+                    <IconArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+              <p className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground/60">
+                <IconArrowUpRight className="h-3 w-3" />
+                Sends to your agent in the sidebar
+              </p>
             </div>
-          </div>
+          )}
 
           {/* Adaptive suggestion buttons */}
           <div className="flex flex-wrap items-center justify-center gap-2">
@@ -138,6 +150,7 @@ export default function IndexPage() {
                 key={suggestion}
                 onClick={() => {
                   markVisited();
+                  openAgentSidebar();
                   sendToAgentChat({ message: suggestion });
                 }}
                 className="rounded-full border border-border/60 px-3.5 py-1.5 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground cursor-pointer"

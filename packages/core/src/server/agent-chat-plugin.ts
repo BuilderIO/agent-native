@@ -1630,7 +1630,7 @@ If the request matches the Tools section above (tool / widget / dashboard / calc
 
 When the user asks you to change the UI, modify code, add a feature, fix a bug in the app itself, change styles, add a hook, create a component, add a route, add an integration, or anything else that requires editing source files — you MUST take exactly these steps, in order:
 
-1. Call the \`connect-builder\` tool, passing the user's full request verbatim as the \`prompt\` argument. This renders an inline card. If Builder is connected, the card hands the prompt off to Builder's cloud agent on one click and returns a branch URL; otherwise it shows a connect / waitlist flow. Either way, Builder writes the code — no local setup, no clone, no install.
+1. Call the \`connect-builder\` tool, passing the user's full request verbatim as the \`prompt\` argument. This renders an inline card. If Builder is connected, the card hands the prompt off to Builder's cloud agent on one click and returns a branch URL; otherwise it shows the Connect Builder flow. Either way, Builder writes the code — no local setup, no clone, no install.
 2. After the card renders, write a single short sentence telling the user to click Connect Builder to have this built for them in the cloud, and mention they can also clone the app locally with \`npx agent-native create <app-name>\` if they'd rather work offline.
 
 **Hard rules — do NOT break these:**

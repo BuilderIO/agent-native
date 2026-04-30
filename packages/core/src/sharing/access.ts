@@ -50,6 +50,12 @@ export function currentAccess(): AccessContext {
  * Pass the ownable resource table and its shares table; optional min role
  * (defaults to 'viewer') gates which share rows count.
  *
+ * `visibility = 'public'` is intentionally NOT admitted by default. Public
+ * means "anyone with the link can view" (still honoured by `resolveAccess`
+ * for read-by-id), not "appears in every signed-in user's list/sidebar."
+ * Pass `{ includePublic: true }` for the rare list endpoint that wants
+ * cross-user public discovery (a public template gallery, for example).
+ *
  * Example:
  *
  *   const rows = await db
@@ -62,15 +68,19 @@ export function accessFilter(
   sharesTable: any,
   ctx: AccessContext = currentAccess(),
   minRole: ShareRole = "viewer",
+  options: { includePublic?: boolean } = {},
 ): SQL {
   const { userEmail, orgId } = ctx;
+  const { includePublic = false } = options;
   const clauses: SQL[] = [];
 
   if (userEmail) {
     clauses.push(eq(resourceTable.ownerEmail, userEmail));
   }
   if (minRole === "viewer") {
-    clauses.push(eq(resourceTable.visibility, "public"));
+    if (includePublic) {
+      clauses.push(eq(resourceTable.visibility, "public"));
+    }
     if (orgId) {
       clauses.push(
         and(

@@ -1381,7 +1381,6 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
       </div>
 
       <div className="space-y-3">
-        {/* Builder CTA — live Connect flow, replaces the old waitlist link. */}
         <BuilderConnectCta />
 
         <div className="relative flex items-center">

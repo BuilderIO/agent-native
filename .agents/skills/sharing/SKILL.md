@@ -21,7 +21,7 @@ This is the framework-level primitive. Every ownable resource gets it for free �
 
 - **`private`** — owner + explicit share grants only. Default.
 - **`org`** — owner + explicit grants + anyone in the same org (read-only).
-- **`public`** — owner + explicit grants + any signed-in user (read-only).
+- **`public`** — owner + explicit grants + **anyone with the link** (read-only). Public docs do NOT appear in other users' list/sidebar/search results — `accessFilter` omits them by default. They're reachable by id (`resolveAccess` admits them) so direct links and SSR routes like `/p/:id` keep working. If a list endpoint legitimately needs cross-user public discovery (a template gallery, etc.), pass `accessFilter(table, shares, ctx, minRole, { includePublic: true })`.
 
 Visibility is coarse. Explicit share grants are fine-grained (per user or per org).
 
@@ -95,7 +95,7 @@ const rows = await db
   .where(accessFilter(schema.decks, schema.deckShares));
 ```
 
-`accessFilter` admits rows the current user owns, has been shared on, or that match the resource's visibility.
+`accessFilter` admits rows the current user owns, has been shared on, or that the user can reach via `org` visibility. `public` rows are NOT admitted by default — see the visibility section above for why and how to opt in.
 
 ## Guard write actions
 
