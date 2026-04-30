@@ -33,4 +33,11 @@ describe("agentNativePath", () => {
       "/_agent-native/org/members",
     );
   });
+
+  it("uses Vite BASE_URL as the configured app base path", () => {
+    vi.stubGlobal("window", { location: { pathname: "/share/token" } });
+    vi.stubGlobal("importMetaEnv", { BASE_URL: "/slides/" });
+
+    vi.stubEnv("BASE_URL", "/slides/");
+  });
 });

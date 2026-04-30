@@ -24,6 +24,7 @@ import {
 } from "@tabler/icons-react";
 import {
   useActionMutation,
+  appBasePath,
   AgentToggleButton,
 } from "@agent-native/core/client";
 import { formatMs } from "@/lib/timestamp-format";
@@ -46,6 +47,14 @@ import { ShareDialog } from "./share-dialog";
 import type { CallSummary, TranscriptSegment, TrackerHit } from "@shared/api";
 
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
+function resolveLocalUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("/") && !url.startsWith("//")) {
+    return `${appBasePath()}${url}`;
+  }
+  return url;
+}
 
 export interface CallPlayerCall {
   id: string;
@@ -147,6 +156,8 @@ export function CallPlayer({
     comments = [],
     currentUserEmail,
   } = data;
+  const mediaSrc = resolveLocalUrl(call.mediaUrl);
+  const thumbnailSrc = resolveLocalUrl(call.thumbnailUrl);
 
   const player = useCallPlayer({
     mediaRef,
@@ -405,19 +416,19 @@ export function CallPlayer({
         <section className="min-w-0 flex flex-col min-h-0 overflow-y-auto">
           <div className="p-4 space-y-3">
             <div className="rounded-lg overflow-hidden bg-black aspect-video relative">
-              {call.mediaUrl ? (
+              {mediaSrc ? (
                 call.mediaKind === "audio" ? (
                   <audio
                     ref={mediaRef as any}
-                    src={call.mediaUrl}
+                    src={mediaSrc}
                     className="w-full"
                     preload="metadata"
                   />
                 ) : (
                   <video
                     ref={mediaRef}
-                    src={call.mediaUrl}
-                    poster={call.thumbnailUrl ?? undefined}
+                    src={mediaSrc}
+                    poster={thumbnailSrc}
                     className="w-full h-full object-contain"
                     playsInline
                   />
@@ -535,7 +546,7 @@ export function CallPlayer({
 
       <SnippetDialog
         callId={call.id}
-        mediaUrl={call.mediaUrl}
+        mediaUrl={mediaSrc}
         durationMs={call.durationMs}
         initialStartMs={snippetRange.startMs}
         initialEndMs={snippetRange.endMs}

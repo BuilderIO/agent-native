@@ -117,6 +117,10 @@ export default defineEventHandler(async (event: H3Event) => {
   const raw = await readRawBody(event, false);
   const bodySize = raw ? raw.byteLength : 0;
   debugLog("[chunk] body size:", bodySize, "isFinal:", isFinal);
+  if (bodySize > MAX_CHUNK_BYTES) {
+    setResponseStatus(event, 413);
+    return { error: "Chunk too large" };
+  }
 
   // An empty body is only a problem for non-final chunks. The final sentinel
   // POST the client sends after MediaRecorder.stop() is intentionally empty

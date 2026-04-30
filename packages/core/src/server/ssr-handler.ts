@@ -26,8 +26,17 @@ function normalizeAppBasePath(value: string | undefined): string {
 }
 
 function getAppBasePath(): string {
+  const metaEnv = (
+    import.meta as unknown as {
+      env?: Record<string, string | undefined>;
+    }
+  ).env;
   return normalizeAppBasePath(
-    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+    process.env.VITE_APP_BASE_PATH ||
+      process.env.APP_BASE_PATH ||
+      metaEnv?.VITE_APP_BASE_PATH ||
+      metaEnv?.APP_BASE_PATH ||
+      metaEnv?.BASE_URL,
   );
 }
 

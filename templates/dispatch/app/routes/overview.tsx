@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery, agentNativePath } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
   IconArrowUpRight,
@@ -325,7 +325,7 @@ export default function OverviewRoute() {
 
   useEffect(() => {
     let active = true;
-    fetch("/_agent-native/integrations/status")
+    fetch(agentNativePath("/_agent-native/integrations/status"))
       .then((res) => (res.ok ? res.json() : []))
       .then((rows) => {
         if (active) {
@@ -343,7 +343,7 @@ export default function OverviewRoute() {
   useEffect(() => {
     let active = true;
     const load = () => {
-      fetch("/_agent-native/integrations/task-queue/status")
+      fetch(agentNativePath("/_agent-native/integrations/task-queue/status"))
         .then((res) => (res.ok ? res.json() : null))
         .then((stats) => {
           if (!active || !stats || typeof stats !== "object") return;

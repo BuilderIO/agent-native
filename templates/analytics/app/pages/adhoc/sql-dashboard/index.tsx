@@ -27,6 +27,7 @@ import {
   emailToColor,
   emailToName,
   useSession,
+  agentNativePath,
   type CollabUser,
 } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
@@ -307,7 +308,7 @@ export default function SqlDashboardPage() {
     (updated: SqlDashboardConfig) => {
       if (!collabDocId) return;
       const body = JSON.stringify(updated);
-      fetch(`/_agent-native/collab/${collabDocId}/text`, {
+      fetch(agentNativePath(`/_agent-native/collab/${collabDocId}/text`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: body, requestSource: TAB_ID }),

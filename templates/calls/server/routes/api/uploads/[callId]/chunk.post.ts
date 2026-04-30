@@ -93,23 +93,31 @@ export default defineEventHandler(async (event: H3Event) => {
 
       const db = getDb();
       const raw = await readRawBody(event, false);
-      if (!raw || raw.byteLength === 0) {
+      const bodySize = raw ? raw.byteLength : 0;
+      if (bodySize > MAX_CHUNK_BYTES) {
+        setResponseStatus(event, 413);
+        return { error: "Chunk too large" };
+      }
+      if (!isFinal && bodySize === 0) {
         setResponseStatus(event, 400);
         return { error: "Empty chunk body" };
       }
 
-      const bytes: Uint8Array = raw;
-      const paddedIndex = String(index).padStart(6, "0");
-      const chunkKey = `call-chunks-${callId}-${paddedIndex}`;
+      const bytes: Uint8Array = raw ?? new Uint8Array(0);
 
-      await writeAppState(chunkKey, {
-        callId,
-        index,
-        bytes: bytes.byteLength,
-        mimeType,
-        data: toBase64(bytes),
-        createdAt: new Date().toISOString(),
-      });
+      if (bytes.byteLength > 0) {
+        const paddedIndex = String(index).padStart(6, "0");
+        const chunkKey = `call-chunks-${callId}-${paddedIndex}`;
+
+        await writeAppState(chunkKey, {
+          callId,
+          index,
+          bytes: bytes.byteLength,
+          mimeType,
+          data: toBase64(bytes),
+          createdAt: new Date().toISOString(),
+        });
+      }
 
       if (total > 0) {
         const progress = Math.min(100, Math.round(((index + 1) / total) * 100));

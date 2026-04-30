@@ -13,7 +13,7 @@ function configuredBasePath(): string {
       env?: Record<string, string | boolean | undefined>;
     }
   ).env;
-  const value = env?.VITE_APP_BASE_PATH ?? env?.APP_BASE_PATH;
+  const value = env?.VITE_APP_BASE_PATH ?? env?.APP_BASE_PATH ?? env?.BASE_URL;
   return typeof value === "string" ? normalizeBasePath(value) : "";
 }
 
