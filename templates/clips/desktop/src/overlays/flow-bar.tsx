@@ -21,6 +21,7 @@ export function FlowBar() {
   // "idle" caused the bar to flash an "EN" language pill that never went
   // away if the start event was missed.
   const [state, setState] = useState<FlowState>("recording");
+  const [partialTranscript, setPartialTranscript] = useState("");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const levelRef = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -45,13 +46,6 @@ export function FlowBar() {
 
     trackListen(
       listen<{ state: FlowState }>("voice:state-change", (ev) => {
-        // Always reflect what the dictation engine reported. Earlier we
-        // ignored "complete"/"idle" on the assumption that hide_flow_bar
-        // would close the window milliseconds later — but if the hide
-        // got debounced or dropped, the bar would sit on "Polishing..."
-        // forever even after the text had already been pasted. Painting
-        // the actual state means the worst case is a blank bar for a
-        // frame, not a permanently stuck one.
         setState(ev.payload.state);
       }),
     );
@@ -59,6 +53,14 @@ export function FlowBar() {
     trackListen(
       listen<{ level: number }>("voice:audio-level", (ev) => {
         levelRef.current = Math.max(0, Math.min(1, ev.payload.level));
+      }),
+    );
+
+    trackListen(
+      listen<{ text: string }>("voice:partial-transcript", (ev) => {
+        // Live transcript as the user speaks — rendered above the pill.
+        // Empty payload clears the display (sent at session start/end).
+        setPartialTranscript(ev.payload.text || "");
       }),
     );
 
@@ -145,8 +147,18 @@ export function FlowBar() {
     emit("voice:cancel").catch(() => {});
   };
 
+  // Show live transcript above the pill while recording / processing,
+  // so the user can see the words being recognized in real time. Empties
+  // out as soon as the bar closes.
+  const showTranscript =
+    (state === "recording" || state === "processing") &&
+    partialTranscript.length > 0;
+
   return (
     <div className="flow-bar-root">
+      {showTranscript && (
+        <div className="flow-bar-transcript">{partialTranscript}</div>
+      )}
       <div className={`flow-bar flow-bar-${state}`}>
         {state === "recording" ? (
           <div className="flow-bar-recording">

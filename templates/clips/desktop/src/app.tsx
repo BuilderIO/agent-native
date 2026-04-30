@@ -137,7 +137,11 @@ export function App() {
     return saved === "toggle" ? "toggle" : "push-to-talk";
   });
   const [voiceProvider, setVoiceProvider] = useState<VoiceProvider>(() => {
-    const saved = loadString(VOICE_PROVIDER_KEY, "auto");
+    // Default to "browser" — local on-device dictation via the macOS
+    // Speech framework. No server round-trip, no "Polishing..." step,
+    // no API keys. Users wanting cloud-quality can pick a server
+    // provider in Settings → Voice transcription.
+    const saved = loadString(VOICE_PROVIDER_KEY, "browser");
     return saved === "auto" ||
       saved === "browser" ||
       saved === "builder" ||
@@ -145,7 +149,7 @@ export function App() {
       saved === "openai" ||
       saved === "groq"
       ? saved
-      : "auto";
+      : "browser";
   });
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);

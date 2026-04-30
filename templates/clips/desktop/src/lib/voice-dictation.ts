@@ -652,21 +652,41 @@ export function installDesktopVoiceDictation(
    * the "Polishing..." state entirely.
    */
   const startBrowser = async () => {
+    console.log("[voice-dictation] startBrowser: opening mic + recognition");
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) {
       console.error(
-        "[voice-dictation] webkitSpeechRecognition unavailable — falling back to server path",
+        "[voice-dictation] webkitSpeechRecognition unavailable — falling back to server",
       );
-      // Force a server attempt as a last resort. If that fails too, the
-      // user gets the "no provider" error in the bar.
       await startServer("auto");
       return;
     }
+    // Hoisted so the catch handler can close it if either invoke()
+    // or recognition.start() throws before `session = next` runs.
+    // Cleared after the success path takes ownership via `session.stream`.
+    let stream: MediaStream | null = null;
     try {
       startInFlight = true;
       stopRequestedBeforeReady = false;
+      // Open a real mic stream so the waveform shows actual audio levels.
+      // Web Speech API doesn't expose its own buffers; without this we
+      // were faking the bars with a synthetic sine. The recognition engine
+      // has its own independent audio path so the two coexist fine.
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      if (disposed || stopRequestedBeforeReady) {
+        stream.getTracks().forEach((t) => t.stop());
+        startInFlight = false;
+        stopRequestedBeforeReady = false;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+        return;
+      }
       await invoke("show_flow_bar");
       setFlowState("recording");
+      // Reset any prior partial transcript display in the flow-bar.
+      emit("voice:partial-transcript", { text: "" }).catch(() => {});
       const recognition = new Ctor();
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -674,7 +694,7 @@ export function installDesktopVoiceDictation(
       recognition.maxAlternatives = 1;
       const next: VoiceSession = {
         kind: "browser",
-        stream: null,
+        stream,
         recorder: null,
         chunks: [],
         audioContext: null,
@@ -688,29 +708,63 @@ export function installDesktopVoiceDictation(
         transcribeAbort: null,
         cancelled: false,
       };
+      // Lifecycle diagnostics — when something silently fails (common in
+      // WKWebView Web Speech), missing logs tell us exactly which stage
+      // is broken. Cheap to keep enabled.
+      (recognition as unknown as { onstart: (() => void) | null }).onstart =
+        () => console.log("[voice-dictation] recognition.onstart");
+      (
+        recognition as unknown as { onaudiostart: (() => void) | null }
+      ).onaudiostart = () =>
+        console.log("[voice-dictation] recognition.onaudiostart");
+      (
+        recognition as unknown as { onspeechstart: (() => void) | null }
+      ).onspeechstart = () =>
+        console.log("[voice-dictation] recognition.onspeechstart");
       recognition.onresult = (ev) => {
-        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        // Build current full text (final segments + latest interim).
+        let finalSoFar = "";
+        let interim = "";
+        for (let i = 0; i < ev.results.length; i++) {
           const r = ev.results[i];
           if (r.isFinal) {
-            next.browserTranscript += r[0].transcript;
+            finalSoFar += r[0].transcript;
+          } else {
+            interim += r[0].transcript;
           }
         }
+        // Include interim in browserTranscript so an abort() in stop()
+        // captures the words the user just said — without it we'd lose
+        // the tail because Web Speech only marks a segment as `isFinal`
+        // after a confidence-threshold pass.
+        next.browserTranscript = (finalSoFar + interim).trim();
+        // Stream the live transcript to the flow-bar.
+        emit("voice:partial-transcript", {
+          text: next.browserTranscript,
+        }).catch(() => {});
       };
       recognition.onerror = (ev) => {
-        // "no-speech" / "aborted" are normal in push-to-talk; only log
-        // the genuinely unexpected ones.
         if (ev.error !== "no-speech" && ev.error !== "aborted") {
-          console.warn(
-            "[voice-dictation] webkitSpeechRecognition error:",
+          console.warn("[voice-dictation] recognition error:", ev.error);
+        } else {
+          console.log(
+            "[voice-dictation] recognition error (benign):",
             ev.error,
           );
         }
       };
       recognition.onend = async () => {
+        console.log("[voice-dictation] recognition.onend");
         stopMeter(next);
+        stopTracks(next);
         if (session === next) session = null;
         const text = next.browserTranscript.trim();
         if (disposed || next.cancelled || !text) {
+          console.log(
+            "[voice-dictation] no usable text on onend (cancelled/empty)",
+          );
+          // Clear the live transcript display.
+          emit("voice:partial-transcript", { text: "" }).catch(() => {});
           cleanup(next);
           return;
         }
@@ -726,14 +780,27 @@ export function installDesktopVoiceDictation(
             err,
           );
         }
-        // No "Polishing..." for the browser path — text is already final
-        // when onend fires. Just dismiss.
+        emit("voice:partial-transcript", { text: "" }).catch(() => {});
         cleanup(next);
       };
       session = next;
+      // `next` now owns the stream; clear our hoisted reference so the
+      // catch handler doesn't double-close it on a later throw.
+      stream = null;
       startInFlight = false;
-      startSyntheticMeter(next);
-      recognition.start();
+      // Real audio meter from the mic stream.
+      startMeter(next);
+      try {
+        recognition.start();
+        console.log("[voice-dictation] recognition.start() returned");
+      } catch (err) {
+        console.error("[voice-dictation] recognition.start threw:", err);
+        // Recognition failed after we handed the stream to `next` — close
+        // it through the session so we don't leak the mic.
+        stopTracks(next);
+        if (session === next) session = null;
+        throw err;
+      }
       if (stopRequestedBeforeReady) {
         stop();
       }
@@ -741,6 +808,20 @@ export function installDesktopVoiceDictation(
       console.error("[voice-dictation] startBrowser failed", err);
       startInFlight = false;
       stopRequestedBeforeReady = false;
+      // Close the mic stream if we opened it but never reached the
+      // success path (covers the show_flow_bar throw case before
+      // `session = next` ran). After session takes ownership, `stream`
+      // is reset to null so we don't double-close.
+      if (stream) {
+        stream.getTracks().forEach((t) => {
+          try {
+            t.stop();
+          } catch {
+            // ignore
+          }
+        });
+        stream = null;
+      }
       // See note in startServer's catch — clear leaked session so the
       // next Fn press isn't blocked on a stale `if (session) return`.
       session = null;
@@ -823,10 +904,41 @@ export function installDesktopVoiceDictation(
       if (current.kind === "server") {
         current.recorder?.stop();
       } else {
-        // recognition.stop() lets pending interim results finalize
-        // before firing onend (where we paste). abort() would discard
-        // them — we want stop().
-        current.recognition?.stop();
+        // BROWSER PATH: dismiss the bar IMMEDIATELY and paste whatever
+        // transcript we have right now. recognition.stop() / .abort()
+        // can take 1-5 seconds to fire onend in WKWebView — we don't
+        // want the user staring at a stuck bar that long. We tracked
+        // interim results in browserTranscript above, so the latest
+        // spoken text is captured. Null out browserTranscript before
+        // calling abort() so the late onend doesn't double-paste.
+        const text = current.browserTranscript.trim();
+        current.browserTranscript = "";
+        if (session === current) session = null;
+        startInFlight = false;
+        stopRequestedBeforeReady = false;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+        emit("voice:partial-transcript", { text: "" }).catch(() => {});
+        try {
+          current.recognition?.abort();
+        } catch {
+          // ignore
+        }
+        stopMeter(current);
+        stopTracks(current);
+        if (text) {
+          console.log(
+            `[voice-dictation] pasting on Fn release (${text.length} chars):`,
+            text.slice(0, 120),
+          );
+          invoke("complete_voice_dictation", { text }).catch((err) => {
+            console.error("[voice-dictation] paste failed:", err);
+          });
+        } else {
+          console.warn(
+            "[voice-dictation] no transcript captured — recognition didn't produce results",
+          );
+        }
       }
     } catch (err) {
       console.error("[voice-dictation] stop failed", err);
