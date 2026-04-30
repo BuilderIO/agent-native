@@ -132,10 +132,7 @@ function mcpToolToActionEntry(
               return JSON.stringify(p);
             })
             .join("\n");
-          // Throw so the production-agent's catch sets isError:true on the
-          // tool-result — returning a string would treat the error as normal output.
-          if ((result as any).isError)
-            throw new Error(`MCP tool error: ${text}`);
+          if ((result as any).isError) return `Error: ${text}`;
           return text || "(no output)";
         }
         return typeof result === "string" ? result : JSON.stringify(result);
