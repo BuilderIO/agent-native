@@ -1,16 +1,7 @@
-import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-
-function tenantUploadDir(email: string): string {
-  const key = crypto
-    .createHash("sha256")
-    .update(email.trim().toLowerCase())
-    .digest("hex")
-    .slice(0, 24);
-  return path.join(process.cwd(), "data", "uploads", key);
-}
+import { tenantUploadDir } from "../server/lib/tenant-files.js";
 
 export function resolveUserUploadedFile(filePath: string): string {
   const email = getRequestUserEmail();
