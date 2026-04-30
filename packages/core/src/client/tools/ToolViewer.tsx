@@ -396,6 +396,9 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
   useEffect(() => {
     setIframeReady(false);
+    // Reset role to deny-by-default on every reload — the new render's
+    // binding announcement re-establishes the role before any helper call.
+    bridgeContextRef.current = { role: "viewer", isAuthor: false };
   }, [toolId, tool?.updatedAt, refreshKey]);
 
   const startRename = useCallback(() => {

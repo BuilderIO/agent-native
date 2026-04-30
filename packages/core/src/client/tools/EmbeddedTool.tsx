@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import {
   isAllowedToolPath,
   sanitizeToolRequestOptions,
+  checkBridgePolicy,
+  type ToolBridgeRole,
 } from "./iframe-bridge.js";
 
 interface Tool {
@@ -43,6 +45,15 @@ export function EmbeddedTool({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [height, setHeight] = useState<number>(initialHeight);
   const [isDark, setIsDark] = useState(false);
+  // (audit H4) Mirror ToolViewer's role-aware gating; deny-by-default until
+  // the iframe's render binding announcement arrives.
+  const bridgeContextRef = useRef<{
+    role: ToolBridgeRole;
+    isAuthor: boolean;
+  }>({
+    role: "viewer",
+    isAuthor: false,
+  });
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
