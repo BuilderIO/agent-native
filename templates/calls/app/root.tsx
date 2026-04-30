@@ -12,6 +12,7 @@ import {
   ClientOnly,
   CommandMenu,
   DefaultSpinner,
+  appPath,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
@@ -41,7 +42,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
-        <link rel="manifest" href="/manifest.json" />
+        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#111111" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -49,7 +50,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="black-translucent"
         />
         <meta name="apple-mobile-web-app-title" content="Calls" />
-        <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+        <link rel="icon" type="image/svg+xml" href={appPath("/logo.svg")} />
         <Meta />
         <Links />
       </head>

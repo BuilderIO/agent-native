@@ -216,6 +216,17 @@ export const TEMPLATES: TemplateMeta[] = [
     defaultMode: "prod",
   },
   {
+    name: "meeting-notes",
+    label: "Meeting Notes",
+    hint: "AI meeting notes — transcribe, enhance, and share meeting notes",
+    icon: "Note",
+    color: "#16A34A",
+    colorRgb: "22 163 74",
+    devPort: 8096,
+    prodUrl: "https://meeting-notes.agent-native.com",
+    defaultMode: "prod",
+  },
+  {
     name: "scheduling",
     label: "Scheduling",
     hint: "Full scheduling app — event types, team round-robin, routing forms, workflows",

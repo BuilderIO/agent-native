@@ -20,6 +20,7 @@ import {
 } from "h3";
 import fs from "node:fs";
 import path from "node:path";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 
 const UPLOADS_DIR = path.resolve("data/uploads");
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -52,6 +53,15 @@ const EXT_BY_MIME: Record<string, string> = {
 };
 
 export default defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    async () => {
   const raw = await readRawBody(event, false);
   if (!raw || !(raw as Buffer | Uint8Array).length) {
     setResponseStatus(event, 400);
@@ -98,4 +108,6 @@ export default defineEventHandler(async (event: H3Event) => {
     mimeType,
     size: bytes.byteLength,
   };
+    },
+  );
 });

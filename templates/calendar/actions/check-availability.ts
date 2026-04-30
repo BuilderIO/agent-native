@@ -9,6 +9,24 @@ interface AvailabilitySchedule {
   schedule: Record<string, { start: string; end: string }[]>;
 }
 
+const DEFAULT_AVAILABILITY: AvailabilityConfig = {
+  timezone: "America/New_York",
+  weeklySchedule: {
+    monday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+    tuesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+    wednesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+    thursday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+    friday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+    saturday: { enabled: false, slots: [] },
+    sunday: { enabled: false, slots: [] },
+  },
+  bufferMinutes: 15,
+  minNoticeHours: 24,
+  maxAdvanceDays: 60,
+  slotDurationMinutes: 30,
+  bookingPageSlug: "book",
+};
+
 function timeToMinutes(timeStr: string): number {
   const [h, m] = timeStr.split(":").map(Number);
   return h * 60 + m;
@@ -73,11 +91,9 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     const stored = ownerEmail
       ? ((await getUserSetting(ownerEmail, "calendar-availability")) ??
-        (await readSetting("calendar-availability")))
-      : await readSetting("calendar-availability");
-    if (!stored) {
-      throw new Error("No availability configuration found");
-    }
+        (await readSetting("calendar-availability")) ??
+        DEFAULT_AVAILABILITY)
+      : ((await readSetting("calendar-availability")) ?? DEFAULT_AVAILABILITY);
     const availability = normalizeAvailability(stored);
     if (!availability) {
       throw new Error("Invalid availability configuration found");
