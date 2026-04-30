@@ -49,6 +49,7 @@ import type {
   DrawAnnotation,
 } from "@/components/design/types";
 import { ZOOM_PRESETS } from "@/components/design/types";
+import { prettyScreenName } from "@/lib/screen-names";
 import type { TweakDefinition } from "@shared/api";
 
 const TAB_ID = generateTabId();
@@ -476,20 +477,23 @@ export default function DesignEditor() {
         </div>
       </header>
 
-      {/* Viewport tabs */}
+      {/* Viewport tabs. Filenames map to friendly screen names — designers
+          shouldn't see "mobile.html" in the chrome of their canvas. The
+          full filename is still the title attribute for power users + a11y. */}
       {viewportTabs.length > 1 && (
         <div className="h-8 border-b border-border flex items-center gap-1 px-3 shrink-0">
           {viewportTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveFileId(tab.id)}
+              title={tab.filename}
               className={`px-2.5 py-1 rounded text-xs cursor-pointer ${
                 tab.id === activeFileId
                   ? "bg-accent text-foreground/90"
                   : "text-muted-foreground hover:text-muted-foreground"
               }`}
             >
-              {tab.filename}
+              {prettyScreenName(tab.filename)}
             </button>
           ))}
         </div>
@@ -498,16 +502,21 @@ export default function DesignEditor() {
       {/* Main canvas area */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Question flow overlay — full canvas takeover, blocks editing while
-            the user answers. Closes itself on submit/skip. */}
-        {pendingQuestions && pendingQuestions.length > 0 && (
-          <div className="absolute inset-0 z-40 bg-background">
-            <QuestionFlow
-              questions={pendingQuestions}
-              onSubmit={handleQuestionsSubmit}
-              onSkip={handleQuestionsSkip}
-            />
-          </div>
-        )}
+            the user answers. Closes itself on submit/skip.
+            Variants take precedence: when both states are set (rare race when
+            the agent hasn't cleared the question flow before opening variants),
+            we hide questions so the user only sees the most recent step. */}
+        {pendingQuestions &&
+          pendingQuestions.length > 0 &&
+          !pendingVariants && (
+            <div className="absolute inset-0 z-40 bg-background">
+              <QuestionFlow
+                questions={pendingQuestions}
+                onSubmit={handleQuestionsSubmit}
+                onSkip={handleQuestionsSkip}
+              />
+            </div>
+          )}
 
         {/* Variant grid overlay — full canvas takeover with 2-5 candidate
             designs. "Use this one" persists the chosen content as index.html. */}
@@ -535,7 +544,7 @@ export default function DesignEditor() {
             <div className="flex-1 overflow-hidden">
               <VariantGrid
                 variants={pendingVariants.variants}
-                onSelect={() => {}}
+                onSelect={handleUseVariant}
                 onUse={handleUseVariant}
               />
             </div>

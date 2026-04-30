@@ -5,7 +5,7 @@ import {
   IconDownload,
   IconUsers,
 } from "@tabler/icons-react";
-import { useActionQuery } from "@agent-native/core/client";
+import { appBasePath, useActionQuery } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -64,8 +64,9 @@ export function InsightsHub() {
   };
 
   const csvUrl = useMemo(() => {
-    if (!data?.organizationId) return "/api/insights/export";
-    return `/api/insights/export?organizationId=${encodeURIComponent(data.organizationId)}`;
+    const base = `${appBasePath()}/api/insights/export`;
+    if (!data?.organizationId) return base;
+    return `${base}?organizationId=${encodeURIComponent(data.organizationId)}`;
   }, [data?.organizationId]);
 
   return (

@@ -2447,23 +2447,46 @@ export function createAgentChatPlugin(
         streaming: true,
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
+          // Priority: A2A-JWT verified email (set by the A2A handler in
+          // request-context) > dev session DB (dev only) > Google OAuth
+          // tokeninfo (prod only). Without the JWT-verified-email path,
+          // cross-app A2A calls landed owned by `local@localhost` (dev) or
+          // `dispatch@shared`, which made resources invisible to the actual
+          // signed-in user.
+          //
+          // SECURITY: we deliberately do NOT trust `context.metadata.userEmail`
+          // as a fallback. The A2A endpoint runs in three modes — JWT-signed
+          // (verified email lands in request context), API-key (caller is
+          // app-authenticated but NOT user-authenticated), and unsigned
+          // (no auth at all). Trusting caller-supplied metadata on the latter
+          // two paths would let any reachable caller forge `metadata.userEmail`
+          // and impersonate an arbitrary user. The JWT path already populates
+          // the request context, so the metadata fallback was only ever used
+          // on the unauthenticated paths — exactly where it's unsafe.
           const isDev = process.env.NODE_ENV !== "production";
           let userEmail: string | undefined;
 
-          if (isDev) {
-            userEmail = (context.metadata?.userEmail as string) || undefined;
-            if (!userEmail) {
-              try {
-                const { getDbExec } = await import("../db/client.js");
-                const db = getDbExec();
-                const { rows } = await db.execute({
-                  sql: "SELECT email FROM sessions ORDER BY created_at DESC LIMIT 1",
-                  args: [],
-                });
-                if (rows[0]) userEmail = rows[0].email as string;
-              } catch {}
-            }
-          } else {
+          // 1. JWT-verified email from A2A receiver (auth boundary already
+          //    enforced upstream). Works in dev AND prod.
+          try {
+            const { getRequestUserEmail } =
+              await import("./request-context.js");
+            userEmail = getRequestUserEmail();
+          } catch {}
+
+          if (!userEmail && isDev) {
+            try {
+              const { getDbExec } = await import("../db/client.js");
+              const db = getDbExec();
+              const { rows } = await db.execute({
+                sql: "SELECT email FROM sessions ORDER BY created_at DESC LIMIT 1",
+                args: [],
+              });
+              if (rows[0]) userEmail = rows[0].email as string;
+            } catch {}
+          }
+
+          if (!userEmail && !isDev) {
             const googleToken = context.metadata?.googleToken as string;
             if (googleToken) {
               try {
@@ -4250,7 +4273,11 @@ export function createAgentChatPlugin(
             tzRaw.trim().length < 64
               ? tzRaw.trim()
               : undefined;
-          if (timezone) process.env.AGENT_USER_TIMEZONE = timezone; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext below
+          if (timezone) {
+            process.env.AGENT_USER_TIMEZONE = timezone; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext below
+          } else {
+            delete process.env.AGENT_USER_TIMEZONE;
+          }
 
           return runWithRequestContext(
             { userEmail: owner, orgId: resolvedOrgId, timezone },

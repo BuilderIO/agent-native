@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { agentNativePath } from "../api-path.js";
 
 export interface IntegrationStatus {
   platform: string;
@@ -17,7 +18,9 @@ export function useIntegrationStatus() {
 
   const fetchStatuses = useCallback(async () => {
     try {
-      const res = await fetch("/_agent-native/integrations/status");
+      const res = await fetch(
+        agentNativePath("/_agent-native/integrations/status"),
+      );
       if (!res.ok) {
         if (mountedRef.current) setLoading(false);
         return;

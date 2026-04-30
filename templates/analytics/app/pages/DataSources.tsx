@@ -32,7 +32,7 @@ import {
   type DataSourceCategory,
   type WalkthroughStep,
 } from "@/lib/data-sources";
-import { useSendToAgentChat } from "@agent-native/core/client";
+import { appApiPath, useSendToAgentChat } from "@agent-native/core/client";
 
 interface EnvKeyStatus {
   key: string;
@@ -43,7 +43,7 @@ interface EnvKeyStatus {
 
 async function fetchEnvStatus(): Promise<EnvKeyStatus[]> {
   const token = await getIdToken();
-  const res = await fetch("/api/credential-status", {
+  const res = await fetch(appApiPath("/api/credential-status"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];
@@ -54,7 +54,7 @@ async function saveEnvVars(
   vars: Array<{ key: string; value: string }>,
 ): Promise<void> {
   const token = await getIdToken();
-  const res = await fetch("/api/credentials", {
+  const res = await fetch(appApiPath("/api/credentials"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -72,7 +72,7 @@ async function testConnection(
   source: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const token = await getIdToken();
-  const res = await fetch("/api/test-connection", {
+  const res = await fetch(appApiPath("/api/test-connection"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -206,7 +206,7 @@ function StepItem({
 
 async function deleteCredentials(keys: string[]): Promise<void> {
   const token = await getIdToken();
-  const res = await fetch("/api/credentials", {
+  const res = await fetch(appApiPath("/api/credentials"), {
     method: "DELETE",
     headers: {
       "Content-Type": "application/json",

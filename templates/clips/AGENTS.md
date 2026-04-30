@@ -21,10 +21,10 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 
 | Action            | Args                                           | Purpose                 |
 | ----------------- | ---------------------------------------------- | ----------------------- |
-| `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
-| `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
+| `resource-read`   | `--path <path> [--scope personal\|shared]`     | Read a resource         |
+| `resource-write`  | `--path <path> --content <text> [--scope ...]` | Write/update a resource |
 | `resource-list`   | `[--scope personal\|shared]`                   | List all resources      |
-| `resource-delete` | `--name <name> [--scope personal\|shared]`     | Delete a resource       |
+| `resource-delete` | `--path <path> [--scope personal\|shared]`     | Delete a resource       |
 
 ## Architecture
 
@@ -137,8 +137,8 @@ Views: `library`, `spaces`, `space`, `archive`, `trash`, `record`, `recording`, 
 | "Remove the filler words"                           | `pnpm action remove-filler-words --recordingId=<id>` (appends proposed trims into `editsJson`)                                                                                                                        |
 | "Remove silences"                                   | `pnpm action remove-silences --recordingId=<id> [--thresholdMs=500]`                                                                                                                                                  |
 | "Find the part where I talk about pricing"          | Read `get-recording-player-data --recordingId=<id>` and grep the transcript segments for the term.                                                                                                                    |
-| "Share this with alice@example.com as viewer"       | `pnpm action share-resource --resourceType=recording --resourceId=<id> --principalType=user --principalId=alice@example.com --role=viewer`                                                                            |
-| "Make this public"                                  | `pnpm action set-resource-visibility --resourceType=recording --resourceId=<id> --visibility=public`                                                                                                                  |
+| "Share this with alice@example.com as viewer"       | Call the auto-mounted `share-resource` action with `resourceType=recording`, `resourceId=<id>`, `principalType=user`, `principalId=alice@example.com`, and `role=viewer`                                              |
+| "Make this public"                                  | Call the auto-mounted `set-resource-visibility` action with `resourceType=recording`, `resourceId=<id>`, and `visibility=public`                                                                                      |
 | "Add a password to this share"                      | `pnpm action update-recording --id=<id> --password=<pw>`                                                                                                                                                              |
 | "Set this to expire in 7 days"                      | `pnpm action update-recording --id=<id> --expiresAt=<iso>`                                                                                                                                                            |
 | "Trim the first 30 seconds"                         | `pnpm action trim-recording --recordingId=<id> --startMs=0 --endMs=30000`                                                                                                                                             |
@@ -233,6 +233,14 @@ Start / stop / pause are **UI gestures** — there is no server action. MediaRec
 | `clear-edits`         | `--recordingId <id>`                           | Clear `editsJson` back to `{}`                                     |
 | `undo-edit`           | `--recordingId <id>`                           | Remove the last edit from `editsJson`                              |
 
+### Call-to-Actions (CTAs)
+
+| Action       | Args                                                               | Purpose                         |
+| ------------ | ------------------------------------------------------------------ | ------------------------------- |
+| `create-cta` | `--recordingId <id> --label <text> --url <url> [--placement <ms>]` | Add a CTA button to a recording |
+| `update-cta` | `--id <id> [--label <text>] [--url <url>] [--placement <ms>]`      | Update an existing CTA          |
+| `delete-cta` | `--id <id>`                                                        | Remove a CTA                    |
+
 ### Sharing (framework-wide, auto-mounted)
 
 | Action                    | Args                                                                                                                               | Purpose                              |
@@ -252,7 +260,7 @@ Public share link: `/share/<recordingId>`. Embed: `/embed/<recordingId>`. Both r
 | -------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------- |
 | `list-comments`      | `--recordingId <id>`                                                                      | List threaded comments with timestamps |
 | `add-comment`        | `--recordingId <id> --content <text> [--threadId] [--parentId] [--videoTimestampMs <ms>]` | Post a comment or top-level reaction   |
-| `reply-to-comment`   | `--parentId <cid> --content <text>`                                                       | Reply within an existing thread        |
+| `reply-to-comment`   | `--commentId <cid> --content <text>`                                                      | Reply within an existing thread        |
 | `resolve-comment`    | `--id <commentId>`                                                                        | Mark a thread resolved                 |
 | `delete-comment`     | `--id <commentId>`                                                                        | Delete a comment                       |
 | `react-to-recording` | `--recordingId <id> --emoji <e> [--videoTimestampMs <ms>]`                                | Drop an emoji reaction at a timestamp  |
@@ -272,17 +280,17 @@ Granular per-event recording (view-start / watch-progress / seek / pause / cta-c
 
 Teams in Clips are better-auth organizations. Membership, roles, and invitations live on the framework `organization` / `member` / `invitation` tables. The actions below are thin Clips-specific wrappers that operate on those tables.
 
-| Action                      | Args                                        | Purpose                                                                                                                                                                        |
-| --------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `list-organization-state`   |                                             | Roster + spaces + folders summary for the active organization.                                                                                                                 |
-| `create-organization`       | `--name <name> [--slug] [--brandColor]`     | Create a new organization (delegates to better-auth, seeds `organization_settings`).                                                                                           |
-| `set-organization-branding` | `--brandColor <hex> [--brandLogoUrl]`       | Update the active organization's `organization_settings` row (brand color / logo).                                                                                             |
-| `invite-member`             | `--email <e> [--role owner\|admin\|member]` | Send an invite. Roles are the better-auth standard three: `owner`, `admin`, `member`. The previous 4-role system (viewer / creator-lite / creator / admin) has been flattened. |
-| `update-member-role`        | `--email <e> --role <r>`                    | Change an existing member's role.                                                                                                                                              |
-| `remove-member`             | `--email <e>`                               | Remove a member from the organization.                                                                                                                                         |
-| `get-invite`                | `--token <t>`                               | Look up a pending invite.                                                                                                                                                      |
-| `accept-invite`             | `--token <t>`                               | Accept a pending invite.                                                                                                                                                       |
-| `decline-invite`            | `--token <t>`                               | Decline a pending invite.                                                                                                                                                      |
+| Action                      | Args                                    | Purpose                                                                                                                                                                          |
+| --------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list-organization-state`   |                                         | Roster + spaces + folders summary for the active organization.                                                                                                                   |
+| `create-organization`       | `--name <name> [--slug] [--brandColor]` | Create a new organization (delegates to better-auth, seeds `organization_settings`).                                                                                             |
+| `set-organization-branding` | `--brandColor <hex> [--brandLogoUrl]`   | Update the active organization's `organization_settings` row (brand color / logo).                                                                                               |
+| `invite-member`             | `--email <e> [--role admin\|member]`    | Send an invite. Roles use better-auth's `admin` / `member` model. Legacy Clips roles (`viewer`, `creator-lite`, `creator`) are still accepted by the action and map to `member`. |
+| `update-member-role`        | `--email <e> --role <r>`                | Change an existing member's role.                                                                                                                                                |
+| `remove-member`             | `--email <e>`                           | Remove a member from the organization.                                                                                                                                           |
+| `get-invite`                | `--token <t>`                           | Look up a pending invite.                                                                                                                                                        |
+| `accept-invite`             | `--token <t>`                           | Accept a pending invite.                                                                                                                                                         |
+| `decline-invite`            | `--token <t>`                           | Decline a pending invite.                                                                                                                                                        |
 
 > **Switching orgs.** There is no `set-current-workspace` action — the active org lives in the better-auth session. From the client use `useSwitchOrg().mutate({ organizationId })`; server-side use better-auth's `setActiveOrganization` API.
 
@@ -305,7 +313,7 @@ Custom routes only exist for things actions can't do well — file uploads (bina
 | POST   | `/api/uploads/complete` | Finalize upload — sets `recordings.status = processing`   |
 | GET    | `/api/video/:id`        | Stream the video bytes (respects `visibility` / shares)   |
 | GET    | `/api/thumbnail/:id`    | Return static thumbnail                                   |
-| POST   | `/api/view-events`      | Record a watch-progress / seek / pause / cta-click event  |
+| POST   | `/api/view-event`       | Record a watch-progress / seek / pause / cta-click event  |
 | POST   | `/api/webhooks/whisper` | Webhook for async Whisper completion (updates transcript) |
 
 All standard CRUD (list, get, create, update) goes through `/_agent-native/actions/:name` — use `useActionQuery` / `useActionMutation` from the client.

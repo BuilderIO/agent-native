@@ -28,6 +28,7 @@ import {
 } from "@/hooks/use-emails";
 import { useQueryClient } from "@tanstack/react-query";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
+import { appApiPath } from "@/lib/api-path";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { setUndoAction } from "@/hooks/use-undo";
 import { toast } from "sonner";
@@ -806,6 +807,7 @@ export function EmailThread({
         },
       },
       { key: "e", handler: handleArchive },
+      { key: "d", handler: handleTrash },
       { key: "s", handler: handleStar },
       {
         key: "r",
@@ -977,7 +979,7 @@ export function EmailThread({
     setUnsubscribing(true);
     try {
       const res = await fetch(
-        `/api/emails/${unsubscribeInfo.messageId}/unsubscribe`,
+        appApiPath(`/api/emails/${unsubscribeInfo.messageId}/unsubscribe`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1255,7 +1257,9 @@ export function EmailThread({
                               onClick: () => {
                                 if (snapshot.savedDraftId) {
                                   fetch(
-                                    `/api/emails/${snapshot.savedDraftId}`,
+                                    appApiPath(
+                                      `/api/emails/${snapshot.savedDraftId}`,
+                                    ),
                                     {
                                       method: "DELETE",
                                     },
@@ -1311,9 +1315,14 @@ export function EmailThread({
                           label: "DELETE DRAFT",
                           onClick: () => {
                             if (snapshot.savedDraftId) {
-                              fetch(`/api/emails/${snapshot.savedDraftId}`, {
-                                method: "DELETE",
-                              });
+                              fetch(
+                                appApiPath(
+                                  `/api/emails/${snapshot.savedDraftId}`,
+                                ),
+                                {
+                                  method: "DELETE",
+                                },
+                              );
                             }
                           },
                         },
@@ -1759,7 +1768,9 @@ const ExpandedMessageCard = forwardRef<
               {email.attachments
                 .filter((a) => a.mimeType.startsWith("image/"))
                 .map((att) => {
-                  const url = `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`;
+                  const url = appApiPath(
+                    `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`,
+                  );
                   return (
                     <a
                       key={att.id}
@@ -1787,7 +1798,9 @@ const ExpandedMessageCard = forwardRef<
               .map((att) => (
                 <a
                   key={att.id}
-                  href={`/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`}
+                  href={appApiPath(
+                    `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
+                  )}
                   download={att.filename}
                   className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs hover:bg-accent cursor-pointer"
                 >
@@ -1805,7 +1818,9 @@ const ExpandedMessageCard = forwardRef<
                 onClick={() => {
                   for (const att of email.attachments!) {
                     const a = document.createElement("a");
-                    a.href = `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`;
+                    a.href = appApiPath(
+                      `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
+                    );
                     a.download = att.filename;
                     a.click();
                   }
@@ -2817,7 +2832,7 @@ function HtmlEmailBody({
 
           // Call our API
           try {
-            const res = await fetch("/api/calendar/rsvp", {
+            const res = await fetch(appApiPath("/api/calendar/rsvp"), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({

@@ -17,6 +17,7 @@ import {
 } from "./task-store.js";
 import { agentChat } from "../shared/agent-chat.js";
 import { signInternalToken } from "../integrations/internal-token.js";
+import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 
 // Inlined to avoid pulling the entire core-routes-plugin (and its h3
 // transitive deps) into the a2a/handlers test boundary. Must stay in sync
@@ -34,7 +35,7 @@ function resolveSelfBaseUrl(event: any | undefined): string {
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
-  if (fromEnv) return String(fromEnv).replace(/\/$/, "");
+  if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
 
   try {
     const headers = event?.node?.req?.headers ?? event?.headers;
@@ -48,9 +49,11 @@ function resolveSelfBaseUrl(event: any | undefined): string {
     };
     const proto = get("x-forwarded-proto") || "http";
     const host = get("host") || `localhost:${process.env.PORT || 3000}`;
-    return `${proto}://${host}`;
+    return withConfiguredAppBasePath(`${proto}://${host}`);
   } catch {
-    return `http://localhost:${process.env.PORT || 3000}`;
+    return withConfiguredAppBasePath(
+      `http://localhost:${process.env.PORT || 3000}`,
+    );
   }
 }
 
@@ -203,8 +206,9 @@ const defaultHandler: A2AHandler = async (
   //      caller's host and 404.
   // We prepend a one-line hint to the user message so the agent knows.
   const baseUrl = process.env.APP_URL || process.env.URL || "";
+  const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
   const augmentedText = baseUrl
-    ? `[Cross-app A2A request — the caller is on a different host (${baseUrl} is yours, theirs is different). Include the concrete result (URL, ID, value) explicitly in your reply text; the caller can't see your local UI state. Any URL MUST be fully-qualified, never a relative path.]\n\n${text}`
+    ? `[Cross-app A2A request — the caller is on a different host (${appBaseUrl} is yours, theirs is different). Include the concrete result (URL, ID, value) explicitly in your reply text; the caller can't see your local UI state. Any URL MUST be fully-qualified, never a relative path.]\n\n${text}`
     : text;
 
   const result = await agentChat.call(augmentedText);
@@ -303,10 +307,12 @@ async function withA2ARequestContext<T>(
 
   const verifiedEmail =
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
+  // Only trust the org domain from the cryptographically verified JWT claim on
+  // the event context. metadata.orgDomain is caller-supplied and must not be
+  // used for org resolution — an unauthenticated caller could forge it and
+  // gain access to another org's data.
   const orgDomain =
-    (event?.context?.__a2aOrgDomain as string | undefined) ??
-    (metadata?.orgDomain as string | undefined) ??
-    undefined;
+    (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
 
   let resolvedOrgId: string | undefined;
   if (orgDomain) {
@@ -419,10 +425,10 @@ async function handleSend(
     // the task metadata and runs the handler with its own full timeout.
     const verifiedEmail =
       (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
+    // Only trust the verified org domain from the JWT claim — do not fall back
+    // to metadata.orgDomain which is caller-supplied and unverified.
     const orgDomainHint =
-      (event?.context?.__a2aOrgDomain as string | undefined) ??
-      ((metadata as any)?.orgDomain as string | undefined) ??
-      undefined;
+      (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
 
     const taskMetadata: Record<string, unknown> = {
       ...(metadata ?? {}),
@@ -582,6 +588,15 @@ async function handleGet(
   const task = await getTask(id);
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
+  }
+  // Strip internal processor metadata before returning to callers — it may
+  // contain verifiedEmail and callerMetadata that should not be exposed.
+  if (task.metadata && typeof task.metadata === "object") {
+    const { __a2a_processor: _proc, ...publicMeta } = task.metadata as Record<
+      string,
+      unknown
+    >;
+    return jsonRpcResult(0, { ...task, metadata: publicMeta });
   }
   return jsonRpcResult(0, task);
 }

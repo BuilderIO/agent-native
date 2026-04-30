@@ -9,6 +9,7 @@ import {
 import { AgentSidebar } from "@agent-native/core/client";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { FeedbackButton } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -44,7 +45,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   // Navigation state sync - write current view to application state
   useEffect(() => {
     const view = isAnalytics ? "analytics" : "entry";
-    apiFetch("/_agent-native/application-state/navigation", {
+    apiFetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       body: JSON.stringify({ view, path: location.pathname }),
     }).catch(() => {});
@@ -55,7 +56,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     queryKey: ["navigate-command"],
     queryFn: async () => {
       try {
-        const res = await fetch("/_agent-native/application-state/navigate");
+        const res = await fetch(
+          agentNativePath("/_agent-native/application-state/navigate"),
+        );
         if (!res.ok) return null;
         return await res.json();
       } catch {
@@ -66,18 +69,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    if (navCommand?.value) {
+    if (navCommand) {
+      const commandValue =
+        "value" in navCommand ? navCommand.value : navCommand;
       const cmd =
-        typeof navCommand.value === "string"
-          ? JSON.parse(navCommand.value)
-          : navCommand.value;
+        typeof commandValue === "string"
+          ? JSON.parse(commandValue)
+          : commandValue;
       if (cmd.view === "analytics") {
         navigate("/analytics");
       } else if (cmd.view === "entry") {
         navigate("/");
       }
       // Clear the command
-      fetch("/_agent-native/application-state/navigate", {
+      fetch(agentNativePath("/_agent-native/application-state/navigate"), {
         method: "DELETE",
       }).catch(() => {});
       queryClient.setQueryData(["navigate-command"], null);

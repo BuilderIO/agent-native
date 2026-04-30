@@ -31,6 +31,7 @@ import { startPendingTasksRetryJob } from "./pending-tasks-retry-job.js";
 import { resourceGetByPath, SHARED_OWNER } from "../resources/store.js";
 import { getTaskQueueStats } from "./task-queue-stats.js";
 import { getSession } from "../server/auth.js";
+import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -148,6 +149,13 @@ export function createIntegrationsPlugin(
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
 
+    async function requireSession(event: any): Promise<boolean> {
+      const session = await getSession(event).catch(() => null);
+      if (session?.email) return true;
+      setResponseStatus(event, 401);
+      return false;
+    }
+
     // ─── Status endpoint (all integrations) ───────────────────────
     h3.use(
       `${P}/status`,
@@ -156,6 +164,7 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        if (!(await requireSession(event))) return { error: "unauthorized" };
         const baseUrl = getBaseUrl(event);
         const statuses: IntegrationStatus[] = [];
         for (const adapter of adapters) {
@@ -189,11 +198,7 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const session = await getSession(event).catch(() => null);
-        if (!session?.email) {
-          setResponseStatus(event, 401);
-          return { error: "unauthorized" };
-        }
+        if (!(await requireSession(event))) return { error: "unauthorized" };
         try {
           return await getTaskQueueStats();
         } catch (err: any) {
@@ -314,6 +319,7 @@ export function createIntegrationsPlugin(
 
         // ─── GET /:platform/status ─────────────────────────────
         if (action === "status" && method === "GET") {
+          if (!(await requireSession(event))) return { error: "unauthorized" };
           const baseUrl = getBaseUrl(event);
           const status = await adapter.getStatus(baseUrl);
           const config = await getIntegrationConfig(platform);
@@ -398,18 +404,21 @@ export function createIntegrationsPlugin(
 
         // ─── POST /:platform/enable ────────────────────────────
         if (action === "enable" && method === "POST") {
+          if (!(await requireSession(event))) return { error: "unauthorized" };
           await saveIntegrationConfig(platform, { enabled: true });
           return { ok: true, platform, enabled: true };
         }
 
         // ─── POST /:platform/disable ───────────────────────────
         if (action === "disable" && method === "POST") {
+          if (!(await requireSession(event))) return { error: "unauthorized" };
           await saveIntegrationConfig(platform, { enabled: false });
           return { ok: true, platform, enabled: false };
         }
 
         // ─── POST /:platform/setup ─────────────────────────────
         if (action === "setup" && method === "POST") {
+          if (!(await requireSession(event))) return { error: "unauthorized" };
           if (platform === "telegram") {
             const baseUrl = getBaseUrl(event);
             const webhookUrl = `${baseUrl}${P}/telegram/webhook`;
@@ -462,7 +471,7 @@ export function createIntegrationsPlugin(
         // or use the WEBHOOK_BASE_URL env var if set.
         const baseUrl = process.env.WEBHOOK_BASE_URL;
         const webhookUrl = baseUrl
-          ? `${baseUrl}${P}/google-docs/webhook`
+          ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
           : undefined;
 
         startGoogleDocsPoller({
@@ -498,8 +507,8 @@ function getBaseUrl(event: any): string {
         : (headers as Record<string, string>)[name];
     const proto = getHeader("x-forwarded-proto") || "http";
     const host = getHeader("host") || "localhost:3000";
-    return `${proto}://${host}`;
+    return withConfiguredAppBasePath(`${proto}://${host}`);
   } catch {
-    return "http://localhost:3000";
+    return withConfiguredAppBasePath("http://localhost:3000");
   }
 }

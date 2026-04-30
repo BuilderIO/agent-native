@@ -25,7 +25,6 @@ import {
   type AspectRatio,
   DEFAULT_ASPECT_RATIO,
 } from "@/lib/aspect-ratios";
-import ShareDialog from "./ShareDialog";
 import { ExportMenu } from "./ExportMenu";
 import { ImportButton } from "./ImportButton";
 

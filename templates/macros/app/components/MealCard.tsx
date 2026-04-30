@@ -50,6 +50,7 @@ export function MealCard({
         <Button
           variant="ghost"
           size="icon"
+          aria-label={`Edit ${meal.name}`}
           className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-foreground hover:bg-white/5"
           onClick={() => onEdit(meal)}
         >
@@ -58,6 +59,7 @@ export function MealCard({
         <Button
           variant="ghost"
           size="icon"
+          aria-label={`Delete ${meal.name}`}
           className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-red-400 hover:bg-red-500/10"
           onClick={() => meal.id && onDelete(meal.id)}
           disabled={isDeleting}

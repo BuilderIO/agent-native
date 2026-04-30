@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { callAction } from "@/lib/api";
-import { useSendToAgentChat } from "@agent-native/core/client";
+import { agentNativePath, useSendToAgentChat } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -156,7 +156,9 @@ function IntegrationCard({
   const connect = async () => {
     setConnecting(true);
     try {
-      const redirectUri = `${location.origin}/_agent-native/oauth/${integration.kind.replace(/_video$/, "")}/callback`;
+      const redirectUri = `${location.origin}${agentNativePath(
+        `/_agent-native/oauth/${integration.kind.replace(/_video$/, "")}/callback`,
+      )}`;
       // Video providers go through connect-video; calendar providers go
       // through connect-calendar. The action shape is the same.
       const action =

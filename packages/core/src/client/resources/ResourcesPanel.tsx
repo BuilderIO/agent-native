@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   IconPlus,
@@ -1081,7 +1082,7 @@ export function ResourcesPanel() {
   useEffect(() => {
     if (seededRef.current || !canEditOrg) return;
     seededRef.current = true;
-    fetch("/_agent-native/resources", {
+    fetch(agentNativePath("/_agent-native/resources"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

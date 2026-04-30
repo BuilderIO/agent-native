@@ -6,6 +6,8 @@ import { getDoc } from "../components/docs-content";
 /** Legacy slug → current slug. Keep in sync with any renames in content/. */
 const SLUG_REDIRECTS: Record<string, string> = {
   resources: "workspace",
+  secrets: "security",
+  observability: "tracking",
 };
 
 export async function loader({ params }: LoaderFunctionArgs) {

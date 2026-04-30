@@ -18,14 +18,20 @@ export default defineAction({
       .string()
       .optional()
       .describe("Title for the copy (defaults to 'Copy of ...')"),
+    newId: z
+      .string()
+      .optional()
+      .describe(
+        "Optional client-supplied id for the new deck. Lets the UI pick the id ahead of time so it can navigate optimistically before the server responds.",
+      ),
   }),
-  run: async ({ deckId, title }) => {
+  run: async ({ deckId, title, newId: clientNewId }) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);
 
     const source = access.resource;
     const db = getDb();
-    const newId = `deck-${nanoid()}`;
+    const newId = clientNewId || `deck-${nanoid()}`;
     const now = new Date().toISOString();
     const deckData = JSON.parse(source.data);
 

@@ -10,6 +10,7 @@ import {
   emailToColor,
   emailToName,
   useSession,
+  appApiPath,
   type CollabUser,
 } from "@agent-native/core/client";
 import { IconLoader2 } from "@tabler/icons-react";
@@ -116,6 +117,19 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     }
   }, [document, localTitle]);
 
+  // When polling/SSE refetches confirm that the server now matches the local
+  // editor state, acknowledge it as saved. This keeps later agent/action
+  // updates from being mistaken for conflicts with stale "unsaved" local text.
+  useEffect(() => {
+    if (!document || !isInitializedRef.current) return;
+    if (document.title === localTitle && document.content === localContent) {
+      lastSavedRef.current = {
+        title: document.title,
+        content: document.content,
+      };
+    }
+  }, [document, localTitle, localContent]);
+
   const debouncedSave = useCallback(
     (title: string, content: string) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -143,7 +157,7 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
             if (status?.pageId && !status.hasConflict) {
               try {
                 const res = await fetch(
-                  `/api/documents/${documentId}/notion/push`,
+                  appApiPath(`/api/documents/${documentId}/notion/push`),
                   { method: "POST" },
                 );
                 if (res.ok) {

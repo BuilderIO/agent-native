@@ -8,14 +8,15 @@
 
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getCurrentOwnerEmail,
-  nanoid,
-  stringifySpaceIds,
-} from "../server/lib/recordings.js";
+import { nanoid, stringifySpaceIds } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
+
+const cliBoolean = z
+  .union([z.boolean(), z.enum(["true", "false"])])
+  .transform((value) => value === true || value === "true");
 
 export default defineAction({
   description:
@@ -27,28 +28,24 @@ export default defineAction({
     folderId: z.string().nullish(),
     spaceIds: z.array(z.string()).optional(),
     tags: z.array(z.string()).optional(),
-    enableComments: z.boolean().optional(),
-    enableReactions: z.boolean().optional(),
-    enableDownloads: z.boolean().optional(),
+    enableComments: z.union([z.boolean(), cliBoolean]).optional(),
+    enableReactions: z.union([z.boolean(), cliBoolean]).optional(),
+    enableDownloads: z.union([z.boolean(), cliBoolean]).optional(),
     defaultSpeed: z.string().optional(),
-    animatedThumbnailEnabled: z.boolean().optional(),
+    animatedThumbnailEnabled: z.union([z.boolean(), cliBoolean]).optional(),
     password: z.string().nullish(),
     expiresAt: z.string().nullish(),
     chaptersJson: z.string().optional(),
   }),
   run: async (args) => {
+    await assertAccess("recording", args.id, "editor");
+
     const db = getDb();
-    const ownerEmail = getCurrentOwnerEmail();
 
     const [existing] = await db
       .select()
       .from(schema.recordings)
-      .where(
-        and(
-          eq(schema.recordings.id, args.id),
-          eq(schema.recordings.ownerEmail, ownerEmail),
-        ),
-      );
+      .where(eq(schema.recordings.id, args.id));
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
 
     const patch: Record<string, unknown> = {

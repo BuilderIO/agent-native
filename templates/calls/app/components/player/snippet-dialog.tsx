@@ -14,8 +14,16 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { IconPlayerPlay, IconPlayerPause } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
-import { useActionMutation } from "@agent-native/core/client";
+import { appBasePath, useActionMutation } from "@agent-native/core/client";
 import { formatMs } from "@/lib/timestamp-format";
+
+function resolveLocalUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("/") && !url.startsWith("//")) {
+    return `${appBasePath()}${url}`;
+  }
+  return url;
+}
 
 export interface SnippetDialogProps {
   callId: string;
@@ -124,7 +132,7 @@ export function SnippetDialog(props: SnippetDialogProps) {
           <div className="rounded-md overflow-hidden bg-black relative">
             <video
               ref={videoRef}
-              src={mediaUrl}
+              src={resolveLocalUrl(mediaUrl)}
               className="w-full aspect-video"
               preload="metadata"
               playsInline

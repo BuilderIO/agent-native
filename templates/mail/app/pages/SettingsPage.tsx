@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
+import { appApiPath } from "@/lib/api-path";
 import {
   IconUsers,
   IconPlus,
@@ -680,7 +682,7 @@ function TriggersSubsection() {
   const { data: triggers = [], isLoading } = useQuery<FrameworkTrigger[]>({
     queryKey: ["framework-triggers-mail"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/automations");
+      const res = await fetch(agentNativePath("/_agent-native/automations"));
       if (!res.ok) return [];
       const all: FrameworkTrigger[] = await res.json();
       // Filter to mail domain triggers only (event-based)
@@ -815,7 +817,7 @@ function AutomationsSection() {
   const { data: autoSettings } = useQuery({
     queryKey: ["automation-settings"],
     queryFn: async () => {
-      const res = await fetch("/api/automations/settings");
+      const res = await fetch(appApiPath("/api/automations/settings"));
       if (!res.ok) return { model: "claude-haiku-4-5-20251001" };
       return res.json();
     },
@@ -825,7 +827,7 @@ function AutomationsSection() {
   const queryClient = useQueryClient();
   const handleModelChange = async (model: string) => {
     queryClient.setQueryData(["automation-settings"], { model });
-    await fetch("/api/automations/settings", {
+    await fetch(appApiPath("/api/automations/settings"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model }),

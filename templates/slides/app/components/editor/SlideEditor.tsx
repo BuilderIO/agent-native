@@ -270,20 +270,21 @@ export default function SlideEditor({
     setEditingEl(el);
   }, []);
 
-  // Exit edit mode when switching slides.
-  // NOTE: SlideRenderer uses dangerouslySetInnerHTML, which means any
-  // React state update detaches the contentEditable subtree. We can't
-  // safely autosave on every keystroke (the listener gets detached after
-  // the first input). Pending typed edits are persisted only on explicit
-  // exit (Escape, click-outside, Enter on heading, bubble-menu format).
-  // Switching slides mid-edit currently discards unsaved typing — to fix
-  // properly we need to either freeze SlideRenderer during edit mode or
-  // refactor SlideRenderer to stop using dangerouslySetInnerHTML.
+  // Exit edit mode when switching slides — save pending content first so
+  // typing isn't lost when the user clicks a different slide in the sidebar.
   useEffect(() => {
     setEditingEl((el) => {
       if (el) {
         el.contentEditable = "false";
         el.removeAttribute("data-editing-block");
+        // Save whatever was typed before the slide switched.
+        const slideContent = containerRef.current?.querySelector(
+          ".slide-content",
+        ) as HTMLElement | null;
+        if (slideContent) {
+          const html = stripBuilderIds(slideContent.innerHTML);
+          onUpdateSlideRef.current({ content: html });
+        }
       }
       return null;
     });

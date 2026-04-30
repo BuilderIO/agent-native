@@ -9,7 +9,7 @@ import { z } from "zod";
 export default defineAction({
   description: "Log an exercise with calories burned",
   schema: z.object({
-    name: z.string().optional().describe("Exercise name"),
+    name: z.string().min(1).describe("Exercise name"),
     calories_burned: z.coerce.number().optional().describe("Calories burned"),
     duration_minutes: z.coerce
       .number()

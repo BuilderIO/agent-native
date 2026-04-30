@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
+import { agentNativePath } from "@agent-native/core/client";
 
 /**
  * Polls /_agent-native/poll for app-state "navigate" events and calls
@@ -19,7 +20,7 @@ export function useNavigationWatcher() {
     async function poll() {
       try {
         const res = await fetch(
-          `/_agent-native/poll?since=${versionRef.current}`,
+          agentNativePath(`/_agent-native/poll?since=${versionRef.current}`),
         );
         if (!res.ok) return;
         const data = (await res.json()) as {
@@ -47,7 +48,7 @@ export function useNavigationWatcher() {
             handledVersionRef.current = navEvent.version;
             // Fetch the navigation path from app state
             const stateRes = await fetch(
-              "/_agent-native/application-state/navigate",
+              agentNativePath("/_agent-native/application-state/navigate"),
             );
             if (stateRes.ok) {
               const stateData = (await stateRes.json()) as {
@@ -69,7 +70,7 @@ export function useNavigationWatcher() {
     }
 
     // Seed the current version so we only react to future events
-    fetch("/_agent-native/poll?since=0")
+    fetch(agentNativePath("/_agent-native/poll?since=0"))
       .then((r) => r.json())
       .then((d: { version: number }) => {
         versionRef.current = d.version;

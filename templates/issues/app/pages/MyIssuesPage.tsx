@@ -1,6 +1,11 @@
 import { useState } from "react";
-import { useSearchParams, useParams, useNavigate } from "react-router";
-import { IconPlus, IconSearch, IconCircleDot } from "@tabler/icons-react";
+import { Link, useSearchParams, useParams, useNavigate } from "react-router";
+import {
+  IconKey,
+  IconPlus,
+  IconSearch,
+  IconCircleDot,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useIssues } from "@/hooks/use-issues";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -105,7 +110,7 @@ export function MyIssuesPage({ selectedIssueKey: propKey }: MyIssuesPageProps) {
         <div className="flex-1 overflow-y-auto">
           {isAuthError ? (
             <div className="flex flex-col items-center justify-center py-16 text-center px-6">
-              <div className="mb-3 text-2xl">🔑</div>
+              <IconKey className="mb-3 h-10 w-10 text-muted-foreground/30" />
               <p className="text-sm font-medium text-foreground">
                 Jira connection expired
               </p>
@@ -113,12 +118,12 @@ export function MyIssuesPage({ selectedIssueKey: propKey }: MyIssuesPageProps) {
                 Your Atlassian session has expired. Reconnect to continue
                 viewing issues.
               </p>
-              <a
-                href="/settings"
+              <Link
+                to="/settings"
                 className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
               >
                 Reconnect in Settings
-              </a>
+              </Link>
             </div>
           ) : isLoading ? (
             <div className="space-y-1 p-2">

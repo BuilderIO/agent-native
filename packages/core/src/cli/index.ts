@@ -40,6 +40,31 @@ const command = process.argv[2];
 // Filter out bare "--" separators that pnpm inserts between its args and script args
 const args = process.argv.slice(3).filter((a) => a !== "--");
 
+function parseScaffoldArgs(argv: string[]): {
+  name?: string;
+  template?: string;
+  standalone: boolean;
+} {
+  let name: string | undefined;
+  let template: string | undefined;
+  let standalone = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--template" && argv[i + 1]) {
+      template = argv[++i];
+    } else if (arg.startsWith("--template=")) {
+      template = arg.slice("--template=".length);
+    } else if (arg === "--standalone") {
+      standalone = true;
+    } else if (!arg.startsWith("-") && !name) {
+      name = arg;
+    }
+  }
+
+  return { name, template, standalone };
+}
+
 // Track CLI usage (best-effort, non-blocking)
 function trackCli(event: string, props?: Record<string, unknown>): void {
   try {
@@ -147,9 +172,10 @@ switch (command) {
       execSync(`${vite} build`, { stdio: "inherit" });
     }
 
-    // Post-build: bundle for deployment target if NITRO_PRESET is set
+    // Post-build: framework-mode apps also need a Nitro server bundle for
+    // `agent-native start` and for serverless presets.
     const preset = process.env.NITRO_PRESET;
-    if (preset && preset !== "node") {
+    if (isReactRouterFramework()) {
       const __dirname = path.dirname(fileURLToPath(import.meta.url));
       const deployBuild = path.resolve(__dirname, "../deploy/build.js");
       if (fs.existsSync(deployBuild)) {
@@ -234,22 +260,11 @@ switch (command) {
     // Use --standalone for the old single-app flow.
     //   --template foo,bar         Pre-select multiple templates in the picker
     //   --standalone               Scaffold a single standalone app
-    let createName: string | undefined;
-    let createTemplate: string | undefined;
-    let createStandalone = false;
-    for (let i = 0; i < args.length; i++) {
-      if (args[i] === "--template" && args[i + 1]) {
-        createTemplate = args[++i];
-      } else if (args[i] === "--standalone") {
-        createStandalone = true;
-      } else if (!args[i].startsWith("-")) {
-        createName = args[i];
-      }
-    }
+    const parsed = parseScaffoldArgs(args);
     import("./create.js").then((m) =>
-      m.createApp(createName, {
-        template: createTemplate,
-        standalone: createStandalone,
+      m.createApp(parsed.name, {
+        template: parsed.template,
+        standalone: parsed.standalone,
       }),
     );
     break;
@@ -257,30 +272,18 @@ switch (command) {
 
   case "create-workspace": {
     // Deprecated alias for `create` (since workspace is now the default).
-    const wsName = args.find((a) => !a.startsWith("-"));
-    let wsTemplate: string | undefined;
-    for (let i = 0; i < args.length; i++) {
-      if (args[i] === "--template" && args[i + 1]) wsTemplate = args[++i];
-    }
+    const parsed = parseScaffoldArgs(args);
     import("./create-workspace.js").then((m) =>
-      m.createWorkspace({ name: wsName, template: wsTemplate }),
+      m.createWorkspace({ name: parsed.name, template: parsed.template }),
     );
     break;
   }
 
   case "add-app": {
     // Add one or more apps to the current workspace.
-    let addName: string | undefined;
-    let addTemplate: string | undefined;
-    for (let i = 0; i < args.length; i++) {
-      if (args[i] === "--template" && args[i + 1]) {
-        addTemplate = args[++i];
-      } else if (!args[i].startsWith("-")) {
-        addName = args[i];
-      }
-    }
+    const parsed = parseScaffoldArgs(args);
     import("./create.js").then((m) =>
-      m.addAppToWorkspace(addName, { template: addTemplate }),
+      m.addAppToWorkspace(parsed.name, { template: parsed.template }),
     );
     break;
   }

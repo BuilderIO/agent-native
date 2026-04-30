@@ -11,4 +11,11 @@ export default createAuthPlugin({
       "Real-time collaboration between you and the agent",
     ],
   },
+  publicPaths: [
+    "/share",
+    "/api/share",
+    // React Router's lazy route-discovery endpoint must stay public so
+    // unauthenticated viewers can open shared presentation links directly.
+    "/__manifest",
+  ],
 });

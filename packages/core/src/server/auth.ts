@@ -24,9 +24,40 @@ import {
 import type { H3Event } from "h3";
 import type { H3AppShim } from "./framework-request-handler.js";
 
-// In h3 v2, `event.req` IS the web Request — no conversion needed.
+// In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
+// runtime), event.url and event.req share the same underlying URL object.
+// When registerMiddleware strips the mount prefix from event.url.pathname, it
+// also mutates event.req.url (NodeRequestURL setter updates nodeReq.url).
+// Better Auth's router uses new URL(request.url).pathname to extract the
+// sub-route, so it must receive the original full URL — not the stripped one.
+// registerMiddleware saves the original pathname in event.context so we can
+// reconstruct a fresh Request with the correct URL here.
 function toWebRequest(event: H3Event): Request {
-  return (event as any).req as Request;
+  const req = (event as any).req as Request;
+  const ctx = (event as any).context as
+    | { _mountedPathname?: string; _mountPrefix?: string }
+    | undefined;
+  if (ctx?._mountedPathname && ctx._mountPrefix) {
+    try {
+      const url = new URL(req.url);
+      const mountedPathname = stripAppBasePath(ctx._mountedPathname);
+      if (url.pathname !== mountedPathname) {
+        url.pathname = mountedPathname;
+        const method = req.method.toUpperCase();
+        const hasBody = method !== "GET" && method !== "HEAD";
+        return new Request(url.href, {
+          method: req.method,
+          headers: req.headers,
+          // Body may already be partially consumed; pass through as-is.
+          // GET/HEAD cannot have a body — omit to avoid spec errors.
+          ...(hasBody ? { body: req.body, duplex: "half" } : {}),
+        } as any);
+      }
+    } catch {
+      // URL reconstruction failed — fall through and use original req.
+    }
+  }
+  return req;
 }
 
 type H3App = H3AppShim;
@@ -50,6 +81,8 @@ import {
 import {
   isElectron as isElectronRequest,
   getOrigin,
+  getAppBasePath,
+  getAppUrl,
   encodeOAuthState,
   decodeOAuthState,
   createOAuthSession,
@@ -576,12 +609,12 @@ function applyCorsHeaders(event: H3Event): void {
   setResponseHeader(
     event,
     "Access-Control-Allow-Methods",
-    "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+    "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
   );
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    "Content-Type,Authorization,X-Requested-With",
+    "Content-Type,Authorization,X-Requested-With,X-Request-Source",
   );
 }
 
@@ -594,7 +627,10 @@ function createAuthGuardFn(): (
     const { loginHtml, publicPaths } = config;
 
     const url = event.node?.req?.url ?? event.path ?? "/";
-    const p = url.split("?")[0];
+    const queryStart = url.indexOf("?");
+    const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
+    const p = stripAppBasePath(rawPath);
+    const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
 
     // Emit CORS headers on every request the guard sees so that even
     // error responses (401) reach the browser.
@@ -673,7 +709,7 @@ function createAuthGuardFn(): (
     // injection) are rejected up front.
     //
     if (p === "/_agent-native/sign-in") {
-      const queryStr = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
+      const queryStr = queryStart >= 0 ? url.slice(queryStart + 1) : "";
       const safeReturn = safeReturnPath(
         new URLSearchParams(queryStr).get("return"),
       );
@@ -705,7 +741,7 @@ function createAuthGuardFn(): (
     ) {
       return;
     }
-    if (isPublicPath(url, publicPaths)) return;
+    if (isPublicPath(normalizedUrl, publicPaths)) return;
 
     const session = await getSession(event);
     if (session) return;
@@ -820,8 +856,8 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
           return mapBetterAuthSession(baSession);
         }
       }
-    } catch {
-      // Better Auth not ready
+    } catch (e) {
+      console.error("[auth] ba.api.getSession error:", e);
     }
 
     // 5. Legacy cookie fallback (for sessions created before migration)
@@ -931,6 +967,11 @@ function hasSignInFlag(event: H3Event): boolean {
   }
 }
 
+function isReadMethod(event: H3Event): boolean {
+  const method = getMethod(event);
+  return method === "GET" || method === "HEAD";
+}
+
 /**
  * Cookie attributes that work in both same-site and third-party iframe
  * contexts. Over HTTPS we emit `SameSite=None; Secure` (required by browsers
@@ -987,6 +1028,16 @@ function clearUpgradePendingCookie(event: H3Event): void {
 function isPublicPath(url: string, publicPaths: string[]): boolean {
   const p = url.split("?")[0];
   return publicPaths.some((pp) => p === pp || p.startsWith(pp + "/"));
+}
+
+function stripAppBasePath(pathname: string): string {
+  const basePath = getAppBasePath();
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
 }
 
 // ---------------------------------------------------------------------------
@@ -1059,10 +1110,18 @@ const TOKEN_LOGIN_HTML = `<!DOCTYPE html>
   </form>
 </div>
 <script>
+  function __anBasePath() {
+    var marker = '/_agent-native';
+    var idx = window.location.pathname.indexOf(marker);
+    return idx > 0 ? window.location.pathname.slice(0, idx) : '';
+  }
+  function __anPath(path) {
+    return __anBasePath() + path;
+  }
   document.getElementById('form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const token = document.getElementById('token').value;
-    const res = await fetch('/_agent-native/auth/login', {
+    const res = await fetch(__anPath('/_agent-native/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
@@ -1182,7 +1241,7 @@ async function mountBetterAuthRoutes(
         }
         const redirectUri =
           (getQuery(event).redirect_uri as string) ||
-          `${getOrigin(event)}/_agent-native/google/callback`;
+          getAppUrl(event, "/_agent-native/google/callback");
         const q = getQuery(event);
         const desktop =
           isElectronRequest(event) || q.desktop === "1" || q.desktop === "true";
@@ -1238,7 +1297,7 @@ async function mountBetterAuthRoutes(
 
           const { redirectUri, desktop, returnUrl, flowId } = decodeOAuthState(
             query.state as string | undefined,
-            `${getOrigin(event)}/_agent-native/google/callback`,
+            getAppUrl(event, "/_agent-native/google/callback"),
           );
 
           const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -1636,7 +1695,7 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
-      if (getMethod(event) !== "GET") {
+      if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
@@ -1656,7 +1715,7 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/reset",
     defineEventHandler((event) => {
-      if (getMethod(event) !== "GET") {
+      if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
@@ -1732,7 +1791,7 @@ function mountTokenOnlyRoutes(
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
-      if (getMethod(event) !== "GET") {
+      if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
@@ -1756,7 +1815,7 @@ function mountLocalModeRoutes(app: H3App): void {
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
-      if (getMethod(event) !== "GET") {
+      if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
@@ -1957,7 +2016,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
   app.use(
     "/_agent-native/auth/session",
     defineEventHandler(async (event) => {
-      if (getMethod(event) !== "GET") {
+      if (!isReadMethod(event)) {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
@@ -2079,7 +2138,7 @@ export async function autoMountAuth(
     app.use(
       "/_agent-native/auth/session",
       defineEventHandler(async (event) => {
-        if (getMethod(event) !== "GET") {
+        if (!isReadMethod(event)) {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }

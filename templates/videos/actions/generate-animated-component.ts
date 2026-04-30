@@ -12,6 +12,9 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
+import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 
 interface GeneratorOptions {
   name: string;
@@ -413,18 +416,36 @@ function generateComponent(options: GeneratorOptions): void {
   console.log(`   3. Open in Video Studio UI to configure animations\n`);
 }
 
-// Parse CLI arguments
-function parseArgs(): GeneratorOptions {
-  const args = process.argv.slice(2);
+function optionsFromArgs(args: {
+  name: string;
+  elements?: string;
+  output?: string;
+  outputDir?: string;
+}): GeneratorOptions {
+  return {
+    name: args.name,
+    elements: args.elements
+      ? args.elements
+          .split(",")
+          .map((element) => element.trim())
+          .filter(Boolean)
+      : ["Button", "Card"],
+    outputDir: args.outputDir || args.output || "app/remotion/compositions",
+  };
+}
 
+// Parse CLI arguments for direct `pnpm generate:component` usage.
+function parseCliArgs(args: string[]): GeneratorOptions | undefined {
   if (args.length === 0 || args[0] === "--help") {
     console.log(`
 📦 Animated Component Generator
 
 Usage:
   npm run generate:component <ComponentName> [options]
+  pnpm action generate-animated-component --name <ComponentName> [options]
 
 Options:
+  --name <ComponentName>           Component name for action usage
   --elements <Element1,Element2>   Comma-separated list of element types (default: Button,Card)
   --output <dir>                   Output directory (default: app/remotion/compositions)
 
@@ -436,19 +457,74 @@ Examples:
     return;
   }
 
-  const name = args[0];
-  const elementsArg = args.find((arg, i) => args[i - 1] === "--elements");
-  const outputArg = args.find((arg, i) => args[i - 1] === "--output");
+  const parsed: Record<string, string> = {};
+  let positionalName: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg.startsWith("--")) {
+      positionalName ??= arg;
+      continue;
+    }
 
-  return {
+    const eqIdx = arg.indexOf("=");
+    if (eqIdx > 0) {
+      parsed[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
+      continue;
+    }
+
+    const key = arg.slice(2);
+    const next = args[i + 1];
+    if (next && !next.startsWith("--")) {
+      parsed[key] = next;
+      i++;
+    }
+  }
+
+  const name = parsed.name || positionalName;
+  if (!name) {
+    throw new Error("Component name is required");
+  }
+
+  return optionsFromArgs({
     name,
-    elements: elementsArg ? elementsArg.split(",") : ["Button", "Card"],
-    outputDir: outputArg || "app/remotion/compositions",
-  };
+    elements: parsed.elements,
+    output: parsed.output,
+    outputDir: parsed.outputDir,
+  });
 }
 
-// Agent action entry point
-export default async function () {
-  const options = parseArgs();
-  generateComponent(options);
+const action = defineAction({
+  description:
+    "Generate a new Remotion composition folder with animated element boilerplate.",
+  schema: z.object({
+    name: z.string().describe("Component/composition name, e.g. MyDashboard"),
+    elements: z
+      .string()
+      .optional()
+      .describe("Comma-separated element names, e.g. Button,Card,Panel"),
+    output: z.string().optional().describe("Output directory"),
+    outputDir: z.string().optional().describe("Output directory"),
+  }),
+  http: false,
+  run: async (args) => {
+    const options = optionsFromArgs(args);
+    generateComponent(options);
+    return {
+      name: options.name,
+      elements: options.elements,
+      outputDir: options.outputDir,
+    };
+  },
+});
+
+export default action;
+
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  const options = parseCliArgs(process.argv.slice(2));
+  if (options) {
+    generateComponent(options);
+  }
 }

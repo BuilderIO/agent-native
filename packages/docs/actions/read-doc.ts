@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+import { readDocFile, sanitizeDocSlug } from "./docs-files";
 
 export default defineAction({
   description:
@@ -9,19 +10,11 @@ export default defineAction({
   }),
   http: false,
   run: async ({ slug }) => {
-    const { readFile } = await import("node:fs/promises");
-    const { join } = await import("node:path");
     const matter = (await import("gray-matter")).default;
-
-    const sanitized = slug.replace(/[^a-z0-9-]/gi, "");
-    const filePath = join(
-      import.meta.dirname,
-      "../../public/docs",
-      `${sanitized}.md`,
-    );
+    const sanitized = sanitizeDocSlug(slug);
 
     try {
-      const raw = await readFile(filePath, "utf-8");
+      const raw = await readDocFile(sanitized);
       const { data, content } = matter(raw);
       return `# ${data.title || sanitized}\n\n${content}`;
     } catch {

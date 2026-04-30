@@ -289,13 +289,13 @@ async function dispatchAgentic(
     async () => {
       try {
         const actions = _deps!.getActions();
-        const systemPrompt = await _deps!.getSystemPrompt(resource.owner);
+        const systemPrompt = await _deps!.getSystemPrompt(jobUserEmail);
         const tools = actionsToEngineTools(actions);
 
         const engine = createAnthropicEngine({ apiKey });
-        const thread = await createThread(
-          `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
-        );
+        const thread = await createThread(jobUserEmail, {
+          title: `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
+        });
 
         let payloadStr: string;
         try {

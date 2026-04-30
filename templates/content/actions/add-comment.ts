@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
-import { getCurrentOwnerEmail } from "../server/lib/documents.js";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+import "../server/db/index.js";
 
 export default defineAction({
   description: "Add a comment to a document. For new threads, omit threadId.",
@@ -20,11 +21,13 @@ export default defineAction({
     if (!content) throw new Error("--content is required");
 
     const client = getDbExec();
-    const ownerEmail = getCurrentOwnerEmail();
+    const access = await assertAccess("document", documentId, "viewer");
+    const ownerEmail = access.resource.ownerEmail as string;
     const id = Math.random().toString(36).slice(2, 14);
     const threadId = args.threadId ?? id;
     const parentId = args.parentId ?? null;
-    const email = getRequestUserEmail() ?? "agent@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const name = "AI Agent";
 
     const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";

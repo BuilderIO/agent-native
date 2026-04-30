@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { prettyScreenName } from "@/lib/screen-names";
 
 interface ScreenFile {
   id: string;
@@ -142,6 +143,7 @@ function Screen({
   isActive: boolean;
   onPick: (id: string) => void;
 }) {
+  const display = prettyScreenName(screen.filename);
   return (
     <div className="flex flex-col gap-2">
       <span
@@ -149,8 +151,9 @@ function Screen({
           "px-1 text-[11px] font-medium",
           isActive ? "text-foreground" : "text-muted-foreground",
         )}
+        title={screen.filename}
       >
-        {screen.filename}
+        {display}
       </span>
       <button
         type="button"
@@ -170,7 +173,7 @@ function Screen({
           height: SCREEN_HEIGHT,
           cursor: "pointer",
         }}
-        title={`Open ${screen.filename}`}
+        title={`Open ${display}`}
       >
         <iframe
           srcDoc={screen.content}

@@ -22,6 +22,7 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
     onSuccess: () => {
       toast.success("Weight entry deleted");
     },
+    onError: () => toast.error("Failed to delete weight entry"),
   });
 
   const { data: rawWeights, isLoading } = useActionQuery("list-weights", {

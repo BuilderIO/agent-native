@@ -16,7 +16,11 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { formatMs } from "@/lib/timestamp-mapping";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client";
 import { exportConcat, blobToDataUrl } from "@/lib/ffmpeg-export";
 import { toast } from "sonner";
 
@@ -27,7 +31,7 @@ async function uploadFileClient(
 ): Promise<{ url: string } | null> {
   const form = new FormData();
   form.append("file", blob, filename);
-  const res = await fetch("/_agent-native/file-upload", {
+  const res = await fetch(agentNativePath("/_agent-native/file-upload"), {
     method: "POST",
     body: form,
   });

@@ -42,6 +42,7 @@ import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
   AgentToggleButton,
   ShareButton,
+  appPath,
   useSendToAgentChat,
 } from "@agent-native/core/client";
 import {
@@ -365,7 +366,7 @@ export function FormBuilderPage() {
       setShowCloudUpgrade(true);
       return;
     }
-    const url = `${window.location.origin}/f/${form.slug}`;
+    const url = `${window.location.origin}${appPath(`/f/${form.slug}`)}`;
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -419,7 +420,11 @@ export function FormBuilderPage() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                  <a href={`/f/${form.slug}`} target="_blank" rel="noopener">
+                  <a
+                    href={appPath(`/f/${form.slug}`)}
+                    target="_blank"
+                    rel="noopener"
+                  >
                     <IconExternalLink className="h-4 w-4" />
                   </a>
                 </Button>
@@ -460,19 +465,13 @@ export function FormBuilderPage() {
       </div>
 
       {/* Tab row */}
-      <div className="border-b border-border px-2 sm:px-4 shrink-0 overflow-x-auto">
+      <div className="border-b border-border px-2 sm:px-4 py-2 shrink-0 overflow-x-auto">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="h-9 bg-transparent p-0 gap-0 w-max sm:w-auto">
-            <TabsTrigger
-              value="edit"
-              className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-            >
+          <TabsList className="w-max sm:w-auto">
+            <TabsTrigger value="edit" className="text-xs">
               Edit
             </TabsTrigger>
-            <TabsTrigger
-              value="results"
-              className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-            >
+            <TabsTrigger value="results" className="text-xs">
               Results
               {(form.responseCount ?? 0) > 0 && (
                 <Badge
@@ -483,16 +482,10 @@ export function FormBuilderPage() {
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger
-              value="settings"
-              className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-            >
+            <TabsTrigger value="settings" className="text-xs">
               Settings
             </TabsTrigger>
-            <TabsTrigger
-              value="integrations"
-              className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-            >
+            <TabsTrigger value="integrations" className="text-xs">
               Integrations
             </TabsTrigger>
           </TabsList>
@@ -544,6 +537,7 @@ export function FormBuilderPage() {
         <div className="flex-1 overflow-auto">
           <div className="max-w-lg mx-auto py-4 sm:py-8 px-3 sm:px-4">
             <SettingsEditor
+              key={JSON.stringify(form.settings)}
               form={form}
               onSave={(settings) => {
                 save({ id: form.id, settings });
@@ -558,6 +552,7 @@ export function FormBuilderPage() {
         <div className="flex-1 overflow-auto">
           <div className="max-w-lg mx-auto py-4 sm:py-8 px-3 sm:px-4">
             <IntegrationsEditor
+              key={JSON.stringify(form.settings?.integrations)}
               form={form}
               onSave={(settings) => {
                 save({ id: form.id, settings });
@@ -1228,7 +1223,7 @@ function IntegrationsEditor({
                   key={type}
                   type="button"
                   onClick={() => addIntegration(type)}
-                  className="rounded-lg border bg-background p-3 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[44px]"
+                  className="cursor-pointer rounded-lg border bg-background p-3 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[44px]"
                 >
                   <div className="flex items-center gap-3">
                     <IntegrationBrandMark type={type} className="h-9 w-9" />

@@ -13,6 +13,17 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { DispatchShell } from "@/components/dispatch-shell";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -300,7 +311,7 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
     <div className="rounded-xl border bg-card">
       <button
         type="button"
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
         {expanded ? (
@@ -422,15 +433,36 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
               Created by {resource.createdBy} ·{" "}
               {new Date(resource.createdAt).toLocaleString()}
             </div>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => deleteResource.mutate({ id: resource.id })}
-              disabled={deleteResource.isPending}
-            >
-              <IconTrash size={14} className="mr-1" />
-              Delete
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={deleteResource.isPending}
+                >
+                  <IconTrash size={14} className="mr-1" />
+                  Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this resource?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Removing "{resource.name}" revokes all of its grants. Apps
+                    that depended on this resource will lose access on the next
+                    sync. This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => deleteResource.mutate({ id: resource.id })}
+                  >
+                    Delete resource
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </div>
       )}

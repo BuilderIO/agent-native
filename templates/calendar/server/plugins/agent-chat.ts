@@ -88,23 +88,34 @@ The UI writes navigation state including the current view, date, view mode (day/
 When the user says "show me", "go to", "open", or "switch to" a view or date, ALWAYS use the \`navigate\` action to update the UI first, then fetch/display data. The user expects to SEE the result in the app.`,
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
-    const { bookings, bookingLinks } = await import("../db/schema.js");
-    const { like, desc } = await import("drizzle-orm");
+    const { bookings, bookingLinks, bookingLinkShares } =
+      await import("../db/schema.js");
+    const { like, desc, and, inArray } = await import("drizzle-orm");
+    const { accessFilter } = await import("@agent-native/core/sharing");
     return {
       bookings: {
         label: "Bookings",
         icon: "email",
         search: async (query: string) => {
           const db = getDb();
+          // bookings has no ownerEmail — scope via booking-links the caller can access
+          const ownedLinks = await db
+            .select({ slug: bookingLinks.slug })
+            .from(bookingLinks)
+            .where(accessFilter(bookingLinks, bookingLinkShares));
+          const slugs = ownedLinks.map((l) => l.slug);
+          if (slugs.length === 0) return [];
+          const scopeClause = inArray(bookings.slug, slugs);
           const rows = query
             ? await db
                 .select()
                 .from(bookings)
-                .where(like(bookings.name, `%${query}%`))
+                .where(and(scopeClause, like(bookings.name, `%${query}%`)))
                 .limit(15)
             : await db
                 .select()
                 .from(bookings)
+                .where(scopeClause)
                 .orderBy(desc(bookings.start))
                 .limit(15);
           return rows.map((booking) => ({
@@ -122,15 +133,17 @@ When the user says "show me", "go to", "open", or "switch to" a view or date, AL
         icon: "document",
         search: async (query: string) => {
           const db = getDb();
+          const access = accessFilter(bookingLinks, bookingLinkShares);
           const rows = query
             ? await db
                 .select()
                 .from(bookingLinks)
-                .where(like(bookingLinks.title, `%${query}%`))
+                .where(and(access, like(bookingLinks.title, `%${query}%`)))
                 .limit(15)
             : await db
                 .select()
                 .from(bookingLinks)
+                .where(access)
                 .orderBy(desc(bookingLinks.updatedAt))
                 .limit(15);
           return rows.map((link) => ({

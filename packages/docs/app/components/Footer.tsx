@@ -7,7 +7,7 @@ export default function Footer() {
         <p className="m-0">&copy; {year} Agent-Native</p>
         <div className="flex items-center gap-4">
           <a
-            href="https://github.com/agent-native"
+            href="https://github.com/BuilderIO/agent-native"
             target="_blank"
             rel="noreferrer"
             className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"

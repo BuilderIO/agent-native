@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router";
+import { appBasePath } from "@agent-native/core/client";
 import {
   IconDots,
   IconPlayerPlayFilled,
@@ -70,8 +71,10 @@ export function CallRow({
     [call.recordedAt, call.createdAt],
   );
 
-  const shown = call.participants.slice(0, 4);
-  const extra = Math.max(0, call.participants.length - 4);
+  const participants = call.participants ?? [];
+  const topTrackers = call.topTrackers ?? [];
+  const shown = participants.slice(0, 4);
+  const extra = Math.max(0, participants.length - 4);
 
   function openCall() {
     navigate(`/calls/${call.id}`);
@@ -94,7 +97,7 @@ export function CallRow({
     >
       <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded bg-muted">
         <img
-          src={`/api/call-thumbnail/${call.id}`}
+          src={`${appBasePath()}/api/call-thumbnail/${call.id}`}
           alt=""
           className="h-full w-full object-cover"
           draggable={false}
@@ -163,7 +166,7 @@ export function CallRow({
       )}
 
       <div className="hidden lg:flex items-center gap-1 shrink-0 max-w-[22rem] overflow-hidden">
-        {call.topTrackers.slice(0, 3).map((t) => (
+        {topTrackers.slice(0, 3).map((t) => (
           <TrackerChip
             key={t.trackerId}
             name={t.name}

@@ -85,7 +85,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
           localStorage.removeItem('${MIGRATE_FLAG_KEY}');
         }
       } catch (e) {}
-      var res = await fetch('/_agent-native/auth/local-mode', { method: 'POST' });
+      var res = await fetch(__anPath('/_agent-native/auth/local-mode'), { method: 'POST' });
       if (res.ok) {
         window.location.reload();
       } else {
@@ -515,7 +515,7 @@ ${marketingStyles}
 <body${hasMarketing ? ' class="has-marketing"' : ""}>
 ${marketingPanelHtml}
 <div class="card">
-  <h1>Welcome</h1>
+  <h1 id="heading">Welcome</h1>
   <p class="subtitle" id="subtitle">Create an account to get started</p>
   <p class="upgrade-note" id="upgrade-note">
     You started this flow from <code>local@localhost</code>. Continue signing in to upgrade this workspace to a real account and migrate your local data. If you want to cancel that and keep using local mode, use the secondary button below.
@@ -587,6 +587,14 @@ ${localModeBlock}
   Your account is stored in this app's own DB (<strong>${getConnectionLabel()}</strong>), not a third-party service.
 </p>${marketingCloseHtml}
 <script>
+  function __anBasePath() {
+    var marker = '/_agent-native';
+    var idx = window.location.pathname.indexOf(marker);
+    return idx > 0 ? window.location.pathname.slice(0, idx) : '';
+  }
+  function __anPath(path) {
+    return __anBasePath() + path;
+  }
   (function revealLocalNote() {
     var h = location.hostname;
     if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local')) {
@@ -601,6 +609,7 @@ ${
   var tabs = document.querySelectorAll('.tab');
   var forms = document.querySelectorAll('.form');
   var subtitles = { signup: 'Create an account to get started', login: 'Sign in to your account' };
+  var headings = { signup: 'Welcome', login: 'Welcome back' };
   function setActiveTab(name, opts) {
     if (name !== 'signup' && name !== 'login') return;
     var form = document.getElementById(name + '-form');
@@ -612,6 +621,8 @@ ${
     form.classList.add('active');
     var sub = document.getElementById('subtitle');
     if (sub && subtitles[name]) sub.textContent = subtitles[name];
+    var heading = document.getElementById('heading');
+    if (heading && headings[name]) heading.textContent = headings[name];
     if (opts && opts.persist) {
       try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch (e) {}
     }
@@ -664,7 +675,7 @@ ${
     btn.textContent = 'Creating account…';
     try {
       var email = document.getElementById('s-email').value;
-      var res = await fetch('/_agent-native/auth/register', {
+      var res = await fetch(__anPath('/_agent-native/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email, password: pass }),
@@ -673,7 +684,7 @@ ${
       if (res.ok) {
         // If email verification is required, the server won't return a session.
         // Try logging in — if it fails (unverified), show a "check your email" message.
-        var loginRes = await fetch('/_agent-native/auth/login', {
+        var loginRes = await fetch(__anPath('/_agent-native/auth/login'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: email, password: pass }),
@@ -718,6 +729,8 @@ ${
     document.getElementById('forgot-form').classList.add('active');
     var sub = document.getElementById('subtitle');
     if (sub) sub.textContent = 'Reset your password';
+    var heading = document.getElementById('heading');
+    if (heading) heading.textContent = 'Reset password';
     var fEmail = document.getElementById('f-email');
     var lEmail = document.getElementById('l-email');
     if (lEmail && lEmail.value) fEmail.value = lEmail.value;
@@ -729,6 +742,8 @@ ${
     document.getElementById('login-form').classList.add('active');
     var sub = document.getElementById('subtitle');
     if (sub) sub.textContent = subtitles.login;
+    var heading = document.getElementById('heading');
+    if (heading) heading.textContent = headings.login;
   });
 
   var forgotForm = document.getElementById('forgot-form');
@@ -742,7 +757,7 @@ ${
     btn.textContent = 'Sending…';
     try {
       var email = document.getElementById('f-email').value;
-      var res = await fetch('/_agent-native/auth/ba/request-password-reset', {
+      var res = await fetch(__anPath('/_agent-native/auth/ba/request-password-reset'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email }),
@@ -776,7 +791,7 @@ ${
     btn.disabled = true;
     btn.textContent = 'Signing in…';
     try {
-      var res = await fetch('/_agent-native/auth/login', {
+      var res = await fetch(__anPath('/_agent-native/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -847,7 +862,7 @@ ${
     err.classList.remove('show');
     try {
       var ret = __anGetReturnPath();
-      var authUrl = '/_agent-native/google/auth-url?return=' + encodeURIComponent(ret);
+      var authUrl = __anPath('/_agent-native/google/auth-url') + '?return=' + encodeURIComponent(ret);
       var res = await fetch(authUrl);
       var data = await res.json();
       if (data.url) {
@@ -856,7 +871,7 @@ ${
         btn.disabled = false;
         btn.textContent = 'Waiting for sign-in…';
         var poll = setInterval(function() {
-          fetch('/_agent-native/auth/session').then(function(r) { return r.json(); }).then(function(s) {
+          fetch(__anPath('/_agent-native/auth/session')).then(function(r) { return r.json(); }).then(function(s) {
             if (s && s.email) { clearInterval(poll); window.location.reload(); }
           }).catch(function() {});
         }, 1500);

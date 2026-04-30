@@ -52,7 +52,7 @@ import {
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client";
+import { FeedbackButton, appApiPath } from "@agent-native/core/client";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 import { NewAnalysisDialog } from "./NewAnalysisDialog";
@@ -467,7 +467,7 @@ function setAnalysisOrder(order: string[]): void {
 
 async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
   const token = await getIdToken();
-  const res = await fetch("/api/sql-dashboards", {
+  const res = await fetch(appApiPath("/api/sql-dashboards"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];
@@ -485,7 +485,7 @@ async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
 
 async function fetchSidebarAnalyses(): Promise<{ id: string; name: string }[]> {
   const token = await getIdToken();
-  const res = await fetch("/api/analyses", {
+  const res = await fetch(appApiPath("/api/analyses"), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return [];
@@ -522,7 +522,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
 
   useEffect(() => {
-    fetch("/api/theme")
+    fetch(appApiPath("/api/theme"))
       .then((r) => r.json())
       .then((d) => {
         const isLight = d.theme === "light";
@@ -674,7 +674,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       );
       try {
         const token = await getIdToken();
-        const res = await fetch(`/api/sql-dashboards/${d.id}`, {
+        const res = await fetch(appApiPath(`/api/sql-dashboards/${d.id}`), {
           method: "DELETE",
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
@@ -701,7 +701,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       );
       try {
         const token = await getIdToken();
-        const res = await fetch(`/api/analyses/${a.id}`, {
+        const res = await fetch(appApiPath(`/api/analyses/${a.id}`), {
           method: "DELETE",
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
@@ -1091,7 +1091,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     const next = !light;
                     setLight(next);
                     document.documentElement.classList.toggle("light", next);
-                    fetch("/api/theme", {
+                    fetch(appApiPath("/api/theme"), {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ theme: next ? "light" : "dark" }),

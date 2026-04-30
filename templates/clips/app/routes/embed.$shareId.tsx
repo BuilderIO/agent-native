@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
+import { appBasePath } from "@agent-native/core/client";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
@@ -83,7 +84,10 @@ export default function EmbedRoute() {
   const dataQ = useQuery({
     queryKey: ["public-recording", shareId, password],
     queryFn: async () => {
-      const url = new URL("/api/public-recording", window.location.origin);
+      const url = new URL(
+        `${appBasePath()}/api/public-recording`,
+        window.location.origin,
+      );
       url.searchParams.set("id", shareId ?? "");
       if (password) url.searchParams.set("password", password);
       const res = await fetch(url.toString());

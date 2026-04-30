@@ -21,7 +21,7 @@ export function StatsCard({
   trend,
 }: StatsCardProps) {
   return (
-    <Card className="bg-card border-border/50 shadow-sm hover:shadow-md transition-all">
+    <Card className="bg-card border-border/50 shadow-sm">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
           {title}

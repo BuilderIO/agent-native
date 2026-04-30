@@ -197,9 +197,16 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
               key={field.id}
               className="overflow-hidden rounded-lg border border-border"
             >
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => setEditingId(isEditing ? null : field.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setEditingId(isEditing ? null : field.id);
+                  }
+                }}
                 className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/40"
               >
                 <IconGripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
@@ -248,7 +255,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                     <IconTrash className="h-3 w-3" />
                   </button>
                 </div>
-              </button>
+              </div>
 
               {isEditing && (
                 <div className="space-y-3 border-t border-border bg-muted/20 px-3 py-3">

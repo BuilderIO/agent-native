@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { addBytesProcessed } from "./cost-tracker";
 import { getIdToken } from "./auth";
+import { appApiPath } from "@agent-native/core/client";
 
 export interface QueryMetricsResult {
   rows: Record<string, unknown>[];
@@ -10,7 +11,7 @@ export interface QueryMetricsResult {
 
 export async function queryMetrics(sql: string): Promise<QueryMetricsResult> {
   const token = await getIdToken();
-  const res = await fetch("/api/query", {
+  const res = await fetch(appApiPath("/api/query"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

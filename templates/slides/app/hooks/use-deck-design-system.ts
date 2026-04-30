@@ -29,7 +29,9 @@ export function useDeckDesignSystem(designSystemId?: string | null) {
     id: string;
     title: string;
     data: string;
-  }>("get-design-system", designSystemId ? { id: designSystemId } : undefined);
+  }>("get-design-system", designSystemId ? { id: designSystemId } : undefined, {
+    enabled: Boolean(designSystemId),
+  });
 
   if (!designSystemId || !data?.data) {
     return { designSystem: DEFAULT_DESIGN_SYSTEM, isLoading: false };

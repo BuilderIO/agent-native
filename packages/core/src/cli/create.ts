@@ -572,7 +572,9 @@ function postProcessStandalone(name: string, targetDir: string): void {
         const deps = pkg[depType];
         if (!deps) continue;
         for (const [key, val] of Object.entries(deps)) {
-          if (typeof val === "string" && val.startsWith("workspace:")) {
+          if (key === "@agent-native/core") {
+            deps[key] = "latest";
+          } else if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";
           } else if (typeof val === "string" && val === "catalog:") {
             deps[key] = catalog[key] ?? "latest";

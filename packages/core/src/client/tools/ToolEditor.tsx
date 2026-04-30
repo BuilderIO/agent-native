@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
@@ -34,7 +35,9 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
   const { data: existingTool } = useQuery<Tool>({
     queryKey: ["tool", toolId],
     queryFn: async () => {
-      const res = await fetch(`/_agent-native/tools/${toolId}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/tools/${toolId}`),
+      );
       if (!res.ok) throw new Error("Failed to fetch tool");
       return res.json();
     },
@@ -60,17 +63,20 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
       });
 
       if (isEdit) {
-        const res = await fetch(`/_agent-native/tools/${toolId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body,
-        });
+        const res = await fetch(
+          agentNativePath(`/_agent-native/tools/${toolId}`),
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body,
+          },
+        );
         if (!res.ok) throw new Error("Update failed");
         queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
         queryClient.invalidateQueries({ queryKey: ["tools"] });
         navigate(`/tools/${toolId}`);
       } else {
-        const res = await fetch("/_agent-native/tools", {
+        const res = await fetch(agentNativePath("/_agent-native/tools"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body,
@@ -94,9 +100,12 @@ export function ToolEditor({ toolId }: ToolEditorProps) {
         (old ?? []).filter((t) => t.id !== toolId),
       );
 
-      const res = await fetch(`/_agent-native/tools/${toolId}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/tools/${toolId}`),
+        {
+          method: "DELETE",
+        },
+      );
       if (!res.ok) {
         if (prev) queryClient.setQueryData(["tools"], prev);
         throw new Error("Delete failed");

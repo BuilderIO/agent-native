@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { sendToAgentChat, agentNativePath } from "@agent-native/core/client";
 import type { QuestionFlowQuestion } from "@shared/api";
 
 /**
@@ -19,7 +19,7 @@ export function useQuestionFlow(designId: string | undefined) {
     queryKey: ["show-questions"],
     queryFn: async () => {
       const res = await fetch(
-        "/_agent-native/application-state/show-questions",
+        agentNativePath("/_agent-native/application-state/show-questions"),
       );
       if (!res.ok) return null;
       const text = await res.text();
@@ -46,7 +46,7 @@ export function useQuestionFlow(designId: string | undefined) {
   const clear = useCallback(() => {
     setQuestions(null);
     qc.setQueryData(["show-questions"], null);
-    fetch("/_agent-native/application-state/show-questions", {
+    fetch(agentNativePath("/_agent-native/application-state/show-questions"), {
       method: "DELETE",
     }).catch(() => {});
   }, [qc]);

@@ -1,7 +1,8 @@
 import { useActionQuery } from "@agent-native/core/client";
 
-export function useBoards() {
+export function useBoards(enabled = true) {
   return useActionQuery<any>("list-boards", undefined, {
+    enabled,
     staleTime: 60_000,
   });
 }

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { agentNativePath } from "./api-path.js";
 
 /**
  * Tri-state:
@@ -19,7 +20,7 @@ export function useBuilderEnabled(): boolean | null {
   const { data, isLoading, isError } = useQuery<boolean>({
     queryKey: ["env-status", "ENABLE_BUILDER"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/env-status");
+      const res = await fetch(agentNativePath("/_agent-native/env-status"));
       if (!res.ok) return false;
       const keys = (await res.json()) as Array<{
         key: string;

@@ -11,6 +11,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { Markdown } from "tiptap-markdown";
 import { cn } from "../utils.js";
+import { agentNativePath } from "../api-path.js";
 import type { Resource } from "./use-resources.js";
 import {
   type ParsedFrontmatter,
@@ -1172,7 +1173,7 @@ export function ResourceEditor({
       <div className="flex h-full flex-col">
         <div className="flex flex-1 items-center justify-center overflow-auto p-4">
           <img
-            src={`/_agent-native/resources/${resource.id}?raw`}
+            src={agentNativePath(`/_agent-native/resources/${resource.id}?raw`)}
             alt={resource.path}
             className="max-h-full max-w-full object-contain"
           />
