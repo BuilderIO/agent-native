@@ -137,9 +137,9 @@ export default function Studio() {
 
   if (!compositionId) {
     return compositions.length > 0 ? (
-      <Navigate to={`/c/${compositions[0].id}`} replace />
+      <Navigate to={`c/${compositions[0].id}`} replace />
     ) : (
-      <Navigate to="/c/new" replace />
+      <Navigate to="c/new" replace />
     );
   }
 
