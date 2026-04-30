@@ -864,15 +864,11 @@ function fixPackageJsonName(appDir: string, name: string): void {
 }
 
 function getCoreDependencyVersion(): string {
-  try {
-    const packageRoot = path.resolve(__dirname, "../..");
-    const pkg = JSON.parse(
-      fs.readFileSync(path.join(packageRoot, "package.json"), "utf-8"),
-    );
-    if (typeof pkg.version === "string" && pkg.version.length > 0) {
-      return `^${pkg.version}`;
-    }
-  } catch {}
+  // Always "latest" for scaffolded apps. Returning the local package.json's
+  // version (e.g. "^0.7.14") locks scaffolded standalone apps to whatever
+  // version was current when the user ran `agent-native create`, instead of
+  // tracking the published latest. The local workspace path does not call
+  // this — it uses `workspace:*` references that pnpm resolves at install.
   return "latest";
 }
 
