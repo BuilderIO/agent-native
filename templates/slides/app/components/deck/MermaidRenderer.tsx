@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import mermaid from "mermaid";
+import DOMPurify from "isomorphic-dompurify";
 
 let initialized = false;
 let idCounter = 0;
@@ -50,7 +51,14 @@ export function MermaidRenderer({
       .render(id, definition.trim())
       .then(({ svg: renderedSvg }) => {
         if (cancelled) return;
-        setSvg(renderedSvg);
+        // Mermaid 11.x runs DOMPurify internally with `securityLevel:"strict"`,
+        // but we re-sanitize the SVG before injecting via dangerouslySetInnerHTML
+        // so a future config drift or library regression cannot reintroduce
+        // SVG-borne XSS (foreignObject scripts, javascript: hrefs, etc.).
+        const sanitized = DOMPurify.sanitize(renderedSvg, {
+          USE_PROFILES: { svg: true, svgFilters: true },
+        });
+        setSvg(sanitized);
         setError("");
       })
       .catch((err) => {

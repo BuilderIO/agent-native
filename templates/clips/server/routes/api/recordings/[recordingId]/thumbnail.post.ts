@@ -25,7 +25,9 @@ import { uploadFile } from "@agent-native/core/file-upload";
 
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 
-function normalizeThumbnailMimeType(value: string): "image/jpeg" | "image/png" | null {
+function normalizeThumbnailMimeType(
+  value: string,
+): "image/jpeg" | "image/png" | null {
   const mimeType = value.split(";")[0]?.trim().toLowerCase();
   if (mimeType === "image/jpeg" || mimeType === "image/png") return mimeType;
   return null;

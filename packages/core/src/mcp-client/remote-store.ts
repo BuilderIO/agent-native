@@ -325,14 +325,36 @@ export async function addRemoteServer(
     return { ok: false, error: `A server named "${name}" already exists` };
   }
 
+  const id = `mcps_${shortId()}`;
+  const { cleartext, secret } = partitionHeaders(input.headers);
+
+  // Persist secret-class headers in the encrypted secrets table; the
+  // settings row only references the secret key, never the cleartext.
+  let headerSecretKey: string | undefined;
+  if (secret) {
+    headerSecretKey = `mcp_headers:${id}`;
+    try {
+      await writeAppSecret({
+        key: headerSecretKey,
+        value: JSON.stringify(secret),
+        scope: scope === "user" ? "user" : "org",
+        scopeId,
+        description: `Encrypted MCP headers for ${name}`,
+      });
+    } catch (err: any) {
+      return {
+        ok: false,
+        error: `Failed to encrypt MCP headers: ${err?.message ?? err}`,
+      };
+    }
+  }
+
   const server: StoredRemoteMcpServer = {
-    id: `mcps_${shortId()}`,
+    id,
     name,
     url: urlCheck.url!.toString(),
-    headers:
-      input.headers && Object.keys(input.headers).length > 0
-        ? { ...input.headers }
-        : undefined,
+    headers: cleartext,
+    headerSecretKey,
     description: input.description?.trim() || undefined,
     createdAt: Date.now(),
   };
@@ -346,6 +368,7 @@ export async function removeRemoteServer(
   id: string,
 ): Promise<boolean> {
   const existing = await readList(scope, scopeId);
+  const removed = existing.find((s) => s.id === id);
   const next = existing.filter((s) => s.id !== id);
   if (next.length === existing.length) return false;
   if (next.length === 0) {
@@ -357,7 +380,62 @@ export async function removeRemoteServer(
   } else {
     await writeList(scope, scopeId, next);
   }
+  // Best-effort: drop the encrypted-headers secret too. Errors are logged
+  // but don't fail the deletion — the settings row is already gone, so a
+  // dangling secret is harmless (it just can't be read back).
+  if (removed?.headerSecretKey) {
+    try {
+      await deleteAppSecret({
+        key: removed.headerSecretKey,
+        scope: scope === "user" ? "user" : "org",
+        scopeId,
+      });
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[mcp-client] Failed to delete MCP header secret ${removed.headerSecretKey}: ${err?.message ?? err}`,
+      );
+    }
+  }
   return true;
+}
+
+/**
+ * Resolve the full headers map (cleartext + decrypted secret headers) for a
+ * stored MCP server. Used when projecting the stored record into the
+ * runtime `McpHttpServerConfig` shape that `McpClientManager` consumes.
+ *
+ * For legacy rows that wrote secrets cleartext into `headers`, this
+ * returns those cleartext values unchanged — they should be re-saved
+ * through `addRemoteServer` to migrate to encrypted storage.
+ */
+export async function materializeHeaders(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  stored: StoredRemoteMcpServer,
+): Promise<Record<string, string> | undefined> {
+  const merged: Record<string, string> = { ...(stored.headers ?? {}) };
+  if (stored.headerSecretKey) {
+    try {
+      const secret = await readAppSecret({
+        key: stored.headerSecretKey,
+        scope: scope === "user" ? "user" : "org",
+        scopeId,
+      });
+      if (secret) {
+        const parsed = JSON.parse(secret.value) as Record<string, string>;
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === "string") merged[k] = v;
+        }
+      }
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[mcp-client] Failed to decrypt MCP headers for ${stored.name}: ${err?.message ?? err}`,
+      );
+    }
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 /**

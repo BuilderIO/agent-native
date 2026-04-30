@@ -90,6 +90,7 @@ import {
   oauthCallbackResponse,
   oauthErrorPage,
   resolveOAuthRedirectUri,
+  isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
 
 /**
@@ -1395,6 +1396,15 @@ async function mountBetterAuthRoutes(
             query.state as string | undefined,
             getAppUrl(event, "/_agent-native/google/callback"),
           );
+          // Defence in depth: the state is HMAC-signed, but if the signing
+          // key ever leaked an attacker could mint state with their own
+          // redirect_uri. Re-validate against the same allowlist used at
+          // auth-url time so the token exchange is always sent to a URI we
+          // own.
+          if (!isAllowedOAuthRedirectUri(redirectUri, event)) {
+            setResponseStatus(event, 400);
+            return { error: "Invalid redirect_uri in state" };
+          }
 
           const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
             method: "POST",

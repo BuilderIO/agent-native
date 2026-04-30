@@ -6,6 +6,7 @@ import {
   lazy,
   Suspense,
 } from "react";
+import DOMPurify from "isomorphic-dompurify";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const Excalidraw = lazy(async () => {
@@ -139,7 +140,15 @@ export function ExcalidrawThumbnail({ data }: { data: string }) {
           },
           files: parsed.files || {},
         });
-        setSvg(svgEl.outerHTML);
+        // Excalidraw `exportToSvg` is generally safe for canonical elements,
+        // but slide.excalidrawData is raw user/agent input and the deck is
+        // public-shareable. Sanitize SVG output before injecting via
+        // dangerouslySetInnerHTML to neutralise foreignObject scripts,
+        // javascript: hrefs, and event-handler attributes.
+        const sanitized = DOMPurify.sanitize(svgEl.outerHTML, {
+          USE_PROFILES: { svg: true, svgFilters: true },
+        });
+        setSvg(sanitized);
       } catch {
         // silently fail for thumbnails
       }

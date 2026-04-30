@@ -17,7 +17,11 @@ import {
 import { updateThreadData } from "../chat-threads/store.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
-import { insertPendingTask, type PendingTask } from "./pending-tasks-store.js";
+import {
+  insertPendingTask,
+  isDuplicateEventError,
+  type PendingTask,
+} from "./pending-tasks-store.js";
 import { signInternalToken } from "./internal-token.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
