@@ -110,5 +110,13 @@ export const serveMedia = defineEventHandler(async (event: H3Event) => {
     "Cache-Control",
     "public, max-age=31536000, immutable",
   );
+  // Force download for SVG and other types that could execute scripts inline.
+  if (ext === ".svg" || ext === ".html" || ext === ".htm") {
+    setResponseHeader(
+      event,
+      "Content-Disposition",
+      `attachment; filename="${filename}"`,
+    );
+  }
   return streamFile(fs.createReadStream(filePath));
 });

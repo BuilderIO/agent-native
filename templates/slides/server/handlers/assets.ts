@@ -40,10 +40,15 @@ export const uploadAsset = defineEventHandler(async (event) => {
 
   const originalName = filePart.filename || "upload";
   const ext = path.extname(originalName);
-  const allowed = /\.(jpg|jpeg|png|gif|svg|webp|avif|ico)$/i;
+  // SVG is excluded — it can embed <script> tags and execute when served
+  // as image/svg+xml from the same origin.
+  const allowed = /\.(jpg|jpeg|png|gif|webp|avif|ico)$/i;
   if (!allowed.test(ext)) {
     setResponseStatus(event, 400);
-    return { error: "Only image files are allowed" };
+    return {
+      error:
+        "Only raster image files are allowed (jpg, png, gif, webp, avif, ico)",
+    };
   }
 
   const base = path.basename(originalName, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
