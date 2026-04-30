@@ -154,9 +154,7 @@ function IntegrationDetail({
     try {
       const action = serverStatus?.enabled ? "disable" : "enable";
       const res = await fetch(
-        agentNativePath(
-          `/_agent-native/integrations/${platform.id}/${action}`,
-        ),
+        agentNativePath(`/_agent-native/integrations/${platform.id}/${action}`),
         { method: "POST" },
       );
       if (res.ok) onRefresh();

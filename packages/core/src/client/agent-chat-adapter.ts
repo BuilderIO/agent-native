@@ -18,7 +18,8 @@ export function createAgentChatAdapter(options?: {
   modelRef?: { current: string | undefined };
   engineRef?: { current: string | undefined };
 }): ChatModelAdapter {
-  const apiUrl = options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
+  const apiUrl =
+    options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const tabId = options?.tabId;
   const threadId = options?.threadId;
   const modelRef = options?.modelRef;

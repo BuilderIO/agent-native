@@ -30,7 +30,8 @@ export interface UseProductionAgentResult {
 export function useProductionAgent(
   options?: UseProductionAgentOptions,
 ): UseProductionAgentResult {
-  const apiUrl = options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
+  const apiUrl =
+    options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const [messages, setMessages] = useState<ProductionAgentMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
