@@ -174,37 +174,37 @@ export function FlowBar() {
         <div className="flow-bar-transcript">{partialTranscript}</div>
       )}
       {showPill && (
-      <div className={`flow-bar flow-bar-${state}`}>
-        {state === "recording" ? (
-          <div className="flow-bar-recording">
-            <canvas ref={canvasRef} className="flow-bar-canvas" />
-          </div>
-        ) : null}
+        <div className={`flow-bar flow-bar-${state}`}>
+          {state === "recording" ? (
+            <div className="flow-bar-recording">
+              <canvas ref={canvasRef} className="flow-bar-canvas" />
+            </div>
+          ) : null}
 
-        {state === "processing" ? (
-          <div className="flow-bar-processing">
-            <span className="flow-bar-shimmer">Polishing...</span>
-          </div>
-        ) : null}
+          {state === "processing" ? (
+            <div className="flow-bar-processing">
+              <span className="flow-bar-shimmer">Polishing...</span>
+            </div>
+          ) : null}
 
-        {state === "error" ? (
-          <div className="flow-bar-processing">
-            <span className="flow-bar-error">Could not transcribe</span>
-          </div>
-        ) : null}
+          {state === "error" ? (
+            <div className="flow-bar-processing">
+              <span className="flow-bar-error">Could not transcribe</span>
+            </div>
+          ) : null}
 
-        {(state === "recording" || state === "processing") && (
-          <button
-            type="button"
-            className="flow-bar-cancel"
-            onClick={handleCancel}
-            aria-label="Cancel dictation"
-            title="Cancel"
-          >
-            <IconX size={12} stroke={2.5} />
-          </button>
-        )}
-      </div>
+          {(state === "recording" || state === "processing") && (
+            <button
+              type="button"
+              className="flow-bar-cancel"
+              onClick={handleCancel}
+              aria-label="Cancel dictation"
+              title="Cancel"
+            >
+              <IconX size={12} stroke={2.5} />
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
