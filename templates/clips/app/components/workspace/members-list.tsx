@@ -32,7 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-export type MemberRole = "viewer" | "creator-lite" | "creator" | "admin";
+export type MemberRole = "owner" | "admin" | "member";
 
 export interface MemberRow {
   id: string;
@@ -56,9 +56,7 @@ function initials(email: string): string {
 }
 
 const ROLE_OPTIONS: { value: MemberRole; label: string }[] = [
-  { value: "viewer", label: "Viewer" },
-  { value: "creator-lite", label: "Creator (lite)" },
-  { value: "creator", label: "Creator" },
+  { value: "member", label: "Member" },
   { value: "admin", label: "Admin" },
 ];
 

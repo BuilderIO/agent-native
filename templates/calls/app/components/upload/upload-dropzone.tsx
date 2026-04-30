@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { useActionMutation } from "@agent-native/core/client";
+import { appBasePath, useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   IconUpload,
@@ -111,7 +111,7 @@ export function UploadDropzone({
         let uploadedWithDirect = false;
         if (item.file.size > DIRECT_UPLOAD_THRESHOLD) {
           try {
-            const resp = await fetch("/api/uploads/direct", {
+            const resp = await fetch(`${appBasePath()}/api/uploads/direct`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -132,7 +132,7 @@ export function UploadDropzone({
                     bytesSent: bytes,
                   }),
               });
-              await fetch(`/api/uploads/${callId}/complete`, {
+              await fetch(`${appBasePath()}/api/uploads/${callId}/complete`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -408,7 +408,7 @@ async function uploadChunked({
     }
 
     const res = await fetch(
-      `/api/uploads/${callId}/chunk?${params.toString()}`,
+      `${appBasePath()}/api/uploads/${callId}/chunk?${params.toString()}`,
       {
         method: "POST",
         headers: {

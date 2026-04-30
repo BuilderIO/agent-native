@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "../api-path.js";
 
-const BASE = "/_agent-native/observability";
+const BASE = agentNativePath("/_agent-native/observability");
 
 function fetchJson<T>(url: string): Promise<T> {
   return fetch(url).then((r) => {

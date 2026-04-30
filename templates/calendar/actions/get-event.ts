@@ -31,9 +31,9 @@ export default defineAction({
 
     const clients = await googleCalendar.getClients(email);
     if (clients.length === 0) {
-      throw new Error(
-        "Google Calendar not connected. Connect via Settings first.",
-      );
+      return {
+        error: "Google Calendar not connected. Connect via Settings first.",
+      };
     }
 
     for (const { email: acctEmail, accessToken } of clients) {
@@ -112,6 +112,6 @@ export default defineAction({
       }
     }
 
-    throw new Error(`Event not found: ${args.id}`);
+    return { error: `Event not found: ${args.id}` };
   },
 });

@@ -2,7 +2,11 @@ import { createContext, useContext, useState, useEffect } from "react";
 import { useLocation } from "react-router";
 import { IconMenu } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
-import { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+  NotificationsBell,
+} from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { Sidebar } from "./Sidebar";
 import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
@@ -86,6 +90,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const googleStatus = useGoogleAuthStatus();
   const hasAccounts = (googleStatus.data?.accounts?.length ?? 0) > 0;
   const isSettingsPage = location.pathname === "/settings";
+  const isCalendarPage = location.pathname === "/";
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
@@ -181,15 +186,17 @@ export function AppLayout({ children }: AppLayoutProps) {
                 </Button>
                 <span className="ml-2 text-sm font-semibold">Calendar</span>
               </div>
+              <NotificationsBell />
               <AgentToggleButton className="ml-auto h-8 w-8 rounded-md hover:bg-accent" />
             </header>
 
             <InvitationBanner />
 
-            {/* Show full-page takeover when no accounts connected (except on settings page) */}
+            {/* Show the full-page Google prompt only on the calendar view. */}
             {!googleStatus.isLoading &&
             !googleStatus.isError &&
             !hasAccounts &&
+            isCalendarPage &&
             !isSettingsPage ? (
               <main className="flex-1 overflow-y-auto">
                 <GoogleConnectBanner variant="hero" />

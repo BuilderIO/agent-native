@@ -102,6 +102,25 @@ function isEnvVarWriteAllowed(): boolean {
   return isDevEnvironment() && isLocalDatabase();
 }
 
+function normalizeAppBasePath(value: string | undefined): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function stripAppBasePath(pathname: string): string {
+  const basePath = normalizeAppBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface CoreRoutesPluginOptions {
@@ -253,8 +272,11 @@ export function createCoreRoutesPlugin(
       .filter(Boolean);
     getH3App(nitroApp).use(
       defineEventHandler((event) => {
-        const url = event.node?.req?.url ?? event.path ?? "/";
-        if (!url.startsWith(P) && !url.startsWith("/api/")) return;
+        const pathname = stripAppBasePath(
+          event.url?.pathname ??
+            String(event.node?.req?.url ?? event.path ?? "/").split("?")[0],
+        );
+        if (!pathname.startsWith(P) && !pathname.startsWith("/api/")) return;
         const reqHeaders = (event.node?.req?.headers ?? {}) as Record<
           string,
           string | string[] | undefined
@@ -263,13 +285,13 @@ export function createCoreRoutesPlugin(
         const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
         if (!origin) return;
         const allowed =
-          allowlist.length === 0 ||
-          allowlist.includes(origin) ||
-          // Dev convenience: allow any localhost origin (tray windows,
-          // frame, docs) without requiring an explicit allowlist.
-          /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/.test(
-            origin,
-          );
+          allowlist.length === 0
+            ? // Dev convenience: allow any localhost origin (tray windows,
+              // frame, docs) without requiring an explicit allowlist.
+              /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/.test(
+                origin,
+              )
+            : allowlist.includes(origin);
         if (!allowed) return;
         setResponseHeader(event, "Access-Control-Allow-Origin", origin);
         setResponseHeader(event, "Vary", "Origin");
@@ -277,12 +299,12 @@ export function createCoreRoutesPlugin(
         setResponseHeader(
           event,
           "Access-Control-Allow-Methods",
-          "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+          "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
         );
         setResponseHeader(
           event,
           "Access-Control-Allow-Headers",
-          "Content-Type,Authorization,X-Requested-With",
+          "Content-Type,Authorization,X-Requested-With,X-Request-Source",
         );
         if (getMethod(event) === "OPTIONS") {
           setResponseStatus(event, 204);
@@ -396,7 +418,7 @@ export function createCoreRoutesPlugin(
           // This is consistent with resolveBuilderCredential()'s design which
           // refuses the env fallback for authenticated users to prevent
           // cross-tenant credential leakage in shared-DB deployments.
-          if (userEmail && userEmail !== "local@localhost") {
+          if (userEmail && userEmail !== DEV_MODE_USER_EMAIL) {
             return {
               ...envStatus,
               configured: false,
@@ -1046,17 +1068,19 @@ export function createCoreRoutesPlugin(
         }
 
         const session = await getSession(event);
-        const userEmail = session?.email;
-        const doUpload = () =>
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "Unauthorized" };
+        }
+        const userEmail = session.email;
+        const result = await runWithRequestContext({ userEmail }, () =>
           uploadFile({
             data: filePart.data,
             filename: filePart.filename,
             mimeType: filePart.type,
             ownerEmail: userEmail,
-          });
-        const result = userEmail
-          ? await runWithRequestContext({ userEmail }, doUpload)
-          : await doUpload();
+          }),
+        );
 
         if (result) {
           setResponseStatus(event, 201);

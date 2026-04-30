@@ -66,6 +66,10 @@ async function resolveEmail(event: any): Promise<string> {
  * Read access remains open to every org member.
  */
 async function assertCanEditShared(event: any): Promise<void> {
+  const session = await getSession(event);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
   const ctx = await getOrgContext(event);
   if (!ctx.orgId) return; // solo / dev mode — no org, treat as owner
   if (ctx.role === "owner" || ctx.role === "admin") return;
@@ -299,6 +303,12 @@ export async function handleGetResource(event: any) {
     return { error: "Resource not found" };
   }
 
+  const email = await resolveEmail(event);
+  if (resource.owner !== SHARED_OWNER && resource.owner !== email) {
+    setResponseStatus(event, 404);
+    return { error: "Resource not found" };
+  }
+
   // Serve raw binary when ?raw query param is set (used by <img> tags etc.)
   const query = getQuery(event);
   const wantsRaw = query.raw !== undefined;
@@ -384,8 +394,8 @@ export async function handleUpdateResource(event: any) {
   // Ownership check: only the owner (or shared resource editors) can update
   const email = await resolveEmail(event);
   if (existing.owner !== SHARED_OWNER && existing.owner !== email) {
-    setResponseStatus(event, 403);
-    return { error: "Forbidden" };
+    setResponseStatus(event, 404);
+    return { error: "Resource not found" };
   }
   if (existing.owner === SHARED_OWNER) {
     await assertCanEditShared(event);
@@ -426,8 +436,8 @@ export async function handleDeleteResource(event: any) {
   // Ownership check: only the owner (or shared resource editors) can delete
   const email = await resolveEmail(event);
   if (existing.owner !== SHARED_OWNER && existing.owner !== email) {
-    setResponseStatus(event, 403);
-    return { error: "Forbidden" };
+    setResponseStatus(event, 404);
+    return { error: "Resource not found" };
   }
   if (existing.owner === SHARED_OWNER) {
     await assertCanEditShared(event);

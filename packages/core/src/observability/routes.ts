@@ -88,7 +88,8 @@ function parseLimit(q: Record<string, any>, fallback = 100): number {
 
 export function createObservabilityHandler() {
   return defineEventHandler(async (event: H3Event) => {
-    const method = getMethod(event);
+    const rawMethod = getMethod(event);
+    const method = rawMethod === "HEAD" ? "GET" : rawMethod;
     const pathname = (event.url?.pathname || "")
       .replace(/^\/+/, "")
       .replace(/\/+$/, "");

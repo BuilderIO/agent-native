@@ -7,6 +7,7 @@
  */
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { isBlockedToolUrl } from "./url-safety.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_SIZE = 1024 * 1024; // 1 MB
@@ -97,6 +98,11 @@ export function createFetchToolEntry(
           } catch (err: any) {
             return `Error resolving key references: ${err?.message ?? err}`;
           }
+        }
+
+        // Block SSRF targets regardless of key usage
+        if (isBlockedToolUrl(resolvedUrl)) {
+          return `Requests to private/internal addresses are not allowed: "${rawUrl}".`;
         }
 
         // Validate URL against per-key allowlists

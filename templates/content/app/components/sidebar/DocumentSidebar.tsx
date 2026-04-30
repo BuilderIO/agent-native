@@ -169,9 +169,13 @@ export function DocumentSidebar({
 
   const handleDelete = useCallback(
     async (id: string) => {
-      await deleteDocument.mutateAsync({ id });
-      if (activeDocumentId === id) {
-        navigate("/");
+      try {
+        await deleteDocument.mutateAsync({ id });
+        if (activeDocumentId === id) {
+          navigate("/");
+        }
+      } catch {
+        toast.error("Failed to delete page");
       }
     },
     [deleteDocument, activeDocumentId, navigate],

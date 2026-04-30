@@ -7,7 +7,7 @@ import {
   IconBrandZoom,
   IconKey,
   IconTrash,
-  IconRobot,
+  IconVideoPlus,
   IconLink,
   IconAlertCircle,
   IconBuilding,
@@ -133,7 +133,7 @@ export function RecallIntegrationCard() {
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
-          <IconRobot className="h-4 w-4" />
+          <IconVideoPlus className="h-4 w-4" />
           Send a meeting bot
         </CardTitle>
         <p className="text-xs text-muted-foreground">

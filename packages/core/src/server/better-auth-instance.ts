@@ -134,6 +134,13 @@ function appendEnvLocalSecret(envLocalPath: string, secret: string): void {
   }
 }
 
+export function shouldSkipEmailVerification(): boolean {
+  const value = process.env.AUTH_SKIP_EMAIL_VERIFICATION;
+  if (value == null) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized !== "" && normalized !== "0" && normalized !== "false";
+}
+
 /** Read-only accessor for the resolved auth secret. */
 export function getAuthSecret(): string {
   return resolveAuthSecret();
@@ -263,6 +270,13 @@ const pgAuthSchema = {
     createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
   }),
+  jwks: pgTable("jwks", {
+    id: pgText("id").primaryKey(),
+    publicKey: pgText("public_key").notNull(),
+    privateKey: pgText("private_key").notNull(),
+    createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: pgTimestamp("expires_at", { withTimezone: true }),
+  }),
 };
 
 const sqliteAuthSchema = {
@@ -343,6 +357,13 @@ const sqliteAuthSchema = {
     createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: sqliteInteger("updated_at", { mode: "timestamp_ms" }).notNull(),
   }),
+  jwks: sqliteTable("jwks", {
+    id: sqliteText("id").primaryKey(),
+    publicKey: sqliteText("public_key").notNull(),
+    privateKey: sqliteText("private_key").notNull(),
+    createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
+    expiresAt: sqliteInteger("expires_at", { mode: "timestamp_ms" }),
+  }),
 };
 
 function getBetterAuthSchema() {
@@ -360,6 +381,7 @@ async function ensureBetterAuthTables(): Promise<void> {
         `CREATE TABLE IF NOT EXISTS "organization" (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS "member" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS "invitation" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at TIMESTAMPTZ NOT NULL, inviter_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+        `CREATE TABLE IF NOT EXISTS "jwks" (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ)`,
       ]
     : [
         `CREATE TABLE IF NOT EXISTS user (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified INTEGER NOT NULL DEFAULT 0, image TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
@@ -369,6 +391,7 @@ async function ensureBetterAuthTables(): Promise<void> {
         `CREATE TABLE IF NOT EXISTS organization (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS member (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS invitation (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at INTEGER NOT NULL, inviter_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+        `CREATE TABLE IF NOT EXISTS jwks (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER)`,
       ];
 
   for (const sql of statements) await db.execute(sql);
@@ -447,6 +470,8 @@ async function createBetterAuthInstance(
   const secret = resolveAuthSecret();
 
   const appUrl = getAppProductionUrl();
+  const requireEmailVerification =
+    isEmailConfigured() && !shouldSkipEmailVerification();
 
   const auth = betterAuth({
     basePath,
@@ -458,8 +483,10 @@ async function createBetterAuthInstance(
       minPasswordLength: 8,
       // Only require email verification when an email provider is configured.
       // Without a provider, verification emails can't be sent, so requiring
-      // verification would lock users out of signup entirely.
-      requireEmailVerification: isEmailConfigured(),
+      // verification would lock users out of signup entirely. QA deployments
+      // can opt out with AUTH_SKIP_EMAIL_VERIFICATION=1 so +qa accounts can
+      // sign up without waiting on inbox delivery.
+      requireEmailVerification,
       sendResetPassword: async ({ user, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
         // reset link must include that prefix so the page resolves correctly.
@@ -480,7 +507,7 @@ async function createBetterAuthInstance(
       // Fire verification email right after signup, before the user has a
       // session — pairs with requireEmailVerification above. Only enabled
       // when an email provider is configured.
-      sendOnSignUp: isEmailConfigured(),
+      sendOnSignUp: requireEmailVerification,
       // Auto-create a session once the user clicks the link. Without this,
       // verified users would have to go back and sign in manually, which is
       // a confusing dead-end on the verify screen.

@@ -20,6 +20,7 @@ import {
 } from "h3";
 import fs from "node:fs";
 import path from "node:path";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 
 const UPLOADS_DIR = path.resolve("data/uploads");
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -51,51 +52,69 @@ const EXT_BY_MIME: Record<string, string> = {
   "image/svg+xml": ".svg",
 };
 
+function appPath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return base ? `/${base}${path}` : path;
+}
+
 export default defineEventHandler(async (event: H3Event) => {
-  const raw = await readRawBody(event, false);
-  if (!raw || !(raw as Buffer | Uint8Array).length) {
-    setResponseStatus(event, 400);
-    return { error: "Empty upload" };
-  }
-  const bytes =
-    raw instanceof Uint8Array
-      ? raw
-      : new Uint8Array(
-          (raw as Buffer).buffer,
-          (raw as Buffer).byteOffset,
-          (raw as Buffer).byteLength,
-        );
-  if (bytes.byteLength > MAX_BYTES) {
-    setResponseStatus(event, 413);
-    return { error: "File too large (max 5 MB)" };
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
   }
 
-  const mimeType =
-    getHeader(event, "content-type") || "application/octet-stream";
-  const query = getQuery(event);
-  const originalName =
-    typeof query.filename === "string" ? query.filename : "upload";
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    async () => {
+      const raw = await readRawBody(event, false);
+      if (!raw || !(raw as Buffer | Uint8Array).length) {
+        setResponseStatus(event, 400);
+        return { error: "Empty upload" };
+      }
+      const bytes =
+        raw instanceof Uint8Array
+          ? raw
+          : new Uint8Array(
+              (raw as Buffer).buffer,
+              (raw as Buffer).byteOffset,
+              (raw as Buffer).byteLength,
+            );
+      if (bytes.byteLength > MAX_BYTES) {
+        setResponseStatus(event, 413);
+        return { error: "File too large (max 5 MB)" };
+      }
 
-  // Prefer the extension from the original filename; fall back to MIME.
-  let ext = path.extname(originalName).toLowerCase();
-  if (!ext) ext = EXT_BY_MIME[mimeType] ?? ".bin";
+      const mimeType =
+        getHeader(event, "content-type") || "application/octet-stream";
+      const query = getQuery(event);
+      const originalName =
+        typeof query.filename === "string" ? query.filename : "upload";
 
-  const id = `${randId()}${ext}`;
-  const filePath = path.join(UPLOADS_DIR, id);
+      // Prefer the extension from the original filename; fall back to MIME.
+      let ext = path.extname(originalName).toLowerCase();
+      if (!ext) ext = EXT_BY_MIME[mimeType] ?? ".bin";
 
-  try {
-    fs.writeFileSync(filePath, bytes);
-  } catch (err) {
-    console.error("[clips media] write failed:", err);
-    setResponseStatus(event, 500);
-    return { error: "Upload failed" };
-  }
+      const id = `${randId()}${ext}`;
+      const filePath = path.join(UPLOADS_DIR, id);
 
-  return {
-    url: `/api/media/${id}`,
-    filename: id,
-    originalName,
-    mimeType,
-    size: bytes.byteLength,
-  };
+      try {
+        fs.writeFileSync(filePath, bytes);
+      } catch (err) {
+        console.error("[clips media] write failed:", err);
+        setResponseStatus(event, 500);
+        return { error: "Upload failed" };
+      }
+
+      return {
+        url: appPath(`/api/media/${id}`),
+        filename: id,
+        originalName,
+        mimeType,
+        size: bytes.byteLength,
+      };
+    },
+  );
 });

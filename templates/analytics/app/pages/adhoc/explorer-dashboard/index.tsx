@@ -11,6 +11,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   IconPlus,
@@ -28,6 +39,8 @@ import {
   emailToColor,
   emailToName,
   useSession,
+  agentNativePath,
+  appApiPath,
   type CollabUser,
 } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
@@ -68,7 +81,7 @@ const TAB_ID = generateTabId();
 
 async function fetchWithAuth(url: string, options?: RequestInit) {
   const token = await getIdToken();
-  return fetch(url, {
+  return fetch(appApiPath(url), {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -170,7 +183,7 @@ export default function ExplorerDashboardPage() {
     (updated: ExplorerDashboardData) => {
       if (!collabDocId) return;
       const body = JSON.stringify(updated);
-      fetch(`/_agent-native/collab/${collabDocId}/text`, {
+      fetch(agentNativePath(`/_agent-native/collab/${collabDocId}/text`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: body, requestSource: TAB_ID }),
@@ -345,28 +358,54 @@ export default function ExplorerDashboardPage() {
             <IconPlus className="h-4 w-4 mr-1" />
             Add Chart
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-muted-foreground hover:text-foreground"
-            onClick={async () => {
-              if (!dashboardId) return;
-              const token = await getIdToken();
-              await fetch(`/api/explorer-dashboards/${dashboardId}`, {
-                method: "DELETE",
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
-              });
-              queryClient.invalidateQueries({
-                queryKey: ["explorer-dashboards-sidebar"],
-              });
-              queryClient.invalidateQueries({
-                queryKey: ["explorer-dashboards-palette"],
-              });
-              navigate("/adhoc/explorer");
-            }}
-          >
-            <IconTrash className="h-4 w-4" />
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground"
+                title="Delete dashboard"
+              >
+                <IconTrash className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete dashboard?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete &ldquo;{dashboard.name}&rdquo;.
+                  This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={async () => {
+                    if (!dashboardId) return;
+                    const token = await getIdToken();
+                    await fetch(
+                      appApiPath(`/api/explorer-dashboards/${dashboardId}`),
+                      {
+                        method: "DELETE",
+                        headers: token
+                          ? { Authorization: `Bearer ${token}` }
+                          : {},
+                      },
+                    );
+                    queryClient.invalidateQueries({
+                      queryKey: ["explorer-dashboards-sidebar"],
+                    });
+                    queryClient.invalidateQueries({
+                      queryKey: ["explorer-dashboards-palette"],
+                    });
+                    navigate("/adhoc/explorer");
+                  }}
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 

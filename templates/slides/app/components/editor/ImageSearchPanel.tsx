@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
+import { appBasePath } from "@agent-native/core/client";
 
 interface SearchResult {
   url: string;
@@ -54,7 +55,7 @@ export default function ImageSearchPanel({
     setError(null);
     try {
       const res = await fetch(
-        `/api/image-search?q=${encodeURIComponent(query)}`,
+        `${appBasePath()}/api/image-search?q=${encodeURIComponent(query)}`,
       );
       if (!res.ok) {
         const data = await res.json();

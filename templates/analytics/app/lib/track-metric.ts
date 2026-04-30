@@ -1,4 +1,5 @@
 import { getIdToken } from "./auth";
+import { appApiPath } from "@agent-native/core/client";
 
 /**
  * Track when a metric is viewed in a dashboard.
@@ -35,10 +36,10 @@ export async function trackMetricViewed(
       const blob = new Blob([JSON.stringify(eventData)], {
         type: "application/json",
       });
-      navigator.sendBeacon("/api/events/track", blob);
+      navigator.sendBeacon(appApiPath("/api/events/track"), blob);
     } else {
       // Fallback to fetch with no-cors if sendBeacon not available
-      fetch("/api/events/track", {
+      fetch(appApiPath("/api/events/track"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

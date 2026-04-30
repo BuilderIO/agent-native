@@ -11,6 +11,7 @@ import * as Popover from "@radix-ui/react-popover";
 import * as Select from "@radix-ui/react-select";
 import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
+import { agentNativePath } from "../api-path.js";
 
 export interface ShareButtonProps {
   resourceType: string;
@@ -157,7 +158,7 @@ function useOrgMembers(): OrgMember[] {
   const [members, setMembers] = useState<OrgMember[]>([]);
   useEffect(() => {
     let cancelled = false;
-    fetch("/_agent-native/org/members")
+    fetch(agentNativePath("/_agent-native/org/members"))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled || !data) return;
@@ -227,7 +228,7 @@ function SharePanel(
   const serverVisibility = (data?.visibility as Visibility | null) ?? "private";
   const visibility: Visibility = visibilityOverride ?? serverVisibility;
   const canManage =
-    data?.role === "owner" || data?.role === "admin" || !data?.role;
+    data === undefined || data?.role === "owner" || data?.role === "admin";
   const meta = VIS_META[visibility];
 
   const serverShares = data?.shares ?? [];

@@ -5,7 +5,9 @@ import {
   gmailToEmailMessage,
   fetchGmailLabelMap,
   getClients,
+  isConnected,
 } from "../server/lib/google-auth.js";
+import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 const VIEW_QUERIES: Record<string, string> = {
@@ -18,6 +20,10 @@ const VIEW_QUERIES: Record<string, string> = {
   trash: "in:trash",
   all: "",
 };
+
+const cliBoolean = z
+  .union([z.boolean(), z.enum(["true", "false"])])
+  .transform((value) => value === true || value === "true");
 
 function toCompact(emails: any[]): any[] {
   return emails.map((e) => ({
@@ -61,10 +67,7 @@ export default defineAction({
       .describe(
         "Filter to a specific account email address. By default searches all connected accounts.",
       ),
-    compact: z.coerce
-      .boolean()
-      .optional()
-      .describe("Set to true for compact output"),
+    compact: cliBoolean.optional().describe("Set to true for compact output"),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -75,6 +78,63 @@ export default defineAction({
     const accountFilter = args.account?.toLowerCase();
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+
+    if (!(await isConnected(ownerEmail))) {
+      const data = await getUserSetting(ownerEmail, "local-emails");
+      let emails =
+        data && Array.isArray((data as any).emails) ? (data as any).emails : [];
+      switch (view) {
+        case "inbox":
+          emails = emails.filter(
+            (e: any) =>
+              !e.isArchived && !e.isTrashed && !e.isDraft && !e.isSent,
+          );
+          break;
+        case "unread":
+          emails = emails.filter(
+            (e: any) =>
+              !e.isRead &&
+              !e.isArchived &&
+              !e.isTrashed &&
+              !e.isDraft &&
+              !e.isSent,
+          );
+          break;
+        case "starred":
+          emails = emails.filter((e: any) => e.isStarred && !e.isTrashed);
+          break;
+        case "sent":
+          emails = emails.filter((e: any) => e.isSent && !e.isTrashed);
+          break;
+        case "drafts":
+          emails = emails.filter((e: any) => e.isDraft);
+          break;
+        case "archive":
+          emails = emails.filter((e: any) => e.isArchived && !e.isTrashed);
+          break;
+        case "trash":
+          emails = emails.filter((e: any) => e.isTrashed);
+          break;
+      }
+
+      const q = args.q.toLowerCase();
+      emails = emails
+        .filter(
+          (e: any) =>
+            e.subject?.toLowerCase().includes(q) ||
+            e.snippet?.toLowerCase().includes(q) ||
+            e.body?.toLowerCase().includes(q) ||
+            e.from?.name?.toLowerCase().includes(q) ||
+            e.from?.email?.toLowerCase().includes(q),
+        )
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.date).getTime() - new Date(a.date).getTime(),
+        )
+        .slice(0, limit);
+
+      return JSON.stringify(compact ? toCompact(emails) : emails, null, 2);
+    }
 
     const clients = await getClients(ownerEmail);
     if (clients.length === 0) return "Error: No Google account connected.";

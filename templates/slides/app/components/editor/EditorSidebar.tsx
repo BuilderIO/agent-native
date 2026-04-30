@@ -22,7 +22,11 @@ import SlideRenderer from "@/components/deck/SlideRenderer";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useCallback } from "react";
-import { type CollabUser, useAvatarUrl } from "@agent-native/core/client";
+import {
+  appBasePath,
+  type CollabUser,
+  useAvatarUrl,
+} from "@agent-native/core/client";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import {
   Tooltip,
@@ -270,7 +274,7 @@ function AddSlidePopover({
     try {
       const formData = new FormData();
       newFiles.forEach((f) => formData.append("files", f));
-      const res = await fetch("/api/uploads", {
+      const res = await fetch(`${appBasePath()}/api/uploads`, {
         method: "POST",
         body: formData,
       });

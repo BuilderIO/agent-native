@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -54,7 +55,9 @@ export function EmbeddedTool({
   const { data: tool } = useQuery<Tool>({
     queryKey: ["tool", toolId],
     queryFn: async () => {
-      const res = await fetch(`/_agent-native/tools/${toolId}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/tools/${toolId}`),
+      );
       if (!res.ok) throw new Error("Failed to fetch tool");
       return res.json();
     },
@@ -62,7 +65,9 @@ export function EmbeddedTool({
 
   const iframeSrc = useMemo(() => {
     const v = encodeURIComponent(tool?.updatedAt ?? "");
-    return `/_agent-native/tools/${toolId}/render?slot=${encodeURIComponent(slotId)}&dark=${isDark}&v=${v}`;
+    return agentNativePath(
+      `/_agent-native/tools/${toolId}/render?slot=${encodeURIComponent(slotId)}&dark=${isDark}&v=${v}`,
+    );
   }, [toolId, slotId, isDark, tool?.updatedAt]);
 
   // Forward slot context whenever it changes. The iframe's own load handler
@@ -110,7 +115,7 @@ export function EmbeddedTool({
 
       try {
         const options = sanitizeToolRequestOptions(message.options);
-        const res = await fetch(path, {
+        const res = await fetch(agentNativePath(path), {
           ...options,
           credentials: "same-origin",
         });
@@ -172,6 +177,14 @@ export function EmbeddedTool({
 function isAllowedToolPath(path: string): boolean {
   if (!path.startsWith("/") || path.startsWith("//")) return false;
   if (path.includes("\\") || path.includes("\0")) return false;
+  // Reject path traversal: normalize via URL and check the resolved path didn't escape.
+  try {
+    const resolved = new URL(path, "http://x").pathname;
+    if (resolved.includes("..") || resolved !== path.split("?")[0])
+      return false;
+  } catch {
+    return false;
+  }
   return true;
 }
 

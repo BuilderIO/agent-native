@@ -7,7 +7,12 @@
 import { eq, and, or, type SQL } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { accessFilter } from "@agent-native/core/sharing";
-import type { EventType, Location, CustomField } from "../shared/index.js";
+import type {
+  EventType,
+  Location,
+  CustomField,
+  RecurringEventRule,
+} from "../shared/index.js";
 import { getSchedulingContext } from "./context.js";
 
 function keyFor(
@@ -173,6 +178,7 @@ export async function createEventType(input: {
   customFields?: CustomField[];
   scheduleId?: string;
   color?: string;
+  recurringEvent?: RecurringEventRule;
 }): Promise<EventType> {
   const { getDb, schema } = getSchedulingContext();
   const db = getDb();
@@ -211,6 +217,9 @@ export async function createEventType(input: {
     hideCalendarNotes: false,
     lockTimeZoneToggle: false,
     color: input.color ?? null,
+    recurringEvent: input.recurringEvent
+      ? JSON.stringify(input.recurringEvent)
+      : null,
     createdAt: now,
     updatedAt: now,
     orgId: input.orgId ?? null,

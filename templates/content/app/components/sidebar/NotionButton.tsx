@@ -20,6 +20,7 @@ import {
 import { useNotionConnection, useDisconnectNotion } from "@/hooks/use-notion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { agentNativePath, appApiPath } from "@agent-native/core/client";
 
 // ─── Notion SVG icon ────────────────────────────────────────────────────────
 
@@ -92,7 +93,7 @@ export function NotionButton() {
 
   const fetchEnvStatus = useCallback(async () => {
     try {
-      const res = await fetch("/_agent-native/env-status");
+      const res = await fetch(agentNativePath("/_agent-native/env-status"));
       if (res.ok) setEnvStatus(await res.json());
     } catch {}
   }, []);
@@ -109,7 +110,7 @@ export function NotionButton() {
 
   const redirectUri =
     typeof window !== "undefined"
-      ? `${window.location.origin}/api/notion/callback`
+      ? `${window.location.origin}${appApiPath("/api/notion/callback")}`
       : "";
 
   const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);
@@ -140,7 +141,9 @@ export function NotionButton() {
 
     // Poll for connection
     pollRef.current = setInterval(async () => {
-      const res = await fetch("/api/notion/status").catch(() => null);
+      const res = await fetch(appApiPath("/api/notion/status")).catch(
+        () => null,
+      );
       if (res?.ok) {
         const data = await res.json();
         if (data.connected) {
@@ -177,7 +180,7 @@ export function NotionButton() {
     }
     setSaving(true);
     try {
-      const res = await fetch("/_agent-native/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -207,7 +210,7 @@ export function NotionButton() {
       if (!clientId || !clientSecret) {
         throw new Error("Could not find client_id and client_secret in JSON");
       }
-      const res = await fetch("/_agent-native/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { msToClock } from "./scrubber";
+import { agentNativePath } from "@agent-native/core/client";
 
 export interface TranscriptSegment {
   startMs: number;
@@ -163,7 +164,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
                   <button
                     onClick={() => onSeek(seg.startMs)}
                     className={cn(
-                      "w-full text-left px-3 py-2 flex gap-3 items-start hover:bg-accent/50 transition-colors",
+                      "w-full text-left px-3 py-2 flex gap-3 items-start hover:bg-accent/50",
                       isActive && "bg-accent",
                     )}
                   >
@@ -253,11 +254,14 @@ function MissingOpenAiKeyCard({ onRetry }: { onRetry?: () => void }) {
     if (!value.trim() || saving) return;
     setSaving(true);
     try {
-      const res = await fetch("/_agent-native/secrets/OPENAI_API_KEY", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: value.trim() }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/secrets/OPENAI_API_KEY"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: value.trim() }),
+        },
+      );
       if (!res.ok) {
         const err = await res
           .json()

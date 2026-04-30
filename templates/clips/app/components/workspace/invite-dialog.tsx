@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-export type InviteRole = "viewer" | "creator-lite" | "creator" | "admin";
+export type InviteRole = "member" | "admin";
 
 interface InviteDialogProps {
   organizationId: string;
@@ -44,7 +44,7 @@ function isValidEmail(s: string): boolean {
 export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
   const [open, setOpen] = useState(false);
   const [emailsRaw, setEmailsRaw] = useState("");
-  const [role, setRole] = useState<InviteRole>("creator");
+  const [role, setRole] = useState<InviteRole>("member");
   const invite = useActionMutation<
     any,
     { organizationId: string; email: string; role: InviteRole }
@@ -136,12 +136,8 @@ export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="viewer">Viewer — can watch</SelectItem>
-                <SelectItem value="creator-lite">
-                  Creator (lite) — can record, limited edit
-                </SelectItem>
-                <SelectItem value="creator">
-                  Creator — record, edit, share
+                <SelectItem value="member">
+                  Member — record, edit, share
                 </SelectItem>
                 <SelectItem value="admin">Admin — full control</SelectItem>
               </SelectContent>

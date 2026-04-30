@@ -192,8 +192,24 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       if (!meta.enabled || !meta.schedule) continue;
       if (!isValidCron(meta.schedule)) continue;
 
-      // Skip if currently running
-      if (meta.lastStatus === "running") continue;
+      // Skip if currently running, unless it has been stuck for more than 10 minutes
+      // (server crash mid-job leaves lastStatus=running forever without this guard)
+      if (meta.lastStatus === "running") {
+        const stuckCutoff = 10 * 60 * 1000;
+        if (
+          meta.lastRun &&
+          now.getTime() - new Date(meta.lastRun).getTime() < stuckCutoff
+        ) {
+          continue;
+        }
+        // Stuck — reset so the next check can re-run it
+        meta.lastStatus = "error";
+        meta.lastError = "Job timed out or server crashed mid-run";
+        const next = nextOccurrence(meta.schedule, now);
+        meta.nextRun = next.toISOString();
+        await updateResource(resource, meta, body);
+        continue;
+      }
 
       // Check if due
       if (meta.nextRun) {
@@ -274,7 +290,7 @@ async function executeJob(
     async () => {
       try {
         const actions = deps.getActions();
-        const systemPrompt = await deps.getSystemPrompt(resource.owner);
+        const systemPrompt = await deps.getSystemPrompt(jobUserEmail);
         const tools = actionsToEngineTools(actions);
 
         // Prefer the job runner's saved Anthropic key so recurring jobs
@@ -287,7 +303,7 @@ async function executeJob(
 
         // Create a chat thread for this run
         const threadTitle = `Job: ${jobName} — ${now.toLocaleDateString()}`;
-        const thread = await createThread(threadTitle);
+        const thread = await createThread(jobUserEmail, { title: threadTitle });
 
         const jobText = `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule)}\n\nExecute the following job instructions:\n\n${body}`;
         const messages = [

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { IconCheck, IconMailFast, IconX } from "@tabler/icons-react";
-import { useSession } from "@agent-native/core/client";
+import { agentNativePath, useSession } from "@agent-native/core/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,7 +53,9 @@ export default function InviteAcceptRoute() {
       }
       try {
         const res = await fetch(
-          `/_agent-native/actions/get-invite?token=${encodeURIComponent(token)}`,
+          agentNativePath(
+            `/_agent-native/actions/get-invite?token=${encodeURIComponent(token)}`,
+          ),
         );
         if (!res.ok) throw new Error(`Invite not found (${res.status})`);
         const json = await res.json();
@@ -83,11 +85,14 @@ export default function InviteAcceptRoute() {
     if (!token) return;
     setAccepting(true);
     try {
-      const res = await fetch("/_agent-native/actions/accept-invite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/accept-invite"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        },
+      );
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
         throw new Error(json.error ?? `Accept failed (${res.status})`);
@@ -106,7 +111,7 @@ export default function InviteAcceptRoute() {
   async function handleDecline() {
     if (!token) return;
     try {
-      await fetch("/_agent-native/actions/decline-invite", {
+      await fetch(agentNativePath("/_agent-native/actions/decline-invite"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),

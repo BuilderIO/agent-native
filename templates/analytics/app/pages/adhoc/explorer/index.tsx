@@ -18,6 +18,16 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   IconChevronDown,
   IconDeviceFloppy,
   IconFolderOpen,
@@ -66,6 +76,10 @@ export default function ExplorerPage() {
 
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   const sql = useMemo(() => buildSql(config), [config]);
 
@@ -155,7 +169,7 @@ export default function ExplorerPage() {
                     className="h-5 w-5 shrink-0 ml-2"
                     onClick={(e) => {
                       e.stopPropagation();
-                      deleteConfig(sc.id);
+                      setDeleteConfirm({ id: sc.id, name: sc.name });
                     }}
                   >
                     <IconTrash className="h-3 w-3 text-destructive" />
@@ -223,6 +237,34 @@ export default function ExplorerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete saved config confirm */}
+      <AlertDialog
+        open={!!deleteConfirm}
+        onOpenChange={(open) => !open && setDeleteConfirm(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete saved explorer?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete &ldquo;{deleteConfirm?.name}&rdquo;? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteConfirm) {
+                  deleteConfig(deleteConfirm.id);
+                  setDeleteConfirm(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

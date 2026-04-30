@@ -1,4 +1,5 @@
 import {
+  createError,
   defineEventHandler,
   getRouterParam,
   getHeader,
@@ -23,7 +24,12 @@ import { readBody } from "../server/h3-helpers.js";
  */
 async function getSessionId(event: H3Event): Promise<string> {
   const session = await getSession(event);
-  if (!session) return "local";
+  if (!session?.email) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: "Unauthenticated",
+    });
+  }
   // Dev mode returns DEV_MODE_USER_EMAIL — keep using "local" for compat
   if (session.email === DEV_MODE_USER_EMAIL) return "local";
   return session.email;

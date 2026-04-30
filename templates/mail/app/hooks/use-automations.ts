@@ -1,9 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { AutomationRule, AutomationAction } from "@shared/types";
+import { appApiPath } from "@/lib/api-path";
 import { TAB_ID } from "@/lib/tab-id";
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(appApiPath(url), {
     headers: {
       "Content-Type": "application/json",
       "X-Request-Source": TAB_ID,

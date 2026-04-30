@@ -235,7 +235,7 @@ function IconBtn({
       onClick={onClick}
       title={title}
       className={cn(
-        "h-8 w-8 rounded-md flex items-center justify-center transition-colors",
+        "h-8 w-8 rounded-md flex items-center justify-center",
         active ? "bg-white/20 text-white" : "text-white hover:bg-white/10",
       )}
     >

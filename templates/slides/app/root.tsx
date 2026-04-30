@@ -20,10 +20,12 @@ import {
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
   useCommandMenuShortcut,
+  useDbSync,
 } from "@agent-native/core/client";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { ThemeProvider, useTheme } from "next-themes";
+import { useQueryClient } from "@tanstack/react-query";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
 import { configureTracking } from "@agent-native/core/client";
@@ -120,6 +122,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function AppContent() {
   useExitSelectionOnOutsideClick();
   useNavigationState();
+  const qc = useQueryClient();
+  useDbSync({ queryClient: qc, queryKeys: ["action"] });
   const { theme, setTheme } = useTheme();
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
@@ -165,6 +169,11 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
+  const location = useLocation();
+
+  if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
+    return <Outlet />;
+  }
 
   return (
     <ClientOnly fallback={<DefaultSpinner />}>

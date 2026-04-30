@@ -7,6 +7,7 @@ import {
   IconX,
   IconLoader2,
 } from "@tabler/icons-react";
+import { agentNativePath } from "../api-path.js";
 
 export interface CodeRequiredDialogProps {
   open: boolean;
@@ -20,7 +21,7 @@ function useBuilderConnected() {
   const [connectUrl, setConnectUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/_agent-native/builder/status")
+    fetch(agentNativePath("/_agent-native/builder/status"))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data) {
@@ -82,14 +83,17 @@ export function CodeRequiredDialog({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch("/_agent-native/builder/agents-run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userMessage:
-            featureLabel || "Make the requested code changes to this app",
-        }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/builder/agents-run"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userMessage:
+              featureLabel || "Make the requested code changes to this app",
+          }),
+        },
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || `Failed (${res.status})`);

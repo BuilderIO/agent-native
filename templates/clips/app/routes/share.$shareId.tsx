@@ -2,7 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { IconExternalLink } from "@tabler/icons-react";
-import { PoweredByBadge, useSession } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+  appPath,
+  PoweredByBadge,
+  useSession,
+} from "@agent-native/core/client";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
@@ -59,7 +65,10 @@ export default function ShareRoute() {
   const dataQ = useQuery({
     queryKey: ["public-recording", shareId, password],
     queryFn: async () => {
-      const url = new URL("/api/public-recording", window.location.origin);
+      const url = new URL(
+        `${appBasePath()}/api/public-recording`,
+        window.location.origin,
+      );
       url.searchParams.set("id", shareId ?? "");
       if (password) url.searchParams.set("password", password);
       const res = await fetch(url.toString());
@@ -240,7 +249,7 @@ export default function ShareRoute() {
           <span className="font-medium">Clips</span>
         </div>
         <a
-          href="/"
+          href={appPath("/")}
           className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
         >
           Try Clips <IconExternalLink className="h-3 w-3" />
@@ -285,15 +294,20 @@ export default function ShareRoute() {
                     return;
                   }
                   tracking.reportReaction(emoji);
-                  fetch("/_agent-native/actions/react-to-recording", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      recordingId: recording.id,
-                      emoji,
-                      videoTimestampMs: currentMs,
-                    }),
-                  })
+                  fetch(
+                    agentNativePath(
+                      "/_agent-native/actions/react-to-recording",
+                    ),
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        recordingId: recording.id,
+                        emoji,
+                        videoTimestampMs: currentMs,
+                      }),
+                    },
+                  )
                     .then(() => dataQ.refetch())
                     .catch(() => {});
                 }}
@@ -387,7 +401,7 @@ function EndState({ title, message }: { title: string; message: string }) {
     <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
       <h1 className="text-2xl font-semibold mb-2">{title}</h1>
       <p className="text-sm text-muted-foreground mb-6">{message}</p>
-      <a href="/" className="text-sm text-primary hover:underline">
+      <a href={appPath("/")} className="text-sm text-primary hover:underline">
         Go home
       </a>
     </div>

@@ -31,6 +31,7 @@ import {
   validateUrlAllowlist,
   getKeyAllowlist,
 } from "../secrets/substitution.js";
+import { isBlockedToolUrl } from "./url-safety.js";
 
 export function createToolsHandler() {
   return defineEventHandler(async (event: H3Event) => {
@@ -359,80 +360,6 @@ async function handleToolDataDelete(
   return { ok: true };
 }
 
-const METADATA_HOSTS = [
-  "metadata.google.internal",
-  "metadata.google.internal.",
-];
-
-function isPrivateIpv4(a: number, b: number): boolean {
-  if (a === 127) return true;
-  if (a === 10) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 0) return true;
-  return false;
-}
-
-function isPrivateHost(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (h === "localhost") return true;
-  if (METADATA_HOSTS.includes(h)) return true;
-
-  // IPv6 forms
-  if (h === "::1" || h === "::0" || h === "::") return true;
-  // IPv4-mapped IPv6: ::ffff:127.0.0.1
-  const v4mapped = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (v4mapped) {
-    const [a, b] = v4mapped[1].split(".").map(Number);
-    if (isPrivateIpv4(a, b)) return true;
-  }
-  // ULA (fc00::/7) and link-local (fe80::/10)
-  if (/^f[cd]/.test(h)) return true;
-  if (/^fe[89ab]/.test(h)) return true;
-
-  // Dotted IPv4
-  const raw = hostname.toLowerCase();
-  const parts = raw.split(".");
-  if (parts.length === 4 && parts.every((p) => /^\d+$/.test(p))) {
-    const [a, b] = parts.map(Number);
-    if (isPrivateIpv4(a, b)) return true;
-  }
-  // Decimal integer IPv4
-  if (/^\d+$/.test(raw)) {
-    const num = Number(raw);
-    if (num >= 0 && num <= 0xffffffff) {
-      const a = (num >>> 24) & 0xff;
-      const b = (num >>> 16) & 0xff;
-      if (isPrivateIpv4(a, b)) return true;
-    }
-  }
-  return false;
-}
-
-const DNS_REBIND_SUFFIXES = [
-  ".nip.io",
-  ".sslip.io",
-  ".xip.io",
-  ".localtest.me",
-  ".lvh.me",
-];
-
-function isBlockedUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return true;
-    }
-    const host = parsed.hostname.toLowerCase();
-    if (isPrivateHost(host)) return true;
-    if (DNS_REBIND_SUFFIXES.some((s) => host.endsWith(s))) return true;
-  } catch {
-    return true;
-  }
-  return false;
-}
-
 async function handleProxy(
   event: H3Event,
   userEmail: string,
@@ -480,7 +407,7 @@ async function handleProxy(
     return { error: `Key resolution failed: ${err?.message ?? err}` };
   }
 
-  if (isBlockedUrl(resolvedUrl)) {
+  if (isBlockedToolUrl(resolvedUrl)) {
     setResponseStatus(event, 403);
     return { error: "Requests to private/internal addresses are not allowed" };
   }
@@ -526,7 +453,7 @@ async function handleProxy(
 
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
-      if (location && isBlockedUrl(new URL(location, resolvedUrl).href)) {
+      if (location && isBlockedToolUrl(new URL(location, resolvedUrl).href)) {
         setResponseStatus(event, 403);
         return { error: "Redirect to private/internal address blocked" };
       }
@@ -614,6 +541,13 @@ async function handleSqlQuery(event: H3Event): Promise<unknown> {
     const mod = await import("../scripts/db/query.js");
     const args = ["--sql", sql, "--format", "json"];
     if (body.limit) args.push("--limit", String(body.limit));
+    if (body.args !== undefined) {
+      if (!Array.isArray(body.args)) {
+        setResponseStatus(event, 400);
+        return { error: "args must be an array" };
+      }
+      args.push("--args", JSON.stringify(body.args));
+    }
     const output = await captureCliOutput(mod.default, args);
     try {
       return JSON.parse(output);
@@ -659,6 +593,13 @@ async function handleSqlExec(event: H3Event): Promise<unknown> {
   try {
     const mod = await import("../scripts/db/exec.js");
     const args = ["--sql", sql, "--format", "json"];
+    if (body.args !== undefined) {
+      if (!Array.isArray(body.args)) {
+        setResponseStatus(event, 400);
+        return { error: "args must be an array" };
+      }
+      args.push("--args", JSON.stringify(body.args));
+    }
     const output = await captureCliOutput(mod.default, args);
     try {
       return JSON.parse(output);

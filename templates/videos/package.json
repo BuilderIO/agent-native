@@ -18,6 +18,8 @@
     "test": "vitest --run",
     "format.fix": "prettier --write .",
     "typecheck": "echo 'skipping typecheck (pre-existing errors)'",
+    "action": "agent-native action",
+    "script": "agent-native script",
     "generate:component": "tsx actions/generate-animated-component.ts",
     "validate:compositions": "tsx actions/validate-compositions.ts"
   },

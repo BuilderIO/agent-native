@@ -253,6 +253,11 @@ export class McpClientManager {
     cfg: McpServerConfig,
     sdk: SdkModules,
   ): Promise<void> {
+    if (this.servers.has(id)) {
+      console.warn(
+        `[mcp-client] Duplicate server ID '${id}' — overwriting previous registration`,
+      );
+    }
     const entry: ServerEntry = {
       id,
       config: cfg,

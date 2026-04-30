@@ -15,18 +15,21 @@ export function meta() {
 }
 
 interface OnboardingState {
-  deepgramConfigured?: boolean;
+  configured?: boolean;
+  secrets?: Record<string, { configured: boolean }>;
 }
 
 export default function UploadRoute() {
   const { data } = useActionQuery<OnboardingState>(
-    "get-onboarding-status",
-    undefined,
+    "get-secret-status",
+    { names: ["DEEPGRAM_API_KEY"] },
     {
       retry: false,
     },
   );
-  const deepgramMissing = data && data.deepgramConfigured === false;
+  const deepgramMissing =
+    data &&
+    (data.secrets?.DEEPGRAM_API_KEY?.configured ?? data.configured) === false;
 
   useSetPageTitle(
     <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2 truncate">

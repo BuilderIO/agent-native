@@ -8,6 +8,7 @@ import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
 import type { EventHandler as H3EventHandler } from "h3";
 import type {
   ActionTool,
+  AgentChatAttachment,
   AgentChatRequest,
   AgentChatEvent,
   AgentChatReference,
@@ -232,6 +233,82 @@ function retryDelay(attempt: number, signal: AbortSignal): Promise<void> {
       { once: true },
     );
   });
+}
+
+type SupportedImageMediaType =
+  | "image/jpeg"
+  | "image/png"
+  | "image/gif"
+  | "image/webp";
+
+function isSupportedImageMediaType(
+  mediaType: string,
+): mediaType is SupportedImageMediaType {
+  return (
+    mediaType === "image/jpeg" ||
+    mediaType === "image/png" ||
+    mediaType === "image/gif" ||
+    mediaType === "image/webp"
+  );
+}
+
+function escapeAttachmentAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function formatTextAttachment(att: AgentChatAttachment): string | null {
+  if (typeof att.text !== "string" || att.text.length === 0) return null;
+
+  const attrs = [
+    `name="${escapeAttachmentAttribute(att.name || "attachment")}"`,
+    att.contentType
+      ? `contentType="${escapeAttachmentAttribute(att.contentType)}"`
+      : null,
+    att.type ? `type="${escapeAttachmentAttribute(att.type)}"` : null,
+  ].filter(Boolean);
+
+  return `<attachment ${attrs.join(" ")}>\n${att.text}\n</attachment>`;
+}
+
+export function buildUserContentWithAttachments(opts: {
+  text: string;
+  attachments?: AgentChatAttachment[];
+}): EngineContentPart[] {
+  const userContent: EngineContentPart[] = [];
+  const textAttachments: string[] = [];
+
+  for (const att of opts.attachments ?? []) {
+    if (att.type === "image" && att.data) {
+      const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/);
+      if (match && isSupportedImageMediaType(match[1])) {
+        userContent.push({
+          type: "image",
+          data: match[2],
+          mediaType: match[1],
+        });
+      }
+      continue;
+    }
+
+    const textAttachment = formatTextAttachment(att);
+    if (textAttachment) {
+      textAttachments.push(textAttachment);
+    }
+  }
+
+  userContent.push({
+    type: "text",
+    text:
+      textAttachments.length > 0
+        ? `${textAttachments.join("\n\n")}\n\n${opts.text}`
+        : opts.text,
+  });
+
+  return userContent;
 }
 
 /** Build enriched message with file/skill/mention references */
@@ -877,29 +954,9 @@ export function createProductionAgentHandler(
     const agentRefs = references.filter((r) => r.type === "agent");
     const customAgentRefs = references.filter((r) => r.type === "custom-agent");
 
-    // Build user content: text + any image attachments
-    const userContent: EngineContentPart[] = [];
-    if (attachments?.length) {
-      for (const att of attachments) {
-        if (att.type === "image" && att.data) {
-          const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/);
-          if (match) {
-            userContent.push({
-              type: "image",
-              data: match[2],
-              mediaType: match[1] as
-                | "image/jpeg"
-                | "image/png"
-                | "image/gif"
-                | "image/webp",
-            });
-          }
-        }
-      }
-    }
-    userContent.push({
-      type: "text",
+    const userContent = buildUserContentWithAttachments({
       text: enrichedMessage + screenContext + filesContext,
+      attachments,
     });
 
     const messages: EngineMessage[] = [

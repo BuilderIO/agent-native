@@ -6,8 +6,23 @@ import {
 } from "h3";
 import path from "path";
 import fs from "fs";
+import { getAppBasePath, getSession } from "@agent-native/core/server";
+import { uploadedAssetUrlForBasePath } from "./assets-url.js";
 
 const UPLOADS_DIR = path.join(process.cwd(), "public", "uploads");
+
+export function uploadedAssetUrl(filename: string): string {
+  return uploadedAssetUrlForBasePath(filename, getAppBasePath());
+}
+
+async function requireSession(event: Parameters<typeof getSession>[0]) {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return null;
+  }
+  return session;
+}
 
 // Ensure uploads directory exists (skip on edge runtimes like CF Workers)
 try {
@@ -18,6 +33,11 @@ try {
 
 // Upload an asset
 export const uploadAsset = defineEventHandler(async (event) => {
+  const session = await requireSession(event);
+  if (!session) {
+    return { error: "Unauthorized" };
+  }
+
   const parts = await readMultipartFormData(event);
   const filePart = parts?.find((p) => p.name === "file");
   if (!filePart || !filePart.data) {
@@ -33,10 +53,15 @@ export const uploadAsset = defineEventHandler(async (event) => {
 
   const originalName = filePart.filename || "upload";
   const ext = path.extname(originalName);
-  const allowed = /\.(jpg|jpeg|png|gif|svg|webp|avif|ico)$/i;
+  // SVG is excluded — it can embed <script> tags and execute when served
+  // as image/svg+xml from the same origin.
+  const allowed = /\.(jpg|jpeg|png|gif|webp|avif|ico)$/i;
   if (!allowed.test(ext)) {
     setResponseStatus(event, 400);
-    return { error: "Only image files are allowed" };
+    return {
+      error:
+        "Only raster image files are allowed (jpg, png, gif, webp, avif, ico)",
+    };
   }
 
   const base = path.basename(originalName, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -46,7 +71,7 @@ export const uploadAsset = defineEventHandler(async (event) => {
   await fs.promises.writeFile(destPath, filePart.data);
 
   return {
-    url: `/uploads/${filename}`,
+    url: uploadedAssetUrl(filename),
     filename,
     type: filePart.type || "application/octet-stream",
     size: filePart.data.length,
@@ -54,7 +79,12 @@ export const uploadAsset = defineEventHandler(async (event) => {
 });
 
 // List all assets
-export const listAssets = defineEventHandler((_event) => {
+export const listAssets = defineEventHandler(async (event) => {
+  const session = await requireSession(event);
+  if (!session) {
+    return { error: "Unauthorized" };
+  }
+
   try {
     const files = fs.readdirSync(UPLOADS_DIR);
     const assets = files
@@ -63,7 +93,7 @@ export const listAssets = defineEventHandler((_event) => {
         const filePath = path.join(UPLOADS_DIR, filename);
         const stat = fs.statSync(filePath);
         return {
-          url: `/uploads/${filename}`,
+          url: uploadedAssetUrl(filename),
           filename,
           size: stat.size,
           createdAt: stat.birthtime.toISOString(),
@@ -80,7 +110,12 @@ export const listAssets = defineEventHandler((_event) => {
 });
 
 // Delete an asset
-export const deleteAsset = defineEventHandler((event) => {
+export const deleteAsset = defineEventHandler(async (event) => {
+  const session = await requireSession(event);
+  if (!session) {
+    return { error: "Unauthorized" };
+  }
+
   const filenameParam = getRouterParam(event, "filename");
   if (!filenameParam) {
     setResponseStatus(event, 400);

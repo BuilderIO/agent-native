@@ -10,6 +10,12 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { notify, listNotifications, countUnread } from "./registry.js";
 import type { NotificationSeverity } from "./types.js";
 
+function parseLimit(value: unknown, fallback = 20): number {
+  const n = Number(value ?? fallback);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), 200);
+}
+
 export function createNotificationToolEntries(
   getCurrentUser: () => string,
 ): Record<string, ActionEntry> {
@@ -121,7 +127,7 @@ export function createNotificationToolEntries(
             const rows = await listNotifications(owner, {
               unreadOnly:
                 args.unreadOnly === true || args.unreadOnly === "true",
-              limit: Math.min(Number(args.limit ?? 20), 200),
+              limit: parseLimit(args.limit),
             });
             if (rows.length === 0) {
               return args.unreadOnly

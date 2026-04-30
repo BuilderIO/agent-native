@@ -28,6 +28,13 @@ function notFound(event: H3Event) {
   return { error: "Not found" };
 }
 
+function appPath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return base ? `/${base}${path}` : path;
+}
+
 export default defineEventHandler(async (event) => {
   const q = getQuery(event) as { callId?: string; password?: string };
   const callId = q.callId;
@@ -85,6 +92,7 @@ export default defineEventHandler(async (event) => {
     const sep = mediaUrl.includes("?") ? "&" : "?";
     mediaUrl = `${mediaUrl}${sep}p=${encodeURIComponent(call.password)}`;
   }
+  if (mediaUrl?.startsWith("/")) mediaUrl = appPath(mediaUrl);
 
   return {
     call: {

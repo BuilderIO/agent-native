@@ -1,5 +1,6 @@
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
+import { timingSafeEqual } from "node:crypto";
 import type {
   PlatformAdapter,
   IncomingMessage,
@@ -387,6 +388,13 @@ async function verifyResendWebhook(
   return false;
 }
 
+function safeEq(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
+
 async function verifySendGridWebhook(
   event: H3Event,
   secret?: string,
@@ -405,13 +413,13 @@ async function verifySendGridWebhook(
     if (authHeader.startsWith("Basic ")) {
       const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
       const password = decoded.split(":")[1];
-      if (password === secret) return true;
+      if (password !== undefined && safeEq(password, secret)) return true;
     }
   }
 
   // Also check a custom header (common SendGrid Inbound Parse pattern)
   const customSecret = getHeader(event, "x-webhook-secret");
-  if (customSecret === secret) return true;
+  if (customSecret !== undefined && safeEq(customSecret, secret)) return true;
 
   console.warn("[email] SendGrid webhook secret verification failed");
   return false;
@@ -422,7 +430,8 @@ async function verifySendGridWebhook(
 // ---------------------------------------------------------------------------
 
 async function parseResendWebhook(event: H3Event): Promise<ParsedEmail | null> {
-  const body = await readBody(event);
+  const raw = await readRawBody(event);
+  const body = JSON.parse(raw);
   if (!body || body.type !== "email.received") return null;
 
   const data = body.data;
@@ -461,7 +470,8 @@ async function parseResendWebhook(event: H3Event): Promise<ParsedEmail | null> {
 async function parseSendGridWebhook(
   event: H3Event,
 ): Promise<ParsedEmail | null> {
-  const body = await readBody(event);
+  const raw = await readRawBody(event);
+  const body = JSON.parse(raw);
   if (!body) return null;
 
   // SendGrid Inbound Parse sends form data with fields:

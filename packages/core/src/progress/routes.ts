@@ -22,6 +22,13 @@ import {
 import { getSession } from "../server/auth.js";
 import { listRuns, getRun, deleteRun } from "./store.js";
 
+function parseLimit(value: unknown, fallback = 50): number {
+  if (typeof value !== "string" || value.length === 0) return fallback;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), 200);
+}
+
 async function resolveOwner(event: H3Event): Promise<string> {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
@@ -33,7 +40,8 @@ async function resolveOwner(event: H3Event): Promise<string> {
 
 export function createProgressHandler() {
   return defineEventHandler(async (event: H3Event) => {
-    const method = getMethod(event);
+    const rawMethod = getMethod(event);
+    const method = rawMethod === "HEAD" ? "GET" : rawMethod;
     const pathname = (event.url?.pathname || "")
       .replace(/^\/+/, "")
       .replace(/\/+$/, "");
@@ -45,7 +53,7 @@ export function createProgressHandler() {
       const q = getQuery(event);
       return listRuns(owner, {
         activeOnly: q.active === "true" || q.active === "1",
-        limit: q.limit ? Math.min(Number(q.limit) || 50, 200) : 50,
+        limit: parseLimit(q.limit),
       });
     }
 

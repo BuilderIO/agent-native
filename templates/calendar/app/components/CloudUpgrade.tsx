@@ -7,6 +7,8 @@ import {
   IconCloud,
   IconChevronRight,
 } from "@tabler/icons-react";
+import { agentNativePath } from "@agent-native/core/client";
+import { appApiPath } from "@/lib/api-path";
 
 interface CloudUpgradeProps {
   title?: string;
@@ -121,7 +123,7 @@ export function CloudUpgrade({
         vars.push({ key: "DATABASE_AUTH_TOKEN", value: authToken.trim() });
       }
 
-      const saveRes = await fetch("/_agent-native/env-vars", {
+      const saveRes = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vars }),
@@ -138,7 +140,7 @@ export function CloudUpgrade({
       for (let i = 0; i < 30; i++) {
         await new Promise((r) => setTimeout(r, 1000));
         try {
-          const healthRes = await fetch("/api/db-health");
+          const healthRes = await fetch(appApiPath("/api/db-health"));
           const health = await healthRes.json();
           if (health.ok && health.local === false) {
             ok = true;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery, agentNativePath } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
   IconArrowUpRight,
@@ -175,7 +175,7 @@ function HelpTooltip({ content }: { content: string }) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="text-muted-foreground/60 hover:text-foreground"
+          className="text-muted-foreground/60 hover:text-foreground cursor-pointer"
         >
           <IconInfoCircle className="h-3.5 w-3.5" />
         </button>
@@ -325,7 +325,7 @@ export default function OverviewRoute() {
 
   useEffect(() => {
     let active = true;
-    fetch("/_agent-native/integrations/status")
+    fetch(agentNativePath("/_agent-native/integrations/status"))
       .then((res) => (res.ok ? res.json() : []))
       .then((rows) => {
         if (active) {
@@ -343,7 +343,7 @@ export default function OverviewRoute() {
   useEffect(() => {
     let active = true;
     const load = () => {
-      fetch("/_agent-native/integrations/task-queue/status")
+      fetch(agentNativePath("/_agent-native/integrations/task-queue/status"))
         .then((res) => (res.ok ? res.json() : null))
         .then((stats) => {
           if (!active || !stats || typeof stats !== "object") return;

@@ -138,6 +138,11 @@ export default defineEventHandler(async (event: H3Event) => {
   if (secret) {
     const timestamp = getRequestHeader(event, "x-zm-request-timestamp");
     const signature = getRequestHeader(event, "x-zm-signature");
+    const tsNum = parseInt(timestamp ?? "", 10);
+    if (!tsNum || Math.abs(Date.now() / 1000 - tsNum) > 300) {
+      setResponseStatus(event, 401);
+      return { error: "Request timestamp too old" };
+    }
     if (!verifyZoomSignature(buf, timestamp, signature, secret)) {
       setResponseStatus(event, 401);
       return { error: "Invalid signature" };

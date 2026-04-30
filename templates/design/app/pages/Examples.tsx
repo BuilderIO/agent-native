@@ -58,7 +58,7 @@ const EXAMPLES = [
 export default function Examples() {
   const handleUsePrompt = (prompt: string) => {
     openAgentSidebar();
-    sendToAgentChat({ message: prompt, submit: true });
+    sendToAgentChat({ message: prompt });
   };
 
   return (

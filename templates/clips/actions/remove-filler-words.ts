@@ -49,7 +49,7 @@ export default defineAction({
         `Read the transcript segments from this request's context. Filler words include: ` +
         `"um", "uh", "er", "ah", "like" (when used as filler), "you know", "I mean", ` +
         `"basically", "actually" (repeated). For each filler, estimate its startMs/endMs ` +
-        `within the segment. Then call \`trim-recording --recordingId=${args.recordingId} --ranges='[{ "startMs": ..., "endMs": ..., "excluded": true }, ...]'\`. ` +
+        `within the segment. Then call \`trim-recording --recordingId=${args.recordingId} --startMs=<start> --endMs=<end>\` once for each filler. ` +
         `Be conservative — only trim unambiguous fillers; do NOT cut meaningful speech.`,
     };
 

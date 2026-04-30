@@ -16,16 +16,24 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { agentNativePath } from "../api-path.js";
 
-export type VoiceProvider = "openai" | "browser" | "builder";
+export type VoiceProvider =
+  | "openai"
+  | "browser"
+  | "builder"
+  | "gemini"
+  | "groq";
 
 export interface VoicePrefs {
   provider: VoiceProvider;
 }
 
 const PREFS_KEY = "voice-transcription-prefs";
-const PREFS_URL = `/_agent-native/application-state/${PREFS_KEY}`;
-const TRANSCRIBE_URL = "/_agent-native/transcribe-voice";
+const PREFS_URL = agentNativePath(
+  `/_agent-native/application-state/${PREFS_KEY}`,
+);
+const TRANSCRIBE_URL = agentNativePath("/_agent-native/transcribe-voice");
 
 export type VoiceState =
   | "idle"
@@ -57,9 +65,21 @@ async function readProviderPrefs(): Promise<VoiceProvider> {
   try {
     const res = await fetch(PREFS_URL);
     if (!res.ok) return "browser";
-    const body = (await res.json()) as { value?: VoicePrefs } | null;
-    const p = body?.value?.provider;
-    if (p === "openai" || p === "browser" || p === "builder") return p;
+    const body = (await res.json()) as
+      | VoicePrefs
+      | { value?: VoicePrefs }
+      | null;
+    const p =
+      (body as VoicePrefs | null)?.provider ??
+      (body as { value?: VoicePrefs } | null)?.value?.provider;
+    if (
+      p === "openai" ||
+      p === "browser" ||
+      p === "builder" ||
+      p === "gemini" ||
+      p === "groq"
+    )
+      return p;
   } catch {
     /* fall through */
   }
@@ -441,11 +461,13 @@ export function useVoiceDictation(
     const pref = await readProviderPrefs();
     setProvider(pref);
 
-    // "builder" uses the same client-side flow as "openai" (MediaRecorder ->
-    // POST to /_agent-native/transcribe-voice). The server route handles
-    // routing to the right backend based on the user's preference.
+    // "builder", "gemini", and "groq" all use the same client-side flow as
+    // "openai" (MediaRecorder -> POST to /_agent-native/transcribe-voice).
+    // The server route handles routing to the right backend.
     const resolvedProvider: VoiceProvider =
-      pref === "builder" ? "openai" : pref;
+      pref === "builder" || pref === "gemini" || pref === "groq"
+        ? "openai"
+        : pref;
     activeProviderRef.current = resolvedProvider;
 
     try {

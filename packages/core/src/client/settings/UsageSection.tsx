@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useEffect, useState } from "react";
 import { IconLoader2, IconRefresh } from "@tabler/icons-react";
 
@@ -137,7 +138,9 @@ export function UsageSection() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/_agent-native/usage?sinceDays=${rangeDays}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/usage?sinceDays=${rangeDays}`),
+      );
       if (!res.ok) {
         throw new Error(`Failed (${res.status})`);
       }
