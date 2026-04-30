@@ -156,7 +156,9 @@ export default function BookingDetail() {
               </Button>
               <form
                 method="post"
-                action={agentNativePath("/_agent-native/actions/cancel-booking")}
+                action={agentNativePath(
+                  "/_agent-native/actions/cancel-booking",
+                )}
                 className="inline"
               >
                 <input type="hidden" name="uid" value={booking.uid} />

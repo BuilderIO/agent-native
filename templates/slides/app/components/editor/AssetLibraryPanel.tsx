@@ -84,9 +84,12 @@ export default function AssetLibraryPanel({
 
   const handleDelete = async (filename: string) => {
     try {
-      await fetch(`${appBasePath()}/api/assets/${encodeURIComponent(filename)}`, {
-        method: "DELETE",
-      });
+      await fetch(
+        `${appBasePath()}/api/assets/${encodeURIComponent(filename)}`,
+        {
+          method: "DELETE",
+        },
+      );
       setAssets((prev) => prev.filter((a) => a.filename !== filename));
     } catch {}
   };

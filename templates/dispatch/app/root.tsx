@@ -1,7 +1,7 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { focusAgentChat } from "@agent-native/core/client";
+import { focusAgentChat, agentNativePath } from "@agent-native/core/client";
 import {
   QueryClient,
   QueryClientProvider,
@@ -108,7 +108,7 @@ function useThreadDeepLink() {
     handled.current = true;
 
     // Write a chat-command to application-state so the sidebar opens this thread
-    fetch("/_agent-native/application-state/chat-command", {
+    fetch(agentNativePath("/_agent-native/application-state/chat-command"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

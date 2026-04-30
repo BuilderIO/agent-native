@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { sendToAgentChat, agentNativePath } from "@agent-native/core/client";
 
 export interface VariantCandidate {
   id: string;
@@ -32,7 +32,7 @@ export function useVariantFlow(designId: string | undefined) {
     queryKey: ["design-variants"],
     queryFn: async () => {
       const res = await fetch(
-        "/_agent-native/application-state/design-variants",
+        agentNativePath("/_agent-native/application-state/design-variants"),
       );
       if (!res.ok) return null;
       const text = await res.text();
@@ -63,7 +63,7 @@ export function useVariantFlow(designId: string | undefined) {
   const clear = useCallback(() => {
     setState(null);
     qc.setQueryData(["design-variants"], null);
-    fetch("/_agent-native/application-state/design-variants", {
+    fetch(agentNativePath("/_agent-native/application-state/design-variants"), {
       method: "DELETE",
     }).catch(() => {});
   }, [qc]);
@@ -78,21 +78,24 @@ export function useVariantFlow(designId: string | undefined) {
       // agent's own action endpoint. We keep the agent informed via chat so
       // subsequent edits target the picked direction.
       try {
-        const res = await fetch("/_agent-native/actions/generate-design", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            designId,
-            prompt: `User picked variant "${chosen.label}"`,
-            files: [
-              {
-                filename: "index.html",
-                content: chosen.content,
-                fileType: "html",
-              },
-            ],
-          }),
-        });
+        const res = await fetch(
+          agentNativePath("/_agent-native/actions/generate-design"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              designId,
+              prompt: `User picked variant "${chosen.label}"`,
+              files: [
+                {
+                  filename: "index.html",
+                  content: chosen.content,
+                  fileType: "html",
+                },
+              ],
+            }),
+          },
+        );
         if (!res.ok) {
           // Surface the failure rather than telling the agent the variant was
           // saved when the server actually rejected it. The picker still
