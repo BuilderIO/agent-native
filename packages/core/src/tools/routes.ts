@@ -39,7 +39,10 @@ import {
   redactString,
   sanitizeOutboundHeaders,
 } from "./proxy-security.js";
-import { isBlockedToolUrlWithDns } from "./url-safety.js";
+import {
+  createSsrfSafeDispatcher,
+  isBlockedToolUrlWithDns,
+} from "./url-safety.js";
 
 export function createToolsHandler() {
   return defineEventHandler(async (event: H3Event) => {
@@ -476,13 +479,22 @@ async function handleProxy(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
 
+  // Best-effort connect-time SSRF guard. When undici is available (it ships
+  // with Node 18+ but is not always exposed as an importable module), the
+  // dispatcher re-checks the resolved IP at TCP-connect time, closing the
+  // TOCTOU between the pre-flight `isBlockedToolUrlWithDns` lookup and the
+  // actual fetch lookup. If undici is not importable, fall through to plain
+  // fetch — the pre-flight remains the primary protection.
+  const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+
   try {
-    const fetchOpts: RequestInit = {
+    const fetchOpts: RequestInit & { dispatcher?: unknown } = {
       method,
       headers,
       signal: controller.signal,
       redirect: "manual",
     };
+    if (dispatcher) fetchOpts.dispatcher = dispatcher;
     if (resolvedBody && ["POST", "PUT", "PATCH"].includes(method)) {
       const isStringBody = typeof resolvedBody === "string";
       fetchOpts.body = isStringBody

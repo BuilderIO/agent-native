@@ -6,8 +6,23 @@
  * raw secret value NEVER enters the model's context — substitution happens
  * after the agent emits its tool call and before the request is dispatched.
  *
- * Falls back from user-scope to workspace-scope so users can override shared
- * keys without breaking automations that reference workspace defaults.
+ * SECURITY — workspace-scope fallback (audit 05 H2):
+ *
+ * The user→workspace fallback is OPT-IN via the
+ * `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1` env flag. Default OFF.
+ *
+ * When a user (any org member) writes a workspace-scoped `OPENAI_API_KEY`,
+ * a default-on fallback would let every other org member's tools that
+ * reference `${keys.OPENAI_API_KEY}` start using the malicious key
+ * (key-skimming, mirror requests, billing hijack). The previous
+ * fix-wave gated workspace-scope WRITES behind an org-admin check; this
+ * file is the read-side defense-in-depth.
+ *
+ * When the env flag is unset, `resolveKeyReferences("user", scopeId)`
+ * queries ONLY user-scope rows. Tools/automations that need shared
+ * defaults must explicitly look up via `scope: "workspace"`. Most
+ * installs benefit from the stricter default — opt in only after the
+ * org-admin write-gate is verified to be active.
  */
 
 import { readAppSecret, readAppSecretMeta } from "./storage.js";
@@ -18,6 +33,18 @@ import {
 } from "../server/request-context.js";
 
 const KEY_REFERENCE_REGEX = /\$\{keys\.([A-Za-z0-9_-]+)\}/g;
+
+function isWorkspaceFallbackEnabled(): boolean {
+  const v = process.env.AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK;
+  if (!v) return false;
+  const normalized = v.trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+}
 
 export interface ResolveKeyReferencesResult {
   resolved: string;
@@ -45,12 +72,16 @@ export async function resolveKeyReferences(
 
   const resolutions = new Map<string, string>();
   const secretValues: string[] = [];
+  const workspaceFallbackEnabled = isWorkspaceFallbackEnabled();
   for (const match of matches) {
     const name = match[1];
     if (resolutions.has(name)) continue;
 
     let result = await readAppSecret({ key: name, scope, scopeId });
-    if (!result && scope === "user") {
+    // SECURITY (audit 05 H2): user→workspace fallback is opt-in. Default
+    // off prevents one malicious org member from poisoning every other
+    // member's `${keys.NAME}` resolution with a workspace-scoped value.
+    if (!result && scope === "user" && workspaceFallbackEnabled) {
       result = await readAppSecret({
         key: name,
         scope: "workspace",
@@ -109,6 +140,12 @@ export function validateUrlAllowlist(
 /**
  * Convenience helper: look up a key's allowlist by name+scope. Returns null
  * when the key doesn't exist or has no allowlist configured.
+ *
+ * SECURITY: workspace fallback obeys the same opt-in flag as
+ * `resolveKeyReferences` so the allowlist check stays consistent with the
+ * resolved secret. If a future caller queries the allowlist for a key the
+ * resolver wouldn't return, we'd risk allowing requests that the resolver
+ * would refuse — keep them aligned.
  */
 export async function getKeyAllowlist(
   name: string,
@@ -116,7 +153,7 @@ export async function getKeyAllowlist(
   scopeId: string,
 ): Promise<string[] | null> {
   let meta = await readAppSecretMeta({ key: name, scope, scopeId });
-  if (!meta && scope === "user") {
+  if (!meta && scope === "user" && isWorkspaceFallbackEnabled()) {
     meta = await readAppSecretMeta({
       key: name,
       scope: "workspace",

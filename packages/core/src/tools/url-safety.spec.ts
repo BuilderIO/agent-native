@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { isBlockedToolUrl } from "./url-safety.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  isBlockedToolUrl,
+  isBlockedToolUrlWithDns,
+} from "./url-safety.js";
 
 describe("isBlockedToolUrl", () => {
   it.each([
@@ -27,5 +30,50 @@ describe("isBlockedToolUrl", () => {
   it("allows ordinary public HTTP origins", () => {
     expect(isBlockedToolUrl("https://93.184.216.34/api")).toBe(false);
     expect(isBlockedToolUrl("https://example.com/api")).toBe(false);
+  });
+});
+
+describe("isBlockedToolUrlWithDns (DNS rebinding guard)", () => {
+  it("blocks a public hostname that resolves to a private IP", async () => {
+    // Mock node:dns/promises so this test doesn't hit the network.
+    vi.doMock("node:dns/promises", () => ({
+      lookup: async () => [{ address: "169.254.169.254", family: 4 }],
+    }));
+    vi.resetModules();
+    const mod = await import("./url-safety.js");
+    expect(
+      await mod.isBlockedToolUrlWithDns("https://attacker.example.com/"),
+    ).toBe(true);
+    vi.doUnmock("node:dns/promises");
+    vi.resetModules();
+  });
+
+  it("blocks even when one of multiple resolved IPs is private", async () => {
+    vi.doMock("node:dns/promises", () => ({
+      lookup: async () => [
+        { address: "93.184.216.34", family: 4 },
+        { address: "10.0.0.1", family: 4 },
+      ],
+    }));
+    vi.resetModules();
+    const mod = await import("./url-safety.js");
+    expect(
+      await mod.isBlockedToolUrlWithDns("https://example.com/"),
+    ).toBe(true);
+    vi.doUnmock("node:dns/promises");
+    vi.resetModules();
+  });
+
+  it("allows a hostname that resolves to a public IP", async () => {
+    vi.doMock("node:dns/promises", () => ({
+      lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+    }));
+    vi.resetModules();
+    const mod = await import("./url-safety.js");
+    expect(
+      await mod.isBlockedToolUrlWithDns("https://example.com/"),
+    ).toBe(false);
+    vi.doUnmock("node:dns/promises");
+    vi.resetModules();
   });
 });

@@ -286,11 +286,12 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
   } catch (err) {
     // Scrub: never surface the value in any error path.
     setResponseStatus(event, 500);
+    const message =
+      err instanceof Error
+        ? `Failed to save secret: ${err.message}`
+        : "Failed to save secret";
     return {
-      error:
-        err instanceof Error
-          ? `Failed to save secret: ${err.message}`
-          : "Failed to save secret",
+      error: redactSecretFromMessage(message, value),
     };
   }
 
@@ -557,11 +558,12 @@ async function handleAdHocWrite(event: H3Event) {
     });
   } catch (err) {
     setResponseStatus(event, 500);
+    const message =
+      err instanceof Error
+        ? `Failed to save secret: ${err.message}`
+        : "Failed to save secret";
     return {
-      error:
-        err instanceof Error
-          ? `Failed to save secret: ${err.message}`
-          : "Failed to save secret",
+      error: redactSecretFromMessage(message, value),
     };
   }
 

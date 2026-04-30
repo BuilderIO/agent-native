@@ -267,4 +267,49 @@ describe("secrets routes", () => {
     });
     expect(JSON.stringify(result)).not.toContain("stored-secret-value");
   });
+
+  it("redacts submitted secret values from registered secret storage errors", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "API_TOKEN",
+      label: "API token",
+      scope: "user",
+      kind: "api-key",
+    });
+    mockWriteAppSecret.mockRejectedValueOnce(
+      new Error("database rejected shh-secret-value"),
+    );
+
+    const handler = createWriteSecretHandler();
+    const result = await handler(
+      event("/API_TOKEN", "POST", {
+        value: "shh-secret-value",
+      }),
+    );
+
+    expect(lastStatus).toBe(500);
+    expect(result).toEqual({
+      error: "Failed to save secret: database rejected [redacted]",
+    });
+    expect(JSON.stringify(result)).not.toContain("shh-secret-value");
+  });
+
+  it("redacts submitted secret values from ad-hoc secret storage errors", async () => {
+    mockWriteAppSecret.mockRejectedValueOnce(
+      new Error("database rejected ad-hoc-secret-value"),
+    );
+
+    const handler = createAdHocSecretHandler();
+    const result = await handler(
+      event("/", "POST", {
+        name: "WEBHOOK_TOKEN",
+        value: "ad-hoc-secret-value",
+      }),
+    );
+
+    expect(lastStatus).toBe(500);
+    expect(result).toEqual({
+      error: "Failed to save secret: database rejected [redacted]",
+    });
+    expect(JSON.stringify(result)).not.toContain("ad-hoc-secret-value");
+  });
 });

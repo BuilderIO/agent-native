@@ -162,10 +162,13 @@ export async function isBlockedToolUrlWithDns(url: string): Promise<boolean> {
  * `isBlockedToolUrlWithDns` will still have caught most rebinding cases.
  */
 export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
-  let undici: typeof import("undici");
-  let dnsModule: typeof import("node:dns");
+  // Dynamic import + `any`: undici is not a direct dependency, so the type
+  // declarations may not resolve. The runtime path is still safe — if the
+  // import throws we return null and the caller falls back to plain fetch.
+  let undici: any;
+  let dnsModule: any;
   try {
-    undici = await import("undici");
+    undici = await import("undici" as string);
     dnsModule = await import("node:dns");
   } catch {
     return null;
@@ -173,6 +176,7 @@ export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
 
   const { Agent } = undici;
   const { lookup } = dnsModule;
+  if (!Agent || !lookup) return null;
 
   return new Agent({
     connect: {

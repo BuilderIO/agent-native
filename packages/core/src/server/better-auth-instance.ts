@@ -87,8 +87,16 @@ function resolveAuthSecret(): string {
   }
 
   // Dev: persist a generated secret to .env.local so sessions survive
-  // dev-server restarts. Falls through to a hardcoded value only if the
-  // filesystem isn't writable (rare in dev, e.g. read-only mounts).
+  // dev-server restarts. Falls back to an in-memory random secret only if
+  // the filesystem isn't writable (rare in dev, e.g. read-only mounts) —
+  // sessions reset on every dev-process restart in that case, which is
+  // fine.
+  //
+  // SECURITY (audit 09 LOW-2): the previous fallback chain
+  // (`GOOGLE_CLIENT_SECRET || ACCESS_TOKEN || hardcoded`) reused
+  // cross-purpose secrets and a public hardcoded literal as the cookie
+  // HMAC. Dropped entirely — better to mint an ephemeral secret than to
+  // re-use a Google client secret or a known string.
   try {
     const envLocalPath = path.resolve(process.cwd(), ".env.local");
     const existing = readEnvLocalSecret(envLocalPath);
@@ -107,11 +115,17 @@ function resolveAuthSecret(): string {
     );
     return generated;
   } catch {
-    return (
-      process.env.GOOGLE_CLIENT_SECRET ||
-      process.env.ACCESS_TOKEN ||
-      "agent-native-local-dev-secret-k9x2m7q4w8"
+    // Filesystem unwritable (read-only mount, sandboxed test env, etc.).
+    // Mint a per-process random secret so cookies stay unique per boot.
+    // Sessions reset when the dev process restarts — acceptable for dev.
+    const ephemeral = crypto.randomBytes(32).toString("hex");
+    console.warn(
+      "[agent-native] Could not persist BETTER_AUTH_SECRET to .env.local " +
+        "(filesystem unwritable). Using an ephemeral in-memory secret. " +
+        "Sessions will reset every time this process restarts. " +
+        "Set BETTER_AUTH_SECRET in your environment to keep sessions valid across restarts.",
     );
+    return ephemeral;
   }
 }
 
