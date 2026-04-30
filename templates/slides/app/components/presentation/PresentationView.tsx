@@ -1,6 +1,11 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router";
-import { IconChevronLeft, IconChevronRight, IconX } from "@tabler/icons-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconMaximize,
+  IconX,
+} from "@tabler/icons-react";
 import type {
   Slide,
   SlideAnimation,
@@ -164,6 +169,9 @@ export default function PresentationView({
   const [animating, setAnimating] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [showControls, setShowControls] = useState(false);
+  const [cursorVisible, setCursorVisible] = useState(true);
+  const [needsFullscreenGesture, setNeedsFullscreenGesture] = useState(false);
+  const fullscreenAttemptedRef = useRef(false);
   const navigate = useNavigate();
 
   const isShared = deckId.startsWith("__shared__/");
