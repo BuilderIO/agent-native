@@ -1,5 +1,4 @@
 import { getH3App, awaitBootstrap } from "./framework-request-handler.js";
-import { runWithRequestContext } from "./request-context.js";
 import {
   defineEventHandler,
   setResponseStatus,
@@ -64,6 +63,7 @@ import { registerBuiltinNotificationChannels } from "../notifications/channels.j
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
+import { runWithRequestContext } from "./request-context.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import {
@@ -1003,19 +1003,45 @@ export function createCoreRoutesPlugin(
     // POST /_agent-native/file-upload        — upload a file, return { url }
     getH3App(nitroApp).use(
       `${P}/file-upload/status`,
-      defineEventHandler(async () => {
+      defineEventHandler(async (event) => {
         const active = getActiveFileUploadProvider();
+        // resolveBuilderPrivateKey() reads per-user credentials from app_secrets
+        // (DB), which requires request context (AsyncLocalStorage) to know which
+        // user to scope by. Without runWithRequestContext() the ALS store is empty
+        // and it falls back to process.env only — missing OAuth-connected users.
+        const session = await getSession(event).catch(() => null);
+        const userEmail = session?.email;
         let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
         try {
           const { resolveBuilderPrivateKey } =
             await import("./credential-provider.js");
-          builderConfigured = !!(await resolveBuilderPrivateKey());
+          const resolve = () => resolveBuilderPrivateKey().then((k) => !!k);
+          builderConfigured = userEmail
+            ? await runWithRequestContext({ userEmail }, resolve)
+            : await resolve();
         } catch {
           // fall back to env check above
         }
+        // When the builder builtin is selected via env var, its sync
+        // isConfigured() doesn't reflect per-user OAuth credentials. Use the
+        // async builderConfigured check so the status accurately represents
+        // whether this specific user can actually upload (thread 7 fix).
+        const isBuilderEnvActive = active?.id === "builder";
+        const configured = isBuilderEnvActive
+          ? builderConfigured
+          : !!active || builderConfigured;
+        const activeProvider = isBuilderEnvActive
+          ? builderConfigured
+            ? { id: "builder", name: "Builder.io" }
+            : null
+          : active
+            ? { id: active.id, name: active.name }
+            : builderConfigured
+              ? { id: "builder", name: "Builder.io" }
+              : null;
         return {
-          configured: !!active,
-          activeProvider: active ? { id: active.id, name: active.name } : null,
+          configured,
+          activeProvider,
           providers: listFileUploadProviders().map((p) => ({
             id: p.id,
             name: p.name,
@@ -1045,12 +1071,15 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 401);
           return { error: "Unauthorized" };
         }
-        const result = await uploadFile({
-          data: filePart.data,
-          filename: filePart.filename,
-          mimeType: filePart.type,
-          ownerEmail: session.email,
-        });
+        const userEmail = session.email;
+        const result = await runWithRequestContext({ userEmail }, () =>
+          uploadFile({
+            data: filePart.data,
+            filename: filePart.filename,
+            mimeType: filePart.type,
+            ownerEmail: userEmail,
+          }),
+        );
 
         if (result) {
           setResponseStatus(event, 201);

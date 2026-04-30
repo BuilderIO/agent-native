@@ -33,6 +33,7 @@ import {
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { uploadFile } from "../file-upload/index.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { getOrgContext } from "../org/context.js";
 import { createError } from "h3";
 
@@ -481,12 +482,24 @@ export async function handleUploadResource(event: any) {
     mimeType.startsWith("text/") || mimeType === "application/json";
 
   if (!isText) {
-    const uploaded = await uploadFile({
-      data: filePart.data,
-      filename: fileName,
-      mimeType,
-      ownerEmail: owner,
-    });
+    // Use the actual session user email for credential resolution — not `owner`,
+    // which is "__shared__" for org-wide resources and would break the per-user
+    // DB credential lookup (resolveBuilderCredential refuses env fallback for any
+    // non-null non-local email, including the sentinel value).
+    const credentialEmail =
+      owner !== SHARED_OWNER
+        ? owner
+        : (await getSession(event).catch(() => null))?.email;
+    const doUpload = () =>
+      uploadFile({
+        data: filePart.data,
+        filename: fileName,
+        mimeType,
+        ownerEmail: owner,
+      });
+    const uploaded = credentialEmail
+      ? await runWithRequestContext({ userEmail: credentialEmail }, doUpload)
+      : await doUpload();
     if (uploaded) {
       const resource = await resourcePut(owner, path, uploaded.url, mimeType);
       setResponseStatus(event, 201);
