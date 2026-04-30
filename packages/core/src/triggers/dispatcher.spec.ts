@@ -84,4 +84,49 @@ Respond to the event.`,
       }),
     );
   });
+
+  it("loads prompt resources for the trigger run owner", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "__shared__",
+        path: "jobs/shared-inbox-alert.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: qa.event.prompt
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+runAs: creator
+---
+
+Respond to the event.`,
+      },
+    ]);
+    const getSystemPrompt = vi.fn(async () => "system");
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt,
+      model: "test-model",
+    });
+
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "qa.event.prompt",
+    )?.[1];
+    expect(handler).toBeTypeOf("function");
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-1",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+
+    expect(getSystemPrompt).toHaveBeenCalledWith(
+      "alice+triggers@agent-native.test",
+    );
+  });
 });
