@@ -331,7 +331,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               ) as ElectronWebviewElement;
               wv.className = "app-webview";
               wv.setAttribute("allowpopups", "");
-              wv.setAttribute("webpreferences", "contextIsolation=false");
+              wv.setAttribute(
+                "webpreferences",
+                "contextIsolation=true,nodeIntegration=false,sandbox=true",
+              );
               wv.setAttribute("partition", `persist:app-${app.id}`);
               wv.setAttribute("src", url);
               container.appendChild(wv);

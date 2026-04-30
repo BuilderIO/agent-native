@@ -25,21 +25,49 @@ function escapeHtml(str: string): string {
  * safe-to-embed value — always HTML-escape the result when inserting
  * into an attribute.
  */
-function sanitizeUrl(url: string): string {
+function decodeHtmlEntities(value: string): string {
+  let decoded = value;
+  for (let i = 0; i < 3; i++) {
+    const next = decoded
+      .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) =>
+        String.fromCodePoint(Number.parseInt(hex, 16)),
+      )
+      .replace(/&#(\d+);?/g, (_, dec: string) =>
+        String.fromCodePoint(Number.parseInt(dec, 10)),
+      )
+      .replace(/&colon;?/gi, ":")
+      .replace(/&tab;?/gi, "\t")
+      .replace(/&newline;?/gi, "\n")
+      .replace(/&amp;?/gi, "&");
+    if (next === decoded) break;
+    decoded = next;
+  }
+  return decoded;
+}
+
+function sanitizeUrl(url: string, kind: "link" | "image" = "link"): string {
   const trimmed = url.trim();
-  // Block protocol-relative urls only if they look suspicious — rare in
-  // markdown, but most safe: allow http/https/mailto and relative paths.
-  const lower = trimmed.toLowerCase();
+  if (!trimmed) return "#";
+
   // Strip HTML entities and whitespace before protocol check so
   // `javascript&#58;…` style attempts don't sneak through.
-  const stripped = lower.replace(/[\s\u0000-\u001f]/g, "");
+  const decoded = decodeHtmlEntities(trimmed);
+  const stripped = decoded
+    .replace(/[\s\u0000-\u001f\u007f]+/g, "")
+    .toLowerCase();
   if (
     stripped.startsWith("javascript:") ||
     stripped.startsWith("data:") ||
     stripped.startsWith("vbscript:") ||
-    stripped.startsWith("file:")
+    stripped.startsWith("file:") ||
+    stripped.startsWith("//")
   ) {
     return "#";
+  }
+  if (kind === "image" && /^[a-z][a-z\d+.-]*:/i.test(stripped)) {
+    if (!stripped.startsWith("http:") && !stripped.startsWith("https:")) {
+      return "#";
+    }
   }
   return trimmed;
 }
@@ -61,7 +89,8 @@ function renderInline(text: string): string {
       .replace(/`([^`]+)`/g, "<code>$1</code>")
       // Images — must run before the link pattern since ![alt](url) contains [alt](url)
       .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, rawUrl) => {
-        const safe = sanitizeUrl(rawUrl);
+        const safe = sanitizeUrl(rawUrl, "image");
+        if (safe === "#") return "";
         return `<img src="${escapeHtml(safe)}" alt="${alt}" loading="lazy" />`;
       })
       // Links — sanitize URL to block javascript:/data:/vbscript:/file:
@@ -72,7 +101,7 @@ function renderInline(text: string): string {
   );
 }
 
-function renderMarkdown(md: string): string {
+export function renderMarkdown(md: string): string {
   const lines = md.split("\n");
   const out: string[] = [];
   let i = 0;

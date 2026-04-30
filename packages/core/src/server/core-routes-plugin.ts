@@ -120,6 +120,14 @@ function stripAppBasePath(pathname: string): string {
   return pathname;
 }
 
+function redactValues(text: string, values: Array<string | null | undefined>) {
+  let out = text;
+  for (const value of values) {
+    if (value) out = out.split(value).join("[redacted]");
+  }
+  return out;
+}
+
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface CoreRoutesPluginOptions {
@@ -683,56 +691,73 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const { resolveBuilderCredentials: resolveCreds } =
-          await import("./credential-provider.js");
-        const creds = await resolveCreds();
-        if (!creds.privateKey || !creds.publicKey) {
-          setResponseStatus(event, 400);
-          return {
-            error:
-              "Builder not connected. Connect Builder in Setup to use background agent.",
-          };
+
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "unauthorized" };
         }
-        const body = (await readBody(event)) as {
-          userMessage?: string;
-          branchName?: string;
-          projectUrl?: string;
-        };
-        if (!body?.userMessage) {
-          setResponseStatus(event, 400);
-          return { error: "userMessage is required" };
-        }
-        const apiHost =
-          process.env.BUILDER_API_HOST || "https://ai-services.builder.io";
-        try {
-          const res = await fetch(
-            `${apiHost}/agents/run?apiKey=${encodeURIComponent(creds.publicKey)}`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${creds.privateKey}`,
-              },
-              body: JSON.stringify({
-                userMessage: {
-                  userPrompt: body.userMessage,
+
+        return runWithRequestContext(
+          { userEmail: session.email, orgId: session.orgId ?? undefined },
+          async () => {
+            const { resolveBuilderCredentials: resolveCreds } =
+              await import("./credential-provider.js");
+            const creds = await resolveCreds();
+            if (!creds.privateKey || !creds.publicKey) {
+              setResponseStatus(event, 400);
+              return {
+                error:
+                  "Builder not connected. Connect Builder in Setup to use background agent.",
+              };
+            }
+            const body = (await readBody(event)) as {
+              userMessage?: string;
+              branchName?: string;
+              projectUrl?: string;
+            };
+            if (!body?.userMessage) {
+              setResponseStatus(event, 400);
+              return { error: "userMessage is required" };
+            }
+            const apiHost =
+              process.env.BUILDER_API_HOST || "https://ai-services.builder.io";
+            try {
+              const res = await fetch(
+                `${apiHost}/agents/run?apiKey=${encodeURIComponent(creds.publicKey)}`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${creds.privateKey}`,
+                  },
+                  body: JSON.stringify({
+                    userMessage: {
+                      userPrompt: body.userMessage,
+                    },
+                    branchName: body.branchName,
+                  }),
                 },
-                branchName: body.branchName,
-              }),
-            },
-          );
-          if (!res.ok) {
-            const err = await res.text().catch(() => "Unknown error");
-            setResponseStatus(event, res.status);
-            return { error: err };
-          }
-          return await res.json();
-        } catch (err: any) {
-          setResponseStatus(event, 500);
-          return {
-            error: err?.message || "Failed to reach Builder agents-run API",
-          };
-        }
+              );
+              if (!res.ok) {
+                const err = await res.text().catch(() => "Unknown error");
+                setResponseStatus(event, res.status);
+                return {
+                  error: redactValues(err, [creds.privateKey, creds.publicKey]),
+                };
+              }
+              return await res.json();
+            } catch (err: any) {
+              setResponseStatus(event, 500);
+              return {
+                error: redactValues(
+                  err?.message || "Failed to reach Builder agents-run API",
+                  [creds.privateKey, creds.publicKey],
+                ),
+              };
+            }
+          },
+        );
       }),
     );
 
