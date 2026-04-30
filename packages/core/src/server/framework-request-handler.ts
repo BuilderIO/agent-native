@@ -184,6 +184,12 @@ function registerMiddleware(
       try {
         originalPathname = event.url.pathname;
         const stripped = originalPathname.slice(path.length) || "/";
+        // Save the full path in context so handlers that need the original URL
+        // (e.g. Better Auth, which extracts its own basePath prefix) can
+        // reconstruct a Request with the un-stripped URL.
+        (event as any).context = (event as any).context ?? {};
+        (event as any).context._mountedPathname = originalPathname;
+        (event as any).context._mountPrefix = path;
         event.url.pathname = stripped;
       } catch {
         // event.url is read-only on some runtimes — fall through. Handlers

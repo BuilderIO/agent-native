@@ -10,6 +10,15 @@ import { getSession } from "@agent-native/core/server";
 
 const UPLOADS_DIR = path.join(process.cwd(), "public", "uploads");
 
+async function requireSession(event: Parameters<typeof getSession>[0]) {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return null;
+  }
+  return session;
+}
+
 // Ensure uploads directory exists (skip on edge runtimes like CF Workers)
 try {
   if (!fs.existsSync(UPLOADS_DIR)) {
@@ -19,9 +28,8 @@ try {
 
 // Upload an asset
 export const uploadAsset = defineEventHandler(async (event) => {
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
-    setResponseStatus(event, 401);
+  const session = await requireSession(event);
+  if (!session) {
     return { error: "Unauthorized" };
   }
 
@@ -66,7 +74,12 @@ export const uploadAsset = defineEventHandler(async (event) => {
 });
 
 // List all assets
-export const listAssets = defineEventHandler((_event) => {
+export const listAssets = defineEventHandler(async (event) => {
+  const session = await requireSession(event);
+  if (!session) {
+    return { error: "Unauthorized" };
+  }
+
   try {
     const files = fs.readdirSync(UPLOADS_DIR);
     const assets = files
@@ -92,7 +105,12 @@ export const listAssets = defineEventHandler((_event) => {
 });
 
 // Delete an asset
-export const deleteAsset = defineEventHandler((event) => {
+export const deleteAsset = defineEventHandler(async (event) => {
+  const session = await requireSession(event);
+  if (!session) {
+    return { error: "Unauthorized" };
+  }
+
   const filenameParam = getRouterParam(event, "filename");
   if (!filenameParam) {
     setResponseStatus(event, 400);
