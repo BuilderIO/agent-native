@@ -66,7 +66,10 @@ The framework ships with production-ready templates you can use as daily drivers
 - **[Slides](/templates/slides)** — presentation builder
 - **[Video](/templates/video)** — video composition with Remotion
 - **[Analytics](/templates/analytics)** — data platform (like Amplitude/Mixpanel)
-- **[Forms](/templates/forms)**, **[Issues](/templates/issues)**, **[Recruiting](/templates/recruiting)**, and the **[Dispatch](/docs/template-dispatch)** workspace control plane.
+- **[Clips](/templates/clips)** — async screen + camera recording (replaces Loom)
+- **[Design](/templates/design)** — agent-native design tool (like Figma/Canva)
+- **[Forms](/templates/forms)** — form builder (like Typeform)
+- **[Dispatch](/templates/dispatch)** — workspace control plane: shared secrets, integrations, jobs
 
 Each template is a complete app with UI, agent actions, database schema, and AI instructions. See [Cloneable SaaS](/docs/cloneable-saas) for the full picture, or all [Templates](/templates).
 

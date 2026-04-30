@@ -29,14 +29,18 @@ From here, use your AI coding tool (Claude Code, Cursor, Windsurf, etc.) to cust
 
 Each template is a complete app with UI, agent actions, database schema, and AI instructions ready to go:
 
-| Template                          | Replaces                    |
-| --------------------------------- | --------------------------- |
-| [Mail](/templates/mail)           | Superhuman, Gmail           |
-| [Calendar](/templates/calendar)   | Google Calendar, Calendly   |
-| [Content](/templates/content)     | Notion, Google Docs         |
-| [Slides](/templates/slides)       | Google Slides, Pitch        |
-| [Video](/templates/video)         | video editing               |
-| [Analytics](/templates/analytics) | Amplitude, Mixpanel, Looker |
+| Template                          | Replaces                                |
+| --------------------------------- | --------------------------------------- |
+| [Mail](/templates/mail)           | Superhuman, Gmail                       |
+| [Calendar](/templates/calendar)   | Google Calendar, Calendly               |
+| [Content](/templates/content)     | Notion, Google Docs                     |
+| [Slides](/templates/slides)       | Google Slides, Pitch                    |
+| [Video](/templates/video)         | video editing                           |
+| [Analytics](/templates/analytics) | Amplitude, Mixpanel, Looker             |
+| [Clips](/templates/clips)         | Loom — screen + camera recording        |
+| [Design](/templates/design)       | Figma, Canva                            |
+| [Forms](/templates/forms)         | Typeform                                |
+| [Dispatch](/templates/dispatch)   | Workspace control plane — secrets, jobs |
 
 Browse the [template gallery](/templates) for live demos and detailed feature lists.
 
