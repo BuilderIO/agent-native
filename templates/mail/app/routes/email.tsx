@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useSearchParams } from "react-router";
 import { postNavigate, isInAgentEmbed } from "@agent-native/core/client";
 import { useThreadMessages } from "@/hooks/use-emails";
@@ -6,6 +7,33 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconExternalLink } from "@tabler/icons-react";
 import type { EmailMessage } from "@shared/types";
+
+function sanitizeHtml(html: string): string {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  doc
+    .querySelectorAll(
+      "script, noscript, iframe, frame, object, embed, base, meta[http-equiv='refresh']",
+    )
+    .forEach((node) => node.remove());
+  doc.querySelectorAll<HTMLElement>("*").forEach((el) => {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+      if (name.startsWith("on")) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if (
+        (name === "href" || name === "src" || name === "xlink:href") &&
+        value.startsWith("javascript:")
+      ) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+  return doc.body.innerHTML;
+}
 
 export function meta() {
   return [{ title: "Email" }];
@@ -16,6 +44,10 @@ export function meta() {
 function MessageCard({ message }: { message: EmailMessage }) {
   const fromName = message.from.name || message.from.email;
   const toList = message.to.map((a) => a.name || a.email).join(", ");
+  const safeHtml = useMemo(
+    () => (message.bodyHtml ? sanitizeHtml(message.bodyHtml) : null),
+    [message.bodyHtml],
+  );
 
   return (
     <div className="border-b border-border/40 last:border-b-0 py-4 px-4">
@@ -44,10 +76,10 @@ function MessageCard({ message }: { message: EmailMessage }) {
         </div>
       )}
 
-      {message.bodyHtml ? (
+      {safeHtml ? (
         <div
           className="prose prose-sm dark:prose-invert max-w-none text-foreground/90 overflow-x-auto [&_img]:max-w-full [&_a]:text-primary"
-          dangerouslySetInnerHTML={{ __html: message.bodyHtml }}
+          dangerouslySetInnerHTML={{ __html: safeHtml }}
         />
       ) : (
         <pre className="whitespace-pre-wrap text-[13px] text-foreground/80 font-sans leading-relaxed">
