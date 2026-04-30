@@ -679,13 +679,25 @@ export function installDesktopVoiceDictation(
     try {
       startInFlight = true;
       stopRequestedBeforeReady = false;
+      // Open a parallel mic stream JUST for the live audio meter. This
+      // is safe with the native path because SFSpeechRecognizer's audio
+      // capture lives in Rust (AVAudioEngine, separate bus) — multiple
+      // mic consumers coexist fine on macOS. We deliberately don't do
+      // this on the browser path because webkitSpeechRecognition fights
+      // a sibling getUserMedia in WKWebView.
+      const meterStream = await navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .catch((err) => {
+          console.warn("[voice-dictation] meter getUserMedia failed:", err);
+          return null;
+        });
       await invoke("show_flow_bar");
       setFlowState("recording");
       // Reset any prior partial transcript display in the flow-bar.
       emit("voice:partial-transcript", { text: "" }).catch(() => {});
       const next: VoiceSession = {
         kind: "native",
-        stream: null,
+        stream: meterStream,
         recorder: null,
         chunks: [],
         audioContext: null,
@@ -701,10 +713,15 @@ export function installDesktopVoiceDictation(
       };
       session = next;
       startInFlight = false;
-      // Pulse the waveform without opening a parallel mic stream — the
-      // Rust side owns the audio device and we don't want to fight over
-      // it in the WebView layer.
-      startSyntheticMeter(next);
+      // Real audio meter from the parallel mic stream — bars bounce with
+      // the user's voice + volume. Falls back to synthetic if the mic
+      // stream couldn't be opened (e.g. permission denied just for
+      // getUserMedia).
+      if (meterStream) {
+        startMeter(next);
+      } else {
+        startSyntheticMeter(next);
+      }
       try {
         await invoke("native_speech_start", {
           locale: navigator.language || "en-US",
@@ -981,10 +998,17 @@ export function installDesktopVoiceDictation(
           console.warn("[voice-dictation] native_speech_stop failed:", err);
         });
 
+        const stopAtMs = Date.now();
+        console.log(
+          "[voice-dictation] native stop — awaiting voice:final-transcript",
+        );
         let finalized = false;
-        const finalize = () => {
+        const finalize = (reason: "final" | "timeout" | "manual") => {
           if (finalized) return;
           finalized = true;
+          console.log(
+            `[voice-dictation] native finalize (${reason}, +${Date.now() - stopAtMs}ms)`,
+          );
           // If the user cancelled (X button) during the wait window,
           // skip paste + linger. cleanup() already ran via cancel().
           if (current.cancelled) return;
@@ -1005,9 +1029,12 @@ export function installDesktopVoiceDictation(
           }
           // Linger ~1s with the final transcript visible above the
           // pill, then dismiss everything.
+          console.log("[voice-dictation] starting 1s linger");
           window.setTimeout(() => {
+            console.log("[voice-dictation] linger done — dismissing");
             if (disposed) return;
             stopMeter(current);
+            stopTracks(current);
             setFlowState("idle");
             invoke("hide_flow_bar").catch(() => {});
             emit("voice:partial-transcript", { text: "" }).catch(() => {});
@@ -1019,10 +1046,10 @@ export function installDesktopVoiceDictation(
 
         // The install-time `voice:final-transcript` listener calls
         // `current.onNativeFinalize` when the final result arrives.
-        current.onNativeFinalize = finalize;
+        current.onNativeFinalize = () => finalize("final");
         // Safety timer: if final never arrives (unsupported locale,
         // crash, etc.), proceed after 3s with whatever partial we have.
-        window.setTimeout(finalize, 3000);
+        window.setTimeout(() => finalize("timeout"), 3000);
       } else {
         // BROWSER PATH: dismiss the bar IMMEDIATELY and paste whatever
         // transcript we have right now. recognition.stop() / .abort()
