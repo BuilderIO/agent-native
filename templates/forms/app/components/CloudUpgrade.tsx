@@ -17,6 +17,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { agentNativePath } from "@agent-native/core/client";
 
 interface CloudUpgradeProps {
   title?: string;
@@ -131,7 +132,7 @@ export function CloudUpgrade({
         vars.push({ key: "DATABASE_AUTH_TOKEN", value: authToken.trim() });
       }
 
-      const saveRes = await fetch("/_agent-native/env-vars", {
+      const saveRes = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vars }),

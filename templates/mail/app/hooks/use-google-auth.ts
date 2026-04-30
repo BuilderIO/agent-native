@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
+import { agentNativePath } from "@agent-native/core/client";
 
 interface GoogleAuthStatus {
   connected: boolean;
@@ -80,7 +81,9 @@ export function useGoogleAuthStatus() {
   return useQuery<GoogleAuthStatus>({
     queryKey: ["google-status"],
     queryFn: async () => {
-      return fetchJson<GoogleAuthStatus>("/_agent-native/google/status");
+      return fetchJson<GoogleAuthStatus>(
+        agentNativePath("/_agent-native/google/status"),
+      );
     },
   });
 }
@@ -91,8 +94,11 @@ export function useGoogleAuthUrl(enabled = false) {
     queryKey: ["google-auth-url"],
     queryFn: async () => {
       const { getCallbackOrigin } = await import("@agent-native/core/client");
+      const redirectUri = `${getCallbackOrigin()}${agentNativePath("/_agent-native/google/callback")}`;
       return fetchJson<{ url: string }>(
-        `/_agent-native/google/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/_agent-native/google/callback")}`,
+        agentNativePath(
+          `/_agent-native/google/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`,
+        ),
       );
     },
     enabled,
@@ -115,10 +121,13 @@ export function useGoogleAddAccountUrl(enabled = false) {
     queryKey: ["google-add-account-url"],
     queryFn: async () => {
       const { getCallbackOrigin } = await import("@agent-native/core/client");
+      const redirectUri = `${getCallbackOrigin()}${agentNativePath("/_agent-native/google/callback")}`;
       // Use the main callback URL — the server-side state param carries the
       // add-account flag so only one redirect URI needs Google Console registration.
       return fetchJson<{ url: string }>(
-        `/_agent-native/google/add-account/auth-url?redirect_uri=${encodeURIComponent(getCallbackOrigin() + "/_agent-native/google/callback")}`,
+        agentNativePath(
+          `/_agent-native/google/add-account/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`,
+        ),
       );
     },
     enabled,
@@ -138,11 +147,14 @@ export function useDisconnectGoogle() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (email: string) => {
-      return fetchJson<unknown>("/_agent-native/google/disconnect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
+      return fetchJson<unknown>(
+        agentNativePath("/_agent-native/google/disconnect"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        },
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["google-status"] });

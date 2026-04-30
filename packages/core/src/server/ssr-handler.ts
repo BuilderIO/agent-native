@@ -18,6 +18,42 @@
 import { createRequestHandler } from "react-router";
 import { defineEventHandler } from "h3";
 
+function normalizeAppBasePath(value: string | undefined): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function getAppBasePath(): string {
+  return normalizeAppBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+}
+
+function stripAppBasePath(pathname: string): string {
+  const basePath = getAppBasePath();
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
+function requestWithPathname(request: Request, pathname: string): Request {
+  const url = new URL(request.url);
+  if (url.pathname === pathname) return request;
+  url.pathname = pathname;
+  return new Request(url, {
+    method: request.method,
+    headers: request.headers,
+    body: request.body,
+    signal: request.signal,
+    duplex: "half",
+  } as RequestInit);
+}
+
 /**
  * Create an h3 catch-all that hands page routes to React Router and
  * returns 404 for framework / asset paths that React Router doesn't own.
@@ -25,7 +61,7 @@ import { defineEventHandler } from "h3";
 export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
   const handler = createRequestHandler(getBuild as any);
   return defineEventHandler(async (event) => {
-    const p = event.url.pathname;
+    const p = stripAppBasePath(event.url.pathname);
     if (
       p.startsWith("/.well-known/") ||
       p.startsWith("/_agent-native/") ||
@@ -37,7 +73,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       return new Response(null, { status: 404 });
     }
     try {
-      const request = event.req as Request;
+      const request = requestWithPathname(event.req as Request, p);
       if (request.method === "HEAD") {
         const getRequest = new Request(request.url, {
           method: "GET",
