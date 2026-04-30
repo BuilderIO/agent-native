@@ -44,9 +44,13 @@ function safeFilename(originalName: string): string | null {
   return `${base}-${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`;
 }
 
-function hasExpectedSignature(ext: string, data: Buffer): boolean {
+function ascii(data: Uint8Array, start: number, end: number): string {
+  return Buffer.from(data.subarray(start, end)).toString("ascii");
+}
+
+function hasExpectedSignature(ext: string, data: Uint8Array): boolean {
   if (ext === ".pdf") {
-    return data.subarray(0, 5).toString("ascii") === "%PDF-";
+    return ascii(data, 0, 5) === "%PDF-";
   }
   if (ext === ".pptx" || ext === ".docx") {
     return data[0] === 0x50 && data[1] === 0x4b;
@@ -63,14 +67,11 @@ function hasExpectedSignature(ext: string, data: Buffer): boolean {
     return data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
   }
   if (ext === ".gif") {
-    const header = data.subarray(0, 6).toString("ascii");
+    const header = ascii(data, 0, 6);
     return header === "GIF87a" || header === "GIF89a";
   }
   if (ext === ".webp") {
-    return (
-      data.subarray(0, 4).toString("ascii") === "RIFF" &&
-      data.subarray(8, 12).toString("ascii") === "WEBP"
-    );
+    return ascii(data, 0, 4) === "RIFF" && ascii(data, 8, 12) === "WEBP";
   }
   return !data.subarray(0, 4096).includes(0);
 }
@@ -85,9 +86,8 @@ export const uploadFiles = defineEventHandler(async (event) => {
 
   const parts = await readMultipartFormData(event);
   const fileParts =
-    parts?.filter(
-      (p) => (p.name === "files" || p.name === "file") && p.data,
-    ) ?? [];
+    parts?.filter((p) => (p.name === "files" || p.name === "file") && p.data) ??
+    [];
 
   if (fileParts.length === 0) {
     setResponseStatus(event, 400);

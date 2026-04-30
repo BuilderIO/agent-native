@@ -57,7 +57,11 @@ function safeAssetFilename(originalName: string): string | null {
   return `${base}-${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`;
 }
 
-function hasExpectedImageSignature(ext: string, data: Buffer): boolean {
+function ascii(data: Uint8Array, start: number, end: number): string {
+  return Buffer.from(data.subarray(start, end)).toString("ascii");
+}
+
+function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
   if (ext === ".png") {
     return (
       data[0] === 0x89 &&
@@ -70,14 +74,11 @@ function hasExpectedImageSignature(ext: string, data: Buffer): boolean {
     return data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
   }
   if (ext === ".gif") {
-    const header = data.subarray(0, 6).toString("ascii");
+    const header = ascii(data, 0, 6);
     return header === "GIF87a" || header === "GIF89a";
   }
   if (ext === ".webp") {
-    return (
-      data.subarray(0, 4).toString("ascii") === "RIFF" &&
-      data.subarray(8, 12).toString("ascii") === "WEBP"
-    );
+    return ascii(data, 0, 4) === "RIFF" && ascii(data, 8, 12) === "WEBP";
   }
   if (ext === ".ico") {
     return (
@@ -88,7 +89,7 @@ function hasExpectedImageSignature(ext: string, data: Buffer): boolean {
     );
   }
   if (ext === ".avif") {
-    return data.subarray(4, 12).toString("ascii").includes("ftyp");
+    return ascii(data, 4, 12).includes("ftyp");
   }
   return false;
 }
