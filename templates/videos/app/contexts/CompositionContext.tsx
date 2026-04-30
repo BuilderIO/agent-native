@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router";
+import { toast } from "sonner";
 import { compositions, type CompositionEntry } from "@/remotion/registry";
 import type { CompSettings } from "@/components/CompSettingsEditor";
 import type { CompositionCollabData } from "@/hooks/use-composition-collab";
@@ -339,8 +340,7 @@ export function CompositionProvider({
           );
         }
       } catch (err) {
-        console.error("[Videos] Failed to delete composition:", err);
-        // Bail out — UI stays in sync with the database
+        toast.error("Failed to delete composition");
         return;
       }
 
@@ -390,7 +390,7 @@ export function CompositionProvider({
           throw new Error(data.error);
         }
       } catch (err) {
-        console.error("[Videos] Failed to persist title rename:", err);
+        toast.error("Failed to rename composition");
       }
     },
     [selected],
