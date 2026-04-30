@@ -483,6 +483,23 @@ describe("server/auth", () => {
       expect(safeReturnPath(decoded.returnUrl)).toBe("/");
     });
   });
+
+  describe("getAppUrl", () => {
+    it("preserves APP_BASE_PATH for framework callback URLs", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/docs/");
+      const { getAppUrl } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: {
+          host: "app.example.test",
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(getAppUrl(event, "/_agent-native/google/callback")).toBe(
+        "https://app.example.test/docs/_agent-native/google/callback",
+      );
+    });
+  });
 });
 
 // --- Mock helpers ---
@@ -496,19 +513,22 @@ function createMockApp(): any {
 function createMockEvent(opts?: {
   cookies?: Record<string, string>;
   query?: Record<string, string>;
+  headers?: Record<string, string>;
 }): any {
   const query = opts?.query || {};
+  const headers = opts?.headers || {};
   const qs = Object.entries(query)
     .map(([k, v]) => `${k}=${v}`)
     .join("&");
   const url = qs ? `/?${qs}` : "/";
+  const requestHeaders = new Headers({ host: "localhost", ...headers });
   return {
     // h3 v2 shape: event.req is the web Request, event.url is a parsed URL,
     // event.res holds the response headers map.
     req: {
       method: "GET",
       url: `http://localhost${url}`,
-      headers: new Headers({ host: "localhost" }),
+      headers: requestHeaders,
     },
     url: new URL(`http://localhost${url}`),
     res: {
@@ -518,7 +538,7 @@ function createMockEvent(opts?: {
     // Legacy v1 shape kept for any code paths still using event.node.req
     node: {
       req: {
-        headers: { host: "localhost" },
+        headers: { host: "localhost", ...headers },
         url,
         method: "GET",
       },
@@ -528,7 +548,7 @@ function createMockEvent(opts?: {
         appendHeader: vi.fn(),
       },
     },
-    headers: new Headers(),
+    headers: requestHeaders,
     context: {},
     path: url,
     _cookies: opts?.cookies || {},

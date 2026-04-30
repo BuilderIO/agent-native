@@ -16,7 +16,7 @@ import {
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { Toaster } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { LinksFunction } from "react-router";
 import stylesheet from "./global.css?url";
@@ -129,7 +129,7 @@ export default function Root() {
               </CommandMenu.Group>
             </CommandMenu>
             <Outlet />
-            <Toaster position="bottom-left" />
+            <Toaster richColors position="bottom-left" />
           </TooltipProvider>
         </QueryClientProvider>
       </ThemeProvider>
