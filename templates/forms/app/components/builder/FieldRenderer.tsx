@@ -177,7 +177,7 @@ export function FieldRenderer({
               key={star}
               type="button"
               onClick={() => !disabled && handleChange(star)}
-              className="p-2 sm:p-1.5"
+              className="cursor-pointer p-2 sm:p-1.5 disabled:cursor-not-allowed"
               disabled={disabled}
               aria-label={`${star} star${star !== 1 ? "s" : ""}`}
             >

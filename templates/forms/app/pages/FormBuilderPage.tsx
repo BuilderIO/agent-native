@@ -532,6 +532,7 @@ export function FormBuilderPage() {
         <div className="flex-1 overflow-auto">
           <div className="max-w-lg mx-auto py-4 sm:py-8 px-3 sm:px-4">
             <SettingsEditor
+              key={JSON.stringify(form.settings)}
               form={form}
               onSave={(settings) => {
                 save({ id: form.id, settings });
@@ -546,6 +547,7 @@ export function FormBuilderPage() {
         <div className="flex-1 overflow-auto">
           <div className="max-w-lg mx-auto py-4 sm:py-8 px-3 sm:px-4">
             <IntegrationsEditor
+              key={JSON.stringify(form.settings?.integrations)}
               form={form}
               onSave={(settings) => {
                 save({ id: form.id, settings });
@@ -1216,7 +1218,7 @@ function IntegrationsEditor({
                   key={type}
                   type="button"
                   onClick={() => addIntegration(type)}
-                  className="rounded-lg border bg-background p-3 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[44px]"
+                  className="cursor-pointer rounded-lg border bg-background p-3 text-left hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[44px]"
                 >
                   <div className="flex items-center gap-3">
                     <IntegrationBrandMark type={type} className="h-9 w-9" />
