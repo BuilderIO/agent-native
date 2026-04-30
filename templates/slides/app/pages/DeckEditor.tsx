@@ -55,6 +55,7 @@ import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { toast } from "@/hooks/use-toast";
+import { nanoid } from "nanoid";
 const Pinpoint = lazy(() =>
   import("@agent-native/pinpoint/react").then((m) => ({
     default: m.Pinpoint,
@@ -75,6 +76,7 @@ export default function DeckEditor() {
     updateSlide,
     deleteSlide,
     duplicateSlide,
+    duplicateDeck,
     reorderSlides,
     undo,
     redo,
@@ -513,23 +515,10 @@ export default function DeckEditor() {
         onToggleAnimations={() => setAnimationsOpen((o) => !o)}
         tweaksOpen={tweaksOpen}
         onToggleTweaks={() => setTweaksOpen((o) => !o)}
-        onDuplicateDeck={async () => {
-          try {
-            const res = await fetch(
-              agentNativePath("/_agent-native/actions/duplicate-deck"),
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ deckId: id }),
-              },
-            );
-            const data = await res.json();
-            if (data.id) {
-              navigate(`/deck/${data.id}`);
-            }
-          } catch (err) {
-            console.error("Duplicate failed:", err);
-          }
+        onDuplicateDeck={() => {
+          const newId = `deck-${nanoid()}`;
+          const optimistic = duplicateDeck(id, newId);
+          if (optimistic) navigate(`/deck/${optimistic.id}`);
         }}
         onExportPdf={async () => {
           try {

@@ -80,6 +80,19 @@ interface DeckContextType {
   decks: Deck[];
   loading: boolean;
   createDeck: (title?: string, options?: { noDefaultSlides?: boolean }) => Deck;
+  /**
+   * Optimistically duplicate a deck. Inserts a copy into local state with the
+   * supplied `newId` immediately so the UI can navigate without awaiting the
+   * server, then fires the duplicate-deck action in the background. On error,
+   * the optimistic deck is rolled back.
+   *
+   * Returns the optimistic deck (or `null` if the source deck isn't found).
+   */
+  duplicateDeck: (
+    sourceDeckId: string,
+    newId: string,
+    title?: string,
+  ) => Deck | null;
   deleteDeck: (id: string) => void;
   updateDeck: (
     id: string,
@@ -495,6 +508,62 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [setDecksWithHistory],
   );
 
+  const duplicateDeck = useCallback(
+    (sourceDeckId: string, newId: string, title?: string): Deck | null => {
+      const source = decks.find((d) => d.id === sourceDeckId);
+      if (!source) return null;
+
+      const now = new Date().toISOString();
+      const newTitle = title || `Copy of ${source.title}`;
+      // Re-id slides so optimistic edits to the copy don't collide with the
+      // original. The server does the same thing — these client ids will be
+      // replaced by server-generated ones once the duplicate action lands and
+      // the next poll/SSE refresh syncs the row.
+      const optimistic: Deck = {
+        ...(JSON.parse(JSON.stringify(source)) as Deck),
+        id: newId,
+        title: newTitle,
+        createdAt: now,
+        updatedAt: now,
+        // Visibility/share state doesn't carry over to a fresh copy — server
+        // creates the new row owned by the current user, private by default.
+        visibility: "private",
+        shareToken: undefined,
+      };
+      optimistic.slides = optimistic.slides.map((s) => ({
+        ...s,
+        id: nanoid(8),
+      }));
+
+      // Track as pending so the poll doesn't wipe the optimistic deck before
+      // the duplicate-deck action's INSERT lands.
+      pendingCreateIdsRef.current.add(newId);
+
+      // Fire the action in the background. On error, roll back.
+      fetch("/_agent-native/actions/duplicate-deck", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deckId: sourceDeckId, newId, title }),
+      })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        })
+        .catch((err) => {
+          console.error("Duplicate failed:", err);
+          // Roll back: drop the optimistic deck from local state.
+          setDecks((prev) => prev.filter((d) => d.id !== newId));
+        })
+        .finally(() => {
+          pendingCreateIdsRef.current.delete(newId);
+        });
+
+      setDecksWithHistory("Duplicate deck", (prev) => [...prev, optimistic]);
+      return optimistic;
+    },
+    [decks, setDecksWithHistory],
+  );
+
   const deleteDeck = useCallback(
     (id: string) => {
       deleteDeckFromAPI(id);
@@ -647,6 +716,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         decks,
         loading,
         createDeck,
+        duplicateDeck,
         deleteDeck,
         updateDeck,
         getDeck,
