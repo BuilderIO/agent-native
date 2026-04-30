@@ -105,7 +105,7 @@ export default function Root() {
             <Toaster />
             <Sonner position="bottom-left" />
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-              <CommandMenu.Group heading="Documents">
+              <CommandMenu.Group heading="Content">
                 <CommandMenu.Item onSelect={() => {}}>
                   Search documents
                 </CommandMenu.Item>
