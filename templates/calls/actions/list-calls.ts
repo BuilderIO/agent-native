@@ -51,8 +51,12 @@ export default defineAction({
       .string()
       .nullish()
       .describe("Filter to calls including this participant email"),
+    participantEmails: z
+      .array(z.string())
+      .nullish()
+      .describe("Filter to calls including any of these participant emails"),
     sort: z
-      .enum(["recent", "oldest", "longest", "most-viewed"])
+      .enum(["recent", "oldest", "longest", "most-viewed", "title"])
       .default("recent")
       .describe("Sort order"),
     limit: z.coerce.number().int().min(1).max(500).default(100),
@@ -115,20 +119,27 @@ export default defineAction({
       );
     }
 
-    if (args.participantEmail) {
+    const participantEmails = [
+      ...(args.participantEmail ? [args.participantEmail] : []),
+      ...(args.participantEmails ?? []),
+    ].filter(Boolean);
+
+    if (participantEmails.length) {
       whereClauses.push(
-        sql`EXISTS (SELECT 1 FROM ${schema.callParticipants} cp WHERE cp.call_id = ${schema.calls.id} AND cp.email = ${args.participantEmail})`,
+        sql`EXISTS (SELECT 1 FROM ${schema.callParticipants} cp WHERE cp.call_id = ${schema.calls.id} AND cp.email IN ${participantEmails})`,
       );
     }
 
     const orderBy =
       args.sort === "oldest"
         ? asc(schema.calls.createdAt)
-        : args.sort === "longest"
-          ? desc(schema.calls.durationMs)
-          : args.sort === "most-viewed"
-            ? sql`(SELECT COUNT(1) FROM ${schema.callViewers} cv WHERE cv.call_id = ${schema.calls.id} AND cv.counted_view = 1) DESC, ${schema.calls.createdAt} DESC`
-            : desc(schema.calls.createdAt);
+      : args.sort === "longest"
+        ? desc(schema.calls.durationMs)
+        : args.sort === "title"
+          ? asc(schema.calls.title)
+        : args.sort === "most-viewed"
+          ? sql`(SELECT COUNT(1) FROM ${schema.callViewers} cv WHERE cv.call_id = ${schema.calls.id} AND cv.counted_view = 1) DESC, ${schema.calls.createdAt} DESC`
+          : desc(schema.calls.createdAt);
 
     const rows = await db
       .select()
@@ -256,6 +267,7 @@ export default defineAction({
       recordedAt: r.recordedAt,
       accountId: r.accountId,
       source: r.source,
+      participants: participantsByCall[r.id] ?? [],
       participantSummary: participantsByCall[r.id] ?? [],
       topTrackers: (trackerHitsByCall[r.id] ?? []).slice(0, 3),
       visibility: (r as any).visibility ?? null,

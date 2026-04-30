@@ -56,10 +56,10 @@ function ctxScope<T extends { ownerEmail: any; orgId: any }>(
   table: T,
   ctx: DispatchCtx,
 ) {
-  return or(
-    eq(table.ownerEmail, ctx.ownerEmail),
-    ctx.orgId ? eq(table.orgId, ctx.orgId) : isNull(table.orgId),
-  );
+  if (!ctx.orgId) {
+    return and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId));
+  }
+  return or(eq(table.ownerEmail, ctx.ownerEmail), eq(table.orgId, ctx.orgId));
 }
 
 function id() {
@@ -402,28 +402,42 @@ export async function listApprovalRequests() {
     .orderBy(desc(schema.dispatchApprovalRequests.updatedAt));
 }
 
-async function getApprovalRequest(requestId: string) {
+async function getApprovalRequest(
+  requestId: string,
+  ctx: DispatchCtx = requireDispatchCtx(),
+) {
   const db = getDb();
   const [row] = await db
     .select()
     .from(schema.dispatchApprovalRequests)
-    .where(eq(schema.dispatchApprovalRequests.id, requestId))
+    .where(
+      and(
+        eq(schema.dispatchApprovalRequests.id, requestId),
+        ctxScope(schema.dispatchApprovalRequests, ctx),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
 
 async function applyApprovedRequest(request: DispatchApprovalRequest) {
   const payload = JSON.parse(request.payload);
+  const requestCtx = {
+    ownerEmail: request.ownerEmail,
+    orgId: request.orgId,
+  };
   if (request.changeType === "destination.upsert") {
     return applyDestinationUpsert(
       payload,
       request.reviewedBy || currentOwnerEmail(),
+      requestCtx,
     );
   }
   if (request.changeType === "destination.delete") {
     return applyDestinationDelete(
       payload.id,
       request.reviewedBy || currentOwnerEmail(),
+      requestCtx,
     );
   }
   if (request.changeType === "approval-policy.update") {
@@ -434,7 +448,8 @@ async function applyApprovedRequest(request: DispatchApprovalRequest) {
 
 export async function approveRequest(requestId: string) {
   const db = getDb();
-  const request = await getApprovalRequest(requestId);
+  const ctx = requireDispatchCtx();
+  const request = await getApprovalRequest(requestId, ctx);
   if (!request) throw new Error("Approval request not found");
   if (request.status !== "pending") {
     throw new Error("Only pending approvals can be approved");
@@ -449,7 +464,7 @@ export async function approveRequest(requestId: string) {
       updatedAt: timestamp,
     })
     .where(eq(schema.dispatchApprovalRequests.id, requestId));
-  const updated = await getApprovalRequest(requestId);
+  const updated = await getApprovalRequest(requestId, ctx);
   if (!updated) throw new Error("Approval request disappeared");
   await applyApprovedRequest(updated);
   await recordAudit({
