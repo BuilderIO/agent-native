@@ -928,7 +928,11 @@ export default function SlideEditor({
             </div>
           ) : (
             <div className="h-full flex items-center justify-center p-2 sm:p-4 md:p-8 bg-muted">
-              <div ref={containerRef} className="w-full max-w-4xl">
+              <div
+                ref={containerRef}
+                data-main-slide-canvas="true"
+                className="w-full max-w-4xl"
+              >
                 <div
                   className="slide-image-clickable relative"
                   onClick={handleSlideClick}
@@ -1050,7 +1054,7 @@ export default function SlideEditor({
       <CanvasCommentPins
         active={!!pinMode}
         onClose={() => onExitPinMode?.()}
-        canvasSelector=".slide-content"
+        canvasSelector="[data-main-slide-canvas='true'] .slide-content"
         contextId={slideId || slide.id}
         contextLabel={slideTitle || `slide ${slideIndex + 1}`}
       />
