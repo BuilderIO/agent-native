@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 
 // ---------------------------------------------------------------------------
@@ -19,6 +20,9 @@ export function useCreateForm() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
     },
+    onError: () => {
+      toast.error("Failed to create form");
+    },
   });
 }
 
@@ -29,6 +33,9 @@ export function useUpdateForm() {
       qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
       qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
+    onError: () => {
+      toast.error("Failed to update form");
+    },
   });
 }
 
@@ -37,6 +44,9 @@ export function useDeleteForm() {
   return useActionMutation("delete-form", {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+    },
+    onError: () => {
+      toast.error("Failed to delete form");
     },
   });
 }
