@@ -955,6 +955,8 @@ export function installDesktopVoiceDictation(
         } catch {
           // ignore
         }
+      } else if (current.kind === "native") {
+        invoke("native_speech_cancel").catch(() => {});
       }
       cleanup(current);
       return;
@@ -962,6 +964,41 @@ export function installDesktopVoiceDictation(
     try {
       if (current.kind === "server") {
         current.recorder?.stop();
+      } else if (current.kind === "native") {
+        // NATIVE PATH: same immediate-dismiss + immediate-paste behavior as
+        // the browser path. We've been accumulating partials in
+        // `browserTranscript` from the `voice:partial-transcript` listener,
+        // so the latest hypothesis is already in hand. We tell Rust to
+        // `endAudio()` (`native_speech_stop`) so the recognizer can deliver
+        // its final result, but we don't wait for it — pasting the partial
+        // is faster and more responsive. The tail of the final transcript
+        // (if any) won't double-paste because `complete_voice_dictation`
+        // already fired and the Rust task gets cleared on the final result.
+        const text = current.browserTranscript.trim();
+        current.browserTranscript = "";
+        if (session === current) session = null;
+        startInFlight = false;
+        stopRequestedBeforeReady = false;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+        emit("voice:partial-transcript", { text: "" }).catch(() => {});
+        invoke("native_speech_stop").catch((err) => {
+          console.warn("[voice-dictation] native_speech_stop failed:", err);
+        });
+        stopMeter(current);
+        if (text) {
+          console.log(
+            `[voice-dictation] native paste on Fn release (${text.length} chars):`,
+            text.slice(0, 120),
+          );
+          invoke("complete_voice_dictation", { text }).catch((err) => {
+            console.error("[voice-dictation] paste failed:", err);
+          });
+        } else {
+          console.warn(
+            "[voice-dictation] no transcript captured — native recognizer didn't produce results",
+          );
+        }
       } else {
         // BROWSER PATH: dismiss the bar IMMEDIATELY and paste whatever
         // transcript we have right now. recognition.stop() / .abort()
@@ -1012,6 +1049,41 @@ export function installDesktopVoiceDictation(
   // press doesn't pay a round-trip latency to figure out which provider
   // to use.
   refreshProviderStatus().catch(() => {});
+
+  // Native (SFSpeechRecognizer) event subscriptions. These are always
+  // installed — the events only fire when the Rust side has an active
+  // session, so subscribing on non-native sessions is harmless. The
+  // flow-bar listens to `voice:partial-transcript` independently so we
+  // don't re-emit it here.
+  listen<{ text: string }>("voice:partial-transcript", (ev) => {
+    const current = session;
+    if (!current || current.kind !== "native") return;
+    if (current.cancelled || current.stopping) return;
+    current.browserTranscript = (ev.payload.text || "").trim();
+  })
+    .then((u) => unlistens.push(u))
+    .catch(() => {});
+  listen<{ text: string }>("voice:final-transcript", (ev) => {
+    const current = session;
+    if (!current || current.kind !== "native") return;
+    if (current.cancelled) return;
+    // Final beats partial — overwrite so a `complete_voice_dictation`
+    // from a late stop() picks up the better text.
+    current.browserTranscript = (ev.payload.text || "").trim();
+  })
+    .then((u) => unlistens.push(u))
+    .catch(() => {});
+  listen<{ error: string }>("voice:speech-error", (ev) => {
+    const current = session;
+    console.error("[voice-dictation] native speech error:", ev.payload.error);
+    if (!current || current.kind !== "native") return;
+    setFlowState("error");
+    window.setTimeout(() => {
+      if (!disposed && session === current) cleanup(current);
+    }, 800);
+  })
+    .then((u) => unlistens.push(u))
+    .catch(() => {});
 
   listen<VoiceShortcutEvent>("voice:shortcut-start", (event) => {
     if (!acceptsShortcut(event.payload?.source)) return;

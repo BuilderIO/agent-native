@@ -144,6 +144,7 @@ export function App() {
     const saved = loadString(VOICE_PROVIDER_KEY, "browser");
     return saved === "auto" ||
       saved === "browser" ||
+      saved === "macos-native" ||
       saved === "builder" ||
       saved === "gemini" ||
       saved === "openai" ||
@@ -1907,6 +1908,10 @@ function ClockIcon() {
 
 type VoiceProviderStatus = {
   browser: true;
+  // Apple's SFSpeechRecognizer + AVAudioEngine driven from Rust. The
+  // server reports `true` whenever it's available; the desktop client
+  // additionally has it gated to macOS at the Tauri-command layer.
+  "macos-native": boolean;
   builder: boolean;
   gemini: boolean;
   openai: boolean;
