@@ -2,11 +2,10 @@
  * Public read endpoint for a shareable snippet (a bounded moment inside a
  * parent call). Unauthenticated viewers hit this from /share-snippet/:id.
  *
- * GET /api/public-snippet?snippetId=<id>[&password=<pw>]
+ * GET /api/public-snippet?snippetId=<id>[&password=<pw>|&p=<pw>]
  *
  * Returns the snippet + parent call metadata + media URL with the `#t=s,e`
- * media fragment already baked in. Same privacy rules as public-call — 404
- * for anything we don't want to reveal.
+ * media fragment already baked in. Same privacy rules as public-call.
  */
 
 import {
@@ -32,9 +31,18 @@ function appPath(path: string): string {
 }
 
 export default defineEventHandler(async (event) => {
-  const q = getQuery(event) as { snippetId?: string; password?: string };
+  const q = getQuery(event) as {
+    snippetId?: string;
+    password?: string;
+    p?: string;
+  };
   const snippetId = q.snippetId;
-  const password = typeof q.password === "string" ? q.password : "";
+  const password =
+    typeof q.password === "string"
+      ? q.password
+      : typeof q.p === "string"
+        ? q.p
+        : "";
 
   if (!snippetId) {
     setResponseStatus(event, 400);
@@ -53,7 +61,10 @@ export default defineEventHandler(async (event) => {
   }
 
   if (snippet.password && access.role !== "owner") {
-    if (!password || password !== snippet.password) return notFound(event);
+    if (!password || password !== snippet.password) {
+      setResponseStatus(event, 401);
+      return { error: "Password required", passwordRequired: true };
+    }
   }
 
   const db = getDb();

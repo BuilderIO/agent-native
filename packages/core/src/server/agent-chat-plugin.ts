@@ -1,6 +1,7 @@
 import {
   runWithRequestContext,
   getRequestOrgId,
+  getRequestUserEmail,
   getRequestRunContext,
   ensureRequestRunContext,
 } from "./request-context.js";
@@ -2328,8 +2329,15 @@ export function createAgentChatPlugin(
       // concurrent requests on a long-lived Node process — overlapping
       // tool calls would observe whichever request wrote last. ALS gives
       // each async call-chain its own view of the owner.
+      //
+      // Falls back to `getRequestUserEmail()` so callers that wrap work
+      // in `runWithRequestContext({ userEmail }, …)` without going through
+      // `prepareRun` (recurring jobs, trigger dispatcher) still see the
+      // correct owner.
       const getCurrentRunOwner = (): string =>
-        getRequestRunContext()?.owner ?? DEV_MODE_USER_EMAIL;
+        getRequestRunContext()?.owner ??
+        getRequestUserEmail() ??
+        DEV_MODE_USER_EMAIL;
 
       // Automation tools + fetch tool — depend on owner via callback
       let automationTools: Record<string, ActionEntry> = {};
