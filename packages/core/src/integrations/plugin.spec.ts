@@ -37,11 +37,23 @@ function createNitroApp() {
 }
 
 async function dispatch(nitroApp: any, pathname: string, method = "GET") {
+  const url = `https://app.test${pathname}`;
   const event = {
     method,
-    url: new URL(`https://app.test${pathname}`),
+    url: new URL(url),
     path: pathname,
     context: {},
+    req: new Request(url, {
+      method,
+      headers: {
+        host: "app.test",
+        "x-forwarded-proto": "https",
+      },
+    }),
+    res: {
+      status: 200,
+      headers: new Headers(),
+    },
     node: {
       req: {
         method,
@@ -64,7 +76,7 @@ async function dispatch(nitroApp: any, pathname: string, method = "GET") {
     return middleware(event, next);
   };
   const body = await next();
-  return { body, status: event.node.res.statusCode };
+  return { body, status: event.res.status };
 }
 
 const adapter: PlatformAdapter = {
@@ -96,7 +108,10 @@ describe("integrations plugin routes", () => {
     const nitroApp = createNitroApp();
     await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
 
-    const result = await dispatch(nitroApp, "/_agent-native/integrations/status");
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/status",
+    );
 
     expect(result.status).toBe(401);
     expect(result.body).toEqual({ error: "unauthorized" });
@@ -119,7 +134,8 @@ describe("integrations plugin routes", () => {
     expect(result.body).toEqual([
       expect.objectContaining({
         platform: "fake",
-        webhookUrl: "https://app.test/docs/_agent-native/integrations/fake/webhook",
+        webhookUrl:
+          "https://app.test/docs/_agent-native/integrations/fake/webhook",
       }),
     ]);
   });

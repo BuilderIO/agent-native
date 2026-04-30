@@ -2,7 +2,8 @@ export function normalizeAppBasePath(value: string | undefined): string {
   if (!value || value === "/") return "";
   const trimmed = value.trim();
   if (!trimmed || trimmed === "/") return "";
-  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+  const normalized = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
+  return normalized ? `/${normalized}` : "";
 }
 
 export function getConfiguredAppBasePath(): string {
