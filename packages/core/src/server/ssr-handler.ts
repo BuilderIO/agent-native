@@ -61,6 +61,56 @@ function requestWithPathname(request: Request, pathname: string): Request {
   });
 }
 
+function prefixMountedPath(path: string, basePath: string): string {
+  if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
+  if (path === basePath || path.startsWith(`${basePath}/`)) return path;
+  return `${basePath}${path}`;
+}
+
+function prefixMountedHtml(html: string, basePath: string): string {
+  if (!basePath) return html;
+  return html
+    .replace(
+      /\b(href|src|action|formaction|poster)=(["'])(\/(?!\/)[^"']*)\2/g,
+      (_match, attr: string, quote: string, path: string) =>
+        `${attr}=${quote}${prefixMountedPath(path, basePath)}${quote}`,
+    )
+    .replace(/url\((["']?)(\/(?!\/)[^)'" ]+)\1\)/g, (_match, quote, path) => {
+      const q = quote || "";
+      return `url(${q}${prefixMountedPath(path, basePath)}${q})`;
+    });
+}
+
+async function rewriteMountedResponse(
+  response: Response,
+  basePath: string,
+): Promise<Response> {
+  if (!basePath) return response;
+
+  const headers = new Headers(response.headers);
+  const location = headers.get("location");
+  if (location?.startsWith("/") && !location.startsWith("//")) {
+    headers.set("location", prefixMountedPath(location, basePath));
+  }
+
+  const contentType = headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("text/html") || !response.body) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  const html = await response.text();
+  headers.delete("content-length");
+  return new Response(prefixMountedHtml(html, basePath), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 /**
  * Create an h3 catch-all that hands page routes to React Router and
  * returns 404 for framework / asset paths that React Router doesn't own.
@@ -68,6 +118,7 @@ function requestWithPathname(request: Request, pathname: string): Request {
 export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
   const handler = createRequestHandler(getBuild as any);
   return defineEventHandler(async (event) => {
+    const basePath = getAppBasePath();
     const p = stripAppBasePath(event.url.pathname);
     if (
       p.startsWith("/.well-known/") ||
@@ -94,7 +145,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           headers: response.headers,
         });
       }
-      return await handler(request);
+      return await rewriteMountedResponse(await handler(request), basePath);
     } catch (err) {
       // Log the full stack server-side, but never leak it to the client.
       // Stack traces expose file paths, library versions, and code structure

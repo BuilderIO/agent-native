@@ -1,16 +1,20 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
 import type { ApolloPersonResult } from "@shared/types";
+import { appApiPath } from "@/lib/api-path";
 import { TAB_ID } from "@/lib/tab-id";
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(agentNativePath(url), {
+  const res = await fetch(
+    url.startsWith("/api/") ? appApiPath(url) : agentNativePath(url),
+    {
     headers: {
       "Content-Type": "application/json",
       "X-Request-Source": TAB_ID,
     },
     ...options,
-  });
+    },
+  );
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }

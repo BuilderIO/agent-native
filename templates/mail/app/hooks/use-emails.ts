@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import type { EmailMessage, Label, UserSettings } from "@shared/types";
 import { TAB_ID } from "@/lib/tab-id";
+import { appApiPath } from "@/lib/api-path";
 import { bodyToHtml } from "@/lib/utils";
 import {
   useThreadCache,
@@ -19,7 +20,7 @@ import {
 // ─── API helpers ─────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(appApiPath(url), {
     headers: {
       "Content-Type": "application/json",
       "X-Request-Source": TAB_ID,

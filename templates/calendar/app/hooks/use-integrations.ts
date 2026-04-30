@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
+import { appApiPath } from "@/lib/api-path";
 
 // ─── Generic integration credentials (via application-state) ────────────────
 
@@ -83,7 +84,7 @@ export function useHubSpotContact(email: string | undefined) {
     queryKey: ["integration-data", "hubspot", email],
     queryFn: async () => {
       const res = await fetch(
-        `/api/hubspot/contact?email=${encodeURIComponent(email!)}`,
+        appApiPath(`/api/hubspot/contact?email=${encodeURIComponent(email!)}`),
       );
       if (!res.ok) return null;
       return res.json();
@@ -100,7 +101,7 @@ export function usePylonContact(email: string | undefined) {
     queryKey: ["integration-data", "pylon", email],
     queryFn: async () => {
       const res = await fetch(
-        `/api/pylon/contact?email=${encodeURIComponent(email!)}`,
+        appApiPath(`/api/pylon/contact?email=${encodeURIComponent(email!)}`),
       );
       if (!res.ok) return null;
       return res.json();
@@ -117,7 +118,7 @@ export function useGongCalls(email: string | undefined) {
     queryKey: ["integration-data", "gong", email],
     queryFn: async () => {
       const res = await fetch(
-        `/api/gong/calls?email=${encodeURIComponent(email!)}`,
+        appApiPath(`/api/gong/calls?email=${encodeURIComponent(email!)}`),
       );
       if (!res.ok) return null;
       return res.json();

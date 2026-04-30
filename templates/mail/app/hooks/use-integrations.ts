@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
+import { appApiPath } from "@/lib/api-path";
 
 // ─── Generic integration credentials (via application-state) ────────────────
 
@@ -78,7 +79,7 @@ export function useIntegration(provider: Provider) {
 }
 
 async function integrationFetch<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await fetch(appApiPath(url));
   if (res.status === 401) throw new Error("unauthorized");
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();

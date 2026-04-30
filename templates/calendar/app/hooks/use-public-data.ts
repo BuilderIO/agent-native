@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { appApiPath } from "@/lib/api-path";
 import type { Settings, AvailabilityConfig, BookingLink } from "@shared/api";
 
 /** Fetches settings from the public (unauthenticated) endpoint */
@@ -6,7 +7,7 @@ export function usePublicSettings() {
   return useQuery<Settings>({
     queryKey: ["public-settings"],
     queryFn: async () => {
-      const res = await fetch("/api/public/settings");
+      const res = await fetch(appApiPath("/api/public/settings"));
       if (!res.ok) throw new Error("Failed to fetch settings");
       return res.json();
     },
@@ -23,7 +24,7 @@ export function usePublicAvailability(slug?: string) {
       const path = params.size
         ? `/api/public/availability?${params}`
         : "/api/public/availability";
-      const res = await fetch(path);
+      const res = await fetch(appApiPath(path));
       if (!res.ok) throw new Error("Failed to fetch availability");
       return res.json();
     },
@@ -34,7 +35,7 @@ export function usePublicBookingLink(slug?: string) {
   return useQuery<BookingLink & { redirect?: string }>({
     queryKey: ["public-booking-link", slug],
     queryFn: async () => {
-      const res = await fetch(`/api/public/booking-links/${slug}`);
+      const res = await fetch(appApiPath(`/api/public/booking-links/${slug}`));
       if (!res.ok) throw new Error("Failed to fetch booking link");
       return res.json();
     },
