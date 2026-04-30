@@ -133,7 +133,10 @@ async function fetchScreen() {
   }
 
   if (Object.keys(screen).length === 0) {
-    throw new Error("No application state found. Is the app running?");
+    return {
+      message: "No application state found. The UI may not be open.",
+      hint: "Open the recruiting app in a browser so navigation state can be written before calling view-screen.",
+    };
   }
   return screen;
 }
