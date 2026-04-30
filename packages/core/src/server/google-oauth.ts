@@ -595,13 +595,7 @@ export function oauthCallbackResponse(
   setResponseStatus(event, 302);
   setResponseHeader(event, "Location", location);
   const safeLocationAttr = location.replace(/[&"<>]/g, (c) =>
-    c === "&"
-      ? "&amp;"
-      : c === '"'
-        ? "&quot;"
-        : c === "<"
-          ? "&lt;"
-          : "&gt;",
+    c === "&" ? "&amp;" : c === '"' ? "&quot;" : c === "<" ? "&lt;" : "&gt;",
   );
   return `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url=${safeLocationAttr}" /><title>Connected</title></head><body style="font-family:system-ui;text-align:center;margin-top:40vh;color:#888"><p>Redirecting…</p></body></html>`;
 }
