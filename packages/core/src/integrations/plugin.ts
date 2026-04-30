@@ -157,6 +157,32 @@ export function createIntegrationsPlugin(
       return false;
     }
 
+    /**
+     * Gate destructive integration writes (enable/disable, setup,
+     * setIntegrationConfig…) behind an org-owner/admin check.
+     *
+     * `integration_configs` is keyed `(platform, config_key)` with no
+     * owner column in the PRIMARY KEY — so this row is effectively
+     * deployment-wide. Any signed-in user toggling /enable or /disable
+     * would otherwise affect every other user (a regular org member could
+     * disable Slack/email org-wide, write a malicious allowlist for
+     * inbound email, etc.). This check enforces that only owners and
+     * admins of the user's active org may mutate integration config.
+     *
+     * Solo / no-org sessions (i.e. ctx.orgId == null) are allowed — that's
+     * the local-dev / single-user case where there's no privilege gradient
+     * to enforce. The deployment is single-tenant by definition there.
+     */
+    async function requireOrgAdmin(event: any): Promise<boolean> {
+      if (!(await requireSession(event))) return false;
+      const ctx = await getOrgContext(event).catch(() => null);
+      // Solo (no org membership) — single-tenant flow, allow.
+      if (!ctx?.orgId) return true;
+      if (ctx.role === "owner" || ctx.role === "admin") return true;
+      setResponseStatus(event, 403);
+      return false;
+    }
+
     // ─── Status endpoint (all integrations) ───────────────────────
     h3.use(
       `${P}/status`,
