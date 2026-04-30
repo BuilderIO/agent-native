@@ -131,7 +131,9 @@ function pickMimeType(): string {
 // Bluetooth headsets force macOS into a tighter audio-session mode that
 // pauses + glitches whatever's playing the moment we open getUserMedia,
 // and we don't get the dictation experience right unless we sidestep that
-// by always pinning to the built-in mic.
+// by always pinning to the built-in mic. Returns null in dev — labels
+// require a prior permission grant which we no longer pre-warm.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function pickBuiltInMicId(): Promise<string | null> {
   try {
     if (!navigator.mediaDevices?.enumerateDevices) return null;
@@ -233,13 +235,6 @@ function stopMeter(session: VoiceSession): void {
 
 function stopTracks(session: VoiceSession): void {
   if (!session.stream) return;
-  // If this session is using the warm pre-opened stream, don't actually
-  // stop the tracks — just disable them so the audio session stays open
-  // and the next press is instant.
-  if (session.stream === warmStream) {
-    session.stream.getAudioTracks().forEach((t) => (t.enabled = false));
-    return;
-  }
   session.stream.getTracks().forEach((track) => {
     try {
       track.stop();
@@ -522,32 +517,22 @@ export function installDesktopVoiceDictation(
     try {
       startInFlight = true;
       stopRequestedBeforeReady = false;
-      // Reuse the pre-warmed mic stream so we skip the getUserMedia +
-      // audio-session-switch latency that was eating the first ~300ms of
-      // every press (and pausing whatever music was playing). Fall back
-      // to a fresh stream if the warm one isn't ready yet.
-      let stream = await prewarmMicStream();
-      let usingWarmStream = !!stream;
-      if (!stream) {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } else {
-        // Flip the muted track back on so MediaRecorder actually captures.
-        stream.getAudioTracks().forEach((t) => (t.enabled = true));
-      }
+      console.log("[voice-dictation] startServer:", providerPref);
+      // Plain getUserMedia per press — the warm-stream pattern was causing
+      // silent recordings (track.enabled toggling between sessions left
+      // WebKit's MediaRecorder pipeline reading silence even after the
+      // re-enable) and forced a mic-permission prompt at app launch. The
+      // ~200ms first-press latency from getUserMedia is far better than
+      // a hung Polishing... + empty paste.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (disposed || stopRequestedBeforeReady) {
-        if (usingWarmStream) {
-          stream.getAudioTracks().forEach((t) => (t.enabled = false));
-        } else {
-          stream.getTracks().forEach((track) => track.stop());
-        }
+        stream.getTracks().forEach((track) => track.stop());
         startInFlight = false;
         stopRequestedBeforeReady = false;
         setFlowState("idle");
         invoke("hide_flow_bar").catch(() => {});
         return;
       }
-      // Show the bar AFTER the recorder is actually capturing so the user
-      // never sees the bar before the mic is live.
       await invoke("show_flow_bar");
       setFlowState("recording");
       const mimeType = pickMimeType();
@@ -873,13 +858,9 @@ export function installDesktopVoiceDictation(
     .then((u) => unlistens.push(u))
     .catch(() => {});
 
-  // Pre-warm the built-in mic stream so the first dictation press is
-  // instant. Fires once per webview lifetime — safe to ignore if the user
-  // hasn't granted permission yet (we'll fall back to a fresh getUserMedia
-  // on the first press, which prompts as before).
-  if (enabled) {
-    void prewarmMicStream();
-  }
+  console.log(
+    "[voice-dictation] installed v3 (no-warm-stream): provider=" + provider,
+  );
 
   return () => {
     disposed = true;
@@ -897,18 +878,5 @@ export function installDesktopVoiceDictation(
     });
     unlistens.length = 0;
     cleanup(session);
-    // Tear down the warm stream when the dictation feature is disposed
-    // (settings off, app quitting). The next install() will rewarm.
-    if (warmStream) {
-      warmStream.getTracks().forEach((t) => {
-        try {
-          t.stop();
-        } catch {
-          // ignore
-        }
-      });
-      warmStream = null;
-      warmStreamDeviceId = null;
-    }
   };
 }

@@ -34,19 +34,34 @@ import {
   getCredentialContext as getCredentialContextFromRequest,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { getOrgContext } from "@agent-native/core/org";
 import { setResponseStatus, type H3Event } from "h3";
 import type { MissingKeyResponse } from "@agent-native/core/server";
 
 /**
  * Build a CredentialContext from the current H3 event's session. Throws a
  * 401-style result if the user isn't authenticated.
+ *
+ * Org resolution: prefers `getOrgContext(event)` over the raw
+ * `session.orgId`. Better Auth only writes `active_organization_id` on the
+ * session row when the user explicitly switches orgs, so a freshly signed-in
+ * user (or one whose session predates the org plugin) has a NULL value
+ * there even though `org_members` lists their membership. Without this
+ * fallback, every credential read silently misses the `o:<orgId>:` row and
+ * dashboards render "No data" — the agent-native.com analytics regression
+ * we just hit.
  */
 export async function getCredentialContextFromEvent(
   event: H3Event,
 ): Promise<CredentialContext | null> {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return null;
-  return { userEmail: session.email, orgId: session.orgId ?? null };
+  let orgId = session.orgId ?? null;
+  if (!orgId) {
+    const ctx = await getOrgContext(event).catch(() => null);
+    if (ctx?.orgId) orgId = ctx.orgId;
+  }
+  return { userEmail: session.email, orgId };
 }
 
 /**
