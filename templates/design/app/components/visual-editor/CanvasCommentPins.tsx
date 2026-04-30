@@ -140,7 +140,9 @@ export function CanvasCommentPins({
   }, [active, onClose]);
 
   const updatePin = (id: string, updates: Partial<CanvasPin>) => {
-    setPins((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
+    setPins((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...updates } : p)),
+    );
   };
 
   const removePin = (id: string) => {

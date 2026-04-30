@@ -654,7 +654,10 @@ const LOCAL_SESSION: AuthSession = { email: DEV_MODE_USER_EMAIL };
  * so that a custom plugin can update them after the default has already
  * installed this middleware (the production race condition fix).
  */
-function applyCorsHeaders(event: H3Event): void {
+function applyCorsHeaders(event: H3Event): {
+  hasOrigin: boolean;
+  allowed: boolean;
+} {
   // Framework-level CORS. The auth guard runs before any of the app's own
   // route handlers, so we need to set CORS here too — otherwise a 401
   // response would be missing the Allow-Origin header and the browser
@@ -666,7 +669,7 @@ function applyCorsHeaders(event: H3Event): void {
   >;
   const originRaw = reqHeaders["origin"];
   const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
-  if (!origin) return;
+  if (!origin) return { hasOrigin: false, allowed: true };
   // Dev convenience: always allow localhost origins across ports (Tauri
   // tray apps, the frame, docs). In prod, the CORS_ALLOWED_ORIGINS env
   // var is the safe-list.
@@ -680,7 +683,7 @@ function applyCorsHeaders(event: H3Event): void {
           origin,
         )
       : allowlist.includes(origin);
-  if (!allowed) return;
+  if (!allowed) return { hasOrigin: true, allowed: false };
   setResponseHeader(event, "Access-Control-Allow-Origin", origin);
   setResponseHeader(event, "Vary", "Origin");
   setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
@@ -692,8 +695,9 @@ function applyCorsHeaders(event: H3Event): void {
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    "Content-Type,Authorization,X-Requested-With,X-Request-Source",
+    "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
   );
+  return { hasOrigin: true, allowed: true };
 }
 
 function createAuthGuardFn(): (
@@ -712,10 +716,14 @@ function createAuthGuardFn(): (
 
     // Emit CORS headers on every request the guard sees so that even
     // error responses (401) reach the browser.
-    applyCorsHeaders(event);
+    const cors = applyCorsHeaders(event);
     // Preflight short-circuit: the browser sends OPTIONS before the real
     // credentialed request. Must return success without invoking auth.
     if (getMethod(event) === "OPTIONS") {
+      if (cors.hasOrigin && !cors.allowed) {
+        setResponseStatus(event, 403);
+        return "";
+      }
       setResponseStatus(event, 204);
       return "";
     }
