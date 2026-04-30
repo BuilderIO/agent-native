@@ -21,6 +21,26 @@ import { recordChange } from "./poll.js";
 const ROUTE_PREFIX = "/_agent-native/actions";
 
 /**
+ * Tracks which actions have already emitted the "implicit allow" warning for
+ * the tools bridge. We warn ONCE per process per action — enough to surface
+ * the migration path during dev/CI without spamming logs in production. See
+ * audit H5 in `security-audit/05-tools-sandbox.md`.
+ */
+const _implicitToolCallableWarned = new Set<string>();
+
+function warnImplicitToolCallable(actionName: string): void {
+  if (_implicitToolCallableWarned.has(actionName)) return;
+  _implicitToolCallableWarned.add(actionName);
+  console.warn(
+    `[security] Action "${actionName}" was invoked from the tools bridge ` +
+      "without an explicit `toolCallable` flag. Add `toolCallable: true` " +
+      "to opt in or `toolCallable: false` to refuse tool-iframe calls. " +
+      "See packages/core/docs/content/actions.md and audit H5 in " +
+      "security-audit/05-tools-sandbox.md.",
+  );
+}
+
+/**
  * Read the caller's IANA timezone from the `x-user-timezone` header. The core
  * client sends this on every action request so server-side "today" fallbacks
  * can honor the user's local day.
@@ -74,7 +94,7 @@ function handleOptionsRequest(event: any): string {
     setResponseHeader(
       event,
       "Access-Control-Allow-Headers",
-      "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+      "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id",
     );
   }
 
@@ -125,6 +145,33 @@ export function mountActionRoutes(
         if (effectiveMethod !== method) {
           setResponseStatus(event, 405);
           return { error: `Method not allowed. Use ${method}.` };
+        }
+
+        // (audit H5) Per-action `toolCallable` enforcement. The tools-iframe
+        // bridge in ToolViewer.tsx / EmbeddedTool.tsx tags every outbound
+        // action call with X-Agent-Native-Tool-Bridge: 1. When that header
+        // is present:
+        //   - `toolCallable: false` → 403 (the action explicitly refused).
+        //   - `toolCallable: true`  → allow.
+        //   - undefined             → allow with a one-shot deprecation
+        //                             warning, so existing actions keep
+        //                             working while the ecosystem migrates.
+        // Regular UI/agent calls do NOT carry this header and are
+        // unaffected. The header is set by the parent (the React host),
+        // not by the iframe's user-authored content; sanitizeToolRequest
+        // Options strips iframe attempts to spoof it.
+        const fromToolBridge =
+          getHeader(event, "x-agent-native-tool-bridge") === "1";
+        if (fromToolBridge) {
+          if (entry.toolCallable === false) {
+            setResponseStatus(event, 403);
+            return {
+              error: `Action '${name}' is not callable from tools.`,
+            };
+          }
+          if (entry.toolCallable === undefined) {
+            warnImplicitToolCallable(name);
+          }
         }
 
         // Resolve auth context for per-request scoping

@@ -188,6 +188,13 @@ export interface ActionEntry {
   /** If true, completion does NOT trigger a screen-refresh poll event.
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** Whether this action may be invoked from the tools-iframe bridge.
+   *  - `true`  — explicit allow.
+   *  - `false` — explicit deny; the tools bridge returns 403.
+   *  - `undefined` — implicit allow with a one-shot deprecation warning.
+   *  See `defineAction` (`packages/core/src/action.ts`) and audit H5 in
+   *  `security-audit/05-tools-sandbox.md` for migration guidance. */
+  toolCallable?: boolean;
 }
 
 /** @deprecated Use `ActionEntry` instead */

@@ -168,8 +168,14 @@ export function EmbeddedTool({
             return;
           }
         }
+        // (audit H5) Same tool-bridge tagging as <ToolViewer>. action-routes
+        // uses these headers to enforce per-action `toolCallable` opt-in.
+        const finalHeaders = new Headers(options.headers ?? undefined);
+        finalHeaders.set("X-Agent-Native-Tool-Bridge", "1");
+        finalHeaders.set("X-Agent-Native-Tool-Id", toolId);
         const res = await fetch(agentNativePath(path), {
           ...options,
+          headers: finalHeaders,
           credentials: "same-origin",
         });
         const text = await res.text();

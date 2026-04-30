@@ -343,8 +343,17 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
             return;
           }
         }
+        // (audit H5) Tag every outbound bridge request with the
+        // X-Agent-Native-Tool-Bridge sentinel so the action-routes layer can
+        // enforce per-action `toolCallable` opt-in. The header is added by
+        // the parent — it is NOT taken from the iframe-supplied options
+        // (which were filtered by sanitizeToolRequestOptions).
+        const finalHeaders = new Headers(options.headers ?? undefined);
+        finalHeaders.set("X-Agent-Native-Tool-Bridge", "1");
+        finalHeaders.set("X-Agent-Native-Tool-Id", toolId);
         const res = await fetch(agentNativePath(path), {
           ...options,
+          headers: finalHeaders,
           credentials: "same-origin",
         });
         const text = await res.text();

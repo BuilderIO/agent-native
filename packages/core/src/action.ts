@@ -46,6 +46,15 @@ interface DefineActionWithSchema<
    *  Only set this manually when you need to override the inference — e.g. a
    *  POST action that only reads data but can't use GET for a protocol reason. */
   readOnly?: boolean;
+  /** Whether this action may be invoked from the tools (Alpine iframe) bridge
+   *  via `appAction(name, params)` — see `packages/core/docs/content/actions.md`
+   *  ("Tools Callability"). Defaults to `true` for backward compatibility.
+   *  Set to `false` for high-blast-radius admin operations (account deletion,
+   *  org membership changes, anything that modifies auth state). The flag is
+   *  enforced by the tools route bridge, not the regular action HTTP route —
+   *  see `packages/core/src/tools/routes.ts`. Audit reference: H5 in
+   *  `security-audit/05-tools-sandbox.md`. */
+  toolCallable?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,6 +78,10 @@ interface DefineActionWithParams<
   /** If true, the framework will NOT emit a screen-refresh poll event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** Whether this action may be invoked from the tools (Alpine iframe) bridge
+   *  via `appAction(name, params)`. See the schema overload above for details
+   *  and the `toolCallable` section in actions.md. */
+  toolCallable?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +174,16 @@ export function defineAction(options: any) {
         ? true
         : undefined;
 
+  // toolCallable: thread through whatever the caller declared. We DO NOT
+  // default to `true` here — the absence of an explicit field is meaningful
+  // to the tools bridge: it lets us emit a one-shot warning when an action
+  // without a declared `toolCallable` flag is invoked from a tool, so the
+  // ecosystem can migrate over time. The bridge treats `undefined` as
+  // "implicit allow with a deprecation warning"; only an explicit `false`
+  // refuses the call. See `tools/routes.ts` and audit H5.
+  const toolCallable: boolean | undefined =
+    typeof options.toolCallable === "boolean" ? options.toolCallable : undefined;
+
   return {
     tool: {
       description: options.description,
@@ -170,6 +193,7 @@ export function defineAction(options: any) {
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
+    ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
   };
 }
 
