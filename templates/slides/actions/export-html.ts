@@ -15,6 +15,26 @@ import {
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
 
+/**
+ * Minimal server-side HTML sanitizer for exported slide content.
+ * DOMParser is not available in Node/Nitro, so we use a regex pass to strip
+ * scripts, event handlers, and dangerous URL schemes before embedding slide
+ * HTML into the standalone export file.
+ */
+function sanitizeSlideContent(html: string): string {
+  return html
+    .replace(
+      /<(script|iframe|object|embed|form|meta|base|link)\b[\s\S]*?<\/\1>/gi,
+      "",
+    )
+    .replace(
+      /<(script|iframe|object|embed|form|meta|base|link)\b[^>]*\/?>/gi,
+      "",
+    )
+    .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+}
+
 function buildStandaloneHtml(
   title: string,
   slides: Array<{ id: string; content: string; notes?: string }>,
@@ -24,7 +44,7 @@ function buildStandaloneHtml(
   const slideHtmlSections = slides
     .map(
       (slide, i) =>
-        `<section class="slide" data-index="${i}" style="display: ${i === 0 ? "flex" : "none"};">${slide.content}</section>`,
+        `<section class="slide" data-index="${i}" style="display: ${i === 0 ? "flex" : "none"};">${sanitizeSlideContent(slide.content)}</section>`,
     )
     .join("\n");
 
