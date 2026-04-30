@@ -128,6 +128,10 @@ export function createTranscribeVoiceHandler() {
     // state for the agent sidebar composer / web clients that don't send
     // it explicitly.
     const session = await getSession(event).catch(() => null);
+    if (!session?.email && process.env.NODE_ENV === "production") {
+      setResponseStatus(event, 401);
+      return { error: "Authentication required" };
+    }
     const sessionId =
       session?.email === DEV_MODE_USER_EMAIL
         ? "local"
