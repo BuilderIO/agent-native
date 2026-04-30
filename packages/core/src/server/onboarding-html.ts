@@ -609,6 +609,7 @@ ${
   var tabs = document.querySelectorAll('.tab');
   var forms = document.querySelectorAll('.form');
   var subtitles = { signup: 'Create an account to get started', login: 'Sign in to your account' };
+  var headings = { signup: 'Welcome', login: 'Welcome back' };
   function setActiveTab(name, opts) {
     if (name !== 'signup' && name !== 'login') return;
     var form = document.getElementById(name + '-form');
@@ -620,6 +621,8 @@ ${
     form.classList.add('active');
     var sub = document.getElementById('subtitle');
     if (sub && subtitles[name]) sub.textContent = subtitles[name];
+    var heading = document.getElementById('heading');
+    if (heading && headings[name]) heading.textContent = headings[name];
     if (opts && opts.persist) {
       try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch (e) {}
     }
@@ -726,6 +729,8 @@ ${
     document.getElementById('forgot-form').classList.add('active');
     var sub = document.getElementById('subtitle');
     if (sub) sub.textContent = 'Reset your password';
+    var heading = document.getElementById('heading');
+    if (heading) heading.textContent = 'Reset password';
     var fEmail = document.getElementById('f-email');
     var lEmail = document.getElementById('l-email');
     if (lEmail && lEmail.value) fEmail.value = lEmail.value;
@@ -737,6 +742,8 @@ ${
     document.getElementById('login-form').classList.add('active');
     var sub = document.getElementById('subtitle');
     if (sub) sub.textContent = subtitles.login;
+    var heading = document.getElementById('heading');
+    if (heading) heading.textContent = headings.login;
   });
 
   var forgotForm = document.getElementById('forgot-form');
