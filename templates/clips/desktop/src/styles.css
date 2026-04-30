@@ -2126,10 +2126,9 @@ button {
   color: #fecaca;
 }
 
-/* Right-edge cancel button — mirrors Wispr Flow's red stop affordance.
-   Sits inline at the end of the pill content; the pill auto-grows to
-   fit it. The hit target is generous (touch-friendly) but visually
-   compact (16px). */
+/* Right-edge cancel — subtle monochrome chip, only there if the user
+   needs it. Reads as a quiet utility affordance, not an alarm. Hover
+   ramps up so the button still registers as clickable. */
 .flow-bar-cancel {
   display: inline-flex;
   align-items: center;
@@ -2140,20 +2139,23 @@ button {
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(239, 68, 68, 0.9);
-  color: white;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.6);
   cursor: pointer;
   /* Override the root's `pointer-events: none` so the click registers. */
   pointer-events: auto;
-  transition: background 100ms ease-out;
+  transition:
+    background 100ms ease-out,
+    color 100ms ease-out;
 }
 
 .flow-bar-cancel:hover {
-  background: rgb(220, 38, 38);
+  background: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.95);
 }
 
 .flow-bar-cancel:active {
-  background: rgb(185, 28, 28);
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .flow-bar-cancel svg {

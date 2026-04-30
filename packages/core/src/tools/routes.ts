@@ -24,16 +24,7 @@ import {
   deleteTool,
   ensureToolsTables,
 } from "./store.js";
-import {
-  buildToolHtml,
-  buildConsentStubHtml,
-  TOOL_IFRAME_CSP,
-} from "./html-shell.js";
-import {
-  computeContentHash,
-  hasConsent,
-  grantConsent,
-} from "./tool-consents.js";
+import { buildToolHtml, TOOL_IFRAME_CSP } from "./html-shell.js";
 import { getThemeVars } from "./theme.js";
 import {
   resolveKeyReferences,
@@ -150,12 +141,6 @@ async function dispatch(
     return tool;
   }
 
-  // POST /:id/grant-consent — viewer approves running this exact content.
-  // (audit C1) Required before a non-author's tool render emits the bridge.
-  if (method === "POST" && parts.length === 2 && parts[1] === "grant-consent") {
-    return handleGrantConsent(event, parts[0], userEmail);
-  }
-
   // GET /:id/render
   if (method === "GET" && parts.length === 2 && parts[1] === "render") {
     const access = await resolveAccess("tool", parts[0]);
@@ -171,39 +156,6 @@ async function dispatch(
     // viewer is NOT the author. The role is plumbed through to gate
     // dangerous bridge helpers in iframe-bridge.ts (audit H4).
     const isAuthor = tool.ownerEmail === userEmail;
-
-    // (audit C1) Trust gate: when the viewer is NOT the author, require an
-    // explicit consent row for THIS exact rendered content. The hash is
-    // recomputed every render — any subsequent author edit produces a new
-    // hash and re-prompts the viewer. We render a consent stub *instead of*
-    // the tool body when consent is missing; the stub is plain HTML with a
-    // POST to grant-consent and zero CDN scripts, so the author cannot
-    // ride the consent surface to escalate.
-    const contentHash = computeContentHash(tool.content);
-    if (!isAuthor) {
-      const consented = await hasConsent(userEmail, parts[0], contentHash);
-      if (!consented) {
-        const stub = buildConsentStubHtml({
-          toolId: parts[0],
-          toolName: tool.name ?? "Untitled tool",
-          authorEmail: tool.ownerEmail,
-          contentHash,
-          viewerEmail: userEmail,
-          isDark,
-          themeVars,
-          // Use the same /_agent-native/tools/:id/grant-consent path —
-          // the iframe-bridge allowlist must permit this (see
-          // packages/core/src/client/tools/iframe-bridge.ts).
-          grantPath: `/_agent-native/tools/${encodeURIComponent(parts[0])}/grant-consent`,
-        });
-        setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-        setResponseHeader(event, "Content-Security-Policy", TOOL_IFRAME_CSP);
-        setResponseHeader(event, "X-Frame-Options", "SAMEORIGIN");
-        setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-        setResponseHeader(event, "Referrer-Policy", "no-referrer");
-        return stub;
-      }
-    }
 
     const html = buildToolHtml(tool.content, themeVars, isDark, parts[0], {
       authorEmail: tool.ownerEmail,
@@ -280,36 +232,6 @@ async function dispatch(
 
   setResponseStatus(event, 404);
   return { error: "Not found" };
-}
-
-/**
- * (audit C1) Record the viewer's consent for the current content_hash. The
- * caller MUST be authenticated (the outer handler enforces this) and MUST
- * have at least viewer access on the tool (resolveAccess returns null
- * otherwise — same gate the render handler uses). We compute the hash
- * server-side from the LIVE tool content, never from a client-supplied
- * value; otherwise an attacker could grant consent for an old (benign)
- * content_hash to skip future re-consents on edits.
- */
-async function handleGrantConsent(
-  event: H3Event,
-  toolId: string,
-  userEmail: string,
-): Promise<unknown> {
-  const access = await resolveAccess("tool", toolId);
-  const tool = access?.resource;
-  if (!tool) {
-    setResponseStatus(event, 404);
-    return { error: "Tool not found" };
-  }
-  // Authors don't need consent rows — they always trust their own code.
-  // Skip writing a row in that case so the table doesn't accumulate noise.
-  if (tool.ownerEmail === userEmail) {
-    return { ok: true, alreadyAuthor: true };
-  }
-  const contentHash = computeContentHash(tool.content);
-  await grantConsent(userEmail, toolId, contentHash);
-  return { ok: true, contentHash };
 }
 
 async function handleToolDataList(

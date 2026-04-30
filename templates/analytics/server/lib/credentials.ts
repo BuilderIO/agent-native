@@ -34,19 +34,32 @@ import {
   getCredentialContext as getCredentialContextFromRequest,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { getOrgContext } from "@agent-native/core/org";
 import { setResponseStatus, type H3Event } from "h3";
 import type { MissingKeyResponse } from "@agent-native/core/server";
 
 /**
  * Build a CredentialContext from the current H3 event's session. Throws a
  * 401-style result if the user isn't authenticated.
+ *
+ * Org resolution: ALWAYS prefer `getOrgContext(event)` over the raw
+ * `session.orgId`. Better Auth's `active_organization_id` on the session
+ * row is only refreshed when the user explicitly switches via the auth
+ * endpoint, so it goes stale after the framework's `switchOrgHandler`
+ * updates the active-org setting through any other path. Reading the
+ * stale session value would route credential lookups to the *previous*
+ * org's `o:<orgId>:` row, surfacing data from the wrong tenant in a
+ * dashboard. Falling back to the session value only after `getOrgContext`
+ * fails keeps tokens/cookies that predate the org plugin still working.
  */
 export async function getCredentialContextFromEvent(
   event: H3Event,
 ): Promise<CredentialContext | null> {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return null;
-  return { userEmail: session.email, orgId: session.orgId ?? null };
+  const ctx = await getOrgContext(event).catch(() => null);
+  const orgId = ctx?.orgId ?? session.orgId ?? null;
+  return { userEmail: session.email, orgId };
 }
 
 /**
