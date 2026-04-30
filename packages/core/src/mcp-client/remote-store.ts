@@ -145,15 +145,31 @@ function isPrivateIpv4(hostname: string): boolean {
 }
 
 function isBlockedHostname(hostname: string): boolean {
-  if (BLOCKED_IPS.has(hostname)) return true;
-  if (isPrivateIpv4(hostname)) return true;
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (BLOCKED_IPS.has(normalized)) return true;
+  if (isPrivateIpv4(normalized)) return true;
   // IPv6 ULA (fc00::/7) and link-local (fe80::/10)
-  const lower = hostname.toLowerCase();
-  if (lower === "::1") return true;
-  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
-  if (lower.startsWith("fe80")) return true;
+  if (normalized === "::1") return true;
+  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
+  if (normalized.startsWith("fe80")) return true;
+  if (normalized.startsWith("::ffff:")) {
+    const mapped = normalized.slice("::ffff:".length);
+    if (isPrivateIpv4(mapped)) return true;
+    const hexMatch = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(mapped);
+    if (hexMatch) {
+      const value =
+        (parseInt(hexMatch[1], 16) << 16) | parseInt(hexMatch[2], 16);
+      const dotted = [
+        (value >>> 24) & 0xff,
+        (value >>> 16) & 0xff,
+        (value >>> 8) & 0xff,
+        value & 0xff,
+      ].join(".");
+      if (isPrivateIpv4(dotted)) return true;
+    }
+  }
   for (const pattern of BLOCKED_HOSTNAME_PATTERNS) {
-    if (pattern.test(hostname)) return true;
+    if (pattern.test(normalized)) return true;
   }
   return false;
 }

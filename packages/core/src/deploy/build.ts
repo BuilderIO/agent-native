@@ -1498,10 +1498,6 @@ export default bundle;
 }
 
 async function main() {
-  if (preset === "node") {
-    process.exit(0);
-  }
-
   console.log(`[deploy] Building for ${preset}...`);
 
   switch (preset) {

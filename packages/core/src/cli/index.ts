@@ -147,9 +147,10 @@ switch (command) {
       execSync(`${vite} build`, { stdio: "inherit" });
     }
 
-    // Post-build: bundle for deployment target if NITRO_PRESET is set
+    // Post-build: framework-mode apps also need a Nitro server bundle for
+    // `agent-native start` and for serverless presets.
     const preset = process.env.NITRO_PRESET;
-    if (preset && preset !== "node") {
+    if (isReactRouterFramework()) {
       const __dirname = path.dirname(fileURLToPath(import.meta.url));
       const deployBuild = path.resolve(__dirname, "../deploy/build.js");
       if (fs.existsSync(deployBuild)) {

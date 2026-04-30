@@ -57,11 +57,7 @@ export interface SecretStatusPayload {
 async function resolveScopeId(
   event: H3Event,
   scope: SecretScope,
-  override?: string,
 ): Promise<{ scopeId: string | null; reason?: string }> {
-  if (override && typeof override === "string" && override.trim()) {
-    return { scopeId: override.trim() };
-  }
   if (scope === "user") {
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {
@@ -177,8 +173,6 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
   }
   const body = (await readBody(event).catch(() => ({}))) as {
     value?: unknown;
-    scope?: unknown;
-    scopeId?: unknown;
   };
 
   const value = typeof body.value === "string" ? body.value.trim() : "";
@@ -187,17 +181,7 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
     return { error: "value is required" };
   }
 
-  const scope =
-    typeof body.scope === "string" &&
-    (body.scope === "user" || body.scope === "workspace")
-      ? (body.scope as SecretScope)
-      : secret.scope;
-
-  const { scopeId, reason } = await resolveScopeId(
-    event,
-    scope,
-    typeof body.scopeId === "string" ? body.scopeId : undefined,
-  );
+  const { scopeId, reason } = await resolveScopeId(event, secret.scope);
   if (!scopeId) {
     setResponseStatus(event, 401);
     return { error: reason ?? "Unable to resolve scope" };
@@ -228,7 +212,12 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
   }
 
   try {
-    await writeAppSecret({ key: secret.key, value, scope, scopeId });
+    await writeAppSecret({
+      key: secret.key,
+      value,
+      scope: secret.scope,
+      scopeId,
+    });
   } catch (err) {
     // Scrub: never surface the value in any error path.
     setResponseStatus(event, 500);
@@ -453,17 +442,12 @@ async function handleAdHocWrite(event: H3Event) {
 
   let urlAllowlistJson: string | undefined;
   if (body.urlAllowlist !== undefined && body.urlAllowlist !== null) {
-    if (
-      !Array.isArray(body.urlAllowlist) ||
-      !body.urlAllowlist.every((v) => typeof v === "string")
-    ) {
+    const normalized = normalizeUrlAllowlist(body.urlAllowlist);
+    if (!normalized.ok) {
       setResponseStatus(event, 400);
-      return { error: "urlAllowlist must be an array of strings" };
+      return { error: normalized.error };
     }
-    const cleaned = (body.urlAllowlist as string[])
-      .map((v) => v.trim())
-      .filter(Boolean);
-    urlAllowlistJson = JSON.stringify(cleaned);
+    urlAllowlistJson = JSON.stringify(normalized.origins);
   }
 
   const { scopeId, reason } = await resolveScopeId(event, scope);
@@ -534,6 +518,37 @@ function extractAdHocName(event: H3Event): string | null {
   const candidate = parts[0];
   if (!candidate) return null;
   return AD_HOC_NAME_REGEX.test(candidate) ? candidate : null;
+}
+
+function normalizeUrlAllowlist(
+  input: unknown,
+): { ok: true; origins: string[] } | { ok: false; error: string } {
+  if (!Array.isArray(input) || !input.every((v) => typeof v === "string")) {
+    return { ok: false, error: "urlAllowlist must be an array of strings" };
+  }
+
+  const origins: string[] = [];
+  for (const raw of input) {
+    const value = raw.trim();
+    if (!value) continue;
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      return {
+        ok: false,
+        error: `urlAllowlist entry "${value}" is not a valid URL`,
+      };
+    }
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return {
+        ok: false,
+        error: `urlAllowlist entry "${value}" must use http or https`,
+      };
+    }
+    if (!origins.includes(url.origin)) origins.push(url.origin);
+  }
+  return { ok: true, origins };
 }
 
 /** Extract the key from `/:key` or `/:key/test` after the `/secrets` prefix strip. */
