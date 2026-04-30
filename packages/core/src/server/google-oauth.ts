@@ -137,6 +137,85 @@ export function getAppUrl(event: H3Event, path = "/"): string {
   return `${getOrigin(event)}${getAppBasePath()}${cleanPath}`;
 }
 
+// ─── redirect_uri Allowlist ──────────────────────────────────────────────────
+
+/**
+ * Validate a user-supplied `redirect_uri` for OAuth flows.
+ *
+ * Defends against authorization-code interception (RFC 6819 §4.4.1.7):
+ * even though the upstream provider (Google/Atlassian/Zoom) refuses
+ * unregistered redirect URIs, prefix-style registrations and side
+ * registrations on the same host let a malicious caller swap in an
+ * attacker-controlled URI that the provider still accepts. We reject any
+ * candidate that isn't on this server's own origin AND under the
+ * framework's `/_agent-native/` namespace. Returns the validated URI on
+ * success, or `undefined` on rejection — callers must treat `undefined`
+ * as a 400.
+ *
+ * The intentional shape is exact-prefix:
+ *   - Origin must equal `getOrigin(event)` — no Host-header injection
+ *     reusing somebody else's registered redirect URI.
+ *   - Path must start with `${appBasePath}/_agent-native/` so we never
+ *     hand auth codes to a public marketing or open-redirect endpoint
+ *     on the same registered host.
+ *
+ * For desktop / native flows that need ephemeral `http://127.0.0.1:<port>`
+ * loopback URIs, callers should validate those at the template level
+ * with a dedicated allowlist — this helper rejects them by design.
+ */
+export function isAllowedOAuthRedirectUri(
+  candidate: string,
+  event: H3Event,
+): boolean {
+  if (typeof candidate !== "string" || candidate.length === 0) return false;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return false;
+  }
+  // Must be same origin as our server.
+  const expectedOrigin = getOrigin(event);
+  let expectedUrl: URL;
+  try {
+    expectedUrl = new URL(expectedOrigin);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== expectedUrl.protocol) return false;
+  if (url.host !== expectedUrl.host) return false;
+  // Must live under the framework's namespace.
+  const basePath = getAppBasePath();
+  const required = `${basePath}/_agent-native/`;
+  if (!url.pathname.startsWith(required)) return false;
+  return true;
+}
+
+/**
+ * Resolve the `redirect_uri` for an outbound OAuth `auth-url` request.
+ *
+ * Reads `?redirect_uri=` from the query and validates it via
+ * `isAllowedOAuthRedirectUri`. Returns:
+ *   - the validated URI when supplied and allowed, OR
+ *   - the framework default when no override was supplied, OR
+ *   - `null` when an override was supplied but rejected — callers must
+ *     respond with 400 in that case.
+ *
+ * Templates that need a non-default redirect path can pass it via
+ * `defaultPath` (e.g. `"/_agent-native/google/desktop-callback"` for
+ * desktop flows).
+ */
+export function resolveOAuthRedirectUri(
+  event: H3Event,
+  defaultPath = "/_agent-native/google/callback",
+): string | null {
+  const supplied = getQuery(event).redirect_uri;
+  if (typeof supplied === "string" && supplied.length > 0) {
+    return isAllowedOAuthRedirectUri(supplied, event) ? supplied : null;
+  }
+  return getAppUrl(event, defaultPath);
+}
+
 // ─── OAuth State ─────────────────────────────────────────────────────────────
 
 export interface OAuthStatePayload {

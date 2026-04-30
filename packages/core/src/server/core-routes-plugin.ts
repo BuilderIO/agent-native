@@ -1190,6 +1190,17 @@ export function createCoreRoutesPlugin(
           .replace(/^\/+/, "")
           .replace(/\/+$/, "");
 
+        // Auth check applies to every method. Without this, any anonymous
+        // caller could `POST /fire-test` to emit unowned events that fan
+        // out across every tenant's matching trigger (the dispatcher
+        // short-circuits its owner check when `eventMeta.owner` is
+        // undefined). See audit 12 / fire-test finding.
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "Unauthenticated" };
+        }
+
         if (pathname === "fire-test" && method === "POST") {
           try {
             const { emit } = await import("../event-bus/index.js");
@@ -1197,7 +1208,11 @@ export function createCoreRoutesPlugin(
               string,
               unknown
             >;
-            emit("test.event.fired", { data: body.data ?? {} });
+            // Scope the test event to the current user so only their
+            // automations fire, not those owned by other tenants.
+            emit("test.event.fired", { data: body.data ?? {} }, {
+              owner: session.email,
+            });
             return { ok: true };
           } catch (err: any) {
             setResponseStatus(event, 500);
@@ -1211,11 +1226,6 @@ export function createCoreRoutesPlugin(
         }
 
         try {
-          const session = await getSession(event).catch(() => null);
-          if (!session?.email) {
-            setResponseStatus(event, 401);
-            return { error: "Unauthenticated" };
-          }
           const owner = session.email;
           const { resourceListAllOwners, SHARED_OWNER } =
             await import("../resources/store.js");
