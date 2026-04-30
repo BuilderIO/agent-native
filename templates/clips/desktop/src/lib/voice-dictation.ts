@@ -707,9 +707,8 @@ export function installDesktopVoiceDictation(
       // Lifecycle diagnostics — when something silently fails (common in
       // WKWebView Web Speech), missing logs tell us exactly which stage
       // is broken. Cheap to keep enabled.
-      (
-        recognition as unknown as { onstart: (() => void) | null }
-      ).onstart = () => console.log("[voice-dictation] recognition.onstart");
+      (recognition as unknown as { onstart: (() => void) | null }).onstart =
+        () => console.log("[voice-dictation] recognition.onstart");
       (
         recognition as unknown as { onaudiostart: (() => void) | null }
       ).onaudiostart = () =>
@@ -742,12 +741,12 @@ export function installDesktopVoiceDictation(
       };
       recognition.onerror = (ev) => {
         if (ev.error !== "no-speech" && ev.error !== "aborted") {
-          console.warn(
-            "[voice-dictation] recognition error:",
+          console.warn("[voice-dictation] recognition error:", ev.error);
+        } else {
+          console.log(
+            "[voice-dictation] recognition error (benign):",
             ev.error,
           );
-        } else {
-          console.log("[voice-dictation] recognition error (benign):", ev.error);
         }
       };
       recognition.onend = async () => {
