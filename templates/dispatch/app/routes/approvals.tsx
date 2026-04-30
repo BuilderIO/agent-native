@@ -26,12 +26,15 @@ export default function ApprovalsRoute() {
 
   const savePolicy = useActionMutation("set-dispatch-approval-policy", {
     onSuccess: () => toast.success("Approval policy updated"),
+    onError: (err) => toast.error(String(err)),
   });
   const approve = useActionMutation("approve-dispatch-change", {
     onSuccess: () => toast.success("Change approved"),
+    onError: (err) => toast.error(String(err)),
   });
   const reject = useActionMutation("reject-dispatch-change", {
     onSuccess: () => toast.success("Change rejected"),
+    onError: (err) => toast.error(String(err)),
   });
 
   return (

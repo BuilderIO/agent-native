@@ -1,6 +1,7 @@
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
+  getSession,
 } from "@agent-native/core/server";
 import { getOrgContext } from "@agent-native/core/org";
 import { registerEvent } from "@agent-native/core/event-bus";
@@ -89,22 +90,42 @@ When the user says "show me", "go to", "open", or "switch to" a view or date, AL
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
     const { bookings, bookingLinks } = await import("../db/schema.js");
-    const { like, desc } = await import("drizzle-orm");
+    const { like, desc, eq, and, inArray } = await import("drizzle-orm");
     return {
       bookings: {
         label: "Bookings",
         icon: "email",
-        search: async (query: string) => {
+        search: async (query: string, event?: any) => {
           const db = getDb();
+          const session = event ? await getSession(event) : null;
+          const ownerEmail = session?.user?.email;
+          // Scope to slugs belonging to this user's booking links
+          let ownerSlugs: string[] | null = null;
+          if (ownerEmail) {
+            const links = await db
+              .select({ slug: bookingLinks.slug })
+              .from(bookingLinks)
+              .where(eq(bookingLinks.ownerEmail, ownerEmail));
+            ownerSlugs = links.map((l) => l.slug);
+          }
+          if (ownerSlugs !== null && ownerSlugs.length === 0) return [];
+          const slugFilter = ownerSlugs
+            ? inArray(bookings.slug, ownerSlugs)
+            : undefined;
           const rows = query
             ? await db
                 .select()
                 .from(bookings)
-                .where(like(bookings.name, `%${query}%`))
+                .where(
+                  slugFilter
+                    ? and(slugFilter, like(bookings.name, `%${query}%`))
+                    : like(bookings.name, `%${query}%`),
+                )
                 .limit(15)
             : await db
                 .select()
                 .from(bookings)
+                .where(slugFilter)
                 .orderBy(desc(bookings.start))
                 .limit(15);
           return rows.map((booking) => ({
@@ -120,17 +141,27 @@ When the user says "show me", "go to", "open", or "switch to" a view or date, AL
       "booking-links": {
         label: "Booking Links",
         icon: "document",
-        search: async (query: string) => {
+        search: async (query: string, event?: any) => {
           const db = getDb();
+          const session = event ? await getSession(event) : null;
+          const ownerEmail = session?.user?.email;
+          const ownerFilter = ownerEmail
+            ? eq(bookingLinks.ownerEmail, ownerEmail)
+            : undefined;
           const rows = query
             ? await db
                 .select()
                 .from(bookingLinks)
-                .where(like(bookingLinks.title, `%${query}%`))
+                .where(
+                  ownerFilter
+                    ? and(ownerFilter, like(bookingLinks.title, `%${query}%`))
+                    : like(bookingLinks.title, `%${query}%`),
+                )
                 .limit(15)
             : await db
                 .select()
                 .from(bookingLinks)
+                .where(ownerFilter)
                 .orderBy(desc(bookingLinks.updatedAt))
                 .limit(15);
           return rows.map((link) => ({

@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import fs from "fs";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
+import { assertAccess } from "@agent-native/core/sharing";
 import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
@@ -14,15 +15,8 @@ export default defineAction({
   http: false,
   run: async (args) => {
     const formId = args.form;
+    const { resource: form } = await assertAccess("form", formId, "viewer");
     const db = getDb();
-    const [form] = await db
-      .select()
-      .from(schema.forms)
-      .where(eq(schema.forms.id, formId))
-      .limit(1);
-    if (!form) {
-      throw new Error(`Form ${formId} not found`);
-    }
 
     const responses = await db
       .select()
