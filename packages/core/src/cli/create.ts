@@ -144,9 +144,10 @@ async function createWorkspaceInteractive(
     await scaffoldRequiredPackages(templates, targetDir);
 
     s.stop("Workspace scaffolded.");
-  } catch (err) {
+  } catch (err: any) {
     s.stop("Failed to scaffold workspace.");
-    throw err;
+    clack.cancel(err?.message ?? String(err));
+    process.exit(1);
   }
 
   tryGitInit(targetDir);
@@ -156,7 +157,6 @@ async function createWorkspaceInteractive(
       `Done! Next steps:`,
       ``,
       `  cd ${name}`,
-      `  cp .env.example .env     # ANTHROPIC_API_KEY, DATABASE_URL, BETTER_AUTH_SECRET`,
       `  pnpm install`,
       `  pnpm --filter ${firstApp} dev`,
       ``,
@@ -288,9 +288,10 @@ async function scaffoldOneAppIntoWorkspace(
     setupAgentSymlinks(appDir);
     await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
     s.stop(`Scaffolded apps/${appName}.`);
-  } catch (err) {
+  } catch (err: any) {
     s.stop(`Failed to scaffold apps/${appName}.`);
-    throw err;
+    clack.cancel(err?.message ?? String(err));
+    process.exit(1);
   }
 
   clack.outro(`Done!\n\n  pnpm install\n  pnpm --filter ${appName} dev`);
@@ -347,9 +348,10 @@ async function createStandaloneApp(
     await scaffoldAppTemplate(targetDir, template);
     postProcessStandalone(name, targetDir);
     s.stop("App created!");
-  } catch (err) {
+  } catch (err: any) {
     s.stop("Failed to create app.");
-    throw err;
+    clack.cancel(err?.message ?? String(err));
+    process.exit(1);
   }
 
   tryGitInit(targetDir);
