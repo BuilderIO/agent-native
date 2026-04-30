@@ -16,6 +16,21 @@ import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 import { parseSpaceIds } from "../server/lib/calls.js";
 
+const stringArrayParam = z.preprocess((value) => {
+  if (value == null || value === "") return undefined;
+  if (Array.isArray(value)) {
+    const values = value.filter((v): v is string => typeof v === "string" && v);
+    return values.length ? values : undefined;
+  }
+  if (typeof value === "string") return [value];
+  return value;
+}, z.array(z.string()).optional());
+
+const trueBooleanParam = z.preprocess((value) => {
+  if (value === true || value === "true") return true;
+  return undefined;
+}, z.boolean().optional());
+
 export default defineAction({
   description:
     "List calls visible to the current user. Supports filtering by view (library/archive/trash/all), folder, space, search, tag, account, tracker, source, participant email, and sort.",
@@ -45,10 +60,9 @@ export default defineAction({
       .string()
       .nullish()
       .describe("Filter to calls with at least one hit for this tracker"),
-    trackerIds: z
-      .array(z.string())
-      .nullish()
-      .describe("Filter to calls with at least one hit for any tracker"),
+    trackerIds: stringArrayParam.describe(
+      "Filter to calls with at least one hit for any tracker",
+    ),
     source: z
       .enum(["upload", "browser", "recall-bot", "zoom-cloud"])
       .nullish()
@@ -67,18 +81,16 @@ export default defineAction({
       .min(0)
       .nullish()
       .describe("Maximum call duration"),
-    internalOnly: z
-      .boolean()
-      .nullish()
-      .describe("Only calls with an internal participant"),
+    internalOnly: trueBooleanParam.describe(
+      "Only calls with an internal participant",
+    ),
     participantEmail: z
       .string()
       .nullish()
       .describe("Filter to calls including this participant email"),
-    participantEmails: z
-      .array(z.string())
-      .nullish()
-      .describe("Filter to calls including any of these participant emails"),
+    participantEmails: stringArrayParam.describe(
+      "Filter to calls including any of these participant emails",
+    ),
     sort: z
       .enum(["recent", "oldest", "longest", "most-viewed", "title"])
       .default("recent")

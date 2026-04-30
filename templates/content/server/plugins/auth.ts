@@ -11,5 +11,5 @@ export default createAuthPlugin({
       "Search, summarize, and cross-reference documents instantly",
     ],
   },
-  publicPaths: ["/api/pages/public"],
+  publicPaths: ["/api/pages/public", "/p"],
 });
