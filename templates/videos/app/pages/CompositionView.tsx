@@ -499,7 +499,9 @@ export default function CompositionView({
                   ? "Save to registry requires local development mode"
                   : hasUnsavedChanges
                     ? "Save current settings as default for this composition"
-                    : "All changes saved to registry"
+                    : composition.storage === "database"
+                      ? "All changes saved to database"
+                      : "All changes saved to registry"
               }
             >
               <IconDeviceFloppy className="w-3.5 h-3.5" />
