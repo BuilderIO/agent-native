@@ -1,7 +1,16 @@
 import { useRef, useEffect, useCallback, useMemo } from "react";
+import { agentChat } from "@agent-native/core";
 import { cn } from "@/lib/utils";
 import { DeviceFrame } from "./DeviceFrame";
 import type { ElementInfo, DeviceFrameType } from "./types";
+// NOTE: This wires up the NEW shared visual-editor DrawOverlay + comment-pin
+// components from `@/components/visual-editor`. The legacy iframe-only
+// DrawOverlay at `./DrawOverlay.tsx` is intentionally NOT used here — both
+// exist for now and can be reconciled in a follow-up. Don't import both.
+import {
+  DrawOverlay as SharedDrawOverlay,
+  CanvasCommentPins,
+} from "@/components/visual-editor";
 
 /**
  * Tweak-bridge script. ALWAYS injected so the parent's postMessage
@@ -135,6 +144,18 @@ interface DesignCanvasProps {
   onElementSelect: (info: ElementInfo) => void;
   onElementHover: (info: ElementInfo) => void;
   tweakValues: Record<string, string>;
+  /** Whether draw-to-prompt mode is active (overlays the iframe). */
+  drawMode?: boolean;
+  /** Called when the user exits draw mode (X / Escape / after Send). */
+  onExitDrawMode?: () => void;
+  /** Whether comment-pin drop mode is active. */
+  pinMode?: boolean;
+  /** Called when the user exits pin mode. */
+  onExitPinMode?: () => void;
+  /** Stable id of the open design (used for pin scoping + agent prompt). */
+  designId?: string;
+  /** Human-readable label for the design (used in agent prompt). */
+  designTitle?: string;
 }
 
 export function DesignCanvas({
@@ -145,6 +166,12 @@ export function DesignCanvas({
   onElementSelect,
   onElementHover,
   tweakValues,
+  drawMode,
+  onExitDrawMode,
+  pinMode,
+  onExitPinMode,
+  designId,
+  designTitle,
 }: DesignCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -234,18 +261,53 @@ export function DesignCanvas({
   const { width: iframeWidth, height: iframeHeight } =
     deviceDimensions[deviceFrame];
 
+  // Wrap the iframe in a positioned container so DrawOverlay /
+  // CanvasCommentPins can absolutely-position themselves on top of the
+  // iframe. The pin component anchors to `.design-canvas-iframe-wrapper`
+  // via canvasSelector.
   const iframeElement = (
-    <iframe
-      ref={iframeRef}
-      srcDoc={srcdoc}
-      sandbox="allow-scripts allow-same-origin"
-      className="border-0 bg-white"
+    <div
+      className="design-canvas-iframe-wrapper relative inline-block"
       style={{
         width: iframeWidth,
         height: deviceFrame === "none" ? "100%" : (iframeHeight ?? undefined),
       }}
-      title="Design Preview"
-    />
+    >
+      <iframe
+        ref={iframeRef}
+        srcDoc={srcdoc}
+        sandbox="allow-scripts allow-same-origin"
+        className="border-0 bg-white block w-full h-full"
+        title="Design Preview"
+      />
+      {/* Draw-to-prompt overlay — sits over the iframe, NOT inside it. */}
+      <SharedDrawOverlay
+        visible={!!drawMode}
+        onClose={() => onExitDrawMode?.()}
+        onSend={(annotations, instruction, canvasSize) => {
+          const summary = annotations
+            .map((a) =>
+              a.type === "path"
+                ? `[stroke ${a.color} w=${a.lineWidth}] ${a.pathData}`
+                : `[label "${a.text}" at ${a.position.x.toFixed(0)},${a.position.y.toFixed(0)}]`,
+            )
+            .join("\n");
+          const lines = [
+            `[Drawing on design ${designId || ""}${designTitle ? ` (${designTitle})` : ""}]`,
+            `Canvas size: ${canvasSize.width.toFixed(0)}x${canvasSize.height.toFixed(0)}`,
+            summary,
+            "",
+            instruction || "Apply these annotations to the design.",
+          ];
+          try {
+            agentChat.submit(lines.join("\n"));
+          } catch (err) {
+            console.error("[DesignCanvas] failed to submit drawing:", err);
+          }
+          onExitDrawMode?.();
+        }}
+      />
+    </div>
   );
 
   const wrappedContent =
@@ -293,6 +355,17 @@ export function DesignCanvas({
           </div>
         </div>
       )}
+
+      {/* Canvas comment pins — anchored to the iframe wrapper. The pins
+          themselves render via fixed positioning, so we mount them outside
+          the zoom-transformed container to keep coordinates stable. */}
+      <CanvasCommentPins
+        active={!!pinMode}
+        onClose={() => onExitPinMode?.()}
+        canvasSelector=".design-canvas-iframe-wrapper"
+        contextId={designId || "design"}
+        contextLabel={designTitle || designId || "design"}
+      />
     </div>
   );
 }

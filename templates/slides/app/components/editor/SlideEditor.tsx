@@ -6,7 +6,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { agentChat } from "@agent-native/core";
-import { AgentPresenceChip } from "@agent-native/core/client";
+import { AgentPresenceChip, agentNativePath } from "@agent-native/core/client";
 import { createPortal } from "react-dom";
 import { enterSelectionMode } from "@/root";
 import type { Slide } from "@/context/DeckContext";
@@ -17,7 +17,11 @@ import ImageOverlay from "./ImageOverlay";
 import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
 import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
-import { DrawOverlay, CanvasCommentPins } from "@/components/visual-editor";
+import {
+  DrawOverlay,
+  CanvasCommentPins,
+  MultiSelectChip,
+} from "@/components/visual-editor";
 import type { DesignSystemData } from "../../../shared/api";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
@@ -201,6 +205,82 @@ function ImageSelectionOutline({ rect }: { rect: DOMRect }) {
   );
 }
 
+/** Outline rendered around a multi-select element */
+function MultiSelectOutline({ rect }: { rect: DOMRect }) {
+  const pad = 1;
+  return createPortal(
+    <div
+      style={{
+        position: "fixed",
+        top: rect.top - pad,
+        left: rect.left - pad,
+        width: rect.width + pad * 2,
+        height: rect.height + pad * 2,
+        pointerEvents: "none",
+        zIndex: 49,
+        border: "2px solid #609FF8",
+        borderRadius: 2,
+        boxShadow: "0 0 0 1px rgba(96, 159, 248, 0.25)",
+      }}
+    />,
+    document.body,
+  );
+}
+
+/** Translucent rectangle drawn while marquee-dragging */
+function MarqueeRect({ rect }: { rect: { x: number; y: number; w: number; h: number } }) {
+  return createPortal(
+    <div
+      style={{
+        position: "fixed",
+        top: rect.y,
+        left: rect.x,
+        width: rect.w,
+        height: rect.h,
+        pointerEvents: "none",
+        zIndex: 48,
+        background: "rgba(96, 159, 248, 0.12)",
+        border: "1px solid #609FF8",
+        borderRadius: 1,
+      }}
+    />,
+    document.body,
+  );
+}
+
+/** True if two DOMRect-like rectangles intersect */
+function rectsIntersect(
+  a: { left: number; top: number; right: number; bottom: number },
+  b: { left: number; top: number; right: number; bottom: number },
+): boolean {
+  return !(
+    a.right < b.left ||
+    a.left > b.right ||
+    a.bottom < b.top ||
+    a.top > b.bottom
+  );
+}
+
+/**
+ * Push the multi-selection to application_state under "selection" so the
+ * agent can read it. Empty array clears the key entirely.
+ */
+function syncSelectionToAppState(
+  items: Array<{ selector: string; text: string }>,
+) {
+  const url = agentNativePath("/_agent-native/application-state/selection");
+  if (items.length === 0) {
+    fetch(url, { method: "DELETE", keepalive: true }).catch(() => {});
+    return;
+  }
+  fetch(url, {
+    method: "PUT",
+    keepalive: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items }),
+  }).catch(() => {});
+}
+
 export default function SlideEditor({
   slide,
   onUpdateSlide,
@@ -237,6 +317,34 @@ export default function SlideEditor({
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // --- Multi-select state ---
+  /** Set of data-builder-id values currently in the multi-select */
+  const [multiSelection, setMultiSelection] = useState<Set<string>>(
+    () => new Set(),
+  );
+  /** Cached client rects + text per selected id (kept in sync on resize/scroll) */
+  const [multiSelectionRects, setMultiSelectionRects] = useState<
+    Map<string, { rect: DOMRect; text: string; selector: string }>
+  >(() => new Map());
+  /** Anchor rect for the floating chip (the slide canvas) */
+  const [chipAnchorRect, setChipAnchorRect] = useState<DOMRect | null>(null);
+  /** Active marquee rectangle (viewport coords). null = not dragging. */
+  const [marquee, setMarquee] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
+  /** Marquee origin (viewport coords). Set on pointerdown. */
+  const marqueeOriginRef = useRef<{ x: number; y: number } | null>(null);
+  /**
+   * If the user pressed shift/cmd before starting a marquee, additive mode
+   * preserves the existing selection on pointerup.
+   */
+  const marqueeAdditiveRef = useRef(false);
+  /** Selection at marquee start — used for additive mode */
+  const marqueePrevSelectionRef = useRef<Set<string>>(new Set());
   /** Currently-edited smart block (leaf or group). State, not ref, so menu re-renders. */
   const [editingEl, setEditingEl] = useState<HTMLElement | null>(null);
   /** Latest onUpdateSlide in a ref so blur handlers always see the current version */
