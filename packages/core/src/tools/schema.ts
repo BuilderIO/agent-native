@@ -128,18 +128,15 @@ export const TOOLS_ORG_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_org_idx ON 
 export const TOOL_SHARES_RESOURCE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_shares_resource_idx ON tool_shares (resource_id)`;
 
 // ---------------------------------------------------------------------------
-// tool_consents — per-(viewer, tool, content_hash) trust gates
+// tool_consents — vestigial, kept for additive-schema compliance
 // ---------------------------------------------------------------------------
 //
-// SECURITY (audit C1, see security-audit/05-tools-sandbox.md): a shared tool
-// runs the author's HTML/JS inside the *viewer's* session, with the viewer's
-// secrets, action permissions, and SQL scope. We therefore require explicit
-// per-viewer consent before executing a non-author's tool — and we tie the
-// consent to a SHA-256 of the rendered content, so any subsequent edit by the
-// author re-prompts the viewer instead of silently inheriting trust.
-//
-// Additive only: this table never replaces existing rows; revocation deletes
-// rows for a (viewer, tool) pair. Never DROP COLUMN, never ALTER.
+// Originally added for an audit-C1 per-(viewer, tool, content_hash) consent
+// gate that prompted viewers to "Run anyway" before non-author tools could
+// execute. We removed the runtime gate after settling on intra-org trust
+// (tools are shared between trusted teammates; the org-level access controls
+// are sufficient). The table is kept here so deploys that already ran the
+// migration stay healthy — additive-only schema policy means we never drop.
 
 export const toolConsents = table("tool_consents", {
   viewerEmail: text("viewer_email").notNull(),

@@ -21,26 +21,6 @@ import { recordChange } from "./poll.js";
 const ROUTE_PREFIX = "/_agent-native/actions";
 
 /**
- * Tracks which actions have already emitted the "implicit deny" warning for
- * the tools bridge. We warn ONCE per process per action — enough to surface
- * the migration path during dev/CI without spamming logs in production. See
- * audit H5 in `security-audit/05-tools-sandbox.md`.
- */
-const _implicitToolCallableWarned = new Set<string>();
-
-function warnImplicitToolCallable(actionName: string): void {
-  if (_implicitToolCallableWarned.has(actionName)) return;
-  _implicitToolCallableWarned.add(actionName);
-  console.warn(
-    `[security] Action "${actionName}" was called from the tools bridge ` +
-      "but does not declare `toolCallable: true`. The call was DENIED " +
-      "(403). To allow tool-iframe calls, add `toolCallable: true` to the " +
-      "action's defineAction() options. See packages/core/docs/content/" +
-      "actions.md and audit H5 in security-audit/05-tools-sandbox.md.",
-  );
-}
-
-/**
  * Read the caller's IANA timezone from the `x-user-timezone` header. The core
  * client sends this on every action request so server-side "today" fallbacks
  * can honor the user's local day.
@@ -147,33 +127,21 @@ export function mountActionRoutes(
           return { error: `Method not allowed. Use ${method}.` };
         }
 
-        // (audit H5) Per-action `toolCallable` enforcement. The tools-iframe
-        // bridge in ToolViewer.tsx / EmbeddedTool.tsx tags every outbound
-        // action call with X-Agent-Native-Tool-Bridge: 1. When that header
-        // is present, the call is denied unless the action explicitly
-        // opted in:
-        //   - `toolCallable: true`  → allow.
-        //   - `toolCallable: false` → 403 (the action explicitly refused).
-        //   - undefined             → 403 (deny-by-default). A one-shot
-        //                             warning logs the action so authors
-        //                             can find them and decide whether to
-        //                             opt in. Critically, this means
-        //                             pre-existing high-blast-radius
-        //                             actions (invite-member, share-resource,
-        //                             set-resource-visibility, etc.) are
-        //                             NOT exposed to malicious shared tools
-        //                             until their authors explicitly review
-        //                             and opt in.
-        // Regular UI/agent calls do NOT carry this header and are
-        // unaffected. The header is set by the parent (the React host),
-        // not by the iframe's user-authored content; sanitizeToolRequest
-        // Options strips iframe attempts to spoof it.
+        // (audit H5) Per-action `toolCallable` opt-out for the tools-iframe
+        // bridge. The bridge tags every outbound action call with
+        // X-Agent-Native-Tool-Bridge: 1. When that header is present and the
+        // action declares `toolCallable: false`, we 403 — used by the
+        // framework's share-resource / unshare-resource /
+        // set-resource-visibility for defense-in-depth on auth-adjacent
+        // operations. Undefined defaults to allow: tools are intra-org and
+        // typically authored by trusted teammates, so the default is to
+        // trust the org-level access controls.
+        // The header is set by the parent (the React host), not by the
+        // iframe's user-authored content; sanitizeToolRequestOptions strips
+        // iframe attempts to spoof it.
         const fromToolBridge =
           getHeader(event, "x-agent-native-tool-bridge") === "1";
-        if (fromToolBridge && entry.toolCallable !== true) {
-          if (entry.toolCallable === undefined) {
-            warnImplicitToolCallable(name);
-          }
+        if (fromToolBridge && entry.toolCallable === false) {
           setResponseStatus(event, 403);
           return {
             error: `Action '${name}' is not callable from tools.`,

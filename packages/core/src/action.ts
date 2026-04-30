@@ -48,11 +48,13 @@ interface DefineActionWithSchema<
   readOnly?: boolean;
   /** Whether this action may be invoked from the tools (Alpine iframe) bridge
    *  via `appAction(name, params)` — see `packages/core/docs/content/actions.md`
-   *  ("Tools Callability"). **Deny-by-default**: only `true` allows tool-iframe
-   *  calls; `false` and `undefined` both return 403 from the tools bridge.
-   *  When undefined, a one-shot warning logs the action so authors can find
-   *  it and decide whether to opt in. Regular UI/agent/CLI/MCP/A2A calls are
-   *  unaffected. The flag is enforced by the action HTTP route layer — see
+   *  ("Tools Callability"). **Default-allow opt-out**: undefined / `true` both
+   *  allow tool-iframe calls; only an explicit `false` returns 403. Set to
+   *  `false` for high-blast-radius admin operations (account deletion, org
+   *  membership changes, anything that modifies auth state) — used by the
+   *  framework's `share-resource`, `unshare-resource`, and
+   *  `set-resource-visibility` for defense-in-depth. Regular UI/agent/CLI/MCP/A2A
+   *  calls are unaffected. Enforced by the action HTTP route layer — see
    *  `packages/core/src/server/action-routes.ts`. Audit reference: H5 in
    *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;

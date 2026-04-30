@@ -85,11 +85,11 @@ export default defineAction({
 });
 ```
 
-| Value       | Behavior                                                                                                                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `true`      | Explicit allow. Required for any action a tool legitimately needs to call.                                                                                                                              |
-| `false`     | Explicit deny. The tools bridge returns 403; the action is still callable normally from the UI, agent, CLI, MCP, and A2A.                                                                               |
-| `undefined` | **Deny-by-default.** The tools bridge returns 403 and a one-shot warning is logged so you can find the action and decide whether to opt in. Existing actions are safe until you explicitly review them. |
+| Value       | Behavior                                                                                                                                                                                                                                     |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `true`      | Allow (same as undefined). Useful for documentation of intent.                                                                                                                                                                               |
+| `false`     | Explicit deny. The tools bridge returns 403; the action is still callable normally from the UI, agent, CLI, MCP, and A2A.                                                                                                                    |
+| `undefined` | **Default-allow.** Tools are intra-org and typically authored by trusted teammates, so the default trusts the org-level access controls. Set `false` only for genuinely auth-adjacent operations (account deletion, org membership changes). |
 
 Enforcement: the parent host (`ToolViewer.tsx` / `EmbeddedTool.tsx`) tags every outbound action call from a tool iframe with the header `X-Agent-Native-Tool-Bridge: 1`. The action route layer reads this header and applies the rule above. Regular UI/agent/CLI/A2A calls do not carry the header and are unaffected. The header is set by the React host; the iframe's user-authored content cannot spoof it because the bridge sanitizes iframe-supplied headers.
 

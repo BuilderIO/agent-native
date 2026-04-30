@@ -304,7 +304,7 @@ describe("mountActionRoutes", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it("denies tools-bridge calls when toolCallable is undefined (deny-by-default) and warns once per process", async () => {
+  it("allows tools-bridge calls when toolCallable is undefined (default-allow)", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     const nitroApp = {
@@ -320,39 +320,15 @@ describe("mountActionRoutes", () => {
 
     mountActionRoutes(nitroApp, actions);
 
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const event = {
+      _method: "POST",
+      _headers: { "x-agent-native-tool-bridge": "1" },
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
 
-    const make = () =>
-      ({
-        _method: "POST",
-        _headers: { "x-agent-native-tool-bridge": "1" },
-        req: { json: async () => ({}) },
-      }) as any;
-
-    const e1 = make();
-    const e2 = make();
-    const r1 = await mounted[0].handler(e1);
-    const r2 = await mounted[0].handler(e2);
-
-    // Both calls denied; action.run never invoked.
-    expect(actions["legacy-action"].run).not.toHaveBeenCalled();
-    expect(e1._status).toBe(403);
-    expect(e2._status).toBe(403);
-    expect(r1).toEqual({
-      error: "Action 'legacy-action' is not callable from tools.",
-    });
-    expect(r2).toEqual({
-      error: "Action 'legacy-action' is not callable from tools.",
-    });
-
-    // Warning fires once per process per action so authors can find it.
-    const matching = warn.mock.calls.filter((c) =>
-      String(c[0] ?? "").includes('"legacy-action"'),
-    );
-    expect(matching.length).toBe(1);
-    expect(matching[0][0]).toMatch(/toolCallable/);
-
-    warn.mockRestore();
+    expect(actions["legacy-action"].run).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ ok: true });
   });
 
   it("does not gate non-bridge calls (header absent) on toolCallable", async () => {

@@ -79,16 +79,6 @@ describe("tool iframe bridge", () => {
       "Tool request method is not allowed",
     );
   });
-
-  it("allows the per-tool grant-consent path (audit C1)", () => {
-    expect(
-      isAllowedToolPath("/_agent-native/tools/tool-1/grant-consent", "tool-1"),
-    ).toBe(true);
-    // Only the iframe's own tool may grant — not another tool's id.
-    expect(
-      isAllowedToolPath("/_agent-native/tools/tool-2/grant-consent", "tool-1"),
-    ).toBe(false);
-  });
 });
 
 describe("checkBridgePolicy (audit H4)", () => {

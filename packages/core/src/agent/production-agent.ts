@@ -189,14 +189,11 @@ export interface ActionEntry {
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;
   /** Whether this action may be invoked from the tools-iframe bridge.
-   *  **Deny-by-default**: only `true` allows tool-iframe calls.
-   *  - `true`  — explicit allow.
+   *  **Default-allow opt-out**: only an explicit `false` returns 403.
+   *  - `true` / `undefined` — allow.
    *  - `false` — explicit deny; the tools bridge returns 403.
-   *  - `undefined` — deny-by-default; the tools bridge returns 403 and
-   *                  logs a one-shot warning so authors can find the
-   *                  action and decide whether to opt in.
    *  See `defineAction` (`packages/core/src/action.ts`) and audit H5 in
-   *  `security-audit/05-tools-sandbox.md` for migration guidance. */
+   *  `security-audit/05-tools-sandbox.md`. */
   toolCallable?: boolean;
 }
 

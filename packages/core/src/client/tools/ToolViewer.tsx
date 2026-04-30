@@ -319,29 +319,24 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
       try {
         const options = sanitizeToolRequestOptions(message.options);
-        // (audit H4) Role-aware policy gate. Allow consent grants through
-        // even before the binding has been announced — the consent stub
-        // fires its grant POST as the iframe's first interaction, and
-        // we don't have role info yet at that point. The grant route
-        // itself enforces "viewer must have at least viewer access".
-        const isConsentGrant = path.endsWith("/grant-consent");
-        if (!isConsentGrant) {
-          const policy = checkBridgePolicy(
-            path,
-            options.method ?? "GET",
-            bridgeContextRef.current,
-          );
-          if (!policy.ok) {
-            respond({
-              response: {
-                ok: false,
-                status: 403,
-                statusText: "Forbidden",
-                body: { error: policy.error },
-              },
-            });
-            return;
-          }
+        // (audit H4) Role-aware policy gate: viewer-shared tools can read
+        // but not write. Decided here in the parent before the request
+        // leaves; the server enforces a second layer.
+        const policy = checkBridgePolicy(
+          path,
+          options.method ?? "GET",
+          bridgeContextRef.current,
+        );
+        if (!policy.ok) {
+          respond({
+            response: {
+              ok: false,
+              status: 403,
+              statusText: "Forbidden",
+              body: { error: policy.error },
+            },
+          });
+          return;
         }
         // (audit H5) Tag every outbound bridge request with the
         // X-Agent-Native-Tool-Bridge sentinel so the action-routes layer can

@@ -58,7 +58,11 @@ export async function ensureToolsTables(): Promise<void> {
       await client.execute(TOOLS_OWNER_INDEX_SQL);
       await client.execute(TOOLS_ORG_INDEX_SQL);
       await client.execute(TOOL_SHARES_RESOURCE_INDEX_SQL);
-      // Per-viewer consent gate for non-author tool runs (audit C1).
+      // tool_consents was introduced for an audit-C1 per-viewer consent
+      // gate that we removed once we settled on intra-org trust as the
+      // baseline. The table is kept (additive — never drop) so deploys
+      // that already created it stay healthy; the runtime consent code
+      // is gone. Idempotent CREATE IF NOT EXISTS for fresh schemas.
       await client.execute(
         pg ? TOOL_CONSENTS_CREATE_SQL_PG : TOOL_CONSENTS_CREATE_SQL,
       );
