@@ -36,4 +36,19 @@ describe("resolveAuthSecret", () => {
     expect(() => getAuthSecret()).not.toThrow();
     expect(getAuthSecret()).toBeTruthy();
   });
+
+  // SECURITY (audit 09 LOW-2): the dev-mode fallback used to chain to
+  // GOOGLE_CLIENT_SECRET, ACCESS_TOKEN, and a hardcoded literal. All
+  // three were dropped — the fallback now mints a random in-memory
+  // secret only when the filesystem is unwritable. These tests verify
+  // that even with those legacy env vars set, the resolved secret is
+  // not either of them or the legacy literal.
+  it("never returns the legacy hardcoded fallback string", () => {
+    process.env.NODE_ENV = "development";
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    delete process.env.ACCESS_TOKEN;
+    const secret = getAuthSecret();
+    expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+  });
 });

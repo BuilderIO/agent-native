@@ -32,7 +32,7 @@ export interface ToolRenderBinding {
   /** True when viewer === author. */
   isAuthor: boolean;
   /**
-   * Resolved role for the viewer ("owner" | "editor" | "viewer").
+   * Resolved role for the viewer ("owner" | "admin" | "editor" | "viewer").
    *
    * TODO(security, audit H4): the host-side bridge does not yet gate any
    * helper based on this value — every viewer gets the same powers as the
@@ -41,7 +41,7 @@ export interface ToolRenderBinding {
    * eventually require an explicit consent step before running a shared
    * tool, audit C1). For now this is metadata only.
    */
-  role: "owner" | "editor" | "viewer";
+  role: "owner" | "admin" | "editor" | "viewer";
 }
 
 export function buildToolHtml(

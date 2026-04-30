@@ -17,6 +17,10 @@ import ImageOverlay from "./ImageOverlay";
 import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
 import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
+import {
+  DrawOverlay,
+  CanvasCommentPins,
+} from "@/components/visual-editor";
 import type { DesignSystemData } from "../../../shared/api";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
@@ -165,6 +169,18 @@ interface SlideEditorProps {
   designSystem?: DesignSystemData;
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
+  /** Whether the draw-to-prompt overlay is visible */
+  drawMode?: boolean;
+  /** Called when the draw overlay should exit (Esc, Send, close button) */
+  onExitDrawMode?: () => void;
+  /** Whether comment-pin mode is active on the canvas */
+  pinMode?: boolean;
+  /** Called when pin mode should exit */
+  onExitPinMode?: () => void;
+  /** Slide id for pin mode contextId — falls back to slide.id if omitted */
+  slideId?: string;
+  /** Slide title for pin mode contextLabel */
+  slideTitle?: string;
 }
 
 /** Selection outline rendered over a selected image */

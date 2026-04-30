@@ -8,6 +8,21 @@ import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { renderEmail, emailStrong } from "../../server/email-template.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
 
+export function isSyntheticQaEmail(email: string): boolean {
+  const trimmed = email.trim().toLowerCase();
+  const at = trimmed.lastIndexOf("@");
+  if (at <= 0) return false;
+  const local = trimmed.slice(0, at);
+  const domain = trimmed.slice(at + 1);
+  return (
+    local.includes("+qa") &&
+    (domain === "example.test" ||
+      domain.endsWith(".test") ||
+      domain === "example.invalid" ||
+      domain.endsWith(".invalid"))
+  );
+}
+
 function nanoid(size = 12): string {
   const chars =
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -73,7 +88,11 @@ export default defineAction({
       createdAt: new Date().toISOString(),
     });
 
-    if (args.principalType === "user" && isEmailConfigured()) {
+    if (
+      args.principalType === "user" &&
+      isEmailConfigured() &&
+      !isSyntheticQaEmail(args.principalId)
+    ) {
       try {
         const titleCol = reg.titleColumn ?? "title";
         const [resource] = await db
