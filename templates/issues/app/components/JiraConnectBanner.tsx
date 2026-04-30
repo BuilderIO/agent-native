@@ -7,6 +7,7 @@ import {
   IconCheck,
   IconArrowRight,
   IconLoader2,
+  IconClipboardList,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -33,7 +34,7 @@ export function JiraConnectBanner() {
     <div className="flex h-full items-center justify-center p-8">
       <div className="w-full max-w-lg">
         <div className="mb-8 text-center">
-          <div className="mb-3 text-4xl">📋</div>
+          <IconClipboardList className="mx-auto mb-3 h-11 w-11 text-muted-foreground/35" />
           <h1 className="text-xl font-semibold text-foreground">
             Connect to Jira
           </h1>

@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { useSearchParams, useParams, useNavigate } from "react-router";
-import { IconPlus, IconSearch, IconCircleDot } from "@tabler/icons-react";
+import {
+  IconKey,
+  IconPlus,
+  IconSearch,
+  IconCircleDot,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useIssues } from "@/hooks/use-issues";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -105,7 +110,7 @@ export function MyIssuesPage({ selectedIssueKey: propKey }: MyIssuesPageProps) {
         <div className="flex-1 overflow-y-auto">
           {isAuthError ? (
             <div className="flex flex-col items-center justify-center py-16 text-center px-6">
-              <div className="mb-3 text-2xl">🔑</div>
+              <IconKey className="mb-3 h-10 w-10 text-muted-foreground/30" />
               <p className="text-sm font-medium text-foreground">
                 Jira connection expired
               </p>

@@ -54,6 +54,7 @@ export function WeightCard({
         <Button
           variant="ghost"
           size="icon"
+          aria-label={`Edit weight ${weight.weight} lbs`}
           className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-foreground hover:bg-white/5"
           onClick={() => onEdit(weight)}
         >
@@ -67,6 +68,7 @@ export function WeightCard({
             <Button
               variant="ghost"
               size="icon"
+              aria-label={`Delete weight ${weight.weight} lbs`}
               className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10"
               disabled={isDeleting}
             >

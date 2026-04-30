@@ -44,6 +44,7 @@ export function ExerciseCard({
         <Button
           variant="ghost"
           size="icon"
+          aria-label={`Edit ${exercise.name}`}
           className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-foreground hover:bg-white/5"
           onClick={() => onEdit(exercise)}
         >
@@ -52,6 +53,7 @@ export function ExerciseCard({
         <Button
           variant="ghost"
           size="icon"
+          aria-label={`Delete ${exercise.name}`}
           className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-red-400 hover:bg-red-500/10"
           onClick={() => onDelete(exercise.id!)}
           disabled={isDeleting}
