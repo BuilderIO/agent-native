@@ -1,6 +1,11 @@
 import { agentNativePath } from "../api-path.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { IconBell, IconBellRinging, IconLoader2 } from "@tabler/icons-react";
+import {
+  IconBell,
+  IconBellRinging,
+  IconLoader2,
+  IconX,
+} from "@tabler/icons-react";
 import { usePausingInterval } from "../use-pausing-interval.js";
 import type {
   Notification as NotificationDto,
@@ -178,6 +183,18 @@ export function NotificationsBell({
     }
   };
 
+  const dismiss = async (id: string) => {
+    try {
+      await fetch(agentNativePath(`/_agent-native/notifications/${id}`), {
+        method: "DELETE",
+      });
+      setItems((prev) => (prev ? prev.filter((n) => n.id !== id) : prev));
+      refresh();
+    } catch {
+      // best-effort
+    }
+  };
+
   const hasUnread = unreadCount > 0;
   const Icon = hasUnread ? IconBellRinging : IconBell;
 
@@ -248,30 +265,45 @@ export function NotificationsBell({
               </div>
             ) : items.length > 0 ? (
               items.map((n) => (
-                <button
-                  type="button"
+                <div
                   key={n.id}
-                  onClick={() => (n.readAt ? undefined : markRead(n.id))}
                   className={
-                    "flex w-full flex-col items-start gap-0.5 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-accent/40 " +
+                    "group relative border-b border-border last:border-b-0 hover:bg-accent/40 " +
                     (n.readAt ? "opacity-60" : "")
                   }
                 >
-                  <div className="flex w-full items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {n.title}
+                  <button
+                    type="button"
+                    onClick={() => (n.readAt ? undefined : markRead(n.id))}
+                    className="flex w-full flex-col items-start gap-0.5 px-3 py-2 pr-8 text-left"
+                  >
+                    <div className="flex w-full items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {n.title}
+                      </span>
+                      <SeverityBadge severity={n.severity} />
+                    </div>
+                    {n.body ? (
+                      <span className="line-clamp-2 text-xs text-muted-foreground">
+                        {n.body}
+                      </span>
+                    ) : null}
+                    <span className="text-[10px] text-muted-foreground/70">
+                      {new Date(n.createdAt).toLocaleString()}
                     </span>
-                    <SeverityBadge severity={n.severity} />
-                  </div>
-                  {n.body ? (
-                    <span className="line-clamp-2 text-xs text-muted-foreground">
-                      {n.body}
-                    </span>
-                  ) : null}
-                  <span className="text-[10px] text-muted-foreground/70">
-                    {new Date(n.createdAt).toLocaleString()}
-                  </span>
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Dismiss notification"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void dismiss(n.id);
+                    }}
+                    className="absolute right-2 top-2 hidden rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground group-hover:flex"
+                  >
+                    <IconX size={12} />
+                  </button>
+                </div>
               ))
             ) : (
               <div className="p-4 text-sm text-muted-foreground">
