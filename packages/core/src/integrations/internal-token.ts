@@ -17,6 +17,15 @@ import {
 } from "node:crypto";
 
 const MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
+/**
+ * Allow tokens stamped slightly in the future (clock-skew between dispatcher
+ * and verifier) — but no more. Without this small tolerance the verifier
+ * would reject tokens issued on the very same instant due to floating-point
+ * timestamp drift. With Math.abs() (the previous bug) any future-stamped
+ * token of any age was accepted, which combined with rotation lag turned
+ * into a replay window.
+ */
+const FUTURE_SKEW_TOLERANCE_MS = 60 * 1000; // 1 minute
 
 function getSecret(): string {
   const secret = process.env.A2A_SECRET;

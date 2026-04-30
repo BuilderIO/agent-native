@@ -168,20 +168,55 @@ export function createServer(
     const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
       ? process.env.CORS_ALLOWED_ORIGINS.split(",").map((o) => o.trim())
       : null;
+    const isProduction = process.env.NODE_ENV === "production";
+
+    /**
+     * Localhost-style origins that we treat as same-trust in development.
+     * When CORS_ALLOWED_ORIGINS is unset we still allow these (desktop tray
+     * windows on a sibling port, the docs site at localhost:5173, etc.) but
+     * in production an unset allowlist means no cross-origin credentials.
+     */
+    const LOCALHOST_RE =
+      /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/;
 
     app.use(
       defineEventHandler((event) => {
         const requestOrigin = getRequestHeader(event, "origin");
+        const method = getMethod(event);
 
-        // If allowlist is configured, validate origin; otherwise allow all (dev)
-        const origin =
-          allowedOrigins && requestOrigin
-            ? allowedOrigins.includes(requestOrigin)
-              ? requestOrigin
-              : allowedOrigins[0]
-            : requestOrigin || "*";
-        setResponseHeader(event, "Access-Control-Allow-Origin", origin);
-        if (origin !== "*") {
+        /**
+         * Decide whether the requesting origin is allowed. We never fall back
+         * to "the first allowlist entry" when the origin isn't in the list —
+         * that previously sent `Access-Control-Allow-Origin: <other-origin>`
+         * with credentials enabled to attacker-controlled origins, which was
+         * permissive enough that some clients followed through with the
+         * credentialed request.
+         */
+        let allowedOrigin: string | null = null;
+        if (allowedOrigins && allowedOrigins.length > 0) {
+          if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+            allowedOrigin = requestOrigin;
+          }
+          // Origin not in the explicit allowlist — emit no ACAO header.
+        } else if (requestOrigin) {
+          // No allowlist configured. In production we refuse credentialed
+          // cross-origin requests except from localhost (desktop tray app
+          // dev usage); in dev we allow any origin echo.
+          if (isProduction) {
+            if (LOCALHOST_RE.test(requestOrigin)) {
+              allowedOrigin = requestOrigin;
+            }
+            // else: production + no allowlist + non-localhost origin → no ACAO
+          } else {
+            allowedOrigin = requestOrigin;
+          }
+        }
+        // No origin header at all (same-origin fetch, server-to-server) and
+        // no allowlist → fall through with `*`-equivalent behaviour: omit
+        // ACAO entirely and let the browser apply its same-origin default.
+
+        if (allowedOrigin) {
+          setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
           setResponseHeader(event, "Vary", "Origin");
           // A specific origin means we can honor credentialed requests
           // (fetch with `credentials: "include"` — used by desktop tray
@@ -189,7 +224,13 @@ export function createServer(
           // wildcard `*` is spec-incompatible with credentials, so only
           // set this when we're echoing a concrete origin.
           setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+        } else if (!requestOrigin) {
+          // No origin header — preserve the legacy permissive behaviour for
+          // tools/scripts that hit the API directly (no credentialed CORS
+          // semantics apply when there's no Origin).
+          setResponseHeader(event, "Access-Control-Allow-Origin", "*");
         }
+
         setResponseHeader(
           event,
           "Access-Control-Allow-Methods",
@@ -198,10 +239,18 @@ export function createServer(
         setResponseHeader(
           event,
           "Access-Control-Allow-Headers",
-          "Content-Type,Authorization,X-Requested-With,X-Request-Source",
+          "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
         );
 
-        if (getMethod(event) === "OPTIONS") {
+        if (method === "OPTIONS") {
+          // Reject preflights from disallowed cross-origin callers. We only
+          // 204 if either (a) there was no Origin header (same-origin or
+          // direct script invocation) or (b) the origin was in the allowlist
+          // / dev fallback above. Otherwise we 403 so the browser surfaces
+          // a hard CORS failure rather than blindly retrying with credentials.
+          if (requestOrigin && !allowedOrigin) {
+            return new Response(null, { status: 403 });
+          }
           return new Response(null, { status: 204 });
         }
       }),

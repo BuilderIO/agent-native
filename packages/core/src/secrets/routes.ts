@@ -309,6 +309,16 @@ async function handleDelete(event: H3Event, secret: RegisteredSecret) {
     setResponseStatus(event, 401);
     return { error: reason ?? "Unable to resolve scope" };
   }
+  if (
+    secret.scope === "workspace" &&
+    !(await canMutateWorkspaceScope(event, scopeId))
+  ) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Only organization owners and admins can delete workspace-scoped secrets",
+    };
+  }
   const removed = await deleteAppSecret({
     key: secret.key,
     scope: secret.scope,
@@ -523,6 +533,17 @@ async function handleAdHocWrite(event: H3Event) {
   if (!scopeId) {
     setResponseStatus(event, 401);
     return { error: reason ?? "Unable to resolve scope" };
+  }
+
+  if (
+    scope === "workspace" &&
+    !(await canMutateWorkspaceScope(event, scopeId))
+  ) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Only organization owners and admins can set workspace-scoped secrets",
+    };
   }
 
   try {
