@@ -517,19 +517,11 @@ function baseRedirectGuard(): Plugin {
             // original path so the normal dev-server error handling applies.
           }
         }
-        if (
-          base &&
-          base !== "/" &&
-          req.url?.startsWith(base) &&
-          req.url.slice(base.length - 1).startsWith("/api/")
-        ) {
-          req.url = req.url.slice(base.length - 1);
-        }
+        req.url = stripMountedDevApiPath(req.url, base);
         if (
           req.method === "HEAD" &&
           req.url &&
-          !req.url.startsWith("/_agent-native/") &&
-          !(base && base !== "/" && req.url.startsWith(`${base}_agent-native/`))
+          !isFrameworkDevPath(req.url, base)
         ) {
           req.method = "GET";
         }
@@ -545,6 +537,42 @@ function baseRedirectGuard(): Plugin {
       });
     },
   };
+}
+
+function devPathname(reqUrl: string): string {
+  return new URL(reqUrl, "http://agent-native.local").pathname;
+}
+
+function isApiDevPath(reqUrl: string): boolean {
+  const pathname = devPathname(reqUrl);
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
+
+export function stripMountedDevApiPath(
+  reqUrl: string | undefined,
+  base: string | undefined,
+): string | undefined {
+  if (!reqUrl || !base || base === "/") return reqUrl;
+  const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+  if (!reqUrl.startsWith(normalizedBase)) return reqUrl;
+  const stripped = reqUrl.slice(normalizedBase.length - 1) || "/";
+  return isApiDevPath(stripped) ? stripped : reqUrl;
+}
+
+export function isFrameworkDevPath(
+  reqUrl: string,
+  base: string | undefined,
+): boolean {
+  const pathname = devPathname(reqUrl);
+  if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")) {
+    return true;
+  }
+  if (!base || base === "/") return false;
+  const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
+  return (
+    pathname === `${normalizedBase}/_agent-native` ||
+    pathname.startsWith(`${normalizedBase}/_agent-native/`)
+  );
 }
 
 /**

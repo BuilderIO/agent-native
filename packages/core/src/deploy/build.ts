@@ -18,6 +18,7 @@ import path from "path";
 import fs from "fs";
 import { execFileSync } from "child_process";
 import { createRequire } from "module";
+import { fileURLToPath } from "url";
 import {
   discoverApiRoutes,
   discoverPlugins,
@@ -54,7 +55,7 @@ function isNodeOnlyPlugin(filePath: string): boolean {
  * `@agent-native/core/server`. This is the middle layer of the three-layer
  * inheritance model: app local > workspace core > framework default.
  */
-function generateWorkerEntry(
+export function generateWorkerEntry(
   routes: DiscoveredRoute[],
   pluginPaths: string[],
   defaultPluginStems: string[] = [],
@@ -73,7 +74,21 @@ function generateWorkerEntry(
     );
     if (r.method.toLowerCase() === "get") {
       routeRegistrations.push(
-        `  app.on("HEAD", ${JSON.stringify(r.route)}, ${varName});`,
+        `  app.on("HEAD", ${JSON.stringify(r.route)}, defineEventHandler(async (event) => {
+    const originalReq = event.req;
+    event.req = requestWithMethod(event.req, "GET");
+    try {
+      const result = await ${varName}(event);
+      const response = result instanceof Response ? result : toResponse(result, event);
+      return new Response(null, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    } finally {
+      event.req = originalReq;
+    }
+  }));`,
       );
     }
   }
@@ -148,7 +163,7 @@ function generateWorkerEntry(
 
   return `
 // Auto-generated worker entry point for ${preset}
-import { H3, defineEventHandler, readBody } from "h3";
+import { H3, defineEventHandler, readBody, toResponse } from "h3";
 import { createRequestHandler } from "react-router";
 import * as serverBuild from "./server-build.js";
 
@@ -159,16 +174,97 @@ function normalizeAppBasePath(value) {
   return "/" + trimmed.replace(/^\\/+/, "").replace(/\\/+$/, "");
 }
 
-function stripMountedApiPrefix(event) {
-  const basePath = normalizeAppBasePath(
+function getAppBasePath() {
+  return normalizeAppBasePath(
     globalThis.process?.env?.VITE_APP_BASE_PATH ||
       globalThis.process?.env?.APP_BASE_PATH,
   );
+}
+
+function stripAppBasePath(pathname) {
+  const basePath = getAppBasePath();
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(basePath + "/")) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
+function isApiPath(pathname) {
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
+
+function stripMountedApiPrefix(event) {
+  const basePath = getAppBasePath();
   if (!basePath) return;
   const url = new URL(event.req.url);
-  if (!url.pathname.startsWith(basePath + "/api/")) return;
-  url.pathname = url.pathname.slice(basePath.length) || "/";
+  const strippedPathname = stripAppBasePath(url.pathname);
+  if (!isApiPath(strippedPathname)) return;
+  url.pathname = strippedPathname;
   event.req = new Request(url, event.req);
+}
+
+function prefixMountedPath(path, basePath) {
+  if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
+  if (path === basePath || path.startsWith(basePath + "/")) return path;
+  return basePath + path;
+}
+
+function prefixMountedHtml(html, basePath) {
+  if (!basePath) return html;
+  return html
+    .replace(
+      /\\b(href|src|action|formaction|poster)=(["'])(\\/(?!\\/)[^"']*)\\2/g,
+      (_match, attr, quote, path) =>
+        attr + "=" + quote + prefixMountedPath(path, basePath) + quote,
+    )
+    .replace(/url\\((["']?)(\\/(?!\\/)[^)'" ]+)\\1\\)/g, (_match, quote, path) => {
+      const q = quote || "";
+      return "url(" + q + prefixMountedPath(path, basePath) + q + ")";
+    });
+}
+
+async function rewriteMountedResponse(response, basePath) {
+  if (!basePath) return response;
+
+  const headers = new Headers(response.headers);
+  const location = headers.get("location");
+  if (location?.startsWith("/") && !location.startsWith("//")) {
+    headers.set("location", prefixMountedPath(location, basePath));
+  }
+
+  const contentType = headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("text/html") || !response.body) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  const html = await response.text();
+  headers.delete("content-length");
+  return new Response(prefixMountedHtml(html, basePath), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function requestWithMethod(request, method) {
+  return new Request(request.url, {
+    method,
+    headers: request.headers,
+    signal: request.signal,
+  });
+}
+
+function requestWithPathname(request, pathname) {
+  const url = new URL(request.url);
+  if (url.pathname === pathname) return request;
+  url.pathname = pathname;
+  return new Request(url, request);
 }
 
 // API route handlers
@@ -224,20 +320,32 @@ ${actionRegistrations.join("\n")}
   // SSR catch-all for React Router
   const rrHandler = createRequestHandler(() => serverBuild);
   app.all("/**", defineEventHandler(async (event) => {
-    if (event.req.method === "HEAD") {
-      const getRequest = new Request(event.req.url, {
-        method: "GET",
-        headers: event.req.headers,
-        signal: event.req.signal,
-      });
-      const response = await rrHandler(getRequest);
-      return new Response(null, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      });
+    const basePath = getAppBasePath();
+    const p = stripAppBasePath(new URL(event.req.url).pathname);
+    if (
+      p.startsWith("/.well-known/") ||
+      p.startsWith("/_agent-native/") ||
+      isApiPath(p) ||
+      p === "/favicon.ico" ||
+      p === "/favicon.png" ||
+      (/\\.\\w+$/.test(p) && !p.endsWith(".data"))
+    ) {
+      return new Response(null, { status: 404 });
     }
-    return rrHandler(event.req);
+    const request = requestWithPathname(event.req, p);
+    if (event.req.method === "HEAD") {
+      const getRequest = requestWithMethod(request, "GET");
+      const response = await rrHandler(getRequest);
+      return rewriteMountedResponse(
+        new Response(null, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        }),
+        basePath,
+      );
+    }
+    return rewriteMountedResponse(await rrHandler(request), basePath);
   }));
 
   _handler = app.fetch.bind(app);
@@ -1388,25 +1496,32 @@ export default bundle;
   console.log(`[deploy] Nitro build complete for preset "${preset}".`);
 }
 
-// Main
+async function main() {
+  if (preset === "node") {
+    process.exit(0);
+  }
 
-if (preset === "node") {
-  process.exit(0);
+  console.log(`[deploy] Building for ${preset}...`);
+
+  switch (preset) {
+    case "cloudflare_pages":
+    case "cloudflare-pages":
+      // Cloudflare Workers require a single-file bundle that wrangler can deploy.
+      // Nitro's native presets produce split chunks that wrangler can't upload
+      // as multi-module Workers. Use the custom esbuild-based bundler.
+      await buildCloudflarePages();
+      break;
+    default:
+      // All other presets (netlify, vercel, deno_deploy, aws-lambda, etc.)
+      // are handled natively by Nitro's build API.
+      await buildWithNitro();
+      break;
+  }
 }
 
-console.log(`[deploy] Building for ${preset}...`);
-
-switch (preset) {
-  case "cloudflare_pages":
-  case "cloudflare-pages":
-    // Cloudflare Workers require a single-file bundle that wrangler can deploy.
-    // Nitro's native presets produce split chunks that wrangler can't upload
-    // as multi-module Workers. Use the custom esbuild-based bundler.
-    await buildCloudflarePages();
-    break;
-  default:
-    // All other presets (netlify, vercel, deno_deploy, aws-lambda, etc.)
-    // are handled natively by Nitro's build API.
-    await buildWithNitro();
-    break;
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
+) {
+  await main();
 }
