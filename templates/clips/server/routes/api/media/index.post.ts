@@ -49,8 +49,32 @@ const EXT_BY_MIME: Record<string, string> = {
   "image/jpeg": ".jpg",
   "image/gif": ".gif",
   "image/webp": ".webp",
-  "image/svg+xml": ".svg",
 };
+
+function hasExpectedImageSignature(bytes: Uint8Array, mimeType: string) {
+  if (mimeType === "image/png") {
+    return (
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47
+    );
+  }
+  if (mimeType === "image/jpeg") {
+    return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  }
+  if (mimeType === "image/gif") {
+    const header = Buffer.from(bytes.subarray(0, 6)).toString("ascii");
+    return header === "GIF87a" || header === "GIF89a";
+  }
+  if (mimeType === "image/webp") {
+    return (
+      Buffer.from(bytes.subarray(0, 4)).toString("ascii") === "RIFF" &&
+      Buffer.from(bytes.subarray(8, 12)).toString("ascii") === "WEBP"
+    );
+  }
+  return false;
+}
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -87,15 +111,25 @@ export default defineEventHandler(async (event: H3Event) => {
         return { error: "File too large (max 5 MB)" };
       }
 
-      const mimeType =
-        getHeader(event, "content-type") || "application/octet-stream";
+      const mimeType = (
+        getHeader(event, "content-type") || "application/octet-stream"
+      )
+        .split(";")[0]
+        .trim()
+        .toLowerCase();
+      const ext = EXT_BY_MIME[mimeType];
+      if (!ext) {
+        setResponseStatus(event, 400);
+        return { error: "Only PNG, JPEG, GIF, and WebP images are allowed" };
+      }
+      if (!hasExpectedImageSignature(bytes, mimeType)) {
+        setResponseStatus(event, 400);
+        return { error: "Uploaded image bytes do not match Content-Type" };
+      }
+
       const query = getQuery(event);
       const originalName =
         typeof query.filename === "string" ? query.filename : "upload";
-
-      // Prefer the extension from the original filename; fall back to MIME.
-      let ext = path.extname(originalName).toLowerCase();
-      if (!ext) ext = EXT_BY_MIME[mimeType] ?? ".bin";
 
       const id = `${randId()}${ext}`;
       const filePath = path.join(UPLOADS_DIR, id);
