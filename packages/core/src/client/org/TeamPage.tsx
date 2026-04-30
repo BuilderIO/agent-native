@@ -19,7 +19,7 @@ import {
   IconEyeOff,
   IconCloudUpload,
 } from "@tabler/icons-react";
-import { agentNativePath } from "../api-path.js";
+import { agentNativePath, appBasePath } from "../api-path.js";
 import { DEV_MODE_USER_EMAIL } from "../dev-mode.js";
 import {
   useOrg,
@@ -949,7 +949,7 @@ function useMigrateLocalDataOnSignIn(
 
         let appKeys: string[] = [];
         try {
-          const appRes = await fetch("/api/local-migration", {
+          const appRes = await fetch(`${appBasePath()}/api/local-migration`, {
             method: "POST",
             credentials: "include",
           });

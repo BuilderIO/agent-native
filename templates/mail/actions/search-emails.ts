@@ -21,6 +21,10 @@ const VIEW_QUERIES: Record<string, string> = {
   all: "",
 };
 
+const cliBoolean = z
+  .union([z.boolean(), z.enum(["true", "false"])])
+  .transform((value) => value === true || value === "true");
+
 function toCompact(emails: any[]): any[] {
   return emails.map((e) => ({
     id: e.id,
@@ -63,10 +67,7 @@ export default defineAction({
       .describe(
         "Filter to a specific account email address. By default searches all connected accounts.",
       ),
-    compact: z.coerce
-      .boolean()
-      .optional()
-      .describe("Set to true for compact output"),
+    compact: cliBoolean.optional().describe("Set to true for compact output"),
   }),
   http: { method: "GET" },
   run: async (args) => {

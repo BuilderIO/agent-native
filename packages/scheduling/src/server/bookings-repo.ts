@@ -206,6 +206,7 @@ export interface InsertBookingInput {
   attendees: Attendee[];
   customResponses?: Record<string, any>;
   iCalUid?: string;
+  iCalSequence?: number;
   references?: BookingReference[];
   fromReschedule?: string;
   ownerEmail: string;
@@ -240,7 +241,7 @@ export async function insertBooking(
     rescheduleToken: nanoid(24),
     fromReschedule: input.fromReschedule ?? null,
     iCalUid,
-    iCalSequence: 0,
+    iCalSequence: input.iCalSequence ?? 0,
     paid: false,
     createdAt: now,
     updatedAt: now,

@@ -20,7 +20,7 @@ import {
 } from "@tabler/icons-react";
 import { useBuilderStatus } from "./useBuilderStatus.js";
 
-type Provider = "openai" | "builder" | "browser";
+type Provider = "openai" | "builder" | "browser" | "gemini" | "groq";
 
 interface Prefs {
   provider: Provider;
@@ -42,6 +42,10 @@ export function VoiceTranscriptionSection() {
   const [openAiConfigured, setOpenAiConfigured] = useState<boolean | null>(
     null,
   );
+  const [geminiConfigured, setGeminiConfigured] = useState<boolean | null>(
+    null,
+  );
+  const [groqConfigured, setGroqConfigured] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const { status: builderStatus } = useBuilderStatus();
@@ -56,7 +60,11 @@ export function VoiceTranscriptionSection() {
           (body as Prefs | null)?.provider ??
           (body as { value?: Prefs } | null)?.value?.provider;
         setProvider(
-          p === "openai" || p === "builder" || p === "browser"
+          p === "openai" ||
+          p === "builder" ||
+          p === "browser" ||
+          p === "gemini" ||
+          p === "groq"
             ? p
             : DEFAULT_PROVIDER,
         );

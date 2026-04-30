@@ -77,9 +77,7 @@ export default defineAction({
       .number()
       .optional()
       .describe("Max number of emails to return (default: 50)"),
-    compact: cliBoolean
-      .optional()
-      .describe("Set to true for compact output"),
+    compact: cliBoolean.optional().describe("Set to true for compact output"),
   }),
   http: { method: "GET" },
   run: async (args) => {

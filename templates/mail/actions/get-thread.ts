@@ -6,14 +6,15 @@ import { gmailGetThread } from "../server/lib/google-api.js";
 import { gmailToEmailMessage, isConnected } from "../server/lib/google-auth.js";
 import { z } from "zod";
 
+const cliBoolean = z
+  .union([z.boolean(), z.enum(["true", "false"])])
+  .transform((value) => value === true || value === "true");
+
 export default defineAction({
   description: "Get all messages in an email thread by thread ID.",
   schema: z.object({
     id: z.string().optional().describe("Thread ID"),
-    compact: z.coerce
-      .boolean()
-      .optional()
-      .describe("Set to true for compact summary"),
+    compact: cliBoolean.optional().describe("Set to true for compact summary"),
   }),
   http: { method: "GET" },
   run: async (args) => {

@@ -72,7 +72,14 @@ async function readProviderPrefs(): Promise<VoiceProvider> {
     const p =
       (body as VoicePrefs | null)?.provider ??
       (body as { value?: VoicePrefs } | null)?.value?.provider;
-    if (p === "openai" || p === "browser" || p === "builder") return p;
+    if (
+      p === "openai" ||
+      p === "browser" ||
+      p === "builder" ||
+      p === "gemini" ||
+      p === "groq"
+    )
+      return p;
   } catch {
     /* fall through */
   }
@@ -454,11 +461,13 @@ export function useVoiceDictation(
     const pref = await readProviderPrefs();
     setProvider(pref);
 
-    // "builder" uses the same client-side flow as "openai" (MediaRecorder ->
-    // POST to /_agent-native/transcribe-voice). The server route handles
-    // routing to the right backend based on the user's preference.
+    // "builder", "gemini", and "groq" all use the same client-side flow as
+    // "openai" (MediaRecorder -> POST to /_agent-native/transcribe-voice).
+    // The server route handles routing to the right backend.
     const resolvedProvider: VoiceProvider =
-      pref === "builder" ? "openai" : pref;
+      pref === "builder" || pref === "gemini" || pref === "groq"
+        ? "openai"
+        : pref;
     activeProviderRef.current = resolvedProvider;
 
     try {

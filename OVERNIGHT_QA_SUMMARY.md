@@ -1,6 +1,6 @@
 # Overnight QA Summary — 2026-04-30
 
-This document summarizes an autonomous overnight QA sweep across the framework and all 9 core templates. It was produced at the end of 8 rounds of parallel agent fanout.
+This document summarizes an autonomous overnight QA sweep across the framework and all 9 core templates, plus 8 non-core templates. It was produced at the end of 10 rounds of parallel agent fanout.
 
 ---
 

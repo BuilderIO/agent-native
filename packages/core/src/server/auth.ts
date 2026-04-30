@@ -840,9 +840,11 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     try {
       const ba = getBetterAuthSync();
       if (ba) {
+        console.log("[auth-debug] calling ba.api.getSession, cookie header:", event.headers.get("cookie")?.substring(0, 80));
         const baSession = await ba.api.getSession({
           headers: event.headers,
         });
+        console.log("[auth-debug] baSession result:", baSession ? `email=${baSession.user?.email}` : "null");
         if (baSession?.user?.email) {
           // Successful real sign-in — clear the upgrade-pending marker so
           // the dev fallback becomes reachable again for future local work.
