@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { getDbExec } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+import "../server/db/index.js";
 
 export default defineAction({
   description: "List all comments on a document, grouped by thread.",

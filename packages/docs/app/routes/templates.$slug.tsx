@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { Link, useParams, type LoaderFunctionArgs } from "react-router";
+import {
+  Link,
+  redirect,
+  useParams,
+  type LoaderFunctionArgs,
+} from "react-router";
 import {
   IconArrowLeft,
   IconBrandGithub,
@@ -14,10 +19,14 @@ import {
 } from "../components/TemplateCard";
 
 function findTemplate(slug: string | undefined) {
+  if (slug === "videos") slug = "video";
   return templates.find((t) => t.slug === slug);
 }
 
 export function loader({ params }: LoaderFunctionArgs) {
+  if (params.slug === "videos") {
+    throw redirect("/templates/video", 301);
+  }
   if (!findTemplate(params.slug)) {
     throw new Response("Not Found", { status: 404 });
   }

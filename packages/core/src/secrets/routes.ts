@@ -443,7 +443,7 @@ async function handleAdHocWrite(event: H3Event) {
   let urlAllowlistJson: string | undefined;
   if (body.urlAllowlist !== undefined && body.urlAllowlist !== null) {
     const normalized = normalizeUrlAllowlist(body.urlAllowlist);
-    if (!normalized.ok) {
+    if (normalized.ok === false) {
       setResponseStatus(event, 400);
       return { error: normalized.error };
     }

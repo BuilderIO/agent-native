@@ -36,6 +36,15 @@ import {
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
 
+function normalizeConfiguredAppBasePath(): string {
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH;
+  if (!raw || raw === "/") return "";
+  const trimmed = String(raw).trim();
+  if (!trimmed || trimmed === "/") return "";
+  const normalized = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
+  return normalized ? `/${normalized}` : "";
+}
+
 /** Plugins that require Node.js runtime and cannot run on edge/serverless */
 const NODE_ONLY_PLUGINS = new Set([
   "terminal", // PTY requires child_process
@@ -1130,6 +1139,10 @@ export default bundle;
   const publicOutputDir = nitro.options.output.publicDir;
   if (fs.existsSync(clientDir) && publicOutputDir) {
     copyDir(clientDir, publicOutputDir);
+    const basePath = normalizeConfiguredAppBasePath();
+    if (basePath) {
+      copyDir(clientDir, path.join(publicOutputDir, basePath.slice(1)));
+    }
     console.log(
       `[deploy] Copied client assets to ${path.relative(cwd, publicOutputDir)}`,
     );

@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { parseDocumentFavorite } from "../server/lib/documents.js";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+import "../server/db/index.js";
 
 export default defineAction({
   description: "Get a single document by ID with full content.",

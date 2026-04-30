@@ -95,11 +95,11 @@ export default defineAction({
       .string()
       .optional()
       .describe("Person / team responsible for this metric"),
-    approved: z
+    approved: z.coerce
       .boolean()
       .optional()
       .describe("Whether this entry has been reviewed and approved"),
-    aiGenerated: z
+    aiGenerated: z.coerce
       .boolean()
       .optional()
       .describe("True when the agent proposed this entry (vs. human-authored)"),

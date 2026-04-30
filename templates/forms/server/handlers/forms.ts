@@ -10,35 +10,6 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 
 // ---------------------------------------------------------------------------
-// Public form cache (60s TTL)
-// ---------------------------------------------------------------------------
-
-interface CacheEntry {
-  data: unknown;
-  expiresAt: number;
-}
-
-const publicFormCache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 60_000;
-
-function getCachedPublicForm(slug: string): unknown | undefined {
-  const entry = publicFormCache.get(slug);
-  if (!entry) return undefined;
-  if (Date.now() > entry.expiresAt) {
-    publicFormCache.delete(slug);
-    return undefined;
-  }
-  return entry.data;
-}
-
-function setCachedPublicForm(slug: string, data: unknown): void {
-  publicFormCache.set(slug, {
-    data,
-    expiresAt: Date.now() + CACHE_TTL_MS,
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Public form handler (unauthenticated — stays as API route)
 // ---------------------------------------------------------------------------
 
@@ -52,10 +23,6 @@ export const getPublicForm = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 404);
     return { error: "Form not found" };
   }
-
-  // Check cache first
-  const cached = getCachedPublicForm(slug);
-  if (cached) return cached;
 
   const db = getDb();
   // Try matching by slug first, then fall back to matching by ID
@@ -88,6 +55,5 @@ export const getPublicForm = defineEventHandler(async (event: H3Event) => {
     settings: JSON.parse(row.settings),
   };
 
-  setCachedPublicForm(slug, result);
   return result;
 });
