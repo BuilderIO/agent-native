@@ -1,16 +1,17 @@
 //! Native macOS dictation via Apple's Speech framework.
 //!
-//! Web Speech API (`webkitSpeechRecognition`) does not work inside a Tauri
-//! WKWebView — Apple gates `WebSpeechAPIEnabled` to false in embedded
-//! WKWebViews, so the recognition session starts but no `onresult` ever fires.
-//! The fix is to drive `SFSpeechRecognizer` + `AVAudioEngine` from Rust and
-//! forward partial / final transcripts to the renderer over Tauri events.
+//! Web Speech API (`webkitSpeechRecognition`) doesn't reliably fire results
+//! inside a Tauri WKWebView — Apple gates `WebSpeechAPIEnabled` to false in
+//! embedded WKWebViews, so the recognition session starts but no `onresult`
+//! ever fires. This module drives `SFSpeechRecognizer` + `AVAudioEngine`
+//! directly from Rust and forwards partial / final transcripts to the
+//! renderer over Tauri events.
 //!
-//! This module exposes three Tauri commands:
+//! Three Tauri commands:
 //!
 //! | Command                | Purpose                                                |
 //! | ---------------------- | ------------------------------------------------------ |
-//! | `native_speech_start`  | Build the engine + recognizer + tap, kick off a task. |
+//! | `native_speech_start`  | Build the engine + recognizer + tap, kick off a task.  |
 //! | `native_speech_stop`   | Stop audio, let the in-flight final result land.       |
 //! | `native_speech_cancel` | Stop audio + cancel the task (no final result).        |
 //!
@@ -22,8 +23,52 @@
 //! All ObjC interop is `unsafe` by definition; the comments above each block
 //! call out the soundness argument.
 
+use tauri::AppHandle;
+
+#[tauri::command]
+pub async fn native_speech_start(
+    app: AppHandle,
+    locale: Option<String>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::native_speech_start_impl(app, locale).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, locale);
+        Err("Native speech recognition is only supported on macOS.".into())
+    }
+}
+
+#[tauri::command]
+pub async fn native_speech_stop(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::native_speech_stop_impl(app).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub async fn native_speech_cancel(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::native_speech_cancel_impl(app).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
 #[cfg(target_os = "macos")]
-mod imp {
+mod macos {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
 
@@ -225,8 +270,7 @@ mod imp {
         }
     }
 
-    #[tauri::command]
-    pub async fn native_speech_start(
+    pub async fn native_speech_start_impl(
         app: AppHandle,
         locale: Option<String>,
     ) -> Result<(), String> {
@@ -267,12 +311,13 @@ mod imp {
         // request. The tap callback runs on the realtime audio thread —
         // keep it tight and lock-free.
         //
-        // SAFETY: `installTapOnBus:` retains the block until
-        // `removeTapOnBus:` is called. The block captures
-        // `request_for_tap`, a refcounted ObjC reference;
-        // `appendAudioPCMBuffer:` is documented as safe to call from any
-        // thread. We use `StackBlock::copy()` to upgrade it to a heap-owned
-        // `RcBlock` so its lifetime survives until the tap is removed.
+        // SAFETY: `installTapOnBus:` performs a `Block_copy` internally so
+        // the caller does not need to keep `tap_block` alive after this
+        // call; the audio engine retains its own copy until
+        // `removeTapOnBus:` is called. We pass the block as a raw `*mut
+        // Block<F>` — the cast from `&Block<F>` is sound because the
+        // FFI surface treats the pointer as opaque (it's just refcounted
+        // by `Block_copy`).
         {
             let request_for_tap = request.clone();
             let tap_block = StackBlock::new(
@@ -286,12 +331,6 @@ mod imp {
                 },
             )
             .copy();
-            // SAFETY: AVFoundation's `installTapOnBus:` performs a
-            // `Block_copy` internally, so the caller does not need to keep
-            // `tap_block` alive. We hand it a `*mut Block<F>` cast from the
-            // `RcBlock`'s deref — the block_copy will retain it on the
-            // ObjC side, and `tap_block` drops at end of scope releasing
-            // our copy. removeTapOnBus: + drop fully tears it down.
             let block_ptr: *mut block2::Block<
                 dyn Fn(
                         std::ptr::NonNull<AVAudioPCMBuffer>,
@@ -336,8 +375,8 @@ mod imp {
         // SAFETY: the block runs on the recognizer's queue (default = main).
         // We capture clones of `AppHandle` (cheap, refcounted) and the two
         // atomics. We never touch ObjC objects from outside their native
-        // lifetime — both `result` and `error` are passed in raw and we wrap
-        // them via `&*ptr` only after a null check.
+        // lifetime — both `result` and `error` are passed in raw and we
+        // wrap them via `&*ptr` only after a null check.
         let result_handler = RcBlock::new(
             move |result_ptr: *mut SFSpeechRecognitionResult, error_ptr: *mut NSError| {
                 let cancelled = cancelled_for_handler.load(Ordering::SeqCst);
@@ -363,8 +402,8 @@ mod imp {
                     return;
                 }
                 // SAFETY: `result_ptr` was non-null per the check above; the
-                // recognizer keeps the result alive for the duration of this
-                // callback.
+                // recognizer keeps the result alive for the duration of
+                // this callback.
                 let result = unsafe { &*result_ptr };
                 let transcription = unsafe { result.bestTranscription() };
                 let formatted = unsafe { transcription.formattedString() };
@@ -404,8 +443,7 @@ mod imp {
         Ok(())
     }
 
-    #[tauri::command]
-    pub async fn native_speech_stop(_app: AppHandle) -> Result<(), String> {
+    pub async fn native_speech_stop_impl(_app: AppHandle) -> Result<(), String> {
         // Take the session out so subsequent `stop()` calls are no-ops. We
         // KEEP the recognition task running — calling `endAudio()` lets it
         // deliver a final result via the handler, which then emits
@@ -423,8 +461,8 @@ mod imp {
         // SAFETY: `endAudio()` is a fire-and-forget signal to the recognizer
         // that no more buffers are coming. The result handler will still
         // fire once more (with `isFinal=true`) — that's why we don't drop
-        // the task here; we put the session back so the atomics + ObjC refs
-        // stay alive until the final result lands.
+        // the task here; we put the session back so the atomics + ObjC
+        // refs stay alive until the final result lands.
         unsafe { session.request.endAudio() };
 
         // Re-stash the session so the result handler can find the
@@ -437,8 +475,7 @@ mod imp {
         Ok(())
     }
 
-    #[tauri::command]
-    pub async fn native_speech_cancel(_app: AppHandle) -> Result<(), String> {
+    pub async fn native_speech_cancel_impl(_app: AppHandle) -> Result<(), String> {
         let session = {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
             slot.take()
@@ -453,40 +490,3 @@ mod imp {
         Ok(())
     }
 }
-
-// Glob re-export — `#[tauri::command]` generates companion `__cmd__<name>`
-// symbols that `tauri::generate_handler!` looks up at the SAME module path
-// as the function. A targeted `use imp::{...}` only re-exports the
-// functions and leaves the companions inside `imp`, breaking handler
-// codegen with "cannot find `__cmd__native_speech_start`". The glob
-// re-exports both halves.
-#[cfg(target_os = "macos")]
-pub use imp::*;
-
-#[cfg(not(target_os = "macos"))]
-mod stub {
-    use tauri::AppHandle;
-
-    /// On non-macOS targets the framework is unavailable; surface a clear
-    /// error to the renderer so it can fall back to the server-side path.
-    #[tauri::command]
-    pub async fn native_speech_start(
-        _app: AppHandle,
-        _locale: Option<String>,
-    ) -> Result<(), String> {
-        Err("Native speech recognition is only supported on macOS.".into())
-    }
-
-    #[tauri::command]
-    pub async fn native_speech_stop(_app: AppHandle) -> Result<(), String> {
-        Ok(())
-    }
-
-    #[tauri::command]
-    pub async fn native_speech_cancel(_app: AppHandle) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-pub use stub::{native_speech_cancel, native_speech_start, native_speech_stop};

@@ -2,7 +2,14 @@ import Index from "@/pages/Index";
 import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
-  return [{ title: "Analytics" }];
+  return [
+    { title: "Analytics" },
+    {
+      name: "description",
+      content:
+        "Agent-native product analytics — connect data sources, generate charts from natural language, and explore funnels and cohorts.",
+    },
+  ];
 }
 
 export function HydrateFallback() {

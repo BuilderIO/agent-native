@@ -2,7 +2,14 @@ import { redirect, type LoaderFunctionArgs } from "react-router";
 import { DefaultSpinner } from "@agent-native/core/client";
 
 export function meta() {
-  return [{ title: "Recruiting" }];
+  return [
+    { title: "Recruiting" },
+    {
+      name: "description",
+      content:
+        "Agent-native ATS — manage candidates, jobs, and interviews with AI assistance.",
+    },
+  ];
 }
 
 /**
