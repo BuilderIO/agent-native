@@ -70,7 +70,6 @@ export {
   recordUsage,
   getUsageSummary,
   getUserUsageCents,
-  checkUsageLimit,
   calculateCost,
   type UsageRecord,
   type UsageSummary,

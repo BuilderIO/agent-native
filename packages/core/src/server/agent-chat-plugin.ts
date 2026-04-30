@@ -3111,9 +3111,9 @@ export function createAgentChatPlugin(
           return (
             runCtx?.engine ??
             createAnthropicEngine({
-              // Sub-agents must inherit the parent run's resolved key so a
-              // BYO-key user can't bypass the free-tier check on the parent
-              // run and then have agent-teams spawn delegations bill the platform key.
+              // Sub-agents must inherit the parent run's resolved key so
+              // delegations spawned by agent-teams don't silently fall back
+              // to the platform key while the parent uses BYO credentials.
               apiKey:
                 runCtx?.userApiKey ??
                 options?.apiKey ??
@@ -3183,7 +3183,7 @@ export function createAgentChatPlugin(
       });
 
       // Always build the production handler (includes resource tools + call-agent + team tools)
-      // In production mode (!canToggle), enable usage tracking and limits
+      // In production mode (!canToggle), resolve the owner from the request session.
       const isHostedProd = !canToggle;
       const resolveExtraContext = async (
         event: any,
@@ -3274,8 +3274,7 @@ export function createAgentChatPlugin(
           if (threadId) _runSendByThread.delete(threadId);
           await onRunComplete(run, threadId);
         },
-        // Usage tracking for hosted production deployments
-        trackUsage: isHostedProd,
+        // Resolve owner from session for usage attribution in hosted prod
         resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
       });
 
