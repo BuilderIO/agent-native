@@ -2,7 +2,14 @@ import Studio from "@/pages/Index";
 import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
-  return [{ title: "Remotion Studio" }];
+  return [
+    { title: "Videos" },
+    {
+      name: "description",
+      content:
+        "Agent-native video editing — generate animated React compositions with Remotion and edit them on a timeline.",
+    },
+  ];
 }
 
 export function HydrateFallback() {

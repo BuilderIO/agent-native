@@ -8,8 +8,26 @@ import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePublicForm, useSubmitForm } from "@/hooks/use-forms";
 import { toast } from "sonner";
-import { CircleCheck, RefreshCw } from "lucide-react";
+import { IconCircleCheck, IconRefresh } from "@tabler/icons-react";
 import type { FormField, FormSettings } from "@shared/types";
+
+function safeRedirectUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed;
+
+  try {
+    const url = new URL(trimmed, window.location.origin);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.href;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
 
 export function FormFillPage() {
   const params = useParams();
@@ -21,6 +39,8 @@ export function FormFillPage() {
   const [captchaToken, setCaptchaToken] = useState<string | undefined>();
   const [submitted, setSubmitted] = useState(false);
   const [embedded, setEmbedded] = useState(false);
+  const [honeypot, setHoneypot] = useState("");
+  const pageLoadTime = useState(() => Date.now())[0];
 
   useEffect(() => {
     try {
@@ -110,12 +130,15 @@ export function FormFillPage() {
         formId: form.id,
         data: values,
         captchaToken,
+        _hp: honeypot,
+        _t: pageLoadTime,
       },
       {
         onSuccess: () => {
           setSubmitted(true);
           if (settings.redirectUrl) {
-            window.location.href = settings.redirectUrl;
+            const redirectUrl = safeRedirectUrl(settings.redirectUrl);
+            if (redirectUrl) window.location.assign(redirectUrl);
           }
         },
         onError: (err: any) => {
@@ -162,7 +185,7 @@ export function FormFillPage() {
             onClick={() => window.location.reload()}
             className="gap-2"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
+            <IconRefresh className="h-3.5 w-3.5" />
             Try Again
           </Button>
         </div>
@@ -176,7 +199,7 @@ export function FormFillPage() {
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center max-w-md">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600/10">
-            <CircleCheck className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
+            <IconCircleCheck className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
           </div>
           <h1 className="text-2xl font-semibold mb-2">Response submitted</h1>
           <p className="text-muted-foreground">
@@ -222,6 +245,17 @@ export function FormFillPage() {
 
         {/* Form */}
         <form onSubmit={handleSubmit}>
+          {/* Honeypot: bots fill this, humans don't see it. */}
+          <input
+            type="text"
+            name="website"
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
+            tabIndex={-1}
+            aria-hidden="true"
+            className="absolute -left-[9999px] opacity-0 pointer-events-none"
+            autoComplete="off"
+          />
           <div className="space-y-6">
             {visibleFields.map((field) => (
               <FieldRenderer

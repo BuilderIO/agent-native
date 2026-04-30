@@ -40,7 +40,8 @@ import {
   putUserSetting,
   deleteUserSetting,
 } from "../settings/user-settings.js";
-import { getSession } from "./auth.js";
+import { getSession, isDevEnvironment, DEV_MODE_USER_EMAIL } from "./auth.js";
+import { isLocalDatabase } from "../db/client.js";
 import { getOrigin } from "./google-oauth.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { listOnboardingSteps } from "../onboarding/registry.js";
@@ -62,6 +63,8 @@ import { registerBuiltinNotificationChannels } from "../notifications/channels.j
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
+import { runWithRequestContext } from "./request-context.js";
+import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import {
   isAgentEngineSettingConfigured,
@@ -77,6 +80,53 @@ import {
  * collisions with template-specific `/api/*` routes.
  */
 export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
+
+/**
+ * Whether deployment-wide `process.env` writes (and rehydration from the
+ * unscoped `persisted-env-vars` settings row) are safe on this deployment.
+ *
+ * Allowed only when:
+ *   - we're running against a local SQLite-only database in a development
+ *     environment (no shared-tenant exposure), OR
+ *   - the operator has explicitly opted in via
+ *     `AGENT_NATIVE_ALLOW_ENV_VAR_WRITES=1` (single-tenant self-hosted).
+ *
+ * On any hosted multi-tenant deploy this returns false: env vars are
+ * deployment-wide globals and one tenant could otherwise overwrite Stripe /
+ * OpenAI / Sentry keys for every other tenant. Per-org credentials must use
+ * the per-user/org `app_secrets` store via `saveCredential()` instead.
+ */
+function isEnvVarWriteAllowed(): boolean {
+  if (process.env.AGENT_NATIVE_ALLOW_ENV_VAR_WRITES === "1") return true;
+  return isDevEnvironment() && isLocalDatabase();
+}
+
+function normalizeAppBasePath(value: string | undefined): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function stripAppBasePath(pathname: string): string {
+  const basePath = normalizeAppBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
+function redactValues(text: string, values: Array<string | null | undefined>) {
+  let out = text;
+  for (const value of values) {
+    if (value) out = out.split(value).join("[redacted]");
+  }
+  return out;
+}
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -127,13 +177,15 @@ export function createCoreRoutesPlugin(
     // store. Only set keys that are currently empty so explicit env
     // vars (Netlify dashboard, process-level) always win.
     //
-    // BUILDER_* keys are explicitly skipped and scrubbed from the row.
-    // The pre-migration OAuth callback wrote one user's Builder creds
-    // into this unscoped row, which then rehydrated into process.env on
-    // every cold start and leaked across tenants on shared-DB hosted
-    // templates. Per-user Builder creds now live in app_secrets; this
-    // global row must never carry them again. The scrub below is a
-    // one-shot self-heal: idempotent, no-op once the row is clean.
+    // GATED: only rehydrate into `process.env` on local-dev SQLite (or
+    // with the explicit single-tenant opt-in). On a shared-DB hosted
+    // multi-tenant deploy the `persisted-env-vars` row is deployment-wide
+    // global state — pushing user-supplied values into `process.env` from
+    // it would let any one tenant's writes (or a stale dev seed) leak
+    // into every other tenant's process. The opt-out scrub of legacy
+    // BUILDER_* values still runs unconditionally so existing rows on
+    // multi-tenant deploys self-heal, but new env-var writes never land
+    // in `process.env` outside the allowed contexts.
     try {
       const persisted = (await getSetting("persisted-env-vars")) as Record<
         string,
@@ -141,13 +193,14 @@ export function createCoreRoutesPlugin(
       > | null;
       if (persisted) {
         const builderKeys = new Set<string>(BUILDER_ENV_KEYS);
+        const writesAllowed = isEnvVarWriteAllowed();
         let scrubbed = 0;
         for (const [k, v] of Object.entries(persisted)) {
           if (builderKeys.has(k)) {
             scrubbed++;
             continue;
           }
-          if (typeof v === "string" && !process.env[k]) {
+          if (writesAllowed && typeof v === "string" && !process.env[k]) {
             process.env[k] = v;
           }
         }
@@ -215,6 +268,14 @@ export function createCoreRoutesPlugin(
 
     const P = FRAMEWORK_ROUTE_PREFIX;
 
+    // Security response headers — emitted on every framework response.
+    // Mounted before route handlers so 4xx/5xx error pages also carry the
+    // headers. Routes that need to relax a specific header (e.g. the tools
+    // /render route allowing same-origin framing) override via setResponseHeader.
+    const { createSecurityHeadersMiddleware } =
+      await import("./security-headers.js");
+    getH3App(nitroApp).use(createSecurityHeadersMiddleware());
+
     // CORS for framework routes. Desktop tray apps (Tauri/Electron) run on
     // their own dev origin (e.g. localhost:1420) and make credentialed
     // requests against the template's server at a different port. We echo
@@ -224,45 +285,110 @@ export function createCoreRoutesPlugin(
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+    const isProduction = process.env.NODE_ENV === "production";
+    const LOCALHOST_RE =
+      /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/;
     getH3App(nitroApp).use(
       defineEventHandler((event) => {
-        const url = event.node?.req?.url ?? event.path ?? "/";
-        if (!url.startsWith(P) && !url.startsWith("/api/")) return;
+        const pathname = stripAppBasePath(
+          event.url?.pathname ??
+            String(event.node?.req?.url ?? event.path ?? "/").split("?")[0],
+        );
+        if (!pathname.startsWith(P) && !pathname.startsWith("/api/")) return;
         const reqHeaders = (event.node?.req?.headers ?? {}) as Record<
           string,
           string | string[] | undefined
         >;
         const originRaw = reqHeaders["origin"];
         const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
-        if (!origin) return;
-        const allowed =
-          allowlist.length === 0 ||
-          allowlist.includes(origin) ||
-          // Dev convenience: allow any localhost origin (tray windows,
-          // frame, docs) without requiring an explicit allowlist.
-          /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/.test(
-            origin,
-          );
-        if (!allowed) return;
-        setResponseHeader(event, "Access-Control-Allow-Origin", origin);
+        const method = getMethod(event);
+
+        // Decide whether this origin is allowed. We never fall back to the
+        // first allowlist entry — that previously echoed `Access-Control-
+        // Allow-Origin: <unrelated-allowed-origin>` for disallowed callers,
+        // which is permissive enough that some clients followed through.
+        let allowedOrigin: string | null = null;
+        if (origin) {
+          if (allowlist.length > 0) {
+            if (allowlist.includes(origin)) allowedOrigin = origin;
+          } else {
+            // No allowlist configured. In production we only allow
+            // localhost-style origins (desktop tray dev usage); in dev we
+            // allow any origin echo. This prevents a fresh deploy without
+            // CORS_ALLOWED_ORIGINS from accepting credentialed requests
+            // from any origin.
+            if (isProduction) {
+              if (LOCALHOST_RE.test(origin)) allowedOrigin = origin;
+            } else {
+              if (LOCALHOST_RE.test(origin)) allowedOrigin = origin;
+            }
+          }
+        }
+
+        // Reject preflights from disallowed cross-origin callers BEFORE
+        // returning 204. Previously the OPTIONS short-circuit returned 204
+        // with no ACAO header, which the browser then treats as a CORS
+        // failure — but also short-circuited any further checks. Now we
+        // explicitly 403 disallowed cross-origin preflights.
+        if (method === "OPTIONS") {
+          if (origin && !allowedOrigin) {
+            setResponseStatus(event, 403);
+            return "";
+          }
+          if (allowedOrigin) {
+            setResponseHeader(
+              event,
+              "Access-Control-Allow-Origin",
+              allowedOrigin,
+            );
+            setResponseHeader(event, "Vary", "Origin");
+            setResponseHeader(
+              event,
+              "Access-Control-Allow-Credentials",
+              "true",
+            );
+            setResponseHeader(
+              event,
+              "Access-Control-Allow-Methods",
+              "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+            );
+            setResponseHeader(
+              event,
+              "Access-Control-Allow-Headers",
+              "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+            );
+          }
+          setResponseStatus(event, 204);
+          return "";
+        }
+
+        // Non-preflight requests: only set CORS response headers when we
+        // have an allowed origin. Same-origin / no-origin requests fall
+        // through without explicit CORS headers (browser treats them as
+        // same-origin by default).
+        if (!allowedOrigin) return;
+        setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
         setResponseHeader(event, "Vary", "Origin");
         setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
         setResponseHeader(
           event,
           "Access-Control-Allow-Methods",
-          "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+          "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
         );
         setResponseHeader(
           event,
           "Access-Control-Allow-Headers",
-          "Content-Type,Authorization,X-Requested-With",
+          "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
         );
-        if (getMethod(event) === "OPTIONS") {
-          setResponseStatus(event, 204);
-          return "";
-        }
       }),
     );
+
+    // Defense-in-depth CSRF check for state-changing /_agent-native/* routes.
+    // Mounted AFTER the CORS layer so disallowed-origin OPTIONS preflights
+    // 403 first (rather than being rejected on a stale cookie heuristic).
+    // See `csrf.ts` for the threat model and allowlist.
+    const { createCsrfMiddleware } = await import("./csrf.js");
+    getH3App(nitroApp).use(createCsrfMiddleware(P));
 
     // Polling
     getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
@@ -287,57 +413,89 @@ export function createCoreRoutesPlugin(
       `${P}/builder/status`,
       defineEventHandler(async (event) => {
         const envStatus = getBuilderBrowserStatusForEvent(event);
-        // Check per-user credentials first (stored in app_secrets).
-        try {
-          const { resolveBuilderCredentials } =
-            await import("./credential-provider.js");
-          const creds = await resolveBuilderCredentials();
-          if (creds.privateKey) {
-            return {
-              ...envStatus,
-              configured: true,
-              privateKeyConfigured: true,
-              publicKeyConfigured: !!creds.publicKey,
-              userId: creds.userId || envStatus.userId,
-              orgName: creds.orgName || envStatus.orgName,
-              orgKind: creds.orgKind || envStatus.orgKind,
-            };
+        // Read session once so we can establish per-user request context for
+        // credential resolution. Without this, resolveBuilderCredentials()
+        // calls getRequestUserEmail() on an empty AsyncLocalStorage store and
+        // falls through to process.env — causing the connection state to
+        // flicker between requests depending on stale env values.
+        const session = await getSession(event).catch(() => null);
+        const userEmail = session?.email;
+
+        return runWithRequestContext({ userEmail }, async () => {
+          // Check per-user credentials first (stored in app_secrets).
+          try {
+            const { resolveBuilderCredentials } =
+              await import("./credential-provider.js");
+            const creds = await resolveBuilderCredentials();
+            if (creds.privateKey) {
+              return {
+                ...envStatus,
+                configured: true,
+                privateKeyConfigured: true,
+                publicKeyConfigured: !!creds.publicKey,
+                userId: creds.userId || envStatus.userId,
+                orgName: creds.orgName || envStatus.orgName,
+                orgKind: creds.orgKind || envStatus.orgKind,
+              };
+            }
+          } catch {
+            // Secrets table not ready — fall through to env status
           }
-        } catch {
-          // Secrets table not ready — fall through to env status
-        }
-        // Surface a recent OAuth callback failure so the parent's polling
-        // stops with a clear message instead of timing out at 5min. The
-        // callback handler writes a `builder-connect-error:<email>` row
-        // when `writeBuilderCredentials` throws; this read self-clears so
-        // the message only fires once.
-        try {
-          const session = await getSession(event).catch(() => null);
-          if (session?.email) {
-            const errKey = `builder-connect-error:${session.email}`;
-            const errRow = await getSetting(errKey);
-            if (errRow && typeof errRow.message === "string") {
-              await deleteSetting(errKey).catch(() => {});
+          // Surface a recent OAuth callback failure so the parent's polling
+          // stops with a clear message instead of timing out at 5min. The
+          // callback handler writes a `builder-connect-error:<email>` row
+          // when `writeBuilderCredentials` throws; this read self-clears so
+          // the message only fires once.
+          try {
+            if (userEmail) {
+              const errKey = `builder-connect-error:${userEmail}`;
+              const errRow = await getSetting(errKey);
+              if (errRow && typeof errRow.message === "string") {
+                await deleteSetting(errKey).catch(() => {});
+                return {
+                  ...envStatus,
+                  configured: false,
+                  privateKeyConfigured: false,
+                  publicKeyConfigured: false,
+                  userId: undefined,
+                  orgName: undefined,
+                  orgKind: undefined,
+                  connectError: {
+                    message: errRow.message as string,
+                    at:
+                      typeof errRow.at === "number"
+                        ? (errRow.at as number)
+                        : Date.now(),
+                  },
+                };
+              }
+            }
+          } catch {
+            // settings store unavailable — fall through to legacy/env status
+          }
+          // Honor legacy disconnect flag for existing deployments.
+          try {
+            const disconnected = await getSetting("builder-disconnected");
+            if (disconnected) {
               return {
                 ...envStatus,
                 configured: false,
-                connectError: {
-                  message: errRow.message as string,
-                  at:
-                    typeof errRow.at === "number"
-                      ? (errRow.at as number)
-                      : Date.now(),
-                },
+                privateKeyConfigured: false,
+                publicKeyConfigured: false,
+                userId: undefined,
+                orgName: undefined,
+                orgKind: undefined,
               };
             }
+          } catch {
+            // DB not reachable — fall back to env-only status.
           }
-        } catch {
-          // settings store unavailable — fall through to legacy/env status
-        }
-        // Honor legacy disconnect flag for existing deployments.
-        try {
-          const disconnected = await getSetting("builder-disconnected");
-          if (disconnected) {
+          // For authenticated non-local users who have no per-user credentials,
+          // explicitly return not-configured rather than deploy-level env keys.
+          // This is consistent with resolveBuilderCredential()'s design which
+          // refuses the env fallback for authenticated users to prevent
+          // cross-tenant credential leakage in shared-DB deployments.
+          if (userEmail && userEmail !== DEV_MODE_USER_EMAIL) {
             return {
               ...envStatus,
               configured: false,
@@ -348,10 +506,8 @@ export function createCoreRoutesPlugin(
               orgKind: undefined,
             };
           }
-        } catch {
-          // DB not reachable — fall back to env-only status.
-        }
-        return envStatus;
+          return envStatus;
+        });
       }),
     );
 
@@ -407,7 +563,7 @@ export function createCoreRoutesPlugin(
         // on. Allow it only when the environment explicitly opts into
         // local mode (dev, tests, or AUTH_MODE=local).
         if (
-          session.email === "local@localhost" &&
+          session.email === DEV_MODE_USER_EMAIL &&
           process.env.NODE_ENV === "production" &&
           process.env.AUTH_MODE !== "local"
         ) {
@@ -415,32 +571,40 @@ export function createCoreRoutesPlugin(
           return { error: "A signed-in user is required to run Builder" };
         }
         const userEmail = session.email;
-        const { resolveBuilderCredential: resolveBuilderCred } =
-          await import("./credential-provider.js");
-        const builderUserId =
-          (await resolveBuilderCred("BUILDER_USER_ID")) || undefined;
-        // Server-controlled projectId — don't let clients target arbitrary
-        // Builder projects with our private key. When this feature graduates
-        // past the hardcoded preview, the projectId will come from
-        // workspace/org config, still resolved server-side.
-        try {
-          const result = await runBuilderAgent({
-            prompt,
-            projectId: DEFAULT_BUILDER_PROJECT_ID,
-            branchName:
-              typeof body?.branchName === "string"
-                ? body.branchName
-                : undefined,
-            userEmail,
-            userId: builderUserId,
-          });
-          return result;
-        } catch (e) {
-          setResponseStatus(event, 500);
-          return {
-            error: e instanceof Error ? e.message : "Builder run failed",
-          };
-        }
+        // Wrap in runWithRequestContext so resolveBuilderCredential() inside
+        // runBuilderAgent() resolves per-user app_secrets rather than falling
+        // through to process.env — the same pattern the /builder/status endpoint
+        // uses. Without this, per-user Builder keys stored in app_secrets are
+        // invisible to the run path and the call throws "Builder keys are not
+        // configured" even though the status endpoint correctly reports configured=true.
+        return runWithRequestContext({ userEmail }, async () => {
+          const { resolveBuilderCredential: resolveBuilderCred } =
+            await import("./credential-provider.js");
+          const builderUserId =
+            (await resolveBuilderCred("BUILDER_USER_ID")) || undefined;
+          // Server-controlled projectId — don't let clients target arbitrary
+          // Builder projects with our private key. When this feature graduates
+          // past the hardcoded preview, the projectId will come from
+          // workspace/org config, still resolved server-side.
+          try {
+            const result = await runBuilderAgent({
+              prompt,
+              projectId: DEFAULT_BUILDER_PROJECT_ID,
+              branchName:
+                typeof body?.branchName === "string"
+                  ? body.branchName
+                  : undefined,
+              userEmail,
+              userId: builderUserId,
+            });
+            return result;
+          } catch (e) {
+            setResponseStatus(event, 500);
+            return {
+              error: e instanceof Error ? e.message : "Builder run failed",
+            };
+          }
+        });
       }),
     );
 
@@ -605,56 +769,73 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const { resolveBuilderCredentials: resolveCreds } =
-          await import("./credential-provider.js");
-        const creds = await resolveCreds();
-        if (!creds.privateKey || !creds.publicKey) {
-          setResponseStatus(event, 400);
-          return {
-            error:
-              "Builder not connected. Connect Builder in Setup to use background agent.",
-          };
+
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "unauthorized" };
         }
-        const body = (await readBody(event)) as {
-          userMessage?: string;
-          branchName?: string;
-          projectUrl?: string;
-        };
-        if (!body?.userMessage) {
-          setResponseStatus(event, 400);
-          return { error: "userMessage is required" };
-        }
-        const apiHost =
-          process.env.BUILDER_API_HOST || "https://ai-services.builder.io";
-        try {
-          const res = await fetch(
-            `${apiHost}/agents/run?apiKey=${encodeURIComponent(creds.publicKey)}`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${creds.privateKey}`,
-              },
-              body: JSON.stringify({
-                userMessage: {
-                  userPrompt: body.userMessage,
+
+        return runWithRequestContext(
+          { userEmail: session.email, orgId: session.orgId ?? undefined },
+          async () => {
+            const { resolveBuilderCredentials: resolveCreds } =
+              await import("./credential-provider.js");
+            const creds = await resolveCreds();
+            if (!creds.privateKey || !creds.publicKey) {
+              setResponseStatus(event, 400);
+              return {
+                error:
+                  "Builder not connected. Connect Builder in Setup to use background agent.",
+              };
+            }
+            const body = (await readBody(event)) as {
+              userMessage?: string;
+              branchName?: string;
+              projectUrl?: string;
+            };
+            if (!body?.userMessage) {
+              setResponseStatus(event, 400);
+              return { error: "userMessage is required" };
+            }
+            const apiHost =
+              process.env.BUILDER_API_HOST || "https://ai-services.builder.io";
+            try {
+              const res = await fetch(
+                `${apiHost}/agents/run?apiKey=${encodeURIComponent(creds.publicKey)}`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${creds.privateKey}`,
+                  },
+                  body: JSON.stringify({
+                    userMessage: {
+                      userPrompt: body.userMessage,
+                    },
+                    branchName: body.branchName,
+                  }),
                 },
-                branchName: body.branchName,
-              }),
-            },
-          );
-          if (!res.ok) {
-            const err = await res.text().catch(() => "Unknown error");
-            setResponseStatus(event, res.status);
-            return { error: err };
-          }
-          return await res.json();
-        } catch (err: any) {
-          setResponseStatus(event, 500);
-          return {
-            error: err?.message || "Failed to reach Builder agents-run API",
-          };
-        }
+              );
+              if (!res.ok) {
+                const err = await res.text().catch(() => "Unknown error");
+                setResponseStatus(event, res.status);
+                return {
+                  error: redactValues(err, [creds.privateKey, creds.publicKey]),
+                };
+              }
+              return await res.json();
+            } catch (err: any) {
+              setResponseStatus(event, 500);
+              return {
+                error: redactValues(
+                  err?.message || "Failed to reach Builder agents-run API",
+                  [creds.privateKey, creds.publicKey],
+                ),
+              };
+            }
+          },
+        );
       }),
     );
 
@@ -713,6 +894,20 @@ export function createCoreRoutesPlugin(
           if (getMethod(event) !== "POST") {
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
+          }
+
+          // Env vars are deployment-wide globals, not per-tenant. On any
+          // shared-DB multi-tenant deploy, allowing authenticated users to
+          // write here lets one tenant overwrite Stripe / OpenAI / Sentry
+          // keys for every other tenant. Disable the endpoint outside of
+          // local-dev SQLite or an explicit single-tenant opt-in, and
+          // direct callers to the per-org credential store instead.
+          if (!isEnvVarWriteAllowed()) {
+            setResponseStatus(event, 403);
+            return {
+              error:
+                "env-vars endpoint disabled on multi-tenant deployments. Use saveCredential(key, value, { userEmail, orgId, scope: 'org' }) to store per-org credentials.",
+            };
           }
 
           const body = await readBody(event);
@@ -911,19 +1106,45 @@ export function createCoreRoutesPlugin(
     // POST /_agent-native/file-upload        — upload a file, return { url }
     getH3App(nitroApp).use(
       `${P}/file-upload/status`,
-      defineEventHandler(async () => {
+      defineEventHandler(async (event) => {
         const active = getActiveFileUploadProvider();
+        // resolveBuilderPrivateKey() reads per-user credentials from app_secrets
+        // (DB), which requires request context (AsyncLocalStorage) to know which
+        // user to scope by. Without runWithRequestContext() the ALS store is empty
+        // and it falls back to process.env only — missing OAuth-connected users.
+        const session = await getSession(event).catch(() => null);
+        const userEmail = session?.email;
         let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
         try {
           const { resolveBuilderPrivateKey } =
             await import("./credential-provider.js");
-          builderConfigured = !!(await resolveBuilderPrivateKey());
+          const resolve = () => resolveBuilderPrivateKey().then((k) => !!k);
+          builderConfigured = userEmail
+            ? await runWithRequestContext({ userEmail }, resolve)
+            : await resolve();
         } catch {
           // fall back to env check above
         }
+        // When the builder builtin is selected via env var, its sync
+        // isConfigured() doesn't reflect per-user OAuth credentials. Use the
+        // async builderConfigured check so the status accurately represents
+        // whether this specific user can actually upload (thread 7 fix).
+        const isBuilderEnvActive = active?.id === "builder";
+        const configured = isBuilderEnvActive
+          ? builderConfigured
+          : !!active || builderConfigured;
+        const activeProvider = isBuilderEnvActive
+          ? builderConfigured
+            ? { id: "builder", name: "Builder.io" }
+            : null
+          : active
+            ? { id: active.id, name: active.name }
+            : builderConfigured
+              ? { id: "builder", name: "Builder.io" }
+              : null;
         return {
-          configured: !!active,
-          activeProvider: active ? { id: active.id, name: active.name } : null,
+          configured,
+          activeProvider,
           providers: listFileUploadProviders().map((p) => ({
             id: p.id,
             name: p.name,
@@ -949,12 +1170,19 @@ export function createCoreRoutesPlugin(
         }
 
         const session = await getSession(event);
-        const result = await uploadFile({
-          data: filePart.data,
-          filename: filePart.filename,
-          mimeType: filePart.type,
-          ownerEmail: session?.email,
-        });
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "Unauthorized" };
+        }
+        const userEmail = session.email;
+        const result = await runWithRequestContext({ userEmail }, () =>
+          uploadFile({
+            data: filePart.data,
+            filename: filePart.filename,
+            mimeType: filePart.type,
+            ownerEmail: userEmail,
+          }),
+        );
 
         if (result) {
           setResponseStatus(event, 201);
@@ -974,6 +1202,14 @@ export function createCoreRoutesPlugin(
     getH3App(nitroApp).use(
       `${P}/transcribe-voice`,
       createTranscribeVoiceHandler(),
+    );
+
+    // ─── Voice provider status ───────────────────────────────────────
+    // GET /_agent-native/voice-providers/status — which providers are
+    // configured for the current user (powers the Settings UI pills).
+    getH3App(nitroApp).use(
+      `${P}/voice-providers/status`,
+      createVoiceProvidersStatusHandler(),
     );
 
     // ─── Ad-hoc secrets (user-created keys) ────────────────────────────
@@ -1061,6 +1297,17 @@ export function createCoreRoutesPlugin(
           .replace(/^\/+/, "")
           .replace(/\/+$/, "");
 
+        // Auth check applies to every method. Without this, any anonymous
+        // caller could `POST /fire-test` to emit unowned events that fan
+        // out across every tenant's matching trigger (the dispatcher
+        // short-circuits its owner check when `eventMeta.owner` is
+        // undefined). See audit 12 / fire-test finding.
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "Unauthenticated" };
+        }
+
         if (pathname === "fire-test" && method === "POST") {
           try {
             const { emit } = await import("../event-bus/index.js");
@@ -1068,7 +1315,15 @@ export function createCoreRoutesPlugin(
               string,
               unknown
             >;
-            emit("test.event.fired", { data: body.data ?? {} });
+            // Scope the test event to the current user so only their
+            // automations fire, not those owned by other tenants.
+            emit(
+              "test.event.fired",
+              { data: body.data ?? {} },
+              {
+                owner: session.email,
+              },
+            );
             return { ok: true };
           } catch (err: any) {
             setResponseStatus(event, 500);
@@ -1082,8 +1337,7 @@ export function createCoreRoutesPlugin(
         }
 
         try {
-          const session = await getSession(event).catch(() => null);
-          const owner = session?.email || "local@localhost";
+          const owner = session.email;
           const { resourceListAllOwners, SHARED_OWNER } =
             await import("../resources/store.js");
           const allResources = await resourceListAllOwners("jobs/");

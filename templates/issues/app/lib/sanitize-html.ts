@@ -46,50 +46,117 @@ const ALLOWED_ATTRS = new Set([
   "rowspan",
 ]);
 
-const SAFE_URL_PATTERN = /^(?:https?:\/\/|mailto:|tel:|\/|#)/i;
+const DROP_WITH_CHILDREN = new Set([
+  "script",
+  "style",
+  "iframe",
+  "object",
+  "embed",
+  "form",
+  "input",
+  "select",
+  "textarea",
+  "button",
+  "link",
+  "meta",
+  "base",
+  "svg",
+  "math",
+]);
 
-/** Sanitize HTML using an allowlist of safe tags and attributes. */
+function isSafeUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("//")) return false;
+  return /^(?:https?:\/\/|mailto:|tel:|\/|#)/i.test(trimmed);
+}
+
+/** Recursively walk a DOM node, keeping only allowed tags/attrs. */
+function walkNode(node: Node, doc: Document): Node | null {
+  if (node.nodeType === 3 /* TEXT */) {
+    return doc.createTextNode(node.textContent ?? "");
+  }
+
+  if (node.nodeType !== 1 /* ELEMENT */) return null;
+
+  const el = node as Element;
+  const tag = el.tagName.toLowerCase();
+
+  // Drop dangerous tags entirely (including children)
+  if (DROP_WITH_CHILDREN.has(tag)) return null;
+
+  // If the tag isn't allowed, promote its children directly
+  if (!ALLOWED_TAGS.has(tag)) {
+    const fragment = doc.createDocumentFragment();
+    for (const child of Array.from(el.childNodes)) {
+      const cleaned = walkNode(child, doc);
+      if (cleaned) fragment.appendChild(cleaned);
+    }
+    return fragment;
+  }
+
+  // Allowed tag — recreate with only allowed attrs
+  const out = doc.createElement(tag);
+
+  for (const attr of Array.from(el.attributes)) {
+    const name = attr.name.toLowerCase();
+    // Strip all on* event-handler attributes outright
+    if (name.startsWith("on")) continue;
+    if (!ALLOWED_ATTRS.has(name)) continue;
+    if ((name === "href" || name === "src") && !isSafeUrl(attr.value)) continue;
+    out.setAttribute(name, attr.value);
+  }
+
+  // Force links to open in new tab
+  if (tag === "a") {
+    out.setAttribute("target", "_blank");
+    out.setAttribute("rel", "noopener noreferrer");
+  }
+
+  // Recurse into children
+  for (const child of Array.from(el.childNodes)) {
+    const cleaned = walkNode(child, doc);
+    if (cleaned) out.appendChild(cleaned);
+  }
+
+  return out;
+}
+
+/**
+ * Sanitize HTML using a DOM-based allowlist (DOMParser walker). Far more
+ * robust than regex-based stripping — DOMParser normalises malformed HTML,
+ * resolves entities, and exposes a real tree we can rebuild from. Only
+ * known-safe tags/attrs survive; everything else (including all `on*`
+ * event handlers, `<script>`, `<style>`, `<iframe>`, SVG/MathML payloads,
+ * and `srcdoc`/`srcset` smuggling) is stripped.
+ */
 export function sanitizeHtml(html: string): string {
-  let result = html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "");
+  if (typeof DOMParser === "undefined") {
+    // SSR / non-browser fallback — strip the obvious dangerous tags. The
+    // production rendering path (IssueDescription) runs in the browser so
+    // this branch is defensive only.
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<iframe[\s\S]*?<\/iframe>/gi, "")
+      .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(
+        /\s+(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
+        (match, _name: string, raw: string) => {
+          const value = raw.replace(/^['"]|['"]$/g, "");
+          return isSafeUrl(value) ? match : "";
+        },
+      );
+  }
 
-  result = result.replace(
-    /<\/?([a-z][a-z0-9]*)\b([^>]*)?\/?>/gi,
-    (match, tag, attrs) => {
-      const tagLower = tag.toLowerCase();
-      if (!ALLOWED_TAGS.has(tagLower)) return "";
-      if (match.startsWith("</")) return `</${tagLower}>`;
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const fragment = doc.createDocumentFragment();
 
-      const safeAttrs: string[] = [];
-      if (attrs) {
-        const attrRegex =
-          /([a-z][a-z0-9-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))/gi;
-        let attrMatch;
-        while ((attrMatch = attrRegex.exec(attrs)) !== null) {
-          const attrName = attrMatch[1].toLowerCase();
-          const attrValue = attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? "";
-          if (!ALLOWED_ATTRS.has(attrName)) continue;
-          if (
-            (attrName === "href" || attrName === "src") &&
-            !SAFE_URL_PATTERN.test(attrValue)
-          )
-            continue;
-          safeAttrs.push(`${attrName}="${attrValue.replace(/"/g, "&quot;")}"`);
-        }
-      }
+  for (const child of Array.from(doc.body.childNodes)) {
+    const cleaned = walkNode(child, doc);
+    if (cleaned) fragment.appendChild(cleaned);
+  }
 
-      const selfClosing =
-        match.endsWith("/>") ||
-        tagLower === "br" ||
-        tagLower === "hr" ||
-        tagLower === "img";
-      const attrStr = safeAttrs.length > 0 ? " " + safeAttrs.join(" ") : "";
-      return selfClosing
-        ? `<${tagLower}${attrStr} />`
-        : `<${tagLower}${attrStr}>`;
-    },
-  );
-
-  return result;
+  const wrapper = doc.createElement("div");
+  wrapper.appendChild(fragment);
+  return wrapper.innerHTML;
 }

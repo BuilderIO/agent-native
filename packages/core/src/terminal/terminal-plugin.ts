@@ -67,6 +67,13 @@ export interface TerminalPluginOptions {
   authCheck?: (req: any) => boolean | Promise<boolean>;
 }
 
+// Vite's dev server can initialize Nitro plugins more than once during boot.
+// Module-scope flags ensure the "node-pty not installed" / "Disabled in
+// production" / "Frame detected" notices each fire at most once per process.
+let _ptyMissingLogged = false;
+let _disabledLogged = false;
+let _frameDetectedLogged = false;
+
 export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
   return async (nitroApp: any) => {
     // Terminal requires Node.js (PTY, child_process) — skip on edge runtimes
@@ -96,7 +103,10 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
 
     // Skip if running inside a frame
     if (process.env.FRAME_PORT) {
-      console.log("[terminal] Frame detected, skipping embedded terminal");
+      if (!_frameDetectedLogged) {
+        console.log("[terminal] Frame detected, skipping embedded terminal");
+        _frameDetectedLogged = true;
+      }
       return;
     }
 
@@ -106,9 +116,12 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       (process.env.AGENT_TERMINAL_ENABLED === "true" || !isProd);
 
     if (!enabled) {
-      console.log(
-        "[terminal] Disabled in production (set AGENT_TERMINAL_ENABLED=true to enable)",
-      );
+      if (!_disabledLogged) {
+        console.log(
+          "[terminal] Disabled in production (set AGENT_TERMINAL_ENABLED=true to enable)",
+        );
+        _disabledLogged = true;
+      }
       // Mount a disabled info endpoint
       getH3App(nitroApp).use(
         "/_agent-native/agent-terminal-info",
@@ -164,7 +177,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
     // TOCTOU window where two concurrent plugin invocations would both pass
     // the running-check, both spawn a server, and end up fighting for the
     // CLI's PTY pool — leading to `posix_spawnp failed` floods.
-    process.env.__AGENT_TERMINAL_RUNNING = "true";
+    process.env.__AGENT_TERMINAL_RUNNING = "true"; // guard:allow-env-mutation — process-wide running flag set once at boot, before any HTTP request handling, to coordinate concurrent plugin invocations
 
     try {
       const { createPtyWebSocketServer } = await import("./pty-server.js");
@@ -178,7 +191,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       });
 
       // Store port for other consumers
-      process.env.AGENT_TERMINAL_PORT = String(result.port);
+      process.env.AGENT_TERMINAL_PORT = String(result.port); // guard:allow-env-mutation — terminal subprocess port published once at boot, not per-request
 
       // Mount discovery endpoint
       getH3App(nitroApp).use(
@@ -202,7 +215,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
         );
     } catch (err) {
       // Clear the running flag so a retry can spawn a fresh server
-      delete process.env.__AGENT_TERMINAL_RUNNING;
+      delete process.env.__AGENT_TERMINAL_RUNNING; // guard:allow-env-mutation — terminal subprocess boot failed, clearing boot-time sentinel so a later plugin retry can start cleanly
 
       // Distinguish "node-pty not installed" (expected when the user opts
       // out of the terminal feature) from real failures (port conflict,
@@ -212,10 +225,13 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
       const missingPty =
         code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND";
       if (missingPty) {
-        console.log(
-          "[terminal] node-pty not installed — embedded terminal disabled. " +
-            "Install with `pnpm add node-pty` to enable.",
-        );
+        if (!_ptyMissingLogged) {
+          console.log(
+            "[terminal] node-pty not installed — embedded terminal disabled. " +
+              "Install with `pnpm add node-pty` to enable.",
+          );
+          _ptyMissingLogged = true;
+        }
       } else {
         console.error("[terminal] Failed to start PTY server:", err);
         console.error(

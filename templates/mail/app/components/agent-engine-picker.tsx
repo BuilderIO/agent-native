@@ -19,6 +19,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { agentNativePath } from "@agent-native/core/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,7 @@ async function postAction<T>(
   name: string,
   body: Record<string, unknown>,
 ): Promise<T> {
-  const res = await fetch(`/_agent-native/actions/${name}`, {
+  const res = await fetch(agentNativePath(`/_agent-native/actions/${name}`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

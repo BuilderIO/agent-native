@@ -16,7 +16,7 @@ export interface AgentChatMessage {
   submit?: boolean;
 }
 
-const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";
+const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
 
 const isBrowser =
   typeof window !== "undefined" && typeof window.postMessage === "function";

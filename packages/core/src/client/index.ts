@@ -3,9 +3,15 @@ export {
   generateTabId,
   type AgentChatMessage,
 } from "./agent-chat.js";
+export { DEV_MODE_USER_EMAIL } from "./dev-mode.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
 export { useDevMode } from "./use-dev-mode.js";
-export { useBuilderEnabled } from "./use-builder-enabled.js";
+export {
+  agentNativePath,
+  appApiPath,
+  appBasePath,
+  appPath,
+} from "./api-path.js";
 export { useSendToAgentChat } from "./use-send-to-agent-chat.js";
 export {
   CodeRequiredDialog,
@@ -37,7 +43,6 @@ export {
 } from "./frame.js";
 export {
   AssistantChat,
-  BuilderCtaCard,
   clearChatStorage,
   type AssistantChatProps,
   type AssistantChatHandle,
@@ -194,3 +199,4 @@ export {
   type UseCollaborativeArrayOptions,
   type UseCollaborativeArrayResult,
 } from "../collab/client-struct.js";
+export { NotificationsBell } from "./notifications/index.js";

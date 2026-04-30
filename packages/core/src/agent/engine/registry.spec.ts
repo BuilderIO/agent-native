@@ -5,6 +5,9 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 describe("AgentEngine registry", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.doUnmock("../../settings/store.js");
+    vi.doUnmock("../../server/request-context.js");
+    vi.doUnmock("../../secrets/storage.js");
     // Clear env vars that influence resolveEngine
     delete process.env.AGENT_ENGINE;
   });
@@ -258,9 +261,86 @@ describe("AgentEngine registry", () => {
     expect(resolved).toBe(fakeEngine);
   });
 
+  it("does not treat legacy inline agent-engine api keys as configured", async () => {
+    const { isAgentEngineSettingConfigured } = await import("./registry.js");
+
+    expect(
+      isAgentEngineSettingConfigured({
+        engine: "anthropic",
+        apiKey: "sk-leaked-global",
+      }),
+    ).toBe(false);
+    expect(
+      isAgentEngineSettingConfigured({
+        engine: "anthropic",
+        config: { apiKey: "sk-leaked-global" },
+      }),
+    ).toBe(false);
+  });
+
+  it("strips legacy inline api keys from the global agent-engine setting before creating the engine", async () => {
+    vi.doMock("../../settings/store.js", () => ({
+      getSetting: vi.fn().mockResolvedValue({
+        engine: "stored-engine",
+        apiKey: "sk-global-top-level",
+        config: {
+          apiKey: "sk-global-config",
+          baseURL: "https://llm.example.test",
+        },
+      }),
+    }));
+
+    const { registerAgentEngine, resolveEngine } =
+      await import("./registry.js");
+
+    const fakeEngine = {
+      name: "stored-engine",
+      label: "Stored",
+      defaultModel: "m",
+      supportedModels: [],
+      capabilities: {} as any,
+      stream: vi.fn(),
+    };
+    const createFn = vi.fn().mockReturnValue(fakeEngine);
+
+    registerAgentEngine({
+      name: "stored-engine",
+      label: "Stored",
+      description: "",
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      defaultModel: "m",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: createFn,
+    });
+
+    const resolved = await resolveEngine({ apiKey: "sk-request-scoped" });
+
+    expect(createFn).toHaveBeenCalledWith({
+      apiKey: "sk-request-scoped",
+      baseURL: "https://llm.example.test",
+    });
+    expect(JSON.stringify(createFn.mock.calls)).not.toContain(
+      "sk-global-top-level",
+    );
+    expect(JSON.stringify(createFn.mock.calls)).not.toContain(
+      "sk-global-config",
+    );
+    expect(resolved).toBe(fakeEngine);
+  });
+
   describe("detectEngineFromUserSecrets", () => {
     beforeEach(() => {
       vi.resetModules();
+      vi.doUnmock("../../settings/store.js");
+      vi.doUnmock("../../server/request-context.js");
+      vi.doUnmock("../../secrets/storage.js");
       delete process.env.AGENT_ENGINE;
       delete process.env.AGENT_ENGINE_PREFER_BYO_KEY;
     });
@@ -322,9 +402,6 @@ describe("AgentEngine registry", () => {
     });
 
     it("resolveEngine routes to Builder when the user has Builder creds in app_secrets and no env-level keys", async () => {
-      delete process.env.BUILDER_PRIVATE_KEY;
-      delete process.env.ANTHROPIC_API_KEY;
-
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "brent@example.com",
       }));

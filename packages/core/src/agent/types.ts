@@ -115,7 +115,6 @@ export type AgentChatEvent =
       upgradeUrl?: string;
     }
   | { type: "missing_api_key" }
-  | { type: "usage_limit_reached"; usageCents: number; limitCents: number }
   | { type: "loop_limit" }
   | { type: "clear" };
 

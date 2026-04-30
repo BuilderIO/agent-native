@@ -19,6 +19,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
+import { assertAccess } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:
@@ -31,6 +32,8 @@ export default defineAction({
       .describe("Template ID to use for structuring the enhanced notes"),
   }),
   run: async (args) => {
+    await assertAccess("meeting", args.meetingId, "editor");
+
     const db = getDb();
 
     // Fetch meeting

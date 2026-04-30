@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   IconChevronRight,
   IconFileText,
@@ -14,6 +15,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface DocumentTreeItemProps {
   node: DocumentTreeNode;
@@ -41,6 +52,7 @@ export function DocumentTreeItem({
   const expanded = expandedIds.has(node.id);
   const hasChildren = node.children.length > 0;
   const isActive = node.id === activeId;
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   return (
     <div>
@@ -116,7 +128,7 @@ export function DocumentTreeItem({
                 className="text-destructive"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onDelete(node.id);
+                  setDeleteDialogOpen(true);
                 }}
               >
                 <IconTrash size={14} className="mr-2" />
@@ -156,6 +168,27 @@ export function DocumentTreeItem({
           ))}
         </div>
       )}
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete page?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &ldquo;{node.title || "Untitled"}&rdquo; and all its sub-pages
+              will be permanently deleted. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => onDelete(node.id)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

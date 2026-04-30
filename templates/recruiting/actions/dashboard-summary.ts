@@ -1,7 +1,11 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestOrgId } from "@agent-native/core/server";
+import { z } from "zod";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import * as gh from "../server/lib/greenhouse-api.js";
-import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { withCredentialContext } from "../server/lib/greenhouse-api.js";
 import type { DashboardStats } from "@shared/types";
 
 async function getDashboard(): Promise<DashboardStats> {
@@ -61,12 +65,11 @@ async function getDashboard(): Promise<DashboardStats> {
 
 export default defineAction({
   description: "Get a summary of dashboard statistics",
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
-    const orgId = getRequestOrgId();
-    if (orgId) {
-      return withOrgContext(orgId, getDashboard);
-    }
-    return getDashboard();
+    const orgId = getRequestOrgId() ?? null;
+    const email = getRequestUserEmail() ?? null;
+    return withCredentialContext({ email, orgId }, getDashboard);
   },
 });

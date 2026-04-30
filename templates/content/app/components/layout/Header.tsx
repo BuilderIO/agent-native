@@ -1,9 +1,12 @@
 import { useLocation } from "react-router";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import { AgentToggleButton } from "@agent-native/core/client";
+import {
+  AgentToggleButton,
+  NotificationsBell,
+} from "@agent-native/core/client";
 
 const pageTitles: Record<string, string> = {
-  "/": "Documents",
+  "/": "Content",
   "/team": "Team",
 };
 
@@ -13,7 +16,7 @@ function resolveTitle(pathname: string): string {
   if (pathname.startsWith("/page/")) return "Document";
   if (pathname.startsWith("/tools")) return "Tools";
 
-  return "Documents";
+  return "Content";
 }
 
 export function Header() {
@@ -32,6 +35,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
+        <NotificationsBell />
         <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
       </div>
     </header>

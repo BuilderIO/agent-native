@@ -138,21 +138,72 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 
 1. App A signs a JWT containing `sub: "steve@example.com"`
 2. App B verifies the JWT signature with the same secret
-3. App B sets `AGENT_USER_EMAIL` from the verified `sub` claim
+3. App B reads the verified `sub` claim into request context
 4. Data scoping applies — App B only shows Steve's data
 
-Without `A2A_SECRET`, A2A calls are unauthenticated (fine for local dev, not production).
+Without `A2A_SECRET` in production, every A2A endpoint and the `/_agent-native/integrations/process-task` self-fire endpoint return **503**. Set it on every app that calls or receives A2A traffic. (For local development the framework still allows unauthenticated calls.)
+
+## Inbound Webhooks {#webhooks}
+
+Inbound webhook handlers (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub) refuse forged requests by default in production: when the corresponding signing secret env var is missing, the handler returns 401 instead of accepting and dispatching.
+
+This was previously a "warn and accept" stance — set the secret you'd otherwise be missing, or opt back into the old behavior with `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` for local dev only. See [deployment.md → Inbound Webhooks](/docs/deployment#env-webhooks) for the full env-var list.
+
+## OAuth State Signing {#oauth-state}
+
+OAuth flows (Google, Atlassian, Zoom) sign their state envelope with a dedicated HMAC key:
+
+```bash
+OAUTH_STATE_SECRET=$(openssl rand -hex 32)
+```
+
+This used to fall back to `GOOGLE_CLIENT_SECRET` (a credential shared with Google) — a leak of the Google secret would have let attackers forge OAuth state envelopes. The dedicated key is independent of any third-party secret. If `OAUTH_STATE_SECRET` is unset, the framework falls back to `BETTER_AUTH_SECRET`; if both are unset, the OAuth flows fail in production.
+
+`redirect_uri` query parameters are also validated against an allowlist (same-origin + framework `/_agent-native/...` paths). Custom OAuth flows in templates should use the framework's `isAllowedOAuthRedirectUri()` helper before signing state.
+
+## Cross-User Tooling Secrets {#tooling-secrets}
+
+Tools and automations that reference `${keys.NAME}` resolve secrets per-user by default. Workspace-scope fallback is **off by default** in this version — a malicious org member could otherwise plant a workspace `OPENAI_API_KEY` and harvest other members' API calls.
+
+If your org genuinely shares workspace-wide keys (e.g. a single corporate Stripe key), opt back into the old behavior with:
+
+```bash
+AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
+```
+
+Workspace-scope secret writes still require org owner/admin role regardless of this flag.
 
 ## Production Checklist {#production-checklist}
+
+### Auth & secrets
+
+- [ ] `BETTER_AUTH_SECRET` set to a random 32+ char string (`openssl rand -hex 32`)
+- [ ] `OAUTH_STATE_SECRET` set to a separate random 32+ char string (don't reuse `BETTER_AUTH_SECRET`)
+- [ ] `A2A_SECRET` set on every app that calls or receives A2A traffic
+- [ ] `SECRETS_ENCRYPTION_KEY` set (or rely on the `BETTER_AUTH_SECRET` fallback)
+- [ ] `AUTH_MODE` is **not** set to `local`
+- [ ] `AUTH_SKIP_EMAIL_VERIFICATION` is **not** set (or set only on QA preview deploys)
+
+### Webhook secrets (set the ones for integrations you use)
+
+- [ ] `EMAIL_INBOUND_WEBHOOK_SECRET` if Resend / SendGrid inbound is enabled
+- [ ] `SLACK_SIGNING_SECRET` if Slack is enabled
+- [ ] `TELEGRAM_WEBHOOK_SECRET` / `WHATSAPP_APP_SECRET` for those integrations
+- [ ] `RECALL_WEBHOOK_SECRET`, `DEEPGRAM_WEBHOOK_SECRET`, `ZOOM_WEBHOOK_SECRET` for calls
+- [ ] `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` is **not** set in prod
+
+### Schema
 
 - [ ] Every user-facing table has `owner_email`
 - [ ] Multi-user tables also have `org_id`
 - [ ] All actions use `defineAction` with Zod `schema:`
-- [ ] No `dangerouslySetInnerHTML` with user content
+- [ ] No `dangerouslySetInnerHTML` with user content (or output is run through DOMPurify)
 - [ ] No string-concatenated SQL
-- [ ] API keys are in `.env` only (not in source code or settings)
-- [ ] `BETTER_AUTH_SECRET` is set to a random 32+ character string
-- [ ] `A2A_SECRET` is set on all apps that call each other
-- [ ] `AUTH_MODE` is **not** set to `local`
-- [ ] `pnpm action db-check-scoping` passes
+- [ ] `pnpm guards` is clean (`guard-no-unscoped-queries`, `guard-no-env-credentials`, `guard-no-env-mutation`, `guard-no-localhost-fallback`, `guard-no-unscoped-credentials`, `guard-no-drizzle-push`)
 - [ ] Tested with two user accounts to verify data isolation
+
+### Misc hardening
+
+- [ ] `AGENT_NATIVE_DEBUG_ERRORS` is **not** set in real prod (only on debug previews)
+- [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` is **not** set unless your org actually shares workspace keys
+- [ ] In multi-tenant deployments, **users bring their own `ANTHROPIC_API_KEY`** — the framework refuses to fall back to the deploy-level env var

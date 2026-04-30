@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { getSetting } from "@agent-native/core/settings";
+import { getUserSetting } from "@agent-native/core/settings";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import {
   getClients,
@@ -21,6 +21,10 @@ const VIEW_QUERIES: Record<string, string> = {
   all: "",
 };
 
+const cliBoolean = z
+  .union([z.boolean(), z.enum(["true", "false"])])
+  .transform((value) => value === true || value === "true");
+
 function toCompact(emails: any[]): any[] {
   return emails.map((e) => ({
     id: e.id,
@@ -37,8 +41,8 @@ function toCompact(emails: any[]): any[] {
   }));
 }
 
-async function readLocalEmails(): Promise<any[]> {
-  const data = await getSetting("local-emails");
+async function readLocalEmails(ownerEmail: string): Promise<any[]> {
+  const data = await getUserSetting(ownerEmail, "local-emails");
   if (data && Array.isArray((data as any).emails)) {
     return (data as any).emails;
   }
@@ -73,10 +77,7 @@ export default defineAction({
       .number()
       .optional()
       .describe("Max number of emails to return (default: 50)"),
-    compact: z.coerce
-      .boolean()
-      .optional()
-      .describe("Set to true for compact output"),
+    compact: cliBoolean.optional().describe("Set to true for compact output"),
   }),
   http: { method: "GET" },
   run: async (args) => {
@@ -85,7 +86,8 @@ export default defineAction({
     const limit = args.limit ?? 50;
     const compact = args.compact !== false;
     const accountFilter = args.account?.toLowerCase();
-    const ownerEmail = getRequestUserEmail() || "local@localhost";
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
 
     if (await isConnected(ownerEmail)) {
       const clients = await getClients(ownerEmail);
@@ -130,7 +132,7 @@ export default defineAction({
     }
 
     // Fallback: local store
-    let emails = await readLocalEmails();
+    let emails = await readLocalEmails(ownerEmail);
 
     switch (view) {
       case "inbox":

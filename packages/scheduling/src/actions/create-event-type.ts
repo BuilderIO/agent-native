@@ -16,6 +16,13 @@ export default defineAction({
       .optional(),
     scheduleId: z.string().optional(),
     color: z.string().optional(),
+    recurringEvent: z
+      .object({
+        rrule: z.string(),
+        count: z.number().optional(),
+        description: z.string().optional(),
+      })
+      .optional(),
   }),
   run: async (args) => {
     const ownerEmail = args.teamId ? undefined : currentUserEmail();
@@ -31,6 +38,7 @@ export default defineAction({
         schedulingType: args.schedulingType,
         scheduleId: args.scheduleId,
         color: args.color,
+        recurringEvent: args.recurringEvent,
       }),
     };
   },

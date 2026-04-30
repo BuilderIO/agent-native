@@ -26,13 +26,19 @@ import {
   readAppState,
 } from "@agent-native/core/application-state";
 
+const cliBoolean = z.preprocess((value) => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return value;
+}, z.boolean());
+
 export default defineAction({
   description:
     "Delete a space. Cascades to space_members. Errors if any call's spaceIds still contains this space — either use remove-call-from-space first, or pass force=true to strip the space from all referencing calls.",
   schema: z.object({
     id: z.string().describe("Space id"),
     force: z
-      .boolean()
+      .union([z.boolean(), cliBoolean])
       .default(false)
       .describe(
         "When true, strips this space from all calls' spaceIds before deleting.",

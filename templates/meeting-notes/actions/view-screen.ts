@@ -126,11 +126,16 @@ async function fetchMeetingsList(folderId?: string) {
   }));
 }
 
-async function fetchFolders() {
+async function fetchFolders(orgId: string | null) {
+  // Folders are an org-scoped roster (no per-row owner). Without an active
+  // org, there are no folders the caller can legitimately see -- returning
+  // everything would expose other tenants' folder hierarchy.
+  if (!orgId) return [];
   const db = getDb();
   const rows = await db
     .select()
     .from(schema.meetingFolders)
+    .where(eq(schema.meetingFolders.organizationId, orgId))
     .orderBy(asc(schema.meetingFolders.name));
   return rows.map((f) => ({
     id: f.id,
@@ -178,7 +183,7 @@ export default defineAction({
       case "library": {
         const [meetings, folders] = await Promise.all([
           fetchMeetingsList(nav.folderId),
-          fetchFolders(),
+          fetchFolders(organizationId),
         ]);
         screen.meetings = {
           folderId: nav.folderId ?? null,

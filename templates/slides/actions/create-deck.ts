@@ -63,6 +63,7 @@ export default defineAction({
   run: async ({ title, slides, deckId, aspectRatio }) => {
     const db = getDb();
     const now = new Date().toISOString();
+    const appUrl = process.env.APP_URL || "https://slides.agent-native.com";
 
     if (deckId) {
       // Update existing deck — requires editor access.
@@ -87,7 +88,12 @@ export default defineAction({
       // refresh signal (cross-process polling fallback for serverless).
       notifyClients(deckId);
       await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
-      return { id: deckId, title, slideCount: slides.length };
+      return {
+        id: deckId,
+        title,
+        slideCount: slides.length,
+        url: `${appUrl}/deck/${deckId}`,
+      };
     }
 
     const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -102,7 +108,11 @@ export default defineAction({
       id,
       title,
       data: JSON.stringify(data),
-      ownerEmail: getRequestUserEmail() ?? "local@localhost",
+      ownerEmail: (() => {
+        const e = getRequestUserEmail();
+        if (!e) throw new Error("no authenticated user");
+        return e;
+      })(),
       orgId: getRequestOrgId(),
       createdAt: now,
       updatedAt: now,
@@ -110,6 +120,11 @@ export default defineAction({
 
     notifyClients(id);
     await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
-    return { id, title, slideCount: slides.length };
+    return {
+      id,
+      title,
+      slideCount: slides.length,
+      url: `${appUrl}/deck/${id}`,
+    };
   },
 });

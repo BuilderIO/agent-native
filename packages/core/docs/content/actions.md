@@ -68,6 +68,38 @@ export default defineAction({
 - **`http: false`** — disable the HTTP endpoint entirely. Agent + CLI only.
 - **`readOnly: true`** — explicitly skip the poll-refresh even for POST actions that don't mutate.
 
+### Tools callability {#tool-callable}
+
+Tools (Alpine.js mini-apps that run inside sandboxed iframes — see [Tools](/docs/tools)) call actions via `appAction(name, params)`. Because a shared tool's HTML/JS executes inside the _viewer's_ session, an action invoked from a tool runs with the viewer's permissions, secrets, and SQL scope. For high-blast-radius operations, that is too much trust to grant by default.
+
+Use the `toolCallable` flag to control this:
+
+```ts
+export default defineAction({
+  description: "Delete the current user's account.",
+  toolCallable: false, // never callable from a tool iframe
+  schema: z.object({ confirm: z.literal("yes") }),
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+| Value       | Behavior                                                                                                                                                                                                                                     |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `true`      | Allow (same as undefined). Useful for documentation of intent.                                                                                                                                                                               |
+| `false`     | Explicit deny. The tools bridge returns 403; the action is still callable normally from the UI, agent, CLI, MCP, and A2A.                                                                                                                    |
+| `undefined` | **Default-allow.** Tools are intra-org and typically authored by trusted teammates, so the default trusts the org-level access controls. Set `false` only for genuinely auth-adjacent operations (account deletion, org membership changes). |
+
+Enforcement: the parent host (`ToolViewer.tsx` / `EmbeddedTool.tsx`) tags every outbound action call from a tool iframe with the header `X-Agent-Native-Tool-Bridge: 1`. The action route layer reads this header and applies the rule above. Regular UI/agent/CLI/A2A calls do not carry the header and are unaffected. The header is set by the React host; the iframe's user-authored content cannot spoof it because the bridge sanitizes iframe-supplied headers.
+
+Set `toolCallable: false` for actions that:
+
+- delete or transfer ownership of any account/org,
+- change auth state (sign-out-all sessions, rotate tokens),
+- modify org membership (invite/remove members, change roles),
+- change resource visibility or grant share access (the framework's built-in `share-resource`, `unshare-resource`, and `set-resource-visibility` are already opted out).
+
 ## Calling it from the UI {#ui}
 
 Two hooks, both in `@agent-native/core/client`. Types are inferred from your `defineAction` schemas — no manual type declarations.

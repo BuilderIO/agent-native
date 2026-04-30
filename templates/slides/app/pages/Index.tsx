@@ -7,14 +7,26 @@ import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import { agentNativePath } from "@agent-native/core/client";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import { Button } from "@/components/ui/button";
 
 export default function Index() {
-  const { decks, createDeck, deleteDeck, loading } = useDecks();
+  const { decks, createDeck, deleteDeck, updateDeck, loading } = useDecks();
   const navigate = useNavigate();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
+  const [duplicating, setDuplicating] = useState<string | null>(null);
   const { generating, submit: agentSubmit } = useAgentGenerating();
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
@@ -65,6 +77,37 @@ export default function Index() {
       setDeckToDelete(null);
     }
   };
+
+  const handleRename = useCallback(
+    (id: string, newTitle: string) => {
+      updateDeck(id, { title: newTitle });
+    },
+    [updateDeck],
+  );
+
+  const handleDuplicate = useCallback(
+    async (id: string) => {
+      if (duplicating) return;
+      setDuplicating(id);
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/actions/duplicate-deck"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deckId: id }),
+          },
+        );
+        if (res.ok) {
+          const { id: newId } = await res.json();
+          navigate(`/deck/${newId}`);
+        }
+      } finally {
+        setDuplicating(null);
+      }
+    },
+    [duplicating, navigate],
+  );
 
   // Inject "New Deck" into the global header actions slot.
   useSetHeaderActions(
@@ -136,6 +179,8 @@ export default function Index() {
                 key={deck.id}
                 deck={deck}
                 onDelete={(id) => setDeckToDelete(id)}
+                onRename={handleRename}
+                onDuplicate={handleDuplicate}
               />
             ))}
           </div>
@@ -143,31 +188,29 @@ export default function Index() {
       )}
 
       {/* Delete Confirmation Dialog */}
-      {deckToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="fixed inset-0 bg-black/60"
-            onClick={() => setDeckToDelete(null)}
-          />
-          <div className="relative bg-card border border-border rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl">
-            <h3 className="text-base font-semibold text-foreground mb-2">
-              Delete Deck?
-            </h3>
-            <p className="text-sm text-muted-foreground mb-5">
+      <AlertDialog
+        open={!!deckToDelete}
+        onOpenChange={(open) => !open && setDeckToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Deck?</AlertDialogTitle>
+            <AlertDialogDescription>
               This will permanently delete this deck and all its slides. This
               action cannot be undone.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <Button variant="ghost" onClick={() => setDeckToDelete(null)}>
-                Cancel
-              </Button>
-              <Button variant="destructive" onClick={handleConfirmDelete}>
-                Delete
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <PromptPopover
         open={showNewDeckPrompt}

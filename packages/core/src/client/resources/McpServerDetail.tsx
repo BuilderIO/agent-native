@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 /**
  * Detail view for a virtual MCP server entry in the Workspace tree.
  *
@@ -41,8 +42,14 @@ export function McpServerDetail({ server }: McpServerDetailProps) {
       // convenient way to hit it from here without the server id + scope,
       // which we do have — so wire that up.
       const res = await fetch(
-        `/_agent-native/mcp/servers/${encodeURIComponent(server.id)}/test?scope=${server.scope}`,
-        { method: "POST", credentials: "include" },
+        agentNativePath(
+          `/_agent-native/mcp/servers/${encodeURIComponent(server.id)}/test?scope=${server.scope}`,
+        ),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        },
       );
       const body = (await res.json().catch(() => ({}))) as TestMcpUrlResult;
       setTestResult(body.ok ? body : { ok: false, error: body.error });

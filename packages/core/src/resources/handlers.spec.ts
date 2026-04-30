@@ -31,10 +31,22 @@ vi.mock("../server/auth.js", () => ({
   getSession: vi.fn().mockResolvedValue({ email: "test@test.com" }),
 }));
 
+const mockGetOrgContext = vi.fn().mockResolvedValue({
+  email: "test@test.com",
+  orgId: null,
+  orgName: null,
+  role: null,
+});
+
+vi.mock("../org/context.js", () => ({
+  getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
+}));
+
 let lastStatus = 200;
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  createError: (opts: any) => Object.assign(new Error(opts.message), opts),
   readBody: (event: any) => Promise.resolve(event._body),
   getQuery: (event: any) => event._query || {},
   getRouterParam: (event: any, key: string) => event._params?.[key],
@@ -47,6 +59,7 @@ vi.mock("h3", () => ({
     Promise.resolve(event._multipart || null),
 }));
 
+import { getSession } from "../server/auth.js";
 import {
   handleListResources,
   handleGetResourceTree,
@@ -54,6 +67,7 @@ import {
   handleCreateResource,
   handleUpdateResource,
   handleDeleteResource,
+  handleUploadResource,
 } from "./handlers.js";
 
 describe("resource handlers", () => {
@@ -61,6 +75,13 @@ describe("resource handlers", () => {
     vi.clearAllMocks();
     lastStatus = 200;
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
+    vi.mocked(getSession).mockResolvedValue({ email: "test@test.com" } as any);
+    mockGetOrgContext.mockResolvedValue({
+      email: "test@test.com",
+      orgId: null,
+      orgName: null,
+      role: null,
+    });
   });
 
   describe("handleListResources", () => {
@@ -148,6 +169,25 @@ describe("resource handlers", () => {
         _query: {},
         context: {},
       };
+      const result = await handleGetResource(event);
+
+      expect(lastStatus).toBe(404);
+      expect(result).toEqual({ error: "Resource not found" });
+    });
+
+    it("does not return another user's personal resource by id", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "private.md",
+        owner: "other@test.com",
+        content: "secret",
+        mimeType: "text/markdown",
+        size: 6,
+        createdAt: 1000,
+        updatedAt: 2000,
+      });
+
+      const event = { _params: { id: "r1" }, _query: {}, context: {} };
       const result = await handleGetResource(event);
 
       expect(lastStatus).toBe(404);
@@ -283,6 +323,59 @@ describe("resource handlers", () => {
         undefined,
       );
     });
+
+    it("rejects unauthenticated shared resource creation", async () => {
+      vi.mocked(getSession).mockResolvedValue(null as any);
+
+      const event = {
+        _body: { path: "shared.md", content: "", shared: true },
+      };
+
+      await expect(handleCreateResource(event)).rejects.toMatchObject({
+        statusCode: 401,
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("rejects shared resource creation for non-admin org members", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "member",
+      });
+
+      const event = {
+        _body: { path: "shared.md", content: "", shared: true },
+      };
+
+      await expect(handleCreateResource(event)).rejects.toMatchObject({
+        statusCode: 403,
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("allows shared resource creation for org admins", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "admin",
+      });
+      mockResourcePut.mockResolvedValue({ id: "s2" });
+
+      const event = {
+        _body: { path: "shared.md", content: "", shared: true },
+      };
+      await handleCreateResource(event);
+
+      expect(mockResourcePut).toHaveBeenCalledWith(
+        "__shared__",
+        "shared.md",
+        "",
+        undefined,
+      );
+    });
   });
 
   describe("handleUpdateResource", () => {
@@ -359,6 +452,27 @@ describe("resource handlers", () => {
 
       expect(mockResourceMove).toHaveBeenCalledWith("r1", "new.md");
     });
+
+    it("returns 404 when updating another user's personal resource", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "private.md",
+        owner: "other@test.com",
+        content: "secret",
+        mimeType: "text/markdown",
+      });
+
+      const event = {
+        _params: { id: "r1" },
+        _body: { content: "new" },
+        context: {},
+      };
+      const result = await handleUpdateResource(event);
+
+      expect(lastStatus).toBe(404);
+      expect(result).toEqual({ error: "Resource not found" });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
   });
 
   describe("handleDeleteResource", () => {
@@ -392,6 +506,44 @@ describe("resource handlers", () => {
 
       expect(lastStatus).toBe(404);
       expect(result).toEqual({ error: "Resource not found" });
+    });
+
+    it("returns 404 when deleting another user's personal resource", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "private.md",
+        owner: "other@test.com",
+      });
+
+      const event = { _params: { id: "r1" }, context: {} };
+      const result = await handleDeleteResource(event);
+
+      expect(lastStatus).toBe(404);
+      expect(result).toEqual({ error: "Resource not found" });
+      expect(mockResourceDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("handleUploadResource", () => {
+    it("rejects unauthenticated shared uploads", async () => {
+      vi.mocked(getSession).mockResolvedValue(null as any);
+
+      const event = {
+        _multipart: [
+          {
+            name: "file",
+            filename: "shared.md",
+            type: "text/markdown",
+            data: Buffer.from("# Shared"),
+          },
+          { name: "shared", data: Buffer.from("true") },
+        ],
+      };
+
+      await expect(handleUploadResource(event)).rejects.toMatchObject({
+        statusCode: 401,
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
     });
   });
 

@@ -24,7 +24,9 @@ import { eq } from "drizzle-orm";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { getDb, schema } from "../../../db/index.js";
 import { nanoid } from "../../../lib/calls.js";
+import { resolveRecallApiKey } from "../../../lib/recall.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
 interface RecallEvent {
   event?: string;
@@ -127,9 +129,22 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 401);
       return { error: "Invalid signature" };
     }
+  } else if (
+    process.env.NODE_ENV === "production" &&
+    process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS !== "1"
+  ) {
+    // Fail-closed in production: any unauthenticated POST to this endpoint
+    // can manufacture a fake recall.ai event tied to a known bot id and
+    // poison call transcripts / app-state. Set
+    // AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1 to opt out for staging only.
+    console.error(
+      "[calls] RECALL_WEBHOOK_SECRET not configured — refusing webhook",
+    );
+    setResponseStatus(event, 401);
+    return { error: "RECALL_WEBHOOK_SECRET not configured" };
   } else {
     console.warn(
-      "[calls] RECALL_WEBHOOK_SECRET not set — accepting Recall webhook without verification",
+      "[calls] RECALL_WEBHOOK_SECRET not set — accepting Recall webhook without verification (dev only)",
     );
   }
 
@@ -169,118 +184,125 @@ export default defineEventHandler(async (event: H3Event) => {
     return { ok: true, unknownBot: true };
   }
 
-  const normalizedMeetingUrl =
-    extractMeetingUrl(payload.data) || bot.meetingUrl;
-  const patch: Partial<typeof schema.recallBots.$inferInsert> = {
-    updatedAt: now,
-    rawJson: JSON.stringify(payload),
-    meetingUrl: normalizedMeetingUrl,
-  };
-
-  if (statusCode === "joining" || statusCode === "in_call_not_recording") {
-    patch.status = "joining";
-  } else if (
-    statusCode === "in_call_recording" ||
-    statusCode === "recording" ||
-    statusCode === "in_progress"
-  ) {
-    patch.status = "recording";
-    patch.startedAt = bot.startedAt ?? now;
-  } else if (
-    statusCode === "done" ||
-    statusCode === "call_ended" ||
-    statusCode === "done_recording"
-  ) {
-    patch.status = "done";
-    patch.endedAt = now;
-  } else if (
-    statusCode === "failed" ||
-    statusCode === "fatal" ||
-    statusCode === "error"
-  ) {
-    patch.status = "failed";
-    patch.endedAt = now;
-  }
-
-  await db
-    .update(schema.recallBots)
-    .set(patch)
-    .where(eq(schema.recallBots.id, botId));
-
-  if (patch.status === "failed") {
-    console.error("[calls] Recall bot failed:", botId, payload);
-    await writeAppState("refresh-signal", { ts: Date.now() });
-    return { ok: true, status: "failed" };
-  }
-
-  if (patch.status !== "done") {
-    // Nothing else to do for in-progress states — just keep the row in sync.
-    await writeAppState("refresh-signal", { ts: Date.now() });
-    return { ok: true, status: patch.status ?? statusCode };
-  }
-
-  // `done` — pull the recording URL and materialize a call row.
-  const apiKey = process.env.RECALL_AI_API_KEY;
-  if (!apiKey) {
-    console.error(
-      "[calls] RECALL_AI_API_KEY not set — cannot fetch bot recording URL",
-    );
-    setResponseStatus(event, 500);
-    return { error: "RECALL_AI_API_KEY not configured" };
-  }
-
-  const detail = await fetchBotDetail(botId, apiKey);
-  const mediaUrl = detail ? pickVideoUrl(detail) : null;
-
-  // Create or reuse the `calls` row associated with this bot.
-  let callId = bot.callId;
-  if (!callId) {
-    callId = nanoid();
-    await db.insert(schema.calls).values({
-      id: callId,
-      workspaceId: bot.workspaceId,
-      title: `Meeting recording (${normalizedMeetingUrl || botId})`,
-      source: "recall-bot",
-      sourceMeta: JSON.stringify({
-        botId,
-        meetingUrl: normalizedMeetingUrl,
-      }),
-      status: mediaUrl ? "processing" : "failed",
-      mediaUrl: mediaUrl ?? undefined,
-      mediaKind: "video",
-      mediaFormat: "mp4",
-      failureReason: mediaUrl ? null : "No recording URL returned by Recall",
-      ownerEmail: bot.createdBy,
-      createdAt: now,
+  return runWithRequestContext({ userEmail: bot.createdBy }, async () => {
+    const normalizedMeetingUrl =
+      extractMeetingUrl(payload.data) || bot.meetingUrl;
+    const patch: Partial<typeof schema.recallBots.$inferInsert> = {
       updatedAt: now,
-    });
+      rawJson: JSON.stringify(payload),
+      meetingUrl: normalizedMeetingUrl,
+    };
+
+    if (statusCode === "joining" || statusCode === "in_call_not_recording") {
+      patch.status = "joining";
+    } else if (
+      statusCode === "in_call_recording" ||
+      statusCode === "recording" ||
+      statusCode === "in_progress"
+    ) {
+      patch.status = "recording";
+      patch.startedAt = bot.startedAt ?? now;
+    } else if (
+      statusCode === "done" ||
+      statusCode === "call_ended" ||
+      statusCode === "done_recording"
+    ) {
+      patch.status = "done";
+      patch.endedAt = now;
+    } else if (
+      statusCode === "failed" ||
+      statusCode === "fatal" ||
+      statusCode === "error"
+    ) {
+      patch.status = "failed";
+      patch.endedAt = now;
+    }
+
     await db
       .update(schema.recallBots)
-      .set({ callId })
+      .set(patch)
       .where(eq(schema.recallBots.id, botId));
-  } else {
-    await db
-      .update(schema.calls)
-      .set({
+
+    if (patch.status === "failed") {
+      console.error("[calls] Recall bot failed:", botId, payload);
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return { ok: true, status: "failed" };
+    }
+
+    if (patch.status !== "done") {
+      // Nothing else to do for in-progress states — just keep the row in sync.
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return { ok: true, status: patch.status ?? statusCode };
+    }
+
+    // `done` — pull the recording URL and materialize a call row.
+    const apiKey = await resolveRecallApiKey({
+      userEmail: bot.createdBy,
+      orgId: null,
+    });
+    if (!apiKey) {
+      console.error(
+        "[calls] RECALL_AI_API_KEY not configured for bot owner — cannot fetch recording URL",
+      );
+      setResponseStatus(event, 500);
+      return { error: "RECALL_AI_API_KEY not configured" };
+    }
+
+    const detail = await fetchBotDetail(botId, apiKey);
+    const mediaUrl = detail ? pickVideoUrl(detail) : null;
+
+    // Create or reuse the `calls` row associated with this bot.
+    let callId = bot.callId;
+    if (!callId) {
+      callId = nanoid();
+      await db.insert(schema.calls).values({
+        id: callId,
+        workspaceId: bot.workspaceId,
+        title: `Meeting recording (${normalizedMeetingUrl || botId})`,
+        source: "recall-bot",
+        sourceMeta: JSON.stringify({
+          botId,
+          meetingUrl: normalizedMeetingUrl,
+        }),
         status: mediaUrl ? "processing" : "failed",
         mediaUrl: mediaUrl ?? undefined,
+        mediaKind: "video",
+        mediaFormat: "mp4",
         failureReason: mediaUrl ? null : "No recording URL returned by Recall",
+        ownerEmail: bot.createdBy,
+        createdAt: now,
         updatedAt: now,
-      })
-      .where(eq(schema.calls.id, callId));
-  }
+      });
+      await db
+        .update(schema.recallBots)
+        .set({ callId })
+        .where(eq(schema.recallBots.id, botId));
+    } else {
+      await db
+        .update(schema.calls)
+        .set({
+          status: mediaUrl ? "processing" : "failed",
+          mediaUrl: mediaUrl ?? undefined,
+          failureReason: mediaUrl
+            ? null
+            : "No recording URL returned by Recall",
+          updatedAt: now,
+        })
+        .where(eq(schema.calls.id, callId));
+    }
 
-  if (mediaUrl) {
-    // Kick off async transcription via a delegation key — `finalize-call`
-    // also writes this shape, so whichever plugin services it works for both.
-    await writeAppState(`call-transcribe-${callId}`, {
-      callId,
-      mediaUrl,
-      requestedAt: now,
-      source: "recall-bot",
-    });
-  }
-  await writeAppState("refresh-signal", { ts: Date.now() });
+    if (mediaUrl) {
+      // Kick off async transcription via a delegation key — `finalize-call`
+      // also writes this shape, so whichever plugin services it works for both.
+      await writeAppState(`call-transcribe-${callId}`, {
+        callId,
+        mediaUrl,
+        requestedAt: now,
+        source: "recall-bot",
+      });
+    }
+    await writeAppState("refresh-signal", { ts: Date.now() });
 
-  return { ok: true, callId, status: "done" };
+    return { ok: true, callId, status: "done" };
+  });
 });

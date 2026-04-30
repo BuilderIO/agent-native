@@ -3,6 +3,10 @@
 // and ranked_keywords for keyword-level data
 
 import { resolveCredential } from "./credentials";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_BASE = "https://api.dataforseo.com/v3";
 
@@ -12,18 +16,20 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const MAX_CACHE = 50;
 
 async function getAuth(): Promise<string> {
-  const login = await resolveCredential("DATAFORSEO_LOGIN");
-  const password = await resolveCredential("DATAFORSEO_PASSWORD");
+  const ctx = requireRequestCredentialContext("DATAFORSEO_LOGIN");
+  const login = await resolveCredential("DATAFORSEO_LOGIN", ctx);
+  const password = await resolveCredential("DATAFORSEO_PASSWORD", ctx);
   if (!login || !password) {
-    throw new Error(
-      "DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD env vars required",
-    );
+    throw new Error("DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD not configured");
   }
   return Buffer.from(`${login}:${password}`).toString("base64");
 }
 
 async function apiPost<T>(path: string, body: unknown[]): Promise<T> {
-  const cacheKey = JSON.stringify({ path, body });
+  const cacheKey = scopedCredentialCacheKey(
+    JSON.stringify({ path, body }),
+    "DATAFORSEO_LOGIN",
+  );
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

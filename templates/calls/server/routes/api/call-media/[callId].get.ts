@@ -30,6 +30,11 @@ import {
 } from "h3";
 import { readAppState } from "@agent-native/core/application-state";
 import { resolveAccess } from "@agent-native/core/sharing";
+import {
+  getSession,
+  runWithRequestContext,
+  verifyShortLivedToken,
+} from "@agent-native/core/server";
 
 interface CallRow {
   mediaUrl?: string | null;
@@ -82,88 +87,120 @@ function mimeForFormat(format?: string | null, kind?: string | null): string {
 }
 
 export default defineEventHandler(async (event: H3Event) => {
-  const callId = getRouterParam(event, "callId");
-  if (!callId) {
-    setResponseStatus(event, 400);
-    return { error: "Missing callId" };
-  }
+  const session = await getSession(event).catch(() => null);
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    async () => {
+      const callId = getRouterParam(event, "callId");
+      if (!callId) {
+        setResponseStatus(event, 400);
+        return { error: "Missing callId" };
+      }
 
-  const access = await resolveAccess("call", callId);
-  if (!access) {
-    setResponseStatus(event, 404);
-    return { error: "Not found" };
-  }
-  const call = access.resource as CallRow;
+      const access = await resolveAccess("call", callId);
+      if (!access) {
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }
+      const call = access.resource as CallRow;
 
-  if (call.expiresAt) {
-    const expires = new Date(call.expiresAt).getTime();
-    if (Number.isFinite(expires) && expires < Date.now()) {
-      setResponseStatus(event, 410);
-      return { error: "Call has expired" };
-    }
-  }
+      if (call.expiresAt) {
+        const expires = new Date(call.expiresAt).getTime();
+        if (Number.isFinite(expires) && expires < Date.now()) {
+          setResponseStatus(event, 410);
+          return { error: "Call has expired" };
+        }
+      }
 
-  if (call.password && access.role !== "owner") {
-    const headerPassword = getRequestHeader(event, "x-password");
-    const q = getQuery(event) as { p?: string; password?: string };
-    const supplied =
-      (typeof headerPassword === "string" ? headerPassword : "") ||
-      (typeof q.p === "string" ? q.p : "") ||
-      (typeof q.password === "string" ? q.password : "");
-    if (!supplied || supplied !== call.password) {
-      // 404, not 401 — don't leak existence to unauthenticated viewers.
-      setResponseStatus(event, 404);
-      return { error: "Not found" };
-    }
-  }
+      // Accepts either:
+      //   - `?t=<token>` — preferred. Short-lived HMAC token minted by
+      //     public-call.get.ts / public-snippet.get.ts after the password
+      //     check passed; keeps the plaintext password out of the media
+      //     URL (and therefore out of browser history / CDN logs / Referer
+      //     headers).
+      //   - `x-password` header / `?p=<pw>` / `?password=<pw>` — legacy
+      //     fallback so existing share pages keep working during rollout.
+      // (audit 11 F-07)
+      if (call.password && access.role !== "owner") {
+        const headerPassword = getRequestHeader(event, "x-password");
+        const q = getQuery(event) as {
+          p?: string;
+          password?: string;
+          t?: string;
+        };
+        const token = typeof q.t === "string" ? q.t : "";
+        const supplied =
+          (typeof headerPassword === "string" ? headerPassword : "") ||
+          (typeof q.p === "string" ? q.p : "") ||
+          (typeof q.password === "string" ? q.password : "");
 
-  const mediaUrl = call.mediaUrl ?? "";
-  if (!mediaUrl) {
-    setResponseStatus(event, 404);
-    return { error: "Media not available" };
-  }
+        let allowed = false;
+        if (token) {
+          const result = verifyShortLivedToken(token, callId);
+          if (result.ok) allowed = true;
+        }
+        if (!allowed && supplied && supplied === call.password) {
+          allowed = true;
+        }
+        if (!allowed) {
+          // 404, not 401 — don't leak existence to unauthenticated viewers.
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+      }
 
-  if (/^https?:\/\//i.test(mediaUrl)) {
-    return sendRedirect(event, mediaUrl, 302);
-  }
+      const mediaUrl = call.mediaUrl ?? "";
+      if (!mediaUrl) {
+        setResponseStatus(event, 404);
+        return { error: "Media not available" };
+      }
 
-  // Local dev fallback — read the blob from app-state.
-  const blob = await readAppState(`call-blob-${callId}`);
-  const b64 = typeof blob?.data === "string" ? blob.data : null;
-  if (!b64) {
-    setResponseStatus(event, 404);
-    return { error: "Blob not found" };
-  }
+      if (/^https?:\/\//i.test(mediaUrl)) {
+        return sendRedirect(event, mediaUrl, 302);
+      }
 
-  const mimeType =
-    (typeof blob?.mimeType === "string" && blob.mimeType) ||
-    mimeForFormat(call.mediaFormat, call.mediaKind);
-  const bytes = Buffer.from(b64, "base64");
-  const total = bytes.byteLength;
+      // Local dev fallback — read the blob from app-state.
+      const blob = await readAppState(`call-blob-${callId}`);
+      const b64 = typeof blob?.data === "string" ? blob.data : null;
+      if (!b64) {
+        setResponseStatus(event, 404);
+        return { error: "Blob not found" };
+      }
 
-  setResponseHeader(event, "Content-Type", mimeType);
-  setResponseHeader(event, "Accept-Ranges", "bytes");
-  setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+      const mimeType =
+        (typeof blob?.mimeType === "string" && blob.mimeType) ||
+        mimeForFormat(call.mediaFormat, call.mediaKind);
+      const bytes = Buffer.from(b64, "base64");
+      const total = bytes.byteLength;
 
-  const rangeHeader = getRequestHeader(event, "range");
-  if (rangeHeader) {
-    const parsed = parseRange(rangeHeader, total);
-    if (parsed === "invalid") {
-      setResponseStatus(event, 416);
-      setResponseHeader(event, "Content-Range", `bytes */${total}`);
-      return "";
-    }
-    const slice = bytes.subarray(parsed.start, parsed.end + 1);
-    setResponseStatus(event, 206);
-    setResponseHeader(
-      event,
-      "Content-Range",
-      `bytes ${parsed.start}-${parsed.end}/${total}`,
-    );
-    setResponseHeader(event, "Content-Length", String(slice.byteLength));
-    return slice;
-  }
+      setResponseHeader(event, "Content-Type", mimeType);
+      setResponseHeader(event, "Accept-Ranges", "bytes");
+      setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+      // Don't leak the URL (which carries a short-lived token) into the
+      // Referer of any outbound link rendered alongside the player.
+      setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
-  setResponseHeader(event, "Content-Length", String(total));
-  return bytes;
+      const rangeHeader = getRequestHeader(event, "range");
+      if (rangeHeader) {
+        const parsed = parseRange(rangeHeader, total);
+        if (parsed === "invalid") {
+          setResponseStatus(event, 416);
+          setResponseHeader(event, "Content-Range", `bytes */${total}`);
+          return "";
+        }
+        const slice = bytes.subarray(parsed.start, parsed.end + 1);
+        setResponseStatus(event, 206);
+        setResponseHeader(
+          event,
+          "Content-Range",
+          `bytes ${parsed.start}-${parsed.end}/${total}`,
+        );
+        setResponseHeader(event, "Content-Length", String(slice.byteLength));
+        return slice;
+      }
+
+      setResponseHeader(event, "Content-Length", String(total));
+      return bytes;
+    },
+  );
 });

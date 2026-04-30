@@ -13,6 +13,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { IconExternalLink, IconTrash } from "@tabler/icons-react";
+import { agentNativePath } from "@agent-native/core/client";
 
 export interface ConnectedAgent {
   id: string;
@@ -62,7 +63,7 @@ export function AgentsPanel({
 
     setSaving(true);
     try {
-      const res = await fetch("/_agent-native/resources", {
+      const res = await fetch(agentNativePath("/_agent-native/resources"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -85,9 +86,12 @@ export function AgentsPanel({
 
   const handleDelete = async (resourceId?: string) => {
     if (!resourceId) return;
-    const res = await fetch(`/_agent-native/resources/${resourceId}`, {
-      method: "DELETE",
-    });
+    const res = await fetch(
+      agentNativePath(`/_agent-native/resources/${resourceId}`),
+      {
+        method: "DELETE",
+      },
+    );
     if (res.ok) onRefresh();
   };
 

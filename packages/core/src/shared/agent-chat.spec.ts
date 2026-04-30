@@ -9,7 +9,7 @@ describe("agentChat.submit", () => {
     const output = spy.mock.calls[0][0] as string;
     expect(output).toMatch(/^BUILDER_PARENT_MESSAGE:/);
     const parsed = JSON.parse(output.replace("BUILDER_PARENT_MESSAGE:", ""));
-    expect(parsed.message.type).toBe("builder.submitChat");
+    expect(parsed.message.type).toBe("agentNative.submitChat");
     expect(parsed.message.data.message).toBe("hello");
     expect(parsed.message.data.context).toBe("ctx");
     expect(parsed.message.data.submit).toBe(true);

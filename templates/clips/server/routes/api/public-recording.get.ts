@@ -13,10 +13,23 @@
  * the authenticated player route).
  */
 
-import { defineEventHandler, getQuery, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseHeader,
+  setResponseStatus,
+} from "h3";
 import { asc, eq } from "drizzle-orm";
+import { signShortLivedToken } from "@agent-native/core/server";
 import { getDb, schema } from "../../db/index.js";
 import { parseSpaceIds } from "../../lib/recordings.js";
+
+function appPath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return base ? `/${base}${path}` : path;
+}
 
 export default defineEventHandler(async (event) => {
   const q = getQuery(event) as { id?: string; password?: string };
@@ -41,11 +54,8 @@ export default defineEventHandler(async (event) => {
   }
 
   if (rec.visibility !== "public") {
-    setResponseStatus(event, 401);
-    return {
-      error: "Not publicly shared",
-      visibility: rec.visibility,
-    };
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
   }
 
   // Expiry check
@@ -122,10 +132,15 @@ export default defineEventHandler(async (event) => {
   // Normalize the dev-fallback videoUrl:
   //   1. Rewrite the legacy `/api/uploads/:id/blob` shape to the current
   //      `/api/video/:id` endpoint so old rows keep playing after the move.
-  //   2. For password-protected recordings, bake the already-validated
-  //      password into the query string so the <video> element's background
-  //      fetch sails through the blob route's password gate. Real provider
-  //      URLs (R2/S3/Builder) are left untouched; they're already signed.
+  //   2. For password-protected recordings, mint a short-lived HMAC token
+  //      bound to this recording id and pass it via `?t=<token>` instead of
+  //      the plaintext password. Sticking the password in the URL leaks it
+  //      into browser history, CDN logs, and the Referer header on outbound
+  //      requests. The downstream `/api/video/:id` route accepts either
+  //      `?t=<token>` (preferred) or `?password=<pw>` (legacy fallback) so
+  //      old share pages keep working during rollout. (audit 11 F-07)
+  //      Real provider URLs (R2/S3/Builder) are left untouched; those are
+  //      already signed.
   let resolvedVideoUrl = rec.videoUrl ?? null;
   if (resolvedVideoUrl) {
     const legacyMatch = resolvedVideoUrl.match(
@@ -135,16 +150,22 @@ export default defineEventHandler(async (event) => {
       resolvedVideoUrl = `/api/video/${legacyMatch[1]}`;
     }
     if (rec.password && resolvedVideoUrl.startsWith("/api/video/")) {
+      const token = signShortLivedToken({ resourceId: recordingId });
       const sep = resolvedVideoUrl.includes("?") ? "&" : "?";
-      resolvedVideoUrl =
-        resolvedVideoUrl + sep + "password=" + encodeURIComponent(rec.password);
+      resolvedVideoUrl = `${resolvedVideoUrl}${sep}t=${encodeURIComponent(token)}`;
+    }
+    if (resolvedVideoUrl.startsWith("/")) {
+      resolvedVideoUrl = appPath(resolvedVideoUrl);
     }
   }
+
+  // Don't leak the URL (which now carries a short-lived token) into the
+  // Referer of any outbound link the share page renders.
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
   return {
     recording: {
       id: rec.id,
-      organizationId: rec.organizationId,
       title: rec.title,
       description: rec.description,
       thumbnailUrl: rec.thumbnailUrl,

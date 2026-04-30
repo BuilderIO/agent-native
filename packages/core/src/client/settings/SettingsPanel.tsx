@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import React, {
   Suspense,
   lazy,
@@ -179,10 +180,13 @@ function DisconnectBuilderButton() {
     setErr(null);
     clearArmedTimer();
     try {
-      const res = await fetch("/_agent-native/builder/disconnect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/builder/disconnect"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        },
+      );
       // Parse defensively — a nitro 404 fallback returns HTML, not JSON,
       // and res.json() on that would throw.
       const text = await res.text();
@@ -296,22 +300,17 @@ function UseBuilderCard({
   connectUrl,
   connected,
   orgName,
-  comingSoon,
-  builderEnabled,
   label = "Connect Builder.io",
-  subtitle = "One click, no API key needed. Free during beta.",
+  subtitle = "One click, no API key needed.",
   dim,
 }: {
   connectUrl?: string;
   connected: boolean;
   orgName?: string;
-  comingSoon?: boolean;
-  builderEnabled?: boolean;
   label?: string;
   subtitle?: string;
   dim?: boolean;
 }) {
-  const showComingSoon = comingSoon && !builderEnabled;
   const bgClass = dim ? "" : "bg-accent/30";
 
   if (connected) {
@@ -347,27 +346,6 @@ function UseBuilderCard({
     );
   }
 
-  if (showComingSoon) {
-    return (
-      <div className={`rounded-md border border-border px-2.5 py-2 ${bgClass}`}>
-        <div className="flex items-center justify-between">
-          <div className="text-[11px] font-medium text-foreground">
-            Builder.io
-          </div>
-          <a
-            href="https://forms.agent-native.com/f/builder-waitlist/36GWqf"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] font-medium no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
-          >
-            Join waitlist
-            <IconExternalLink size={10} />
-          </a>
-        </div>
-      </div>
-    );
-  }
-
   if (!connectUrl) return null;
 
   return (
@@ -385,9 +363,6 @@ function UseBuilderCard({
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[12px] font-semibold text-foreground">
               {label}
-            </span>
-            <span className="inline-flex items-center rounded-sm bg-green-500/15 px-1 text-[9px] font-medium uppercase tracking-wide text-green-500">
-              Free
             </span>
           </div>
           <p className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">
@@ -546,7 +521,6 @@ const PROVIDER_DOCS: Record<string, string> = {
 };
 
 function LLMSectionInner({
-  builderEnabled,
   builderLoading,
   connectUrl,
   connected,
@@ -554,7 +528,6 @@ function LLMSectionInner({
   open,
   onToggle,
 }: {
-  builderEnabled: boolean;
   builderLoading?: boolean;
   connectUrl?: string;
   connected: boolean;
@@ -590,7 +563,7 @@ function LLMSectionInner({
     !envLoaded || !enginesLoaded || !statusLoaded || !!builderLoading;
 
   useEffect(() => {
-    fetch("/_agent-native/env-status")
+    fetch(agentNativePath("/_agent-native/env-status"))
       .then((r) => (r.ok ? r.json() : []))
       .then(setEnvKeys)
       .catch(() => {})
@@ -602,7 +575,7 @@ function LLMSectionInner({
   }, []);
 
   const refreshSettingsStatus = useCallback(() => {
-    fetch("/_agent-native/agent-engine/status")
+    fetch(agentNativePath("/_agent-native/agent-engine/status"))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (
@@ -628,7 +601,7 @@ function LLMSectionInner({
   }, [refreshSettingsStatus]);
 
   useEffect(() => {
-    fetch("/_agent-native/actions/manage-agent-engine", {
+    fetch(agentNativePath("/_agent-native/actions/manage-agent-engine"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "list" }),
@@ -685,7 +658,7 @@ function LLMSectionInner({
     if (!apiKey.trim() || !envVar) return;
     setSaving(true);
     try {
-      const res = await fetch("/_agent-native/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -707,9 +680,12 @@ function LLMSectionInner({
   const handleDisconnect = async () => {
     setDisconnectError(null);
     try {
-      const res = await fetch("/_agent-native/agent-engine/disconnect", {
-        method: "POST",
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/agent-engine/disconnect"),
+        {
+          method: "POST",
+        },
+      );
       if (res.ok) {
         setTestResult(null);
         setApplyNote(false);
@@ -735,15 +711,18 @@ function LLMSectionInner({
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch("/_agent-native/actions/manage-agent-engine", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "test",
-          engine: selectedEngine,
-          model: selectedModel || selectedEngineInfo?.defaultModel,
-        }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/manage-agent-engine"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "test",
+            engine: selectedEngine,
+            model: selectedModel || selectedEngineInfo?.defaultModel,
+          }),
+        },
+      );
       // The action endpoint wraps tool output; some paths return the JSON
       // string as-is, others wrap in { result }. Accept either shape.
       const data = await res.json();
@@ -777,15 +756,18 @@ function LLMSectionInner({
 
   const handleApply = async () => {
     try {
-      const res = await fetch("/_agent-native/actions/manage-agent-engine", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "set",
-          engine: selectedEngine,
-          model: selectedModel,
-        }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/manage-agent-engine"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "set",
+            engine: selectedEngine,
+            model: selectedModel,
+          }),
+        },
+      );
       if (res.ok) {
         setCurrentEngine(selectedEngine);
         setCurrentModel(selectedModel);
@@ -986,7 +968,7 @@ function EmailSectionInner({
   const [envLoaded, setEnvLoaded] = useState(false);
 
   useEffect(() => {
-    fetch("/_agent-native/env-status")
+    fetch(agentNativePath("/_agent-native/env-status"))
       .then((r) => (r.ok ? r.json() : []))
       .then(setEnvKeys)
       .catch(() => {})
@@ -1004,7 +986,7 @@ function EmailSectionInner({
   const save = async (vars: Array<{ key: string; value: string }>) => {
     setSaving(true);
     try {
-      const res = await fetch("/_agent-native/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vars }),
@@ -1212,33 +1194,11 @@ export function SettingsPanel({
   const connectUrl = builder?.connectUrl;
   const orgName = builder?.orgName;
 
-  // ENABLE_BUILDER flag — read from env-status (always available)
-  const [builderEnabled, setBuilderEnabled] = useState(false);
-  useEffect(() => {
-    fetch("/_agent-native/env-status")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((keys: Array<{ key: string; configured: boolean }>) => {
-        if (keys.find((k) => k.key === "ENABLE_BUILDER")?.configured) {
-          setBuilderEnabled(true);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
   // Detect whether the app registered any secrets — controls whether the
   // "API Keys & Connections" section renders at all.
-  const [hasSecrets, setHasSecrets] = useState(false);
   const [focusSecretKey, setFocusSecretKey] = useState<string | undefined>(
     undefined,
   );
-  useEffect(() => {
-    fetch("/_agent-native/secrets")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((list: Array<{ key: string }>) => {
-        setHasSecrets(Array.isArray(list) && list.length > 0);
-      })
-      .catch(() => setHasSecrets(false));
-  }, []);
 
   // Accordion: only one section open at a time (null = all closed)
   const [openSection, setOpenSection] = useState<string | null>("llm");
@@ -1300,7 +1260,6 @@ export function SettingsPanel({
 
       {/* LLM */}
       <LLMSectionInner
-        builderEnabled={builderEnabled}
         builderLoading={builderLoading}
         connectUrl={connectUrl}
         connected={connected}
@@ -1331,18 +1290,16 @@ export function SettingsPanel({
         <AutomationsSection />
       </SettingsSection>
 
-      {/* API Keys & Connections (only when a template has registered any) */}
-      {hasSecrets && (
-        <SettingsSection
-          icon={<IconKey size={14} />}
-          title="API Keys & Connections"
-          subtitle="Service credentials registered by this app."
-          open={openSection === "secrets"}
-          onToggle={() => toggle("secrets")}
-        >
-          <SecretsSection focusKey={focusSecretKey} />
-        </SettingsSection>
-      )}
+      {/* API Keys & Connections */}
+      <SettingsSection
+        icon={<IconKey size={14} />}
+        title="API Keys & Connections"
+        subtitle="Service credentials and automation keys."
+        open={openSection === "secrets"}
+        onToggle={() => toggle("secrets")}
+      >
+        <SecretsSection focusKey={focusSecretKey} />
+      </SettingsSection>
 
       {/* Hosting */}
       <SettingsSection
@@ -1358,8 +1315,6 @@ export function SettingsPanel({
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
-            comingSoon
-            builderEnabled={builderEnabled}
           />
           <ManualSetupCard
             hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
@@ -1383,8 +1338,6 @@ export function SettingsPanel({
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
-            comingSoon
-            builderEnabled={builderEnabled}
           />
           <ManualSetupCard
             hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, or any Postgres/SQLite database."
@@ -1431,8 +1384,6 @@ export function SettingsPanel({
             connectUrl={connectUrl}
             connected={connected}
             orgName={orgName}
-            comingSoon
-            builderEnabled={builderEnabled}
           />
           <ManualSetupCard
             hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
@@ -1477,8 +1428,6 @@ export function SettingsPanel({
           connectUrl={connectUrl}
           connected={connected}
           orgName={orgName}
-          comingSoon
-          builderEnabled={builderEnabled}
         />
       </SettingsSection>
 

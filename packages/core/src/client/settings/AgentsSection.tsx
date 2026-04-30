@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   IconPlus,
@@ -220,7 +221,9 @@ export function AgentsSection() {
 
   const fetchAgents = useCallback(async () => {
     try {
-      const res = await fetch("/_agent-native/resources?scope=all");
+      const res = await fetch(
+        agentNativePath("/_agent-native/resources?scope=all"),
+      );
       if (!res.ok) return;
       const data = await res.json();
       const agentResources = (data.resources ?? []).filter(
@@ -230,7 +233,9 @@ export function AgentsSection() {
       const parsed = await Promise.all(
         agentResources.map(async (r: { id: string; path: string }) => {
           try {
-            const detail = await fetch(`/_agent-native/resources/${r.id}`);
+            const detail = await fetch(
+              agentNativePath(`/_agent-native/resources/${r.id}`),
+            );
             if (!detail.ok) return null;
             const d = await detail.json();
             const config = JSON.parse(d.content);
@@ -271,7 +276,7 @@ export function AgentsSection() {
     );
 
     try {
-      const res = await fetch("/_agent-native/resources", {
+      const res = await fetch(agentNativePath("/_agent-native/resources"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -304,11 +309,14 @@ export function AgentsSection() {
     );
 
     try {
-      const res = await fetch(`/_agent-native/resources/${agent.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: agentJson }),
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/resources/${agent.id}`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: agentJson }),
+        },
+      );
       if (res.ok) {
         setEditingAgent(null);
         fetchAgents();
@@ -318,9 +326,13 @@ export function AgentsSection() {
 
   const handleDelete = async (agentId: string) => {
     try {
-      const res = await fetch(`/_agent-native/resources/${agentId}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/resources/${agentId}`),
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+        },
+      );
       if (res.ok) {
         setEditingAgent(null);
         fetchAgents();

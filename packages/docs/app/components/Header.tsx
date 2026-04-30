@@ -8,6 +8,7 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
+      aria-label="Search docs"
       className="flex items-center gap-2 rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)]"
     >
       <svg
@@ -76,10 +77,28 @@ export default function Header() {
 
   useEffect(() => {
     if (!isHome) return;
-    const onScroll = () => setScrolled(window.scrollY > 10);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    // AgentSidebar wraps content in an overflow-auto div, so the window
+    // typically doesn't scroll. Listening on document with capture: true
+    // catches scroll events from any descendant scroll container, regardless
+    // of when AgentSidebar mounts or which element is actually scrolling.
+    const onScroll = (e: Event) => {
+      const target = e.target;
+      let top = 0;
+      if (target === document || target === window || target == null) {
+        top = window.scrollY;
+      } else if (target instanceof HTMLElement) {
+        top = target.scrollTop;
+      }
+      setScrolled(top > 10);
+    };
+    document.addEventListener("scroll", onScroll, {
+      capture: true,
+      passive: true,
+    });
+    return () =>
+      document.removeEventListener("scroll", onScroll, {
+        capture: true,
+      } as EventListenerOptions);
   }, [isHome]);
 
   const showHeaderBg = !isHome || scrolled;
@@ -95,11 +114,19 @@ export default function Header() {
           <Link
             prefetch="render"
             to="/"
+            aria-label="Agent-Native"
             className="flex shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
           >
-            <span className="text-base font-bold tracking-tight">
-              Agent-Native
-            </span>
+            <img
+              src="/agent-native-logo-light.svg"
+              alt="Agent-Native"
+              className="block h-[1.155rem] w-auto dark:hidden"
+            />
+            <img
+              src="/agent-native-logo-dark.svg"
+              alt="Agent-Native"
+              className="hidden h-[1.155rem] w-auto dark:block"
+            />
           </Link>
 
           {/* Desktop nav links */}
@@ -162,6 +189,7 @@ export default function Header() {
               onClick={() =>
                 window.dispatchEvent(new Event("agent-panel:toggle"))
               }
+              aria-label="Ask the AI assistant"
               className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
               title="Ask the AI assistant"
             >

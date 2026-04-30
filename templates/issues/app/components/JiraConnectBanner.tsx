@@ -7,8 +7,10 @@ import {
   IconCheck,
   IconArrowRight,
   IconLoader2,
+  IconClipboardList,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
+import { agentNativePath, appApiPath } from "@agent-native/core/client";
 
 export function JiraConnectBanner() {
   const [step, setStep] = useState(1);
@@ -20,7 +22,10 @@ export function JiraConnectBanner() {
 
   const callbackUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}/api/atlassian/callback`
+      ? new URL(
+          appApiPath("/api/atlassian/callback"),
+          window.location.origin,
+        ).toString()
       : "";
 
   const handleCopy = () => {
@@ -33,7 +38,7 @@ export function JiraConnectBanner() {
     <div className="flex h-full items-center justify-center p-8">
       <div className="w-full max-w-lg">
         <div className="mb-8 text-center">
-          <div className="mb-3 text-4xl">📋</div>
+          <IconClipboardList className="mx-auto mb-3 h-11 w-11 text-muted-foreground/35" />
           <h1 className="text-xl font-semibold text-foreground">
             Connect to Jira
           </h1>
@@ -174,19 +179,25 @@ export function JiraConnectBanner() {
                 }
                 setSaving(true);
                 try {
-                  const res = await fetch("/_agent-native/env-vars", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      vars: [
-                        { key: "ATLASSIAN_CLIENT_ID", value: clientId.trim() },
-                        {
-                          key: "ATLASSIAN_CLIENT_SECRET",
-                          value: clientSecret.trim(),
-                        },
-                      ],
-                    }),
-                  });
+                  const res = await fetch(
+                    agentNativePath("/_agent-native/env-vars"),
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        vars: [
+                          {
+                            key: "ATLASSIAN_CLIENT_ID",
+                            value: clientId.trim(),
+                          },
+                          {
+                            key: "ATLASSIAN_CLIENT_SECRET",
+                            value: clientSecret.trim(),
+                          },
+                        ],
+                      }),
+                    },
+                  );
                   if (!res.ok) throw new Error("Failed to save");
                   toast.success("Credentials saved");
                   setStep(5);

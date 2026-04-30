@@ -425,6 +425,50 @@ button {
   color: var(--fg);
 }
 
+/* Shadcn-style switch — slim track + sliding thumb. Used in Settings for the
+   Voice dictation enable/disable toggle. */
+.switch {
+  position: relative;
+  display: inline-flex;
+  width: 32px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background 120ms;
+  flex-shrink: 0;
+}
+
+.switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+.switch-on {
+  background: #16a34a;
+}
+
+.switch-off {
+  background: var(--surface-strong);
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 120ms;
+  pointer-events: none;
+}
+
+.switch-on .switch-thumb {
+  transform: translateX(14px);
+}
+
 /* Mic level indicator — animated bars under the mic row. */
 .mic-wave {
   position: absolute;
@@ -771,9 +815,83 @@ button {
   gap: 6px;
 }
 
+.setup-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setup-header h2 {
+  margin: 0;
+}
+
+.setup-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.setup-back:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.setup-back:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
 .setup-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: var(--fg-muted);
+}
+
+.setup-help {
+  display: inline-flex;
+  align-items: center;
+  color: var(--fg-muted);
+  opacity: 0.6;
+  cursor: help;
+  transition: opacity 120ms;
+}
+
+.setup-help:hover {
+  opacity: 1;
+}
+
+.setup-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.setup-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+
+.setup-warning {
+  margin: 0;
+  font-size: 11px;
+  color: #b45309;
+  line-height: 1.4;
 }
 
 .setup-select {
@@ -1942,19 +2060,43 @@ button {
 
 /* Wispr Flow-style dictation pill: small capsule anchored to the bottom
    of its (transparent) overlay window. The window itself is positioned
-   bottom-center on the primary display by show_flow_bar in Rust, so we
-   align to flex-end here to push the pill to the bottom-edge of the
-   window — leaving the upper portion of the window as empty space the
-   drop shadow can paint into. */
+   bottom-center on the primary display by show_flow_bar in Rust. We
+   stack the live transcript above the pill in a column so the user sees
+   the words being recognized in real time. */
 .flow-bar-root {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: flex-end;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
   padding-bottom: 8px;
+  gap: 6px;
   background: transparent;
   pointer-events: none;
+}
+
+/* Live partial-transcript chip floating above the pill. Same dark glass
+   look as the pill, smaller, only there when transcript is non-empty.
+   Caps width and clips long lines so a long sentence doesn't shove the
+   layout outside the transparent window. */
+.flow-bar-transcript {
+  max-width: 360px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: rgba(18, 18, 20, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  animation: flow-bar-in 100ms ease-out;
 }
 
 .flow-bar {
@@ -1974,6 +2116,21 @@ button {
   pointer-events: auto;
   /* Subtle fade-in so the pill doesn't hard-pop on appear. */
   animation: flow-bar-in 140ms ease-out;
+  /* Fade out to opacity 0 when state goes idle (after Fn release).
+     Keeping the pill in the DOM means the transcript chip above
+     doesn't reflow when the pill "goes away" — important for the
+     linger UX where the chip stays put while the pill dissolves. */
+  transition: opacity 220ms ease-out;
+}
+
+/* When the dictation engine reports idle (e.g. mid-linger after Fn
+   release on the browser path), fade the pill out without unmounting
+   it. The canvas keeps its last-frame so the user sees the waveform
+   smoothly fade rather than pop into nothing. Pointer-events go off
+   so the now-invisible chip can't catch clicks. */
+.flow-bar-idle {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .flow-bar-recording {
@@ -2006,6 +2163,45 @@ button {
   font-size: 12px;
   font-weight: 500;
   color: #fecaca;
+}
+
+/* Right-edge cancel — subtle monochrome chip, only there if the user
+   needs it. Reads as a quiet utility affordance, not an alarm. Hover
+   ramps up so the button still registers as clickable. */
+.flow-bar-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  /* Tight against the right edge — the chip should feel like it lives
+     at the pill's perimeter, not inset. Vertical centering is automatic
+     via flex (pill 32px ÷ chip 18px → 7px above/below). */
+  margin: 0 4px 0 6px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  /* Override the root's `pointer-events: none` so the click registers. */
+  pointer-events: auto;
+  transition:
+    background 100ms ease-out,
+    color 100ms ease-out;
+}
+
+.flow-bar-cancel:hover {
+  background: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.flow-bar-cancel:active {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.flow-bar-cancel svg {
+  display: block;
 }
 
 @keyframes flow-bar-in {

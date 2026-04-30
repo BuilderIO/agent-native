@@ -1,6 +1,18 @@
 import { useLoaderData, Link, useRevalidator } from "react-router";
 import { useState } from "react";
 import { listEventTypes } from "@agent-native/scheduling/server";
+
+export function meta() {
+  return [
+    { title: "Event Types — Scheduling" },
+    {
+      name: "description",
+      content:
+        "Manage your booking links — durations, locations, custom fields, and team assignments.",
+    },
+  ];
+}
+
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { BookingLinkCreateDialog } from "@agent-native/scheduling/react/components";
 import { Button } from "@/components/ui/button";
@@ -44,7 +56,8 @@ import {
 } from "@tabler/icons-react";
 
 export async function loader() {
-  const email = getRequestUserEmail() ?? "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Response("Unauthenticated", { status: 401 });
   const eventTypes = await listEventTypes({
     ownerEmail: email,
     includeHidden: true,

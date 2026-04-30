@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
+import { agentNativePath } from "../client/api-path.js";
 
 export interface CollabUser {
   name: string;
@@ -102,7 +103,7 @@ export function useCollaborativeDoc(
   const {
     docId,
     pollInterval = 2000,
-    baseUrl = "/_agent-native/collab",
+    baseUrl = agentNativePath("/_agent-native/collab"),
     requestSource,
     user,
   } = options;
@@ -241,7 +242,9 @@ export function useCollaborativeDoc(
       try {
         // Poll for document updates
         const res = await fetch(
-          `/_agent-native/poll?since=${pollVersionRef.current}`,
+          agentNativePath(
+            `/_agent-native/poll?since=${pollVersionRef.current}`,
+          ),
         );
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();

@@ -1,18 +1,22 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
+import { useFolders } from "@/hooks/use-folders";
 
 export interface NavigationState {
   view: string;
   compositionId?: string;
+  folderId?: string;
+  folderName?: string;
 }
 
 export function useNavigationState() {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { folders, getFolderForComposition } = useFolders();
 
-  // Sync current route to application state
   useEffect(() => {
     const path = location.pathname;
     const state: NavigationState = { view: "home" };
@@ -20,29 +24,46 @@ export function useNavigationState() {
     if (path.startsWith("/c/")) {
       state.view = "composition";
       const match = path.match(/\/c\/([^/]+)/);
-      if (match) state.compositionId = match[1];
+      if (match) {
+        const compositionId = match[1];
+        state.compositionId = compositionId;
+        const folderId = getFolderForComposition(compositionId);
+        if (folderId) {
+          state.folderId = folderId;
+          const folder = folders.find((f) => f.id === folderId);
+          if (folder?.name) state.folderName = folder.name;
+        }
+      }
     } else if (path.startsWith("/components")) {
       state.view = "components";
     }
 
-    fetch("/_agent-native/application-state/navigation", {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       keepalive: true,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [location.pathname]);
+  }, [location.pathname, folders, getFolderForComposition]);
 
   // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/application-state/navigate");
+      const res = await fetch(
+        agentNativePath("/_agent-native/application-state/navigate"),
+      );
       if (!res.ok) return null;
-      const data = await res.json();
-      if (data) {
-        // Return with a timestamp to ensure uniqueness
-        return { ...data, _ts: Date.now() };
+      const text = await res.text();
+      if (!text) return null;
+      try {
+        const data = JSON.parse(text);
+        if (data) {
+          // Return with a timestamp to ensure uniqueness
+          return { ...data, _ts: Date.now() };
+        }
+      } catch {
+        // Empty or invalid JSON response means there is no pending command.
       }
       return null;
     },
@@ -54,8 +75,9 @@ export function useNavigationState() {
   useEffect(() => {
     if (!navCommand) return;
     // Delete the one-shot command AFTER reading it
-    fetch("/_agent-native/application-state/navigate", {
+    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
+      headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
     const cmd = navCommand as NavigationState;
     let path = "/";

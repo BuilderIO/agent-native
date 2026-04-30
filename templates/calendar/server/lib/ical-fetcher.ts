@@ -1,9 +1,36 @@
 import type { CalendarEvent } from "../../shared/api.js";
 import { nanoid } from "nanoid";
+import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
 
 /** Convert a webcal:// URL to https:// */
 function normalizeUrl(url: string): string {
   return url.replace(/^webcal:\/\//i, "https://");
+}
+
+/**
+ * Reject iCal URLs that point at private/internal addresses or non-https
+ * schemes. The URL flows in from user input (the `add-external-calendar`
+ * action) so without this guard a malicious URL like
+ * `http://169.254.169.254/latest/meta-data/iam/security-credentials/` would
+ * cause the production server to fetch AWS IAM creds and (for
+ * fetchICalEvents) return them through the action response.
+ */
+function assertSafeICalUrl(httpUrl: string): void {
+  // Force HTTPS — calendars consistently use https:// (or webcal:// rewritten
+  // to https://). Permitting plain http allows DNS-rebinding and clear-text
+  // pivots into internal services that happen to serve HTTP.
+  let parsed: URL;
+  try {
+    parsed = new URL(httpUrl);
+  } catch {
+    throw new Error("Invalid iCal URL");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error("Only https iCal URLs are allowed");
+  }
+  if (isBlockedToolUrl(httpUrl)) {
+    throw new Error("This iCal URL is not allowed");
+  }
 }
 
 /** Unfold ICS lines (continuation lines start with a space or tab) */
@@ -210,6 +237,13 @@ function nameFromUrl(url: string): string {
 export async function fetchICalName(url: string): Promise<string> {
   const httpUrl = normalizeUrl(url);
   try {
+    assertSafeICalUrl(httpUrl);
+  } catch {
+    // Don't echo the URL or the failure reason — the caller is user-facing
+    // and a verbose error helps an attacker map internal addresses.
+    return nameFromUrl(url);
+  }
+  try {
     const response = await fetch(httpUrl, {
       signal: AbortSignal.timeout(10_000),
       headers: { "User-Agent": "CalendarApp/1.0" },
@@ -236,6 +270,14 @@ export async function fetchICalEvents(
   to: string,
 ): Promise<CalendarEvent[]> {
   const httpUrl = normalizeUrl(url);
+
+  try {
+    assertSafeICalUrl(httpUrl);
+  } catch {
+    // Silently degrade — never echo the URL or reason back. A loud error
+    // helps an attacker map internal infrastructure via probe responses.
+    return [];
+  }
 
   let icsText: string;
   try {

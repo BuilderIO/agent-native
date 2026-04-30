@@ -37,9 +37,45 @@ async function ensureTable(): Promise<void> {
       await client.execute(
         `CREATE INDEX IF NOT EXISTS idx_pending_tasks_status_created ON integration_pending_tasks(status, created_at)`,
       );
+      // Additive migration: add a stable per-event dedup key so duplicate
+      // webhook deliveries from the same platform get rejected at the SQL
+      // layer instead of via an in-memory Map (which doesn't survive
+      // serverless cold starts — H3 in the webhook security audit). The
+      // unique index ensures a duplicate INSERT raises an error we can
+      // catch as "already-enqueued".
+      await ensureExternalEventKey(client);
+      await client.execute(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_tasks_event_key ON integration_pending_tasks(platform, external_event_key)`,
+      );
     })();
   }
   return _initPromise;
+}
+
+async function ensureExternalEventKey(
+  client: ReturnType<typeof getDbExec>,
+): Promise<void> {
+  if (isPostgres()) {
+    await client.execute(
+      `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS external_event_key TEXT`,
+    );
+    return;
+  }
+  // SQLite doesn't support `ADD COLUMN IF NOT EXISTS` until 3.35; swallow
+  // the duplicate-column error so reruns are idempotent.
+  try {
+    await client.execute(
+      `ALTER TABLE integration_pending_tasks ADD COLUMN external_event_key TEXT`,
+    );
+  } catch (err: any) {
+    if (
+      !String(err?.message ?? err)
+        .toLowerCase()
+        .includes("duplicate")
+    ) {
+      throw err;
+    }
+  }
 }
 
 /** Status values for an integration pending task. */
@@ -84,6 +120,12 @@ function rowToTask(row: Record<string, unknown>): PendingTask {
 
 /**
  * Insert a new pending task. Returns the generated task id.
+ *
+ * If `externalEventKey` is supplied, the unique index on
+ * `(platform, external_event_key)` will reject duplicates — callers should
+ * catch the resulting constraint-violation error and treat it as
+ * "already enqueued" instead of a hard failure (H3 in the webhook security
+ * audit). This is the SQL-backed replacement for the in-memory dedup map.
  */
 export async function insertPendingTask(input: {
   id: string;
@@ -92,14 +134,15 @@ export async function insertPendingTask(input: {
   payload: string;
   ownerEmail: string;
   orgId?: string | null;
+  externalEventKey?: string | null;
 }): Promise<void> {
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
   await client.execute({
     sql: `INSERT INTO integration_pending_tasks
-      (id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, created_at, updated_at, external_event_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       input.id,
       input.platform,
@@ -111,8 +154,29 @@ export async function insertPendingTask(input: {
       0,
       now,
       now,
+      input.externalEventKey ?? null,
     ],
   });
+}
+
+/**
+ * Returns whether a duplicate-event error from `insertPendingTask` looks
+ * like a unique-constraint violation on `(platform, external_event_key)`.
+ *
+ * Postgres surfaces these as `error.code === "23505"`, while SQLite uses
+ * a substring match on the error text. Used by the webhook handler to
+ * distinguish "already enqueued" (silently OK) from genuine insert failures.
+ */
+export function isDuplicateEventError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string } | null;
+  if (!e) return false;
+  if (e.code === "23505") return true; // Postgres unique-violation
+  const msg = String(e.message ?? "").toLowerCase();
+  return (
+    msg.includes("unique") ||
+    msg.includes("duplicate entry") ||
+    msg.includes("duplicate key")
+  );
 }
 
 /** Fetch a pending task by id. */
@@ -140,16 +204,17 @@ export async function claimPendingTask(
   const client = getDbExec();
   const now = Date.now();
 
-  // Conditional update: only flip if currently pending or failed.
+  // Conditional update: only flip if currently pending. Failed tasks are
+  // terminal unless an explicit retry path resets them to pending first.
   const { rows } = await client.execute({
     sql: isPostgres()
       ? `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?
-         WHERE id = ? AND status IN ('pending', 'failed')
+         WHERE id = ? AND status = 'pending'
          RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, error_message, created_at, updated_at, completed_at`
       : `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?
-         WHERE id = ? AND status IN ('pending', 'failed')`,
+         WHERE id = ? AND status = 'pending'`,
     args: ["processing", now, id],
   });
 

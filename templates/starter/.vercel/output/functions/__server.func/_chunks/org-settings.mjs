@@ -1,0 +1,1 @@
+import{i as e,r as t,t as n}from"./store.mjs";function r(e,t){return`o:${e}:${t}`}async function i(e,n){return t(r(e,n))}async function a(t,n,i,a){return e(r(t,n),i,a)}async function o(e,t,i){return n(r(e,t),i)}export{i as n,a as r,o as t};

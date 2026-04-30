@@ -17,33 +17,28 @@ import {
 import { updateThreadData } from "../chat-threads/store.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
-import { insertPendingTask, type PendingTask } from "./pending-tasks-store.js";
+import {
+  insertPendingTask,
+  isDuplicateEventError,
+  type PendingTask,
+} from "./pending-tasks-store.js";
 import { signInternalToken } from "./internal-token.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
+import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 
 /**
- * Tracks recently processed event IDs to deduplicate webhook retries.
- * Slack retries if it doesn't get a 200 within 3 seconds.
+ * Build a stable per-event dedup key from the incoming message. The same
+ * key is computed for every retry of the same event from the platform —
+ * Slack/Telegram retry on timeout (3s for Slack), so we MUST treat the
+ * second delivery as a duplicate and return 200 silently.
+ *
+ * The `(platform, external_event_key)` UNIQUE index in
+ * `integration_pending_tasks` enforces this at the SQL layer, replacing
+ * the previous in-memory Map (H3 in the webhook security audit) which
+ * couldn't survive serverless cold starts.
  */
-const recentEventIds = new Map<string, number>();
-const DEDUP_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-// Periodically clean up old entries
-setInterval(() => {
-  const cutoff = Date.now() - DEDUP_TTL_MS;
-  for (const [id, ts] of recentEventIds) {
-    if (ts < cutoff) recentEventIds.delete(id);
-  }
-}, 60_000);
-
-/**
- * Check if this event was already processed (for deduplication).
- * Returns true if it's a duplicate.
- */
-function isDuplicate(eventId: string): boolean {
-  if (recentEventIds.has(eventId)) return true;
-  recentEventIds.set(eventId, Date.now());
-  return false;
+function buildEventDedupKey(incoming: IncomingMessage): string {
+  return `${incoming.platform}:${incoming.externalThreadId}:${incoming.timestamp}`;
 }
 
 export interface WebhookHandlerOptions {
@@ -127,11 +122,12 @@ export async function handleWebhook(
     }
   }
 
-  // Deduplicate (platforms retry on timeout)
-  const eventId = `${incoming.platform}:${incoming.externalThreadId}:${incoming.timestamp}`;
-  if (isDuplicate(eventId)) {
-    return { status: 200, body: "ok" };
-  }
+  // Dedup is enforced inside enqueueAndDispatch — the unique index on
+  // `(platform, external_event_key)` raises a constraint violation we treat
+  // as "already enqueued" and respond 200. We can't dedup BEFORE the
+  // beforeProcess hook because some templates use beforeProcess for
+  // command-style intercepts that are stateless and idempotent (e.g. a
+  // Slack `/help` command that doesn't enqueue a task).
 
   if (beforeProcess) {
     const result = await beforeProcess(incoming, adapter);
@@ -148,13 +144,21 @@ export async function handleWebhook(
   try {
     await enqueueAndDispatch(event, incoming, options);
   } catch (err) {
+    // Duplicate event delivery: the SQL UNIQUE constraint on
+    // (platform, external_event_key) rejected the second insert. This is
+    // the expected path when a platform retries an event that already
+    // landed (e.g. Slack 3-second timeout) — return 200 so the platform
+    // stops retrying. See H3 in the webhook security audit.
+    if (isDuplicateEventError(err)) {
+      return { status: 200, body: "ok" };
+    }
     console.error(
       `[integrations] Failed to enqueue/dispatch ${incoming.platform} message:`,
       err,
     );
-    // Return 500 so the platform retries. If the SQL insert failed, the
-    // message is genuinely lost — better to let Slack retry (it will
-    // re-fire the same event_callback) than silently drop it.
+    // Return 500 so the platform retries. If the SQL insert failed for a
+    // non-dup reason, the message is genuinely lost — better to let Slack
+    // retry (it will re-fire the same event_callback) than silently drop it.
     return { status: 500, body: { error: "enqueue failed" } };
   }
 
@@ -217,24 +221,35 @@ async function enqueueAndDispatch(
     payload,
     ownerEmail: options.ownerEmail,
     orgId,
+    // SQL-level dedup key — duplicate webhook deliveries from the same
+    // platform produce the same key, so the unique index rejects the
+    // second insert (H3 in the webhook security audit).
+    externalEventKey: buildEventDedupKey(incoming),
   });
 
   const baseUrl = resolveBaseUrl(event);
   const processUrl = `${baseUrl}${FRAMEWORK_ROUTE_PREFIX}/integrations/process-task`;
 
-  // If A2A_SECRET is configured, sign the dispatch with an HMAC token so the
-  // processor endpoint can verify the request came from us and not from the
-  // public internet. If A2A_SECRET isn't set we still dispatch — the
-  // processor endpoint validates that the task id exists in SQL and uses the
-  // atomic claim to dedupe, so an unsigned dispatch is bounded in damage to
-  // re-running already-queued work.
+  // Sign the dispatch with an HMAC token so the processor endpoint can
+  // verify the request came from us and not the public internet. The
+  // processor refuses unsigned requests in production (C3 in the webhook
+  // security audit). In dev, dispatching unsigned is allowed and falls
+  // through to the SQL atomic claim for double-processing protection.
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   try {
     headers["Authorization"] = `Bearer ${signInternalToken(taskId)}`;
-  } catch {
-    // No A2A_SECRET — proceed without a signed token. See note above.
+  } catch (err) {
+    // Distinguish "secret not configured" (the documented dev path) from
+    // a real signing failure — silently swallowing both made malformed
+    // secrets fail invisibly (L5 in the audit).
+    if (err instanceof Error && !/A2A_SECRET/i.test(err.message)) {
+      console.error(
+        `[integrations] signInternalToken failed unexpectedly for ${taskId}:`,
+        err,
+      );
+    }
   }
 
   // Fire-and-forget: do NOT await the full response (the processor's run
@@ -262,13 +277,13 @@ async function enqueueAndDispatch(
  * Prefers explicit env vars (most reliable on serverless), falls back to the
  * inbound request's headers.
  */
-function resolveBaseUrl(event: H3Event): string {
+export function resolveBaseUrl(event: H3Event): string {
   const fromEnv =
     process.env.APP_URL ||
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
-  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  if (fromEnv) return withConfiguredAppBasePath(fromEnv);
 
   try {
     const headers = (event as any).node?.req?.headers ?? (event as any).headers;
@@ -283,9 +298,11 @@ function resolveBaseUrl(event: H3Event): string {
     };
     const proto = get("x-forwarded-proto") || "http";
     const host = get("host") || `localhost:${process.env.PORT || 3000}`;
-    return `${proto}://${host}`;
+    return withConfiguredAppBasePath(`${proto}://${host}`);
   } catch {
-    return `http://localhost:${process.env.PORT || 3000}`;
+    return withConfiguredAppBasePath(
+      `http://localhost:${process.env.PORT || 3000}`,
+    );
   }
 }
 
@@ -484,9 +501,10 @@ async function processIncomingMessage(
           // of inlining a `<url|text>` link that auto-unfurls into a giant
           // preview card.
           const baseUrl = process.env.APP_URL || process.env.URL || "";
+          const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
           const threadDeepLinkUrl =
-            baseUrl && threadId
-              ? `${baseUrl.replace(/\/$/, "")}/?thread=${threadId}`
+            appBaseUrl && threadId
+              ? `${appBaseUrl}/?thread=${threadId}`
               : undefined;
 
           // Format and send back to platform — update the "thinking…"

@@ -37,6 +37,14 @@ export default defineAction({
     lockTimeZoneToggle: z.boolean().optional(),
     color: z.string().nullable().optional(),
     eventName: z.string().nullable().optional(),
+    recurringEvent: z
+      .object({
+        rrule: z.string(),
+        count: z.number().optional(),
+        description: z.string().optional(),
+      })
+      .nullable()
+      .optional(),
   }),
   run: async (args) => {
     const { id, ...patch } = args;

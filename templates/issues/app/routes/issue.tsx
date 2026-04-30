@@ -4,6 +4,10 @@ import { IconExternalLink } from "@tabler/icons-react";
 import { IssueDetail } from "@/components/issues/IssueDetail";
 import { Button } from "@/components/ui/button";
 
+export function meta() {
+  return [{ title: "Issue Preview — Issues" }];
+}
+
 export default function IssuePreviewRoute() {
   const [searchParams] = useSearchParams();
   const issueKey = searchParams.get("issueKey");

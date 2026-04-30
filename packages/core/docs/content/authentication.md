@@ -52,6 +52,20 @@ AUTH_MODE=local
 
 To switch back to real auth, remove the line from `.env` (or clear the marker file by calling `POST /_agent-native/auth/exit-local-mode`).
 
+## QA Accounts {#qa-accounts}
+
+For hosted QA environments where testers need real accounts but should not wait
+on email delivery, set:
+
+```bash
+AUTH_SKIP_EMAIL_VERIFICATION=1
+```
+
+When this flag is set, email/password signup does not require email
+verification and the signup verification email is not sent. Use it only for QA
+or preview environments, and name test accounts with a `+qa` address
+(`name+qa@example.com`) so they are easy to identify.
+
 ## Social Providers {#social-providers}
 
 Set environment variables to enable social login. Better Auth auto-detects them:
@@ -67,6 +81,18 @@ GITHUB_CLIENT_SECRET=your-client-secret
 ```
 
 Templates that use `createGoogleAuthPlugin()` show a "Sign in with Google" page. The Google OAuth callback handles mobile deep linking for native apps automatically.
+
+### OAuth State Signing {#oauth-state-secret}
+
+OAuth state envelopes (Google, Atlassian, Zoom) are HMAC-signed with `OAUTH_STATE_SECRET`. Set this to a random 32+ char value in production:
+
+```bash
+OAUTH_STATE_SECRET=$(openssl rand -hex 32)
+```
+
+If unset, the framework falls back to `BETTER_AUTH_SECRET`. A dedicated `OAUTH_STATE_SECRET` is recommended so rotating one secret doesn't invalidate the other. Reusing a third-party client secret (e.g. `GOOGLE_CLIENT_SECRET`) for OAuth state signing is **not** supported — a leak of the third-party secret would let attackers forge state envelopes.
+
+`redirect_uri` query parameters on framework OAuth endpoints are validated against an allowlist (same-origin + framework `/_agent-native/...` paths). Custom OAuth flows in templates should use `isAllowedOAuthRedirectUri(candidate, event)` from `@agent-native/core/server` before signing state.
 
 ## Organizations {#organizations}
 
@@ -192,15 +218,16 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 
 ## Environment Variables {#environment-variables}
 
-| Variable               | Purpose                                                          |
-| ---------------------- | ---------------------------------------------------------------- |
-| `AUTH_MODE`            | Set to `local` to disable auth                                   |
-| `BETTER_AUTH_SECRET`   | Signing key for Better Auth (auto-generated if not set)          |
-| `GOOGLE_CLIENT_ID`     | Enable Google OAuth                                              |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth secret                                              |
-| `GITHUB_CLIENT_ID`     | Enable GitHub OAuth                                              |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth secret                                              |
-| `ACCESS_TOKEN`         | Simple shared token auth                                         |
-| `ACCESS_TOKENS`        | Comma-separated shared tokens                                    |
-| `AUTH_DISABLED`        | Set to `true` to skip auth (infrastructure-level auth)           |
-| `A2A_SECRET`           | Shared secret for JWT-signed A2A cross-app identity verification |
+| Variable                       | Purpose                                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `AUTH_MODE`                    | Set to `local` to disable auth                                                                   |
+| `BETTER_AUTH_SECRET`           | Signing key for Better Auth (auto-generated if not set)                                          |
+| `AUTH_SKIP_EMAIL_VERIFICATION` | Set to `1` in QA/preview environments to let email/password signups proceed without verification |
+| `GOOGLE_CLIENT_ID`             | Enable Google OAuth                                                                              |
+| `GOOGLE_CLIENT_SECRET`         | Google OAuth secret                                                                              |
+| `GITHUB_CLIENT_ID`             | Enable GitHub OAuth                                                                              |
+| `GITHUB_CLIENT_SECRET`         | GitHub OAuth secret                                                                              |
+| `ACCESS_TOKEN`                 | Simple shared token auth                                                                         |
+| `ACCESS_TOKENS`                | Comma-separated shared tokens                                                                    |
+| `AUTH_DISABLED`                | Set to `true` to skip auth (infrastructure-level auth)                                           |
+| `A2A_SECRET`                   | Shared secret for JWT-signed A2A cross-app identity verification                                 |

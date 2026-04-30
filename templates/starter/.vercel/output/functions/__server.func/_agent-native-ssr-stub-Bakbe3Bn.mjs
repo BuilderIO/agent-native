@@ -1,0 +1,1 @@
+var e={get(t,n){if(n===Symbol.toPrimitive)return()=>``;if(n!==`then`)return new Proxy(()=>{},e)}},t=new Proxy(()=>{},e);export{t as default};

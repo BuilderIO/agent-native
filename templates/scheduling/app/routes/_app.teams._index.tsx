@@ -2,6 +2,10 @@ import { Button } from "@/components/ui/button";
 import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 
+export function meta() {
+  return [{ title: "Teams — Scheduling" }];
+}
+
 export default function TeamsIndex() {
   useSetHeaderActions(
     <Button disabled className="cursor-pointer">

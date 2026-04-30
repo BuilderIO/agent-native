@@ -1,7 +1,24 @@
 import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
 import fs from "fs/promises";
 import path from "path";
-import { readBody } from "@agent-native/core/server";
+import { getSession, readBody } from "@agent-native/core/server";
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function jsString(value: unknown): string {
+  return JSON.stringify(typeof value === "string" ? value : "");
+}
+
+function jsNumber(value: unknown, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function jsPropertyKey(value: unknown): string {
+  return JSON.stringify(String(value ?? ""));
+}
 
 export default defineEventHandler(async (event: H3Event) => {
   // Block source file writes in production (treat undefined NODE_ENV as production for edge runtimes)
@@ -11,6 +28,12 @@ export default defineEventHandler(async (event: H3Event) => {
       error:
         "Source file modification is not available in production mode. Use local development instead.",
     };
+  }
+
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
   }
 
   try {
@@ -25,16 +48,16 @@ export default defineEventHandler(async (event: H3Event) => {
       height,
     } = body;
 
-    if (!compositionId) {
+    if (
+      typeof compositionId !== "string" ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(compositionId)
+    ) {
       setResponseStatus(event, 400);
-      return "Missing compositionId";
+      return "Invalid compositionId";
     }
 
     // Read the current registry file
-    const registryPath = path.join(
-      process.cwd(),
-      "client/remotion/registry.ts",
-    );
+    const registryPath = path.join(process.cwd(), "app/remotion/registry.ts");
     let registryContent = await fs.readFile(registryPath, "utf-8");
 
     // Format tracks and props
@@ -42,7 +65,10 @@ export default defineEventHandler(async (event: H3Event) => {
     const formattedProps = formatPropsAsCode(defaultProps);
 
     // Find the composition by searching for the id
-    const idPattern = new RegExp(`id:\\s*"${compositionId}"`, "g");
+    const idPattern = new RegExp(
+      `id:\\s*"${escapeRegExp(compositionId)}"`,
+      "g",
+    );
     const matches: number[] = [];
     let match;
     while ((match = idPattern.exec(registryContent)) !== null) {
@@ -101,14 +127,14 @@ export default defineEventHandler(async (event: H3Event) => {
 
     // Build the new composition object
     const newComposition = `{
-    id: "${compositionId}",
-    title: "${titleMatch?.[1] || ""}",
-    description: "${descMatch?.[1] || ""}",
+    id: ${jsString(compositionId)},
+    title: ${jsString(titleMatch?.[1])},
+    description: ${jsString(descMatch?.[1])},
     component: ${componentMatch?.[1] || ""},
-    durationInFrames: ${durationInFrames},
-    fps: ${fps},
-    width: ${width},
-    height: ${height},
+    durationInFrames: ${jsNumber(durationInFrames)},
+    fps: ${jsNumber(fps, 30)},
+    width: ${jsNumber(width, 1920)},
+    height: ${jsNumber(height, 1080)},
     defaultProps: ${formattedProps} satisfies ${satisfiesMatch?.[1] || "any"},
     tracks: ${formattedTracks},
   }`;
@@ -137,21 +163,21 @@ function formatTracksAsCode(tracks: any[]): string {
   const formatted = tracks
     .map((track) => {
       const props: string[] = [
-        `id: "${track.id}"`,
-        `label: "${track.label}"`,
-        `startFrame: ${track.startFrame}`,
-        `endFrame: ${track.endFrame}`,
-        `easing: "${track.easing}"`,
+        `id: ${jsString(track.id)}`,
+        `label: ${jsString(track.label)}`,
+        `startFrame: ${jsNumber(track.startFrame)}`,
+        `endFrame: ${jsNumber(track.endFrame)}`,
+        `easing: ${jsString(track.easing)}`,
       ];
 
       if (track.animatedProps && track.animatedProps.length > 0) {
         const animatedPropsCode = track.animatedProps
           .map((prop: any) => {
             const propParts: string[] = [
-              `property: "${prop.property}"`,
-              `from: "${prop.from}"`,
-              `to: "${prop.to}"`,
-              `unit: "${prop.unit}"`,
+              `property: ${jsString(prop.property)}`,
+              `from: ${jsString(prop.from)}`,
+              `to: ${jsString(prop.to)}`,
+              `unit: ${jsString(prop.unit)}`,
             ];
 
             if (prop.programmatic) {
@@ -168,14 +194,16 @@ function formatTracksAsCode(tracks: any[]): string {
               const paramsCode = prop.parameters
                 .map((param: any) => {
                   const parts = [
-                    `name: "${param.name}"`,
-                    `label: "${param.label}"`,
-                    `default: ${param.default}`,
+                    `name: ${jsString(param.name)}`,
+                    `label: ${jsString(param.label)}`,
+                    `default: ${JSON.stringify(param.default ?? null)}`,
                   ];
-                  if (param.min !== undefined) parts.push(`min: ${param.min}`);
-                  if (param.max !== undefined) parts.push(`max: ${param.max}`);
+                  if (param.min !== undefined)
+                    parts.push(`min: ${jsNumber(param.min)}`);
+                  if (param.max !== undefined)
+                    parts.push(`max: ${jsNumber(param.max)}`);
                   if (param.step !== undefined)
-                    parts.push(`step: ${param.step}`);
+                    parts.push(`step: ${jsNumber(param.step)}`);
                   return `{ ${parts.join(", ")} }`;
                 })
                 .join(", ");
@@ -187,7 +215,10 @@ function formatTracksAsCode(tracks: any[]): string {
               Object.keys(prop.parameterValues).length > 0
             ) {
               const valuesCode = Object.entries(prop.parameterValues)
-                .map(([key, value]) => `${key}: ${value}`)
+                .map(
+                  ([key, value]) =>
+                    `${jsPropertyKey(key)}: ${JSON.stringify(value)}`,
+                )
                 .join(", ");
               propParts.push(`parameterValues: { ${valuesCode} }`);
             }
@@ -204,10 +235,10 @@ function formatTracksAsCode(tracks: any[]): string {
               const keyframesCode = prop.keyframes
                 .map((kf: any) => {
                   const kfParts = [
-                    `frame: ${kf.frame}`,
-                    `value: "${kf.value}"`,
+                    `frame: ${jsNumber(kf.frame)}`,
+                    `value: ${jsString(kf.value)}`,
                   ];
-                  if (kf.easing) kfParts.push(`easing: "${kf.easing}"`);
+                  if (kf.easing) kfParts.push(`easing: ${jsString(kf.easing)}`);
                   return `{ ${kfParts.join(", ")} }`;
                 })
                 .join(", ");
@@ -215,7 +246,7 @@ function formatTracksAsCode(tracks: any[]): string {
             }
 
             if (prop.easing) {
-              propParts.push(`easing: "${prop.easing}"`);
+              propParts.push(`easing: ${jsString(prop.easing)}`);
             }
 
             return `{ ${propParts.join(", ")} }`;
@@ -236,9 +267,7 @@ function formatTracksAsCode(tracks: any[]): string {
 
 function formatPropsAsCode(props: Record<string, any>): string {
   const entries = Object.entries(props).map(([key, value]) => {
-    const formattedValue =
-      typeof value === "string" ? `"${value}"` : JSON.stringify(value);
-    return `${key}: ${formattedValue}`;
+    return `${jsPropertyKey(key)}: ${JSON.stringify(value)}`;
   });
   return `{\n      ${entries.join(",\n      ")}\n    }`;
 }

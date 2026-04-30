@@ -1,7 +1,7 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { focusAgentChat } from "@agent-native/core/client";
+import { focusAgentChat, agentNativePath } from "@agent-native/core/client";
 import {
   QueryClient,
   QueryClientProvider,
@@ -17,7 +17,7 @@ import {
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { Toaster } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import type { LinksFunction } from "react-router";
@@ -80,6 +80,13 @@ function DbSyncSetup() {
       "list-dispatch-audit",
       "get-dispatch-settings",
       "list-connected-agents",
+      "list-vault-secrets",
+      "list-vault-grants",
+      "list-vault-requests",
+      "list-vault-audit",
+      "list-workspace-resources",
+      "list-workspace-resource-grants",
+      "list-integrations-catalog",
     ],
     ignoreSource: TAB_ID,
   });
@@ -101,7 +108,7 @@ function useThreadDeepLink() {
     handled.current = true;
 
     // Write a chat-command to application-state so the sidebar opens this thread
-    fetch("/_agent-native/application-state/chat-command", {
+    fetch(agentNativePath("/_agent-native/application-state/chat-command"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -163,7 +170,7 @@ export default function Root() {
             <AppLayout>
               <Outlet />
             </AppLayout>
-            <Toaster position="bottom-left" />
+            <Toaster richColors position="bottom-left" />
           </TooltipProvider>
         </QueryClientProvider>
       </ThemeProvider>

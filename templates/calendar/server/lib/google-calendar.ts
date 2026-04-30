@@ -46,7 +46,36 @@ function getOAuth2Credentials() {
 }
 
 /**
+ * Permanent OAuth refresh failures Google can return. When we hit one of
+ * these, the refresh_token is dead — keeping the row around makes
+ * `getAuthStatus` lie ("connected": true) and event fetches return an
+ * empty list (no clients, no surfaced errors). Drop the row so the UI
+ * shows the "Connect Google" banner instead of an empty calendar.
+ *
+ * Causes we've seen:
+ * - `invalid_grant`: user revoked access, password changed, or token aged out
+ * - `unauthorized_client`: the app's GOOGLE_CLIENT_ID was rotated in env;
+ *   tokens issued by the old client cannot be refreshed by the new one
+ * - `invalid_client`: client_id/secret mismatch
+ */
+const PERMANENT_REFRESH_ERRORS = [
+  "invalid_grant",
+  "unauthorized_client",
+  "invalid_client",
+];
+
+function isPermanentRefreshError(message: string): boolean {
+  const m = message.toLowerCase();
+  return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
+}
+
+/**
  * Get a valid access token for a Google account, refreshing if expired.
+ *
+ * Throws on refresh failure rather than returning a stale token. Callers
+ * that aggregate across accounts should catch and translate to a per-
+ * account error so UIs can prompt a reconnect instead of silently
+ * showing empty results.
  */
 async function getValidAccessToken(
   accountId: string,
@@ -54,11 +83,15 @@ async function getValidAccessToken(
   owner?: string,
 ): Promise<string> {
   // Check if token is expired (with 5-minute buffer)
-  if (
-    tokens.expiry_date &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000 &&
-    tokens.refresh_token
-  ) {
+  if (tokens.expiry_date && tokens.expiry_date < Date.now() + 5 * 60 * 1000) {
+    if (!tokens.refresh_token) {
+      // No refresh token means we can never recover this account; drop it
+      // so the UI prompts a reconnect instead of using an expired token.
+      await deleteOAuthTokens("google", accountId);
+      throw new Error(
+        `No refresh token available for ${accountId} — please reconnect.`,
+      );
+    }
     try {
       const { clientId, clientSecret } = getOAuth2Credentials();
       const oauth2 = createOAuth2Client(clientId, clientSecret, "");
@@ -71,8 +104,21 @@ async function getValidAccessToken(
         owner ?? accountId,
       );
       return merged.access_token;
-    } catch {
-      // Refresh failed — use existing token
+    } catch (err: any) {
+      if (isPermanentRefreshError(err?.message || "")) {
+        // Drop the dead row so isOAuthConnected returns false and the UI
+        // surfaces the connect banner instead of a stale-token illusion.
+        await deleteOAuthTokens("google", accountId);
+        throw err;
+      }
+      // Transient failure (network hiccup, 5xx, timeout). If the existing
+      // token hasn't actually expired yet — we only entered this path
+      // because we're inside the 5-minute pre-expiry buffer — fall back to
+      // it so a flaky moment doesn't 502 the calendar.
+      if (tokens.access_token && tokens.expiry_date > Date.now()) {
+        return tokens.access_token;
+      }
+      throw err;
     }
   }
   return tokens.access_token;
@@ -142,13 +188,40 @@ export async function getClient(
   return { accessToken };
 }
 
+/**
+ * Get OAuth credentials. When `forEmail` is provided, returns only that
+ * user's credentials (multi-user mode). Otherwise returns an empty array.
+ *
+ * Refresh failures are swallowed per-account — the signature preserves
+ * the "empty array means no usable client" contract that existing
+ * callers rely on for graceful "no Google account connected" fallbacks.
+ * Callers that need to surface "all your tokens are dead" to the UI
+ * should use `getClientsWithErrors` directly (already wired into
+ * `listEvents` and `listOverlayEvents`).
+ */
 export async function getClients(
   forEmail?: string,
 ): Promise<Array<{ email: string; accessToken: string }>> {
-  if (!forEmail) return [];
+  const { clients } = await getClientsWithErrors(forEmail);
+  return clients;
+}
+
+/**
+ * Same as `getClients`, but also returns per-account refresh errors so
+ * callers can distinguish "no accounts connected" (empty errors) from
+ * "all accounts failed to refresh" (errors populated). Event fetches use
+ * this to return a 502 with the underlying reason instead of silently
+ * rendering an empty calendar.
+ */
+export async function getClientsWithErrors(forEmail?: string): Promise<{
+  clients: Array<{ email: string; accessToken: string }>;
+  errors: Array<{ email: string; error: string }>;
+}> {
+  if (!forEmail) return { clients: [], errors: [] };
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
 
-  const results: Array<{ email: string; accessToken: string }> = [];
+  const clients: Array<{ email: string; accessToken: string }> = [];
+  const errors: Array<{ email: string; error: string }> = [];
 
   for (const account of accounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
@@ -158,15 +231,22 @@ export async function getClients(
         ? account.owner
         : undefined) ??
       account.accountId;
-    const accessToken = await getValidAccessToken(
-      account.accountId,
-      tokens,
-      owner,
-    );
-    results.push({ email: account.accountId, accessToken });
+    try {
+      const accessToken = await getValidAccessToken(
+        account.accountId,
+        tokens,
+        owner,
+      );
+      clients.push({ email: account.accountId, accessToken });
+    } catch (err: any) {
+      errors.push({
+        email: account.accountId,
+        error: err?.message || "Unknown refresh error",
+      });
+    }
   }
 
-  return results;
+  return { clients, errors };
 }
 
 export async function isConnected(forEmail?: string): Promise<boolean> {
@@ -219,10 +299,14 @@ export async function listEvents(
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
 }> {
-  const clients = await getClients(forEmail);
-  if (clients.length === 0) return { events: [], errors: [] };
-
-  const errors: Array<{ email: string; error: string }> = [];
+  const { clients, errors: refreshErrors } =
+    await getClientsWithErrors(forEmail);
+  // Seed with refresh failures so a fully-dead connection (every account's
+  // refresh_token revoked or invalidated by a GOOGLE_CLIENT_ID rotation)
+  // reaches the caller — otherwise the result is indistinguishable from
+  // "calendar is empty" and the user sees no error.
+  const errors: Array<{ email: string; error: string }> = [...refreshErrors];
+  if (clients.length === 0) return { events: [], errors };
 
   const allResults = await Promise.all(
     clients.map(async ({ email, accessToken }) => {
@@ -331,12 +415,13 @@ export async function listOverlayEvents(
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
 }> {
-  const clients = await getClients(forEmail);
-  if (clients.length === 0) return { events: [], errors: [] };
+  const { clients, errors: refreshErrors } =
+    await getClientsWithErrors(forEmail);
+  const errors: Array<{ email: string; error: string }> = [...refreshErrors];
+  if (clients.length === 0) return { events: [], errors };
 
   // Use the first available token to query other people's calendars
   const { accessToken } = clients[0];
-  const errors: Array<{ email: string; error: string }> = [];
 
   const allResults = await Promise.all(
     overlayEmails.map(async (overlayEmail) => {

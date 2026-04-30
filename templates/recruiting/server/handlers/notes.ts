@@ -52,6 +52,8 @@ export const createNoteHandler = defineEventHandler(async (event) => {
   }
 
   const ctx = await getOrgContext(event);
+  if (!ctx.email)
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   const id = nanoid();
   const now = Date.now();
 
@@ -61,7 +63,7 @@ export const createNoteHandler = defineEventHandler(async (event) => {
     content: body.content,
     type: body.type,
     createdAt: now,
-    ownerEmail: ctx.email !== "local@localhost" ? ctx.email : null,
+    ownerEmail: ctx.email,
     orgId: ctx.orgId,
   });
 
@@ -79,10 +81,15 @@ export const deleteNoteHandler = defineEventHandler(async (event) => {
   const ctx = await getOrgContext(event);
   const id = getRouterParam(event, "id");
   if (!id) throw createError({ statusCode: 400, message: "Note ID required" });
+  if (!ctx.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
 
-  // If in an org, any org member can delete notes (org-scoped).
-  // If solo, only the author can delete.
-  const condition = ctx.orgId
+  // Look up the note first so we can authorize the deletion.
+  // Authors can always delete their own notes. Inside an org, only
+  // org owners/admins may delete other members' notes — a junior
+  // recruiter must not be able to wipe the lead's analysis.
+  const idCondition = ctx.orgId
     ? and(eq(schema.agentNotes.id, id), eq(schema.agentNotes.orgId, ctx.orgId))
     : and(
         eq(schema.agentNotes.id, id),
@@ -90,7 +97,26 @@ export const deleteNoteHandler = defineEventHandler(async (event) => {
         isNull(schema.agentNotes.orgId),
       );
 
-  await db.delete(schema.agentNotes).where(condition);
+  const [existing] = await db
+    .select()
+    .from(schema.agentNotes)
+    .where(idCondition)
+    .limit(1);
+
+  if (!existing) {
+    throw createError({ statusCode: 404, statusMessage: "Note not found" });
+  }
+
+  const isAuthor = existing.ownerEmail === ctx.email;
+  const isOrgAdmin = ctx.role === "owner" || ctx.role === "admin";
+  if (!isAuthor && !isOrgAdmin) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: "You can only delete notes you authored.",
+    });
+  }
+
+  await db.delete(schema.agentNotes).where(idCondition);
 
   return { success: true };
 });

@@ -1,4 +1,5 @@
 import {
+  createError,
   defineEventHandler,
   getRouterParam,
   getHeader,
@@ -12,7 +13,7 @@ import {
   appStateList,
   appStateDeleteByPrefix,
 } from "./store.js";
-import { getSession } from "../server/auth.js";
+import { getSession, DEV_MODE_USER_EMAIL } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 
 /**
@@ -23,9 +24,14 @@ import { readBody } from "../server/h3-helpers.js";
  */
 async function getSessionId(event: H3Event): Promise<string> {
   const session = await getSession(event);
-  if (!session) return "local";
-  // Dev mode returns "local@localhost" — keep using "local" for compat
-  if (session.email === "local@localhost") return "local";
+  if (!session?.email) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: "Unauthenticated",
+    });
+  }
+  // Dev mode returns DEV_MODE_USER_EMAIL — keep using "local" for compat
+  if (session.email === DEV_MODE_USER_EMAIL) return "local";
   return session.email;
 }
 

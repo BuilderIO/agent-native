@@ -16,6 +16,7 @@ import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   getActiveOrganizationId,
   parseSpaceIds,
@@ -143,13 +144,18 @@ async function fetchLibrary(folderId?: string) {
 
 async function fetchFoldersForSpace(spaceId: string | null) {
   const db = getDb();
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return [];
   const rows = await db
     .select()
     .from(schema.folders)
     .where(
-      spaceId
-        ? eq(schema.folders.spaceId, spaceId)
-        : isNull(schema.folders.spaceId),
+      and(
+        eq(schema.folders.ownerEmail, ownerEmail),
+        spaceId
+          ? eq(schema.folders.spaceId, spaceId)
+          : isNull(schema.folders.spaceId),
+      ),
     )
     .orderBy(asc(schema.folders.position));
   return rows.map((f) => ({
@@ -161,14 +167,15 @@ async function fetchFoldersForSpace(spaceId: string | null) {
 }
 
 async function fetchSpaces(organizationId: string | null) {
+  // No active org -> don't leak cross-tenant spaces. The org switcher in the
+  // UI is responsible for prompting the user to choose an organization.
+  if (!organizationId) return [];
   const db = getDb();
-  const rows = organizationId
-    ? await db
-        .select()
-        .from(schema.spaces)
-        .where(eq(schema.spaces.organizationId, organizationId))
-        .orderBy(asc(schema.spaces.name))
-    : await db.select().from(schema.spaces).orderBy(asc(schema.spaces.name));
+  const rows = await db
+    .select()
+    .from(schema.spaces)
+    .where(eq(schema.spaces.organizationId, organizationId))
+    .orderBy(asc(schema.spaces.name));
   return rows.map((s) => ({
     id: s.id,
     name: s.name,
@@ -217,14 +224,16 @@ export default defineAction({
       case "recording":
       case "insights": {
         if (nav.recordingId) {
-          const [recording, transcript, comments] = await Promise.all([
-            fetchRecording(nav.recordingId),
-            fetchTranscript(nav.recordingId),
-            fetchComments(nav.recordingId),
-          ]);
-          if (recording) screen.recording = recording;
-          if (transcript) screen.transcript = transcript;
-          screen.comments = comments;
+          const recording = await fetchRecording(nav.recordingId);
+          if (recording) {
+            const [transcript, comments] = await Promise.all([
+              fetchTranscript(nav.recordingId),
+              fetchComments(nav.recordingId),
+            ]);
+            screen.recording = recording;
+            if (transcript) screen.transcript = transcript;
+            screen.comments = comments;
+          }
         }
         break;
       }

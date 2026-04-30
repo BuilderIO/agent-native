@@ -3,6 +3,10 @@
 // Mirrors patterns from server/lib/gong.ts
 
 import { resolveCredential } from "./credentials";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const REST_BASE = "https://api.github.com";
 const GRAPHQL_URL = "https://api.github.com/graphql";
@@ -12,8 +16,9 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 200;
 
 async function getToken(): Promise<string> {
-  const token = await resolveCredential("GITHUB_TOKEN");
-  if (!token) throw new Error("GITHUB_TOKEN env var is required");
+  const ctx = requireRequestCredentialContext("GITHUB_TOKEN");
+  const token = await resolveCredential("GITHUB_TOKEN", ctx);
+  if (!token) throw new Error("GITHUB_TOKEN not configured");
   return token;
 }
 
@@ -35,7 +40,7 @@ function cacheSet(key: string, data: unknown) {
 }
 
 async function restGet<T>(path: string, cacheKey?: string): Promise<T> {
-  const key = cacheKey ?? path;
+  const key = scopedCredentialCacheKey(cacheKey ?? path, "GITHUB_TOKEN");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data as T;
 
@@ -78,7 +83,10 @@ async function graphql<T>(
   variables?: Record<string, unknown>,
 ): Promise<T> {
   const body = JSON.stringify({ query, variables });
-  const key = `gql:${query}:${JSON.stringify(variables)}`;
+  const key = scopedCredentialCacheKey(
+    `gql:${query}:${JSON.stringify(variables)}`,
+    "GITHUB_TOKEN",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data as T;
 

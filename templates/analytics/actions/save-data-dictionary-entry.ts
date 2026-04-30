@@ -10,6 +10,7 @@ import {
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
+import { cliBoolean } from "./schema-helpers.js";
 
 const KEY_PREFIX = "data-dict-";
 
@@ -95,12 +96,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Person / team responsible for this metric"),
-    approved: z
-      .boolean()
+    approved: cliBoolean
       .optional()
       .describe("Whether this entry has been reviewed and approved"),
-    aiGenerated: z
-      .boolean()
+    aiGenerated: cliBoolean
       .optional()
       .describe("True when the agent proposed this entry (vs. human-authored)"),
     sourceUrl: z
@@ -110,7 +109,8 @@ export default defineAction({
   }),
   run: async (args) => {
     const orgId = getRequestOrgId() || null;
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const id = args.id?.trim() || slugify(args.metric);
     if (!id) {
       return "Error: could not derive an id — provide one or a non-empty `metric`.";

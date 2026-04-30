@@ -719,7 +719,7 @@ export const CurrentElementPanel: React.FC = () => {
           {/* Default Arrow */}
           <button
             onClick={() => handleUpdateCursorType("default")}
-            className={`h-12 rounded-lg border-2 transition-all flex items-center justify-center ${
+            className={`h-12 rounded-lg border-2 flex items-center justify-center ${
               effectiveCursorType === "default"
                 ? "border-green-500 bg-green-500/10"
                 : "border-border bg-secondary/50 hover:bg-secondary"
@@ -734,7 +734,7 @@ export const CurrentElementPanel: React.FC = () => {
           {/* Pointer Hand */}
           <button
             onClick={() => handleUpdateCursorType("pointer")}
-            className={`h-12 rounded-lg border-2 transition-all flex items-center justify-center ${
+            className={`h-12 rounded-lg border-2 flex items-center justify-center ${
               effectiveCursorType === "pointer"
                 ? "border-green-500 bg-green-500/10"
                 : "border-border bg-secondary/50 hover:bg-secondary"
@@ -749,7 +749,7 @@ export const CurrentElementPanel: React.FC = () => {
           {/* Text I-Beam */}
           <button
             onClick={() => handleUpdateCursorType("text")}
-            className={`h-12 rounded-lg border-2 transition-all flex items-center justify-center ${
+            className={`h-12 rounded-lg border-2 flex items-center justify-center ${
               effectiveCursorType === "text"
                 ? "border-green-500 bg-green-500/10"
                 : "border-border bg-secondary/50 hover:bg-secondary"

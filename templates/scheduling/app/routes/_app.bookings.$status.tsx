@@ -2,6 +2,18 @@ import { useLoaderData, Link, NavLink, useRevalidator } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 import { useMemo, useState } from "react";
 import { TZDate } from "@date-fns/tz";
+
+export function meta() {
+  return [
+    { title: "Bookings — Scheduling" },
+    {
+      name: "description",
+      content:
+        "Upcoming, past, pending, and cancelled bookings — reschedule, cancel, or mark no-shows.",
+    },
+  ];
+}
+
 import {
   format,
   isToday,
@@ -49,7 +61,8 @@ import { callAction } from "@/lib/api";
 import { toast } from "sonner";
 
 export async function loader({ params }: LoaderFunctionArgs) {
-  const email = getRequestUserEmail() ?? "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Response("Unauthenticated", { status: 401 });
   const status = (params.status as any) ?? "upcoming";
   const bookings = await listBookings({ hostEmail: email, status });
   return { bookings, status };

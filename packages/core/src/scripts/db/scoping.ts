@@ -34,18 +34,21 @@ import {
 
 const OWNER_COLUMN = "owner_email";
 const ORG_COLUMN = "org_id";
+const DEV_FALLBACK_EMAIL = "local@localhost"; // guard:allow-localhost-fallback — sentinel is rejected below so DB scripts cannot silently scope to the dev fallback tenant
 
 interface ScopedTable {
   name: string;
   viewSql: string;
 }
 
-function isProd(): boolean {
-  return process.env.NODE_ENV === "production";
-}
-
 function getUserEmail(): string | null {
-  return getRequestUserEmail() || null;
+  const userEmail = getRequestUserEmail() || null;
+  if (userEmail === DEV_FALLBACK_EMAIL) {
+    throw new Error(
+      "DB script scoping requires a real user identity; refusing to run with local@localhost.",
+    );
+  }
+  return userEmail;
 }
 
 function getOrgId(): string | null {
@@ -115,6 +118,14 @@ function buildScopedTables(
   const safeEmail = escapeSqlString(userEmail);
   const safeOrgId = orgId ? escapeSqlString(orgId) : null;
 
+  // WITH CHECK OPTION ensures INSERTs/UPDATEs through the auto-updatable view
+  // can't write rows that violate the WHERE filter. Without it, an attacker
+  // could `INSERT INTO recordings (..., owner_email) VALUES (..., 'victim@x')`
+  // through the view and the row would land in the base table under the
+  // victim's identity. SQLite views are not auto-updatable in the same way
+  // (they require triggers), so this clause is a no-op there but harmless.
+  const checkOption = isPostgres ? " WITH LOCAL CHECK OPTION" : "";
+
   for (const [table, columns] of columnsByTable) {
     // Check core table scoping
     const coreScoping = CORE_TABLE_SCOPING[table];
@@ -135,7 +146,24 @@ function buildScopedTables(
       }
       scoped.push({
         name: table,
-        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${whereSql}`,
+        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${whereSql}${checkOption}`,
+      });
+      continue;
+    }
+
+    if (
+      table === "tool_data" &&
+      columns.includes("scope") &&
+      columns.includes(OWNER_COLUMN) &&
+      columns.includes(ORG_COLUMN)
+    ) {
+      const realTable = `${qualifiedPrefix}"${table}"`;
+      const orgClause = safeOrgId
+        ? ` OR ("scope" = 'org' AND "${ORG_COLUMN}" = '${safeOrgId}')`
+        : "";
+      scoped.push({
+        name: table,
+        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE (("scope" = 'user' AND "${OWNER_COLUMN}" = '${safeEmail}')${orgClause})${checkOption}`,
       });
       continue;
     }
@@ -156,7 +184,7 @@ function buildScopedTables(
       const realTable = `${qualifiedPrefix}"${table}"`;
       scoped.push({
         name: table,
-        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${clauses.join(" AND ")}`,
+        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${clauses.join(" AND ")}${checkOption}`,
       });
     }
   }
@@ -200,8 +228,9 @@ export async function buildScopingPostgres(
     orgIdTables: new Set(),
   };
 
-  if (!isProd()) return inactive;
-
+  // Scoping is always active when there is a request user (dev, preview, and
+  // prod). Previously this short-circuited outside production, which created
+  // a cross-user read in dev mode. See audit 05-tools-sandbox.md (C3.d).
   const userEmail = getUserEmail();
   if (!userEmail) return inactive;
 
@@ -249,8 +278,9 @@ export async function buildScopingSqlite(client: any): Promise<ScopingContext> {
     orgIdTables: new Set(),
   };
 
-  if (!isProd()) return inactive;
-
+  // Scoping is always active when there is a request user (dev, preview, and
+  // prod). Previously this short-circuited outside production, which created
+  // a cross-user read in dev mode. See audit 05-tools-sandbox.md (C3.d).
   const userEmail = getUserEmail();
   if (!userEmail) return inactive;
 

@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   IconBolt,
@@ -99,7 +100,7 @@ export function AutomationsSection() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch("/_agent-native/resources/tree")
+    fetch(agentNativePath("/_agent-native/resources/tree"))
       .then(async (r) => {
         if (!r.ok) throw new Error(`Failed to load (${r.status})`);
         return (await r.json()) as { tree: TreeNode[] };
@@ -132,7 +133,9 @@ export function AutomationsSection() {
       setTogglingId(item.id);
       try {
         const res = await fetch(
-          `/_agent-native/resources/${encodeURIComponent(item.id)}`,
+          agentNativePath(
+            `/_agent-native/resources/${encodeURIComponent(item.id)}`,
+          ),
         );
         if (!res.ok) {
           showToast("err", "Failed to read automation");
@@ -148,7 +151,9 @@ export function AutomationsSection() {
         );
 
         const putRes = await fetch(
-          `/_agent-native/resources/${encodeURIComponent(item.id)}`,
+          agentNativePath(
+            `/_agent-native/resources/${encodeURIComponent(item.id)}`,
+          ),
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -173,8 +178,13 @@ export function AutomationsSection() {
       setDeletingId(item.id);
       try {
         const res = await fetch(
-          `/_agent-native/resources/${encodeURIComponent(item.id)}`,
-          { method: "DELETE" },
+          agentNativePath(
+            `/_agent-native/resources/${encodeURIComponent(item.id)}`,
+          ),
+          {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+          },
         );
         if (!res.ok) {
           showToast("err", "Failed to delete automation");
@@ -193,11 +203,14 @@ export function AutomationsSection() {
   const handleFireTestEvent = useCallback(async () => {
     showToast("ok", "Firing test event...");
     try {
-      const res = await fetch("/_agent-native/automations/fire-test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: {} }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/automations/fire-test"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: {} }),
+        },
+      );
       if (!res.ok) {
         showToast("err", `Failed to fire event (${res.status})`);
         return;

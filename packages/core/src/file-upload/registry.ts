@@ -50,9 +50,39 @@ export async function uploadFile(
   input: FileUploadInput,
 ): Promise<FileUploadResult | null> {
   const provider = getActiveFileUploadProvider();
-  if (provider) {
+  // Only trust user-registered providers (S3, etc.) from the sync check.
+  // The builder builtin's isConfigured() only checks process.env, which causes
+  // hard failures for authenticated non-local users on multi-tenant deployments
+  // where BUILDER_PRIVATE_KEY is set at the deploy level but the user has no
+  // personal credentials. Always resolve builder credentials asynchronously.
+  if (provider && provider !== builderFileUploadProvider) {
     return provider.upload(input);
   }
+
+  // Resolve credentials asynchronously (works when request context is set
+  // via runWithRequestContext — actions always have one via action-routes.ts).
+  // Two separate try-catch blocks ensure a real upload failure is never
+  // silently swallowed as a "no credentials" case.
+  let builderKey: string | null = null;
+  try {
+    const { resolveBuilderPrivateKey } =
+      await import("../server/credential-provider.js");
+    builderKey = await resolveBuilderPrivateKey();
+  } catch (err) {
+    // DB unavailable or credential store not ready — can't resolve key.
+    // Log and fall through to the SQL fallback below.
+    console.warn(
+      "[agent-native] Builder credential check failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  if (builderKey) {
+    // Credentials confirmed — attempt the upload. Real errors (network,
+    // API, rate-limit) propagate to the caller; do NOT catch them here.
+    return await builderFileUploadProvider.upload(input);
+  }
+
   if (!warnedFallback) {
     warnedFallback = true;
     console.warn(

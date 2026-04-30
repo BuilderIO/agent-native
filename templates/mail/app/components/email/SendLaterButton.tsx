@@ -1,15 +1,11 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import {
-  IconSend,
-  IconChevronDown,
-  IconAlarmFilled,
-} from "@tabler/icons-react";
+import { IconSend, IconChevronDown, IconCalendar } from "@tabler/icons-react";
 
 interface SendLaterButtonProps {
   onSend: () => void;
@@ -60,6 +56,7 @@ export function SendLaterButton({
 }: SendLaterButtonProps) {
   const [open, setOpen] = useState(false);
   const presets = getPresets();
+  const dateInputRef = useRef<HTMLInputElement>(null);
 
   const handleSendLater = (date: Date) => {
     onSendLater(date.getTime());
@@ -109,16 +106,27 @@ export function SendLaterButton({
               ))}
             </div>
             <div className="border-t pt-2">
-              <button
-                onClick={() => {
-                  setOpen(false);
-                  // TODO: open full date picker
-                }}
-                className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-sm text-muted-foreground"
-              >
-                <IconAlarmFilled className="h-4 w-4" />
-                Pick date & time...
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => dateInputRef.current?.showPicker()}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-sm text-muted-foreground"
+                >
+                  <IconCalendar className="h-4 w-4" />
+                  Pick date &amp; time...
+                </button>
+                <input
+                  ref={dateInputRef}
+                  type="datetime-local"
+                  min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                  className="absolute inset-0 opacity-0 pointer-events-none"
+                  onChange={(e) => {
+                    const ms = new Date(e.target.value).getTime();
+                    if (!isNaN(ms) && ms > Date.now()) {
+                      handleSendLater(new Date(ms));
+                    }
+                  }}
+                />
+              </div>
             </div>
           </div>
         </PopoverContent>

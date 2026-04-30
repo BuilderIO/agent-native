@@ -58,7 +58,10 @@ export const BUILDER_SUPPORTED_MODELS = [
   "z-ai-glm-5-1",
 ] as const;
 
-export const BUILDER_DEFAULT_MODEL = "claude-sonnet-4-6";
+// Inherits from agent/default-model.ts — single source of truth so a
+// new model release is a one-line bump.
+import { DEFAULT_MODEL } from "../default-model.js";
+export const BUILDER_DEFAULT_MODEL = DEFAULT_MODEL;
 
 /**
  * Bucket an Anthropic `thinking.budgetTokens` value into the gateway's

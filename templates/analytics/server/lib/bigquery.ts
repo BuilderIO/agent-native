@@ -1,19 +1,39 @@
 import { createHash } from "crypto";
 import { getAccessToken } from "./gcloud";
 import { resolveCredential } from "./credentials";
+import {
+  requireRequestCredentialContext,
+  type CredentialContext,
+} from "./credentials-context";
 import { getDbExec } from "@agent-native/core/db";
 
+async function getProjectInfo(): Promise<{
+  projectId: string;
+  cacheScope: string;
+}> {
+  const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
+  const projectId =
+    (await resolveCredential("BIGQUERY_PROJECT_ID", ctx)) ||
+    "your-gcp-project-id";
+  return { projectId, cacheScope: cacheScopeForContext(ctx) };
+}
+
 async function getProjectId(): Promise<string> {
-  return (
-    (await resolveCredential("BIGQUERY_PROJECT_ID")) || "your-gcp-project-id"
-  );
+  return (await getProjectInfo()).projectId;
+}
+
+function cacheScopeForContext(ctx: CredentialContext): string {
+  return ctx.orgId ? `o:${ctx.orgId}` : `u:${ctx.userEmail}`;
 }
 
 /**
  * Resolve @app_events placeholder to the fully-qualified table name.
  */
-async function resolveTablePlaceholder(sql: string): Promise<string> {
-  const projectId = await getProjectId();
+async function resolveTablePlaceholder(
+  sql: string,
+  projectId?: string,
+): Promise<string> {
+  projectId ??= await getProjectId();
   const appEventsTable = `${projectId}.analytics.events_partitioned`;
   return sql.replace(/@app_events/gi, `\`${appEventsTable}\``);
 }
@@ -66,10 +86,17 @@ const MAX_L1_ENTRIES = 200;
 
 const l1Cache = new Map<string, L1Entry>();
 
-function getCacheKey(sql: string, projectId: string): string {
-  // Scope by project so reconnecting BigQuery to a different GCP project
-  // doesn't serve stale results from the previous project's data.
-  return createHash("sha256").update(`${projectId}\n${sql}`).digest("hex");
+function getCacheKey(
+  sql: string,
+  projectId: string,
+  cacheScope: string,
+): string {
+  // Scope by caller as well as project so a warm server process cannot serve
+  // cached warehouse results across tenants that happen to query the same
+  // project/table names.
+  return createHash("sha256")
+    .update(`${cacheScope}\n${projectId}\n${sql}`)
+    .digest("hex");
 }
 
 function getL1(key: string): QueryResult | null {
@@ -238,10 +265,10 @@ function rowsToObjects(
  * string suitable for bubbling back to the agent.
  */
 export async function dryRunQuery(sql: string): Promise<string | null> {
-  let resolvedSql = await resolveTablePlaceholder(sql);
+  const { projectId } = await getProjectInfo();
+  let resolvedSql = await resolveTablePlaceholder(sql, projectId);
   resolvedSql = filterDevSchema(resolvedSql);
 
-  const projectId = await getProjectId();
   const token = await getAccessToken();
   const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
 
@@ -275,11 +302,11 @@ export async function dryRunQuery(sql: string): Promise<string | null> {
 }
 
 export async function runQuery(sql: string): Promise<QueryResult> {
-  let resolvedSql = await resolveTablePlaceholder(sql);
+  const { projectId, cacheScope } = await getProjectInfo();
+  let resolvedSql = await resolveTablePlaceholder(sql, projectId);
   resolvedSql = filterDevSchema(resolvedSql);
 
-  const projectId = await getProjectId();
-  const cacheKey = getCacheKey(resolvedSql, projectId);
+  const cacheKey = getCacheKey(resolvedSql, projectId, cacheScope);
   const l1Hit = getL1(cacheKey);
   if (l1Hit) {
     return { ...l1Hit, cached: true };

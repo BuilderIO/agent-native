@@ -3,7 +3,7 @@ import { z } from "zod";
 import { parseDocx } from "../server/handlers/import/docx-parser.js";
 import { convertSectionsToSlides } from "../server/handlers/import/html-converter.js";
 import fs from "fs";
-import path from "path";
+import { resolveUserUploadedFile } from "./_uploaded-files.js";
 
 export default defineAction({
   description:
@@ -26,24 +26,7 @@ export default defineAction({
       ),
   }),
   run: async ({ filePath, convertToSlides }) => {
-    // Resolve to absolute path
-    const absPath = path.isAbsolute(filePath)
-      ? filePath
-      : path.join(process.cwd(), filePath);
-
-    // Path traversal guard: only allow files under data/uploads or the cwd
-    const cwd = process.cwd();
-    const uploadsDir = path.join(cwd, "data", "uploads");
-    const resolved = path.resolve(absPath);
-    if (!resolved.startsWith(uploadsDir) && !resolved.startsWith(cwd)) {
-      throw new Error(
-        `Access denied: file path must be within the project directory`,
-      );
-    }
-
-    if (!fs.existsSync(absPath)) {
-      throw new Error(`File not found: ${filePath}`);
-    }
+    const absPath = resolveUserUploadedFile(filePath);
 
     const fileBuffer = await fs.promises.readFile(absPath);
     const doc = await parseDocx(fileBuffer);

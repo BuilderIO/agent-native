@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+import { listDocFiles, readDocFile } from "./docs-files";
 
 interface DocSection {
   slug: string;
@@ -12,18 +13,15 @@ let cachedSections: DocSection[] | null = null;
 
 async function loadDocSections(): Promise<DocSection[]> {
   if (cachedSections) return cachedSections;
-  const { readFile, readdir } = await import("node:fs/promises");
-  const { join } = await import("node:path");
   const matter = (await import("gray-matter")).default;
 
-  const docsDir = join(import.meta.dirname, "../../public/docs");
-  const files = (await readdir(docsDir)).filter((f) => f.endsWith(".md"));
+  const files = await listDocFiles();
 
   const sections: DocSection[] = [];
   for (const file of files) {
-    const raw = await readFile(join(docsDir, file), "utf-8");
-    const { data, content } = matter(raw);
     const slug = file.replace(/\.md$/, "");
+    const raw = await readDocFile(slug);
+    const { data, content } = matter(raw);
     const title = data.title || slug;
 
     const parts = content.split(/^(#{1,3}\s+.+)$/m);
@@ -85,10 +83,10 @@ export default defineAction({
 
     return matches
       .slice(0, 10)
-      .map(
-        (m) =>
-          `### ${m.title} > ${m.heading}\n**Path:** /docs/${m.slug}\n\n${m.text.slice(0, 300)}...`,
-      )
+      .map((m) => {
+        const path = m.slug === "getting-started" ? "/docs" : `/docs/${m.slug}`;
+        return `### ${m.title} > ${m.heading}\n**Path:** ${path}\n\n${m.text.slice(0, 300)}...`;
+      })
       .join("\n\n---\n\n");
   },
 });

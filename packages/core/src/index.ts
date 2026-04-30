@@ -12,6 +12,7 @@ export {
   type AgentMessage,
   type AgentChatRequest,
   type AgentChatEvent,
+  DEFAULT_MODEL,
 } from "./agent/index.js";
 export { defineAction, type ActionHttpConfig } from "./action.js";
 export { createDevScriptRegistry } from "./scripts/dev/index.js";
@@ -69,7 +70,6 @@ export {
   recordUsage,
   getUsageSummary,
   getUserUsageCents,
-  checkUsageLimit,
   calculateCost,
   type UsageRecord,
   type UsageSummary,

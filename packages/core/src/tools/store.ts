@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
-import { accessFilter, assertAccess } from "../sharing/access.js";
+import {
+  accessFilter,
+  assertAccess,
+  resolveAccess,
+} from "../sharing/access.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -21,6 +25,12 @@ import {
   TOOL_DATA_ITEM_INDEX_SQL_PG,
   TOOL_DATA_DROP_OLD_INDEX_SQL,
   TOOL_DATA_DROP_OLD_INDEX_SQL_PG,
+  TOOLS_OWNER_INDEX_SQL,
+  TOOLS_ORG_INDEX_SQL,
+  TOOL_SHARES_RESOURCE_INDEX_SQL,
+  TOOL_CONSENTS_CREATE_SQL,
+  TOOL_CONSENTS_CREATE_SQL_PG,
+  TOOL_CONSENTS_VIEWER_INDEX_SQL,
 } from "./schema.js";
 
 const getDb = createGetDb({ tools, toolShares });
@@ -45,6 +55,18 @@ export async function ensureToolsTables(): Promise<void> {
       await client.execute(
         pg ? TOOL_DATA_ITEM_INDEX_SQL_PG : TOOL_DATA_ITEM_INDEX_SQL,
       );
+      await client.execute(TOOLS_OWNER_INDEX_SQL);
+      await client.execute(TOOLS_ORG_INDEX_SQL);
+      await client.execute(TOOL_SHARES_RESOURCE_INDEX_SQL);
+      // tool_consents was introduced for an audit-C1 per-viewer consent
+      // gate that we removed once we settled on intra-org trust as the
+      // baseline. The table is kept (additive — never drop) so deploys
+      // that already created it stay healthy; the runtime consent code
+      // is gone. Idempotent CREATE IF NOT EXISTS for fresh schemas.
+      await client.execute(
+        pg ? TOOL_CONSENTS_CREATE_SQL_PG : TOOL_CONSENTS_CREATE_SQL,
+      );
+      await client.execute(TOOL_CONSENTS_VIEWER_INDEX_SQL);
     })();
   }
   return _initPromise;
@@ -58,48 +80,22 @@ async function ensureToolDataItemId(
     await client.execute(
       `ALTER TABLE tool_data ADD COLUMN IF NOT EXISTS item_id TEXT`,
     );
-    await client.execute(
-      `ALTER TABLE tool_data ALTER COLUMN item_id DROP NOT NULL`,
-    );
-  } else {
-    try {
-      await client.execute(`ALTER TABLE tool_data ADD COLUMN item_id TEXT`);
-    } catch (err: any) {
-      if (
-        !String(err?.message ?? err)
-          .toLowerCase()
-          .includes("duplicate")
-      ) {
-        throw err;
-      }
-    }
-    await makeSqliteToolDataItemIdNullable(client);
-  }
-  await client.execute(
-    `UPDATE tool_data SET item_id = NULL WHERE item_id = id`,
-  );
-}
-
-async function makeSqliteToolDataItemIdNullable(
-  client: ReturnType<typeof getDbExec>,
-): Promise<void> {
-  const info = await client.execute(`PRAGMA table_info(tool_data)`);
-  const itemIdColumn = (info.rows ?? []).find(
-    (row: any) => String(row.name) === "item_id",
-  );
-  if (!itemIdColumn || Number((itemIdColumn as any).notnull ?? 0) === 0) {
     return;
   }
 
-  await client.execute(`DROP INDEX IF EXISTS tool_data_scope_item_idx`);
-  await client.execute(`ALTER TABLE tool_data RENAME TO tool_data_old`);
-  await client.execute(TOOL_DATA_CREATE_SQL);
-  await client.execute(`
-    INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, created_at, updated_at)
-    SELECT id, tool_id, collection, item_id, data, owner_email, created_at, updated_at
-    FROM tool_data_old
-  `);
-  await client.execute(`DROP TABLE tool_data_old`);
+  // Keep this additive: legacy rows with item_id=id are still read correctly
+  // through COALESCE(item_id, id), so SQLite never needs a table rebuild here.
+  try {
+    await client.execute(`ALTER TABLE tool_data ADD COLUMN item_id TEXT`);
+  } catch (err: any) {
+    if (
+      !String(err?.message ?? err)
+        .toLowerCase()
+        .includes("duplicate")
+    ) {
+      throw err;
+    }
+  }
 }
 
 async function ensureToolDataScope(
@@ -126,7 +122,10 @@ async function ensureToolDataScope(
   await addCol("scope", "TEXT NOT NULL DEFAULT 'user'");
   await addCol("org_id", "TEXT");
   await addCol("scope_key", "TEXT NOT NULL DEFAULT 'local@localhost'");
+  // One-time backfill migration: replaces the dev-mode DEFAULT scope_key
+  // with each row's real owner_email. Not a per-request fallback.
   await client.execute(
+    // guard:allow-localhost-fallback — one-time backfill migration replacing dev-mode default scope_key with the row's real owner_email
     `UPDATE tool_data SET scope_key = owner_email WHERE scope_key = 'local@localhost' AND owner_email != 'local@localhost'`,
   );
 }
@@ -166,10 +165,8 @@ export async function listTools(): Promise<ToolRow[]> {
 
 export async function getTool(id: string): Promise<ToolRow | null> {
   await ensureToolsTables();
-  await assertAccess("tool", id, "viewer");
-  const db = getDb();
-  const rows = await db.select().from(tools).where(eq(tools.id, id));
-  return (rows[0] as ToolRow) ?? null;
+  const access = await resolveAccess("tool", id);
+  return (access?.resource as ToolRow | undefined) ?? null;
 }
 
 export interface CreateToolData {
@@ -182,7 +179,8 @@ export interface CreateToolData {
 export async function createTool(data: CreateToolData): Promise<ToolRow> {
   await ensureToolsTables();
   const db = getDb();
-  const userEmail = getRequestUserEmail() || "local@localhost";
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) throw new Error("no authenticated user");
   const orgId = getRequestOrgId();
   const id = randomUUID();
   const now = new Date().toISOString();
@@ -196,7 +194,12 @@ export async function createTool(data: CreateToolData): Promise<ToolRow> {
     updatedAt: now,
     ownerEmail: userEmail,
     orgId: orgId ?? null,
-    visibility: "private",
+    // Default to org-visibility when the user has an active organization so
+    // teammates see the tool in their sidebar — matching how analytics
+    // dashboards/analyses are scoped (`templates/analytics/server/lib/
+    // dashboards-store.ts:356`). Solo users (no org) get the private
+    // default. Owners can still flip back to private via update-tool.
+    visibility: orgId ? "org" : "private",
   };
   await db.insert(tools).values(row);
   return row;

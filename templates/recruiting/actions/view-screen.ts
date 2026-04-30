@@ -1,8 +1,12 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestOrgId } from "@agent-native/core/server";
+import { z } from "zod";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import { readAppState } from "@agent-native/core/application-state";
 import * as gh from "../server/lib/greenhouse-api.js";
-import { withOrgContext } from "../server/lib/greenhouse-api.js";
+import { withCredentialContext } from "../server/lib/greenhouse-api.js";
 
 async function fetchScreen() {
   const navigation = await readAppState("navigation");
@@ -129,7 +133,10 @@ async function fetchScreen() {
   }
 
   if (Object.keys(screen).length === 0) {
-    throw new Error("No application state found. Is the app running?");
+    return {
+      message: "No application state found. The UI may not be open.",
+      hint: "Open the recruiting app in a browser so navigation state can be written before calling view-screen.",
+    };
   }
   return screen;
 }
@@ -137,12 +144,11 @@ async function fetchScreen() {
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, job/candidate details, and list data. Always call this first before taking any action.",
+  schema: z.object({}),
   http: false,
   run: async () => {
-    const orgId = getRequestOrgId();
-    if (orgId) {
-      return withOrgContext(orgId, fetchScreen);
-    }
-    return fetchScreen();
+    const orgId = getRequestOrgId() ?? null;
+    const email = getRequestUserEmail() ?? null;
+    return withCredentialContext({ email, orgId }, fetchScreen);
   },
 });

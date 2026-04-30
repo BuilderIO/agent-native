@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconThumbUp, IconThumbDown } from "@tabler/icons-react";
 import { cn } from "../utils.js";
+import { agentNativePath } from "../api-path.js";
 
 const THUMBS_DOWN_CATEGORIES = [
   "Inaccurate",
@@ -39,7 +40,7 @@ export function ThumbsFeedback({
       value?: string,
     ) => {
       try {
-        await fetch("/_agent-native/observability/feedback", {
+        await fetch(agentNativePath("/_agent-native/observability/feedback"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

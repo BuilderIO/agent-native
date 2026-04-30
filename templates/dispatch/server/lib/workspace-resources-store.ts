@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { getDb, schema } from "../db/index.js";
 import {
@@ -8,6 +8,33 @@ import {
   recordAudit,
 } from "./dispatch-store.js";
 import { recordVaultAudit } from "./vault-store.js";
+
+/**
+ * Caller-supplied access context for workspace-resource operations.
+ * Same shape and semantics as VaultCtx — looking up a row by id alone is
+ * unsafe because UUIDs are not authorization. A row matches the ctx if
+ * either the caller owns it or it lives in the caller's active org.
+ */
+export interface WorkspaceResourceCtx {
+  ownerEmail: string;
+  orgId: string | null;
+}
+
+export function requireWorkspaceResourceCtx(): WorkspaceResourceCtx {
+  const ownerEmail = currentOwnerEmail();
+  return { ownerEmail, orgId: currentOrgId() };
+}
+
+/** WHERE clause that limits a workspace-resource row to the caller's scope. */
+function ctxScope<T extends { ownerEmail: any; orgId: any }>(
+  table: T,
+  ctx: WorkspaceResourceCtx,
+) {
+  if (!ctx.orgId) {
+    return and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId));
+  }
+  return or(eq(table.ownerEmail, ctx.ownerEmail), eq(table.orgId, ctx.orgId));
+}
 
 function id() {
   return crypto.randomUUID();
@@ -52,12 +79,20 @@ export async function listWorkspaceResources(filter?: { kind?: string }) {
     .orderBy(desc(schema.workspaceResources.updatedAt));
 }
 
-export async function getWorkspaceResource(resourceId: string) {
+export async function getWorkspaceResource(
+  resourceId: string,
+  ctx: WorkspaceResourceCtx = requireWorkspaceResourceCtx(),
+) {
   const db = getDb();
   const [row] = await db
     .select()
     .from(schema.workspaceResources)
-    .where(eq(schema.workspaceResources.id, resourceId))
+    .where(
+      and(
+        eq(schema.workspaceResources.id, resourceId),
+        ctxScope(schema.workspaceResources, ctx),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
@@ -100,7 +135,8 @@ export async function updateWorkspaceResource(
   >,
 ) {
   const db = getDb();
-  const existing = await getWorkspaceResource(resourceId);
+  const ctx = requireWorkspaceResourceCtx();
+  const existing = await getWorkspaceResource(resourceId, ctx);
   if (!existing) throw new Error("Workspace resource not found");
 
   const updates: Record<string, unknown> = { updatedAt: now() };
@@ -113,7 +149,12 @@ export async function updateWorkspaceResource(
   await db
     .update(schema.workspaceResources)
     .set(updates)
-    .where(eq(schema.workspaceResources.id, resourceId));
+    .where(
+      and(
+        eq(schema.workspaceResources.id, resourceId),
+        ctxScope(schema.workspaceResources, ctx),
+      ),
+    );
 
   await recordAudit({
     action: `workspace.${existing.kind}.updated`,
@@ -122,12 +163,13 @@ export async function updateWorkspaceResource(
     summary: `Updated workspace ${existing.kind} "${input.name || existing.name}"`,
   });
 
-  return getWorkspaceResource(resourceId);
+  return getWorkspaceResource(resourceId, ctx);
 }
 
 export async function deleteWorkspaceResource(resourceId: string) {
   const db = getDb();
-  const existing = await getWorkspaceResource(resourceId);
+  const ctx = requireWorkspaceResourceCtx();
+  const existing = await getWorkspaceResource(resourceId, ctx);
   if (!existing) throw new Error("Workspace resource not found");
 
   // Revoke all grants
@@ -140,7 +182,12 @@ export async function deleteWorkspaceResource(resourceId: string) {
 
   await db
     .delete(schema.workspaceResources)
-    .where(eq(schema.workspaceResources.id, resourceId));
+    .where(
+      and(
+        eq(schema.workspaceResources.id, resourceId),
+        ctxScope(schema.workspaceResources, ctx),
+      ),
+    );
 
   await recordAudit({
     action: `workspace.${existing.kind}.deleted`,
@@ -177,19 +224,28 @@ export async function listResourceGrants(filter?: {
     .orderBy(desc(schema.workspaceResourceGrants.updatedAt));
 }
 
-export async function getResourceGrant(grantId: string) {
+export async function getResourceGrant(
+  grantId: string,
+  ctx: WorkspaceResourceCtx = requireWorkspaceResourceCtx(),
+) {
   const db = getDb();
   const [row] = await db
     .select()
     .from(schema.workspaceResourceGrants)
-    .where(eq(schema.workspaceResourceGrants.id, grantId))
+    .where(
+      and(
+        eq(schema.workspaceResourceGrants.id, grantId),
+        ctxScope(schema.workspaceResourceGrants, ctx),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
 
 export async function createResourceGrant(resourceId: string, appId: string) {
   const db = getDb();
-  const resource = await getWorkspaceResource(resourceId);
+  const ctx = requireWorkspaceResourceCtx();
+  const resource = await getWorkspaceResource(resourceId, ctx);
   if (!resource) throw new Error("Workspace resource not found");
 
   const timestamp = now();
@@ -218,9 +274,12 @@ export async function createResourceGrant(resourceId: string, appId: string) {
   return getResourceGrant(grantId);
 }
 
-export async function revokeResourceGrant(grantId: string) {
+export async function revokeResourceGrant(
+  grantId: string,
+  ctx: WorkspaceResourceCtx = requireWorkspaceResourceCtx(),
+) {
   const db = getDb();
-  const grant = await getResourceGrant(grantId);
+  const grant = await getResourceGrant(grantId, ctx);
   if (!grant) throw new Error("Grant not found");
 
   const resource = await getWorkspaceResource(grant.resourceId);
@@ -228,7 +287,12 @@ export async function revokeResourceGrant(grantId: string) {
   await db
     .update(schema.workspaceResourceGrants)
     .set({ status: "revoked", updatedAt: now() })
-    .where(eq(schema.workspaceResourceGrants.id, grantId));
+    .where(
+      and(
+        eq(schema.workspaceResourceGrants.id, grantId),
+        ctxScope(schema.workspaceResourceGrants, ctx),
+      ),
+    );
 
   await recordAudit({
     action: `workspace.${resource?.kind || "resource"}.grant-revoked`,
@@ -237,7 +301,7 @@ export async function revokeResourceGrant(grantId: string) {
     summary: `Revoked workspace ${resource?.kind || "resource"} "${resource?.name || grant.resourceId}" from ${grant.appId}`,
   });
 
-  return getResourceGrant(grantId);
+  return getResourceGrant(grantId, ctx);
 }
 
 // ─── Sync ──────────────────────────────────────────────────────

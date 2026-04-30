@@ -1,8 +1,13 @@
 import { useState } from "react";
 import { useLoaderData, useRevalidator, Link } from "react-router";
-import { eq } from "drizzle-orm";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../../server/db";
+
+export function meta() {
+  return [{ title: "Routing forms — Scheduling" }];
+}
+
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,11 +41,12 @@ import {
 } from "@tabler/icons-react";
 
 export async function loader() {
-  const email = getRequestUserEmail() ?? "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Response("Unauthenticated", { status: 401 });
   const rows = await getDb()
     .select()
     .from(schema.routingForms)
-    .where(eq(schema.routingForms.ownerEmail, email));
+    .where(accessFilter(schema.routingForms, schema.routingFormShares));
   return { forms: rows };
 }
 

@@ -84,12 +84,10 @@ const llmStep: OnboardingStep = {
       kind: "builder-cli-auth",
       label: "Connect Builder",
       description:
-        "One click, no API key needed. Claude, GPT, Gemini, and more via Builder's managed gateway. Free during beta.",
-      badge: "free",
+        "One click, no API key needed. Claude, GPT, Gemini, and more via Builder's managed gateway.",
       primary: true,
       payload: {
         scope: "llm",
-        waitlistUrl: "https://forms.agent-native.com/f/builder-waitlist/36GWqf",
       },
     },
   ],

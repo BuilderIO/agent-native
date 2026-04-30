@@ -9,7 +9,7 @@ import {
   useRouteError,
   useLocation,
 } from "react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AgentSidebar, configureTracking } from "@agent-native/core/client";
 import Header from "./components/Header";
@@ -35,7 +35,7 @@ const JSON_LD = JSON.stringify({
   applicationCategory: "DeveloperApplication",
   operatingSystem: "Cross-platform",
   description:
-    "Open source framework for building Agent-native applications where agents and UI share state through files.",
+    "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
   url: "https://agent-native.com",
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
   license: "https://opensource.org/licenses/MIT",
@@ -57,7 +57,8 @@ export const meta = () => [
   { title: "Agent-Native — Framework for Agent-Native Apps" },
   {
     name: "description",
-    content: "Build apps where AI agents and UI share state through files.",
+    content:
+      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork templates.",
   },
   {
     property: "og:image",
@@ -70,7 +71,8 @@ export const meta = () => [
   },
   {
     property: "og:description",
-    content: "Build apps where AI agents and UI share state through files.",
+    content:
+      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork templates.",
   },
   { property: "og:type", content: "website" },
   { property: "og:url", content: "https://agent-native.com" },
@@ -90,15 +92,34 @@ function CanonicalLink() {
   return <link rel="canonical" href={canonical} />;
 }
 
+// AgentSidebar wraps content in an overflow-auto div, so the window never
+// scrolls. React Router's <ScrollRestoration /> resets window.scrollY, which
+// does nothing here — find the real scroll container and reset it instead.
+function ScrollToTop() {
+  const { pathname, hash } = useLocation();
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (hash) return;
+    let parent: HTMLElement | null = ref.current?.parentElement ?? null;
+    while (parent) {
+      const overflowY = getComputedStyle(parent).overflowY;
+      if (overflowY === "auto" || overflowY === "scroll") {
+        parent.scrollTop = 0;
+        return;
+      }
+      parent = parent.parentElement;
+    }
+    window.scrollTo(0, 0);
+  }, [pathname, hash]);
+  return <span ref={ref} aria-hidden style={{ display: "none" }} />;
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
-        <meta
-          name="viewport"
-          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
-        />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script
           async
@@ -134,6 +155,7 @@ export default function Root() {
 
   const content = (
     <>
+      <ScrollToTop />
       <Header />
       <Outlet />
       <Footer />
@@ -146,7 +168,7 @@ export default function Root() {
         <AgentSidebar
           position="right"
           defaultOpen={false}
-          sidebarWidth={400}
+          defaultSidebarWidth={400}
           emptyStateText="Ask me anything about Agent-Native"
           suggestions={[
             "How do I get started with Agent-Native?",

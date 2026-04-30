@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getCallbackOrigin } from "../frame.js";
 
@@ -30,7 +31,7 @@ export function useBuilderStatus() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch("/_agent-native/builder/status");
+      const res = await fetch(agentNativePath("/_agent-native/builder/status"));
       if (!res.ok) {
         setStatus(null);
         return;
@@ -140,7 +141,9 @@ export function useBuilderConnectFlow(
   const fetchStatus = useCallback(async () => {
     const origin = getCallbackOrigin() || window.location.origin;
     try {
-      const r = await fetch(`${origin}/_agent-native/builder/status`);
+      const r = await fetch(
+        new URL(agentNativePath("/_agent-native/builder/status"), origin).href,
+      );
       if (!r.ok) return null;
       return (await r.json()) as {
         configured: boolean;
@@ -197,7 +200,9 @@ export function useBuilderConnectFlow(
     // before window.open lets the user-gesture token expire, which causes
     // popup blockers to block entirely or fall back to same-tab navigation.
     const origin = getCallbackOrigin() || window.location.origin;
-    const url = popupUrl ?? `${origin}/_agent-native/builder/connect`;
+    const url =
+      popupUrl ??
+      new URL(agentNativePath("/_agent-native/builder/connect"), origin).href;
     try {
       window.open(url, "_blank", "noopener,noreferrer");
     } catch {

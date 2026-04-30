@@ -3,15 +3,24 @@ import type { H3Event } from "h3";
 import { getDb, schema } from "../db/index.js";
 import { getSession } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
 import type { TranscriptSegment } from "../../shared/api.js";
 
+type CallShareRole = "viewer" | "editor" | "admin";
+
 export function getCurrentOwnerEmail(): string {
-  return getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
+  return email;
 }
 
 export async function getEventOwnerEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
-  return session?.email ?? "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return session.email;
 }
 
 export function nanoid(size = 12): string {
@@ -177,19 +186,25 @@ export function colorForSpeaker(label: string): string {
 }
 
 /**
- * Fetch a single call row, throwing if not found.
+ * Fetch a single call row, throwing if not found OR if the current request
+ * context lacks the requested role on it.
+ *
+ * Defaults to a "viewer" check so any read of the call row goes through the
+ * standard access path. Callers that need a stricter role pass it
+ * explicitly; redundant `assertAccess` calls in the action are harmless but
+ * no longer required.
+ *
+ * SAFETY: Inlining the check inside the helper means a future contributor
+ * who adds a new caller cannot accidentally drop the access assertion. The
+ * old "guard:allow-unscoped" opt-out has been removed.
  */
 export async function getCallOrThrow(
   id: string,
+  role: CallShareRole = "viewer",
 ): Promise<typeof schema.calls.$inferSelect> {
-  const db = getDb();
-  const [row] = await db
-    .select()
-    .from(schema.calls)
-    .where(eq(schema.calls.id, id))
-    .limit(1);
-  if (!row) throw new Error(`Call not found: ${id}`);
-  return row;
+  const access = await assertAccess("call", id, role);
+  if (!access?.resource) throw new Error(`Call not found: ${id}`);
+  return access.resource as typeof schema.calls.$inferSelect;
 }
 
 /**

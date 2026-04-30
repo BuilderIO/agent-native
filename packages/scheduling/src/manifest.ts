@@ -99,6 +99,7 @@ export const MANIFEST: SchedulingManifest = {
     "create-routing-form",
     "update-routing-form",
     "delete-routing-form",
+    "submit-routing-form-response",
     "list-routing-form-responses",
   ],
   schemaEntryPoint: "@agent-native/scheduling/schema",

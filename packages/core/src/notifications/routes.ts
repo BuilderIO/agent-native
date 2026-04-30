@@ -27,14 +27,30 @@ import {
   deleteNotification,
 } from "./store.js";
 
+function parseLimit(value: unknown, fallback = 50): number {
+  if (typeof value !== "string" || value.length === 0) return fallback;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), 200);
+}
+
 async function resolveOwner(event: H3Event): Promise<string> {
   const session = await getSession(event).catch(() => null);
-  return session?.email || "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return session.email;
 }
 
 export function createNotificationsHandler() {
   return defineEventHandler(async (event: H3Event) => {
-    const method = getMethod(event);
+    const rawMethod = getMethod(event);
+    const method = rawMethod === "HEAD" ? "GET" : rawMethod;
+    if (rawMethod === "OPTIONS") {
+      setResponseStatus(event, 204);
+      return "";
+    }
     const pathname = (event.url?.pathname || "")
       .replace(/^\/+/, "")
       .replace(/\/+$/, "");
@@ -46,7 +62,7 @@ export function createNotificationsHandler() {
       const q = getQuery(event);
       return listNotifications(owner, {
         unreadOnly: q.unread === "true" || q.unread === "1",
-        limit: q.limit ? Math.min(Number(q.limit) || 50, 200) : 50,
+        limit: parseLimit(q.limit),
         before: typeof q.before === "string" ? q.before : undefined,
       });
     }

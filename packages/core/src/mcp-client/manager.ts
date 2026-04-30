@@ -253,6 +253,11 @@ export class McpClientManager {
     cfg: McpServerConfig,
     sdk: SdkModules,
   ): Promise<void> {
+    if (this.servers.has(id)) {
+      console.warn(
+        `[mcp-client] Duplicate server ID '${id}' — overwriting previous registration`,
+      );
+    }
     const entry: ServerEntry = {
       id,
       config: cfg,
@@ -298,9 +303,30 @@ export class McpClientManager {
         );
       }
       const { command, args = [], env, cwd } = cfg;
-      // Merge env — spawn receives only the keys we pass, so include process.env
-      // by default to preserve PATH, HOME, etc.
-      const mergedEnv = env ? { ...process.env, ...env } : { ...process.env };
+      // SECURITY: stdio MCP servers run as child processes that inherit
+      // their environment from us. We previously merged the entire
+      // `process.env` into the child, which exposed every deployment
+      // secret (A2A_SECRET, ANTHROPIC_API_KEY, BUILDER_PRIVATE_KEY, all
+      // database URLs, all platform tokens) to any MCP server in
+      // `mcp.config.json` — a malicious npx-fetched server could exfil
+      // them by reading its own env. Instead, only forward a minimal
+      // baseline plus the keys explicitly listed in `cfg.env`. See
+      // finding #10 in /tmp/security-audit/12-mcp-a2a-agent.md.
+      const ENV_ALLOWLIST = [
+        "PATH",
+        "HOME",
+        "TMPDIR",
+        "LANG",
+        "LC_ALL",
+        "USER",
+        "SHELL",
+      ];
+      const baseline: Record<string, string> = {};
+      for (const k of ENV_ALLOWLIST) {
+        const v = process.env[k];
+        if (typeof v === "string") baseline[k] = v;
+      }
+      const mergedEnv = env ? { ...baseline, ...env } : baseline;
       transport = new sdk.StdioClientTransport({
         command,
         args,

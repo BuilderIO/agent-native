@@ -18,6 +18,10 @@ import { z } from "zod";
 const INTERVAL_MS = 60_000; // 1 minute
 const WATCH_RENEW_INTERVAL_MS = 12 * 60 * 60_000;
 let lastWatchRenewalAt = 0;
+// Vite's dev server initializes Nitro plugins more than once during boot
+// (initial load + post-init). Module-scope flag ensures the "skipping" log
+// fires at most once per process.
+let skippingLogged = false;
 
 async function renewAllWatches(): Promise<void> {
   if (!process.env.GMAIL_WATCH_TOPIC) return;
@@ -101,13 +105,21 @@ export default () => {
     }) as any,
   });
 
-  // Background cron must only run in one place — otherwise every dev server
-  // processes jobs and automations for every connected user globally, leading
-  // to duplicate actions and duplicate Anthropic spend.
-  if (process.env.RUN_BACKGROUND_JOBS !== "1") {
-    console.log(
-      "[mail-jobs] Skipping background cron (set RUN_BACKGROUND_JOBS=1 to enable)",
-    );
+  // Background cron defaults on in production and off in dev. The dev gate
+  // exists because every connected dev server would otherwise process jobs
+  // and automations for every user globally, causing duplicate actions and
+  // duplicate Anthropic spend. Set RUN_BACKGROUND_JOBS=1 to opt in locally,
+  // or RUN_BACKGROUND_JOBS=0 to opt out in production.
+  const isProd = process.env.NODE_ENV === "production";
+  const flag = process.env.RUN_BACKGROUND_JOBS;
+  const enabled = flag === "1" || (isProd && flag !== "0");
+  if (!enabled) {
+    if (!skippingLogged) {
+      console.log(
+        "[mail-jobs] Skipping background cron (set RUN_BACKGROUND_JOBS=1 to enable in dev; on by default in production)",
+      );
+      skippingLogged = true;
+    }
     return;
   }
 

@@ -7,7 +7,7 @@ import {
   setResponseHeader,
   type H3Event,
 } from "h3";
-import { streamFile } from "@agent-native/core/server";
+import { streamFile, getSession } from "@agent-native/core/server";
 import fs from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
@@ -44,6 +44,12 @@ const MIME_MAP: Record<string, string> = {
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export const uploadMedia = defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
   try {
     const body = await readRawBody(event);
     if (!body || !body.length) {
@@ -104,5 +110,19 @@ export const serveMedia = defineEventHandler(async (event: H3Event) => {
     "Cache-Control",
     "public, max-age=31536000, immutable",
   );
+  // Always send X-Content-Type-Options: nosniff so browsers don't MIME-sniff
+  // a polyglot upload (e.g. an SVG/HTML file uploaded with a `.png` extension)
+  // into HTML and execute any embedded `<script>`. The Content-Disposition
+  // attachment fallback below covers the documented SVG/HTML extensions; this
+  // header closes the polyglot bypass for every other type too.
+  setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+  // Force download for SVG and other types that could execute scripts inline.
+  if (ext === ".svg" || ext === ".html" || ext === ".htm") {
+    setResponseHeader(
+      event,
+      "Content-Disposition",
+      `attachment; filename="${filename}"`,
+    );
+  }
   return streamFile(fs.createReadStream(filePath));
 });

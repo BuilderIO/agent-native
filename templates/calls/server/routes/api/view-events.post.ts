@@ -31,7 +31,7 @@ import { defineEventHandler, readBody, setResponseStatus } from "h3";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { nanoid, shouldCountView } from "../../lib/calls.js";
-import { getSession } from "@agent-native/core/server";
+import { DEV_MODE_USER_EMAIL, getSession } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 
 type ViewKind =
@@ -128,13 +128,25 @@ export default defineEventHandler(async (event) => {
 
   const db = getDb();
   const session = await getSession(event).catch(() => null);
-  const viewerEmail =
-    (body.viewerEmail && typeof body.viewerEmail === "string"
+  const sessionEmail =
+    session?.email && session.email !== DEV_MODE_USER_EMAIL
+      ? session.email
+      : undefined;
+  // Authenticated viewers: force `viewerEmail` to the session email so a
+  // body field cannot spoof someone else's identity in the analytics. For
+  // anonymous viewers, ignore the body's `viewerEmail` entirely (it would
+  // otherwise let one viewer poison another user's view counts) — surface
+  // it only as a non-attributing display claim.
+  const viewerEmail = sessionEmail ?? null;
+  const claimedViewerEmail =
+    !sessionEmail && body.viewerEmail && typeof body.viewerEmail === "string"
       ? body.viewerEmail
-      : undefined) ??
-    session?.email ??
+      : null;
+  const viewerName =
+    body.viewerName ??
+    sessionEmail?.split("@")[0] ??
+    claimedViewerEmail ??
     null;
-  const viewerName = body.viewerName ?? session?.email?.split("@")[0] ?? null;
   const now = new Date().toISOString();
   const viewerKey = viewerEmail ?? `anon:${sessionId}`;
   const boundedTotalWatchMs = Math.max(0, Math.floor(totalWatchMs));

@@ -1,0 +1,25 @@
+{
+  "version": 3,
+  "framework": {
+    "name": "nitro",
+    "version": "3.0.260415-beta"
+  },
+  "overrides": {},
+  "routes": [
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/api/hello",
+      "dest": "/api/hello"
+    },
+    {
+      "src": "/?(?<page>.+)",
+      "dest": "/[...page]"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/__server"
+    }
+  ]
+}

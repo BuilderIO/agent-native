@@ -13,7 +13,7 @@ import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
-import { getActiveOrganizationId } from "../server/lib/recordings.js";
+import { requireOrganizationAccess } from "../server/lib/recordings.js";
 
 interface OrgRow {
   id: string;
@@ -65,19 +65,9 @@ export default defineAction({
     const exec = getDbExec();
     const pg = isPostgres();
 
-    const organizationId =
-      args.organizationId ?? (await getActiveOrganizationId());
-
-    if (!organizationId) {
-      return {
-        organization: null,
-        members: [],
-        spaces: [],
-        folders: [],
-        personalFolders: [],
-        invitations: [],
-      };
-    }
+    const { organizationId } = await requireOrganizationAccess(
+      args.organizationId,
+    );
 
     // Organization row
     const orgRes = await exec.execute({

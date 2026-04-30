@@ -17,14 +17,82 @@ try {
   _version = pkg.version;
 } catch {}
 
+/**
+ * Build a redacted "command" tag from process.argv. Strips the value that
+ * follows any --token / --key / --secret / --password / --api-key flag so
+ * we don't ship developer secrets to Sentry alongside the crash.
+ *
+ * Supports both `--token foo` (separate argv item) and `--token=foo`
+ * (combined argv item) forms.
+ */
+const SECRET_FLAG_RE = /^--?(token|key|secret|password|api[_-]?key)$/i;
+const SECRET_FLAG_EQ_RE =
+  /^(--?(token|key|secret|password|api[_-]?key))=(.*)$/i;
+function buildRedactedCommandTag(argv: string[]): string {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (SECRET_FLAG_RE.test(a)) {
+      out.push(a);
+      // Consume the next argv item as the secret value
+      if (i + 1 < argv.length) {
+        out.push("<redacted>");
+        i++;
+      }
+      continue;
+    }
+    const m = a.match(SECRET_FLAG_EQ_RE);
+    if (m) {
+      out.push(`${m[1]}=<redacted>`);
+      continue;
+    }
+    out.push(a);
+  }
+  return out.join(" ");
+}
+
 Sentry.init({
   dsn: "https://0d384e9eff2f6542af468b92769f2f5b@o117565.ingest.us.sentry.io/4511270386466816",
   release: `agent-native-cli@${_version}`,
-  sendDefaultPii: true,
+  // sendDefaultPii MUST stay false — the CLI runs in third-party developer
+  // environments and we never want to ship request headers, IPs, cookies,
+  // or process env contents to Sentry without explicit consent.
+  sendDefaultPii: false,
   beforeSend(event) {
+    // Defense in depth: strip any sensitive fields that may have been
+    // attached to the event despite sendDefaultPii: false (e.g. integrations
+    // that capture request metadata).
+    if (event.request) {
+      if (event.request.headers) {
+        const headers = event.request.headers as Record<string, string>;
+        for (const k of Object.keys(headers)) {
+          const lk = k.toLowerCase();
+          if (
+            lk === "cookie" ||
+            lk === "authorization" ||
+            lk === "set-cookie" ||
+            lk === "proxy-authorization"
+          ) {
+            delete headers[k];
+          }
+        }
+      }
+      // Cookies are also exposed via event.request.cookies as a separate field
+      delete (event.request as Record<string, unknown>).cookies;
+    }
+    delete event.user;
+    // Sentry's contexts can carry process.env snapshots — strip env-shaped
+    // contexts so we don't leak deployment secrets.
+    if (event.contexts && typeof event.contexts === "object") {
+      delete (event.contexts as Record<string, unknown>).runtime_env;
+    }
+
     event.tags = {
       ...event.tags,
-      command: process.argv[2] ?? "none",
+      // Build the command tag from process.argv with secrets redacted so
+      // `agent-native ... --token foo` doesn't leak `foo` to Sentry.
+      command: buildRedactedCommandTag(process.argv.slice(2)),
+      subcommand: process.argv[2] ?? "none",
       nodeVersion: process.version,
       platform: process.platform,
     };
@@ -39,6 +107,31 @@ const BUGS_URL = "https://github.com/BuilderIO/agent-native/issues";
 const command = process.argv[2];
 // Filter out bare "--" separators that pnpm inserts between its args and script args
 const args = process.argv.slice(3).filter((a) => a !== "--");
+
+function parseScaffoldArgs(argv: string[]): {
+  name?: string;
+  template?: string;
+  standalone: boolean;
+} {
+  let name: string | undefined;
+  let template: string | undefined;
+  let standalone = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--template" && argv[i + 1]) {
+      template = argv[++i];
+    } else if (arg.startsWith("--template=")) {
+      template = arg.slice("--template=".length);
+    } else if (arg === "--standalone") {
+      standalone = true;
+    } else if (!arg.startsWith("-") && !name) {
+      name = arg;
+    }
+  }
+
+  return { name, template, standalone };
+}
 
 // Track CLI usage (best-effort, non-blocking)
 function trackCli(event: string, props?: Record<string, unknown>): void {
@@ -147,9 +240,10 @@ switch (command) {
       execSync(`${vite} build`, { stdio: "inherit" });
     }
 
-    // Post-build: bundle for deployment target if NITRO_PRESET is set
+    // Post-build: framework-mode apps also need a Nitro server bundle for
+    // `agent-native start` and for serverless presets.
     const preset = process.env.NITRO_PRESET;
-    if (preset && preset !== "node") {
+    if (isReactRouterFramework()) {
       const __dirname = path.dirname(fileURLToPath(import.meta.url));
       const deployBuild = path.resolve(__dirname, "../deploy/build.js");
       if (fs.existsSync(deployBuild)) {
@@ -234,22 +328,11 @@ switch (command) {
     // Use --standalone for the old single-app flow.
     //   --template foo,bar         Pre-select multiple templates in the picker
     //   --standalone               Scaffold a single standalone app
-    let createName: string | undefined;
-    let createTemplate: string | undefined;
-    let createStandalone = false;
-    for (let i = 0; i < args.length; i++) {
-      if (args[i] === "--template" && args[i + 1]) {
-        createTemplate = args[++i];
-      } else if (args[i] === "--standalone") {
-        createStandalone = true;
-      } else if (!args[i].startsWith("-")) {
-        createName = args[i];
-      }
-    }
+    const parsed = parseScaffoldArgs(args);
     import("./create.js").then((m) =>
-      m.createApp(createName, {
-        template: createTemplate,
-        standalone: createStandalone,
+      m.createApp(parsed.name, {
+        template: parsed.template,
+        standalone: parsed.standalone,
       }),
     );
     break;
@@ -257,30 +340,18 @@ switch (command) {
 
   case "create-workspace": {
     // Deprecated alias for `create` (since workspace is now the default).
-    const wsName = args.find((a) => !a.startsWith("-"));
-    let wsTemplate: string | undefined;
-    for (let i = 0; i < args.length; i++) {
-      if (args[i] === "--template" && args[i + 1]) wsTemplate = args[++i];
-    }
+    const parsed = parseScaffoldArgs(args);
     import("./create-workspace.js").then((m) =>
-      m.createWorkspace({ name: wsName, template: wsTemplate }),
+      m.createWorkspace({ name: parsed.name, template: parsed.template }),
     );
     break;
   }
 
   case "add-app": {
     // Add one or more apps to the current workspace.
-    let addName: string | undefined;
-    let addTemplate: string | undefined;
-    for (let i = 0; i < args.length; i++) {
-      if (args[i] === "--template" && args[i + 1]) {
-        addTemplate = args[++i];
-      } else if (!args[i].startsWith("-")) {
-        addName = args[i];
-      }
-    }
+    const parsed = parseScaffoldArgs(args);
     import("./create.js").then((m) =>
-      m.addAppToWorkspace(addName, { template: addTemplate }),
+      m.addAppToWorkspace(parsed.name, { template: parsed.template }),
     );
     break;
   }

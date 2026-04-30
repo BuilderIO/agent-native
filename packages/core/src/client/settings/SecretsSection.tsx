@@ -6,6 +6,7 @@
  */
 
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { agentNativePath } from "../api-path.js";
 import {
   IconCheck,
   IconExternalLink,
@@ -32,7 +33,7 @@ interface SecretStatus {
   error?: string;
 }
 
-const ENDPOINT = "/_agent-native/secrets";
+const ENDPOINT = agentNativePath("/_agent-native/secrets");
 
 export interface SecretsSectionProps {
   /** Optional hash fragment to focus a specific secret (e.g. "secrets:OPENAI_API_KEY"). */
@@ -117,6 +118,7 @@ interface SecretCardProps {
 function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState<null | "save" | "delete" | "test">(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [toast, setToast] = useState<{
     kind: "ok" | "err";
     text: string;
@@ -152,6 +154,7 @@ function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
         return;
       }
       setValue("");
+      setConfirmDelete(false);
       setToastAndClear("ok", "Saved");
       onChanged();
     } finally {
@@ -165,6 +168,7 @@ function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
     try {
       const res = await fetch(`${ENDPOINT}/${encodeURIComponent(secret.key)}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) {
         const err = await res
@@ -175,6 +179,7 @@ function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
         return;
       }
       setToastAndClear("ok", "Removed");
+      setConfirmDelete(false);
       onChanged();
     } finally {
       setBusy(null);
@@ -335,18 +340,12 @@ function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={handleDelete}
+                  onClick={() => setConfirmDelete(true)}
                   disabled={busy !== null}
                   className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-red-500 disabled:opacity-40"
                 >
-                  {busy === "delete" ? (
-                    <IconLoader2 size={10} className="animate-spin" />
-                  ) : (
-                    <>
-                      <IconTrash size={10} />
-                      Remove
-                    </>
-                  )}
+                  <IconTrash size={10} />
+                  Remove
                 </button>
               </>
             )}
@@ -362,6 +361,31 @@ function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
               </a>
             )}
           </div>
+          {confirmDelete && (
+            <div className="flex items-center gap-1.5 rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[10px] text-red-500">
+              <span className="min-w-0 flex-1">Remove this saved value?</span>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={busy !== null}
+                className="inline-flex items-center gap-1 rounded border border-red-500/40 px-1.5 py-0.5 font-medium disabled:opacity-40"
+              >
+                {busy === "delete" ? (
+                  <IconLoader2 size={10} className="animate-spin" />
+                ) : (
+                  "Confirm"
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                disabled={busy !== null}
+                className="rounded border border-border px-1.5 py-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -390,7 +414,7 @@ interface AdHocKey {
   updatedAt: number;
 }
 
-const ADHOC_ENDPOINT = "/_agent-native/secrets/adhoc";
+const ADHOC_ENDPOINT = agentNativePath("/_agent-native/secrets/adhoc");
 
 function AdHocKeysSection() {
   const [keys, setKeys] = useState<AdHocKey[]>([]);
@@ -506,7 +530,10 @@ function AdHocKeysSection() {
       try {
         const res = await fetch(
           `${ADHOC_ENDPOINT}/${encodeURIComponent(name)}`,
-          { method: "DELETE" },
+          {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+          },
         );
         if (!res.ok) {
           showToast("err", "Failed to delete key");

@@ -18,16 +18,20 @@ import {
   IconMessage,
   IconWand,
   IconAdjustments,
+  IconPencilPlus,
+  IconPin,
 } from "@tabler/icons-react";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
+import { useSaveState } from "@/context/DeckContext";
+import { SaveStatusIndicator } from "@/components/visual-editor";
 import {
   ASPECT_RATIO_VALUES,
   type AspectRatio,
   DEFAULT_ASPECT_RATIO,
 } from "@/lib/aspect-ratios";
-import ShareDialog from "./ShareDialog";
 import { ExportMenu } from "./ExportMenu";
 import { ImportButton } from "./ImportButton";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 import {
   AgentToggleButton,
@@ -86,6 +90,14 @@ interface EditorToolbarProps {
   tweaksOpen?: boolean;
   /** Toggle the tweaks panel */
   onToggleTweaks?: () => void;
+  /** Whether draw-on-slide mode is active */
+  drawMode?: boolean;
+  /** Toggle draw-on-slide mode */
+  onToggleDrawMode?: () => void;
+  /** Whether comment-pin drop mode is active */
+  pinMode?: boolean;
+  /** Toggle comment-pin drop mode */
+  onTogglePinMode?: () => void;
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
@@ -205,12 +217,17 @@ export default function EditorToolbar({
   onToggleAnimations,
   tweaksOpen,
   onToggleTweaks,
+  drawMode,
+  onToggleDrawMode,
+  pinMode,
+  onTogglePinMode,
   onDuplicateDeck,
   onExportPdf,
   aspectRatio,
   onSetAspectRatio,
 }: EditorToolbarProps) {
   const activeAspectRatio: AspectRatio = aspectRatio ?? DEFAULT_ASPECT_RATIO;
+  const saveState = useSaveState();
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
 
@@ -537,6 +554,38 @@ graph TD
         </Tooltip>
       )}
 
+      {/* Draw-on-slide button */}
+      {onToggleDrawMode && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onToggleDrawMode}
+              data-toolbar-draw-button
+              className={`p-1.5 rounded cursor-pointer ${drawMode ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"}`}
+            >
+              <IconPencilPlus className="w-4 h-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Draw on slide</TooltipContent>
+        </Tooltip>
+      )}
+
+      {/* Drop-comment-pin button */}
+      {onTogglePinMode && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onTogglePinMode}
+              data-toolbar-pin-button
+              className={`p-1.5 rounded cursor-pointer ${pinMode ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"}`}
+            >
+              <IconPin className="w-4 h-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Drop comment pin</TooltipContent>
+        </Tooltip>
+      )}
+
       {/* Import button */}
       <ImportButton deckId={deckId} />
 
@@ -637,6 +686,9 @@ graph TD
         </button>
       )}
 
+      {/* Save-state indicator */}
+      <SaveStatusIndicator saving={saveState.saving} />
+
       {/* Export / Share menu (export, duplicate, share) */}
       <ExportMenu
         deckId={deckId}
@@ -663,6 +715,7 @@ graph TD
         <IconPlayerPlay className="w-3 h-3" />
         <span className="hidden sm:inline">Present</span>
       </Link>
+      <ThemeToggle className="flex-shrink-0" />
       <AgentToggleButton className="flex-shrink-0 text-muted-foreground hover:text-foreground/70 hover:bg-accent" />
     </div>
   );

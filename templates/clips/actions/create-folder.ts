@@ -6,7 +6,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import {
   getCurrentOwnerEmail,
   nanoid,
-  requireActiveOrganizationId,
+  requireOrganizationAccess,
 } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -34,8 +34,38 @@ export default defineAction({
     const ownerEmail = getCurrentOwnerEmail();
     const id = nanoid();
     const now = new Date().toISOString();
-    const organizationId =
-      args.organizationId || (await requireActiveOrganizationId());
+    const { organizationId } = await requireOrganizationAccess(
+      args.organizationId,
+    );
+
+    if (args.spaceId) {
+      const [space] = await db
+        .select({ id: schema.spaces.id })
+        .from(schema.spaces)
+        .where(
+          and(
+            eq(schema.spaces.id, args.spaceId),
+            eq(schema.spaces.organizationId, organizationId),
+          ),
+        )
+        .limit(1);
+      if (!space) throw new Error(`Space not found: ${args.spaceId}`);
+    }
+
+    if (args.parentId) {
+      const [parent] = await db
+        .select({ id: schema.folders.id })
+        .from(schema.folders)
+        .where(
+          and(
+            eq(schema.folders.id, args.parentId),
+            eq(schema.folders.organizationId, organizationId),
+            eq(schema.folders.ownerEmail, ownerEmail),
+          ),
+        )
+        .limit(1);
+      if (!parent) throw new Error(`Parent folder not found: ${args.parentId}`);
+    }
 
     // Next position within siblings
     const whereClauses = [

@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconLoader2, IconPencil, IconRefresh } from "@tabler/icons-react";
@@ -9,6 +10,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import {
+  isAllowedToolPath,
+  sanitizeToolRequestOptions,
+  checkBridgePolicy,
+  type ToolBridgeRole,
+} from "./iframe-bridge.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -139,6 +146,17 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
   const [refreshKey, setRefreshKey] = useState(0);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const queryClient = useQueryClient();
+  // (audit H4) Role plumbed through from the iframe's render binding. Until
+  // the iframe announces its role we deny non-trivial helper calls — that
+  // way a malicious tool body that races the announcement can't briefly
+  // operate at higher privilege than the viewer's actual role.
+  const bridgeContextRef = useRef<{
+    role: ToolBridgeRole;
+    isAuthor: boolean;
+  }>({
+    role: "viewer",
+    isAuthor: false,
+  });
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -176,6 +194,41 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
       if (event.source !== iframeRef.current?.contentWindow) return;
       const message = event.data;
       if (!message) return;
+
+      if (message.type === "agent-native-tool-binding") {
+        // (audit H4) The iframe announced its render binding. Trust the role
+        // value because the iframe's binding is generated server-side in
+        // tools/routes.ts (resolveAccess), not by user-authored content.
+        const binding = message.binding ?? {};
+        const role: ToolBridgeRole =
+          binding.role === "owner" ||
+          binding.role === "admin" ||
+          binding.role === "editor" ||
+          binding.role === "viewer"
+            ? binding.role
+            : "viewer";
+        bridgeContextRef.current = {
+          role,
+          isAuthor: !!binding.isAuthor,
+        };
+        return;
+      }
+
+      if (
+        message.type === "agent-native-tool-consent-granted" ||
+        message.type === "agent-native-tool-consent-cancelled"
+      ) {
+        // (audit C1) The consent stub fired; force a reload of the iframe so
+        // the next render returns the tool body (granted) or stays on the
+        // stub (cancelled — viewer can also navigate away).
+        if (message.type === "agent-native-tool-consent-granted") {
+          // Invalidate the cached tool record — author may have edited
+          // since the cache was warmed.
+          queryClient.invalidateQueries({ queryKey: ["tool", toolId] });
+          setRefreshKey((k) => k + 1);
+        }
+        return;
+      }
 
       if (message.type === "agent-native-tool-keydown") {
         document.dispatchEvent(
@@ -259,15 +312,43 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
         );
       };
 
-      if (!requestId || !isAllowedToolPath(path)) {
+      if (!requestId || !isAllowedToolPath(path, toolId)) {
         respond({ error: "Tool request path is not allowed" });
         return;
       }
 
       try {
         const options = sanitizeToolRequestOptions(message.options);
-        const res = await fetch(path, {
+        // (audit H4) Role-aware policy gate: viewer-shared tools can read
+        // but not write. Decided here in the parent before the request
+        // leaves; the server enforces a second layer.
+        const policy = checkBridgePolicy(
+          path,
+          options.method ?? "GET",
+          bridgeContextRef.current,
+        );
+        if (!policy.ok) {
+          respond({
+            response: {
+              ok: false,
+              status: 403,
+              statusText: "Forbidden",
+              body: { error: policy.error },
+            },
+          });
+          return;
+        }
+        // (audit H5) Tag every outbound bridge request with the
+        // X-Agent-Native-Tool-Bridge sentinel so the action-routes layer can
+        // enforce per-action `toolCallable` opt-in. The header is added by
+        // the parent — it is NOT taken from the iframe-supplied options
+        // (which were filtered by sanitizeToolRequestOptions).
+        const finalHeaders = new Headers(options.headers ?? undefined);
+        finalHeaders.set("X-Agent-Native-Tool-Bridge", "1");
+        finalHeaders.set("X-Agent-Native-Tool-Id", toolId);
+        const res = await fetch(agentNativePath(path), {
           ...options,
+          headers: finalHeaders,
           credentials: "same-origin",
         });
         const text = await res.text();
@@ -294,12 +375,14 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, []);
+  }, [toolId, queryClient]);
 
   const { data: tool, isLoading } = useQuery<Tool>({
     queryKey: ["tool", toolId],
     queryFn: async () => {
-      const res = await fetch(`/_agent-native/tools/${toolId}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/tools/${toolId}`),
+      );
       if (!res.ok) throw new Error("Failed to fetch tool");
       return res.json();
     },
@@ -309,12 +392,17 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
   const iframeSrc = useMemo(
     () =>
-      `/_agent-native/tools/${toolId}/render?dark=${document.documentElement.classList.contains("dark")}&v=${encodeURIComponent(tool?.updatedAt ?? "")}&r=${refreshKey}`,
+      agentNativePath(
+        `/_agent-native/tools/${toolId}/render?dark=${document.documentElement.classList.contains("dark")}&v=${encodeURIComponent(tool?.updatedAt ?? "")}&r=${refreshKey}`,
+      ),
     [toolId, tool?.updatedAt, refreshKey],
   );
 
   useEffect(() => {
     setIframeReady(false);
+    // Reset role to deny-by-default on every reload — the new render's
+    // binding announcement re-establishes the role before any helper call.
+    bridgeContextRef.current = { role: "viewer", isAuthor: false };
   }, [toolId, tool?.updatedAt, refreshKey]);
 
   const startRename = useCallback(() => {
@@ -338,7 +426,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
     );
     setIsRenaming(false);
     try {
-      await fetch(`/_agent-native/tools/${toolId}`, {
+      await fetch(agentNativePath(`/_agent-native/tools/${toolId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: trimmed }),
@@ -444,46 +532,4 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
       </div>
     </div>
   );
-}
-
-function isAllowedToolPath(path: string): boolean {
-  if (!path.startsWith("/") || path.startsWith("//")) return false;
-  if (path.includes("\\") || path.includes("\0")) return false;
-  return true;
-}
-
-function sanitizeToolRequestOptions(value: unknown): RequestInit {
-  if (!value || typeof value !== "object") return {};
-  const raw = value as Record<string, unknown>;
-  const method =
-    typeof raw.method === "string" && raw.method.trim()
-      ? raw.method.toUpperCase()
-      : "GET";
-  const headers =
-    raw.headers && typeof raw.headers === "object"
-      ? Object.fromEntries(
-          Object.entries(raw.headers as Record<string, unknown>)
-            .filter(([key, val]) => isAllowedHeader(key) && val !== undefined)
-            .map(([key, val]) => [key, String(val)]),
-        )
-      : undefined;
-  const body =
-    typeof raw.body === "string" ||
-    raw.body instanceof Blob ||
-    raw.body instanceof FormData
-      ? raw.body
-      : raw.body === undefined
-        ? undefined
-        : JSON.stringify(raw.body);
-
-  return {
-    method,
-    headers,
-    body: method === "GET" || method === "HEAD" ? undefined : body,
-  };
-}
-
-function isAllowedHeader(name: string): boolean {
-  const lower = name.toLowerCase();
-  return !["cookie", "host", "origin", "referer"].includes(lower);
 }

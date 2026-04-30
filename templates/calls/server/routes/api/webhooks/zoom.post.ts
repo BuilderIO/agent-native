@@ -29,7 +29,7 @@ import { eq } from "drizzle-orm";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { getDb, schema } from "../../../db/index.js";
 import { nanoid, resolveDefaultWorkspaceId } from "../../../lib/calls.js";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { writeAppState } from "@agent-native/core/application-state";
 
 interface ZoomPayload {
@@ -138,13 +138,31 @@ export default defineEventHandler(async (event: H3Event) => {
   if (secret) {
     const timestamp = getRequestHeader(event, "x-zm-request-timestamp");
     const signature = getRequestHeader(event, "x-zm-signature");
+    const tsNum = parseInt(timestamp ?? "", 10);
+    if (!tsNum || Math.abs(Date.now() / 1000 - tsNum) > 300) {
+      setResponseStatus(event, 401);
+      return { error: "Request timestamp too old" };
+    }
     if (!verifyZoomSignature(buf, timestamp, signature, secret)) {
       setResponseStatus(event, 401);
       return { error: "Invalid signature" };
     }
+  } else if (
+    process.env.NODE_ENV === "production" &&
+    process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS !== "1"
+  ) {
+    // Fail-closed in production: an unauthenticated POST can manufacture a
+    // fake Zoom recording.completed event tied to any host email and
+    // create a `processing` row + transcription job. Set
+    // AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1 for staging only.
+    console.error(
+      "[calls] ZOOM_WEBHOOK_SECRET not configured — refusing webhook",
+    );
+    setResponseStatus(event, 401);
+    return { error: "ZOOM_WEBHOOK_SECRET not configured" };
   } else {
     console.warn(
-      "[calls] ZOOM_WEBHOOK_SECRET not set — accepting Zoom webhook without verification",
+      "[calls] ZOOM_WEBHOOK_SECRET not set — accepting Zoom webhook without verification (dev only)",
     );
   }
 
@@ -163,8 +181,18 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 400);
       return { error: "Missing plainToken" };
     }
-    const hashKey = secret ?? "dev-zoom-secret";
-    const encryptedToken = createHmac("sha256", hashKey)
+    if (!secret) {
+      // Refuse to complete the handshake with a publicly-known literal.
+      // Doing so would let an attacker register their own webhook target
+      // against this deploy and observe traffic. Require the secret be
+      // configured before Zoom can complete the URL validation.
+      console.error(
+        "[calls] ZOOM_WEBHOOK_SECRET not configured — cannot complete Zoom URL validation",
+      );
+      setResponseStatus(event, 401);
+      return { error: "ZOOM_WEBHOOK_SECRET not configured" };
+    }
+    const encryptedToken = createHmac("sha256", secret)
       .update(plainToken)
       .digest("hex");
     return { plainToken, encryptedToken };
@@ -211,53 +239,56 @@ export default defineEventHandler(async (event: H3Event) => {
     return { ok: true, ignored: "auto-import-disabled" };
   }
 
-  // Resolve workspace — use the connection's owner context.
-  const originalEmail = getRequestUserEmail();
-  process.env.AGENT_USER_EMAIL = hostEmail;
-  let workspaceId: string;
-  try {
-    workspaceId = await resolveDefaultWorkspaceId();
-  } finally {
-    if (originalEmail) process.env.AGENT_USER_EMAIL = originalEmail;
-    else delete process.env.AGENT_USER_EMAIL;
-  }
+  // Resolve workspace and write the call row inside a per-request context
+  // scoped to the Zoom host. This used to mutate `process.env.AGENT_USER_EMAIL`
+  // around the await, but Node Lambdas (Netlify Functions) share the same
+  // process across concurrent webhook invocations — a second webhook for a
+  // different host would race and read the first one's email between the
+  // assignment and the finally. AsyncLocalStorage gives this call-chain its
+  // own isolated context with no cross-request bleed.
+  return runWithRequestContext(
+    { userEmail: hostEmail, orgId: undefined },
+    async () => {
+      const workspaceId = await resolveDefaultWorkspaceId();
 
-  const callId = nanoid();
-  const now = new Date().toISOString();
-  await db.insert(schema.calls).values({
-    id: callId,
-    workspaceId,
-    title: obj.topic?.trim() || "Zoom recording",
-    source: "zoom-cloud",
-    sourceMeta: JSON.stringify({
-      meetingId: obj.id,
-      meetingUuid: obj.uuid,
-      hostEmail,
-      shareUrl: obj.share_url,
-      downloadToken: payload.download_token,
-      downloadUrl: picked.downloadUrl,
-    }),
-    mediaUrl: picked.downloadUrl,
-    mediaKind: picked.fileExtension === "m4a" ? "audio" : "video",
-    mediaFormat: picked.fileExtension,
-    mediaSizeBytes: picked.fileSize,
-    recordedAt: obj.start_time ?? null,
-    timezone: obj.timezone ?? null,
-    durationMs: Math.max(0, Math.round((obj.duration ?? 0) * 60 * 1000)),
-    status: "processing",
-    ownerEmail: hostEmail,
-    createdAt: now,
-    updatedAt: now,
-  });
+      const callId = nanoid();
+      const now = new Date().toISOString();
+      await db.insert(schema.calls).values({
+        id: callId,
+        workspaceId,
+        title: obj.topic?.trim() || "Zoom recording",
+        source: "zoom-cloud",
+        sourceMeta: JSON.stringify({
+          meetingId: obj.id,
+          meetingUuid: obj.uuid,
+          hostEmail,
+          shareUrl: obj.share_url,
+          downloadToken: payload.download_token,
+          downloadUrl: picked.downloadUrl,
+        }),
+        mediaUrl: picked.downloadUrl,
+        mediaKind: picked.fileExtension === "m4a" ? "audio" : "video",
+        mediaFormat: picked.fileExtension,
+        mediaSizeBytes: picked.fileSize,
+        recordedAt: obj.start_time ?? null,
+        timezone: obj.timezone ?? null,
+        durationMs: Math.max(0, Math.round((obj.duration ?? 0) * 60 * 1000)),
+        status: "processing",
+        ownerEmail: hostEmail,
+        createdAt: now,
+        updatedAt: now,
+      });
 
-  await writeAppState(`call-transcribe-${callId}`, {
-    callId,
-    mediaUrl: picked.downloadUrl,
-    downloadToken: payload.download_token,
-    source: "zoom-cloud",
-    requestedAt: now,
-  });
-  await writeAppState("refresh-signal", { ts: Date.now() });
+      await writeAppState(`call-transcribe-${callId}`, {
+        callId,
+        mediaUrl: picked.downloadUrl,
+        downloadToken: payload.download_token,
+        source: "zoom-cloud",
+        requestedAt: now,
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
 
-  return { ok: true, callId };
+      return { ok: true, callId };
+    },
+  );
 });

@@ -11,7 +11,7 @@ import {
   IconUpload,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
-import { getCallbackOrigin } from "@agent-native/core/client";
+import { agentNativePath, getCallbackOrigin } from "@agent-native/core/client";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -85,9 +85,13 @@ export function GoogleConnectBanner({
 
   const isElectron = useMemo(() => /Electron/i.test(navigator.userAgent), []);
   const desktopPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const authPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const addAccountPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     return () => {
       if (desktopPollRef.current) clearInterval(desktopPollRef.current);
+      if (authPollRef.current) clearInterval(authPollRef.current);
+      if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
     };
   }, []);
 
@@ -100,10 +104,10 @@ export function GoogleConnectBanner({
       ? "/_agent-native/google/add-account/auth-url"
       : "/_agent-native/google/auth-url";
     const redirectUri = encodeURIComponent(
-      `${origin}/_agent-native/google/callback`,
+      `${origin}${agentNativePath("/_agent-native/google/callback")}`,
     );
     window.open(
-      `${origin}${endpoint}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
+      `${origin}${agentNativePath(endpoint)}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
       "_blank",
     );
     const start = Date.now();
@@ -111,15 +115,22 @@ export function GoogleConnectBanner({
     desktopPollRef.current = setInterval(async () => {
       try {
         const res = await fetch(
-          `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+          agentNativePath(
+            `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+          ),
         );
         const data = await res.json();
         if (data?.token) {
           clearInterval(desktopPollRef.current!);
           desktopPollRef.current = null;
-          await fetch(`/_agent-native/auth/session?_session=${data.token}`, {
-            credentials: "include",
-          });
+          await fetch(
+            agentNativePath(
+              `/_agent-native/auth/session?_session=${data.token}`,
+            ),
+            {
+              credentials: "include",
+            },
+          );
           window.location.reload();
         } else if (Date.now() - start > 120_000) {
           clearInterval(desktopPollRef.current!);
@@ -145,11 +156,11 @@ export function GoogleConnectBanner({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const redirectUri = `${getCallbackOrigin()}/_agent-native/google/callback`;
+  const redirectUri = `${getCallbackOrigin()}${agentNativePath("/_agent-native/google/callback")}`;
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch("/_agent-native/env-status");
+      const res = await fetch(agentNativePath("/_agent-native/env-status"));
       if (res.ok) {
         const data: EnvKeyStatus[] = await res.json();
         setEnvStatus(data);
@@ -170,9 +181,12 @@ export function GoogleConnectBanner({
   }, [fetchStatus]);
 
   // When auth URL is ready, open it and poll for connection.
-  // Gate on wantAuthUrl so a cached/refetched URL doesn't open a second
-  // popup behind the first when React Query returns stale data immediately
-  // and then refetches in the background.
+  //
+  // `wantAuthUrl` is the user's retry intent and must be in the deps so a
+  // second click after closing the popup re-runs this effect (the cached
+  // authUrl.data won't change on its own). The interval lives in a ref so
+  // flipping wantAuthUrl false below doesn't tear down an already-running
+  // poll. Cleanup happens on unmount via the dedicated effect above.
   useEffect(() => {
     if (!wantAuthUrl || !authUrl.data?.url) return;
     const url = authUrl.data.url;
@@ -188,19 +202,22 @@ export function GoogleConnectBanner({
     }
     window.open(url, "_blank");
 
-    // Poll for connection status while user completes OAuth in other tab.
-    const interval = setInterval(async () => {
-      const res = await fetch("/_agent-native/google/status").catch(() => null);
+    if (authPollRef.current) clearInterval(authPollRef.current);
+    authPollRef.current = setInterval(async () => {
+      const res = await fetch(
+        agentNativePath("/_agent-native/google/status"),
+      ).catch(() => null);
       if (res?.ok) {
         const data = await res.json();
         if (data.connected) {
-          clearInterval(interval);
+          if (authPollRef.current) {
+            clearInterval(authPollRef.current);
+            authPollRef.current = null;
+          }
           window.location.reload();
         }
       }
     }, 2000);
-
-    return () => clearInterval(interval);
   }, [wantAuthUrl, authUrl.data]);
 
   // When auth URL fails, show wizard (for missing credentials) or an error message
@@ -218,7 +235,11 @@ export function GoogleConnectBanner({
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
 
-  // When add-account URL is ready, open it and poll for new account
+  // When add-account URL is ready, open it and poll for new account.
+  // Same retry-intent rationale as the connect effect — `wantAddAccount`
+  // is in the deps so a second click rerun the effect; the polling
+  // interval lives in a ref so flipping wantAddAccount false here doesn't
+  // tear down the running poll.
   useEffect(() => {
     if (!wantAddAccount || !addAccountUrl.data?.url) return;
     const isNativeWebView =
@@ -230,24 +251,29 @@ export function GoogleConnectBanner({
     }
     setWantAddAccount(false);
 
-    if (!isNativeWebView) {
-      const prevCount = accounts.length;
-      const interval = setInterval(async () => {
-        const res = await fetch("/_agent-native/google/status").catch(
-          () => null,
-        );
-        if (res?.ok) {
-          const data = await res.json();
-          if (data.accounts?.length > prevCount) {
-            clearInterval(interval);
-            window.location.reload();
-          }
-        }
-      }, 2000);
+    if (isNativeWebView) return;
 
-      return () => clearInterval(interval);
-    }
-  }, [wantAddAccount, addAccountUrl.data, accounts.length]);
+    const prevCount = accounts.length;
+    if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
+    addAccountPollRef.current = setInterval(async () => {
+      const res = await fetch(
+        agentNativePath("/_agent-native/google/status"),
+      ).catch(() => null);
+      if (res?.ok) {
+        const data = await res.json();
+        if (data.accounts?.length > prevCount) {
+          if (addAccountPollRef.current) {
+            clearInterval(addAccountPollRef.current);
+            addAccountPollRef.current = null;
+          }
+          window.location.reload();
+        }
+      }
+    }, 2000);
+    // accounts.length is captured into prevCount above; including it in deps
+    // would tear down and recreate the interval whenever the count changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantAddAccount, addAccountUrl.data]);
 
   function handleConnect() {
     if (isElectron) {
@@ -286,7 +312,7 @@ export function GoogleConnectBanner({
         throw new Error("Could not find client_id and client_secret in JSON");
       }
 
-      const res = await fetch("/_agent-native/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

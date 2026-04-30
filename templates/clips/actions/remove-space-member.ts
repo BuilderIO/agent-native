@@ -10,6 +10,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
+import { requireOrganizationAccess } from "../server/lib/recordings.js";
 
 export default defineAction({
   description: "Remove a member from a space.",
@@ -19,6 +20,14 @@ export default defineAction({
   }),
   run: async (args) => {
     const db = getDb();
+    const [space] = await db
+      .select({ organizationId: schema.spaces.organizationId })
+      .from(schema.spaces)
+      .where(eq(schema.spaces.id, args.spaceId))
+      .limit(1);
+    if (!space) throw new Error(`Space not found: ${args.spaceId}`);
+    await requireOrganizationAccess(space.organizationId, ["admin"]);
+
     const [existing] = await db
       .select()
       .from(schema.spaceMembers)

@@ -20,6 +20,7 @@ import {
 } from "h3";
 import fs from "node:fs";
 import path from "node:path";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 
 const UPLOADS_DIR = path.resolve("data/uploads");
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -48,54 +49,106 @@ const EXT_BY_MIME: Record<string, string> = {
   "image/jpeg": ".jpg",
   "image/gif": ".gif",
   "image/webp": ".webp",
-  "image/svg+xml": ".svg",
 };
 
+function hasExpectedImageSignature(bytes: Uint8Array, mimeType: string) {
+  if (mimeType === "image/png") {
+    return (
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47
+    );
+  }
+  if (mimeType === "image/jpeg") {
+    return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  }
+  if (mimeType === "image/gif") {
+    const header = Buffer.from(bytes.subarray(0, 6)).toString("ascii");
+    return header === "GIF87a" || header === "GIF89a";
+  }
+  if (mimeType === "image/webp") {
+    return (
+      Buffer.from(bytes.subarray(0, 4)).toString("ascii") === "RIFF" &&
+      Buffer.from(bytes.subarray(8, 12)).toString("ascii") === "WEBP"
+    );
+  }
+  return false;
+}
+
+function appPath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return base ? `/${base}${path}` : path;
+}
+
 export default defineEventHandler(async (event: H3Event) => {
-  const raw = await readRawBody(event, false);
-  if (!raw || !(raw as Buffer | Uint8Array).length) {
-    setResponseStatus(event, 400);
-    return { error: "Empty upload" };
-  }
-  const bytes =
-    raw instanceof Uint8Array
-      ? raw
-      : new Uint8Array(
-          (raw as Buffer).buffer,
-          (raw as Buffer).byteOffset,
-          (raw as Buffer).byteLength,
-        );
-  if (bytes.byteLength > MAX_BYTES) {
-    setResponseStatus(event, 413);
-    return { error: "File too large (max 5 MB)" };
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
   }
 
-  const mimeType =
-    getHeader(event, "content-type") || "application/octet-stream";
-  const query = getQuery(event);
-  const originalName =
-    typeof query.filename === "string" ? query.filename : "upload";
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    async () => {
+      const raw = await readRawBody(event, false);
+      if (!raw || !(raw as Buffer | Uint8Array).length) {
+        setResponseStatus(event, 400);
+        return { error: "Empty upload" };
+      }
+      const bytes =
+        raw instanceof Uint8Array
+          ? raw
+          : new Uint8Array(
+              (raw as Buffer).buffer,
+              (raw as Buffer).byteOffset,
+              (raw as Buffer).byteLength,
+            );
+      if (bytes.byteLength > MAX_BYTES) {
+        setResponseStatus(event, 413);
+        return { error: "File too large (max 5 MB)" };
+      }
 
-  // Prefer the extension from the original filename; fall back to MIME.
-  let ext = path.extname(originalName).toLowerCase();
-  if (!ext) ext = EXT_BY_MIME[mimeType] ?? ".bin";
+      const mimeType = (
+        getHeader(event, "content-type") || "application/octet-stream"
+      )
+        .split(";")[0]
+        .trim()
+        .toLowerCase();
+      const ext = EXT_BY_MIME[mimeType];
+      if (!ext) {
+        setResponseStatus(event, 400);
+        return { error: "Only PNG, JPEG, GIF, and WebP images are allowed" };
+      }
+      if (!hasExpectedImageSignature(bytes, mimeType)) {
+        setResponseStatus(event, 400);
+        return { error: "Uploaded image bytes do not match Content-Type" };
+      }
 
-  const id = `${randId()}${ext}`;
-  const filePath = path.join(UPLOADS_DIR, id);
+      const query = getQuery(event);
+      const originalName =
+        typeof query.filename === "string" ? query.filename : "upload";
 
-  try {
-    fs.writeFileSync(filePath, bytes);
-  } catch (err) {
-    console.error("[clips media] write failed:", err);
-    setResponseStatus(event, 500);
-    return { error: "Upload failed" };
-  }
+      const id = `${randId()}${ext}`;
+      const filePath = path.join(UPLOADS_DIR, id);
 
-  return {
-    url: `/api/media/${id}`,
-    filename: id,
-    originalName,
-    mimeType,
-    size: bytes.byteLength,
-  };
+      try {
+        fs.writeFileSync(filePath, bytes);
+      } catch (err) {
+        console.error("[clips media] write failed:", err);
+        setResponseStatus(event, 500);
+        return { error: "Upload failed" };
+      }
+
+      return {
+        url: appPath(`/api/media/${id}`),
+        filename: id,
+        originalName,
+        mimeType,
+        size: bytes.byteLength,
+      };
+    },
+  );
 });

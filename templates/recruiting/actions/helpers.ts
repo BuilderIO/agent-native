@@ -1,6 +1,10 @@
 // Load .env in CLI mode (not needed when running via Vite dev server)
 try {
-  await import("dotenv/config");
+  // Use the programmatic form with `quiet: true` to suppress dotenv v17's
+  // "tip" banner on every load. The bare `dotenv/config` import would print
+  // it.
+  const dotenv = await import("dotenv");
+  dotenv.config({ quiet: true });
 } catch {
   // dotenv not available in Vite SSR context — env is already loaded
 }

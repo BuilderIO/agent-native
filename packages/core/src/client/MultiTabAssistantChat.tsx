@@ -5,9 +5,10 @@ import {
   type AssistantChatProps,
   type AssistantChatHandle,
 } from "./AssistantChat.js";
-import { getFrameOrigin } from "./frame.js";
+import { isTrustedFrameMessage } from "./frame.js";
 import { cn } from "./utils.js";
 import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
+import { agentNativePath } from "./api-path.js";
 
 interface EngineModelGroup {
   engine: string;
@@ -218,6 +219,7 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
           </span>
           <button
             onClick={onClose}
+            aria-label="Close help"
             className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
           >
             <IconX size={12} />
@@ -292,7 +294,7 @@ export function MultiTabAssistantChat({
   renderHeader,
   renderOverlay,
   contentHidden = false,
-  apiUrl = "/_agent-native/agent-chat",
+  apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
   ...props
 }: MultiTabAssistantChatProps) {
@@ -347,15 +349,15 @@ export function MultiTabAssistantChat({
 
   const refreshEngines = useCallback(() => {
     Promise.all([
-      fetch("/_agent-native/actions/manage-agent-engine", {
+      fetch(agentNativePath("/_agent-native/actions/manage-agent-engine"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "list" }),
       }).then((r) => (r.ok ? r.json() : null)),
-      fetch("/_agent-native/env-status")
+      fetch(agentNativePath("/_agent-native/env-status"))
         .then((r) => (r.ok ? r.json() : []))
         .catch(() => []),
-      fetch("/_agent-native/builder/status")
+      fetch(agentNativePath("/_agent-native/builder/status"))
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
     ])
@@ -654,7 +656,7 @@ export function MultiTabAssistantChat({
   // A margin keeps the active tab from sitting flush against either container
   // edge — at the right edge it was landing directly under the +/history/menu
   // buttons, which visually clipped the tab label.
-  const activeTabRefCb = useCallback((el: HTMLButtonElement | null) => {
+  const activeTabRefCb = useCallback((el: HTMLElement | null) => {
     if (!el) return;
     const container = el.parentElement;
     if (!container) return;
@@ -700,13 +702,8 @@ export function MultiTabAssistantChat({
       `Do NOT edit any files, run any scripts, or make any changes until the user says to proceed.`;
 
     const handler = (event: MessageEvent) => {
-      if (
-        event.origin !== window.location.origin &&
-        event.origin !== getFrameOrigin()
-      ) {
-        return;
-      }
-      if (event.data?.type !== "builder.submitChat") return;
+      if (!isTrustedFrameMessage(event)) return;
+      if (event.data?.type !== "agentNative.submitChat") return;
       const message = event.data.data?.message as string;
       if (!message) return;
       const context = event.data.data?.context as string | undefined;
@@ -811,8 +808,8 @@ export function MultiTabAssistantChat({
         return next;
       });
     };
-    window.addEventListener("builder.chatRunning", handler);
-    return () => window.removeEventListener("builder.chatRunning", handler);
+    window.addEventListener("agentNative.chatRunning", handler);
+    return () => window.removeEventListener("agentNative.chatRunning", handler);
   }, []);
 
   const addTab = useCallback(async () => {
@@ -1001,7 +998,7 @@ export function MultiTabAssistantChat({
       if (stopped) return;
       try {
         const res = await fetch(
-          "/_agent-native/application-state/chat-command",
+          agentNativePath("/_agent-native/application-state/chat-command"),
         );
         if (res.ok) {
           const data = await res.json();
@@ -1018,9 +1015,13 @@ export function MultiTabAssistantChat({
             }
             switchThread(threadId);
             // Clear the command
-            fetch("/_agent-native/application-state/chat-command", {
-              method: "DELETE",
-            }).catch(() => {});
+            fetch(
+              agentNativePath("/_agent-native/application-state/chat-command"),
+              {
+                method: "DELETE",
+                headers: { "X-Agent-Native-CSRF": "1" },
+              },
+            ).catch(() => {});
           }
         }
       } catch {}
@@ -1191,25 +1192,32 @@ export function MultiTabAssistantChat({
                           (tab.id === focusParentId &&
                             activeTab?.parentThreadId === tab.id);
                         return (
-                          <button
+                          <div
                             key={tab.id}
                             ref={isActive ? activeTabRefCb : undefined}
-                            onClick={() => switchThread(tab.id)}
                             className={cn(
-                              "agent-tab relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
+                              "agent-tab relative flex items-center rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
                               isActive
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent",
                             )}
                           >
-                            <span className="truncate pr-1">{tab.label}</span>
-                            {tab.status === "running" && (
-                              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
-                            )}
-                            <span
-                              role="button"
+                            <button
+                              type="button"
+                              onClick={() => switchThread(tab.id)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 min-w-0 flex-1 text-left"
+                            >
+                              <span className="truncate pr-1">{tab.label}</span>
+                              {tab.status === "running" && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Close tab"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                e.preventDefault();
                                 closeTab(tab.id);
                               }}
                               className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
@@ -1225,9 +1233,9 @@ export function MultiTabAssistantChat({
                                   "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                               }}
                             >
-                              <IconX size={8} />
-                            </span>
-                          </button>
+                              <IconX size={12} />
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -1236,11 +1244,13 @@ export function MultiTabAssistantChat({
                         onClick={addTab}
                         className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
                         title="New chat"
+                        aria-label="New chat"
                       >
                         <IconPlus size={12} />
                       </button>
                       <button
                         onClick={() => setShowHistory(!showHistory)}
+                        aria-label="Chat history"
                         className={cn(
                           "flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
                           showHistory && "bg-accent text-foreground",
@@ -1266,31 +1276,38 @@ export function MultiTabAssistantChat({
                           Main
                         </button>
                         {childTabs.map((tab) => (
-                          <button
+                          <div
                             key={tab.id}
                             ref={
                               tab.id === activeThreadId
                                 ? activeTabRefCb
                                 : undefined
                             }
-                            onClick={() => switchThread(tab.id)}
                             className={cn(
-                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer max-w-[130px]",
+                              "agent-tab relative flex shrink-0 items-center rounded-md text-[10px] font-medium max-w-[130px]",
                               tab.id === activeThreadId
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
                             )}
                           >
-                            <span className="truncate pr-1">
-                              {tab.subAgentName || tab.label}
-                            </span>
-                            {tab.status === "running" && (
-                              <span className="w-1 h-1 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
-                            )}
-                            <span
-                              role="button"
+                            <button
+                              type="button"
+                              onClick={() => switchThread(tab.id)}
+                              className="flex items-center gap-1 px-2 py-1 min-w-0 flex-1 text-left"
+                            >
+                              <span className="truncate pr-1">
+                                {tab.subAgentName || tab.label}
+                              </span>
+                              {tab.status === "running" && (
+                                <span className="w-1 h-1 rounded-full bg-muted-foreground/50 shrink-0 animate-pulse" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Close tab"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                e.preventDefault();
                                 closeTab(tab.id);
                               }}
                               className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
@@ -1306,9 +1323,9 @@ export function MultiTabAssistantChat({
                                   "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                               }}
                             >
-                              <IconX size={8} />
-                            </span>
-                          </button>
+                              <IconX size={12} />
+                            </button>
+                          </div>
                         ))}
                       </div>
                     </div>

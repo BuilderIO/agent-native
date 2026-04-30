@@ -37,6 +37,11 @@ import {
 } from "h3";
 import { readAppState } from "@agent-native/core/application-state";
 import { resolveAccess } from "@agent-native/core/sharing";
+import {
+  getSession,
+  runWithRequestContext,
+  verifyShortLivedToken,
+} from "@agent-native/core/server";
 
 interface RecordingRow {
   expiresAt?: string | null;
@@ -51,92 +56,125 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Missing recordingId" };
   }
 
-  const access = await resolveAccess("recording", recordingId);
-  if (!access) {
-    setResponseStatus(event, 403);
-    return { error: "Forbidden" };
-  }
-  const rec = access.resource as RecordingRow;
+  const session = await getSession(event).catch(() => null);
 
-  if (rec.expiresAt) {
-    const expires = new Date(rec.expiresAt).getTime();
-    if (Number.isFinite(expires) && expires < Date.now()) {
-      setResponseStatus(event, 410);
-      return { error: "Recording has expired" };
-    }
-  }
-
-  // Password gate — owners skip it (they set it). Same behavior as
-  // public-recording.get.ts so the two endpoints don't disagree.
-  if (rec.password && access.role !== "owner") {
-    const q = getQuery(event) as { password?: string };
-    const supplied = typeof q.password === "string" ? q.password : "";
-    if (!supplied || supplied !== rec.password) {
-      setResponseStatus(event, 401);
-      return { error: "Password required", passwordRequired: true };
-    }
-  }
-
-  const blob = await readAppState(`recording-blob-${recordingId}`);
-  const b64 = typeof blob?.data === "string" ? blob.data : null;
-  if (!b64) {
-    setResponseStatus(event, 404);
-    return { error: "Blob not found" };
-  }
-  const mimeType =
-    typeof blob?.mimeType === "string" ? blob.mimeType : "video/webm";
-  const bytes = Buffer.from(b64, "base64");
-  const total = bytes.byteLength;
-
-  setResponseHeader(event, "Content-Type", mimeType);
-  setResponseHeader(event, "Accept-Ranges", "bytes");
-  setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
-
-  const rangeHeader = getRequestHeader(event, "range");
-  if (rangeHeader && rangeHeader.startsWith("bytes=")) {
-    const spec = rangeHeader.slice(6).trim();
-    let start: number;
-    let end: number;
-
-    if (spec.startsWith("-")) {
-      // Suffix range: bytes=-N → last N bytes.
-      const suffixLen = Number.parseInt(spec.slice(1), 10);
-      if (!Number.isFinite(suffixLen) || suffixLen <= 0) {
-        setResponseStatus(event, 416);
-        setResponseHeader(event, "Content-Range", `bytes */${total}`);
-        return "";
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    async () => {
+      const access = await resolveAccess("recording", recordingId);
+      if (!access) {
+        setResponseStatus(event, 403);
+        return { error: "Forbidden" };
       }
-      start = Math.max(0, total - suffixLen);
-      end = total - 1;
-    } else {
-      const [startStr, endStr] = spec.split("-");
-      start = Number.parseInt(startStr, 10);
-      if (!Number.isFinite(start) || start < 0 || start >= total) {
-        setResponseStatus(event, 416);
-        setResponseHeader(event, "Content-Range", `bytes */${total}`);
-        return "";
-      }
-      // Clamp oversized `end` to total-1 (RFC 9110 §14.1.2) instead of 416'ing.
-      if (endStr === "" || endStr === undefined) {
-        end = total - 1;
-      } else {
-        const parsedEnd = Number.parseInt(endStr, 10);
-        if (!Number.isFinite(parsedEnd) || parsedEnd < start) {
-          setResponseStatus(event, 416);
-          setResponseHeader(event, "Content-Range", `bytes */${total}`);
-          return "";
+      const rec = access.resource as RecordingRow;
+
+      if (rec.expiresAt) {
+        const expires = new Date(rec.expiresAt).getTime();
+        if (Number.isFinite(expires) && expires < Date.now()) {
+          setResponseStatus(event, 410);
+          return { error: "Recording has expired" };
         }
-        end = Math.min(parsedEnd, total - 1);
       }
-    }
 
-    const slice = bytes.subarray(start, end + 1);
-    setResponseStatus(event, 206);
-    setResponseHeader(event, "Content-Range", `bytes ${start}-${end}/${total}`);
-    setResponseHeader(event, "Content-Length", String(slice.byteLength));
-    return slice;
-  }
+      // Password gate — owners skip it (they set it). Same behavior as
+      // public-recording.get.ts so the two endpoints don't disagree.
+      // Accepts either:
+      //   - `?t=<token>` — preferred. Short-lived HMAC token minted by
+      //     public-recording.get.ts after the password check passed; keeps
+      //     the plaintext password out of the video URL (and therefore out
+      //     of browser history / CDN logs / Referer headers).
+      //   - `?password=<pw>` — legacy fallback so existing share pages /
+      //     bookmarks keep working during rollout.
+      // (audit 11 F-07)
+      if (rec.password && access.role !== "owner") {
+        const q = getQuery(event) as { password?: string; t?: string };
+        const token = typeof q.t === "string" ? q.t : "";
+        const supplied = typeof q.password === "string" ? q.password : "";
 
-  setResponseHeader(event, "Content-Length", String(total));
-  return bytes;
+        let allowed = false;
+        if (token) {
+          const result = verifyShortLivedToken(token, recordingId);
+          if (result.ok) allowed = true;
+        }
+        if (!allowed && supplied && supplied === rec.password) {
+          allowed = true;
+        }
+        if (!allowed) {
+          setResponseStatus(event, 401);
+          return { error: "Password required", passwordRequired: true };
+        }
+      }
+
+      const blob = await readAppState(`recording-blob-${recordingId}`);
+      const b64 = typeof blob?.data === "string" ? blob.data : null;
+      if (!b64) {
+        setResponseStatus(event, 404);
+        return { error: "Blob not found" };
+      }
+      const mimeType =
+        typeof blob?.mimeType === "string" ? blob.mimeType : "video/webm";
+      const bytes = Buffer.from(b64, "base64");
+      const total = bytes.byteLength;
+
+      setResponseHeader(event, "Content-Type", mimeType);
+      setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+      setResponseHeader(event, "Accept-Ranges", "bytes");
+      setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+      // Don't leak the URL (which carries a short-lived token) into the
+      // Referer of any outbound link rendered alongside the player.
+      setResponseHeader(event, "Referrer-Policy", "no-referrer");
+
+      const rangeHeader = getRequestHeader(event, "range");
+      if (rangeHeader && rangeHeader.startsWith("bytes=")) {
+        const spec = rangeHeader.slice(6).trim();
+        let start: number;
+        let end: number;
+
+        if (spec.startsWith("-")) {
+          // Suffix range: bytes=-N → last N bytes.
+          const suffixLen = Number.parseInt(spec.slice(1), 10);
+          if (!Number.isFinite(suffixLen) || suffixLen <= 0) {
+            setResponseStatus(event, 416);
+            setResponseHeader(event, "Content-Range", `bytes */${total}`);
+            return "";
+          }
+          start = Math.max(0, total - suffixLen);
+          end = total - 1;
+        } else {
+          const [startStr, endStr] = spec.split("-");
+          start = Number.parseInt(startStr, 10);
+          if (!Number.isFinite(start) || start < 0 || start >= total) {
+            setResponseStatus(event, 416);
+            setResponseHeader(event, "Content-Range", `bytes */${total}`);
+            return "";
+          }
+          // Clamp oversized `end` to total-1 (RFC 9110 §14.1.2) instead of 416'ing.
+          if (endStr === "" || endStr === undefined) {
+            end = total - 1;
+          } else {
+            const parsedEnd = Number.parseInt(endStr, 10);
+            if (!Number.isFinite(parsedEnd) || parsedEnd < start) {
+              setResponseStatus(event, 416);
+              setResponseHeader(event, "Content-Range", `bytes */${total}`);
+              return "";
+            }
+            end = Math.min(parsedEnd, total - 1);
+          }
+        }
+
+        const slice = bytes.subarray(start, end + 1);
+        setResponseStatus(event, 206);
+        setResponseHeader(
+          event,
+          "Content-Range",
+          `bytes ${start}-${end}/${total}`,
+        );
+        setResponseHeader(event, "Content-Length", String(slice.byteLength));
+        return slice;
+      }
+
+      setResponseHeader(event, "Content-Length", String(total));
+      return bytes;
+    },
+  );
 });

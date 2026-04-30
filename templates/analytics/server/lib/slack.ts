@@ -1,6 +1,10 @@
 // Slack API client for fetching channel messages and searching across workspaces
 
 import { resolveCredential } from "./credentials";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 export type Workspace = "primary" | "secondary";
 
@@ -11,9 +15,10 @@ const MAX_CACHE = 200;
 async function getToken(workspace: Workspace): Promise<string> {
   const envKey =
     workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN";
-  const token = await resolveCredential(envKey);
+  const ctx = requireRequestCredentialContext(envKey);
+  const token = await resolveCredential(envKey, ctx);
   if (!token) {
-    throw new Error(`${envKey} env var is required`);
+    throw new Error(`${envKey} not configured`);
   }
   return token;
 }
@@ -38,7 +43,12 @@ async function slackApi<T>(
   params?: Record<string, string>,
   useCache = true,
 ): Promise<T> {
-  const cacheKey = `slack:${workspace}:${method}:${JSON.stringify(params ?? {})}`;
+  const envKey =
+    workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN";
+  const cacheKey = scopedCredentialCacheKey(
+    `slack:${workspace}:${method}:${JSON.stringify(params ?? {})}`,
+    envKey,
+  );
   if (useCache) {
     const cached = cacheGet<T>(cacheKey);
     if (cached) return cached;
@@ -291,7 +301,10 @@ export async function getUserInfo(
   workspace: Workspace,
   userId: string,
 ): Promise<SlackUser> {
-  const cacheKey = `${workspace}:${userId}`;
+  const cacheKey = scopedCredentialCacheKey(
+    `${workspace}:${userId}`,
+    workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN",
+  );
   const cached = userCache.get(cacheKey);
   if (cached) return cached;
 
@@ -312,7 +325,10 @@ export async function getBotInfo(
   workspace: Workspace,
   botId: string,
 ): Promise<SlackBotInfo> {
-  const cacheKey = `${workspace}:bot:${botId}`;
+  const cacheKey = scopedCredentialCacheKey(
+    `${workspace}:bot:${botId}`,
+    workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN",
+  );
   const cached = botCache.get(cacheKey);
   if (cached) return cached;
 

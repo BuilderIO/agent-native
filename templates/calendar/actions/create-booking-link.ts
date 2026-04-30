@@ -100,7 +100,11 @@ export default defineAction({
           : null,
         color: body.color ? String(body.color).trim() : null,
         isActive: body.isActive ?? true,
-        ownerEmail: getRequestUserEmail() ?? "local@localhost",
+        ownerEmail: (() => {
+          const e = getRequestUserEmail();
+          if (!e) throw new Error("no authenticated user");
+          return e;
+        })(),
         orgId: getRequestOrgId(),
         createdAt: now,
         updatedAt: now,

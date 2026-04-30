@@ -12,8 +12,10 @@ import {
   IconCode,
   IconCopy,
   IconShare2,
+  IconBrandGoogle,
 } from "@tabler/icons-react";
 import { toast } from "@/hooks/use-toast";
+import { agentNativePath, appBasePath } from "@agent-native/core/client";
 
 interface ExportMenuProps {
   deckId: string;
@@ -36,7 +38,7 @@ export function ExportMenu({
   // kills window.open() after an async fetch (no direct user gesture left).
   const triggerDownload = (filename: string) => {
     const a = document.createElement("a");
-    a.href = `/api/exports/${filename}`;
+    a.href = `${appBasePath()}/api/exports/${filename}`;
     a.download = filename;
     a.rel = "noopener";
     document.body.appendChild(a);
@@ -46,11 +48,14 @@ export function ExportMenu({
 
   const handleExportPptx = async () => {
     try {
-      const res = await fetch(`/_agent-native/actions/export-pptx`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deckId }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/export-pptx"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deckId }),
+        },
+      );
       const data = await res.json();
       if (data.filename) {
         triggerDownload(data.filename);
@@ -71,13 +76,59 @@ export function ExportMenu({
     }
   };
 
+  const handleExportGoogleSlides = async () => {
+    try {
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/export-google-slides"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deckId }),
+        },
+      );
+      const data = await res.json();
+      if (!data.filename) {
+        toast({
+          title: "Export failed",
+          description: data.error || "Could not generate Google Slides export.",
+          variant: "destructive",
+        });
+        return;
+      }
+      // Always download the .pptx — Google Slides' direct-import URL needs
+      // an unauthenticated public file URL, which our /api/exports route
+      // (per-user gated) intentionally is not. Open the importer in a new
+      // tab as a convenience so the user can drop the file straight in.
+      triggerDownload(data.filename);
+      const importerUrl =
+        data.googleSlidesImportDialogUrl ||
+        "https://docs.google.com/presentation/u/0/?usp=import";
+      window.open(importerUrl, "_blank", "noopener,noreferrer");
+      toast({
+        title: "Open in Google Slides",
+        description:
+          "We downloaded the .pptx and opened Google Slides — choose File → Import slides and drop the file in.",
+      });
+    } catch (err) {
+      console.error("Export failed:", err);
+      toast({
+        title: "Export failed",
+        description: "Something went wrong exporting to Google Slides.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleExportHtml = async () => {
     try {
-      const res = await fetch(`/_agent-native/actions/export-html`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deckId }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/export-html"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deckId }),
+        },
+      );
       const data = await res.json();
       if (data.filename) {
         triggerDownload(data.filename);
@@ -102,13 +153,13 @@ export function ExportMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer">
-          <IconShare2 className="w-3.5 h-3.5" />
-          Share
+          <IconDownload className="w-3.5 h-3.5" />
+          Export
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuLabel className="text-[11px] text-muted-foreground">
-          Share & Export
+          Export & Duplicate
         </DropdownMenuLabel>
         {onShareTeam && (
           <DropdownMenuItem onClick={onShareTeam} className="cursor-pointer">
@@ -134,6 +185,13 @@ export function ExportMenu({
         <DropdownMenuItem onClick={handleExportPptx} className="cursor-pointer">
           <IconDownload className="w-4 h-4 mr-2" />
           Export as PPTX
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={handleExportGoogleSlides}
+          className="cursor-pointer"
+        >
+          <IconBrandGoogle className="w-4 h-4 mr-2" />
+          Export to Google Slides
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onDuplicate} className="cursor-pointer">

@@ -19,8 +19,34 @@ import {
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../../../db/index.js";
 import { getEventOwnerEmail } from "../../../../lib/recordings.js";
+import { runWithRequestContext } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
+
+const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
+
+function normalizeThumbnailMimeType(
+  value: string,
+): "image/jpeg" | "image/png" | null {
+  const mimeType = value.split(";")[0]?.trim().toLowerCase();
+  if (mimeType === "image/jpeg" || mimeType === "image/png") return mimeType;
+  return null;
+}
+
+function hasExpectedThumbnailSignature(
+  mimeType: "image/jpeg" | "image/png",
+  bytes: Uint8Array,
+): boolean {
+  if (mimeType === "image/png") {
+    return (
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47
+    );
+  }
+  return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+}
 
 export default defineEventHandler(async (event: H3Event) => {
   const recordingId = getRouterParam(event, "recordingId");
@@ -39,101 +65,124 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Unauthorized" };
   }
 
-  const db = getDb();
+  return runWithRequestContext({ userEmail: ownerEmail }, async () => {
+    const db = getDb();
 
-  const [existing] = await db
-    .select({
-      id: schema.recordings.id,
-      ownerEmail: schema.recordings.ownerEmail,
-      thumbnailUrl: schema.recordings.thumbnailUrl,
-    })
-    .from(schema.recordings)
-    .where(
-      and(
-        eq(schema.recordings.id, recordingId),
-        eq(schema.recordings.ownerEmail, ownerEmail),
-      ),
-    );
+    const [existing] = await db
+      .select({
+        id: schema.recordings.id,
+        ownerEmail: schema.recordings.ownerEmail,
+        thumbnailUrl: schema.recordings.thumbnailUrl,
+      })
+      .from(schema.recordings)
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          eq(schema.recordings.ownerEmail, ownerEmail),
+        ),
+      );
 
-  if (!existing) {
-    console.warn("[thumbnail] recording not found or not owner", {
-      recordingId,
+    if (!existing) {
+      console.warn("[thumbnail] recording not found or not owner", {
+        recordingId,
+        ownerEmail,
+      });
+      setResponseStatus(event, 404);
+      return { error: "Recording not found" };
+    }
+
+    // If we already have a thumbnail, don't overwrite — the client-side effect
+    // is supposed to short-circuit on `thumbnailUrl`, but belt-and-braces.
+    if (existing.thumbnailUrl) {
+      console.log("[thumbnail] already set, skipping", { recordingId });
+      return {
+        ok: true,
+        recordingId,
+        thumbnailUrl: existing.thumbnailUrl,
+        skipped: true,
+      };
+    }
+
+    const contentLength = Number(getHeader(event, "content-length") || 0);
+    if (contentLength > MAX_THUMBNAIL_BYTES) {
+      setResponseStatus(event, 413);
+      return { error: "Thumbnail too large" };
+    }
+
+    const raw = await readRawBody(event, false);
+    if (!raw || raw.byteLength === 0) {
+      setResponseStatus(event, 400);
+      return { error: "Empty thumbnail body" };
+    }
+    if (raw.byteLength > MAX_THUMBNAIL_BYTES) {
+      setResponseStatus(event, 413);
+      return { error: "Thumbnail too large" };
+    }
+
+    const headerType = getHeader(event, "content-type") || "";
+    const mimeType = normalizeThumbnailMimeType(headerType);
+    if (!mimeType) {
+      setResponseStatus(event, 400);
+      return { error: "Only JPEG and PNG thumbnails are allowed" };
+    }
+    const ext = mimeType === "image/png" ? "png" : "jpg";
+
+    const bytes: Uint8Array =
+      raw instanceof Uint8Array ? raw : new Uint8Array(raw as ArrayBuffer);
+    if (!hasExpectedThumbnailSignature(mimeType, bytes)) {
+      setResponseStatus(event, 400);
+      return { error: "Thumbnail bytes do not match Content-Type" };
+    }
+
+    // Try the configured file-upload provider first (Builder.io or a
+    // user-registered one). In dev / solo mode no provider is usually
+    // configured and `uploadFile()` returns `null` — in that case we fall
+    // back to a base64 `data:` URL inline in the `recordings.thumbnail_url`
+    // column. It's not glamorous but it unblocks the library grid
+    // immediately and mirrors what `set-thumbnail` does.
+    const uploaded = await uploadFile({
+      data: bytes,
+      mimeType,
+      filename: `thumb-${recordingId}.${ext}`,
       ownerEmail,
     });
-    setResponseStatus(event, 404);
-    return { error: "Recording not found" };
-  }
 
-  // If we already have a thumbnail, don't overwrite — the client-side effect
-  // is supposed to short-circuit on `thumbnailUrl`, but belt-and-braces.
-  if (existing.thumbnailUrl) {
-    console.log("[thumbnail] already set, skipping", { recordingId });
-    return {
-      ok: true,
+    let url: string;
+    if (uploaded?.url) {
+      url = uploaded.url;
+      console.log("[thumbnail] uploaded via provider", {
+        recordingId,
+        provider: uploaded.provider,
+        bytes: bytes.byteLength,
+      });
+    } else {
+      const base64 = Buffer.from(bytes).toString("base64");
+      url = `data:${mimeType};base64,${base64}`;
+      console.log(
+        "[thumbnail] no provider configured, stored inline data URL",
+        {
+          recordingId,
+          bytes: bytes.byteLength,
+        },
+      );
+    }
+
+    await db
+      .update(schema.recordings)
+      .set({
+        thumbnailUrl: url,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.recordings.id, recordingId));
+
+    await writeAppState("refresh-signal", { ts: Date.now() });
+
+    console.log("[thumbnail] saved", {
       recordingId,
-      thumbnailUrl: existing.thumbnailUrl,
-      skipped: true,
-    };
-  }
-
-  const raw = await readRawBody(event, false);
-  if (!raw || raw.byteLength === 0) {
-    setResponseStatus(event, 400);
-    return { error: "Empty thumbnail body" };
-  }
-
-  const headerType = getHeader(event, "content-type") || "";
-  const mimeType = headerType.startsWith("image/") ? headerType : "image/jpeg";
-  const ext = mimeType === "image/png" ? "png" : "jpg";
-
-  const bytes: Uint8Array =
-    raw instanceof Uint8Array ? raw : new Uint8Array(raw as ArrayBuffer);
-
-  // Try the configured file-upload provider first (Builder.io or a
-  // user-registered one). In dev / solo mode no provider is usually
-  // configured and `uploadFile()` returns `null` — in that case we fall
-  // back to a base64 `data:` URL inline in the `recordings.thumbnail_url`
-  // column. It's not glamorous but it unblocks the library grid
-  // immediately and mirrors what `set-thumbnail` does.
-  const uploaded = await uploadFile({
-    data: bytes,
-    mimeType,
-    filename: `thumb-${recordingId}.${ext}`,
-    ownerEmail,
-  });
-
-  let url: string;
-  if (uploaded?.url) {
-    url = uploaded.url;
-    console.log("[thumbnail] uploaded via provider", {
-      recordingId,
-      provider: uploaded.provider,
-      bytes: bytes.byteLength,
+      inline: !uploaded?.url,
+      urlPrefix: url.slice(0, 40),
     });
-  } else {
-    const base64 = Buffer.from(bytes).toString("base64");
-    url = `data:${mimeType};base64,${base64}`;
-    console.log("[thumbnail] no provider configured, stored inline data URL", {
-      recordingId,
-      bytes: bytes.byteLength,
-    });
-  }
 
-  await db
-    .update(schema.recordings)
-    .set({
-      thumbnailUrl: url,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(schema.recordings.id, recordingId));
-
-  await writeAppState("refresh-signal", { ts: Date.now() });
-
-  console.log("[thumbnail] saved", {
-    recordingId,
-    inline: !uploaded?.url,
-    urlPrefix: url.slice(0, 40),
+    return { ok: true, recordingId, thumbnailUrl: url };
   });
-
-  return { ok: true, recordingId, thumbnailUrl: url };
 });

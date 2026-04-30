@@ -2,19 +2,20 @@
  * Public read endpoint used by the share page to fetch a call's metadata
  * without an authenticated session.
  *
- * GET /api/public-call?callId=<id>[&password=<pw>]
+ * GET /api/public-call?callId=<id>[&password=<pw>|&p=<pw>]
  *
  * Returns the call + media URL + (optionally) summary + (optionally)
  * transcript based on `share_includes_summary` / `share_includes_transcript`.
  *
  * Returns 404 for unknown IDs, non-public calls without a valid share grant,
- * expired calls, and missing/invalid passwords — we do not distinguish
- * between those states so we don't leak call existence.
+ * and expired calls. Password-protected public calls return 401 with
+ * passwordRequired so the share route can render its unlock form.
  */
 
 import {
   defineEventHandler,
   getQuery,
+  setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -22,16 +23,45 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { parseJson, parseSpaceIds } from "../../lib/calls.js";
+import {
+  getSession,
+  runWithRequestContext,
+  signShortLivedToken,
+} from "@agent-native/core/server";
 
 function notFound(event: H3Event) {
   setResponseStatus(event, 404);
   return { error: "Not found" };
 }
 
-export default defineEventHandler(async (event) => {
-  const q = getQuery(event) as { callId?: string; password?: string };
+function appPath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return base ? `/${base}${path}` : path;
+}
+
+export default defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event).catch(() => null);
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    () => handlePublicCall(event),
+  );
+});
+
+async function handlePublicCall(event: H3Event) {
+  const q = getQuery(event) as {
+    callId?: string;
+    password?: string;
+    p?: string;
+  };
   const callId = q.callId;
-  const password = typeof q.password === "string" ? q.password : "";
+  const password =
+    typeof q.password === "string"
+      ? q.password
+      : typeof q.p === "string"
+        ? q.p
+        : "";
 
   if (!callId) {
     setResponseStatus(event, 400);
@@ -52,7 +82,10 @@ export default defineEventHandler(async (event) => {
   }
 
   if (call.password && access.role !== "owner") {
-    if (!password || password !== call.password) return notFound(event);
+    if (!password || password !== call.password) {
+      setResponseStatus(event, 401);
+      return { error: "Password required", passwordRequired: true };
+    }
   }
 
   const db = getDb();
@@ -80,11 +113,20 @@ export default defineEventHandler(async (event) => {
     .from(schema.callParticipants)
     .where(eq(schema.callParticipants.callId, callId));
 
+  // For password-protected calls served by our own `/api/call-media/:id`
+  // route, mint a short-lived HMAC token and pass it via `?t=<token>`
+  // instead of the plaintext password — keeps the password out of browser
+  // history / CDN logs / Referer headers. The downstream route still
+  // accepts `?p=<password>` as a legacy fallback. (audit 11 F-07)
   let mediaUrl = call.mediaUrl ?? null;
   if (mediaUrl && !/^https?:\/\//i.test(mediaUrl) && call.password) {
+    const token = signShortLivedToken({ resourceId: callId });
     const sep = mediaUrl.includes("?") ? "&" : "?";
-    mediaUrl = `${mediaUrl}${sep}p=${encodeURIComponent(call.password)}`;
+    mediaUrl = `${mediaUrl}${sep}t=${encodeURIComponent(token)}`;
   }
+  if (mediaUrl?.startsWith("/")) mediaUrl = appPath(mediaUrl);
+
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
   return {
     call: {
@@ -149,4 +191,4 @@ export default defineEventHandler(async (event) => {
         }
       : null,
   };
-});
+}

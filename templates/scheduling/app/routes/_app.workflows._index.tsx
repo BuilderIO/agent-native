@@ -1,11 +1,16 @@
 import { useState } from "react";
 import { useLoaderData, useRevalidator, Link } from "react-router";
-import { eq } from "drizzle-orm";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../../server/db";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+
+export function meta() {
+  return [{ title: "Workflows — Scheduling" }];
+}
+
 import {
   Dialog,
   DialogContent,
@@ -36,18 +41,18 @@ import { toast } from "sonner";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import {
   IconBolt,
-  IconCopy,
   IconDotsVertical,
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
 
 export async function loader() {
-  const email = getRequestUserEmail() ?? "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Response("Unauthenticated", { status: 401 });
   const rows = await getDb()
     .select()
     .from(schema.workflows)
-    .where(eq(schema.workflows.ownerEmail, email));
+    .where(accessFilter(schema.workflows, schema.workflowShares));
   return { workflows: rows };
 }
 
@@ -213,20 +218,22 @@ export default function WorkflowsIndex() {
                   <Switch
                     checked={!w.disabled}
                     onCheckedChange={() => toggle(w.id, !!w.disabled)}
+                    aria-label={`${w.disabled ? "Enable" : "Disable"} workflow ${w.name}`}
                   />
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button size="icon" variant="ghost" className="h-8 w-8">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        aria-label={`More options for workflow ${w.name}`}
+                      >
                         <IconDotsVertical className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem asChild>
                         <Link to={`/workflows/${w.id}`}>Edit</Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem disabled>
-                        <IconCopy className="mr-2 h-4 w-4" />
-                        Duplicate
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem

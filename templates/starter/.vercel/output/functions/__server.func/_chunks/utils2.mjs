@@ -1,0 +1,1 @@
+import{t as e}from"../_libs/clsx.mjs";import{t}from"../_libs/tailwind-merge.mjs";function n(...n){return t(e(n))}export{n as t};

@@ -1,11 +1,15 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
-import { getDbExec } from "@agent-native/core/db";
-import { getCurrentOwnerEmail } from "../server/lib/documents.js";
+import { asc } from "drizzle-orm";
+import { getDb, schema } from "../server/db/index.js";
+import { parseDocumentFavorite } from "../server/lib/documents.js";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Reads navigation state and fetches matching data.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");
@@ -14,34 +18,43 @@ export default defineAction({
     if (navigation) screen.navigation = navigation;
 
     const nav = navigation as any;
-    const client = getDbExec();
-    const ownerEmail = getCurrentOwnerEmail();
+    const db = getDb();
 
     if (nav?.documentId) {
-      const result = await client.execute({
-        sql: "SELECT id, parent_id, title, content, icon, position, is_favorite, created_at, updated_at FROM documents WHERE id = ? AND owner_email = ?",
-        args: [nav.documentId, ownerEmail],
-      });
-      if (result.rows && result.rows.length > 0) {
-        screen.document = result.rows[0];
+      const access = await resolveAccess("document", nav.documentId);
+      if (access) {
+        const doc = access.resource;
+        screen.document = {
+          id: doc.id,
+          parentId: doc.parentId,
+          title: doc.title,
+          content: doc.content,
+          icon: doc.icon,
+          position: doc.position,
+          isFavorite: parseDocumentFavorite(doc.isFavorite),
+          visibility: doc.visibility,
+          createdAt: doc.createdAt,
+          updatedAt: doc.updatedAt,
+        };
       }
     }
 
-    const treeResult = await client.execute({
-      sql: "SELECT id, parent_id, title, icon, position, is_favorite FROM documents WHERE owner_email = ? ORDER BY position",
-      args: [ownerEmail],
-    });
-    const docs = (treeResult.rows || []) as any[];
+    const docs = await db
+      .select()
+      .from(schema.documents)
+      .where(accessFilter(schema.documents, schema.documentShares))
+      .orderBy(asc(schema.documents.position));
 
     if (docs.length > 0) {
       screen.documentTree = {
         count: docs.length,
-        items: docs.map((d: any) => ({
+        items: docs.map((d) => ({
           id: d.id,
-          parentId: d.parent_id,
+          parentId: d.parentId,
           title: d.title || "Untitled",
           icon: d.icon || undefined,
-          isFavorite: d.is_favorite === 1,
+          isFavorite: parseDocumentFavorite(d.isFavorite),
+          visibility: d.visibility,
         })),
       };
     }

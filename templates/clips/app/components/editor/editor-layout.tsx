@@ -11,7 +11,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client";
 import { toast } from "sonner";
 
 // Client-side app-state helpers — the `@agent-native/core/application-state`
@@ -20,7 +24,9 @@ import { toast } from "sonner";
 async function readAppStateClient<T = unknown>(key: string): Promise<T | null> {
   try {
     const r = await fetch(
-      `/_agent-native/application-state/${encodeURIComponent(key)}`,
+      agentNativePath(
+        `/_agent-native/application-state/${encodeURIComponent(key)}`,
+      ),
     );
     if (!r.ok) return null;
     return (await r.json()) as T;
@@ -30,12 +36,17 @@ async function readAppStateClient<T = unknown>(key: string): Promise<T | null> {
 }
 async function writeAppStateClient(key: string, value: unknown): Promise<void> {
   try {
-    await fetch(`/_agent-native/application-state/${encodeURIComponent(key)}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(value),
-      keepalive: true,
-    });
+    await fetch(
+      agentNativePath(
+        `/_agent-native/application-state/${encodeURIComponent(key)}`,
+      ),
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(value),
+        keepalive: true,
+      },
+    );
   } catch {
     // noop
   }
@@ -216,6 +227,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   // --- actions ------------------------------------------------------------
   const trim = useActionMutation("trim-recording" as any);
+  const split = useActionMutation("split-recording" as any);
   const undo = useActionMutation("undo-edit" as any);
 
   const callTrim = useCallback(
@@ -274,11 +286,35 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
               : Math.max(0, playheadMs - 1000),
           endMs: playheadMs,
         }));
+      } else if (e.key.toLowerCase() === "x") {
+        // Cut: trim the current selection range
+        const range = selectionRange;
+        if (range) {
+          e.preventDefault();
+          trim
+            .mutateAsync({
+              recordingId,
+              startMs: Math.round(range.startMs),
+              endMs: Math.round(range.endMs),
+            } as any)
+            .then(() => {
+              toast.success("Cut");
+              setSelectionRange(null);
+            })
+            .catch((err: any) => toast.error(err?.message ?? "Cut failed"));
+        }
+      } else if (e.key.toLowerCase() === "s") {
+        // Split at playhead
+        e.preventDefault();
+        split
+          .mutateAsync({ recordingId, atMs: Math.round(playheadMs) } as any)
+          .then(() => toast.success("Split"))
+          .catch((err: any) => toast.error(err?.message ?? "Split failed"));
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [playheadMs, recordingId, undo]);
+  }, [playheadMs, recordingId, selectionRange, split, trim, undo]);
 
   // Default selection window so the TrimHandles have something to render.
   const effectiveSelection = selectionRange ?? {

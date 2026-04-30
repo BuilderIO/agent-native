@@ -1,5 +1,12 @@
+import { agentNativePath } from "../api-path.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import {
+  isAllowedToolPath,
+  sanitizeToolRequestOptions,
+  checkBridgePolicy,
+  type ToolBridgeRole,
+} from "./iframe-bridge.js";
 
 interface Tool {
   id: string;
@@ -38,6 +45,15 @@ export function EmbeddedTool({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [height, setHeight] = useState<number>(initialHeight);
   const [isDark, setIsDark] = useState(false);
+  // (audit H4) Mirror ToolViewer's role-aware gating; deny-by-default until
+  // the iframe's render binding announcement arrives.
+  const bridgeContextRef = useRef<{
+    role: ToolBridgeRole;
+    isAuthor: boolean;
+  }>({
+    role: "viewer",
+    isAuthor: false,
+  });
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -54,7 +70,9 @@ export function EmbeddedTool({
   const { data: tool } = useQuery<Tool>({
     queryKey: ["tool", toolId],
     queryFn: async () => {
-      const res = await fetch(`/_agent-native/tools/${toolId}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/tools/${toolId}`),
+      );
       if (!res.ok) throw new Error("Failed to fetch tool");
       return res.json();
     },
@@ -62,7 +80,9 @@ export function EmbeddedTool({
 
   const iframeSrc = useMemo(() => {
     const v = encodeURIComponent(tool?.updatedAt ?? "");
-    return `/_agent-native/tools/${toolId}/render?slot=${encodeURIComponent(slotId)}&dark=${isDark}&v=${v}`;
+    return agentNativePath(
+      `/_agent-native/tools/${toolId}/render?slot=${encodeURIComponent(slotId)}&dark=${isDark}&v=${v}`,
+    );
   }, [toolId, slotId, isDark, tool?.updatedAt]);
 
   // Forward slot context whenever it changes. The iframe's own load handler
@@ -84,6 +104,22 @@ export function EmbeddedTool({
       const message = event.data;
       if (!message || typeof message !== "object") return;
 
+      if (message.type === "agent-native-tool-binding") {
+        const binding = (message as any).binding ?? {};
+        const role: ToolBridgeRole =
+          binding.role === "owner" ||
+          binding.role === "admin" ||
+          binding.role === "editor" ||
+          binding.role === "viewer"
+            ? binding.role
+            : "viewer";
+        bridgeContextRef.current = {
+          role,
+          isAuthor: !!binding.isAuthor,
+        };
+        return;
+      }
+
       if (message.type === "agent-native-tool-resize") {
         const h = Number(message.height);
         if (Number.isFinite(h) && h > 0) {
@@ -103,15 +139,40 @@ export function EmbeddedTool({
         );
       };
 
-      if (!requestId || !isAllowedToolPath(path)) {
+      if (!requestId || !isAllowedToolPath(path, toolId)) {
         respond({ error: "Tool request path is not allowed" });
         return;
       }
 
       try {
         const options = sanitizeToolRequestOptions(message.options);
-        const res = await fetch(path, {
+        // (audit H4) Role-aware gating: viewer-shared tools can read but not
+        // write. The bridge policy is decided here in the parent before the
+        // request leaves; the server enforces a second layer.
+        const policy = checkBridgePolicy(
+          path,
+          options.method ?? "GET",
+          bridgeContextRef.current,
+        );
+        if (!policy.ok) {
+          respond({
+            response: {
+              ok: false,
+              status: 403,
+              statusText: "Forbidden",
+              body: { error: policy.error },
+            },
+          });
+          return;
+        }
+        // (audit H5) Same tool-bridge tagging as <ToolViewer>. action-routes
+        // uses these headers to enforce per-action `toolCallable` opt-in.
+        const finalHeaders = new Headers(options.headers ?? undefined);
+        finalHeaders.set("X-Agent-Native-Tool-Bridge", "1");
+        finalHeaders.set("X-Agent-Native-Tool-Id", toolId);
+        const res = await fetch(agentNativePath(path), {
           ...options,
+          headers: finalHeaders,
           credentials: "same-origin",
         });
         const text = await res.text();
@@ -138,7 +199,7 @@ export function EmbeddedTool({
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, []);
+  }, [toolId]);
 
   if (!tool) {
     return (
@@ -167,46 +228,4 @@ export function EmbeddedTool({
       }}
     />
   );
-}
-
-function isAllowedToolPath(path: string): boolean {
-  if (!path.startsWith("/") || path.startsWith("//")) return false;
-  if (path.includes("\\") || path.includes("\0")) return false;
-  return true;
-}
-
-function sanitizeToolRequestOptions(value: unknown): RequestInit {
-  if (!value || typeof value !== "object") return {};
-  const raw = value as Record<string, unknown>;
-  const method =
-    typeof raw.method === "string" && raw.method.trim()
-      ? raw.method.toUpperCase()
-      : "GET";
-  const headers =
-    raw.headers && typeof raw.headers === "object"
-      ? Object.fromEntries(
-          Object.entries(raw.headers as Record<string, unknown>)
-            .filter(([key, val]) => isAllowedHeader(key) && val !== undefined)
-            .map(([key, val]) => [key, String(val)]),
-        )
-      : undefined;
-  const body =
-    typeof raw.body === "string" ||
-    raw.body instanceof Blob ||
-    raw.body instanceof FormData
-      ? raw.body
-      : raw.body === undefined
-        ? undefined
-        : JSON.stringify(raw.body);
-
-  return {
-    method,
-    headers,
-    body: method === "GET" || method === "HEAD" ? undefined : body,
-  };
-}
-
-function isAllowedHeader(name: string): boolean {
-  const lower = name.toLowerCase();
-  return !["cookie", "host", "origin", "referer"].includes(lower);
 }

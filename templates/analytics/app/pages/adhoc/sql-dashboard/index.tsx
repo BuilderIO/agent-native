@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useSearchParams, useParams } from "react-router";
+import { useSearchParams, useParams, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,17 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
 import {
   ShareButton,
@@ -16,6 +27,8 @@ import {
   emailToColor,
   emailToName,
   useSession,
+  agentNativePath,
+  appApiPath,
   type CollabUser,
 } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
@@ -56,7 +69,7 @@ const TAB_ID = generateTabId();
 
 async function fetchWithAuth(url: string, options?: RequestInit) {
   const token = await getIdToken();
-  return fetch(url, {
+  return fetch(appApiPath(url), {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -105,6 +118,7 @@ export default function SqlDashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { id: routeId } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const dashboardId = searchParams.get("id") || routeId;
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
@@ -295,7 +309,7 @@ export default function SqlDashboardPage() {
     (updated: SqlDashboardConfig) => {
       if (!collabDocId) return;
       const body = JSON.stringify(updated);
-      fetch(`/_agent-native/collab/${collabDocId}/text`, {
+      fetch(agentNativePath(`/_agent-native/collab/${collabDocId}/text`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: body, requestSource: TAB_ID }),
@@ -473,8 +487,8 @@ export default function SqlDashboardPage() {
     });
     queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
     queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
-    window.location.href = "/";
-  }, [dashboardId, queryClient]);
+    navigate("/");
+  }, [dashboardId, queryClient, navigate]);
 
   const handleSaveView = useCallback(
     async (name: string, filters: Record<string, string>) => {
@@ -538,15 +552,33 @@ export default function SqlDashboardPage() {
           <IconPlus className="h-4 w-4 mr-1" />
           Add panel
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="text-muted-foreground hover:text-foreground"
-          onClick={handleDelete}
-          title="Delete dashboard"
-        >
-          <IconTrash className="h-4 w-4" />
-        </Button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground hover:text-foreground"
+              title="Delete dashboard"
+            >
+              <IconTrash className="h-4 w-4" />
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete dashboard?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete &ldquo;{dashboard?.name}&rdquo;.
+                This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDelete}>
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </>
     ) : null,
   );

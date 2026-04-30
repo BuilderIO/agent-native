@@ -2,6 +2,10 @@
 // Fetches community members, activities, and segments
 
 import { resolveCredential } from "./credentials";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_BASE = "https://api.commonroom.io/community/v1";
 
@@ -10,13 +14,17 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
 
 async function getToken(): Promise<string> {
-  const token = await resolveCredential("COMMONROOM_API_TOKEN");
-  if (!token) throw new Error("COMMONROOM_API_TOKEN env var required");
+  const ctx = requireRequestCredentialContext("COMMONROOM_API_TOKEN");
+  const token = await resolveCredential("COMMONROOM_API_TOKEN", ctx);
+  if (!token) throw new Error("COMMONROOM_API_TOKEN not configured");
   return token;
 }
 
 async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
-  const key = cacheKey ?? path;
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? path,
+    "COMMONROOM_API_TOKEN",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;
@@ -50,7 +58,10 @@ async function apiPost<T>(
   body: unknown,
   cacheKey?: string,
 ): Promise<T> {
-  const key = cacheKey ?? `POST:${path}:${JSON.stringify(body)}`;
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? `POST:${path}:${JSON.stringify(body)}`,
+    "COMMONROOM_API_TOKEN",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

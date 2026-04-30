@@ -6,18 +6,101 @@ import {
 } from "h3";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
+import { nanoid } from "nanoid";
+import { getAppBasePath, getSession } from "@agent-native/core/server";
+import { uploadedAssetUrlForBasePath } from "./assets-url.js";
 
-const UPLOADS_DIR = path.join(process.cwd(), "public", "uploads");
+const UPLOADS_ROOT = path.join(process.cwd(), "public", "uploads");
 
-// Ensure uploads directory exists (skip on edge runtimes like CF Workers)
-try {
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+export function uploadedAssetUrl(filename: string): string {
+  return uploadedAssetUrlForBasePath(filename, getAppBasePath());
+}
+
+async function requireSession(event: Parameters<typeof getSession>[0]) {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return null;
   }
-} catch {}
+  return session;
+}
+
+function tenantAssetKey(email: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(email.trim().toLowerCase())
+    .digest("hex")
+    .slice(0, 24);
+}
+
+function tenantAssetDir(email: string): string {
+  return path.join(UPLOADS_ROOT, tenantAssetKey(email));
+}
+
+function safeAssetFilename(originalName: string): string | null {
+  const ext = path.extname(originalName).toLowerCase();
+  const allowed = new Set([
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".avif",
+    ".ico",
+  ]);
+  if (!allowed.has(ext)) return null;
+  // Filename uniqueness comes from nanoid, not `Date.now()` — second-resolution
+  // timestamps are guessable. The per-tenant subdirectory already namespaces
+  // assets by user; the leaf must also be unguessable so a peer can't probe
+  // their upload window. (audit 10 medium / audit 01 medium).
+  return `${nanoid()}${ext}`;
+}
+
+function ascii(data: Uint8Array, start: number, end: number): string {
+  return Buffer.from(data.subarray(start, end)).toString("ascii");
+}
+
+function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
+  if (ext === ".png") {
+    return (
+      data[0] === 0x89 &&
+      data[1] === 0x50 &&
+      data[2] === 0x4e &&
+      data[3] === 0x47
+    );
+  }
+  if (ext === ".jpg" || ext === ".jpeg") {
+    return data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
+  }
+  if (ext === ".gif") {
+    const header = ascii(data, 0, 6);
+    return header === "GIF87a" || header === "GIF89a";
+  }
+  if (ext === ".webp") {
+    return ascii(data, 0, 4) === "RIFF" && ascii(data, 8, 12) === "WEBP";
+  }
+  if (ext === ".ico") {
+    return (
+      data[0] === 0x00 &&
+      data[1] === 0x00 &&
+      data[2] === 0x01 &&
+      data[3] === 0x00
+    );
+  }
+  if (ext === ".avif") {
+    return ascii(data, 4, 12).includes("ftyp");
+  }
+  return false;
+}
 
 // Upload an asset
 export const uploadAsset = defineEventHandler(async (event) => {
+  const session = await requireSession(event);
+  if (!session) {
+    return { error: "Unauthorized" };
+  }
+
   const parts = await readMultipartFormData(event);
   const filePart = parts?.find((p) => p.name === "file");
   if (!filePart || !filePart.data) {
@@ -32,21 +115,31 @@ export const uploadAsset = defineEventHandler(async (event) => {
   }
 
   const originalName = filePart.filename || "upload";
-  const ext = path.extname(originalName);
-  const allowed = /\.(jpg|jpeg|png|gif|svg|webp|avif|ico)$/i;
-  if (!allowed.test(ext)) {
+  const filename = safeAssetFilename(originalName);
+  // SVG is excluded — it can embed <script> tags and execute when served
+  // as image/svg+xml from the same origin.
+  if (!filename) {
     setResponseStatus(event, 400);
-    return { error: "Only image files are allowed" };
+    return {
+      error:
+        "Only raster image files are allowed (jpg, png, gif, webp, avif, ico)",
+    };
+  }
+  const ext = path.extname(filename).toLowerCase();
+  if (!hasExpectedImageSignature(ext, filePart.data)) {
+    setResponseStatus(event, 400);
+    return { error: "Uploaded image bytes do not match file extension" };
   }
 
-  const base = path.basename(originalName, ext).replace(/[^a-zA-Z0-9_-]/g, "_");
-  const filename = `${base}-${Date.now()}${ext}`;
-  const destPath = path.join(UPLOADS_DIR, filename);
+  const assetKey = tenantAssetKey(session.email);
+  const uploadDir = tenantAssetDir(session.email);
+  await fs.promises.mkdir(uploadDir, { recursive: true });
+  const destPath = path.join(uploadDir, filename);
 
   await fs.promises.writeFile(destPath, filePart.data);
 
   return {
-    url: `/uploads/${filename}`,
+    url: uploadedAssetUrl(`${assetKey}/${filename}`),
     filename,
     type: filePart.type || "application/octet-stream",
     size: filePart.data.length,
@@ -54,16 +147,23 @@ export const uploadAsset = defineEventHandler(async (event) => {
 });
 
 // List all assets
-export const listAssets = defineEventHandler((_event) => {
+export const listAssets = defineEventHandler(async (event) => {
+  const session = await requireSession(event);
+  if (!session) {
+    return { error: "Unauthorized" };
+  }
+
   try {
-    const files = fs.readdirSync(UPLOADS_DIR);
+    const assetKey = tenantAssetKey(session.email);
+    const uploadDir = tenantAssetDir(session.email);
+    const files = fs.existsSync(uploadDir) ? fs.readdirSync(uploadDir) : [];
     const assets = files
       .filter((f) => !/^\./.test(f))
       .map((filename) => {
-        const filePath = path.join(UPLOADS_DIR, filename);
+        const filePath = path.join(uploadDir, filename);
         const stat = fs.statSync(filePath);
         return {
-          url: `/uploads/${filename}`,
+          url: uploadedAssetUrl(`${assetKey}/${filename}`),
           filename,
           size: stat.size,
           createdAt: stat.birthtime.toISOString(),
@@ -80,14 +180,23 @@ export const listAssets = defineEventHandler((_event) => {
 });
 
 // Delete an asset
-export const deleteAsset = defineEventHandler((event) => {
+export const deleteAsset = defineEventHandler(async (event) => {
+  const session = await requireSession(event);
+  if (!session) {
+    return { error: "Unauthorized" };
+  }
+
   const filenameParam = getRouterParam(event, "filename");
   if (!filenameParam) {
     setResponseStatus(event, 400);
     return { error: "Filename is required" };
   }
+  if (filenameParam.includes("/") || filenameParam.includes("..")) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid filename" };
+  }
   const filename = path.basename(filenameParam);
-  const filePath = path.join(UPLOADS_DIR, filename);
+  const filePath = path.join(tenantAssetDir(session.email), filename);
   if (!fs.existsSync(filePath)) {
     setResponseStatus(event, 404);
     return { error: "File not found" };

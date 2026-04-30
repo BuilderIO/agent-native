@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { createHmac } from "node:crypto";
 import {
   signInternalToken,
   verifyInternalToken,
@@ -45,6 +46,29 @@ describe("integrations/internal-token", () => {
   it("rejects a token signed with a different secret", () => {
     const token = signInternalToken("task-1");
     process.env.A2A_SECRET = "different-secret";
+    expect(verifyInternalToken("task-1", token)).toBe(false);
+  });
+
+  it("rejects a future-stamped token beyond skew tolerance", () => {
+    // Hand-build a token whose timestamp is 5 minutes in the future. The
+    // previous Math.abs() implementation accepted these. The fix rejects
+    // any token more than ~1 minute in the future (L4 in the audit).
+    const futureTs = Date.now() + 5 * 60 * 1000;
+    const secret = process.env.A2A_SECRET as string;
+    const sig = createHmac("sha256", secret)
+      .update(`task-1:${futureTs}`)
+      .digest("hex");
+    const token = `${futureTs}.${sig}`;
+    expect(verifyInternalToken("task-1", token)).toBe(false);
+  });
+
+  it("rejects an expired token", () => {
+    const expiredTs = Date.now() - 6 * 60 * 1000;
+    const secret = process.env.A2A_SECRET as string;
+    const sig = createHmac("sha256", secret)
+      .update(`task-1:${expiredTs}`)
+      .digest("hex");
+    const token = `${expiredTs}.${sig}`;
     expect(verifyInternalToken("task-1", token)).toBe(false);
   });
 

@@ -40,6 +40,7 @@ export default defineAction({
       .select({
         durationMs: schema.calls.durationMs,
         title: schema.calls.title,
+        workspaceId: schema.calls.workspaceId,
       })
       .from(schema.calls)
       .where(eq(schema.calls.id, args.callId))
@@ -59,7 +60,10 @@ export default defineAction({
         .select()
         .from(schema.trackerHits)
         .where(eq(schema.trackerHits.callId, args.callId)),
-      db.select().from(schema.trackerDefinitions),
+      db
+        .select()
+        .from(schema.trackerDefinitions)
+        .where(eq(schema.trackerDefinitions.workspaceId, call.workspaceId)),
     ]);
 
     const totalViews = viewers.filter((v) => v.countedView).length;

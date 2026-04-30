@@ -109,7 +109,7 @@ export default function Root() {
           <TooltipProvider>
             <DbSyncSetup />
             <NavigationStateSync />
-            <Toaster position="bottom-left" />
+            <Toaster richColors position="bottom-left" />
             <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
               <CommandMenu.Group heading="Forms">
                 <CommandMenu.Item onSelect={() => {}}>

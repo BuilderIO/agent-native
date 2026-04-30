@@ -32,6 +32,7 @@ export default runMigrations(
       last_error TEXT,
       warnings_json TEXT,
       has_conflict INTEGER NOT NULL DEFAULT 0,
+      sync_comments INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
@@ -86,18 +87,22 @@ export default runMigrations(
     },
     {
       version: 9,
+      // guard:allow-localhost-fallback — one-time migration backfilling the dev-mode owner on legacy rows that pre-date ownableColumns; runs once at boot, not per-request
       sql: `UPDATE documents SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
     },
     {
       version: 10,
+      // guard:allow-localhost-fallback — one-time migration backfilling legacy null owner_email values for dev-mode upgrade path
       sql: `UPDATE document_versions SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
     },
     {
       version: 11,
+      // guard:allow-localhost-fallback — one-time migration backfilling legacy null owner_email values for dev-mode upgrade path
       sql: `UPDATE document_sync_links SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
     },
     {
       version: 12,
+      // guard:allow-localhost-fallback — one-time migration backfilling legacy null owner_email values for dev-mode upgrade path
       sql: `UPDATE document_comments SET owner_email = 'local@localhost' WHERE owner_email IS NULL OR owner_email = ''`,
     },
     // v13-v14: add sharing columns (org_id, visibility) to documents.
@@ -121,6 +126,10 @@ export default runMigrations(
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
+    },
+    {
+      version: 16,
+      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_comments INTEGER NOT NULL DEFAULT 0`,
     },
   ],
   { table: "content_migrations" },

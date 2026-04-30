@@ -1,7 +1,11 @@
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
-import { readBody } from "@agent-native/core/server";
-import { getEventOwnerEmail } from "../../../lib/documents.js";
+import {
+  getSession,
+  readBody,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 
 /**
  * PATCH /api/comments/:id
@@ -15,54 +19,83 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event);
-  const ownerEmail = await getEventOwnerEmail(event);
   const { content, resolved } = body as {
     content?: string;
     resolved?: boolean;
   };
 
-  const setClauses: string[] = [];
-  const args: any[] = [];
-
-  if (content !== undefined) {
-    setClauses.push("content = ?");
-    args.push(content);
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthenticated" };
   }
-  if (resolved !== undefined) {
-    // When resolving, update all comments in the thread
-    if (resolved) {
+
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    async () => {
       const client = getDbExec();
       const { rows } = await client.execute({
-        sql: "SELECT thread_id FROM document_comments WHERE id = ? AND owner_email = ?",
-        args: [id, ownerEmail],
+        sql: "SELECT document_id, thread_id, author_email FROM document_comments WHERE id = ?",
+        args: [id],
       });
-      if (rows.length > 0) {
-        const threadId = (rows[0] as any).thread_id;
-        const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
-        await client.execute({
-          sql: `UPDATE document_comments SET resolved = 1, updated_at = ${nowExpr} WHERE thread_id = ? AND owner_email = ?`,
-          args: [threadId, ownerEmail],
-        });
-        return { ok: true, resolved: true };
+      const comment = rows[0] as
+        | { document_id: string; thread_id: string; author_email: string }
+        | undefined;
+
+      if (!comment) {
+        setResponseStatus(event, 404);
+        return { error: "Comment not found" };
       }
-    }
-    setClauses.push("resolved = ?");
-    args.push(resolved ? 1 : 0);
-  }
 
-  if (setClauses.length === 0) {
-    return { ok: true };
-  }
+      try {
+        if (resolved === true || comment.author_email !== session.email) {
+          await assertAccess("document", comment.document_id, "editor");
+        } else {
+          await assertAccess("document", comment.document_id, "viewer");
+        }
+      } catch (err) {
+        if (err instanceof ForbiddenError) {
+          setResponseStatus(event, 404);
+          return { error: "Comment not found" };
+        }
+        throw err;
+      }
 
-  const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
-  setClauses.push(`updated_at = ${nowExpr}`);
-  args.push(id);
+      const setClauses: string[] = [];
+      const args: any[] = [];
 
-  const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE document_comments SET ${setClauses.join(", ")} WHERE id = ? AND owner_email = ?`,
-    args: [...args, ownerEmail],
-  });
+      if (content !== undefined) {
+        setClauses.push("content = ?");
+        args.push(content);
+      }
+      if (resolved !== undefined) {
+        // When resolving, update all comments in the thread.
+        if (resolved) {
+          const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
+          await client.execute({
+            sql: `UPDATE document_comments SET resolved = 1, updated_at = ${nowExpr} WHERE document_id = ? AND thread_id = ?`,
+            args: [comment.document_id, comment.thread_id],
+          });
+          return { ok: true, resolved: true };
+        }
+        setClauses.push("resolved = ?");
+        args.push(resolved ? 1 : 0);
+      }
 
-  return { ok: true };
+      if (setClauses.length === 0) {
+        return { ok: true };
+      }
+
+      const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";
+      setClauses.push(`updated_at = ${nowExpr}`);
+      args.push(id, comment.document_id);
+
+      await client.execute({
+        sql: `UPDATE document_comments SET ${setClauses.join(", ")} WHERE id = ? AND document_id = ?`,
+        args,
+      });
+
+      return { ok: true };
+    },
+  );
 });

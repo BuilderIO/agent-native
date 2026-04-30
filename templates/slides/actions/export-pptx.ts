@@ -1,7 +1,15 @@
 import { defineAction } from "@agent-native/core";
+import fs from "fs";
+import path from "path";
 import { z } from "zod";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  safeGeneratedFilename,
+  tenantExportDir,
+} from "../server/lib/tenant-files.js";
 import {
   type AspectRatio,
   getAspectRatioDims,
@@ -295,48 +303,25 @@ function parseSlideHtml(
 
 /**
  * Fetch a URL and return it as a base64 data URI.
+ *
+ * Hand-rolled SSRF allow-list checks have repeatedly missed cases (Alibaba
+ * cloud-metadata, IPv6 IMDS, decimal/octal IPv4, DNS rebinding, etc.).
+ * Route every URL through the central `isBlockedToolUrl` helper, which
+ * already handles all those forms. Also enforce that the response is
+ * actually an image so a 200 OK from an internal HTML / JSON endpoint
+ * can't smuggle bytes into the .pptx.
  */
 async function fetchImageAsBase64(url: string): Promise<string | null> {
   try {
-    // SSRF guard: only allow http/https and block internal/private IPs
-    const parsed = new URL(url);
-    if (!["http:", "https:"].includes(parsed.protocol)) return null;
-    const hostname = parsed.hostname;
-    if (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "0.0.0.0" ||
-      hostname === "[::1]" ||
-      hostname.startsWith("10.") ||
-      hostname.startsWith("172.16.") ||
-      hostname.startsWith("172.17.") ||
-      hostname.startsWith("172.18.") ||
-      hostname.startsWith("172.19.") ||
-      hostname.startsWith("172.20.") ||
-      hostname.startsWith("172.21.") ||
-      hostname.startsWith("172.22.") ||
-      hostname.startsWith("172.23.") ||
-      hostname.startsWith("172.24.") ||
-      hostname.startsWith("172.25.") ||
-      hostname.startsWith("172.26.") ||
-      hostname.startsWith("172.27.") ||
-      hostname.startsWith("172.28.") ||
-      hostname.startsWith("172.29.") ||
-      hostname.startsWith("172.30.") ||
-      hostname.startsWith("172.31.") ||
-      hostname.startsWith("192.168.") ||
-      hostname.endsWith(".internal") ||
-      hostname.endsWith(".local") ||
-      hostname === "metadata.google.internal" ||
-      hostname === "169.254.169.254"
-    ) {
-      return null;
-    }
+    if (isBlockedToolUrl(url)) return null;
 
     const response = await fetch(url);
     if (!response.ok) return null;
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.toLowerCase().startsWith("image/")) {
+      return null;
+    }
     const buffer = await response.arrayBuffer();
-    const contentType = response.headers.get("content-type") || "image/png";
     const base64 = Buffer.from(buffer).toString("base64");
     return `data:${contentType};base64,${base64}`;
   } catch {
@@ -357,6 +342,9 @@ export default defineAction({
       .describe("Include speaker notes"),
   }),
   run: async ({ deckId, includeNotes }) => {
+    const userEmail = getRequestUserEmail();
+    if (!userEmail) throw new Error("no authenticated user");
+
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);
 
@@ -443,11 +431,9 @@ export default defineAction({
 
     // Write to buffer and save
     const buffer = await pptx.write({ outputType: "nodebuffer" });
-    const fs = await import("fs");
-    const path = await import("path");
-    const exportDir = path.join(process.cwd(), "data", "exports");
+    const exportDir = tenantExportDir(userEmail);
     fs.mkdirSync(exportDir, { recursive: true });
-    const filename = `${row.title.replace(/[^a-zA-Z0-9]/g, "-")}-${Date.now()}.pptx`;
+    const filename = safeGeneratedFilename(row.title, ".pptx");
     const filePath = path.join(exportDir, filename);
     fs.writeFileSync(filePath, buffer as Buffer);
 

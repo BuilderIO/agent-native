@@ -16,7 +16,8 @@ export function loadEnv(envPath?: string): void {
   const appEnv = envPath ?? path.join(process.cwd(), ".env");
   // App-level .env first. Dotenv won't clobber already-set process.env, so
   // values that are already present (e.g. set by the shell) still win.
-  dotenv.config({ path: appEnv });
+  // `quiet: true` suppresses the dotenv tip line on every load (v17+).
+  dotenv.config({ path: appEnv, quiet: true });
 
   // Then workspace root, if any — but only fill in keys the app didn't
   // define. Setting `override: false` is dotenv's default.
@@ -24,7 +25,7 @@ export function loadEnv(envPath?: string): void {
   if (workspaceRoot) {
     const wsEnv = path.join(workspaceRoot, ".env");
     if (fs.existsSync(wsEnv) && wsEnv !== appEnv) {
-      dotenv.config({ path: wsEnv });
+      dotenv.config({ path: wsEnv, quiet: true });
     }
   }
 }

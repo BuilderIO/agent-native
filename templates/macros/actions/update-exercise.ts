@@ -1,13 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { db, schema } from "../server/db/index.js";
-import { eq, and, or, isNull } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 
 export default defineAction({
   description: "Update an existing exercise",
   schema: z.object({
-    id: z.coerce.number().optional().describe("Exercise ID"),
+    id: z.coerce.number().describe("Exercise ID"),
     name: z.string().optional().describe("Exercise name"),
     calories_burned: z.coerce.number().optional().describe("Calories burned"),
     duration_minutes: z.coerce
@@ -17,8 +17,9 @@ export default defineAction({
     date: z.string().optional().describe("Date in YYYY-MM-DD format"),
   }),
   run: async (args) => {
-    const id = args.id!;
     const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
+
     const result = await db()
       .update(schema.exercises)
       .set({
@@ -29,13 +30,8 @@ export default defineAction({
       })
       .where(
         and(
-          eq(schema.exercises.id, id),
-          ownerEmail
-            ? or(
-                eq(schema.exercises.owner_email, ownerEmail),
-                isNull(schema.exercises.owner_email),
-              )
-            : undefined,
+          eq(schema.exercises.id, args.id),
+          eq(schema.exercises.owner_email, ownerEmail),
         ),
       )
       .returning();

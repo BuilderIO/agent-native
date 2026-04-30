@@ -19,6 +19,7 @@ vi.mock("./store.js", () => ({
 const mockDbExecute = vi.fn();
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockDbExecute }),
+  isLocalDatabase: () => true,
 }));
 
 describe("application-state script-helpers", () => {
@@ -86,6 +87,22 @@ describe("application-state script-helpers", () => {
 
       await readAppState("key");
       expect(mockAppStateGet).toHaveBeenCalledWith("alice@test.com", "key");
+    });
+
+    it("does not fall back to stale env or DB identity inside an unauthenticated request context", async () => {
+      process.env.AGENT_USER_EMAIL = "stale@test.com";
+      mockDbExecute.mockResolvedValue({ rows: [{ email: "latest@test.com" }] });
+
+      const { readAppState } = await import("./script-helpers.js");
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+
+      await expect(
+        runWithRequestContext({ userEmail: undefined }, () =>
+          readAppState("key"),
+        ),
+      ).rejects.toThrow("authenticated request context");
+      expect(mockAppStateGet).not.toHaveBeenCalled();
     });
   });
 

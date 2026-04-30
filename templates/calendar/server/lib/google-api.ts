@@ -49,9 +49,16 @@ export function createOAuth2Client(
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(
-          `OAuth token exchange failed: ${(data as any).error_description || (data as any).error || res.statusText}`,
-        );
+        // Include both the OAuth `error` code (e.g. `invalid_grant`,
+        // `unauthorized_client`) and `error_description` so callers can
+        // pattern-match on the canonical code — Google often returns a
+        // generic description ("Unauthorized") that hides which permanent
+        // failure we actually hit.
+        const code = (data as any).error;
+        const desc = (data as any).error_description;
+        const detail =
+          code && desc ? `${code}: ${desc}` : code || desc || res.statusText;
+        throw new Error(`OAuth token exchange failed: ${detail}`);
       }
       const typed = data as {
         access_token: string;
@@ -79,9 +86,14 @@ export function createOAuth2Client(
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(
-          `OAuth token refresh failed: ${(data as any).error_description || (data as any).error || res.statusText}`,
-        );
+        // Same rationale as getToken: surface the OAuth `error` code so
+        // isPermanentRefreshError can detect invalid_grant /
+        // unauthorized_client / invalid_client and self-heal the row.
+        const code = (data as any).error;
+        const desc = (data as any).error_description;
+        const detail =
+          code && desc ? `${code}: ${desc}` : code || desc || res.statusText;
+        throw new Error(`OAuth token refresh failed: ${detail}`);
       }
       const typed = data as {
         access_token: string;

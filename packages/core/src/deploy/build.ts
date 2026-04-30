@@ -18,6 +18,7 @@ import path from "path";
 import fs from "fs";
 import { execFileSync } from "child_process";
 import { createRequire } from "module";
+import { fileURLToPath } from "url";
 import {
   discoverApiRoutes,
   discoverPlugins,
@@ -34,6 +35,15 @@ import {
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+
+function normalizeConfiguredAppBasePath(): string {
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH;
+  if (!raw || raw === "/") return "";
+  const trimmed = String(raw).trim();
+  if (!trimmed || trimmed === "/") return "";
+  const normalized = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
+  return normalized ? `/${normalized}` : "";
+}
 
 /** Plugins that require Node.js runtime and cannot run on edge/serverless */
 const NODE_ONLY_PLUGINS = new Set([
@@ -54,7 +64,7 @@ function isNodeOnlyPlugin(filePath: string): boolean {
  * `@agent-native/core/server`. This is the middle layer of the three-layer
  * inheritance model: app local > workspace core > framework default.
  */
-function generateWorkerEntry(
+export function generateWorkerEntry(
   routes: DiscoveredRoute[],
   pluginPaths: string[],
   defaultPluginStems: string[] = [],
@@ -71,6 +81,25 @@ function generateWorkerEntry(
     routeRegistrations.push(
       `  app.on(${JSON.stringify(r.method.toUpperCase())}, ${JSON.stringify(r.route)}, ${varName});`,
     );
+    if (r.method.toLowerCase() === "get") {
+      routeRegistrations.push(
+        `  app.on("HEAD", ${JSON.stringify(r.route)}, defineEventHandler(async (event) => {
+    const originalReq = event.req;
+    event.req = requestWithMethod(event.req, "GET");
+    try {
+      const result = await ${varName}(event);
+      const response = result instanceof Response ? result : toResponse(result, event);
+      return new Response(null, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    } finally {
+      event.req = originalReq;
+    }
+  }));`,
+      );
+    }
   }
 
   // Action route imports and registrations
@@ -143,9 +172,120 @@ function generateWorkerEntry(
 
   return `
 // Auto-generated worker entry point for ${preset}
-import { H3, defineEventHandler, readBody } from "h3";
+import { H3, defineEventHandler, readBody, toResponse } from "h3";
 import { createRequestHandler } from "react-router";
 import * as serverBuild from "./server-build.js";
+
+function normalizeAppBasePath(value) {
+  if (!value || value === "/") return "";
+  const trimmed = String(value).trim();
+  if (!trimmed || trimmed === "/") return "";
+  return "/" + trimmed.replace(/^\\/+/, "").replace(/\\/+$/, "");
+}
+
+function getAppBasePath() {
+  return normalizeAppBasePath(
+    globalThis.process?.env?.VITE_APP_BASE_PATH ||
+      globalThis.process?.env?.APP_BASE_PATH,
+  );
+}
+
+function stripAppBasePath(pathname) {
+  const basePath = getAppBasePath();
+  if (!basePath) return pathname;
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(basePath + "/")) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
+}
+
+function isApiPath(pathname) {
+  return pathname === "/api" || pathname.startsWith("/api/");
+}
+
+function isFrameworkPath(pathname) {
+  return (
+    pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")
+  );
+}
+
+function requestWithMountedApiPrefixStripped(request) {
+  const basePath = getAppBasePath();
+  if (!basePath) return request;
+  const url = new URL(request.url);
+  const strippedPathname = stripAppBasePath(url.pathname);
+  if (strippedPathname === url.pathname) {
+    return request;
+  }
+  if (!isApiPath(strippedPathname) && !isFrameworkPath(strippedPathname)) {
+    return request;
+  }
+  url.pathname = strippedPathname;
+  return new Request(url, request);
+}
+
+function prefixMountedPath(path, basePath) {
+  if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
+  if (path === basePath || path.startsWith(basePath + "/")) return path;
+  return basePath + path;
+}
+
+function prefixMountedHtml(html, basePath) {
+  if (!basePath) return html;
+  return html
+    .replace(
+      /\\b(href|src|action|formaction|poster)=(["'])(\\/(?!\\/)[^"']*)\\2/g,
+      (_match, attr, quote, path) =>
+        attr + "=" + quote + prefixMountedPath(path, basePath) + quote,
+    )
+    .replace(/url\\((["']?)(\\/(?!\\/)[^)'" ]+)\\1\\)/g, (_match, quote, path) => {
+      const q = quote || "";
+      return "url(" + q + prefixMountedPath(path, basePath) + q + ")";
+    });
+}
+
+async function rewriteMountedResponse(response, basePath) {
+  if (!basePath) return response;
+
+  const headers = new Headers(response.headers);
+  const location = headers.get("location");
+  if (location?.startsWith("/") && !location.startsWith("//")) {
+    headers.set("location", prefixMountedPath(location, basePath));
+  }
+
+  const contentType = headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("text/html") || !response.body) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  const html = await response.text();
+  headers.delete("content-length");
+  return new Response(prefixMountedHtml(html, basePath), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function requestWithMethod(request, method) {
+  return new Request(request.url, {
+    method,
+    headers: request.headers,
+    signal: request.signal,
+  });
+}
+
+function requestWithPathname(request, pathname) {
+  const url = new URL(request.url);
+  if (url.pathname === pathname) return request;
+  url.pathname = pathname;
+  return new Request(url, request);
+}
 
 // API route handlers
 ${routeImports.join("\n")}
@@ -179,8 +319,8 @@ async function getHandler() {
         status: 204,
         headers: {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With",
+          "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source",
         },
       });
     }
@@ -199,7 +339,32 @@ ${actionRegistrations.join("\n")}
   // SSR catch-all for React Router
   const rrHandler = createRequestHandler(() => serverBuild);
   app.all("/**", defineEventHandler(async (event) => {
-    return rrHandler(event.req);
+    const basePath = getAppBasePath();
+    const p = stripAppBasePath(new URL(event.req.url).pathname);
+    if (
+      p.startsWith("/.well-known/") ||
+      p.startsWith("/_agent-native/") ||
+      isApiPath(p) ||
+      p === "/favicon.ico" ||
+      p === "/favicon.png" ||
+      (/\\.\\w+$/.test(p) && !p.endsWith(".data"))
+    ) {
+      return new Response(null, { status: 404 });
+    }
+    const request = requestWithPathname(event.req, p);
+    if (event.req.method === "HEAD") {
+      const getRequest = requestWithMethod(request, "GET");
+      const response = await rrHandler(getRequest);
+      return rewriteMountedResponse(
+        new Response(null, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        }),
+        basePath,
+      );
+    }
+    return rewriteMountedResponse(await rrHandler(request), basePath);
   }));
 
   _handler = app.fetch.bind(app);
@@ -239,7 +404,7 @@ export default {
     }
 
     const handler = await getHandler();
-    return handler(request);
+    return handler(requestWithMountedApiPrefixStripped(request));
   }
 };
 `;
@@ -890,6 +1055,7 @@ function createDanglingOptionalDepStubs() {
  */
 async function buildWithNitro() {
   console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
+  const appBasePath = normalizeConfiguredAppBasePath();
 
   // Work around pnpm + nitro:externals (nf3) bug where dangling symlinks for
   // platform-specific optional deps cause realpath ENOENT during file tracing.
@@ -956,6 +1122,7 @@ export default bundle;
     rootDir: cwd,
     dev: false,
     preset,
+    baseURL: appBasePath || "/",
     minify: true,
     serverDir: "./server",
     alias: {
@@ -983,6 +1150,10 @@ export default bundle;
   const publicOutputDir = nitro.options.output.publicDir;
   if (fs.existsSync(clientDir) && publicOutputDir) {
     copyDir(clientDir, publicOutputDir);
+    const basePath = appBasePath;
+    if (basePath) {
+      copyDir(clientDir, path.join(publicOutputDir, basePath.slice(1)));
+    }
     console.log(
       `[deploy] Copied client assets to ${path.relative(cwd, publicOutputDir)}`,
     );
@@ -1350,25 +1521,28 @@ export default bundle;
   console.log(`[deploy] Nitro build complete for preset "${preset}".`);
 }
 
-// Main
+async function main() {
+  console.log(`[deploy] Building for ${preset}...`);
 
-if (preset === "node") {
-  process.exit(0);
+  switch (preset) {
+    case "cloudflare_pages":
+    case "cloudflare-pages":
+      // Cloudflare Workers require a single-file bundle that wrangler can deploy.
+      // Nitro's native presets produce split chunks that wrangler can't upload
+      // as multi-module Workers. Use the custom esbuild-based bundler.
+      await buildCloudflarePages();
+      break;
+    default:
+      // All other presets (netlify, vercel, deno_deploy, aws-lambda, etc.)
+      // are handled natively by Nitro's build API.
+      await buildWithNitro();
+      break;
+  }
 }
 
-console.log(`[deploy] Building for ${preset}...`);
-
-switch (preset) {
-  case "cloudflare_pages":
-  case "cloudflare-pages":
-    // Cloudflare Workers require a single-file bundle that wrangler can deploy.
-    // Nitro's native presets produce split chunks that wrangler can't upload
-    // as multi-module Workers. Use the custom esbuild-based bundler.
-    await buildCloudflarePages();
-    break;
-  default:
-    // All other presets (netlify, vercel, deno_deploy, aws-lambda, etc.)
-    // are handled natively by Nitro's build API.
-    await buildWithNitro();
-    break;
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
+) {
+  await main();
 }

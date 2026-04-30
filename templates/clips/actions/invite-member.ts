@@ -25,16 +25,23 @@ import { z } from "zod";
 import {
   getCurrentOwnerEmail,
   nanoid,
-  requireActiveOrganizationId,
+  requireOrganizationAccess,
 } from "../server/lib/recordings.js";
 
 function getAppName(): string {
   return process.env.APP_NAME || "Clips";
 }
 
-// Keep the Clips role surface so existing UI keeps working — we collapse
-// the 4-tier down to 2 when writing to better-auth.
-const ClipsRoleEnum = z.enum(["viewer", "creator-lite", "creator", "admin"]);
+// Accept the current better-auth role surface plus the old Clips roles for
+// backwards-compatible CLI/agent calls. Legacy non-admin roles collapse to
+// `member` when writing to better-auth.
+const ClipsRoleEnum = z.enum([
+  "viewer",
+  "creator-lite",
+  "creator",
+  "member",
+  "admin",
+]);
 
 function mapRole(role: z.infer<typeof ClipsRoleEnum>): "admin" | "member" {
   return role === "admin" ? "admin" : "member";
@@ -83,7 +90,7 @@ export default defineAction({
     "Invite someone to the active organization by email. Creates a pending invitation with a 30-day expiry. Role 'admin' maps to better-auth admin; all other Clips roles collapse to 'member'. Sends an email when a provider is configured.",
   schema: z.object({
     email: z.string().email().describe("Invitee email address"),
-    role: ClipsRoleEnum.default("creator").describe(
+    role: ClipsRoleEnum.default("member").describe(
       "Role to assign when the invite is accepted",
     ),
   }),
@@ -91,7 +98,9 @@ export default defineAction({
     const exec = getDbExec();
     const pg = isPostgres();
 
-    const organizationId = await requireActiveOrganizationId();
+    const { organizationId } = await requireOrganizationAccess(undefined, [
+      "admin",
+    ]);
     const inviter = getCurrentOwnerEmail();
     const inviterUserId = (await resolveUserId(inviter)) ?? inviter;
     const betterAuthRole = mapRole(args.role);

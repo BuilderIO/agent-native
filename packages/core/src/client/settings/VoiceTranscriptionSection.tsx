@@ -4,13 +4,12 @@
  * Writes the selection to application_state under `voice-transcription-prefs`
  * so the composer's `useVoiceDictation` hook picks it up on next record.
  *
- * Providers:
- *   - "openai"  — best quality, requires OPENAI_API_KEY (user-scoped secret)
- *   - "builder" — coming soon (disabled placeholder)
- *   - "browser" — default; Web Speech API, low quality, works offline
+ * Provider status comes from `/_agent-native/voice-providers/status`, which
+ * mirrors the server transcription route's key/env resolution.
  */
 
 import React, { useCallback, useEffect, useState } from "react";
+import { agentNativePath } from "../api-path.js";
 import {
   IconCheck,
   IconExternalLink,
@@ -19,7 +18,7 @@ import {
 } from "@tabler/icons-react";
 import { useBuilderStatus } from "./useBuilderStatus.js";
 
-type Provider = "openai" | "builder" | "browser";
+type Provider = "openai" | "builder" | "browser" | "gemini" | "groq";
 
 interface Prefs {
   provider: Provider;
@@ -30,8 +29,21 @@ interface SecretStatus {
   status: "set" | "unset" | "invalid";
 }
 
-const PREFS_URL = "/_agent-native/application-state/voice-transcription-prefs";
-const SECRETS_URL = "/_agent-native/secrets";
+interface ProviderStatus {
+  builder: boolean;
+  gemini: boolean;
+  openai: boolean;
+  groq: boolean;
+  browser: true;
+}
+
+const PREFS_URL = agentNativePath(
+  "/_agent-native/application-state/voice-transcription-prefs",
+);
+const SECRETS_URL = agentNativePath("/_agent-native/secrets");
+const PROVIDER_STATUS_URL = agentNativePath(
+  "/_agent-native/voice-providers/status",
+);
 const DEFAULT_PROVIDER: Provider = "browser";
 
 export function VoiceTranscriptionSection() {
@@ -39,6 +51,10 @@ export function VoiceTranscriptionSection() {
   const [openAiConfigured, setOpenAiConfigured] = useState<boolean | null>(
     null,
   );
+  const [geminiConfigured, setGeminiConfigured] = useState<boolean | null>(
+    null,
+  );
+  const [groqConfigured, setGroqConfigured] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const { status: builderStatus } = useBuilderStatus();
@@ -47,11 +63,17 @@ export function VoiceTranscriptionSection() {
     let cancelled = false;
     fetch(PREFS_URL)
       .then((r) => (r.ok ? r.json() : null))
-      .then((body: { value?: Prefs } | null) => {
+      .then((body: Prefs | { value?: Prefs } | null) => {
         if (cancelled) return;
-        const p = body?.value?.provider;
+        const p =
+          (body as Prefs | null)?.provider ??
+          (body as { value?: Prefs } | null)?.value?.provider;
         setProvider(
-          p === "openai" || p === "builder" || p === "browser"
+          p === "openai" ||
+            p === "builder" ||
+            p === "browser" ||
+            p === "gemini" ||
+            p === "groq"
             ? p
             : DEFAULT_PROVIDER,
         );
@@ -64,16 +86,34 @@ export function VoiceTranscriptionSection() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(SECRETS_URL)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((list: SecretStatus[]) => {
+    fetch(PROVIDER_STATUS_URL)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((status: ProviderStatus | null) => {
         if (cancelled) return;
-        const openAi = Array.isArray(list)
-          ? list.find((s) => s.key === "OPENAI_API_KEY")
-          : null;
-        setOpenAiConfigured(openAi?.status === "set");
+        if (status) {
+          setOpenAiConfigured(status.openai);
+          setGeminiConfigured(status.gemini);
+          setGroqConfigured(status.groq);
+          return;
+        }
+        return fetch(SECRETS_URL)
+          .then((r) => (r.ok ? r.json() : []))
+          .then((list: SecretStatus[]) => {
+            if (cancelled) return;
+            const find = (key: string) =>
+              Array.isArray(list) ? list.find((s) => s.key === key) : null;
+            setOpenAiConfigured(find("OPENAI_API_KEY")?.status === "set");
+            setGeminiConfigured(find("GEMINI_API_KEY")?.status === "set");
+            setGroqConfigured(find("GROQ_API_KEY")?.status === "set");
+          });
       })
-      .catch(() => !cancelled && setOpenAiConfigured(false));
+      .catch(() => {
+        if (!cancelled) {
+          setOpenAiConfigured(false);
+          setGeminiConfigured(false);
+          setGroqConfigured(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -87,7 +127,7 @@ export function VoiceTranscriptionSection() {
         const res = await fetch(PREFS_URL, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ value: { provider: next } }),
+          body: JSON.stringify({ provider: next }),
         });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
@@ -121,9 +161,9 @@ export function VoiceTranscriptionSection() {
     );
   }
 
-  const focusOpenAiKey = () => {
+  const focusKey = (key: string) => {
     if (typeof window === "undefined") return;
-    window.location.hash = "#secrets:OPENAI_API_KEY";
+    window.location.hash = `#secrets:${key}`;
   };
 
   return (
@@ -145,7 +185,7 @@ export function VoiceTranscriptionSection() {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                focusOpenAiKey();
+                focusKey("OPENAI_API_KEY");
               }}
               className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
             >
@@ -178,7 +218,10 @@ export function VoiceTranscriptionSection() {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                const url = `${window.location.origin}/_agent-native/builder/connect`;
+                const url = new URL(
+                  agentNativePath("/_agent-native/builder/connect"),
+                  window.location.origin,
+                ).href;
                 window.open(
                   url,
                   "_blank",
@@ -188,6 +231,62 @@ export function VoiceTranscriptionSection() {
               className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
             >
               Connect Builder.io
+              <IconExternalLink size={10} />
+            </button>
+          )
+        }
+      />
+
+      <ProviderOption
+        id="gemini"
+        selected={provider === "gemini"}
+        onSelect={() => choose("gemini")}
+        title="Google Gemini"
+        subtitle="Fast transcription via Gemini Flash Lite. Requires a Gemini API key."
+        rightSlot={
+          geminiConfigured === null ? null : geminiConfigured ? (
+            <span className="flex items-center gap-1 text-[10px] text-green-500">
+              <IconCheck size={10} />
+              Key set
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                focusKey("GEMINI_API_KEY");
+              }}
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
+            >
+              Add key
+              <IconExternalLink size={10} />
+            </button>
+          )
+        }
+      />
+
+      <ProviderOption
+        id="groq"
+        selected={provider === "groq"}
+        onSelect={() => choose("groq")}
+        title="Groq Whisper"
+        subtitle="Fastest Whisper inference. Requires a Groq API key."
+        rightSlot={
+          groqConfigured === null ? null : groqConfigured ? (
+            <span className="flex items-center gap-1 text-[10px] text-green-500">
+              <IconCheck size={10} />
+              Key set
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                focusKey("GROQ_API_KEY");
+              }}
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
+            >
+              Add key
               <IconExternalLink size={10} />
             </button>
           )
@@ -231,12 +330,26 @@ function ProviderOption({
   subtitle,
   rightSlot,
 }: ProviderOptionProps) {
+  const select = () => {
+    if (!disabled) onSelect();
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onSelect();
+    }
+  };
+
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      disabled={disabled}
+    <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      onClick={select}
+      onKeyDown={onKeyDown}
       aria-pressed={selected}
+      aria-disabled={disabled || undefined}
       className={`w-full text-left rounded-md border px-2.5 py-2 flex items-start gap-2 ${
         selected
           ? "border-[#625DF5] bg-[#625DF5]/10"
@@ -263,7 +376,7 @@ function ProviderOption({
           <p className="text-[10px] text-muted-foreground mt-0.5">{subtitle}</p>
         )}
       </div>
-    </button>
+    </div>
   );
 }
 

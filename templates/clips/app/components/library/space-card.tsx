@@ -28,7 +28,7 @@ export function SpaceCard({ space, className }: SpaceCardProps) {
       onClick={() => navigate(`/spaces/${space.id}`)}
       className={cn(
         "group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left",
-        "hover:border-primary/40 hover:-translate-y-0.5 transition-transform duration-100 ease-out",
+        "hover:border-primary/40",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md",
         className,
       )}

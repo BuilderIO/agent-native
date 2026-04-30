@@ -1,6 +1,10 @@
 import { useParams } from "react-router";
 import { ProjectIssuesPage } from "@/pages/ProjectIssuesPage";
 
+export function meta() {
+  return [{ title: "Project Issue — Issues" }];
+}
+
 export default function ProjectIssueDetailRoute() {
   const { projectKey, issueKey } = useParams();
   return (

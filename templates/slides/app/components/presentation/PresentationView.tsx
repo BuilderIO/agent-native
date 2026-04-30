@@ -1,6 +1,11 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router";
-import { IconChevronLeft, IconChevronRight, IconX } from "@tabler/icons-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconMaximize,
+  IconX,
+} from "@tabler/icons-react";
 import type {
   Slide,
   SlideAnimation,
@@ -164,6 +169,9 @@ export default function PresentationView({
   const [animating, setAnimating] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [showControls, setShowControls] = useState(false);
+  const [cursorVisible, setCursorVisible] = useState(true);
+  const [needsFullscreenGesture, setNeedsFullscreenGesture] = useState(false);
+  const enteredFullscreenRef = useRef(false);
   const navigate = useNavigate();
 
   const isShared = deckId.startsWith("__shared__/");
@@ -251,10 +259,17 @@ export default function PresentationView({
           e.preventDefault();
           goPrev();
           break;
-        case "Escape":
+        case "f":
+        case "F":
+          e.preventDefault();
           if (!document.fullscreenElement) {
-            exit();
+            document.documentElement.requestFullscreen().catch(() => {});
+          } else {
+            document.exitFullscreen().catch(() => {});
           }
+          break;
+        case "Escape":
+          exit();
           break;
       }
     };
@@ -262,19 +277,32 @@ export default function PresentationView({
     return () => window.removeEventListener("keydown", handleKey);
   }, [goNext, goPrev, exit]);
 
-  // Request fullscreen on mount
-  useEffect(() => {
-    let wasFullscreen = false;
+  // Try to enter fullscreen. Browsers require a user gesture; the click that
+  // navigated to /present often counts, but Safari/Firefox sometimes block
+  // it. If blocked, we surface a "Click to enter fullscreen" overlay.
+  const enterFullscreen = useCallback(() => {
     const el = document.documentElement;
-    if (el.requestFullscreen && !document.fullscreenElement) {
-      el.requestFullscreen()
-        .then(() => {
-          wasFullscreen = true;
-        })
-        .catch(() => {});
+    if (!el.requestFullscreen || document.fullscreenElement) {
+      setNeedsFullscreenGesture(false);
+      return;
     }
+    el.requestFullscreen()
+      .then(() => {
+        enteredFullscreenRef.current = true;
+        setNeedsFullscreenGesture(false);
+      })
+      .catch(() => setNeedsFullscreenGesture(true));
+  }, []);
+
+  // Request fullscreen on mount; track exit-by-Escape to navigate back
+  useEffect(() => {
+    enterFullscreen();
     const handleFullscreenChange = () => {
-      if (wasFullscreen && !document.fullscreenElement) {
+      // If the user pressed Escape (browser auto-exits fullscreen), leave
+      // present mode. We only navigate-back when WE successfully entered
+      // fullscreen first — otherwise the gesture-fallback overlay handles it.
+      if (enteredFullscreenRef.current && !document.fullscreenElement) {
+        enteredFullscreenRef.current = false;
         if (isShared) {
           const token = deckId.replace("__shared__/", "");
           navigate(`/share/${token}`);
@@ -290,15 +318,37 @@ export default function PresentationView({
         document.exitFullscreen().catch(() => {});
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-hide controls
+  // Lock the body during present mode: hide scrollbars, mark the body so
+  // external automation/test tooling can detect present mode is active.
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    body.setAttribute("data-presentation-mode", "active");
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      body.removeAttribute("data-presentation-mode");
+    };
+  }, []);
+
+  // Auto-hide controls AND cursor after inactivity
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
     const handleMove = () => {
       setShowControls(true);
+      setCursorVisible(true);
       clearTimeout(timeout);
-      timeout = setTimeout(() => setShowControls(false), 2500);
+      timeout = setTimeout(() => {
+        setShowControls(false);
+        setCursorVisible(false);
+      }, 2500);
     };
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("touchstart", handleMove);
@@ -335,7 +385,19 @@ export default function PresentationView({
   return (
     <div
       className="fixed inset-0 z-[100] bg-black overflow-hidden"
-      onClick={goNext}
+      style={{
+        height: "100dvh",
+        cursor: cursorVisible ? "default" : "none",
+      }}
+      onClick={() => {
+        // If fullscreen was blocked by the browser (no user gesture),
+        // any click in the presentation is itself a gesture — retry.
+        if (needsFullscreenGesture) {
+          enterFullscreen();
+          return;
+        }
+        goNext();
+      }}
     >
       {/* Exiting slide — rendered only during transition */}
       {animating && prevIndex !== null && (
@@ -420,6 +482,23 @@ export default function PresentationView({
           />
         </div>
       </div>
+
+      {/* Fullscreen-gesture fallback — shown when the browser blocked our
+          auto requestFullscreen() because there was no user gesture. */}
+      {needsFullscreenGesture && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            enterFullscreen();
+          }}
+          className="fixed top-4 right-4 z-[102] flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-sm text-white hover:bg-white/20 transition-colors"
+          aria-label="Enter fullscreen"
+        >
+          <IconMaximize className="w-4 h-4" />
+          Click to enter fullscreen
+        </button>
+      )}
     </div>
   );
 }

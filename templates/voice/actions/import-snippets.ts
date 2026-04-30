@@ -10,6 +10,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail, nanoid } from "../server/lib/helpers.js";
+import { cliBoolean } from "./utils.js";
 
 export default defineAction({
   description:
@@ -20,7 +21,7 @@ export default defineAction({
         z.object({
           trigger: z.string().min(1),
           expansion: z.string().min(1),
-          isTeam: z.boolean().optional(),
+          isTeam: cliBoolean.optional(),
         }),
       )
       .min(1)

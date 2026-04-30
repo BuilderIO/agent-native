@@ -6,7 +6,7 @@
  * the segment before or after the split independently.
  *
  * Usage:
- *   pnpm action split-recording --id=<id> --atMs=18500
+ *   pnpm action split-recording --recordingId=<id> --atMs=18500
  */
 
 import { defineAction } from "@agent-native/core";

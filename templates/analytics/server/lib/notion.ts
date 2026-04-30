@@ -2,22 +2,30 @@
 // Docs: https://developers.notion.com/reference/post-database-query
 
 import { resolveCredential } from "./credentials";
+import {
+  credentialCacheScope,
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 const CONTENT_DB_ID = "db4ae46c822443ba96e51a6a352e0fbe";
 
 // Cache for Notion data (refreshed less frequently)
-let cachedEntries: ContentCalendarEntry[] | null = null;
-let cacheTs = 0;
+const contentCalendarCache = new Map<
+  string,
+  { entries: ContentCalendarEntry[]; ts: number }
+>();
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 // Page block cache
 const pageCache = new Map<string, { data: NotionPageData; ts: number }>();
 
 async function getApiKey(): Promise<string> {
-  const key = await resolveCredential("NOTION_API_KEY");
-  if (!key) throw new Error("NOTION_API_KEY env var required");
+  const ctx = requireRequestCredentialContext("NOTION_API_KEY");
+  const key = await resolveCredential("NOTION_API_KEY", ctx);
+  if (!key) throw new Error("NOTION_API_KEY not configured");
   return key;
 }
 
@@ -127,8 +135,10 @@ export interface ContentCalendarEntry {
 
 // Fetch all content calendar entries, paginating through results
 export async function getContentCalendar(): Promise<ContentCalendarEntry[]> {
-  if (cachedEntries && Date.now() - cacheTs < CACHE_TTL_MS) {
-    return cachedEntries;
+  const calendarCacheKey = credentialCacheScope("NOTION_API_KEY");
+  const cached = contentCalendarCache.get(calendarCacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return cached.entries;
   }
 
   const entries: ContentCalendarEntry[] = [];
@@ -191,8 +201,7 @@ export async function getContentCalendar(): Promise<ContentCalendarEntry[]> {
     startCursor = result.next_cursor ?? undefined;
   }
 
-  cachedEntries = entries;
-  cacheTs = Date.now();
+  contentCalendarCache.set(calendarCacheKey, { entries, ts: Date.now() });
   return entries;
 }
 
@@ -260,7 +269,8 @@ async function fetchBlocks(blockId: string): Promise<NotionBlock[]> {
 }
 
 export async function getNotionPage(pageId: string): Promise<NotionPageData> {
-  const cached = pageCache.get(pageId);
+  const cacheKey = scopedCredentialCacheKey(pageId, "NOTION_API_KEY");
+  const cached = pageCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data;
   }
@@ -276,7 +286,7 @@ export async function getNotionPage(pageId: string): Promise<NotionPageData> {
   const blocks = await fetchBlocks(pageId);
 
   const data: NotionPageData = { title, blocks };
-  pageCache.set(pageId, { data, ts: Date.now() });
+  pageCache.set(cacheKey, { data, ts: Date.now() });
   return data;
 }
 
