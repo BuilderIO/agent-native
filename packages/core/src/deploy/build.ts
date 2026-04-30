@@ -204,12 +204,21 @@ function isApiPath(pathname) {
   return pathname === "/api" || pathname.startsWith("/api/");
 }
 
+function isFrameworkPath(pathname) {
+  return (
+    pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")
+  );
+}
+
 function requestWithMountedApiPrefixStripped(request) {
   const basePath = getAppBasePath();
   if (!basePath) return request;
   const url = new URL(request.url);
   const strippedPathname = stripAppBasePath(url.pathname);
-  if (!isApiPath(strippedPathname) || strippedPathname === url.pathname) {
+  if (strippedPathname === url.pathname) {
+    return request;
+  }
+  if (!isApiPath(strippedPathname) && !isFrameworkPath(strippedPathname)) {
     return request;
   }
   url.pathname = strippedPathname;
