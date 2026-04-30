@@ -19,7 +19,9 @@ import { parseSpaceIds } from "../server/lib/calls.js";
 const stringArrayParam = z.preprocess((value) => {
   if (value == null || value === "") return undefined;
   if (Array.isArray(value)) {
-    const values = value.filter((v): v is string => typeof v === "string" && v);
+    const values = value.filter(
+      (v): v is string => typeof v === "string" && v.length > 0,
+    );
     return values.length ? values : undefined;
   }
   if (typeof value === "string") return [value];

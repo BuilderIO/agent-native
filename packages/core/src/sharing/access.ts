@@ -161,22 +161,35 @@ async function highestShareRole(
   const { userEmail, orgId } = ctx;
   if (!userEmail && !orgId) return null;
   const db = reg.getDb() as any;
+
+  const principalClauses: ReturnType<typeof and>[] = [];
+  if (userEmail) {
+    principalClauses.push(
+      and(
+        eq(reg.sharesTable.principalType, "user"),
+        eq(reg.sharesTable.principalId, userEmail),
+      ),
+    );
+  }
+  if (orgId) {
+    principalClauses.push(
+      and(
+        eq(reg.sharesTable.principalType, "org"),
+        eq(reg.sharesTable.principalId, orgId),
+      ),
+    );
+  }
+
   const rows = await db
-    .select()
+    .select({ role: reg.sharesTable.role })
     .from(reg.sharesTable)
-    .where(eq(reg.sharesTable.resourceId, resourceId));
+    .where(
+      and(eq(reg.sharesTable.resourceId, resourceId), or(...principalClauses)),
+    )
+    .limit(10);
+
   let best: ShareRole | null = null;
-  for (const r of rows as Array<{
-    principalType: string;
-    principalId: string;
-    role: ShareRole;
-  }>) {
-    const matches =
-      (r.principalType === "user" &&
-        userEmail &&
-        r.principalId === userEmail) ||
-      (r.principalType === "org" && orgId && r.principalId === orgId);
-    if (!matches) continue;
+  for (const r of rows as Array<{ role: ShareRole }>) {
     if (!best || ROLE_RANK[r.role] > ROLE_RANK[best]) best = r.role;
   }
   return best;

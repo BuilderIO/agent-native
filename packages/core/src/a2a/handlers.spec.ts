@@ -446,6 +446,65 @@ describe("handleJsonRpc", () => {
     expect(resolveOrgByDomainMock).toHaveBeenCalledWith("acme.test");
     expect(resolveOrgByDomainMock).not.toHaveBeenCalledWith("evil.test");
   });
+
+  it("does not trust forged org metadata when async A2A processor reconstructs context", async () => {
+    resolveOrgByDomainMock.mockResolvedValue({ orgId: "acme" });
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: `${getRequestUserEmail() ?? "none"}|${getRequestOrgId() ?? "none"}`,
+            },
+          ],
+        },
+      }),
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            userEmail: "mallory+qa@agent-native.test",
+            orgDomain: "acme.test",
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+          },
+        },
+      },
+      mockEvent(),
+      contextConfig,
+    );
+    expect(result.error).toBeUndefined();
+    const taskId = result.result.id;
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(taskId, contextConfig);
+
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      mockEvent(),
+      contextConfig,
+    );
+
+    expect(followup.error).toBeUndefined();
+    expect(followup.result.status.message.parts[0].text).toBe("none|none");
+    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("default handler (no custom handler)", () => {
