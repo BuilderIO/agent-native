@@ -16,6 +16,7 @@ import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   getActiveOrganizationId,
   parseSpaceIds,
@@ -143,13 +144,18 @@ async function fetchLibrary(folderId?: string) {
 
 async function fetchFoldersForSpace(spaceId: string | null) {
   const db = getDb();
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return [];
   const rows = await db
     .select()
     .from(schema.folders)
     .where(
-      spaceId
-        ? eq(schema.folders.spaceId, spaceId)
-        : isNull(schema.folders.spaceId),
+      and(
+        eq(schema.folders.ownerEmail, ownerEmail),
+        spaceId
+          ? eq(schema.folders.spaceId, spaceId)
+          : isNull(schema.folders.spaceId),
+      ),
     )
     .orderBy(asc(schema.folders.position));
   return rows.map((f) => ({
