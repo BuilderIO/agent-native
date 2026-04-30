@@ -73,6 +73,32 @@ function nextMessage(ws: WebSocket): Promise<string> {
   });
 }
 
+function openSocketAndMessage(
+  url: string,
+): Promise<{ ws: WebSocket; message: string }> {
+  return new Promise((resolve, reject) => {
+    let opened = false;
+    let firstMessage: string | null = null;
+    const ws = new WebSocket(url);
+
+    const maybeResolve = () => {
+      if (opened && firstMessage !== null) {
+        resolve({ ws, message: firstMessage });
+      }
+    };
+
+    ws.once("open", () => {
+      opened = true;
+      maybeResolve();
+    });
+    ws.once("message", (data) => {
+      firstMessage = typeof data === "string" ? data : data.toString();
+      maybeResolve();
+    });
+    ws.once("error", reject);
+  });
+}
+
 describe("createPtyWebSocketServer", () => {
   let servers: Array<{ close: () => void }> = [];
   let tempDirs: string[] = [];
@@ -124,9 +150,11 @@ describe("createPtyWebSocketServer", () => {
 
   it("rejects commands outside the allowlist", async () => {
     const server = await createServer();
-    const ws = await openSocket(`ws://127.0.0.1:${server.port}/ws?command=sh`);
+    const { ws, message: rawMessage } = await openSocketAndMessage(
+      `ws://127.0.0.1:${server.port}/ws?command=sh`,
+    );
 
-    const message = JSON.parse(await nextMessage(ws));
+    const message = JSON.parse(rawMessage);
 
     expect(message).toMatchObject({
       type: "setup-status",
@@ -139,11 +167,11 @@ describe("createPtyWebSocketServer", () => {
 
   it("rejects shell metacharacters in flags before spawning", async () => {
     const server = await createServer();
-    const ws = await openSocket(
+    const { ws, message: rawMessage } = await openSocketAndMessage(
       `ws://127.0.0.1:${server.port}/ws?command=builder&flags=--help%3Bwhoami`,
     );
 
-    const message = JSON.parse(await nextMessage(ws));
+    const message = JSON.parse(rawMessage);
 
     expect(message).toMatchObject({
       type: "setup-status",
@@ -157,11 +185,13 @@ describe("createPtyWebSocketServer", () => {
   it("pipes terminal input and clamps resize messages", async () => {
     const server = await createServer({ command: "builder" });
     const ws = await openSocket(`ws://127.0.0.1:${server.port}/ws`);
+    await vi.waitFor(() => expect(ptys).toHaveLength(1));
 
     ws.send(JSON.stringify({ type: "resize", cols: 200_000, rows: 0 }));
     ws.send(JSON.stringify({ type: "resize", cols: "nope", rows: 30 }));
     ws.send("hello");
     await vi.waitFor(() => expect(ptys[0]?.write).toHaveBeenCalledWith("hello"));
+    await vi.waitFor(() => expect(ptys[0].resize).toHaveBeenCalledTimes(1));
 
     expect(spawn).toHaveBeenCalledWith(
       expect.any(String),
@@ -171,7 +201,6 @@ describe("createPtyWebSocketServer", () => {
         rows: 40,
       }),
     );
-    expect(ptys[0].resize).toHaveBeenCalledTimes(1);
     expect(ptys[0].resize).toHaveBeenCalledWith(65535, 1);
     ws.close();
   });

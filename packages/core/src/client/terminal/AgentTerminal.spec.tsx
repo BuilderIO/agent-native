@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import React from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -115,7 +115,7 @@ describe("AgentTerminal", () => {
     render(<AgentTerminal />);
     await flushTimers();
 
-    expect(await screen.findByText("Terminal disabled")).toBeInTheDocument();
+    expect(await screen.findByText("Terminal disabled")).toBeTruthy();
   });
 
   it("discovers the WebSocket URL, including IPv6 hosts and flags", async () => {
@@ -152,7 +152,7 @@ describe("AgentTerminal", () => {
     });
     await flushTimers();
 
-    expect(await screen.findByText("Invalid flags")).toBeInTheDocument();
+    expect(await screen.findByText("Invalid flags")).toBeTruthy();
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 
