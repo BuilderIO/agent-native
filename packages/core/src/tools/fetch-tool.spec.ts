@@ -20,6 +20,8 @@ describe("createFetchToolEntry", () => {
     "http://169.254.169.254/latest/meta-data/",
     "http://metadata.google.internal/computeMetadata/v1/",
     "http://127.0.0.1.nip.io/",
+    "http://lvh.me/",
+    "http://[::ffff:127.0.0.1]/",
     "file:///etc/passwd",
   ])("blocks private/internal target %s before fetching", async (url) => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");

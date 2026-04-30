@@ -284,13 +284,13 @@ export function createCoreRoutesPlugin(
         const origin = Array.isArray(originRaw) ? originRaw[0] : originRaw;
         if (!origin) return;
         const allowed =
-          allowlist.length === 0 ||
-          allowlist.includes(origin) ||
-          // Dev convenience: allow any localhost origin (tray windows,
-          // frame, docs) without requiring an explicit allowlist.
-          /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/.test(
-            origin,
-          );
+          allowlist.length === 0
+            ? // Dev convenience: allow any localhost origin (tray windows,
+              // frame, docs) without requiring an explicit allowlist.
+              /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/.test(
+                origin,
+              )
+            : allowlist.includes(origin);
         if (!allowed) return;
         setResponseHeader(event, "Access-Control-Allow-Origin", origin);
         setResponseHeader(event, "Vary", "Origin");
@@ -298,12 +298,12 @@ export function createCoreRoutesPlugin(
         setResponseHeader(
           event,
           "Access-Control-Allow-Methods",
-          "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+          "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
         );
         setResponseHeader(
           event,
           "Access-Control-Allow-Headers",
-          "Content-Type,Authorization,X-Requested-With",
+          "Content-Type,Authorization,X-Requested-With,X-Request-Source",
         );
         if (getMethod(event) === "OPTIONS") {
           setResponseStatus(event, 204);

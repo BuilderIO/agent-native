@@ -7,75 +7,10 @@
  */
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import { isBlockedToolUrl } from "./url-safety.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_SIZE = 1024 * 1024; // 1 MB
-
-const METADATA_HOSTS = [
-  "metadata.google.internal",
-  "metadata.google.internal.",
-];
-const DNS_REBIND_SUFFIXES = [
-  ".nip.io",
-  ".sslip.io",
-  ".xip.io",
-  ".localtest.me",
-  ".lvh.me",
-];
-
-function isPrivateIpv4(a: number, b: number): boolean {
-  if (a === 127) return true;
-  if (a === 10) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 0) return true;
-  return false;
-}
-
-function isBlockedUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
-      return true;
-    const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    if (
-      host === "localhost" ||
-      host === "::1" ||
-      host === "::0" ||
-      host === "::"
-    )
-      return true;
-    if (METADATA_HOSTS.includes(host)) return true;
-    if (DNS_REBIND_SUFFIXES.some((s) => host.endsWith(s))) return true;
-    // IPv6 ULA/link-local
-    if (/^f[cd]/.test(host) || /^fe[89ab]/.test(host)) return true;
-    // IPv4-mapped IPv6
-    const v4mapped = host.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (v4mapped) {
-      const [a, b] = v4mapped[1].split(".").map(Number);
-      if (isPrivateIpv4(a, b)) return true;
-    }
-    // Dotted IPv4
-    const parts = host.split(".");
-    if (parts.length === 4 && parts.every((p) => /^\d+$/.test(p))) {
-      const [a, b] = parts.map(Number);
-      if (isPrivateIpv4(a, b)) return true;
-    }
-    // Decimal integer IPv4
-    if (/^\d+$/.test(host)) {
-      const num = Number(host);
-      if (num >= 0 && num <= 0xffffffff) {
-        const a = (num >>> 24) & 0xff;
-        const b = (num >>> 16) & 0xff;
-        if (isPrivateIpv4(a, b)) return true;
-      }
-    }
-  } catch {
-    return true;
-  }
-  return false;
-}
 
 export interface FetchToolOptions {
   /** Resolve ${keys.NAME} references. Injected by the plugin at setup time. */
@@ -166,7 +101,7 @@ export function createFetchToolEntry(
         }
 
         // Block SSRF targets regardless of key usage
-        if (isBlockedUrl(resolvedUrl)) {
+        if (isBlockedToolUrl(resolvedUrl)) {
           return `Requests to private/internal addresses are not allowed: "${rawUrl}".`;
         }
 

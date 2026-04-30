@@ -35,6 +35,7 @@ let lastStatus = 200;
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  createError: (opts: any) => Object.assign(new Error(opts.message), opts),
   readBody: (event: any) => Promise.resolve(event._body),
   getQuery: (event: any) => event._query || {},
   getRouterParam: (event: any, key: string) => event._params?.[key],
@@ -47,6 +48,7 @@ vi.mock("h3", () => ({
     Promise.resolve(event._multipart || null),
 }));
 
+import { getSession } from "../server/auth.js";
 import {
   handleListResources,
   handleGetResourceTree,
@@ -61,6 +63,7 @@ describe("resource handlers", () => {
     vi.clearAllMocks();
     lastStatus = 200;
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
+    vi.mocked(getSession).mockResolvedValue({ email: "test@test.com" } as any);
   });
 
   describe("handleListResources", () => {
@@ -148,6 +151,25 @@ describe("resource handlers", () => {
         _query: {},
         context: {},
       };
+      const result = await handleGetResource(event);
+
+      expect(lastStatus).toBe(404);
+      expect(result).toEqual({ error: "Resource not found" });
+    });
+
+    it("does not return another user's personal resource by id", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "private.md",
+        owner: "other@test.com",
+        content: "secret",
+        mimeType: "text/markdown",
+        size: 6,
+        createdAt: 1000,
+        updatedAt: 2000,
+      });
+
+      const event = { _params: { id: "r1" }, _query: {}, context: {} };
       const result = await handleGetResource(event);
 
       expect(lastStatus).toBe(404);

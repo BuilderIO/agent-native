@@ -298,6 +298,12 @@ export async function handleGetResource(event: any) {
     return { error: "Resource not found" };
   }
 
+  const email = await resolveEmail(event);
+  if (resource.owner !== SHARED_OWNER && resource.owner !== email) {
+    setResponseStatus(event, 404);
+    return { error: "Resource not found" };
+  }
+
   // Serve raw binary when ?raw query param is set (used by <img> tags etc.)
   const query = getQuery(event);
   const wantsRaw = query.raw !== undefined;

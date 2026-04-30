@@ -40,8 +40,9 @@ function toWebRequest(event: H3Event): Request {
   if (ctx?._mountedPathname && ctx._mountPrefix) {
     try {
       const url = new URL(req.url);
-      if (url.pathname !== ctx._mountedPathname) {
-        url.pathname = ctx._mountedPathname;
+      const mountedPathname = stripAppBasePath(ctx._mountedPathname);
+      if (url.pathname !== mountedPathname) {
+        url.pathname = mountedPathname;
         const method = req.method.toUpperCase();
         const hasBody = method !== "GET" && method !== "HEAD";
         return new Request(url.href, {
@@ -608,12 +609,12 @@ function applyCorsHeaders(event: H3Event): void {
   setResponseHeader(
     event,
     "Access-Control-Allow-Methods",
-    "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+    "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
   );
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    "Content-Type,Authorization,X-Requested-With",
+    "Content-Type,Authorization,X-Requested-With,X-Request-Source",
   );
 }
 
