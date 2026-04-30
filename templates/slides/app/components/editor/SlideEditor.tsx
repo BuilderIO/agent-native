@@ -520,6 +520,253 @@ export default function SlideEditor({
     return () => clearTimeout(timer);
   }, [slide.id, slide.content]);
 
+  // --- Multi-select helpers ---
+
+  /** Resolve the slide-content root element (where selectable items live) */
+  const getSlideContent = useCallback((): HTMLElement | null => {
+    return (
+      (containerRef.current?.querySelector(
+        ".slide-content",
+      ) as HTMLElement | null) || null
+    );
+  }, []);
+
+  /**
+   * Apply a new multi-selection: caches rects + selectors and pushes to
+   * application_state. Pass an empty set to clear.
+   */
+  const applyMultiSelection = useCallback(
+    (ids: Set<string>) => {
+      const slideContent = getSlideContent();
+      const rects = new Map<
+        string,
+        { rect: DOMRect; text: string; selector: string }
+      >();
+      const items: Array<{ selector: string; text: string }> = [];
+      if (slideContent) {
+        ids.forEach((id) => {
+          const el = slideContent.querySelector(
+            `[data-builder-id="${id}"]`,
+          ) as HTMLElement | null;
+          if (!el) return;
+          const selector = `[data-builder-id="${id}"]`;
+          const text = (el.textContent || "").trim().slice(0, 200);
+          rects.set(id, { rect: el.getBoundingClientRect(), text, selector });
+          items.push({ selector, text });
+        });
+      }
+      setMultiSelection(ids);
+      setMultiSelectionRects(rects);
+      // Anchor the chip to the slide canvas (clickable wrapper)
+      const canvas = containerRef.current?.querySelector(
+        ".slide-image-clickable",
+      ) as HTMLElement | null;
+      setChipAnchorRect(canvas?.getBoundingClientRect() || null);
+      syncSelectionToAppState(items);
+    },
+    [getSlideContent],
+  );
+
+  const clearMultiSelection = useCallback(() => {
+    if (multiSelection.size === 0) return;
+    applyMultiSelection(new Set());
+  }, [applyMultiSelection, multiSelection.size]);
+
+  // Keep cached rects fresh on scroll/resize so outlines + chip stay aligned
+  useEffect(() => {
+    if (multiSelection.size === 0) return;
+    const update = () => {
+      const slideContent = getSlideContent();
+      if (!slideContent) return;
+      const next = new Map<
+        string,
+        { rect: DOMRect; text: string; selector: string }
+      >();
+      multiSelection.forEach((id) => {
+        const el = slideContent.querySelector(
+          `[data-builder-id="${id}"]`,
+        ) as HTMLElement | null;
+        if (!el) return;
+        next.set(id, {
+          rect: el.getBoundingClientRect(),
+          text: (el.textContent || "").trim().slice(0, 200),
+          selector: `[data-builder-id="${id}"]`,
+        });
+      });
+      setMultiSelectionRects(next);
+      const canvas = containerRef.current?.querySelector(
+        ".slide-image-clickable",
+      ) as HTMLElement | null;
+      setChipAnchorRect(canvas?.getBoundingClientRect() || null);
+    };
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [multiSelection, getSlideContent]);
+
+  // Clear multi-selection when slide changes (and clear app state too)
+  useEffect(() => {
+    setMultiSelection(new Set());
+    setMultiSelectionRects(new Map());
+    setChipAnchorRect(null);
+    syncSelectionToAppState([]);
+  }, [slide.id]);
+
+  // Escape key clears multi-selection (only when not inline-editing)
+  useEffect(() => {
+    if (multiSelection.size === 0) return;
+    if (editingEl) return; // Esc handler in editing mode owns this key
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        clearMultiSelection();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [multiSelection.size, editingEl, clearMultiSelection]);
+
+  /**
+   * Find the nearest meaningful "element" for multi-select from a click target.
+   * Walks up to the closest [data-builder-id] inside the slide content. Skips
+   * the slide-content root itself (clicking the slide background means
+   * "deselect / start marquee", not "select the whole slide").
+   */
+  const findSelectableId = useCallback(
+    (target: HTMLElement, slideContent: HTMLElement): string | null => {
+      let el: HTMLElement | null = target;
+      while (el && slideContent.contains(el) && el !== slideContent) {
+        const id = el.getAttribute("data-builder-id");
+        if (id) return id;
+        el = el.parentElement;
+      }
+      return null;
+    },
+    [],
+  );
+
+  /** True if the click is on "whitespace" inside the slide (not on any leaf) */
+  const isSlideWhitespaceTarget = useCallback(
+    (target: HTMLElement, slideContent: HTMLElement): boolean => {
+      // The slide root itself, or a direct child container that has no text /
+      // image content at the point of click. Simplest heuristic: target IS
+      // the slide-content element, OR it's the .fmd-slide wrapper.
+      if (target === slideContent) return true;
+      if (target.classList.contains("fmd-slide")) return true;
+      return false;
+    },
+    [],
+  );
+
+  // --- Marquee drag handlers (attached to slide-content via React props) ---
+
+  const handleSlidePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (editingEl) return; // don't interfere with inline edit
+      if (e.button !== 0) return; // left click only
+      const slideContent = getSlideContent();
+      if (!slideContent) return;
+      const target = e.target as HTMLElement;
+
+      // Only start a marquee from "whitespace" inside the slide. Clicks on
+      // an actual element fall through to handleSlideClick (which handles
+      // shift/cmd-click toggle below).
+      if (!isSlideWhitespaceTarget(target, slideContent)) return;
+
+      e.preventDefault();
+      marqueeOriginRef.current = { x: e.clientX, y: e.clientY };
+      marqueeAdditiveRef.current = e.shiftKey || e.metaKey || e.ctrlKey;
+      marqueePrevSelectionRef.current = new Set(multiSelection);
+      setMarquee({ x: e.clientX, y: e.clientY, w: 0, h: 0 });
+
+      // Clear single-select feedback when starting a marquee on whitespace
+      // (non-additive). Additive marquee preserves the existing selection.
+      if (!marqueeAdditiveRef.current && multiSelection.size > 0) {
+        applyMultiSelection(new Set());
+      }
+    },
+    [
+      editingEl,
+      getSlideContent,
+      isSlideWhitespaceTarget,
+      multiSelection,
+      applyMultiSelection,
+    ],
+  );
+
+  // Window-level pointermove / pointerup so the drag still tracks if the
+  // pointer leaves the slide.
+  useEffect(() => {
+    if (!marquee) return;
+    const onMove = (e: PointerEvent) => {
+      const origin = marqueeOriginRef.current;
+      if (!origin) return;
+      const x = Math.min(origin.x, e.clientX);
+      const y = Math.min(origin.y, e.clientY);
+      const w = Math.abs(e.clientX - origin.x);
+      const h = Math.abs(e.clientY - origin.y);
+      setMarquee({ x, y, w, h });
+    };
+    const onUp = () => {
+      const origin = marqueeOriginRef.current;
+      const current = marquee;
+      marqueeOriginRef.current = null;
+      setMarquee(null);
+      if (!origin || !current) return;
+
+      const slideContent = getSlideContent();
+      if (!slideContent) return;
+
+      // Tiny drag = treat as a "click on whitespace" → just clear selection
+      // (already handled on pointerdown); do nothing here.
+      if (current.w < 4 && current.h < 4) return;
+
+      const marqueeRect = {
+        left: current.x,
+        top: current.y,
+        right: current.x + current.w,
+        bottom: current.y + current.h,
+      };
+
+      const hits = new Set<string>(
+        marqueeAdditiveRef.current ? marqueePrevSelectionRef.current : [],
+      );
+      const candidates = slideContent.querySelectorAll("[data-builder-id]");
+      candidates.forEach((node) => {
+        const el = node as HTMLElement;
+        const id = el.getAttribute("data-builder-id");
+        if (!id) return;
+        // Skip the slide-content root itself if it ever got stamped
+        if (el === slideContent) return;
+        // Don't include containers that have selectable descendants — pick
+        // the leaves so the agent gets a precise list, not duplicated parents.
+        if (el.querySelector("[data-builder-id]")) return;
+        const r = el.getBoundingClientRect();
+        if (rectsIntersect(marqueeRect, r)) hits.add(id);
+      });
+
+      applyMultiSelection(hits);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [marquee, getSlideContent, applyMultiSelection]);
+
+  /** Send the current selection to the agent chat composer */
+  const sendSelectionToAgent = useCallback(() => {
+    if (multiSelection.size === 0) return;
+    const list = Array.from(multiSelectionRects.values())
+      .map((v) => v.selector)
+      .join(", ");
+    agentChat.prefill(`[Selected: ${list}]\n`);
+  }, [multiSelection.size, multiSelectionRects]);
+
   const showImageOverlay = useCallback((target: HTMLElement) => {
     if (target.tagName === "IMG") {
       const img = target as HTMLImageElement;
@@ -552,16 +799,53 @@ export default function SlideEditor({
       // don't select/style-edit.
       if (editingEl?.contains(e.target as Node)) return;
 
-      showImageOverlay(e.target as HTMLElement);
+      const target = e.target as HTMLElement;
+      const slideContent = getSlideContent();
+
+      // --- Shift / Cmd / Ctrl click → toggle membership in the multi-selection
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      if (additive && slideContent) {
+        const id = findSelectableId(target, slideContent);
+        if (!id) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const next = new Set(multiSelection);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        applyMultiSelection(next);
+        return;
+      }
+
+      // --- Plain click on whitespace → clear multi-selection (the marquee
+      // pointerdown already cleared it for non-additive drags, but a click
+      // with zero movement won't trigger pointerup with a real rect).
+      if (slideContent && isSlideWhitespaceTarget(target, slideContent)) {
+        if (multiSelection.size > 0) clearMultiSelection();
+        return;
+      }
+
+      // --- Plain click on an element → drop multi-selection back to single,
+      // then run the existing single-select / style-editing flow.
+      if (multiSelection.size > 0) clearMultiSelection();
+
+      showImageOverlay(target);
 
       // Send style-editing postMessage with a unique selector for the clicked element
-      const target = e.target as HTMLElement;
       const selector = getBuilderSelector(target);
       if (selector) {
         enterSelectionMode("builder.enterStyleEditing", { selector });
       }
     },
-    [showImageOverlay, editingEl],
+    [
+      showImageOverlay,
+      editingEl,
+      getSlideContent,
+      findSelectableId,
+      isSlideWhitespaceTarget,
+      multiSelection,
+      applyMultiSelection,
+      clearMultiSelection,
+    ],
   );
 
   const handleSlideContextMenu = useCallback(
@@ -646,6 +930,7 @@ export default function SlideEditor({
                   onClick={handleSlideClick}
                   onContextMenu={handleSlideContextMenu}
                   onDoubleClick={handleSlideDoubleClick}
+                  onPointerDown={handleSlidePointerDown}
                   onMouseEnter={() => setIsHoveringText(true)}
                   onMouseLeave={() => setIsHoveringText(false)}
                 >
@@ -685,6 +970,24 @@ export default function SlideEditor({
       )}
 
       {selectionRect && <ImageSelectionOutline rect={selectionRect} />}
+
+      {/* Multi-select outlines */}
+      {Array.from(multiSelectionRects.entries()).map(([id, v]) => (
+        <MultiSelectOutline key={id} rect={v.rect} />
+      ))}
+
+      {/* Active marquee rectangle */}
+      {marquee && (marquee.w > 1 || marquee.h > 1) && (
+        <MarqueeRect rect={marquee} />
+      )}
+
+      {/* Floating "N selected" chip */}
+      <MultiSelectChip
+        count={multiSelection.size}
+        anchorRect={chipAnchorRect}
+        onClear={clearMultiSelection}
+        onSendToAgent={sendSelectionToAgent}
+      />
 
       <BlockBubbleMenu editingEl={editingEl} onChange={saveBlockContent} />
 
