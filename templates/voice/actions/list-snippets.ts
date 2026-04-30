@@ -13,6 +13,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/helpers.js";
 import { cliBoolean } from "./utils.js";
 
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
+
 export default defineAction({
   description:
     "List text expansion snippets. Returns both personal and team snippets visible to the current user.",
