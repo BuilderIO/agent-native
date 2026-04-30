@@ -19,6 +19,7 @@ type CompositionCardProps = {
   isSelected: boolean;
   onClick: () => void;
   onDelete?: (id: string) => void;
+  draggable?: boolean;
 };
 
 export function CompositionCard({
@@ -26,8 +27,14 @@ export function CompositionCard({
   isSelected,
   onClick,
   onDelete,
+  draggable = false,
 }: CompositionCardProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData("text/composition-id", composition.id);
+    e.dataTransfer.effectAllowed = "move";
+  };
 
   return (
     <>
@@ -41,8 +48,11 @@ export function CompositionCard({
             onClick();
           }
         }}
+        draggable={draggable}
+        onDragStart={draggable ? handleDragStart : undefined}
         className={cn(
-          "flex items-center gap-3 px-2 py-1.5 rounded-lg group cursor-pointer relative",
+          "flex items-center gap-3 px-2 py-1.5 rounded-lg group relative",
+          draggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
           isSelected
             ? "bg-accent/60 ring-1 ring-primary/25"
             : "bg-transparent hover:bg-secondary/60",
