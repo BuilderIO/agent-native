@@ -266,6 +266,15 @@ export function mountMCP(
   getH3App(nitroApp).use(
     `${routePrefix}/mcp`,
     defineEventHandler(async (event) => {
+      const pathname = event.url?.pathname || "/";
+      const subpath = pathname.replace(/^\/+/, "").replace(/\/+$/, "");
+      if (subpath) {
+        // Let management/status routes mounted under /_agent-native/mcp/*
+        // handle their own requests instead of treating them as MCP protocol
+        // traffic.
+        return;
+      }
+
       const method = getMethod(event);
 
       // Auth check — also extracts the caller's identity from the JWT so

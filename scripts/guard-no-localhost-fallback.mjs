@@ -255,6 +255,22 @@ async function scan() {
         snippet: lineText.trim(),
       });
     }
+
+    // Catch symbolic-alias fallbacks (audit 02 — getCurrentRunOwner).
+    SYMBOLIC_FALLBACK_RE.lastIndex = 0;
+    let s;
+    while ((s = SYMBOLIC_FALLBACK_RE.exec(contents)) !== null) {
+      const { line, col } = lineColForOffset(contents, s.index);
+      const lineText = lines[line - 1] ?? "";
+      if (isCommentLine(lineText)) continue;
+      if (hasValidOptOut(lines, line - 1)) continue;
+      violations.push({
+        file: rel,
+        line,
+        col,
+        snippet: lineText.trim(),
+      });
+    }
   }
   return violations;
 }
@@ -265,7 +281,8 @@ if (violations.length > 0) {
   const bar = "=".repeat(72);
   console.error(`\n${bar}`);
   console.error(
-    'ERROR: forbidden `"local@localhost"` literal in production code.',
+    'ERROR: forbidden `"local@localhost"` (or DEV_MODE_USER_EMAIL alias) ' +
+      "fallback in production code.",
   );
   console.error(bar);
   console.error("");
@@ -278,6 +295,7 @@ if (violations.length > 0) {
   console.error(
     '    const userEmail = getRequestUserEmail() || "local@localhost";',
   );
+  console.error("    const owner = ctx?.owner ?? DEV_MODE_USER_EMAIL;");
   console.error("");
   console.error(
     "— silently pools every unauthenticated request into a single shared",
