@@ -50,6 +50,15 @@ describe("template routes", () => {
     for (const catalogPath of catalogTemplatePaths) {
       expect(sidebarTemplatePaths).toContain(catalogPath);
     }
+
+    for (const sidebarPath of sidebarTemplatePaths) {
+      const slug = sidebarPath.replace("/templates/", "");
+      expect(() =>
+        loader({
+          params: { slug },
+        } as unknown as Parameters<typeof loader>[0]),
+      ).not.toThrow();
+    }
   });
 
   it("includes every public docs page and template page in the sitemap", () => {

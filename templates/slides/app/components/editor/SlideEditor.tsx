@@ -228,7 +228,11 @@ function MultiSelectOutline({ rect }: { rect: DOMRect }) {
 }
 
 /** Translucent rectangle drawn while marquee-dragging */
-function MarqueeRect({ rect }: { rect: { x: number; y: number; w: number; h: number } }) {
+function MarqueeRect({
+  rect,
+}: {
+  rect: { x: number; y: number; w: number; h: number };
+}) {
   return createPortal(
     <div
       style={{
