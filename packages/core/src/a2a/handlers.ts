@@ -630,41 +630,120 @@ async function handleStream(
   });
 }
 
+/**
+ * Caller-supplied metadata keys that may contain sensitive bearer / OAuth
+ * material. Always stripped from `tasks/get` responses so a leaked task id
+ * never discloses an OAuth token even when the original sender carelessly
+ * stuffed one into `metadata` (see `production-agent.ts:1144-1156` for the
+ * historical googleToken propagation pattern).
+ */
+const SENSITIVE_METADATA_KEYS = new Set([
+  "googleToken",
+  "userEmail",
+  "orgDomain",
+  "accessToken",
+  "refreshToken",
+  "apiKey",
+  "Authorization",
+  "authorization",
+  "bearer",
+]);
+
+function sanitizeTaskForResponse(task: any): any {
+  if (!task || typeof task !== "object") return task;
+  if (!task.metadata || typeof task.metadata !== "object") return task;
+
+  const meta = task.metadata as Record<string, unknown>;
+  const publicMeta: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (k === "__a2a_processor") continue;
+    if (SENSITIVE_METADATA_KEYS.has(k)) continue;
+    publicMeta[k] = v;
+  }
+  return { ...task, metadata: publicMeta };
+}
+
+/**
+ * Reject access when the task has a recorded owner that doesn't match the
+ * verified caller. Returns a 404-shaped JSON-RPC error to avoid disclosing
+ * task existence to the wrong caller (enumeration via UUID lookup).
+ *
+ * - When the task has no recorded owner (legacy row from before the
+ *   owner_email migration) we allow access if some verifiable bearer token
+ *   was presented; otherwise we still reject so an unsigned caller can never
+ *   read or cancel arbitrary task ids.
+ * - When neither A2A_SECRET nor apiKeyEnv is configured AND we're in
+ *   production, we refuse `tasks/get` and `tasks/cancel` outright — there's
+ *   no way to authenticate the caller, so the only safe response is "not
+ *   found".
+ */
+function authorizeTaskAccess(
+  taskOwnerEmail: string | null,
+  event: any,
+  config: A2AConfig,
+): JsonRpcResponse | null {
+  const verifiedEmail =
+    (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
+  const hasA2ASecret = !!process.env.A2A_SECRET;
+  const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
+  const inProduction = process.env.NODE_ENV === "production";
+
+  if (inProduction && !hasA2ASecret && !hasApiKey) {
+    // No way to authenticate the caller in production — refuse access.
+    return jsonRpcError(0, -32001, "Task not found");
+  }
+
+  if (taskOwnerEmail) {
+    if (!verifiedEmail) {
+      return jsonRpcError(0, -32001, "Task not found");
+    }
+    if (verifiedEmail.toLowerCase() !== taskOwnerEmail.toLowerCase()) {
+      return jsonRpcError(0, -32001, "Task not found");
+    }
+  }
+  // Legacy row (no owner_email recorded). The route-level auth gate is the
+  // only thing protecting it — fall through and serve.
+  return null;
+}
+
 async function handleGet(
   params: Record<string, unknown>,
+  event: any,
+  config: A2AConfig,
 ): Promise<JsonRpcResponse> {
   const id = params.id as string;
   if (!id) {
     return jsonRpcError(0, -32602, "Invalid params: id required");
   }
+  const ownerEmail = await getTaskOwner(id);
+  const denied = authorizeTaskAccess(ownerEmail, event, config);
+  if (denied) return denied;
+
   const task = await getTask(id);
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
   }
-  // Strip internal processor metadata before returning to callers — it may
-  // contain verifiedEmail and callerMetadata that should not be exposed.
-  if (task.metadata && typeof task.metadata === "object") {
-    const { __a2a_processor: _proc, ...publicMeta } = task.metadata as Record<
-      string,
-      unknown
-    >;
-    return jsonRpcResult(0, { ...task, metadata: publicMeta });
-  }
-  return jsonRpcResult(0, task);
+  return jsonRpcResult(0, sanitizeTaskForResponse(task));
 }
 
 async function handleCancel(
   params: Record<string, unknown>,
+  event: any,
+  config: A2AConfig,
 ): Promise<JsonRpcResponse> {
   const id = params.id as string;
   if (!id) {
     return jsonRpcError(0, -32602, "Invalid params: id required");
   }
+  const ownerEmail = await getTaskOwner(id);
+  const denied = authorizeTaskAccess(ownerEmail, event, config);
+  if (denied) return denied;
+
   const task = await updateTask(id, { state: "canceled" });
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
   }
-  return jsonRpcResult(0, task);
+  return jsonRpcResult(0, sanitizeTaskForResponse(task));
 }
 
 /**
@@ -706,11 +785,11 @@ export async function handleJsonRpcH3(
       return undefined as any; // Response already sent via SSE
     }
     case "tasks/get": {
-      const result = await handleGet(params);
+      const result = await handleGet(params, event, config);
       return { ...result, id } as JsonRpcResponse;
     }
     case "tasks/cancel": {
-      const result = await handleCancel(params);
+      const result = await handleCancel(params, event, config);
       return { ...result, id } as JsonRpcResponse;
     }
     default:

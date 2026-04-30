@@ -11,6 +11,7 @@ import type {
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { getIntegrationConfig } from "../config-store.js";
 import { readBody } from "../../server/h3-helpers.js";
+import { getDbExec } from "../../db/client.js";
 import {
   sendEmail,
   isEmailConfigured,
@@ -25,8 +26,27 @@ const RATE_LIMIT_MAX = 20;
 /** Rate limit window in ms (1 hour) */
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
-/** In-memory rate limiter keyed by sender email address */
-const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
+/**
+ * One-shot warning flags so we don't spam logs on every webhook.
+ * Cleared per process — one warning per cold start is enough to surface
+ * a misconfiguration without leaking config status to anyone with log access
+ * (M6 in the webhook security audit).
+ */
+let _resendUnverifiedWarned = false;
+let _sendgridUnverifiedWarned = false;
+
+/**
+ * Returns true when the deployment is running in production mode and the
+ * operator has NOT explicitly opted into accepting unverified webhooks for
+ * local testing. In production we MUST refuse webhooks whose signature can't
+ * be verified — accepting them with attacker-controlled `from:` addresses
+ * lets the dispatch owner-resolution path run as the victim (C1 in the
+ * webhook security audit).
+ */
+function shouldRefuseWhenSecretMissing(): boolean {
+  if (process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS === "1") return false;
+  return process.env.NODE_ENV === "production";
+}
 
 /**
  * Create an Email platform adapter for inbound/outbound email via
@@ -340,9 +360,22 @@ async function verifyResendWebhook(
   secret?: string,
 ): Promise<boolean> {
   if (!secret) {
-    console.warn(
-      "[email] EMAIL_INBOUND_WEBHOOK_SECRET not set — accepting Resend webhook without verification",
-    );
+    if (shouldRefuseWhenSecretMissing()) {
+      if (!_resendUnverifiedWarned) {
+        _resendUnverifiedWarned = true;
+        console.error(
+          "[email] EMAIL_INBOUND_WEBHOOK_SECRET not set — refusing Resend webhook in production. " +
+            "Set EMAIL_INBOUND_WEBHOOK_SECRET, or set AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1 for local testing only.",
+        );
+      }
+      return false;
+    }
+    if (!_resendUnverifiedWarned) {
+      _resendUnverifiedWarned = true;
+      console.warn(
+        "[email] EMAIL_INBOUND_WEBHOOK_SECRET not set — accepting Resend webhook without verification (dev mode)",
+      );
+    }
     return true;
   }
 
@@ -409,9 +442,22 @@ async function verifySendGridWebhook(
   secret?: string,
 ): Promise<boolean> {
   if (!secret) {
-    console.warn(
-      "[email] EMAIL_INBOUND_WEBHOOK_SECRET not set — accepting SendGrid webhook without verification",
-    );
+    if (shouldRefuseWhenSecretMissing()) {
+      if (!_sendgridUnverifiedWarned) {
+        _sendgridUnverifiedWarned = true;
+        console.error(
+          "[email] EMAIL_INBOUND_WEBHOOK_SECRET not set — refusing SendGrid webhook in production. " +
+            "Set EMAIL_INBOUND_WEBHOOK_SECRET, or set AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1 for local testing only.",
+        );
+      }
+      return false;
+    }
+    if (!_sendgridUnverifiedWarned) {
+      _sendgridUnverifiedWarned = true;
+      console.warn(
+        "[email] EMAIL_INBOUND_WEBHOOK_SECRET not set — accepting SendGrid webhook without verification (dev mode)",
+      );
+    }
     return true;
   }
 

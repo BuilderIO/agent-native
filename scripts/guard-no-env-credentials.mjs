@@ -123,6 +123,14 @@ const FORBIDDEN_PATH_PREDICATES = [
   (rel) => /^packages\/core\/src\/credentials\//.test(rel),
   (rel) => /^packages\/core\/src\/secrets\//.test(rel),
   (rel) => /^packages\/core\/src\/vault\//.test(rel),
+  // packages/core agent subtree — `getOwnerActiveApiKey` resolves the
+  // current user's provider API key and historically fell back to
+  // `process.env[envVar]` (dynamic key). On a multi-tenant deploy that
+  // silently substituted the deploy-level key for every user, exactly
+  // the prior-incident pattern. The fix in production-agent.ts gates
+  // the env-fallback on `isMultiTenantDeploy()`, but the guard catches
+  // any future regression at CI time.
+  (rel) => /^packages\/core\/src\/agent\//.test(rel),
   // template credential libs
   (rel) => /^templates\/[^/]+\/server\/lib\/credential[^/]*\.ts$/.test(rel),
   // template credential routes (single + plural)
@@ -264,6 +272,18 @@ async function scan() {
       if (isAllowlistedKey(key)) continue;
       const { line, col } = lineColForOffset(contents, m.index);
       const lineIdx = line - 1;
+      // Skip matches inside comment lines so docstrings explaining a
+      // dangerous pattern (e.g. "do NOT do `process.env.X`") don't
+      // trip the guard. Same posture the dynamic-regex pass below uses.
+      const lineText = lines[lineIdx] ?? "";
+      const trimmedLine = lineText.trimStart();
+      if (
+        trimmedLine.startsWith("*") ||
+        trimmedLine.startsWith("//") ||
+        trimmedLine.startsWith("/*")
+      ) {
+        continue;
+      }
       if (hasOptOutOnLine(lines, lineIdx)) {
         const verdict = optOutOnLineIsValid(lines, lineIdx, key, rel);
         if (verdict.ok) continue;
