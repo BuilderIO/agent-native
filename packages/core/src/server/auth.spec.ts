@@ -9,6 +9,7 @@ describe("server/auth", () => {
 
   afterEach(() => {
     process.env = originalEnv;
+    vi.doUnmock("./better-auth-instance.js");
     vi.resetModules();
   });
 
@@ -179,6 +180,112 @@ describe("server/auth", () => {
         createMockEvent({ path: "/docs/_agent-native/auth/session" }),
       );
       expect(result).toBeUndefined();
+    });
+
+    it("allows app-state request-source headers in CORS preflight responses", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      delete process.env.AUTH_MODE;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/_agent-native/application-state/navigation",
+        headers: {
+          origin: "http://localhost:1420",
+          "access-control-request-method": "PUT",
+          "access-control-request-headers": "x-request-source,content-type",
+        },
+      });
+      event.req.method = "OPTIONS";
+      event.node.req.method = "OPTIONS";
+
+      const result = await guard(event);
+
+      expect(result).toBe("");
+      expect(event.res.status).toBe(204);
+      expect(event.res.headers.get("access-control-allow-methods")).toContain(
+        "HEAD",
+      );
+      expect(event.res.headers.get("access-control-allow-headers")).toContain(
+        "X-Request-Source",
+      );
+    });
+
+    it("strips APP_BASE_PATH before forwarding requests to Better Auth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_BASE_PATH", "/docs");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+      delete process.env.AUTH_MODE;
+
+      let forwardedPath = "";
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: async (request: Request) => {
+            forwardedPath = new URL(request.url).pathname;
+            return new Response(JSON.stringify({ ok: true }), {
+              headers: { "content-type": "application/json" },
+            });
+          },
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+            listOrganizations: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const fullPath = "/docs/_agent-native/auth/ba/sign-in/email";
+      const request = new Request(`http://localhost${fullPath}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      const event = {
+        req: request,
+        url: new URL("http://localhost/sign-in/email"),
+        res: { headers: new Headers(), status: 200 },
+        node: {
+          req: { headers: {}, url: fullPath, method: "POST" },
+          res: {
+            setHeader: vi.fn(),
+            getHeader: vi.fn(),
+            appendHeader: vi.fn(),
+          },
+        },
+        headers: request.headers,
+        context: {
+          _mountedPathname: fullPath,
+          _mountPrefix: "/docs/_agent-native/auth/ba",
+        },
+        path: "/sign-in/email",
+      };
+
+      await baHandler(event);
+
+      expect(forwardedPath).toBe("/_agent-native/auth/ba/sign-in/email");
     });
 
     it("supports multiple ACCESS_TOKENS", async () => {
