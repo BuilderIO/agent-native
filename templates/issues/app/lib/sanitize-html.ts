@@ -138,7 +138,14 @@ export function sanitizeHtml(html: string): string {
       .replace(/<script[\s\S]*?<\/script>/gi, "")
       .replace(/<style[\s\S]*?<\/style>/gi, "")
       .replace(/<iframe[\s\S]*?<\/iframe>/gi, "")
-      .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+      .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(
+        /\s+(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
+        (match, _name: string, raw: string) => {
+          const value = raw.replace(/^['"]|['"]$/g, "");
+          return isSafeUrl(value) ? match : "";
+        },
+      );
   }
 
   const doc = new DOMParser().parseFromString(html, "text/html");
