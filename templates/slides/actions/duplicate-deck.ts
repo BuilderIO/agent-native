@@ -60,10 +60,12 @@ export default defineAction({
       orgId: getRequestOrgId() || null,
     });
 
+    const appUrl = process.env.APP_URL || "https://slides.agent-native.com";
     return {
       id: newId,
       title: newTitle,
       slideCount: (deckData.slides || []).length,
+      url: `${appUrl}/deck/${newId}`,
     };
   },
 });

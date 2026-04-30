@@ -85,12 +85,14 @@ export default defineAction({
         source: "import-pptx",
       });
 
+      const appUrl = process.env.APP_URL || "https://slides.agent-native.com";
       return {
         id: deckId,
         title: deckTitle,
         slideCount: slides.length,
         theme: presentation.theme,
         imported: true,
+        url: `${appUrl}/deck/${deckId}`,
       };
     }
 
@@ -114,12 +116,14 @@ export default defineAction({
     notifyClients(id);
     await writeAppState("refresh-signal", { ts: now, source: "import-pptx" });
 
+    const appUrl = process.env.APP_URL || "https://slides.agent-native.com";
     return {
       id,
       title: deckTitle,
       slideCount: slides.length,
       theme: presentation.theme,
       imported: true,
+      url: `${appUrl}/deck/${id}`,
     };
   },
 });
