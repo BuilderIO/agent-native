@@ -1465,9 +1465,7 @@ export function Timeline({
                           }
                         >
                           <div
-                            className={cn(
-                              "w-2 h-2 rotate-45 relative",
-                            )}
+                            className={cn("w-2 h-2 rotate-45 relative")}
                             style={{
                               // Different styles for cursor keyframes based on what changed
                               backgroundColor: selected
