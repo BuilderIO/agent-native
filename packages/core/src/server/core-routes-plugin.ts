@@ -1,5 +1,4 @@
 import { getH3App, awaitBootstrap } from "./framework-request-handler.js";
-import { runWithRequestContext } from "./request-context.js";
 import {
   defineEventHandler,
   setResponseStatus,
