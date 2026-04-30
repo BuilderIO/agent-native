@@ -5,7 +5,6 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server";
-import { hasRequestContext } from "@agent-native/core/server/request-context";
 import { getDb, schema } from "../db/index.js";
 
 export const SHARED_DISPATCH_OWNER = "dispatch@shared";
@@ -603,7 +602,6 @@ export async function resolveLinkedOwner(
 ) {
   if (!externalUserId) return null;
   const db = getDb();
-  const hasContext = hasRequestContext();
   const orgId = currentOrgId();
   const rows = await db
     .select()
@@ -612,16 +610,13 @@ export async function resolveLinkedOwner(
       and(
         eq(schema.dispatchIdentityLinks.platform, platform),
         eq(schema.dispatchIdentityLinks.externalUserId, externalUserId),
-        hasContext
-          ? orgId
-            ? eq(schema.dispatchIdentityLinks.orgId, orgId)
-            : isNull(schema.dispatchIdentityLinks.orgId)
-          : undefined,
+        orgId
+          ? eq(schema.dispatchIdentityLinks.orgId, orgId)
+          : isNull(schema.dispatchIdentityLinks.orgId),
       ),
     )
     .orderBy(desc(schema.dispatchIdentityLinks.updatedAt))
-    .limit(2);
-  if (!hasContext && rows.length > 1) return null;
+    .limit(1);
   return rows[0]?.ownerEmail || null;
 }
 

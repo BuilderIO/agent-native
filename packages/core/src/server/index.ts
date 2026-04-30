@@ -117,10 +117,13 @@ export {
 } from "./action-routes.js";
 export {
   runWithRequestContext,
+  hasRequestContext,
+  getRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
   getRequestTimezone,
   getCredentialContext,
+  isIntegrationCallerRequest,
   type RequestContext,
 } from "./request-context.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";

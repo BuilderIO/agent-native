@@ -120,10 +120,11 @@ async function createWorkspaceInteractive(
   const s = clack.spinner();
   s.start(`Scaffolding workspace with ${templates.length} app(s)...`);
 
+  const firstApp = templates[0];
+
   try {
     await scaffoldWorkspaceRoot(targetDir, name);
     const workspaceCoreName = `@${name}/core-module`;
-    const firstApp = templates[0];
     updateWorkspaceDevScript(targetDir, firstApp);
 
     for (const t of templates) {
@@ -940,7 +941,7 @@ function copyDir(src: string, dest: string, root?: string): void {
   const resolvedRoot = root ?? path.resolve(src);
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    if (entry.name === "node_modules") continue;
+    if (shouldSkipScaffoldEntry(entry.name)) continue;
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isSymbolicLink()) {
@@ -966,4 +967,21 @@ function copyDir(src: string, dest: string, root?: string): void {
       fs.copyFileSync(srcPath, destPath);
     }
   }
+}
+
+function shouldSkipScaffoldEntry(name: string): boolean {
+  if (
+    name === "node_modules" ||
+    name === ".env" ||
+    name === ".env.local" ||
+    name === ".netlify" ||
+    name === ".generated" ||
+    name === ".react-router" ||
+    name === ".output" ||
+    name === "build" ||
+    name === ".DS_Store"
+  ) {
+    return true;
+  }
+  return /^qa-.*\.db(?:-shm|-wal)?$/.test(name) || /\.db-(?:shm|wal)$/.test(name);
 }
