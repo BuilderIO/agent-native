@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
 
 export default defineAction({
   description: "Check database health and connection status.",
-  parameters: {},
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
     const isLocal = (): boolean => {
