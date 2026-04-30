@@ -36,6 +36,7 @@ import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import { useDevMode } from "./use-dev-mode.js";
+import { agentNativePath } from "./api-path.js";
 import {
   TiptapComposer,
   type TiptapComposerHandle,
@@ -2079,13 +2080,13 @@ const AssistantChatInner = forwardRef<
     let cancelled = false;
     const check = async () => {
       const [envKeys, builderStatus, engineStatus] = await Promise.all([
-        fetch("/_agent-native/env-status")
+        fetch(agentNativePath("/_agent-native/env-status"))
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
-        fetch("/_agent-native/builder/status")
+        fetch(agentNativePath("/_agent-native/builder/status"))
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
-        fetch("/_agent-native/agent-engine/status")
+        fetch(agentNativePath("/_agent-native/agent-engine/status"))
           .then((r) => (r.ok ? r.json() : null))
           .catch(() => null),
       ]);
@@ -2395,9 +2396,12 @@ const AssistantChatInner = forwardRef<
                       <button
                         onClick={async () => {
                           try {
-                            await fetch("/_agent-native/auth/logout", {
-                              method: "POST",
-                            });
+                            await fetch(
+                              agentNativePath("/_agent-native/auth/logout"),
+                              {
+                                method: "POST",
+                              },
+                            );
                           } catch {}
                           window.location.reload();
                         }}

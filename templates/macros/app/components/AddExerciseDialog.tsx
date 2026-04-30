@@ -70,6 +70,7 @@ export function AddExerciseDialog({
       setOpen(false);
       form.reset();
     },
+    onError: () => toast.error("Failed to log exercise"),
   });
 
   const updateMutation = useActionMutation("update-exercise", {
@@ -78,6 +79,7 @@ export function AddExerciseDialog({
       setOpen(false);
       form.reset();
     },
+    onError: () => toast.error("Failed to update exercise"),
   });
 
   const handleOpenChange = (newOpen: boolean) => {

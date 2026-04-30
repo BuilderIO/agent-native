@@ -148,7 +148,14 @@ export default defineAction({
             failureReason: transcript.failureReason,
             segments,
           }
-        : null,
+        : {
+            status: "pending" as const,
+            language: "en",
+            provider: null,
+            fullText: "",
+            failureReason: null,
+            segments: [],
+          },
       summary: summary
         ? {
             recap: summary.recap,

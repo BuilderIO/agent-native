@@ -61,6 +61,7 @@ import { useScreenRefreshKey } from "./use-db-sync.js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
 import { cn } from "./utils.js";
+import { agentNativePath } from "./api-path.js";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
 const AgentTerminal = lazy(() =>
@@ -130,7 +131,7 @@ function useAvailableClis() {
   useEffect(() => {
     // Try to fetch available CLIs — endpoint is provided by the terminal plugin.
     // Returns 404 gracefully when the plugin isn't loaded.
-    fetch("/_agent-native/available-clis")
+    fetch(agentNativePath("/_agent-native/available-clis"))
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setClis(Array.isArray(data) ? data : []))
       .catch(() => {});
@@ -1310,7 +1311,7 @@ function URLSync() {
       hash: location.hash,
       searchParams,
     };
-    fetch("/_agent-native/application-state/__url__", {
+    fetch(agentNativePath("/_agent-native/application-state/__url__"), {
       method: "PUT",
       keepalive: true,
       headers: { "Content-Type": "application/json" },
@@ -1324,7 +1325,9 @@ function URLSync() {
     queryKey: ["__set_url__"],
     queryFn: async () => {
       try {
-        const res = await fetch("/_agent-native/application-state/__set_url__");
+        const res = await fetch(
+          agentNativePath("/_agent-native/application-state/__set_url__"),
+        );
         if (!res.ok || res.status === 204) return null;
         const text = await res.text();
         if (!text) return null;
@@ -1344,7 +1347,7 @@ function URLSync() {
     if (!command) return;
     // Delete the one-shot command before applying so duplicate events
     // don't cause repeated navigation.
-    fetch("/_agent-native/application-state/__set_url__", {
+    fetch(agentNativePath("/_agent-native/application-state/__set_url__"), {
       method: "DELETE",
     }).catch(() => {});
     const cmd = command as {
