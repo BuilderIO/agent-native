@@ -14,6 +14,7 @@ import {
   IconShare2,
 } from "@tabler/icons-react";
 import { toast } from "@/hooks/use-toast";
+import { agentNativePath, appBasePath } from "@agent-native/core/client";
 
 interface ExportMenuProps {
   deckId: string;
@@ -36,7 +37,7 @@ export function ExportMenu({
   // kills window.open() after an async fetch (no direct user gesture left).
   const triggerDownload = (filename: string) => {
     const a = document.createElement("a");
-    a.href = `/api/exports/${filename}`;
+    a.href = `${appBasePath()}/api/exports/${filename}`;
     a.download = filename;
     a.rel = "noopener";
     document.body.appendChild(a);
@@ -46,11 +47,14 @@ export function ExportMenu({
 
   const handleExportPptx = async () => {
     try {
-      const res = await fetch(`/_agent-native/actions/export-pptx`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deckId }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/export-pptx"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deckId }),
+        },
+      );
       const data = await res.json();
       if (data.filename) {
         triggerDownload(data.filename);
@@ -73,11 +77,14 @@ export function ExportMenu({
 
   const handleExportHtml = async () => {
     try {
-      const res = await fetch(`/_agent-native/actions/export-html`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deckId }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/export-html"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deckId }),
+        },
+      );
       const data = await res.json();
       if (data.filename) {
         triggerDownload(data.filename);

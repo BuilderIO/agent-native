@@ -1,8 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
 import type { ApolloPersonResult } from "@shared/api";
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(agentNativePath(url), {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
@@ -14,7 +15,9 @@ export function useApolloStatus() {
   const { data } = useQuery<{ apiKey?: string } | null>({
     queryKey: ["apollo-status"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/application-state/apollo");
+      const res = await fetch(
+        agentNativePath("/_agent-native/application-state/apollo"),
+      );
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`${res.status}`);
       return res.json();

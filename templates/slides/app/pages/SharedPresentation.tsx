@@ -4,6 +4,7 @@ import { IconAlertCircle } from "@tabler/icons-react";
 import type { SharedDeckResponse } from "@shared/api";
 import type { Slide } from "@/context/DeckContext";
 import PresentationView from "@/components/presentation/PresentationView";
+import { appBasePath } from "@agent-native/core/client";
 
 interface SharedPresentationProps {
   initialDeck?: SharedDeckResponse | null;
@@ -28,7 +29,7 @@ export default function SharedPresentation({
       return;
     }
 
-    fetch(`/api/share/${token}`)
+    fetch(`${appBasePath()}/api/share/${token}`)
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json();

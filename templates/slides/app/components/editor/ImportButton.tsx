@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { IconUpload } from "@tabler/icons-react";
+import { agentNativePath, appBasePath } from "@agent-native/core/client";
 import {
   Tooltip,
   TooltipContent,
@@ -22,13 +23,13 @@ export function ImportButton({ deckId, onImportComplete }: ImportButtonProps) {
     formData.append("file", file);
 
     try {
-      const uploadRes = await fetch("/api/uploads", {
+      const uploadRes = await fetch(`${appBasePath()}/api/uploads`, {
         method: "POST",
         body: formData,
       });
       const uploadData = await uploadRes.json();
 
-      await fetch("/_agent-native/actions/import-file", {
+      await fetch(agentNativePath("/_agent-native/actions/import-file"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

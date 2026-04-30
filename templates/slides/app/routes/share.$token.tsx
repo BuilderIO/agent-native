@@ -8,6 +8,19 @@ type LoaderData =
   | { deck: SharedDeckResponse; error?: undefined }
   | { deck: null; error: string };
 
+function normalizeBasePath(value: string | undefined): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function appBasePathForRequest(request: Request): string {
+  return normalizeBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+}
+
 export async function loader({
   params,
   request,
@@ -16,7 +29,10 @@ export async function loader({
     return { deck: null, error: "Token is required" };
   }
 
-  const url = new URL(`/api/share/${params.token}`, request.url);
+  const url = new URL(
+    `${appBasePathForRequest(request)}/api/share/${params.token}`,
+    request.url,
+  );
   const res = await fetch(url, { headers: { accept: "application/json" } });
   const data = await res.json().catch(() => null);
 

@@ -11,7 +11,7 @@ import {
   IconUpload,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
-import { getCallbackOrigin } from "@agent-native/core/client";
+import { agentNativePath, getCallbackOrigin } from "@agent-native/core/client";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
@@ -100,10 +100,10 @@ export function GoogleConnectBanner({
       ? "/_agent-native/google/add-account/auth-url"
       : "/_agent-native/google/auth-url";
     const redirectUri = encodeURIComponent(
-      `${origin}/_agent-native/google/callback`,
+      `${origin}${agentNativePath("/_agent-native/google/callback")}`,
     );
     window.open(
-      `${origin}${endpoint}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
+      `${origin}${agentNativePath(endpoint)}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
       "_blank",
     );
     const start = Date.now();
@@ -111,15 +111,20 @@ export function GoogleConnectBanner({
     desktopPollRef.current = setInterval(async () => {
       try {
         const res = await fetch(
-          `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+          agentNativePath(
+            `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+          ),
         );
         const data = await res.json();
         if (data?.token) {
           clearInterval(desktopPollRef.current!);
           desktopPollRef.current = null;
-          await fetch(`/_agent-native/auth/session?_session=${data.token}`, {
-            credentials: "include",
-          });
+          await fetch(
+            agentNativePath(`/_agent-native/auth/session?_session=${data.token}`),
+            {
+              credentials: "include",
+            },
+          );
           window.location.reload();
         } else if (Date.now() - start > 120_000) {
           clearInterval(desktopPollRef.current!);
@@ -145,11 +150,11 @@ export function GoogleConnectBanner({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const redirectUri = `${getCallbackOrigin()}/_agent-native/google/callback`;
+  const redirectUri = `${getCallbackOrigin()}${agentNativePath("/_agent-native/google/callback")}`;
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch("/_agent-native/env-status");
+      const res = await fetch(agentNativePath("/_agent-native/env-status"));
       if (res.ok) {
         const data: EnvKeyStatus[] = await res.json();
         setEnvStatus(data);
@@ -190,7 +195,9 @@ export function GoogleConnectBanner({
 
     // Poll for connection status while user completes OAuth in other tab.
     const interval = setInterval(async () => {
-      const res = await fetch("/_agent-native/google/status").catch(() => null);
+      const res = await fetch(
+        agentNativePath("/_agent-native/google/status"),
+      ).catch(() => null);
       if (res?.ok) {
         const data = await res.json();
         if (data.connected) {
@@ -233,9 +240,9 @@ export function GoogleConnectBanner({
     if (!isNativeWebView) {
       const prevCount = accounts.length;
       const interval = setInterval(async () => {
-        const res = await fetch("/_agent-native/google/status").catch(
-          () => null,
-        );
+        const res = await fetch(
+          agentNativePath("/_agent-native/google/status"),
+        ).catch(() => null);
         if (res?.ok) {
           const data = await res.json();
           if (data.accounts?.length > prevCount) {
@@ -286,7 +293,7 @@ export function GoogleConnectBanner({
         throw new Error("Could not find client_id and client_secret in JSON");
       }
 
-      const res = await fetch("/_agent-native/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
