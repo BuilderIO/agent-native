@@ -1,11 +1,5 @@
 import { Link } from "react-router";
-import { useNavigate } from "react-router";
-import {
-  IconDots,
-  IconTrash,
-  IconCopy,
-  IconPencil,
-} from "@tabler/icons-react";
+import { IconDots, IconTrash, IconCopy, IconPencil } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
 import type { Deck } from "@/context/DeckContext";
 import SlideRenderer from "./SlideRenderer";
@@ -32,7 +26,6 @@ export default function DeckCard({
   onDuplicate,
 }: DeckCardProps) {
   const firstSlide = deck.slides?.[0];
-  const navigate = useNavigate();
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(deck.title);
   const inputRef = useRef<HTMLInputElement>(null);
