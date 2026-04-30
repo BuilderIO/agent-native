@@ -68,8 +68,10 @@ async function hasOAuthSecretForEvent(
   if (!secret.oauthProvider) return false;
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return false;
+  // hasOAuthTokens now requires an explicit owner — passing the dev sentinel
+  // preserves the "any row exists" wildcard behaviour for local-dev only.
   if (session.email === DEV_MODE_USER_EMAIL) {
-    return hasOAuthTokens(secret.oauthProvider);
+    return hasOAuthTokens(secret.oauthProvider, DEV_MODE_USER_EMAIL);
   }
   const accounts = await listOAuthAccountsByOwner(
     secret.oauthProvider,

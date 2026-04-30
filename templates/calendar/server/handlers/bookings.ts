@@ -56,24 +56,24 @@ async function getBookingLinkSlugsForOwner(
 
 export const listBookings = defineEventHandler(async (_event: H3Event) => {
   return requireRequestContext(_event, async () => {
-  try {
-    const accessibleLinks = await getDb()
-      .select({ slug: schema.bookingLinks.slug })
-      .from(schema.bookingLinks)
-      .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
-    const slugs = accessibleLinks.map((link) => link.slug);
-    if (slugs.length === 0) return [];
+    try {
+      const accessibleLinks = await getDb()
+        .select({ slug: schema.bookingLinks.slug })
+        .from(schema.bookingLinks)
+        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+      const slugs = accessibleLinks.map((link) => link.slug);
+      if (slugs.length === 0) return [];
 
-    const rows = await getDb()
-      .select()
-      .from(schema.bookings)
-      .where(inArray(schema.bookings.slug, slugs))
-      .orderBy(schema.bookings.start);
-    return rows.map(rowToBooking);
-  } catch (error: any) {
-    setResponseStatus(_event, error?.statusCode ?? 500);
-    return { error: error.message };
-  }
+      const rows = await getDb()
+        .select()
+        .from(schema.bookings)
+        .where(inArray(schema.bookings.slug, slugs))
+        .orderBy(schema.bookings.start);
+      return rows.map(rowToBooking);
+    } catch (error: any) {
+      setResponseStatus(_event, error?.statusCode ?? 500);
+      return { error: error.message };
+    }
   });
 });
 
@@ -550,41 +550,41 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
 
 export const deleteBooking = defineEventHandler(async (event: H3Event) => {
   return requireRequestContext(event, async () => {
-  try {
-    const id = getRouterParam(event, "id") as string;
-    const db = getDb();
+    try {
+      const id = getRouterParam(event, "id") as string;
+      const db = getDb();
 
-    const existing = await db
-      .select()
-      .from(schema.bookings)
-      .where(eq(schema.bookings.id, id))
-      .then((rows) => rows[0]);
+      const existing = await db
+        .select()
+        .from(schema.bookings)
+        .where(eq(schema.bookings.id, id))
+        .then((rows) => rows[0]);
 
-    if (!existing) {
-      setResponseStatus(event, 404);
-      return { error: "Booking not found" };
+      if (!existing) {
+        setResponseStatus(event, 404);
+        return { error: "Booking not found" };
+      }
+
+      // Verify the caller has access to the booking link that owns this booking.
+      // Bookings have no ownerEmail of their own — scoping is via the slug →
+      // bookingLink ownership/sharing chain.
+      const accessibleLinks = await db
+        .select({ slug: schema.bookingLinks.slug })
+        .from(schema.bookingLinks)
+        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+      const accessibleSlugs = new Set(accessibleLinks.map((l) => l.slug));
+
+      if (!accessibleSlugs.has(existing.slug)) {
+        setResponseStatus(event, 403);
+        return { error: "Access denied" };
+      }
+
+      await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
+      return { success: true };
+    } catch (error: any) {
+      setResponseStatus(event, error?.statusCode ?? 500);
+      return { error: error.message };
     }
-
-    // Verify the caller has access to the booking link that owns this booking.
-    // Bookings have no ownerEmail of their own — scoping is via the slug →
-    // bookingLink ownership/sharing chain.
-    const accessibleLinks = await db
-      .select({ slug: schema.bookingLinks.slug })
-      .from(schema.bookingLinks)
-      .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
-    const accessibleSlugs = new Set(accessibleLinks.map((l) => l.slug));
-
-    if (!accessibleSlugs.has(existing.slug)) {
-      setResponseStatus(event, 403);
-      return { error: "Access denied" };
-    }
-
-    await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
-    return { success: true };
-  } catch (error: any) {
-    setResponseStatus(event, error?.statusCode ?? 500);
-    return { error: error.message };
-  }
   });
 });
 

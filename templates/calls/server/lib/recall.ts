@@ -1,4 +1,7 @@
-import { resolveCredential, type CredentialContext } from "@agent-native/core/credentials";
+import {
+  resolveCredential,
+  type CredentialContext,
+} from "@agent-native/core/credentials";
 import { readAppSecret } from "@agent-native/core/secrets";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 

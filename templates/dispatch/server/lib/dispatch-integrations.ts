@@ -3,10 +3,7 @@ import type {
   PlatformAdapter,
 } from "@agent-native/core/server";
 import crypto from "node:crypto";
-import {
-  consumeLinkToken,
-  resolveLinkedOwner,
-} from "./dispatch-store.js";
+import { consumeLinkToken, resolveLinkedOwner } from "./dispatch-store.js";
 
 function contextString(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) return value.trim();
@@ -24,9 +21,7 @@ function identityKeyForIncoming(incoming: IncomingMessage): string | null {
   }
 
   if (incoming.platform === "whatsapp") {
-    const phoneNumberId = contextString(
-      incoming.platformContext.phoneNumberId,
-    );
+    const phoneNumberId = contextString(incoming.platformContext.phoneNumberId);
     return phoneNumberId ? `${phoneNumberId}:${senderId}` : senderId;
   }
 
@@ -45,7 +40,11 @@ function fallbackOwnerForIncoming(incoming: IncomingMessage): string {
     contextString(incoming.platformContext.from) ||
     incoming.externalThreadId;
   const raw = `${incoming.platform}:${tenant}:${incoming.senderId || ""}`;
-  const hash = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
+  const hash = crypto
+    .createHash("sha256")
+    .update(raw)
+    .digest("hex")
+    .slice(0, 16);
   return `dispatch+${hash}@integration.local`;
 }
 
@@ -56,10 +55,7 @@ export async function resolveDispatchOwner(
     const externalUserId = identityKeyForIncoming(incoming);
 
     // Check linked identities first (works for all platforms)
-    const owner = await resolveLinkedOwner(
-      incoming.platform,
-      externalUserId,
-    );
+    const owner = await resolveLinkedOwner(incoming.platform, externalUserId);
     if (owner) return owner;
 
     // For email, the sender's email address is already a natural identity.

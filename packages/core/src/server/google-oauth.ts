@@ -533,7 +533,8 @@ export function oauthCallbackResponse(
   // Desktop add-account: close-tab page (must come before general desktop check
   // to ensure no deep link fires and the existing session is never switched).
   if (opts.desktop && opts.addAccount) {
-    const msg = email ? `Connected ${email}!` : "Connected!";
+    const safeEmail = email ? escapeHtml(email) : "";
+    const msg = safeEmail ? `Connected ${safeEmail}!` : "Connected!";
     return htmlResponse(
       `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
     );
@@ -542,7 +543,8 @@ export function oauthCallbackResponse(
   // Desktop exchange flow (Tauri tray app): the tray app polls the
   // desktop-exchange endpoint for the token — no deep link needed.
   if (opts.desktop && opts.flowId) {
-    const msg = email ? `Signed in as ${email}!` : "Signed in!";
+    const safeEmail = email ? escapeHtml(email) : "";
+    const msg = safeEmail ? `Signed in as ${safeEmail}!` : "Signed in!";
     return htmlResponse(
       `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Clips.</p></body></html>`,
     );
@@ -553,9 +555,13 @@ export function oauthCallbackResponse(
     return desktopSuccessPage(event, email, opts.sessionToken, callbackState);
   }
 
-  // Add-account web flow: close-tab page
+  // Add-account web flow: close-tab page. The email is rendered into the
+  // page via DOM `textContent` (safe), but we still JSON-stringify so a
+  // payload containing `</script>` can't break out of the script tag —
+  // and explicitly assert it's a string so a callbacks like `null` or
+  // an object won't end up serialised into the page.
   if (opts.addAccount) {
-    const safeEmail = JSON.stringify(email);
+    const safeEmail = JSON.stringify(typeof email === "string" ? email : "");
     return htmlResponse(`<!DOCTYPE html><html><body><script>
         window.close();
         var p = document.createElement('p');
