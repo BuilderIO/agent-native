@@ -156,15 +156,90 @@ export default defineConfig({
 
 ## Environment Variables {#environment-variables}
 
-| Variable            | Description                                                                                                          |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `PORT`              | Server port (Node.js only)                                                                                           |
-| `NITRO_PRESET`      | Override build preset at build time                                                                                  |
-| `ACCESS_TOKEN`      | Enable auth gating for production mode                                                                               |
-| `ANTHROPIC_API_KEY` | API key for embedded production agent                                                                                |
-| `APP_BASE_PATH`     | Mount the app under a prefix (e.g. `/mail`). Set automatically by `agent-native deploy`; leave unset for standalone. |
+### Build / Runtime {#env-runtime}
 
-Inside a workspace, the root `.env` is loaded into every app automatically, so shared keys like `ANTHROPIC_API_KEY` and `A2A_SECRET` only need to be set once. Per-app `apps/<name>/.env` wins on conflict.
+| Variable              | Description                                                                                                          |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                | Server port (Node.js only)                                                                                           |
+| `NITRO_PRESET`        | Override build preset at build time                                                                                  |
+| `APP_BASE_PATH`       | Mount the app under a prefix (e.g. `/mail`). Set automatically by `agent-native deploy`; leave unset for standalone. |
+| `DATABASE_URL`        | Postgres / Turso / SQLite connection string. Required in production.                                                 |
+| `DATABASE_AUTH_TOKEN` | Auth token for Turso / libsql connections.                                                                           |
+
+### Required in Production {#env-required-prod}
+
+These must be set before promoting an app to a real prod deploy. Missing values either fail-closed (the framework refuses to start / refuses to handle requests) or fall back to weaker behavior with a loud warning.
+
+| Variable                 | Description                                                                                                                                                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`     | 32+ char random string. Signs session cookies AND is the fallback HMAC for `OAUTH_STATE_SECRET` and `SECRETS_ENCRYPTION_KEY`. Hard-required: the framework throws on startup if missing in production.                                            |
+| `BETTER_AUTH_URL`        | Public origin of this app (e.g. `https://mail.example.com`). Used for cookie domain and OAuth redirect construction.                                                                                                                              |
+| `ANTHROPIC_API_KEY`      | API key for the embedded production agent. **In multi-tenant deploys**, the framework refuses to fall back to this when the user has no per-user key — bring-your-own-key is required. Single-tenant self-hosted installs use it as a global key. |
+| `OAUTH_STATE_SECRET`     | Dedicated HMAC key for OAuth state envelopes (Google, Atlassian, Zoom). Falls back to `BETTER_AUTH_SECRET` when unset, but a dedicated value is recommended so rotating one doesn't invalidate the other. Generate via `openssl rand -hex 32`.    |
+| `A2A_SECRET`             | Shared HMAC for inter-app A2A JSON-RPC. Without it, every A2A endpoint and the `/_agent-native/integrations/process-task` self-fire endpoint return 503 in production.                                                                            |
+| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM key for the encrypted-at-rest secrets vault. Falls back to `BETTER_AUTH_SECRET`. Hard-fails in production when both are unset.                                                                                                        |
+
+### Auth & Identity {#env-auth}
+
+| Variable                       | Description                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `ACCESS_TOKEN`                 | Single shared token for simple production deploys (alternative to Better Auth).                                     |
+| `ACCESS_TOKENS`                | Comma-separated list of access tokens.                                                                              |
+| `AUTH_MODE`                    | `local` skips auth entirely (`local@localhost` identity). For dev/single-tenant only; never set in real prod.       |
+| `AUTH_SKIP_EMAIL_VERIFICATION` | Skip email verification for QA accounts. **Disables a real security control** — only use on hosted QA environments. |
+| `GOOGLE_CLIENT_ID`             | Google OAuth client ID. Auto-enables "Sign in with Google" in Better Auth.                                          |
+| `GOOGLE_CLIENT_SECRET`         | Google OAuth client secret.                                                                                         |
+| `GITHUB_CLIENT_ID`             | GitHub OAuth client ID.                                                                                             |
+| `GITHUB_CLIENT_SECRET`         | GitHub OAuth client secret.                                                                                         |
+
+### Inbound Webhooks {#env-webhooks}
+
+Inbound webhook handlers refuse forged requests when their signing secret is missing in production (was previously fail-open with a warning — see CHANGELOG / [security audit fixes](#security-config)).
+
+| Variable                        | Required when                                                                                                  |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `EMAIL_INBOUND_WEBHOOK_SECRET`  | Inbound email integration is enabled. Verifies Resend / SendGrid / Svix signatures.                            |
+| `TELEGRAM_WEBHOOK_SECRET`       | Telegram bot integration is enabled.                                                                           |
+| `WHATSAPP_APP_SECRET`           | WhatsApp Business integration is enabled.                                                                      |
+| `WHATSAPP_VERIFY_TOKEN`         | WhatsApp webhook verification handshake (set in your Meta app dashboard too).                                  |
+| `SLACK_SIGNING_SECRET`          | Slack integration is enabled. Verifies Slack request signatures.                                               |
+| `RECALL_WEBHOOK_SECRET`         | Calls / Recall.ai integration is enabled.                                                                      |
+| `DEEPGRAM_WEBHOOK_SECRET`       | Calls / Deepgram transcription webhook is enabled.                                                             |
+| `ZOOM_WEBHOOK_SECRET`           | Calls / Zoom integration is enabled.                                                                           |
+| `GOOGLE_DOCS_PUSH_AUDIENCE`     | Google Docs Pub/Sub push integration is enabled. Set to the public URL of your push endpoint.                  |
+| `GOOGLE_DOCS_PUSH_SIGNER_EMAIL` | Google Docs Pub/Sub push integration is enabled. Set to the Pub/Sub service account email.                     |
+| `GMAIL_WATCH_TOPIC`             | Gmail Pub/Sub push (mail template). Optional — disables push if unset and falls back to history-delta polling. |
+| `GMAIL_PUSH_AUDIENCE`           | Gmail Pub/Sub push audience.                                                                                   |
+| `GMAIL_PUSH_SIGNER_EMAIL`       | Gmail Pub/Sub push signer email.                                                                               |
+
+For local development of any of these integrations, set `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` to opt back into the old "warn and accept" behavior — never set this in prod.
+
+### Security Configuration (Opt-in) {#security-config}
+
+Defaults are strict; these flags relax behavior. Don't set them unless you specifically want the relaxed path.
+
+| Variable                                 | Effect                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_DEBUG_ERRORS`              | `=1` to include stack traces in 500 JSON responses. Useful on previews; do **not** set in real prod (was previously gated by `NODE_ENV !== "production"`, which leaked stacks on misconfigured deploys).                                                                                                         |
+| `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` | `=1` to accept webhooks without their signing secret (local dev only). Defaults to fail-closed in production.                                                                                                                                                                                                    |
+| `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK`   | `=1` to let `${keys.NAME}` resolution in tools/automations fall through user-scope → workspace-scope. Default off (user-scope only) — a malicious org member could otherwise plant a workspace `OPENAI_API_KEY` and harvest other members' calls. Turn on only if your org genuinely shares workspace-wide keys. |
+| `AGENT_NATIVE_MCP_HUB_MULTI_ORG`         | `=1` to allow `AGENT_NATIVE_MCP_HUB_TOKEN` to serve multiple orgs from a single hub deployment. Default refuses to serve when more than one org exists in a hub deploy. Only relevant if you operate the workspace MCP hub.                                                                                      |
+| `AGENT_NATIVE_ALLOW_ENV_VAR_WRITES`      | `=1` to let runtime code mutate `process.env` from the env-var write API. Off by default — required to be explicitly enabled outside dev SQLite.                                                                                                                                                                 |
+| `AUTH_SKIP_EMAIL_VERIFICATION`           | `=1` to skip email verification for password signups. QA-only — see Auth section above.                                                                                                                                                                                                                          |
+
+### Workspace .env Inheritance {#env-inheritance}
+
+Inside a workspace, the root `.env` is loaded into every app automatically, so shared keys like `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `OAUTH_STATE_SECRET` only need to be set once. Per-app `apps/<name>/.env` wins on conflict.
+
+### Generating Strong Secrets {#env-generate-secrets}
+
+For any secret marked "32+ char random" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`), generate fresh values with:
+
+```bash
+openssl rand -hex 32
+```
+
+Rotate them by replacing the env var on every instance and redeploying — sessions / OAuth state envelopes signed under the old key become invalid, so users may need to sign in again.
 
 ## Updating UI in Production {#updating-ui-in-production}
 

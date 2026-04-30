@@ -15,6 +15,7 @@
 import {
   defineEventHandler,
   getQuery,
+  setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -22,7 +23,11 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { parseJson, parseSpaceIds } from "../../lib/calls.js";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import {
+  getSession,
+  runWithRequestContext,
+  signShortLivedToken,
+} from "@agent-native/core/server";
 
 function notFound(event: H3Event) {
   setResponseStatus(event, 404);
@@ -108,12 +113,20 @@ async function handlePublicCall(event: H3Event) {
     .from(schema.callParticipants)
     .where(eq(schema.callParticipants.callId, callId));
 
+  // For password-protected calls served by our own `/api/call-media/:id`
+  // route, mint a short-lived HMAC token and pass it via `?t=<token>`
+  // instead of the plaintext password — keeps the password out of browser
+  // history / CDN logs / Referer headers. The downstream route still
+  // accepts `?p=<password>` as a legacy fallback. (audit 11 F-07)
   let mediaUrl = call.mediaUrl ?? null;
   if (mediaUrl && !/^https?:\/\//i.test(mediaUrl) && call.password) {
+    const token = signShortLivedToken({ resourceId: callId });
     const sep = mediaUrl.includes("?") ? "&" : "?";
-    mediaUrl = `${mediaUrl}${sep}p=${encodeURIComponent(call.password)}`;
+    mediaUrl = `${mediaUrl}${sep}t=${encodeURIComponent(token)}`;
   }
   if (mediaUrl?.startsWith("/")) mediaUrl = appPath(mediaUrl);
+
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
   return {
     call: {

@@ -70,6 +70,23 @@ async function fetchText(
   return { status: res.status, ok: res.ok, text };
 }
 
+async function fetchBytes(
+  url: string,
+  init?: RequestInit,
+): Promise<{
+  status: number;
+  ok: boolean;
+  bytes: Uint8Array;
+  headers: Headers;
+}> {
+  const res = await fetch(url, {
+    ...init,
+    signal: AbortSignal.timeout(10_000),
+  });
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  return { status: res.status, ok: res.ok, bytes, headers: res.headers };
+}
+
 async function waitForReady(app: AppName, baseUrl: string, logs: string[]) {
   const deadline = Date.now() + 60_000;
   let lastError = "";
@@ -157,9 +174,18 @@ async function withApp(
 }
 
 async function smokeCalls({ baseUrl, dbPath }: RunningApp): Promise<void> {
+  const callBlob = Buffer.from("call-media-bytes").toString("base64");
   sqlite(
     dbPath,
     `
+CREATE TABLE IF NOT EXISTS application_state (
+  session_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (session_id, key)
+);
+
 INSERT INTO workspaces (id, name, slug, owner_email, visibility)
 VALUES ('qa-workspace-calls', 'QA Workspace', 'qa-workspace-calls', 'qa+calls@example.test', 'private');
 
@@ -206,6 +232,14 @@ INSERT INTO snippets (
   'QA Passworded Snippet', 'Public snippet seeded by qa-public-share-smoke.',
   1000, 4000, 'snippet-secret', 'qa+calls@example.test', 'public'
 );
+
+INSERT INTO application_state (session_id, key, value, updated_at)
+VALUES (
+  'local',
+  'call-blob-qa-call-public',
+  '${JSON.stringify({ data: callBlob, mimeType: "video/mp4" }).replaceAll("'", "''")}',
+  strftime('%s','now') * 1000
+);
 `,
   );
 
@@ -233,6 +267,26 @@ INSERT INTO snippets (
   const callPage = await fetchText(`${baseUrl}/share/qa-call-public`);
   assert.equal(callPage.status, 200);
 
+  const lockedMedia = await fetchJson(
+    `${baseUrl}/api/call-media/qa-call-public`,
+  );
+  assert.equal(lockedMedia.status, 404);
+
+  const media = await fetchBytes(
+    `${baseUrl}/api/call-media/qa-call-public?p=call-secret`,
+    { headers: { Range: "bytes=0-3" } },
+  );
+  assert.equal(media.status, 206);
+  assert.equal(media.headers.get("content-type"), "video/mp4");
+  assert.equal(media.headers.get("content-range"), "bytes 0-3/16");
+  assert.equal(Buffer.from(media.bytes).toString("utf8"), "call");
+
+  const thumbnail = await fetchText(
+    `${baseUrl}/api/call-thumbnail/qa-call-public`,
+  );
+  assert.equal(thumbnail.status, 200);
+  assert.match(thumbnail.text, /<svg/);
+
   const lockedSnippet = await fetchJson(
     `${baseUrl}/api/public-snippet?snippetId=qa-snippet-public`,
   );
@@ -246,6 +300,19 @@ INSERT INTO snippets (
   assert.equal((snippet.data as any).snippet.title, "QA Passworded Snippet");
   assert.match((snippet.data as any).call.mediaUrl, /#t=1\.000,4\.000$/);
 
+  const snippetMedia = await fetch(
+    `${baseUrl}/api/snippet-media/qa-snippet-public?p=snippet-secret`,
+    {
+      redirect: "manual",
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  assert.equal(snippetMedia.status, 302);
+  assert.match(
+    snippetMedia.headers.get("location") ?? "",
+    /\/api\/call-media\/qa-call-public\?p=call-secret#t=1\.000,4\.000$/,
+  );
+
   const snippetPage = await fetchText(
     `${baseUrl}/share-snippet/qa-snippet-public`,
   );
@@ -253,9 +320,18 @@ INSERT INTO snippets (
 }
 
 async function smokeClips({ baseUrl, dbPath }: RunningApp): Promise<void> {
+  const recordingBlob = Buffer.from("clip-video-bytes").toString("base64");
   sqlite(
     dbPath,
     `
+CREATE TABLE IF NOT EXISTS application_state (
+  session_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (session_id, key)
+);
+
 INSERT INTO workspaces (id, name, slug, owner_email, visibility)
 VALUES ('qa-workspace-clips', 'QA Workspace', 'qa-workspace-clips', 'qa+clips@example.test', 'private');
 
@@ -292,6 +368,14 @@ VALUES (
   'qa-recording-cta', 'qa-recording-public', 'Book demo',
   'https://example.test/demo', '#111111', 'throughout'
 );
+
+INSERT INTO application_state (session_id, key, value, updated_at)
+VALUES (
+  'local',
+  'recording-blob-qa-recording-public',
+  '${JSON.stringify({ data: recordingBlob, mimeType: "video/mp4" }).replaceAll("'", "''")}',
+  strftime('%s','now') * 1000
+);
 `,
   );
 
@@ -324,6 +408,20 @@ VALUES (
 
   const embedPage = await fetchText(`${baseUrl}/embed/qa-recording-public`);
   assert.equal(embedPage.status, 200);
+
+  const lockedMedia = await fetchJson(
+    `${baseUrl}/api/video/qa-recording-public`,
+  );
+  assert.equal(lockedMedia.status, 401);
+
+  const media = await fetchBytes(
+    `${baseUrl}/api/video/qa-recording-public?password=clip-secret`,
+    { headers: { Range: "bytes=-5" } },
+  );
+  assert.equal(media.status, 206);
+  assert.equal(media.headers.get("content-type"), "video/mp4");
+  assert.equal(media.headers.get("content-range"), "bytes 11-15/16");
+  assert.equal(Buffer.from(media.bytes).toString("utf8"), "bytes");
 }
 
 async function smokeForms({ baseUrl, dbPath }: RunningApp): Promise<void> {

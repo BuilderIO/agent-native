@@ -103,17 +103,33 @@ async function verifyA2AToken(
   if (!secret) secret = process.env.A2A_SECRET;
   if (!secret) return { email: null, orgDomain: null };
 
-  // Step 4: Verify JWT with the resolved secret. Pass `audience` only when
-  // the token actually carries an `aud` claim (backward-compat: tokens
-  // minted by older `signA2AToken` versions don't include one). The
-  // issuer is always present per `signA2AToken` at client.ts:42 — but
-  // we don't enforce it because operators may legitimately mint tokens
-  // from arbitrary issuer URLs (e.g. dev tunnels, behind reverse proxies).
+  // Step 4: Verify JWT with the resolved secret.
+  //
+  // - `audience`: passed only when the token carries an `aud` claim
+  //   (backward-compat: tokens minted by older `signA2AToken` versions
+  //   don't include one).
+  // - `issuer`: enforced when the token carries an `iss` claim. The
+  //   sender's `signA2AToken` (`a2a/client.ts:42`) sets the issuer to its
+  //   own app URL, so a verified token must self-identify a non-empty
+  //   string issuer. We accept any string the token claims (we don't pin
+  //   a specific expected issuer because dispatchers may legitimately
+  //   mint tokens from many sender URLs — dev tunnels, multi-deploy
+  //   setups). The pin is "issuer must match the value the token says
+  //   it was minted from", which `jose.jwtVerify` validates exactly when
+  //   `issuer` is supplied as a string. Backward-compat: when the token
+  //   has no `iss`, we skip the check.
   try {
     const verifyOptions: jose.JWTVerifyOptions = {};
     if (unverifiedPayload && typeof unverifiedPayload.aud !== "undefined") {
       const aud = expectedJwtAudience(event);
       if (aud) verifyOptions.audience = aud;
+    }
+    if (
+      unverifiedPayload &&
+      typeof unverifiedPayload.iss === "string" &&
+      unverifiedPayload.iss.length > 0
+    ) {
+      verifyOptions.issuer = unverifiedPayload.iss;
     }
     const { payload } = await jose.jwtVerify(
       token,

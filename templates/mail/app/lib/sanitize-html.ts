@@ -37,17 +37,23 @@ const ALLOWED_TAGS = new Set([
   "ul",
 ]);
 
+// `id` and `class` are intentionally excluded. The mail iframe interpolates
+// `headHtml` raw (so author-supplied `<style>` rules in the email's <head>
+// reach the page), and CSS-only attacks like `#secret { background:url(...) }`
+// or `.password-input[value^="a"] { ... }` rely on body-side selectors that
+// match `id` / `class`. Stripping them in the body sanitizer breaks those
+// chains regardless of what the head contributes. Most legitimate emails
+// style with inline `style=""` (which we also strip) or via the head; very
+// few rely on classes targeting the body. (audit 03 finding H7).
 const ALLOWED_ATTRS = new Set([
   "align",
   "alt",
   "border",
   "cellpadding",
   "cellspacing",
-  "class",
   "colspan",
   "height",
   "href",
-  "id",
   "role",
   "rowspan",
   "src",

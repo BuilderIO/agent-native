@@ -369,6 +369,48 @@ export async function upsertTraceSummary(summary: TraceSummary): Promise<void> {
   }
 }
 
+/**
+ * Purge trace spans, summaries, and eval results older than `cutoffMs`
+ * (a Unix epoch in milliseconds — rows with `created_at < cutoffMs` are
+ * deleted). Returns the per-table deletion counts. Satisfies the span
+ * retention TTL noted in /tmp/security-audit/12-mcp-a2a-agent.md
+ * (MEDIUM #14): trace metadata can hold sensitive tool inputs, so we
+ * cap the storage horizon. Feedback rows are retained — they're
+ * intentionally durable for product analytics. Experiments and
+ * datasets are also retained because they are user-authored
+ * configuration, not call telemetry.
+ */
+export async function deleteOldTraceData(cutoffMs: number): Promise<{
+  spans: number;
+  summaries: number;
+  evals: number;
+}> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const cutoff = Math.floor(cutoffMs);
+
+  const [spansResult, summariesResult, evalsResult] = await Promise.all([
+    client.execute({
+      sql: `DELETE FROM agent_trace_spans WHERE created_at < ?`,
+      args: [cutoff],
+    }),
+    client.execute({
+      sql: `DELETE FROM agent_trace_summaries WHERE created_at < ?`,
+      args: [cutoff],
+    }),
+    client.execute({
+      sql: `DELETE FROM agent_evals WHERE created_at < ?`,
+      args: [cutoff],
+    }),
+  ]);
+
+  return {
+    spans: Number(spansResult.rowsAffected ?? 0),
+    summaries: Number(summariesResult.rowsAffected ?? 0),
+    evals: Number(evalsResult.rowsAffected ?? 0),
+  };
+}
+
 export async function getTraceSpansForRun(
   runId: string,
   opts: { userId?: string } = {},

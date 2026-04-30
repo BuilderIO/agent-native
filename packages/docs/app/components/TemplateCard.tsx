@@ -130,63 +130,13 @@ export const templates = [
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F104b3ad8d1dc461aa33ab9bff37a4482?format=webp&width=800",
   },
-  {
-    name: "Calls",
-    slug: "calls",
-    replaces: "Replaces or augments Gong, call intelligence",
-    cliCommand: "npx @agent-native/core create my-calls-app --template calls",
-    description:
-      "Conversation intelligence workspace for uploaded or recorded calls, transcripts, speaker diarization, summaries, tracker hits, snippets, comments, and agent-assisted follow-up.",
-    color: "#7c3aed",
-  },
-  {
-    name: "Meeting Notes",
-    slug: "meeting-notes",
-    replaces: "Replaces or augments Granola, meeting notes",
-    cliCommand:
-      "npx @agent-native/core create my-notes-app --template meeting-notes",
-    description:
-      "Meeting notes app for scheduled and ad-hoc meetings, raw notes, transcripts, enhanced summaries, people, companies, templates, and an agent that can find decisions and action items.",
-    color: "#2563eb",
-  },
-  {
-    name: "Voice",
-    slug: "voice",
-    replaces: "Replaces or augments Wispr Flow, voice dictation",
-    cliCommand: "npx @agent-native/core create my-voice-app --template voice",
-    description:
-      "Voice dictation workspace with push-to-talk sessions, snippets, dictionary terms, style presets, history, and an agent that helps tune spoken workflows.",
-    color: "#16a34a",
-  },
-  {
-    name: "Scheduling",
-    slug: "scheduling",
-    replaces: "Replaces or augments Calendly, routing forms",
-    cliCommand:
-      "npx @agent-native/core create my-scheduling-app --template scheduling",
-    description:
-      "Team scheduling system with event types, availability, bookings, private links, routing forms, workflows, calendar integrations, and round-robin assignment.",
-    color: "#f97316",
-  },
-  {
-    name: "Issues",
-    slug: "issues",
-    replaces: "Replaces or augments Jira",
-    cliCommand: "npx @agent-native/core create my-issues-app --template issues",
-    description:
-      "Agent-native project management client for issues, boards, sprints, projects, status transitions, JQL-style search, and agent-assisted triage.",
-    color: "#0f766e",
-  },
-  {
-    name: "Recruiting",
-    slug: "recruiting",
-    replaces: "Replaces or augments Greenhouse",
-    cliCommand:
-      "npx @agent-native/core create my-recruiting-app --template recruiting",
-    description:
-      "Recruiting workspace for jobs, candidates, pipelines, interviews, resume analysis, notes, and agent-assisted hiring workflows.",
-    color: "#dc2626",
-  },
+  // ── DO NOT add new templates here directly. ──
+  // The public-facing template list is the strict allow-list defined in
+  // `packages/shared-app-config/templates.ts` (the entries with
+  // `hidden: false`). To surface a new template on the homepage, first
+  // flip its `hidden` flag in that file. The CI guard
+  // `scripts/guard-template-list.mjs` enforces this — adding a slug here
+  // that isn't in the allow-list will fail the build.
   {
     name: "Starter",
     slug: "starter",

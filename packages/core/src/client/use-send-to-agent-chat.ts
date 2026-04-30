@@ -33,8 +33,8 @@ export function useSendToAgentChat(): {
     function handler(event: MessageEvent) {
       if (!isTrustedFrameMessage(event)) return;
       if (
-        event.data?.type === "builder.codeComplete" ||
-        (event.data?.type === "builder.chatRunning" &&
+        event.data?.type === "agentNative.codeComplete" ||
+        (event.data?.type === "agentNative.chatRunning" &&
           !event.data?.detail?.isRunning)
       ) {
         setCodeAgentWorking(false);

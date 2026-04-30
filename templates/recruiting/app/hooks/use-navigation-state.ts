@@ -70,6 +70,7 @@ export function useNavigationState() {
         // Delete the one-shot command immediately
         fetch(agentNativePath("/_agent-native/application-state/navigate"), {
           method: "DELETE",
+          headers: { "X-Agent-Native-CSRF": "1" },
         }).catch(() => {});
         // Return with a timestamp to ensure uniqueness
         return { ...data, _ts: Date.now() };

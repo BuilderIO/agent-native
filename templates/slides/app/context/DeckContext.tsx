@@ -132,7 +132,21 @@ const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
 const inFlightSaves = new Set<string>();
 const saveStateListeners = new Set<() => void>();
 
+// Cached snapshot for useSyncExternalStore. MUST be stable when the boolean
+// is unchanged or React will infinite-loop (it compares snapshots with
+// Object.is — a fresh object literal every call schedules a new update,
+// which calls getSnapshot again, which returns a new object… etc).
+let cachedSnapshot: { saving: boolean } = { saving: false };
+
+function recomputeSnapshot() {
+  const saving = pendingSaves.size > 0 || inFlightSaves.size > 0;
+  if (saving !== cachedSnapshot.saving) {
+    cachedSnapshot = { saving };
+  }
+}
+
 function notifySaveListeners() {
+  recomputeSnapshot();
   saveStateListeners.forEach((fn) => {
     try {
       fn();
@@ -148,7 +162,7 @@ export function subscribeSaveState(listener: () => void): () => void {
 
 /** Snapshot of save state — true when anything is debounced or in flight. */
 export function getSaveSnapshot(): { saving: boolean } {
-  return { saving: pendingSaves.size > 0 || inFlightSaves.size > 0 };
+  return cachedSnapshot;
 }
 
 function saveDeckToAPI(deck: Deck) {

@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { getHeader, readRawBody } from "h3";
+import { createError, getHeader, readRawBody } from "h3";
 import type {
   PlatformAdapter,
   IncomingMessage,
@@ -19,6 +19,19 @@ const SLACK_MAX_LENGTH = 4000;
  * Required env vars:
  * - SLACK_BOT_TOKEN — Bot user OAuth token (xoxb-...)
  * - SLACK_SIGNING_SECRET — Used to verify webhook signatures
+ *
+ * Optional env vars:
+ * - SLACK_ALLOWED_TEAM_IDS — Comma-separated list of Slack workspace
+ *   `team_id` values (e.g. "T012ABCDEF,T034GHIJKL") that this deployment
+ *   accepts events from. Strongly recommended in multi-tenant deployments
+ *   to prevent cross-workspace event injection (H1 in the webhook audit):
+ *   the global `SLACK_SIGNING_SECRET` is the same key for every workspace
+ *   the app is installed to, so without an allowlist any installed
+ *   workspace can drive the agent. When unset the adapter accepts events
+ *   from any workspace — fine for single-tenant dev, unsafe for prod.
+ * - SLACK_ALLOWED_API_APP_IDS — Comma-separated list of Slack app IDs
+ *   (`api_app_id`) to additionally pin events to. Useful when the same
+ *   signing secret rotation surfaces multiple app installs.
  */
 export function slackAdapter(): PlatformAdapter {
   return {
@@ -104,6 +117,16 @@ export function slackAdapter(): PlatformAdapter {
       } catch {
         return null;
       }
+
+      // H1 (webhook audit): cross-workspace event injection. The global
+      // SLACK_SIGNING_SECRET is the same key for every workspace this Slack
+      // app is installed to — without a per-tenant allowlist any installed
+      // workspace can drive the agent. We enforce SLACK_ALLOWED_TEAM_IDS
+      // here AFTER the signature has already been verified by the webhook
+      // handler, so this is purely a tenant-isolation gate (not a forgery
+      // defense). When unset in production we surface a one-time warning
+      // recommending it be configured.
+      enforceWorkspaceAllowlist(payload);
 
       // Handle Events API wrapper
       if (payload.type === "event_callback") {
@@ -330,6 +353,91 @@ export function slackAdapter(): PlatformAdapter {
 }
 
 /**
+ * Parse a comma-separated env var into a Set of trimmed, non-empty values.
+ * Returns null when the env var is unset or empty (so callers can
+ * distinguish "no allowlist configured" from "empty allowlist").
+ */
+function parseAllowlistEnv(name: string): Set<string> | null {
+  const raw = process.env[name];
+  if (!raw) return null;
+  const values = raw
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+  if (values.length === 0) return null;
+  return new Set(values);
+}
+
+let _missingAllowlistWarned = false;
+
+/**
+ * Enforce that an incoming Slack event comes from an allowlisted workspace.
+ *
+ * H1 in the webhook audit: the framework uses a SINGLE global
+ * SLACK_SIGNING_SECRET for every workspace the Slack app is installed to,
+ * so a valid signature alone doesn't prove the request belongs to the
+ * tenant the deployment intends to serve. This helper layers a per-tenant
+ * allowlist on top of signature verification.
+ *
+ * Behavior:
+ * - If `SLACK_ALLOWED_TEAM_IDS` is set: reject any payload whose
+ *   `team_id` isn't in the list.
+ * - If `SLACK_ALLOWED_API_APP_IDS` is set: also reject payloads whose
+ *   `api_app_id` isn't in the list (bot apps can be installed under the
+ *   same Slack app id across multiple workspaces — pinning both keeps
+ *   the surface tight when team_id allows multiple workspaces).
+ * - If neither is set AND `NODE_ENV === "production"`: log a one-time
+ *   warning recommending the env var be configured. Continue (preserves
+ *   existing behavior to avoid breaking single-tenant prod deployments
+ *   that have always run without an allowlist).
+ * - If neither is set in dev / single-tenant: accept (current behavior).
+ *
+ * Throws an h3 401 error when an allowlisted-but-mismatched payload is
+ * received, which the integrations plugin surfaces to the caller as
+ * "Unrecognized Slack workspace" without enqueuing the event.
+ */
+function enforceWorkspaceAllowlist(payload: any): void {
+  const teamId =
+    typeof payload?.team_id === "string" ? payload.team_id : undefined;
+  const apiAppId =
+    typeof payload?.api_app_id === "string" ? payload.api_app_id : undefined;
+
+  const allowedTeamIds = parseAllowlistEnv("SLACK_ALLOWED_TEAM_IDS");
+  const allowedAppIds = parseAllowlistEnv("SLACK_ALLOWED_API_APP_IDS");
+
+  if (allowedTeamIds) {
+    if (!teamId || !allowedTeamIds.has(teamId)) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: "Unrecognized Slack workspace",
+      });
+    }
+  }
+
+  if (allowedAppIds) {
+    if (!apiAppId || !allowedAppIds.has(apiAppId)) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: "Unrecognized Slack workspace",
+      });
+    }
+  }
+
+  if (
+    !allowedTeamIds &&
+    !allowedAppIds &&
+    process.env.NODE_ENV === "production" &&
+    !_missingAllowlistWarned
+  ) {
+    _missingAllowlistWarned = true;
+    console.warn(
+      "[slack] SLACK_ALLOWED_TEAM_IDS not set in production — accepting events from any workspace whose signature matches SLACK_SIGNING_SECRET. " +
+        "Set SLACK_ALLOWED_TEAM_IDS to a comma-separated list of allowed team_id values to prevent cross-workspace event injection (H1 in the webhook audit).",
+    );
+  }
+}
+
+/**
  * Read the raw request body as a string and cache on the event context.
  *
  * This MUST read raw bytes from the request stream — never `JSON.stringify`
@@ -378,17 +486,35 @@ function splitMessage(text: string, maxLength: number): string[] {
   return chunks;
 }
 
+/** Hard cap on input length we feed to the regex-based mrkdwn converter.
+ *  L2 in the webhook audit: `\*\*(.+?)\*\*` with the `s` flag on a long
+ *  string of asterisks can exhibit super-linear backtracking. Slack
+ *  itself caps message bodies at 4000 chars (SLACK_MAX_LENGTH); we cap
+ *  the input here at 10x that as a defensive bound for any caller that
+ *  passes a longer rendering source through this helper before chunking. */
+const MRKDWN_MAX_LENGTH = 40_000;
+
 /**
  * Convert standard markdown to Slack's mrkdwn dialect.
  * - `[text](url)` → `<url|text>`
  * - `**bold**` → `*bold*` (Slack uses single asterisks for bold)
+ *
+ * Inputs longer than MRKDWN_MAX_LENGTH are truncated before the regex
+ * pass to bound worst-case backtracking on pathological input (L2 in the
+ * webhook audit).
  */
 function markdownToSlackMrkdwn(text: string): string {
+  const bounded =
+    text.length > MRKDWN_MAX_LENGTH ? text.slice(0, MRKDWN_MAX_LENGTH) : text;
   return (
-    text
+    bounded
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "<$2|$1>")
-      // 's' flag (dotAll) so `.` matches newlines — bold text can span lines.
-      .replace(/\*\*(.+?)\*\*/gs, "*$1*")
+      // Bounded character class instead of `.+?` with the `s` flag — caps
+      // each bold span at 5000 chars so an attacker can't construct a
+      // pathological "**" sequence that exhibits super-linear backtracking.
+      // Newlines are allowed because `[^*]` excludes only the asterisk
+      // itself, so multi-line bold spans still match.
+      .replace(/\*\*([^*]{1,5000})\*\*/g, "*$1*")
   );
 }
 

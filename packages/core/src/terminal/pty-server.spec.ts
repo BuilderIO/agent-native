@@ -215,7 +215,7 @@ describe("createPtyWebSocketServer", () => {
 
     ws.send(
       JSON.stringify({
-        type: "builder.setEnvVars",
+        type: "agentNative.setEnvVars",
         data: {
           vars: [
             { key: "GOOD_KEY", value: 'hello "world"' },

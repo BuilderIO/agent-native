@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import {
   isAllowedToolPath,
   sanitizeToolRequestOptions,
+  checkBridgePolicy,
+  type ToolBridgeRole,
 } from "./iframe-bridge.js";
 
 interface Tool {
@@ -43,6 +45,15 @@ export function EmbeddedTool({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [height, setHeight] = useState<number>(initialHeight);
   const [isDark, setIsDark] = useState(false);
+  // (audit H4) Mirror ToolViewer's role-aware gating; deny-by-default until
+  // the iframe's render binding announcement arrives.
+  const bridgeContextRef = useRef<{
+    role: ToolBridgeRole;
+    isAuthor: boolean;
+  }>({
+    role: "viewer",
+    isAuthor: false,
+  });
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -93,6 +104,22 @@ export function EmbeddedTool({
       const message = event.data;
       if (!message || typeof message !== "object") return;
 
+      if (message.type === "agent-native-tool-binding") {
+        const binding = (message as any).binding ?? {};
+        const role: ToolBridgeRole =
+          binding.role === "owner" ||
+          binding.role === "admin" ||
+          binding.role === "editor" ||
+          binding.role === "viewer"
+            ? binding.role
+            : "viewer";
+        bridgeContextRef.current = {
+          role,
+          isAuthor: !!binding.isAuthor,
+        };
+        return;
+      }
+
       if (message.type === "agent-native-tool-resize") {
         const h = Number(message.height);
         if (Number.isFinite(h) && h > 0) {
@@ -119,6 +146,28 @@ export function EmbeddedTool({
 
       try {
         const options = sanitizeToolRequestOptions(message.options);
+        // (audit H4) Role-aware gating. Consent grant is exempt because it
+        // fires before the binding announcement; the server still checks
+        // viewer access on the tool.
+        const isConsentGrant = path.endsWith("/grant-consent");
+        if (!isConsentGrant) {
+          const policy = checkBridgePolicy(
+            path,
+            options.method ?? "GET",
+            bridgeContextRef.current,
+          );
+          if (!policy.ok) {
+            respond({
+              response: {
+                ok: false,
+                status: 403,
+                statusText: "Forbidden",
+                body: { error: policy.error },
+              },
+            });
+            return;
+          }
+        }
         const res = await fetch(agentNativePath(path), {
           ...options,
           credentials: "same-origin",

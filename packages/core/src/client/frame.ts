@@ -73,7 +73,7 @@ if (typeof window !== "undefined") {
   window.addEventListener("message", (event: MessageEvent) => {
     const origin = normalizeOrigin(event.data?.origin);
     if (
-      event.data?.type === "builder.frameOrigin" &&
+      event.data?.type === "agentNative.frameOrigin" &&
       origin &&
       origin === event.origin &&
       !_frameOrigin &&
@@ -142,7 +142,7 @@ export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
     }, timeoutMs);
 
     function handler(event: MessageEvent) {
-      if (!event.data || event.data.type !== "builder.userInfo") return;
+      if (!event.data || event.data.type !== "agentNative.userInfo") return;
       if (event.source !== window.parent) return;
       const frameOrigin = getFrameOrigin();
       if (frameOrigin && event.origin !== frameOrigin) return;
@@ -156,7 +156,7 @@ export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
 
     window.addEventListener("message", handler);
     window.parent.postMessage(
-      { type: "builder.getUserInfo" },
+      { type: "agentNative.getUserInfo" },
       getFrameOrigin() ?? window.location.origin,
     );
   });
@@ -170,19 +170,19 @@ export function requestUserInfo(timeoutMs = 1500): Promise<UserInfo> {
  * Enter visual editing selection mode for a specific element.
  */
 export function enterStyleEditing(selector: string): void {
-  sendToFrame("builder.enterStyleEditing", { selector });
+  sendToFrame("agentNative.enterStyleEditing", { selector });
 }
 
 /**
  * Enter text editing mode for a specific element.
  */
 export function enterTextEditing(selector: string): void {
-  sendToFrame("builder.enterTextEditing", { selector });
+  sendToFrame("agentNative.enterTextEditing", { selector });
 }
 
 /**
  * Exit selection mode.
  */
 export function exitSelectionMode(): void {
-  sendToFrame("builder.exitSelectionMode");
+  sendToFrame("agentNative.exitSelectionMode");
 }

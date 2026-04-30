@@ -110,7 +110,7 @@ export function createAgentChatAdapter(options?: {
       // Signal that generation is starting
       if (typeof window !== "undefined") {
         window.dispatchEvent(
-          new CustomEvent("builder.chatRunning", {
+          new CustomEvent("agentNative.chatRunning", {
             detail: { isRunning: true, tabId },
           }),
         );
@@ -340,7 +340,7 @@ export function createAgentChatAdapter(options?: {
       } finally {
         if (typeof window !== "undefined") {
           window.dispatchEvent(
-            new CustomEvent("builder.chatRunning", {
+            new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId },
             }),
           );

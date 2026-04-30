@@ -165,13 +165,13 @@ describe("createAgentChatAdapter", () => {
     });
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "builder.chatRunning",
+        type: "agentNative.chatRunning",
         detail: { isRunning: true, tabId: "chat-qa" },
       }),
     );
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "builder.chatRunning",
+        type: "agentNative.chatRunning",
         detail: { isRunning: false, tabId: "chat-qa" },
       }),
     );

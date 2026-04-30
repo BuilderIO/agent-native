@@ -82,6 +82,18 @@ GITHUB_CLIENT_SECRET=your-client-secret
 
 Templates that use `createGoogleAuthPlugin()` show a "Sign in with Google" page. The Google OAuth callback handles mobile deep linking for native apps automatically.
 
+### OAuth State Signing {#oauth-state-secret}
+
+OAuth state envelopes (Google, Atlassian, Zoom) are HMAC-signed with `OAUTH_STATE_SECRET`. Set this to a random 32+ char value in production:
+
+```bash
+OAUTH_STATE_SECRET=$(openssl rand -hex 32)
+```
+
+If unset, the framework falls back to `BETTER_AUTH_SECRET`. A dedicated `OAUTH_STATE_SECRET` is recommended so rotating one secret doesn't invalidate the other. Reusing a third-party client secret (e.g. `GOOGLE_CLIENT_SECRET`) for OAuth state signing is **not** supported — a leak of the third-party secret would let attackers forge state envelopes.
+
+`redirect_uri` query parameters on framework OAuth endpoints are validated against an allowlist (same-origin + framework `/_agent-native/...` paths). Custom OAuth flows in templates should use `isAllowedOAuthRedirectUri(candidate, event)` from `@agent-native/core/server` before signing state.
+
 ## Organizations {#organizations}
 
 Better Auth's organization plugin is built into the framework. Every app supports:

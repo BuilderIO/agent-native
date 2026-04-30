@@ -418,7 +418,7 @@ export function AgentPanel({
       // Cross iframe boundary to the frame parent
       if (window.parent !== window) {
         window.parent.postMessage(
-          { type: "builder.devModeChange", data: { isDevMode } },
+          { type: "agentNative.devModeChange", data: { isDevMode } },
           parentFrameTargetOrigin(),
         );
       }
@@ -1384,6 +1384,7 @@ function URLSync() {
     // don't cause repeated navigation.
     fetch(agentNativePath("/_agent-native/application-state/__set_url__"), {
       method: "DELETE",
+      headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
     const cmd = command as {
       pathname?: string;
@@ -1578,7 +1579,7 @@ export function AgentSidebar({
       if (frameCodeMode && window.parent !== window) {
         // Forward toggle to frame parent — the frame sidebar handles it
         window.parent.postMessage(
-          { type: "builder.toggleSidebar" },
+          { type: "agentNative.toggleSidebar" },
           parentFrameTargetOrigin(),
         );
       } else {
@@ -1588,7 +1589,7 @@ export function AgentSidebar({
     const openHandler = () => {
       if (frameCodeMode && window.parent !== window) {
         window.parent.postMessage(
-          { type: "builder.toggleSidebar", data: { open: true } },
+          { type: "agentNative.toggleSidebar", data: { open: true } },
           parentFrameTargetOrigin(),
         );
       } else {
@@ -1610,7 +1611,7 @@ export function AgentSidebar({
     if (window.parent === window) return; // Not in an iframe
 
     function handleMessage(event: MessageEvent) {
-      if (event.data?.type !== "builder.sidebarMode") return;
+      if (event.data?.type !== "agentNative.sidebarMode") return;
       if (event.source !== window.parent || !isTrustedFrameMessage(event))
         return;
       const {
@@ -1696,7 +1697,7 @@ export function AgentSidebar({
   // Hide sidebar during presentation mode
   useEffect(() => {
     const handler = (event: MessageEvent) => {
-      if (event.data?.type !== "builder.presentationMode") return;
+      if (event.data?.type !== "agentNative.presentationMode") return;
       if (event.source !== window.parent || !isTrustedFrameMessage(event))
         return;
       setPresentationMode(event.data.data?.active === true);

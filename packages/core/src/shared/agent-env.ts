@@ -12,7 +12,7 @@ export interface EnvVar {
   value: string;
 }
 
-const AGENT_ENV_MESSAGE_TYPE = "builder.setEnvVars";
+const AGENT_ENV_MESSAGE_TYPE = "agentNative.setEnvVars";
 
 const isBrowser =
   typeof window !== "undefined" && typeof window.postMessage === "function";

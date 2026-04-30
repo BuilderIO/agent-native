@@ -310,7 +310,7 @@ export async function createPtyWebSocketServer(
         const msg = JSON.parse(str);
 
         if (
-          msg.type === "builder.setEnvVars" &&
+          msg.type === "agentNative.setEnvVars" &&
           Array.isArray(msg.data?.vars)
         ) {
           const envPath = path.join(resolvedAppDir, ".env");

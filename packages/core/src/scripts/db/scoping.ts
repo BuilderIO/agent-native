@@ -34,6 +34,7 @@ import {
 
 const OWNER_COLUMN = "owner_email";
 const ORG_COLUMN = "org_id";
+const DEV_FALLBACK_EMAIL = "local@localhost"; // guard:allow-localhost-fallback — sentinel is rejected below so DB scripts cannot silently scope to the dev fallback tenant
 
 interface ScopedTable {
   name: string;
@@ -41,7 +42,13 @@ interface ScopedTable {
 }
 
 function getUserEmail(): string | null {
-  return getRequestUserEmail() || null;
+  const userEmail = getRequestUserEmail() || null;
+  if (userEmail === DEV_FALLBACK_EMAIL) {
+    throw new Error(
+      "DB script scoping requires a real user identity; refusing to run with local@localhost.",
+    );
+  }
+  return userEmail;
 }
 
 function getOrgId(): string | null {
@@ -140,6 +147,23 @@ function buildScopedTables(
       scoped.push({
         name: table,
         viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${whereSql}${checkOption}`,
+      });
+      continue;
+    }
+
+    if (
+      table === "tool_data" &&
+      columns.includes("scope") &&
+      columns.includes(OWNER_COLUMN) &&
+      columns.includes(ORG_COLUMN)
+    ) {
+      const realTable = `${qualifiedPrefix}"${table}"`;
+      const orgClause = safeOrgId
+        ? ` OR ("scope" = 'org' AND "${ORG_COLUMN}" = '${safeOrgId}')`
+        : "";
+      scoped.push({
+        name: table,
+        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE (("scope" = 'user' AND "${OWNER_COLUMN}" = '${safeEmail}')${orgClause})${checkOption}`,
       });
       continue;
     }

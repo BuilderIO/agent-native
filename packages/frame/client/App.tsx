@@ -125,7 +125,7 @@ export function App() {
   function notifyIframe(mode: FrameMode, width: number, open: boolean) {
     iframeRef.current?.contentWindow?.postMessage(
       {
-        type: "builder.sidebarMode",
+        type: "agentNative.sidebarMode",
         data: {
           mode: mode === "dev" ? "code" : "app",
           width,
@@ -143,7 +143,7 @@ export function App() {
     if (!iframe) return;
     function onLoad() {
       iframe!.contentWindow?.postMessage(
-        { type: "builder.frameOrigin", origin: window.location.origin },
+        { type: "agentNative.frameOrigin", origin: window.location.origin },
         "*",
       );
       const delays = [200, 500, 1500];
@@ -190,7 +190,7 @@ export function App() {
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
       if (!event.data?.type) return;
-      if (event.data.type === "builder.toggleSidebar") {
+      if (event.data.type === "agentNative.toggleSidebar") {
         const forceOpen = event.data.data?.open;
         if (forceOpen === true) {
           setSidebarOpen(true);
@@ -199,7 +199,7 @@ export function App() {
         }
         return;
       }
-      if (event.data.type === "builder.devModeChange") {
+      if (event.data.type === "agentNative.devModeChange") {
         const isDev = event.data.data?.isDevMode;
         if (isDev === true) {
           setFrameMode("dev");
@@ -209,10 +209,10 @@ export function App() {
         }
         return;
       }
-      if (event.data.type === "builder.getUserInfo") {
+      if (event.data.type === "agentNative.getUserInfo") {
         event.source?.postMessage(
           {
-            type: "builder.userInfo",
+            type: "agentNative.userInfo",
             // guard:allow-localhost-fallback — Frame is a dev-only iframe wrapper that identifies itself to the Builder editor as the framework's dev-mode user; this is the dev identity, not a session-pooling fallback
             data: { name: "Developer", email: "local@localhost" },
           },
@@ -224,11 +224,11 @@ export function App() {
       // cross-origin messages, so re-dispatch same-origin so it accepts it.
       // Only relay from known app dev-server origins to prevent arbitrary
       // cross-origin pages from injecting agent messages.
-      if (event.data.type === "builder.presentationMode") {
+      if (event.data.type === "agentNative.presentationMode") {
         setIsPresentationMode(event.data.data?.active === true);
         return;
       }
-      if (event.data.type === "builder.submitChat") {
+      if (event.data.type === "agentNative.submitChat") {
         const host = window.location.hostname || "localhost";
         const allowedOrigins = new Set(
           TEMPLATES.flatMap((a) => [

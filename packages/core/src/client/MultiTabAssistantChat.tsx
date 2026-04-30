@@ -703,7 +703,7 @@ export function MultiTabAssistantChat({
 
     const handler = (event: MessageEvent) => {
       if (!isTrustedFrameMessage(event)) return;
-      if (event.data?.type !== "builder.submitChat") return;
+      if (event.data?.type !== "agentNative.submitChat") return;
       const message = event.data.data?.message as string;
       if (!message) return;
       const context = event.data.data?.context as string | undefined;
@@ -808,8 +808,8 @@ export function MultiTabAssistantChat({
         return next;
       });
     };
-    window.addEventListener("builder.chatRunning", handler);
-    return () => window.removeEventListener("builder.chatRunning", handler);
+    window.addEventListener("agentNative.chatRunning", handler);
+    return () => window.removeEventListener("agentNative.chatRunning", handler);
   }, []);
 
   const addTab = useCallback(async () => {
@@ -1019,6 +1019,7 @@ export function MultiTabAssistantChat({
               agentNativePath("/_agent-native/application-state/chat-command"),
               {
                 method: "DELETE",
+                headers: { "X-Agent-Native-CSRF": "1" },
               },
             ).catch(() => {});
           }

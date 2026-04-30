@@ -11,13 +11,18 @@
 import {
   defineEventHandler,
   getQuery,
+  setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import {
+  getSession,
+  runWithRequestContext,
+  signShortLivedToken,
+} from "@agent-native/core/server";
 
 function notFound(event: H3Event) {
   setResponseStatus(event, 404);
@@ -95,12 +100,20 @@ async function handlePublicSnippet(event: H3Event) {
       ? call.mediaUrl
       : `/api/call-media/${call.id}`;
 
+  // For password-protected first-party media URLs, mint a short-lived
+  // HMAC token bound to the parent call id and pass it via `?t=<token>`
+  // instead of the plaintext password. The downstream call-media route
+  // still accepts `?p=<password>` as a legacy fallback during rollout.
+  // (audit 11 F-07)
   if (call.password && !/^https?:\/\//i.test(base)) {
+    const token = signShortLivedToken({ resourceId: call.id });
     const sep = base.includes("?") ? "&" : "?";
-    base = `${base}${sep}p=${encodeURIComponent(call.password)}`;
+    base = `${base}${sep}t=${encodeURIComponent(token)}`;
   }
 
   const mediaUrl = `${base.startsWith("/") ? appPath(base) : base}${fragment}`;
+
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
   return {
     snippet: {

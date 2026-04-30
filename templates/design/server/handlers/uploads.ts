@@ -6,6 +6,7 @@ import {
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { nanoid } from "nanoid";
 import { getSession } from "@agent-native/core/server";
 
 const UPLOADS_ROOT = path.join(process.cwd(), "data", "uploads");
@@ -42,12 +43,12 @@ function tenantUploadDir(email: string): string {
 function safeFilename(originalName: string): string | null {
   const ext = path.extname(originalName).toLowerCase();
   if (!ALLOWED_EXTENSIONS.has(ext)) return null;
-  const base =
-    path
-      .basename(originalName, ext)
-      .replace(/[^a-zA-Z0-9_-]/g, "_")
-      .slice(0, 80) || "upload";
-  return `${base}-${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`;
+  // Filename uniqueness comes from nanoid (~21 chars, ~126 bits of entropy),
+  // not `Date.now()` — second-resolution timestamps are guessable and let
+  // someone with the per-tenant URL prefix probe the upload window. The
+  // tenant subdir already namespaces by user; nanoid makes the leaf
+  // unguessable too. (audit 10 medium / audit 01 medium).
+  return `${nanoid()}${ext}`;
 }
 
 function ascii(data: Uint8Array, start: number, end: number): string {

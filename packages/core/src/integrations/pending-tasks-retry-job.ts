@@ -111,11 +111,13 @@ export async function retryStuckPendingTasks(
                    updated_at = ?,
                    error_message = COALESCE(error_message, ?)
              WHERE id = ?
+               AND status = ?
           `,
           args: [
             Date.now(),
             `Retry job: exceeded ${MAX_ATTEMPTS} attempts`,
             row.id,
+            row.status,
           ],
         });
         console.warn(
@@ -125,7 +127,7 @@ export async function retryStuckPendingTasks(
       }
 
       // Reset stuck `processing` rows back to `pending` so the processor's
-      // atomic claim (which only matches pending/failed) can re-acquire it.
+      // atomic claim (which only matches pending) can re-acquire it.
       // Without this, processing rows stay stuck forever.
       // For pending rows, just touch updated_at to avoid re-firing every tick.
       const newStatus = row.status === "processing" ? "pending" : row.status;
@@ -134,8 +136,9 @@ export async function retryStuckPendingTasks(
           UPDATE integration_pending_tasks
              SET status = ?, updated_at = ?
            WHERE id = ?
+             AND status = ?
         `,
-        args: [newStatus, Date.now(), row.id],
+        args: [newStatus, Date.now(), row.id, row.status],
       });
 
       await refireProcessor(row.id, baseUrl);

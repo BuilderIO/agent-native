@@ -192,6 +192,7 @@ export function useNavigationState() {
     // Delete the one-shot command AFTER reading it.
     fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
+      headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
     const path = pathFromCommand(navCommand);
     navigate(path);

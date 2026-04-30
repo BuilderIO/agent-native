@@ -15,6 +15,8 @@ export type CallsView =
   | "search"
   | "trackers"
   | "upload"
+  | "space"
+  | "saved-view"
   | "archive"
   | "trash"
   | "settings"
@@ -30,6 +32,7 @@ export interface NavigationState {
   snippetId?: string | null;
   folderId?: string | null;
   spaceId?: string | null;
+  viewId?: string | null;
   shareId?: string | null;
   token?: string | null;
   search?: string | null;
@@ -47,6 +50,8 @@ function resolveView(path: string): CallsView {
   if (path.startsWith("/search")) return "search";
   if (path.startsWith("/trackers")) return "trackers";
   if (path.startsWith("/upload")) return "upload";
+  if (path.startsWith("/spaces/")) return "space";
+  if (path.startsWith("/views/")) return "saved-view";
   if (path.startsWith("/archive")) return "archive";
   if (path.startsWith("/trash")) return "trash";
   if (path.startsWith("/settings")) return "settings";
@@ -78,6 +83,10 @@ function pathFromCommand(cmd: NavigateCommand): string {
       return "/trackers";
     case "upload":
       return "/upload";
+    case "space":
+      return cmd.spaceId ? `/spaces/${cmd.spaceId}` : "/library";
+    case "saved-view":
+      return cmd.viewId ? `/views/${cmd.viewId}` : "/library";
     case "archive":
       return "/archive";
     case "trash":
@@ -117,6 +126,7 @@ export function useNavigationState() {
       snippetId: params.snippetId ?? null,
       folderId: params.folderId ?? null,
       spaceId: params.spaceId ?? null,
+      viewId: params.viewId ?? null,
       shareId: params.shareId ?? null,
       token: params.token ?? null,
       search: searchParams.get("q") ?? null,
@@ -162,6 +172,7 @@ export function useNavigationState() {
     if (!navCommand) return;
     fetch(agentNativePath("/_agent-native/application-state/navigate"), {
       method: "DELETE",
+      headers: { "X-Agent-Native-CSRF": "1" },
     }).catch(() => {});
     const path = pathFromCommand(navCommand);
     navigate(path);

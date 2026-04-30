@@ -32,10 +32,13 @@ const templatesPath = path.resolve(
 import fs from "fs";
 const templatesSrc = fs.readFileSync(templatesPath, "utf8");
 const portMap = new Map<string, number>();
-const re = /name:\s*"([^"]+)"[\s\S]*?devPort:\s*(\d+)/g;
+const labelMap = new Map<string, string>();
+const re =
+  /name:\s*"([^"]+)"[\s\S]*?label:\s*"([^"]+)"[\s\S]*?devPort:\s*(\d+)/g;
 let m: RegExpExecArray | null;
 while ((m = re.exec(templatesSrc)) !== null) {
-  portMap.set(m[1], Number(m[2]));
+  portMap.set(m[1], Number(m[3]));
+  labelMap.set(m[1], m[2]);
 }
 
 /** Extract the app ID from the request (Referer, state param, or cookie) */
@@ -88,6 +91,26 @@ function getAppPort(req: IncomingMessage): number {
 function framePlugin(): Plugin {
   const PROXY_PREFIXES = ["/_agent-native", "/api/"];
 
+  function handleAppInfo(req: IncomingMessage, res: ServerResponse): boolean {
+    const url = new URL(req.url || "/api/app-info", "http://localhost");
+    if (url.pathname !== "/api/app-info") return false;
+
+    const appId = url.searchParams.get("app") || "mail";
+    const devPort = portMap.get(appId);
+    const body = JSON.stringify({
+      id: appId,
+      name: labelMap.get(appId) || appId,
+      devPort,
+      devUrl: devPort ? `http://localhost:${devPort}` : null,
+    });
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(body),
+    });
+    res.end(body);
+    return true;
+  }
+
   function forward(
     req: IncomingMessage,
     res: ServerResponse,
@@ -133,6 +156,7 @@ function framePlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url || "";
+        if (handleAppInfo(req, res)) return;
         const shouldProxy = PROXY_PREFIXES.some((p) => url.startsWith(p));
         if (!shouldProxy) return next();
         const port = getAppPort(req);

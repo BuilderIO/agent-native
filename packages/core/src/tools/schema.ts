@@ -126,3 +126,42 @@ export const TOOL_DATA_DROP_OLD_INDEX_SQL_PG = `DROP INDEX IF EXISTS tool_data_s
 export const TOOLS_OWNER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_owner_idx ON tools (owner_email)`;
 export const TOOLS_ORG_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_org_idx ON tools (org_id)`;
 export const TOOL_SHARES_RESOURCE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_shares_resource_idx ON tool_shares (resource_id)`;
+
+// ---------------------------------------------------------------------------
+// tool_consents — per-(viewer, tool, content_hash) trust gates
+// ---------------------------------------------------------------------------
+//
+// SECURITY (audit C1, see security-audit/05-tools-sandbox.md): a shared tool
+// runs the author's HTML/JS inside the *viewer's* session, with the viewer's
+// secrets, action permissions, and SQL scope. We therefore require explicit
+// per-viewer consent before executing a non-author's tool — and we tie the
+// consent to a SHA-256 of the rendered content, so any subsequent edit by the
+// author re-prompts the viewer instead of silently inheriting trust.
+//
+// Additive only: this table never replaces existing rows; revocation deletes
+// rows for a (viewer, tool) pair. Never DROP COLUMN, never ALTER.
+
+export const toolConsents = table("tool_consents", {
+  viewerEmail: text("viewer_email").notNull(),
+  toolId: text("tool_id").notNull(),
+  contentHash: text("content_hash").notNull(),
+  grantedAt: text("granted_at").notNull().default(now()),
+});
+
+export const TOOL_CONSENTS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_consents (
+  viewer_email TEXT NOT NULL,
+  tool_id TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (viewer_email, tool_id, content_hash)
+)`;
+
+export const TOOL_CONSENTS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool_consents (
+  viewer_email TEXT NOT NULL,
+  tool_id TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  granted_at TEXT NOT NULL DEFAULT now(),
+  PRIMARY KEY (viewer_email, tool_id, content_hash)
+)`;
+
+export const TOOL_CONSENTS_VIEWER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_consents_viewer_idx ON tool_consents (viewer_email, tool_id)`;

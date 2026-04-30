@@ -267,7 +267,7 @@ export function AgentTerminal({
       function notifyAgentRunning(running: boolean) {
         onAgentRunningChange?.(running);
         window.dispatchEvent(
-          new CustomEvent("builder.chatRunning", {
+          new CustomEvent("agentNative.chatRunning", {
             detail: { isRunning: running },
           }),
         );
@@ -362,7 +362,7 @@ export function AgentTerminal({
       // Chat bridge integration — listen for sendToAgentChat messages
       const messageHandler = (event: MessageEvent) => {
         if (!isTrustedFrameMessage(event)) return;
-        if (event.data?.type === "builder.submitChat") {
+        if (event.data?.type === "agentNative.submitChat") {
           const message = event.data.data?.message;
           if (message && ws && ws.readyState === WebSocket.OPEN) {
             ws.send(message + "\r");
