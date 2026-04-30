@@ -54,7 +54,10 @@ async function insertDoc(values: {
 
 async function listVisible(ctx: { userEmail?: string; orgId?: string }) {
   return runWithRequestContext(ctx, async () => {
-    const rows = await db.select().from(docs).where(accessFilter(docs, docShares));
+    const rows = await db
+      .select()
+      .from(docs)
+      .where(accessFilter(docs, docShares));
     return rows.map((row) => row.id).sort();
   });
 }
@@ -140,12 +143,7 @@ describe("shareable resource access helpers", () => {
 
     await expect(
       listVisible({ userEmail: ownerEmail, orgId }),
-    ).resolves.toEqual([
-      "owned",
-      "public-other",
-      "same-org",
-      "shared-org",
-    ]);
+    ).resolves.toEqual(["owned", "public-other", "same-org", "shared-org"]);
     await expect(
       listVisible({ userEmail: viewerEmail, orgId }),
     ).resolves.toEqual([
@@ -190,29 +188,30 @@ describe("shareable resource access helpers", () => {
       ).resolves.toMatchObject({ role: "owner" });
     });
 
-    await runWithRequestContext(
-      { userEmail: viewerEmail, orgId },
-      async () => {
-        await expect(resolveAccess(resourceType, "doc-org")).resolves.toMatchObject({
-          role: "viewer",
-        });
-        await expect(resolveAccess(resourceType, "doc-public")).resolves.toMatchObject({
-          role: "viewer",
-        });
-        await expect(
-          assertAccess(resourceType, "doc-org", "editor"),
-        ).rejects.toBeInstanceOf(ForbiddenError);
-        await expect(
-          assertAccess(resourceType, "doc-public", "editor"),
-        ).rejects.toBeInstanceOf(ForbiddenError);
-        await expect(
-          assertAccess(resourceType, "doc-shared", "editor"),
-        ).resolves.toMatchObject({ role: "editor" });
-        await expect(
-          assertAccess(resourceType, "doc-shared", "admin"),
-        ).rejects.toBeInstanceOf(ForbiddenError);
-      },
-    );
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(resourceType, "doc-org"),
+      ).resolves.toMatchObject({
+        role: "viewer",
+      });
+      await expect(
+        resolveAccess(resourceType, "doc-public"),
+      ).resolves.toMatchObject({
+        role: "viewer",
+      });
+      await expect(
+        assertAccess(resourceType, "doc-org", "editor"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        assertAccess(resourceType, "doc-public", "editor"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        assertAccess(resourceType, "doc-shared", "editor"),
+      ).resolves.toMatchObject({ role: "editor" });
+      await expect(
+        assertAccess(resourceType, "doc-shared", "admin"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
 
     await runWithRequestContext(
       { userEmail: outsiderEmail, orgId: otherOrgId },
@@ -239,35 +238,32 @@ describe("shareable resource access helpers", () => {
       ).resolves.toMatchObject({ updated: false });
     });
 
-    await runWithRequestContext(
-      { userEmail: viewerEmail, orgId },
-      async () => {
-        await expect(
-          listResourceShares.run({
-            resourceType,
-            resourceId: "doc-actions",
-          }),
-        ).resolves.toMatchObject({
-          ownerEmail,
-          visibility: "private",
-          role: "viewer",
-          shares: [
-            {
-              principalType: "user",
-              principalId: viewerEmail,
-              role: "viewer",
-            },
-          ],
-        });
-        await expect(
-          setResourceVisibility.run({
-            resourceType,
-            resourceId: "doc-actions",
-            visibility: "org",
-          }),
-        ).rejects.toBeInstanceOf(ForbiddenError);
-      },
-    );
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        listResourceShares.run({
+          resourceType,
+          resourceId: "doc-actions",
+        }),
+      ).resolves.toMatchObject({
+        ownerEmail,
+        visibility: "private",
+        role: "viewer",
+        shares: [
+          {
+            principalType: "user",
+            principalId: viewerEmail,
+            role: "viewer",
+          },
+        ],
+      });
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-actions",
+          visibility: "org",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       await expect(
@@ -281,35 +277,32 @@ describe("shareable resource access helpers", () => {
       ).resolves.toMatchObject({ updated: true });
     });
 
-    await runWithRequestContext(
-      { userEmail: viewerEmail, orgId },
-      async () => {
-        await expect(
-          setResourceVisibility.run({
-            resourceType,
-            resourceId: "doc-actions",
-            visibility: "org",
-          }),
-        ).resolves.toEqual({ ok: true, visibility: "org" });
-        await expect(
-          shareResource.run({
-            resourceType,
-            resourceId: "doc-actions",
-            principalType: "org",
-            principalId: otherOrgId,
-            role: "viewer",
-          }),
-        ).resolves.toMatchObject({ updated: false });
-        await expect(
-          unshareResource.run({
-            resourceType,
-            resourceId: "doc-actions",
-            principalType: "org",
-            principalId: otherOrgId,
-          }),
-        ).resolves.toEqual({ ok: true });
-      },
-    );
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-actions",
+          visibility: "org",
+        }),
+      ).resolves.toEqual({ ok: true, visibility: "org" });
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-actions",
+          principalType: "org",
+          principalId: otherOrgId,
+          role: "viewer",
+        }),
+      ).resolves.toMatchObject({ updated: false });
+      await expect(
+        unshareResource.run({
+          resourceType,
+          resourceId: "doc-actions",
+          principalType: "org",
+          principalId: otherOrgId,
+        }),
+      ).resolves.toEqual({ ok: true });
+    });
 
     const shares = await db
       .select()
