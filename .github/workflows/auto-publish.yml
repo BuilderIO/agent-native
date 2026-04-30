@@ -200,6 +200,121 @@ jobs:
         working-directory: packages/core
         run: npx npm@11 publish --access public --provenance
 
+  publish-scheduling:
+    name: Publish @agent-native/scheduling
+    needs: detect-changes
+    if: needs.detect-changes.outputs.scheduling-changed == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build scheduling package
+        run: pnpm --filter @agent-native/scheduling build
+
+      - name: Run tests
+        run: pnpm --filter @agent-native/scheduling test
+
+      - name: Tag release
+        working-directory: packages/scheduling
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "scheduling-v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag scheduling-v${VERSION} already exists, skipping"
+          else
+            git tag "scheduling-v${VERSION}"
+            git push origin "scheduling-v${VERSION}"
+          fi
+
+      - name: Publish to npm
+        working-directory: packages/scheduling
+        # `pnpm publish` rewrites any remaining workspace:* refs to the
+        # actual versions before publishing, which is what we need since
+        # this package's devDependencies still point at workspace:*. Use
+        # --no-git-checks because we don't want pnpm bouncing on a clean
+        # check after the tag step (working tree may show the tag ref).
+        run: pnpm publish --access public --provenance --no-git-checks
+
+  publish-pinpoint:
+    name: Publish @agent-native/pinpoint
+    needs: detect-changes
+    if: needs.detect-changes.outputs.pinpoint-changed == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build pinpoint package
+        run: pnpm --filter @agent-native/pinpoint build
+
+      - name: Run tests
+        run: pnpm --filter @agent-native/pinpoint test
+
+      - name: Tag release
+        working-directory: packages/pinpoint
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "pinpoint-v${VERSION}" >/dev/null 2>&1; then
+            echo "Tag pinpoint-v${VERSION} already exists, skipping"
+          else
+            git tag "pinpoint-v${VERSION}"
+            git push origin "pinpoint-v${VERSION}"
+          fi
+
+      - name: Publish to npm
+        working-directory: packages/pinpoint
+        # See note in publish-scheduling — pnpm publish handles workspace:*
+        # rewriting that npm publish doesn't.
+        run: pnpm publish --access public --provenance --no-git-checks
+
   publish-desktop:
     name: Publish desktop app
     needs: detect-changes
