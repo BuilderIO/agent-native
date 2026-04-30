@@ -237,6 +237,13 @@ function nameFromUrl(url: string): string {
 export async function fetchICalName(url: string): Promise<string> {
   const httpUrl = normalizeUrl(url);
   try {
+    assertSafeICalUrl(httpUrl);
+  } catch {
+    // Don't echo the URL or the failure reason — the caller is user-facing
+    // and a verbose error helps an attacker map internal addresses.
+    return nameFromUrl(url);
+  }
+  try {
     const response = await fetch(httpUrl, {
       signal: AbortSignal.timeout(10_000),
       headers: { "User-Agent": "CalendarApp/1.0" },

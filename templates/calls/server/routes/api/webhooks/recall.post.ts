@@ -129,9 +129,22 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 401);
       return { error: "Invalid signature" };
     }
+  } else if (
+    process.env.NODE_ENV === "production" &&
+    process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS !== "1"
+  ) {
+    // Fail-closed in production: any unauthenticated POST to this endpoint
+    // can manufacture a fake recall.ai event tied to a known bot id and
+    // poison call transcripts / app-state. Set
+    // AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1 to opt out for staging only.
+    console.error(
+      "[calls] RECALL_WEBHOOK_SECRET not configured — refusing webhook",
+    );
+    setResponseStatus(event, 401);
+    return { error: "RECALL_WEBHOOK_SECRET not configured" };
   } else {
     console.warn(
-      "[calls] RECALL_WEBHOOK_SECRET not set — accepting Recall webhook without verification",
+      "[calls] RECALL_WEBHOOK_SECRET not set — accepting Recall webhook without verification (dev only)",
     );
   }
 

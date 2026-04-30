@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { getHeader } from "h3";
+import { getHeader, readRawBody as h3ReadRawBody } from "h3";
 import { timingSafeEqual } from "node:crypto";
 import type {
   PlatformAdapter,

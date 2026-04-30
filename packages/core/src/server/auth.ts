@@ -267,6 +267,43 @@ export function safeReturnPath(raw: string | null | undefined): string {
 }
 
 /**
+ * Read the desktop-SSO broker file, but only if the request is plausibly
+ * from the Electron desktop app *and* coming from the local machine.
+ *
+ * The broker file lives in the user's home directory and trusts the local
+ * trust boundary — a non-loopback request that pretends to be Electron
+ * via User-Agent must NEVER be allowed to read it. We additionally refuse
+ * any read in production builds: the desktop app launches with
+ * `NODE_ENV=development` (or unset), and any web-hosted production deploy
+ * has no business consulting a per-user file on the server's homedir
+ * even if one exists.
+ *
+ * Returns null when the safety checks fail or the file isn't present.
+ */
+async function readDesktopSsoSafely(
+  event: H3Event,
+): Promise<Awaited<ReturnType<typeof readDesktopSso>>> {
+  if (process.env.NODE_ENV === "production") return null;
+  if (!isElectronRequest(event)) return null;
+  // Loopback-only: 127.0.0.1, ::1, and the IPv4-mapped form.
+  let ip: string | undefined;
+  try {
+    ip = getRequestIP(event) ?? undefined;
+  } catch {
+    ip = undefined;
+  }
+  // Strip an optional zone id (e.g. "fe80::1%en0") before comparing.
+  const normalised = (ip ?? "").split("%")[0];
+  const isLoopback =
+    normalised === "127.0.0.1" ||
+    normalised === "::1" ||
+    normalised === "::ffff:127.0.0.1" ||
+    normalised.startsWith("127.");
+  if (!isLoopback) return null;
+  return await readDesktopSso();
+}
+
+/**
  * Extract the framework session token from a Better Auth response's
  * Set-Cookie headers, if any. Used by the password-reset path to skip
  * the freshly-minted session when revoking sibling sessions for the

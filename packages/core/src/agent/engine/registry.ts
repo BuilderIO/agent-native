@@ -90,7 +90,6 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
     for (const entry of _registry.values()) {
       if (entry.name === "builder") continue;
       if (entry.requiredEnvVars.length === 0) continue;
-      // guard:allow-env-credential — deploy-level engine availability check, not per-user resolution. The companion `detectEngineFromUserSecrets` handles per-user keys.
       if (entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v))) {
         return entry;
       }
@@ -100,7 +99,6 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
 
   for (const entry of _registry.values()) {
     if (entry.requiredEnvVars.length === 0) continue;
-    // guard:allow-env-credential — deploy-level engine availability check, not per-user resolution.
     if (entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v))) {
       return entry;
     }

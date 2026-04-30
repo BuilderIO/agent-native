@@ -7,7 +7,6 @@ import type {
   IntegrationStatus,
 } from "../types.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
-import { readBody } from "../../server/h3-helpers.js";
 
 /** WhatsApp's max message length */
 const WHATSAPP_MAX_LENGTH = 4096;
