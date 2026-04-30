@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 
 const SESSION_TOKEN_KEY = "agent-native:session-token";
+const OAUTH_STATE_KEY = "agent-native:oauth-state";
 
 /**
  * Handles the agentnative://oauth-complete?token=xyz deep link after Google OAuth.
@@ -11,16 +12,23 @@ const SESSION_TOKEN_KEY = "agent-native:session-token";
  * redirects back to the main tabs.
  */
 export default function OAuthComplete() {
-  const { token } = useLocalSearchParams<{ token?: string }>();
+  const { token, state } = useLocalSearchParams<{
+    token?: string;
+    state?: string;
+  }>();
 
   useEffect(() => {
     (async () => {
       if (token) {
-        await AsyncStorage.setItem(SESSION_TOKEN_KEY, token);
+        const expectedState = await AsyncStorage.getItem(OAUTH_STATE_KEY);
+        await AsyncStorage.removeItem(OAUTH_STATE_KEY);
+        if (expectedState && state === expectedState) {
+          await AsyncStorage.setItem(SESSION_TOKEN_KEY, token);
+        }
       }
       router.replace("/(tabs)");
     })();
-  }, [token]);
+  }, [state, token]);
 
   return (
     <View style={styles.container}>

@@ -6,7 +6,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import {
   getCurrentOwnerEmail,
   nanoid,
-  requireActiveOrganizationId,
+  requireOrganizationAccess,
 } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -34,8 +34,9 @@ export default defineAction({
     const ownerEmail = getCurrentOwnerEmail();
     const id = nanoid();
     const now = new Date().toISOString();
-    const organizationId =
-      args.organizationId || (await requireActiveOrganizationId());
+    const { organizationId } = await requireOrganizationAccess(
+      args.organizationId,
+    );
 
     // Next position within siblings
     const whereClauses = [

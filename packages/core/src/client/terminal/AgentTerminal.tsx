@@ -117,6 +117,12 @@ interface TerminalInfo {
   error?: string;
 }
 
+function formatWebSocketHostname(hostname: string) {
+  return hostname.includes(":") && !hostname.startsWith("[")
+    ? `[${hostname}]`
+    : hostname;
+}
+
 export function AgentTerminal({
   command,
   flags,
@@ -223,7 +229,8 @@ export function AgentTerminal({
             return;
           }
           const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-          wsUrl = `${protocol}//${location.hostname}:${info.wsPort}/ws`;
+          const host = formatWebSocketHostname(location.hostname);
+          wsUrl = `${protocol}//${host}:${info.wsPort}/ws`;
           if (!command && info.command) {
             command = info.command;
           }
@@ -401,7 +408,7 @@ export function AgentTerminal({
       cleanupMessageHandler?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hideInFrame, inFrame, command]);
+  }, [hideInFrame, inFrame, command, flags, wsUrlProp]);
 
   if (hideInFrame && inFrame) {
     return null;

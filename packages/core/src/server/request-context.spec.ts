@@ -4,7 +4,11 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
   getRequestTimezone,
+  getRequestContext,
+  hasRequestContext,
 } from "./request-context.js";
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("server/request-context", () => {
   beforeEach(() => {
@@ -83,6 +87,67 @@ describe("server/request-context", () => {
       vi.stubEnv("AGENT_USER_TIMEZONE", "Europe/London");
       runWithRequestContext({ userEmail: "alice@example.com" }, () => {
         expect(getRequestTimezone()).toBeUndefined();
+      });
+    });
+  });
+
+  describe("request isolation", () => {
+    it("keeps concurrent async request contexts isolated", async () => {
+      const [alice, bob] = await Promise.all([
+        runWithRequestContext(
+          {
+            userEmail: "alice@example.com",
+            orgId: "org-a",
+            timezone: "America/New_York",
+          },
+          async () => {
+            await delay(10);
+            return {
+              userEmail: getRequestUserEmail(),
+              orgId: getRequestOrgId(),
+              timezone: getRequestTimezone(),
+            };
+          },
+        ),
+        runWithRequestContext(
+          {
+            userEmail: "bob@example.com",
+            orgId: "org-b",
+            timezone: "America/Los_Angeles",
+          },
+          async () => {
+            await delay(1);
+            return {
+              userEmail: getRequestUserEmail(),
+              orgId: getRequestOrgId(),
+              timezone: getRequestTimezone(),
+            };
+          },
+        ),
+      ]);
+
+      expect(alice).toEqual({
+        userEmail: "alice@example.com",
+        orgId: "org-a",
+        timezone: "America/New_York",
+      });
+      expect(bob).toEqual({
+        userEmail: "bob@example.com",
+        orgId: "org-b",
+        timezone: "America/Los_Angeles",
+      });
+    });
+
+    it("reports active context without falling back to env values", () => {
+      vi.stubEnv("AGENT_USER_EMAIL", "cli@example.com");
+
+      expect(hasRequestContext()).toBe(false);
+      expect(getRequestContext()).toBeUndefined();
+
+      runWithRequestContext({}, () => {
+        expect(hasRequestContext()).toBe(true);
+        expect(getRequestContext()).toEqual({});
+        expect(getRequestUserEmail()).toBeUndefined();
       });
     });
   });

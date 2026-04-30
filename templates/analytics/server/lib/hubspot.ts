@@ -2,7 +2,10 @@
 // Fetches deals, pipelines/stages, and computes sales metrics
 
 import { resolveCredential } from "./credentials";
-import { requireRequestCredentialContext } from "./credentials-context";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_BASE = "https://api.hubapi.com";
 
@@ -19,7 +22,10 @@ async function getToken(): Promise<string> {
 }
 
 async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
-  const key = cacheKey ?? path;
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? path,
+    "HUBSPOT_ACCESS_TOKEN",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

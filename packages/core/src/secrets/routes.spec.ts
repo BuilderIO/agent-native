@@ -10,6 +10,7 @@ const mockListAppSecretsForScope = vi.fn();
 const mockGetRequiredSecret = vi.fn();
 const mockListRequiredSecrets = vi.fn();
 const mockHasOAuthTokens = vi.fn();
+const mockListOAuthAccountsByOwner = vi.fn();
 
 let lastStatus = 200;
 
@@ -36,6 +37,8 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("../oauth-tokens/store.js", () => ({
   hasOAuthTokens: (...args: any[]) => mockHasOAuthTokens(...args),
+  listOAuthAccountsByOwner: (...args: any[]) =>
+    mockListOAuthAccountsByOwner(...args),
 }));
 
 vi.mock("./register.js", () => ({
@@ -54,6 +57,8 @@ vi.mock("./storage.js", () => ({
 
 import {
   createAdHocSecretHandler,
+  createListSecretsHandler,
+  createTestSecretHandler,
   createWriteSecretHandler,
 } from "./routes.js";
 
@@ -78,6 +83,9 @@ describe("secrets routes", () => {
     mockGetRequiredSecret.mockReturnValue(undefined);
     mockListRequiredSecrets.mockReturnValue([]);
     mockWriteAppSecret.mockResolvedValue("sec_1");
+    mockReadAppSecret.mockResolvedValue(null);
+    mockListOAuthAccountsByOwner.mockResolvedValue([]);
+    mockHasOAuthTokens.mockResolvedValue(false);
   });
 
   it("uses the registered user secret scope and ignores caller-supplied scopeId", async () => {
@@ -174,5 +182,88 @@ describe("secrets routes", () => {
       error: 'urlAllowlist entry "not a url" is not a valid URL',
     });
     expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("scopes OAuth secret status to the current user", async () => {
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "GOOGLE_OAUTH",
+        label: "Google",
+        scope: "user",
+        kind: "oauth",
+        required: true,
+        oauthProvider: "google",
+      },
+    ]);
+    mockListOAuthAccountsByOwner.mockResolvedValueOnce([]);
+
+    const handler = createListSecretsHandler();
+    const result = await handler(event("/", "GET"));
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        key: "GOOGLE_OAUTH",
+        status: "unset",
+      }),
+    ]);
+    expect(mockListOAuthAccountsByOwner).toHaveBeenCalledWith(
+      "google",
+      "alice+qa@example.com",
+    );
+    expect(mockHasOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("redacts submitted secret values from validator responses", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "API_TOKEN",
+      label: "API token",
+      scope: "user",
+      kind: "api-key",
+      validator: vi.fn(async () => ({
+        ok: false,
+        error: "API rejected shh-secret-value",
+      })),
+    });
+
+    const handler = createWriteSecretHandler();
+    const result = await handler(
+      event("/API_TOKEN", "POST", {
+        value: "shh-secret-value",
+      }),
+    );
+
+    expect(lastStatus).toBe(400);
+    expect(result).toEqual({
+      error: "API rejected [redacted]",
+    });
+    expect(JSON.stringify(result)).not.toContain("shh-secret-value");
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("redacts stored secret values from validator test responses", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "API_TOKEN",
+      label: "API token",
+      scope: "user",
+      kind: "api-key",
+      validator: vi.fn(async () => ({
+        ok: false,
+        error: "Token stored-secret-value is expired",
+      })),
+    });
+    mockReadAppSecret.mockResolvedValue({
+      value: "stored-secret-value",
+      last4: "alue",
+      updatedAt: 123,
+    });
+
+    const handler = createTestSecretHandler();
+    const result = await handler(event("/API_TOKEN/test", "POST"));
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Token [redacted] is expired",
+    });
+    expect(JSON.stringify(result)).not.toContain("stored-secret-value");
   });
 });

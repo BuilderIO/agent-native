@@ -24,6 +24,86 @@ export async function getEventOwnerEmail(event: H3Event): Promise<string> {
   return session.email;
 }
 
+export type OrganizationAccessRole = "owner" | "admin" | "member";
+
+const ORG_ROLE_RANK: Record<OrganizationAccessRole, number> = {
+  member: 1,
+  admin: 2,
+  owner: 3,
+};
+
+function normalizeOrganizationRole(
+  role: string | null | undefined,
+): OrganizationAccessRole {
+  if (role === "owner" || role === "admin") return role;
+  return "member";
+}
+
+function organizationRoleAllowed(
+  actual: OrganizationAccessRole,
+  allowed: OrganizationAccessRole[],
+): boolean {
+  const required = Math.min(...allowed.map((role) => ORG_ROLE_RANK[role]));
+  return ORG_ROLE_RANK[actual] >= required;
+}
+
+export async function getOrganizationRoleForEmail(
+  organizationId: string,
+  email: string,
+): Promise<OrganizationAccessRole | null> {
+  const exec = getDbExec();
+  const pg = isPostgres();
+  const lowerEmail = email.toLowerCase();
+
+  try {
+    const res = await exec.execute({
+      sql: pg
+        ? `SELECT role FROM org_members WHERE org_id = $1 AND LOWER(email) = $2 LIMIT 1`
+        : `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [organizationId, lowerEmail],
+    });
+    const row = (res.rows as Array<{ role?: string }>)[0];
+    if (row?.role) return normalizeOrganizationRole(row.role);
+  } catch {
+    // Older DBs may not have the framework org_members table yet. Fall back
+    // to better-auth's member table below.
+  }
+
+  try {
+    const res = await exec.execute({
+      sql: pg
+        ? `SELECT m.role FROM member m JOIN "user" u ON u.id = m.user_id WHERE m.organization_id = $1 AND LOWER(u.email) = $2 LIMIT 1`
+        : `SELECT m.role FROM member m JOIN user u ON u.id = m.user_id WHERE m.organization_id = ? AND LOWER(u.email) = ? LIMIT 1`,
+      args: [organizationId, lowerEmail],
+    });
+    const row = (res.rows as Array<{ role?: string }>)[0];
+    if (row?.role) return normalizeOrganizationRole(row.role);
+  } catch {
+    // No better-auth membership table yet.
+  }
+
+  return null;
+}
+
+export async function requireOrganizationAccess(
+  organizationId?: string | null,
+  allowedRoles: OrganizationAccessRole[] = ["member"],
+  event?: H3Event,
+): Promise<{
+  organizationId: string;
+  email: string;
+  role: OrganizationAccessRole;
+}> {
+  const resolvedOrganizationId =
+    organizationId || (await requireActiveOrganizationId(event));
+  const email = getCurrentOwnerEmail();
+  const role = await getOrganizationRoleForEmail(resolvedOrganizationId, email);
+  if (!role || !organizationRoleAllowed(role, allowedRoles)) {
+    throw new Error("Organization not found or access denied");
+  }
+  return { organizationId: resolvedOrganizationId, email, role };
+}
+
 /**
  * Resolve the caller's active organization id.
  *

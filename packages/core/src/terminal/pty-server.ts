@@ -162,6 +162,13 @@ export async function createPtyWebSocketServer(
 
   // Handle WebSocket upgrades with optional auth
   server.on("upgrade", async (req, socket, head) => {
+    const url = new URL(req.url || "/", `http://${req.headers.host}`);
+    if (url.pathname !== "/ws") {
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
     if (authCheck) {
       try {
         const allowed = await authCheck(req);

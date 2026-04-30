@@ -2,7 +2,10 @@
 // Fetches calls, transcripts, and users
 
 import { resolveCredential } from "./credentials";
-import { requireRequestCredentialContext } from "./credentials-context";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_BASE = "https://us-65885.api.gong.io/v2";
 
@@ -20,7 +23,7 @@ async function getAuthHeader(): Promise<string> {
 }
 
 async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
-  const key = cacheKey ?? path;
+  const key = scopedCredentialCacheKey(cacheKey ?? path, "GONG_ACCESS_KEY");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;
@@ -54,7 +57,10 @@ async function apiPost<T>(
   body: unknown,
   cacheKey?: string,
 ): Promise<T> {
-  const key = cacheKey ?? `POST:${path}:${JSON.stringify(body)}`;
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? `POST:${path}:${JSON.stringify(body)}`,
+    "GONG_ACCESS_KEY",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

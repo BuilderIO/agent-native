@@ -14,10 +14,20 @@ interface AppWebViewProps {
 }
 
 const SESSION_TOKEN_KEY = "agent-native:session-token";
+const OAUTH_STATE_KEY = "agent-native:oauth-state";
 
 // Google blocks OAuth in embedded WebViews. Open Google auth URLs in the
 // system browser (Safari) instead.
 const EXTERNAL_HOSTS = ["accounts.google.com", "oauth2.googleapis.com"];
+
+function rememberOAuthState(url: string) {
+  try {
+    const state = new URL(url).searchParams.get("state");
+    if (state) void AsyncStorage.setItem(OAUTH_STATE_KEY, state);
+  } catch {
+    // Invalid URL — ignore
+  }
+}
 
 export default function AppWebView({ url }: AppWebViewProps) {
   const webviewRef = useRef<WebView>(null);
@@ -58,6 +68,7 @@ export default function AppWebView({ url }: AppWebViewProps) {
     try {
       const parsed = new URL(event.url);
       if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
+        rememberOAuthState(event.url);
         Linking.openURL(event.url);
         return false;
       }
@@ -76,6 +87,7 @@ export default function AppWebView({ url }: AppWebViewProps) {
           const parsed = new URL(msg.url);
           // Only open external hosts in Safari — anything else is ignored
           if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
+            rememberOAuthState(msg.url);
             Linking.openURL(msg.url);
           }
         }

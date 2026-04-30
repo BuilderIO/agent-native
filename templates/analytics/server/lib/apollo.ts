@@ -2,7 +2,10 @@
 // Search people, enrich contacts, search/enrich organizations
 
 import { resolveCredential } from "./credentials";
-import { requireRequestCredentialContext } from "./credentials-context";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_BASE = "https://api.apollo.io";
 
@@ -22,7 +25,10 @@ async function apiPost<T>(
   body: Record<string, unknown>,
   cacheKey?: string,
 ): Promise<T> {
-  const key = cacheKey ?? `POST:${path}:${JSON.stringify(body)}`;
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? `POST:${path}:${JSON.stringify(body)}`,
+    "APOLLO_API_KEY",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;
