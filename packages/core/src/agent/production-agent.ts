@@ -584,13 +584,19 @@ export async function runAgentLoop(opts: {
         });
 
         const MAX_TOOL_RESULT_CHARS = 50_000;
+        const TOOL_TIMEOUT_MS = 60_000;
         let result: string;
         let isError = false;
         try {
-          const raw = await actionEntry.run(
-            toolCall.input as Record<string, string>,
-            { send },
-          );
+          const timeoutSignal = AbortSignal.timeout(TOOL_TIMEOUT_MS);
+          const raw = await Promise.race([
+            actionEntry.run(toolCall.input as Record<string, string>, { send }),
+            new Promise<never>((_, reject) => {
+              timeoutSignal.addEventListener("abort", () =>
+                reject(new Error("Tool call timed out after 60 seconds")),
+              );
+            }),
+          ]);
           let resultStr =
             typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
           if (resultStr.length > MAX_TOOL_RESULT_CHARS) {
