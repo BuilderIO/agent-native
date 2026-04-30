@@ -44,6 +44,15 @@ import type { StoredRemoteMcpServer } from "./remote-store.js";
 /** Env var that enables hub-serve. Acts as the shared bearer secret. */
 const TOKEN_ENV = "AGENT_NATIVE_MCP_HUB_TOKEN";
 
+/**
+ * Opt-in env var that disables the multi-org safety check. Operators should
+ * only enable this on a hub deployment that consciously aggregates MCP
+ * config across orgs and accepts that the bearer is workspace-wide.
+ */
+const MULTI_ORG_ENV = "AGENT_NATIVE_MCP_HUB_MULTI_ORG";
+
+let _warnedMultiOrg = false;
+
 export interface HubServerRecord {
   /** `<orgId>-<name>` — unique within the hub response. */
   id: string;
@@ -75,10 +84,12 @@ export function isHubConsumeEnabled(): boolean {
 export async function listHubServers(): Promise<HubServerRecord[]> {
   const all = await getAllSettings().catch(() => ({}));
   const out: HubServerRecord[] = [];
+  const seenOrgs = new Set<string>();
   for (const [fullKey, value] of Object.entries(all)) {
     const m = /^o:([^:]+):mcp-servers-remote$/.exec(fullKey);
     if (!m) continue;
     const orgId = m[1];
+    seenOrgs.add(orgId);
     const list = (value as { servers?: StoredRemoteMcpServer[] }).servers;
     if (!Array.isArray(list)) continue;
     for (const stored of list) {
@@ -93,6 +104,28 @@ export async function listHubServers(): Promise<HubServerRecord[]> {
       });
     }
   }
+
+  // SECURITY: refuse to serve when multiple orgs share this hub in
+  // production, unless the operator has explicitly opted in to multi-org
+  // mode. The bearer is workspace-wide, so any consumer in possession of
+  // it would otherwise see EVERY org's MCP config — a cross-tenant leak.
+  if (
+    process.env.NODE_ENV === "production" &&
+    seenOrgs.size > 1 &&
+    process.env[MULTI_ORG_ENV] !== "1"
+  ) {
+    if (!_warnedMultiOrg) {
+      _warnedMultiOrg = true;
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[mcp-client/hub] Refusing to serve hub responses: ${seenOrgs.size} distinct orgs detected ` +
+          `but ${MULTI_ORG_ENV} is not set. Set ${MULTI_ORG_ENV}=1 to opt in to cross-org sharing ` +
+          `(or disable hub-serve entirely if this is unintentional).`,
+      );
+    }
+    return [];
+  }
+
   return out;
 }
 
