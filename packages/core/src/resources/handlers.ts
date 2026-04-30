@@ -472,14 +472,24 @@ export async function handleUploadResource(event: any) {
     mimeType.startsWith("text/") || mimeType === "application/json";
 
   if (!isText) {
-    const uploaded = await runWithRequestContext({ userEmail: owner }, () =>
+    // Use the actual session user email for credential resolution — not `owner`,
+    // which is "__shared__" for org-wide resources and would break the per-user
+    // DB credential lookup (resolveBuilderCredential refuses env fallback for any
+    // non-null non-local email, including the sentinel value).
+    const credentialEmail =
+      owner !== SHARED_OWNER
+        ? owner
+        : (await getSession(event).catch(() => null))?.email;
+    const doUpload = () =>
       uploadFile({
         data: filePart.data,
         filename: fileName,
         mimeType,
         ownerEmail: owner,
-      }),
-    );
+      });
+    const uploaded = credentialEmail
+      ? await runWithRequestContext({ userEmail: credentialEmail }, doUpload)
+      : await doUpload();
     if (uploaded) {
       const resource = await resourcePut(owner, path, uploaded.url, mimeType);
       setResponseStatus(event, 201);

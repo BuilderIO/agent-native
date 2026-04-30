@@ -384,6 +384,22 @@ export function createCoreRoutesPlugin(
         } catch {
           // DB not reachable — fall back to env-only status.
         }
+        // Authenticated non-local users who have no personal Builder creds
+        // should not see deploy-level env credentials (configured, orgName,
+        // userId). Exposing those would leak one tenant's credentials to
+        // another — consistent with the multi-tenant safeguard in
+        // credential-provider.ts that refuses env fallback for such users.
+        if (userEmail && userEmail !== DEV_MODE_USER_EMAIL) {
+          return {
+            ...envStatus,
+            configured: false,
+            privateKeyConfigured: false,
+            publicKeyConfigured: false,
+            userId: undefined,
+            orgName: undefined,
+            orgKind: undefined,
+          };
+        }
         return envStatus;
       }),
     );
