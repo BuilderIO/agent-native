@@ -22,6 +22,42 @@ const APP_SHIM_KEY = "_agentNativeH3Shim";
 const BOOTSTRAP_PROMISE_KEY = "_agentNativeBootstrapPromise";
 const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
 
+function normalizeAppBasePath(value: string | undefined): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function getAppBasePath(): string {
+  return normalizeAppBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+}
+
+function pathMatchesPrefix(reqPath: string, prefix: string): boolean {
+  return reqPath === prefix || reqPath.startsWith(prefix + "/");
+}
+
+function resolveMountMatch(
+  reqPath: string,
+  path: string,
+): { mountPath: string; strippedPath: string } | null {
+  if (pathMatchesPrefix(reqPath, path)) {
+    return { mountPath: path, strippedPath: reqPath.slice(path.length) || "/" };
+  }
+
+  const appBasePath = getAppBasePath();
+  if (!appBasePath || !path.startsWith(FRAMEWORK_PREFIX)) return null;
+
+  const prefixedPath = `${appBasePath}${path}`;
+  if (!pathMatchesPrefix(reqPath, prefixedPath)) return null;
+  return {
+    mountPath: prefixedPath,
+    strippedPath: reqPath.slice(prefixedPath.length) || "/",
+  };
+}
+
 /**
  * Wrapper around Nitro's h3 instance that exposes a v1-style `.use()` API
  * for registering path-prefix middleware.
@@ -174,7 +210,8 @@ function registerMiddleware(
     let originalPathname: string | undefined;
     if (path) {
       const reqPath = event.url?.pathname ?? "";
-      if (reqPath !== path && !reqPath.startsWith(path + "/")) {
+      const match = resolveMountMatch(reqPath, path);
+      if (!match) {
         return next();
       }
       // Strip the mount prefix from event.url.pathname so handlers that
@@ -183,14 +220,13 @@ function registerMiddleware(
       // `app.use(path, handler)` semantics.
       try {
         originalPathname = event.url.pathname;
-        const stripped = originalPathname.slice(path.length) || "/";
         // Save the full path in context so handlers that need the original URL
         // (e.g. Better Auth, which extracts its own basePath prefix) can
         // reconstruct a Request with the un-stripped URL.
         (event as any).context = (event as any).context ?? {};
         (event as any).context._mountedPathname = originalPathname;
-        (event as any).context._mountPrefix = path;
-        event.url.pathname = stripped;
+        (event as any).context._mountPrefix = match.mountPath;
+        event.url.pathname = match.strippedPath;
       } catch {
         // event.url is read-only on some runtimes — fall through. Handlers
         // that don't depend on prefix stripping (most of them) still work.
