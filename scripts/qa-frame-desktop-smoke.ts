@@ -2,13 +2,15 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
+import * as sharedConfig from "../packages/shared-app-config/index.ts";
+
+const {
   DEFAULT_APPS,
   TEMPLATE_APPS,
   TEMPLATES,
   coreTemplates,
   visibleTemplates,
-} from "../packages/shared-app-config/index.ts";
+} = sharedConfig;
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
