@@ -112,7 +112,9 @@ export function GoogleConnectBanner({
           clearInterval(desktopPollRef.current!);
           desktopPollRef.current = null;
           await fetch(
-            agentNativePath(`/_agent-native/auth/session?_session=${data.token}`),
+            agentNativePath(
+              `/_agent-native/auth/session?_session=${data.token}`,
+            ),
             {
               credentials: "include",
             },

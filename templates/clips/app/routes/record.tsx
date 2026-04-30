@@ -9,7 +9,9 @@ import { useLiveTranscription } from "@agent-native/core/client/transcription/us
 // and cannot be bundled for the browser).
 async function writeAppState(key: string, value: unknown): Promise<void> {
   await fetch(
-    agentNativePath(`/_agent-native/application-state/${encodeURIComponent(key)}`),
+    agentNativePath(
+      `/_agent-native/application-state/${encodeURIComponent(key)}`,
+    ),
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -214,15 +216,18 @@ export default function RecordRoute() {
         }
 
         // 1. Create the recording row server-side.
-        const res = await fetch(agentNativePath("/_agent-native/actions/create-recording"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: "Untitled recording",
-            hasCamera: opts.mode !== "screen",
-            hasAudio: true,
-          }),
-        });
+        const res = await fetch(
+          agentNativePath("/_agent-native/actions/create-recording"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: "Untitled recording",
+              hasCamera: opts.mode !== "screen",
+              hasAudio: true,
+            }),
+          },
+        );
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) {
             throw new Error("SESSION_EXPIRED");
@@ -360,14 +365,17 @@ export default function RecordRoute() {
       // configured, request-transcript will refine it with Whisper later.
       const browserTranscript = liveTranscription.stop();
       if (browserTranscript.trim()) {
-        void fetch(agentNativePath("/_agent-native/actions/save-browser-transcript"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            recordingId: pending.id,
-            fullText: browserTranscript,
-          }),
-        }).catch(() => {});
+        void fetch(
+          agentNativePath("/_agent-native/actions/save-browser-transcript"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recordingId: pending.id,
+              fullText: browserTranscript,
+            }),
+          },
+        ).catch(() => {});
       }
 
       await engine.stop();

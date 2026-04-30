@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { agentNativePath } from "@agent-native/core/client";
 
 export interface CaptionsOverlayProps {
   text: string;
@@ -29,7 +30,11 @@ export function CaptionsOverlay({
 
   // Load persisted position from application_state (best-effort).
   useEffect(() => {
-    fetch(`/_agent-native/application-state/${storageKey}`)
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/${encodeURIComponent(storageKey)}`,
+      ),
+    )
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (
@@ -72,12 +77,17 @@ export function CaptionsOverlay({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       // Persist
-      fetch(`/_agent-native/application-state/${storageKey}`, {
+      fetch(
+        agentNativePath(
+          `/_agent-native/application-state/${encodeURIComponent(storageKey)}`,
+        ),
+        {
         method: "PUT",
         keepalive: true,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(pos),
-      }).catch(() => {});
+        },
+      ).catch(() => {});
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);

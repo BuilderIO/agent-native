@@ -11,7 +11,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client";
 import { toast } from "sonner";
 
 // Client-side app-state helpers — the `@agent-native/core/application-state`
@@ -20,7 +24,7 @@ import { toast } from "sonner";
 async function readAppStateClient<T = unknown>(key: string): Promise<T | null> {
   try {
     const r = await fetch(
-      `/_agent-native/application-state/${encodeURIComponent(key)}`,
+      agentNativePath(`/_agent-native/application-state/${encodeURIComponent(key)}`),
     );
     if (!r.ok) return null;
     return (await r.json()) as T;
@@ -30,12 +34,15 @@ async function readAppStateClient<T = unknown>(key: string): Promise<T | null> {
 }
 async function writeAppStateClient(key: string, value: unknown): Promise<void> {
   try {
-    await fetch(`/_agent-native/application-state/${encodeURIComponent(key)}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(value),
-      keepalive: true,
-    });
+    await fetch(
+      agentNativePath(`/_agent-native/application-state/${encodeURIComponent(key)}`),
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(value),
+        keepalive: true,
+      },
+    );
   } catch {
     // noop
   }

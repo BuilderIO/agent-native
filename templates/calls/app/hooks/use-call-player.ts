@@ -43,12 +43,14 @@ const FRAME_MS = 1000 / 30;
 
 function writeClientAppState(key: string, value: unknown) {
   return fetch(
-    agentNativePath(`/_agent-native/application-state/${encodeURIComponent(key)}`),
+    agentNativePath(
+      `/_agent-native/application-state/${encodeURIComponent(key)}`,
+    ),
     {
-    method: "PUT",
-    keepalive: true,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(value),
+      method: "PUT",
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
     },
   );
 }

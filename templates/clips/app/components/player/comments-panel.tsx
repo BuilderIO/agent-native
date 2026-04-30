@@ -449,15 +449,20 @@ function CommentCard({
                       }
                       // Patch via delete+re-add isn't ideal; a dedicated action could be added.
                       // For now, store via react-to-recording at comment timestamp as a proxy.
-                      fetch(agentNativePath("/_agent-native/actions/react-to-recording"), {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          recordingId,
-                          emoji: e,
-                          videoTimestampMs: comment.videoTimestampMs,
-                        }),
-                      }).catch(() => {});
+                      fetch(
+                        agentNativePath(
+                          "/_agent-native/actions/react-to-recording",
+                        ),
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            recordingId,
+                            emoji: e,
+                            videoTimestampMs: comment.videoTimestampMs,
+                          }),
+                        },
+                      ).catch(() => {});
                       void next;
                     }}
                     className="text-lg h-8 w-8 rounded hover:bg-accent flex items-center justify-center"

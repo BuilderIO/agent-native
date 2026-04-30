@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { agentNativePath, appBasePath, useActionMutation } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+  useActionMutation,
+} from "@agent-native/core/client";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import {
   IconMicrophone,
@@ -271,14 +275,17 @@ export function InBrowserRecorder({
     // configured, request-transcript will refine it with diarized output later.
     const browserTranscript = liveTranscription.stop();
     if (browserTranscript.trim()) {
-      void fetch(agentNativePath("/_agent-native/actions/save-browser-transcript"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          callId,
-          fullText: browserTranscript,
-        }),
-      }).catch(() => {});
+      void fetch(
+        agentNativePath("/_agent-native/actions/save-browser-transcript"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            callId,
+            fullText: browserTranscript,
+          }),
+        },
+      ).catch(() => {});
     }
 
     const finalBlob = await new Promise<Blob>((resolve) => {
