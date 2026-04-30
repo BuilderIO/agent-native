@@ -86,14 +86,26 @@ async function greenhouseFetch<T>(
   if (!apiKey) throw new Error("Greenhouse API key not configured");
 
   const encoded = Buffer.from(`${apiKey}:`).toString("base64");
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const mergedOptions: RequestInit = {
     ...options,
     headers: {
       Authorization: `Basic ${encoded}`,
       "Content-Type": "application/json",
       ...options.headers,
     },
-  });
+  };
+
+  let res: Response | undefined;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    res = await fetch(`${BASE_URL}${path}`, mergedOptions);
+    if (res.status === 429) {
+      const retryAfter = parseInt(res.headers.get("retry-after") || "1", 10);
+      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+      continue;
+    }
+    break;
+  }
+  if (!res) throw new Error("Greenhouse rate limit: max retries exceeded");
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");

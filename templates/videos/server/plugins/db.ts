@@ -93,6 +93,43 @@ export default runMigrations(
         postgres: `ALTER TABLE design_systems ALTER COLUMN is_default SET DEFAULT false`,
       },
     },
+    // v12: library folders for organizing compositions in the sidebar.
+    {
+      version: 12,
+      sql: `CREATE TABLE IF NOT EXISTS folders (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  )`,
+    },
+    // v13: companion shares table for folders.
+    {
+      version: 13,
+      sql: `CREATE TABLE IF NOT EXISTS folder_shares (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    principal_type TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+    },
+    // v14: composition <-> folder memberships. One canonical placement per
+    // composition; access governed by folder sharing.
+    {
+      version: 14,
+      sql: `CREATE TABLE IF NOT EXISTS folder_memberships (
+    id TEXT PRIMARY KEY,
+    folder_id TEXT NOT NULL,
+    composition_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`,
+    },
   ],
   { table: "videos_migrations" },
 );

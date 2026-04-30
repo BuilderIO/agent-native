@@ -16,7 +16,10 @@ import {
   resourceListAccessible,
   type ResourceMeta,
 } from "./store.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  getRequestUserEmail,
+  hasRequestContext,
+} from "../server/request-context.js";
 
 // Dev-mode fallback identity. Scripts run as standalone CLI processes
 // without HTTP context — when no AGENT_USER_EMAIL is set we fall back to
@@ -27,7 +30,14 @@ import { DEV_MODE_USER_EMAIL } from "../server/auth.js";
 
 function getOwner(shared?: boolean): string {
   if (shared) return SHARED_OWNER;
-  return getRequestUserEmail() ?? DEV_MODE_USER_EMAIL;
+  const userEmail = getRequestUserEmail();
+  if (userEmail) return userEmail;
+  if (hasRequestContext()) {
+    throw new Error(
+      "Resource access requires an authenticated request context",
+    );
+  }
+  return DEV_MODE_USER_EMAIL;
 }
 
 export async function readResource(
@@ -67,6 +77,6 @@ export async function listResources(
 export async function listAllResources(
   prefix?: string,
 ): Promise<ResourceMeta[]> {
-  const userEmail = getRequestUserEmail() ?? DEV_MODE_USER_EMAIL;
+  const userEmail = getOwner(false);
   return resourceListAccessible(userEmail, prefix);
 }

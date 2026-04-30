@@ -3,7 +3,11 @@
 // Uses manual JWT-based service account auth (no SDK dependencies)
 
 import { resolveCredential } from "./credentials";
-import { requireRequestCredentialContext } from "./credentials-context";
+import {
+  credentialCacheScope,
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 import { signRs256Jwt } from "./sign-jwt";
 
 async function getProjectId(): Promise<string> {
@@ -19,8 +23,8 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 120;
 
-// Token cache
-let cachedToken: { token: string; expiresAt: number } | null = null;
+// Token cache, scoped by caller credential context.
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 async function getServiceAccountCredentials() {
   const ctx = requireRequestCredentialContext(
@@ -73,6 +77,8 @@ async function getServiceAccountCredentials() {
 }
 
 export async function getAccessToken(): Promise<string> {
+  const tokenKey = credentialCacheScope("GOOGLE_APPLICATION_CREDENTIALS_JSON");
+  const cachedToken = tokenCache.get(tokenKey);
   if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
     return cachedToken.token;
   }
@@ -114,10 +120,10 @@ export async function getAccessToken(): Promise<string> {
     access_token: string;
     expires_in: number;
   };
-  cachedToken = {
+  tokenCache.set(tokenKey, {
     token: data.access_token,
     expiresAt: Date.now() + data.expires_in * 1000,
-  };
+  });
 
   return data.access_token;
 }
@@ -131,7 +137,10 @@ function cacheSet(key: string, data: unknown) {
 }
 
 async function apiGet<T>(url: string, cacheKey?: string): Promise<T> {
-  const key = cacheKey ?? url;
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? url,
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;
@@ -160,7 +169,10 @@ async function apiPost<T>(
   body: unknown,
   cacheKey?: string,
 ): Promise<T> {
-  const key = cacheKey ?? `POST:${url}:${JSON.stringify(body)}`;
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? `POST:${url}:${JSON.stringify(body)}`,
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

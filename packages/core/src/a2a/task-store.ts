@@ -22,12 +22,25 @@ async function ensureTable(): Promise<void> {
           updated_at ${intType()} NOT NULL
         )
       `);
+      // Additive migration: owner_email column. Bound to the JWT-verified
+      // caller at task-creation time so handleGet / handleCancel can reject
+      // mismatched callers (the IDOR class fixed in PR #369). Existing rows
+      // have NULL owner_email and remain accessible to legacy callers via
+      // the legacy-token apiKeyEnv path; new rows are scoped from this point
+      // forward.
+      try {
+        await client.execute(
+          `ALTER TABLE a2a_tasks ADD COLUMN owner_email TEXT`,
+        );
+      } catch {
+        // Column already exists — expected on every restart after first run.
+      }
     })();
   }
   return _initPromise;
 }
 
-function taskFromRow(row: any): Task {
+function taskFromRow(row: any): Task & { ownerEmail?: string | null } {
   return {
     id: row.id as string,
     contextId: (row.context_id as string) || undefined,
@@ -41,6 +54,7 @@ function taskFromRow(row: any): Task {
     history: JSON.parse(row.history as string),
     artifacts: JSON.parse(row.artifacts as string),
     metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
+    ownerEmail: (row.owner_email as string | null) ?? null,
   };
 }
 
@@ -48,6 +62,7 @@ export async function createTask(
   message: Message,
   contextId?: string,
   metadata?: Record<string, unknown>,
+  ownerEmail?: string | null,
 ): Promise<Task> {
   await ensureTable();
   const client = getDbExec();
@@ -65,7 +80,7 @@ export async function createTask(
   };
 
   await client.execute({
-    sql: `INSERT INTO a2a_tasks (id, context_id, status_state, status_timestamp, history, artifacts, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO a2a_tasks (id, context_id, status_state, status_timestamp, history, artifacts, metadata, owner_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       contextId ?? null,
@@ -74,12 +89,33 @@ export async function createTask(
       JSON.stringify([message]),
       "[]",
       metadata ? JSON.stringify(metadata) : null,
+      ownerEmail ?? null,
       now,
       now,
     ],
   });
 
   return task;
+}
+
+/**
+ * Fetch the verified owner email recorded against a task at creation time.
+ * Returns null when the task has no owner (legacy rows or unauthenticated
+ * deployments) or when the task is missing.
+ *
+ * Used by `handleGet` / `handleCancel` to reject IDOR access — the JWT-
+ * verified caller's email must match `owner_email` to read or cancel.
+ */
+export async function getTaskOwner(id: string): Promise<string | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT owner_email FROM a2a_tasks WHERE id = ?`,
+    args: [id],
+  });
+  if (rows.length === 0) return null;
+  const ownerEmail = (rows[0] as any).owner_email;
+  return typeof ownerEmail === "string" && ownerEmail ? ownerEmail : null;
 }
 
 /**

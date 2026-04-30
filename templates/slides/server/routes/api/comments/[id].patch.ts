@@ -45,8 +45,8 @@ export default defineEventHandler(async (event) => {
         }
       } catch (err) {
         if (err instanceof ForbiddenError) {
-          setResponseStatus(event, err.statusCode);
-          return { error: err.message };
+          setResponseStatus(event, 404);
+          return { error: "Comment not found" };
         }
         throw err;
       }

@@ -20,8 +20,10 @@
  * distinction.
  *
  * This script scans the credentials / secrets / vault code paths for any
- * `process.env.<KEY>` (or `process.env["KEY"]`) read whose key is NOT in
- * the allowlist. Any non-allowlisted hit is a violation.
+ * `process.env.<KEY>` / `process.env["KEY"]` read whose key is NOT in
+ * the allowlist, plus any dynamic `process.env[key]` read. Dynamic reads
+ * cannot be allowlisted safely because the key is only known at runtime.
+ * Any non-allowlisted hit is a violation.
  *
  * Last-resort opt-out (requires reviewer approval):
  *
@@ -121,6 +123,14 @@ const FORBIDDEN_PATH_PREDICATES = [
   (rel) => /^packages\/core\/src\/credentials\//.test(rel),
   (rel) => /^packages\/core\/src\/secrets\//.test(rel),
   (rel) => /^packages\/core\/src\/vault\//.test(rel),
+  // packages/core agent subtree — `getOwnerActiveApiKey` resolves the
+  // current user's provider API key and historically fell back to
+  // `process.env[envVar]` (dynamic key). On a multi-tenant deploy that
+  // silently substituted the deploy-level key for every user, exactly
+  // the prior-incident pattern. The fix in production-agent.ts gates
+  // the env-fallback on `isMultiTenantDeploy()`, but the guard catches
+  // any future regression at CI time.
+  (rel) => /^packages\/core\/src\/agent\//.test(rel),
   // template credential libs
   (rel) => /^templates\/[^/]+\/server\/lib\/credential[^/]*\.ts$/.test(rel),
   // template credential routes (single + plural)
@@ -146,6 +156,12 @@ const OPT_OUT_REQUIRES_REASON = /\/\/\s*guard:allow-env-credential\s*[—-]\s*\S
 // are all upper case.
 const ENV_READ_REGEX =
   /process\.env(?:\.([A-Z][A-Z0-9_]*)|\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])/g;
+
+// process.env[key] or process.env?.[key]
+// Dynamic keys were the original leak shape (`process.env[key]` inside
+// resolveCredential), and literal-only regexes miss them entirely.
+const ENV_DYNAMIC_READ_REGEX =
+  /process\.env(?:\?\.)?\s*\[\s*(?!["'])([^\]\n]+?)\s*\]/g;
 
 function isAllowlistedKey(key) {
   if (ALLOWLIST_EXACT.has(key)) return true;
@@ -256,6 +272,18 @@ async function scan() {
       if (isAllowlistedKey(key)) continue;
       const { line, col } = lineColForOffset(contents, m.index);
       const lineIdx = line - 1;
+      // Skip matches inside comment lines so docstrings explaining a
+      // dangerous pattern (e.g. "do NOT do `process.env.X`") don't
+      // trip the guard. Same posture the dynamic-regex pass below uses.
+      const lineText = lines[lineIdx] ?? "";
+      const trimmedLine = lineText.trimStart();
+      if (
+        trimmedLine.startsWith("*") ||
+        trimmedLine.startsWith("//") ||
+        trimmedLine.startsWith("/*")
+      ) {
+        continue;
+      }
       if (hasOptOutOnLine(lines, lineIdx)) {
         const verdict = optOutOnLineIsValid(lines, lineIdx, key, rel);
         if (verdict.ok) continue;
@@ -276,6 +304,42 @@ async function scan() {
         key,
         reason: "not in allowlist",
         snippet: lines[lineIdx]?.trim() ?? "",
+      });
+    }
+
+    ENV_DYNAMIC_READ_REGEX.lastIndex = 0;
+    while ((m = ENV_DYNAMIC_READ_REGEX.exec(contents)) !== null) {
+      const { line, col } = lineColForOffset(contents, m.index);
+      const lineIdx = line - 1;
+      const lineText = lines[lineIdx] ?? "";
+      const trimmed = lineText.trimStart();
+      if (
+        trimmed.startsWith("*") ||
+        trimmed.startsWith("//") ||
+        trimmed.startsWith("/*")
+      ) {
+        continue;
+      }
+      if (hasOptOutOnLine(lines, lineIdx)) {
+        const verdict = optOutOnLineIsValid(lines, lineIdx, "<dynamic>", rel);
+        if (verdict.ok) continue;
+        violations.push({
+          file: rel,
+          line,
+          col,
+          key: "<dynamic>",
+          reason: `opt-out invalid: ${verdict.why}`,
+          snippet: lineText.trim(),
+        });
+        continue;
+      }
+      violations.push({
+        file: rel,
+        line,
+        col,
+        key: "<dynamic>",
+        reason: "dynamic process.env key in credential path",
+        snippet: lineText.trim(),
       });
     }
   }

@@ -95,6 +95,7 @@ export default defineEventHandler(async (event: H3Event) => {
       const total = bytes.byteLength;
 
       setResponseHeader(event, "Content-Type", mimeType);
+      setResponseHeader(event, "X-Content-Type-Options", "nosniff");
       setResponseHeader(event, "Accept-Ranges", "bytes");
       setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
 

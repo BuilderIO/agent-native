@@ -10,6 +10,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
+import { requireOrganizationAccess } from "../server/lib/recordings.js";
 
 export default defineAction({
   description: "Rename a space and/or change its color / emoji.",
@@ -33,6 +34,7 @@ export default defineAction({
       .from(schema.spaces)
       .where(eq(schema.spaces.id, args.id));
     if (!existing) throw new Error(`Space not found: ${args.id}`);
+    await requireOrganizationAccess(existing.organizationId, ["admin"]);
 
     const patch: Record<string, unknown> = {};
     if (typeof args.name === "string") patch.name = args.name.trim();

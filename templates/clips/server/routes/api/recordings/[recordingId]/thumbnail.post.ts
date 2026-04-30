@@ -23,6 +23,31 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
 
+const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
+
+function normalizeThumbnailMimeType(
+  value: string,
+): "image/jpeg" | "image/png" | null {
+  const mimeType = value.split(";")[0]?.trim().toLowerCase();
+  if (mimeType === "image/jpeg" || mimeType === "image/png") return mimeType;
+  return null;
+}
+
+function hasExpectedThumbnailSignature(
+  mimeType: "image/jpeg" | "image/png",
+  bytes: Uint8Array,
+): boolean {
+  if (mimeType === "image/png") {
+    return (
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47
+    );
+  }
+  return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const recordingId = getRouterParam(event, "recordingId");
   console.log("[thumbnail] POST received", { recordingId });
@@ -78,20 +103,36 @@ export default defineEventHandler(async (event: H3Event) => {
       };
     }
 
+    const contentLength = Number(getHeader(event, "content-length") || 0);
+    if (contentLength > MAX_THUMBNAIL_BYTES) {
+      setResponseStatus(event, 413);
+      return { error: "Thumbnail too large" };
+    }
+
     const raw = await readRawBody(event, false);
     if (!raw || raw.byteLength === 0) {
       setResponseStatus(event, 400);
       return { error: "Empty thumbnail body" };
     }
+    if (raw.byteLength > MAX_THUMBNAIL_BYTES) {
+      setResponseStatus(event, 413);
+      return { error: "Thumbnail too large" };
+    }
 
     const headerType = getHeader(event, "content-type") || "";
-    const mimeType = headerType.startsWith("image/")
-      ? headerType
-      : "image/jpeg";
+    const mimeType = normalizeThumbnailMimeType(headerType);
+    if (!mimeType) {
+      setResponseStatus(event, 400);
+      return { error: "Only JPEG and PNG thumbnails are allowed" };
+    }
     const ext = mimeType === "image/png" ? "png" : "jpg";
 
     const bytes: Uint8Array =
       raw instanceof Uint8Array ? raw : new Uint8Array(raw as ArrayBuffer);
+    if (!hasExpectedThumbnailSignature(mimeType, bytes)) {
+      setResponseStatus(event, 400);
+      return { error: "Thumbnail bytes do not match Content-Type" };
+    }
 
     // Try the configured file-upload provider first (Builder.io or a
     // user-registered one). In dev / solo mode no provider is usually

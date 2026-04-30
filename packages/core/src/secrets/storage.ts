@@ -69,28 +69,39 @@ async function ensureTable(): Promise<void> {
 /**
  * Derive a 32-byte AES key from the configured secret material via SHA-256.
  * Re-derived per-request (cheap, stateless, and makes rotation easy).
+ *
+ * In production we refuse to start with the CWD-derived fallback. Same
+ * posture `resolveAuthSecret` takes for `BETTER_AUTH_SECRET` — fail loud
+ * rather than encrypt every secret with a key that's effectively static
+ * across the whole deployment (Lambda CWD is `/var/task`, etc.). Anyone
+ * with read access to the DB (forgotten backup, pg_dump, downgraded env)
+ * could otherwise decrypt every user's secrets with trivial work.
  */
 function getEncryptionKey(): Buffer {
-  const material =
-    process.env.SECRETS_ENCRYPTION_KEY ||
-    process.env.BETTER_AUTH_SECRET ||
-    // Machine-local fallback — a stable string tied to the project on disk.
-    // Not ideal for shared/hosted databases; warn once below.
-    `agent-native-secrets:${process.cwd()}`;
+  const explicit =
+    process.env.SECRETS_ENCRYPTION_KEY || process.env.BETTER_AUTH_SECRET;
 
-  if (
-    !process.env.SECRETS_ENCRYPTION_KEY &&
-    !process.env.BETTER_AUTH_SECRET &&
-    !_warnedFallback
-  ) {
-    _warnedFallback = true;
-    // eslint-disable-next-line no-console
-    console.warn(
-      "[agent-native/secrets] SECRETS_ENCRYPTION_KEY not set — using a machine-local fallback. " +
-        "Set SECRETS_ENCRYPTION_KEY (or BETTER_AUTH_SECRET) for production.",
-    );
+  if (!explicit) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "[agent-native/secrets] Refusing to start in production without an encryption key. " +
+          "Set SECRETS_ENCRYPTION_KEY (preferred) or BETTER_AUTH_SECRET in the deploy environment. " +
+          "The previous CWD-derived fallback was effectively static (e.g. `/var/task` on Lambda), " +
+          "which means anyone with read access to the secrets table could decrypt every user's secrets.",
+      );
+    }
+    if (!_warnedFallback) {
+      _warnedFallback = true;
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[agent-native/secrets] SECRETS_ENCRYPTION_KEY not set — using a machine-local fallback. " +
+          "Set SECRETS_ENCRYPTION_KEY (or BETTER_AUTH_SECRET) for production. " +
+          "Production deploys without one of these env vars now hard-fail.",
+      );
+    }
   }
 
+  const material = explicit || `agent-native-secrets:${process.cwd()}`;
   return createHash("sha256").update(material).digest();
 }
 

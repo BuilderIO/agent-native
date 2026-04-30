@@ -19,7 +19,7 @@ pnpm install
 pnpm dev
 ```
 
-Available templates: `mail`, `calendar`, `content`, `slides`, `video`, `analytics`. Replace `mail` above with any template name.
+Available templates: `mail`, `calendar`, `content`, `analytics`, `slides`, `videos`, `forms`, `clips`, `design`, `dispatch`. Replace `mail` above with any template name.
 
 To start from a blank canvas instead, omit `--template`:
 

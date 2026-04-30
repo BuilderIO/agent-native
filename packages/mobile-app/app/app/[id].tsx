@@ -15,10 +15,20 @@ import { useApps } from "@/lib/use-apps";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const SESSION_TOKEN_KEY = "agent-native:session-token";
+const OAUTH_STATE_KEY = "agent-native:oauth-state";
 
 // Google blocks OAuth in embedded WebViews. Open Google auth URLs in the
 // system browser (Safari) instead.
 const EXTERNAL_HOSTS = ["accounts.google.com", "oauth2.googleapis.com"];
+
+function rememberOAuthState(url: string) {
+  try {
+    const state = new URL(url).searchParams.get("state");
+    if (state) void AsyncStorage.setItem(OAUTH_STATE_KEY, state);
+  } catch {
+    // Invalid URL — ignore
+  }
+}
 
 export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -66,6 +76,7 @@ export default function AppScreen() {
       const parsed = new URL(event.url);
       if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
         openedExternal.current = true;
+        rememberOAuthState(event.url);
         Linking.openURL(event.url);
         return false;
       }
@@ -175,7 +186,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#111111",
   },
   loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#111111",

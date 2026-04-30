@@ -49,14 +49,16 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
-    const state = encodeOAuthState(
+    // Use the named-arg overload — the positional form previously passed
+    // `flowId` in the `returnUrl` slot, breaking desktop completion.
+    const state = encodeOAuthState({
       redirectUri,
       owner,
       desktop,
-      false,
-      "calendar",
+      addAccount: false,
+      app: "calendar",
       flowId,
-    );
+    });
     const url = getAuthUrl(undefined, redirectUri, state);
     if (q.redirect === "1") {
       return sendRedirect(event, url, 302);
@@ -151,14 +153,14 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const desktop =
         isElectron(event) || q.desktop === "1" || q.desktop === "true";
       const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
-      const state = encodeOAuthState(
+      const state = encodeOAuthState({
         redirectUri,
-        session.email,
+        owner: session.email,
         desktop,
-        true,
-        "calendar",
+        addAccount: true,
+        app: "calendar",
         flowId,
-      );
+      });
       const url = getAuthUrl(undefined, redirectUri, state);
       if (q.redirect === "1") {
         return sendRedirect(event, url, 302);

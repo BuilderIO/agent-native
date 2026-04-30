@@ -7,6 +7,7 @@ import { customAlphabet } from "nanoid";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
+import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 
 const nanoid = customAlphabet(
@@ -71,6 +72,9 @@ export default defineAction({
         settings = args.settings as unknown as FormSettings;
       }
     }
+    // Reject blocked integration URLs at save time. fireIntegrations also
+    // re-checks at runtime as defense-in-depth.
+    assertIntegrationUrlsAllowed(settings);
 
     const db = getDb();
     await db.insert(schema.forms).values({

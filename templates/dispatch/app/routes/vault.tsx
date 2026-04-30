@@ -305,7 +305,7 @@ function SecretRow({ secret, grants }: { secret: any; grants: any[] }) {
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Value:</span>
             <code className="text-xs font-mono text-foreground">
-              {showValue ? secret.value : "••••••••••••"}
+              {showValue ? secret.value : `••••${secret.value.slice(-4)}`}
             </code>
             <button
               type="button"

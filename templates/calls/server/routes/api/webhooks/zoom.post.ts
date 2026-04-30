@@ -147,9 +147,22 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 401);
       return { error: "Invalid signature" };
     }
+  } else if (
+    process.env.NODE_ENV === "production" &&
+    process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS !== "1"
+  ) {
+    // Fail-closed in production: an unauthenticated POST can manufacture a
+    // fake Zoom recording.completed event tied to any host email and
+    // create a `processing` row + transcription job. Set
+    // AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1 for staging only.
+    console.error(
+      "[calls] ZOOM_WEBHOOK_SECRET not configured — refusing webhook",
+    );
+    setResponseStatus(event, 401);
+    return { error: "ZOOM_WEBHOOK_SECRET not configured" };
   } else {
     console.warn(
-      "[calls] ZOOM_WEBHOOK_SECRET not set — accepting Zoom webhook without verification",
+      "[calls] ZOOM_WEBHOOK_SECRET not set — accepting Zoom webhook without verification (dev only)",
     );
   }
 
@@ -168,8 +181,18 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 400);
       return { error: "Missing plainToken" };
     }
-    const hashKey = secret ?? "dev-zoom-secret";
-    const encryptedToken = createHmac("sha256", hashKey)
+    if (!secret) {
+      // Refuse to complete the handshake with a publicly-known literal.
+      // Doing so would let an attacker register their own webhook target
+      // against this deploy and observe traffic. Require the secret be
+      // configured before Zoom can complete the URL validation.
+      console.error(
+        "[calls] ZOOM_WEBHOOK_SECRET not configured — cannot complete Zoom URL validation",
+      );
+      setResponseStatus(event, 401);
+      return { error: "ZOOM_WEBHOOK_SECRET not configured" };
+    }
+    const encryptedToken = createHmac("sha256", secret)
       .update(plainToken)
       .digest("hex");
     return { plainToken, encryptedToken };

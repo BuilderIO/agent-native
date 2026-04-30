@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "Check which image generation providers are configured (agent CLI tool).",
-  parameters: {},
+  schema: z.object({}),
   http: false,
   run: async () => {
     const { getConfiguredProviders } =

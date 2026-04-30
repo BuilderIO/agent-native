@@ -5,6 +5,7 @@ import {
   useEffect,
   useCallback,
   useRef,
+  useSyncExternalStore,
   ReactNode,
 } from "react";
 import { nanoid } from "nanoid";
@@ -123,8 +124,32 @@ const DeckContext = createContext<DeckContextType | null>(null);
 
 const MAX_HISTORY = 50;
 
-// Debounced save to API
+// Debounced save to API + save-state listeners (so the toolbar indicator
+// can show "Saving…" / "Saved"). The map tracks pending debounce timers;
+// `inFlight` tracks active fetches. Combined, they answer "is anything
+// uncommitted?" for the indicator.
 const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
+const inFlightSaves = new Set<string>();
+const saveStateListeners = new Set<() => void>();
+
+function notifySaveListeners() {
+  saveStateListeners.forEach((fn) => {
+    try {
+      fn();
+    } catch {}
+  });
+}
+
+/** Subscribe to save-state changes — used by `useSaveState`. */
+export function subscribeSaveState(listener: () => void): () => void {
+  saveStateListeners.add(listener);
+  return () => saveStateListeners.delete(listener);
+}
+
+/** Snapshot of save state — true when anything is debounced or in flight. */
+export function getSaveSnapshot(): { saving: boolean } {
+  return { saving: pendingSaves.size > 0 || inFlightSaves.size > 0 };
+}
 
 function saveDeckToAPI(deck: Deck) {
   // Clear any pending save for this deck
@@ -134,6 +159,8 @@ function saveDeckToAPI(deck: Deck) {
   // Debounce: wait 500ms before saving
   const timer = setTimeout(async () => {
     pendingSaves.delete(deck.id);
+    inFlightSaves.add(deck.id);
+    notifySaveListeners();
     try {
       await fetch(`${appBasePath()}/api/decks/${deck.id}`, {
         method: "PUT",
@@ -142,9 +169,13 @@ function saveDeckToAPI(deck: Deck) {
       });
     } catch (err) {
       console.error(`Failed to save deck ${deck.id}:`, err);
+    } finally {
+      inFlightSaves.delete(deck.id);
+      notifySaveListeners();
     }
   }, 500);
   pendingSaves.set(deck.id, timer);
+  notifySaveListeners();
 }
 
 async function fetchDecksFromAPI(): Promise<Deck[]> {
@@ -744,4 +775,18 @@ export function useDecks() {
   const ctx = useContext(DeckContext);
   if (!ctx) throw new Error("useDecks must be used within DeckProvider");
   return ctx;
+}
+
+/**
+ * Subscribe to deck save-state. Returns `{ saving: boolean }` — true while any
+ * deck has a pending debounce timer or an in-flight PUT.
+ *
+ * Used by SaveStatusIndicator in the toolbar so users always see whether
+ * their work has been committed (Rochkind reported losing a full deck because
+ * there was no save signal).
+ */
+export function useSaveState(): { saving: boolean } {
+  return useSyncExternalStore(subscribeSaveState, getSaveSnapshot, () => ({
+    saving: false,
+  }));
 }

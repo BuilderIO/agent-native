@@ -62,6 +62,33 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * Validate a form-author-supplied post-submit redirect URL. Returns the
+ * value verbatim only if it parses as `http:` or `https:` — falls back to
+ * an empty string otherwise (caller treats empty as "no redirect").
+ *
+ * Form publishers control `settings.redirectUrl` and the rendered page
+ * assigns it to `window.location.href`. Without scheme validation a
+ * `javascript:fetch(...)` redirectUrl would execute attacker JS in the
+ * form-publisher origin against any anonymous submitter.
+ */
+export function safeRedirectUrl(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  // Reject control characters and protocol-relative URLs outright.
+  if (/[\x00-\x1f]/.test(trimmed)) return "";
+  if (trimmed.startsWith("//")) return "";
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? trimmed
+      : "";
+  } catch {
+    return "";
+  }
+}
+
 function renderField(field: FormField): string {
   const req = field.required ? " required" : "";
   const ph = field.placeholder
@@ -248,7 +275,7 @@ ${form.description ? `<meta name="description" content="${escapeHtml(form.descri
 <script>
 (function(){
   var FORM_ID = ${JSON.stringify(form.id)};
-  var REDIRECT = ${JSON.stringify(settings.redirectUrl || "")};
+  var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
   var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional })))};
 

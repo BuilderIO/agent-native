@@ -1,0 +1,1 @@
+const e=new Map;function t(t){if(!t||typeof t.id!=`string`||!t.id)throw Error(`registerOnboardingStep: step.id is required`);e.has(t.id)&&process.env.DEBUG&&console.log(`[agent-native] Overriding onboarding step "${t.id}" with new registration.`),e.set(t.id,t)}function n(){return Array.from(e.values()).sort((e,t)=>e.order-t.order)}export{t as n,n as t};

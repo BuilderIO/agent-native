@@ -332,22 +332,25 @@ export default function App() {
     );
   }
 
-  // Collect all mounted webviews across all enabled apps
+  // Mount only the active app's webviews. Electron <webview> guests are native
+  // surfaces on macOS; keeping every app mounted and hidden can leave stale
+  // compositor pixels on top of the newly-selected app even though React state
+  // and the accessibility tree have moved on.
   const allWebviews: {
     tab: Tab;
     app: AppConfig;
     appDef: AppDefinition;
     isActive: boolean;
   }[] = [];
-  for (const app of enabledApps) {
-    const state = appTabs[app.id];
-    if (!state) continue;
-    for (const tab of state.tabs) {
+  const activeApp = enabledApps.find((app) => app.id === activeSidebarAppId);
+  const activeAppState = activeApp ? appTabs[activeApp.id] : undefined;
+  if (activeApp && activeAppState) {
+    for (const tab of activeAppState.tabs) {
       allWebviews.push({
         tab,
-        app,
-        appDef: toAppDefinition(app),
-        isActive: app.id === activeSidebarAppId && tab.id === state.activeTabId,
+        app: activeApp,
+        appDef: toAppDefinition(activeApp),
+        isActive: tab.id === activeAppState.activeTabId,
       });
     }
   }

@@ -225,10 +225,10 @@ function SharePanel(
   }, []);
 
   const data = sharesQuery.data;
+  const isLoading = data === undefined;
   const serverVisibility = (data?.visibility as Visibility | null) ?? "private";
   const visibility: Visibility = visibilityOverride ?? serverVisibility;
-  const canManage =
-    data === undefined || data?.role === "owner" || data?.role === "admin";
+  const canManage = data?.role === "owner" || data?.role === "admin";
   const meta = VIS_META[visibility];
 
   const serverShares = data?.shares ?? [];
@@ -373,6 +373,29 @@ function SharePanel(
   const titleText = resourceTitle
     ? `Share "${resourceTitle}"`
     : `Share ${resourceType}`;
+
+  if (isLoading) {
+    return (
+      <div>
+        <div
+          className="mb-3 truncate text-base font-semibold"
+          title={titleText}
+        >
+          {titleText}
+        </div>
+        <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
+        <div className="mb-2 text-sm font-semibold">People with access</div>
+        <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
+        <div className="mb-2 text-sm font-semibold">General access</div>
+        <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
+        <div className="mt-2 flex justify-end">
+          <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
+            Done
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

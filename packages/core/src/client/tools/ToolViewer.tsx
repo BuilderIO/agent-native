@@ -10,6 +10,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import {
+  isAllowedToolPath,
+  sanitizeToolRequestOptions,
+} from "./iframe-bridge.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -260,7 +264,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
         );
       };
 
-      if (!requestId || !isAllowedToolPath(path)) {
+      if (!requestId || !isAllowedToolPath(path, toolId)) {
         respond({ error: "Tool request path is not allowed" });
         return;
       }
@@ -295,7 +299,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, []);
+  }, [toolId]);
 
   const { data: tool, isLoading } = useQuery<Tool>({
     queryKey: ["tool", toolId],
@@ -449,54 +453,4 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
       </div>
     </div>
   );
-}
-
-function isAllowedToolPath(path: string): boolean {
-  if (!path.startsWith("/") || path.startsWith("//")) return false;
-  if (path.includes("\\") || path.includes("\0")) return false;
-  // Reject path traversal: normalize via URL and check the resolved path didn't escape.
-  try {
-    const resolved = new URL(path, "http://x").pathname;
-    if (resolved.includes("..") || resolved !== path.split("?")[0])
-      return false;
-  } catch {
-    return false;
-  }
-  return true;
-}
-
-function sanitizeToolRequestOptions(value: unknown): RequestInit {
-  if (!value || typeof value !== "object") return {};
-  const raw = value as Record<string, unknown>;
-  const method =
-    typeof raw.method === "string" && raw.method.trim()
-      ? raw.method.toUpperCase()
-      : "GET";
-  const headers =
-    raw.headers && typeof raw.headers === "object"
-      ? Object.fromEntries(
-          Object.entries(raw.headers as Record<string, unknown>)
-            .filter(([key, val]) => isAllowedHeader(key) && val !== undefined)
-            .map(([key, val]) => [key, String(val)]),
-        )
-      : undefined;
-  const body =
-    typeof raw.body === "string" ||
-    raw.body instanceof Blob ||
-    raw.body instanceof FormData
-      ? raw.body
-      : raw.body === undefined
-        ? undefined
-        : JSON.stringify(raw.body);
-
-  return {
-    method,
-    headers,
-    body: method === "GET" || method === "HEAD" ? undefined : body,
-  };
-}
-
-function isAllowedHeader(name: string): boolean {
-  const lower = name.toLowerCase();
-  return !["cookie", "host", "origin", "referer"].includes(lower);
 }

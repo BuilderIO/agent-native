@@ -413,10 +413,10 @@ body {
 }
 
 /* ─── Webview slot ───────────────────────────────────────────── */
-/* Each slot is absolutely positioned so they stack on top of each
-   other. The webview inside uses flex:1 in a flex-column container
-   to fill the full height. visibility:hidden on the slot hides
-   inactive tabs without removing them from DOM. */
+/* Each slot is absolutely positioned so tabs stack on top of each
+   other. Electron <webview> is a native guest surface on macOS, and
+   visibility:hidden can leave stale pixels composited over the active
+   tab. Move inactive tabs out of the viewport instead. */
 .webview-slot {
   position: absolute;
   top: 0;
@@ -425,11 +425,18 @@ body {
   bottom: 0;
   display: flex;
   flex-direction: column;
+  z-index: 0;
+}
+
+.webview-slot--active {
+  z-index: 1;
+  transform: translate3d(0, 0, 0);
 }
 
 .webview-slot--hidden {
-  visibility: hidden;
+  opacity: 0;
   pointer-events: none;
+  transform: translate3d(-200vw, 0, 0);
 }
 
 .webview-slot--fullscreen {

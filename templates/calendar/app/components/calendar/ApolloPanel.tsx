@@ -11,6 +11,18 @@ import type { CalendarEvent } from "@shared/api";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import { IntegrationsSidebar } from "./IntegrationsSidebar";
 
+function safeExternalHref(value?: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Apollo logo SVG ────────────────────────────────────────────────────────
 
 function ApolloLogo({ className }: { className?: string }) {
@@ -200,9 +212,9 @@ function ApolloPersonCard({ person }: { person: ApolloPersonResult }) {
         <>
           <div className="h-px bg-border/40 mx-3" />
           <div className="px-3 py-2 flex flex-wrap gap-3">
-            {person.linkedin_url && (
+            {safeExternalHref(person.linkedin_url) && (
               <a
-                href={person.linkedin_url}
+                href={safeExternalHref(person.linkedin_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
@@ -210,9 +222,9 @@ function ApolloPersonCard({ person }: { person: ApolloPersonResult }) {
                 LinkedIn
               </a>
             )}
-            {person.twitter_url && (
+            {safeExternalHref(person.twitter_url) && (
               <a
-                href={person.twitter_url}
+                href={safeExternalHref(person.twitter_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
@@ -220,9 +232,12 @@ function ApolloPersonCard({ person }: { person: ApolloPersonResult }) {
                 X
               </a>
             )}
-            {person.organization?.website_url && (
+            {safeExternalHref(person.organization?.website_url) && (
               <a
-                href={person.organization.website_url}
+                href={
+                  safeExternalHref(person.organization?.website_url) ??
+                  undefined
+                }
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"

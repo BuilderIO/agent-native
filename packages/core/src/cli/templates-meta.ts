@@ -156,6 +156,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8091,
     prodUrl: "https://issues.agent-native.com",
     defaultMode: "dev",
+    hidden: true,
   },
   {
     name: "recruiting",
@@ -167,6 +168,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8090,
     prodUrl: "https://recruiting.agent-native.com",
     defaultMode: "dev",
+    hidden: true,
   },
   {
     name: "starter",
@@ -214,6 +216,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8095,
     prodUrl: "https://calls.agent-native.com",
     defaultMode: "prod",
+    hidden: true,
   },
   {
     name: "meeting-notes",
@@ -225,6 +228,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8096,
     prodUrl: "https://meeting-notes.agent-native.com",
     defaultMode: "prod",
+    hidden: true,
   },
   {
     name: "scheduling",
@@ -237,6 +241,7 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://scheduling.agent-native.com",
     defaultMode: "prod",
     requiredPackages: ["scheduling"],
+    hidden: true,
   },
   {
     name: "voice",
@@ -248,6 +253,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8097,
     prodUrl: "https://voice.agent-native.com",
     defaultMode: "prod",
+    hidden: true,
   },
   {
     name: "macros",

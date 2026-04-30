@@ -5,7 +5,6 @@ import { InvitationBanner } from "@agent-native/core/client/org";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import {
   IconArrowUpRight,
-  IconBellCog,
   IconBrandTelegram,
   IconKey,
   IconLayersSubtract,
@@ -51,7 +50,18 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="border-b px-4 py-3">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl border bg-card text-foreground">
-            <IconBellCog size={17} />
+            <img
+              src="/agent-native-icon-light.svg"
+              alt=""
+              aria-hidden="true"
+              className="block h-4 w-auto shrink-0 dark:hidden"
+            />
+            <img
+              src="/agent-native-icon-dark.svg"
+              alt=""
+              aria-hidden="true"
+              className="hidden h-4 w-auto shrink-0 dark:block"
+            />
           </div>
           <div>
             <div className="text-sm font-semibold text-foreground">

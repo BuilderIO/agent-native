@@ -25,7 +25,7 @@ import { z } from "zod";
 import {
   getCurrentOwnerEmail,
   nanoid,
-  requireActiveOrganizationId,
+  requireOrganizationAccess,
 } from "../server/lib/recordings.js";
 
 function getAppName(): string {
@@ -98,7 +98,9 @@ export default defineAction({
     const exec = getDbExec();
     const pg = isPostgres();
 
-    const organizationId = await requireActiveOrganizationId();
+    const { organizationId } = await requireOrganizationAccess(undefined, [
+      "admin",
+    ]);
     const inviter = getCurrentOwnerEmail();
     const inviterUserId = (await resolveUserId(inviter)) ?? inviter;
     const betterAuthRole = mapRole(args.role);

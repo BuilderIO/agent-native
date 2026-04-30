@@ -17,7 +17,7 @@ import React, {
   type CSSProperties,
 } from "react";
 import { agentNativePath } from "../api-path.js";
-import { getFrameOrigin } from "../frame.js";
+import { getFrameOrigin, isTrustedFrameMessage } from "../frame.js";
 
 export interface AgentTerminalProps {
   /** CLI command to run. Default: 'builder' */
@@ -115,6 +115,12 @@ interface TerminalInfo {
   wsPort?: number;
   command?: string;
   error?: string;
+}
+
+export function formatWebSocketHostname(hostname: string) {
+  return hostname.includes(":") && !hostname.startsWith("[")
+    ? `[${hostname}]`
+    : hostname;
 }
 
 export function AgentTerminal({
@@ -223,7 +229,8 @@ export function AgentTerminal({
             return;
           }
           const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-          wsUrl = `${protocol}//${location.hostname}:${info.wsPort}/ws`;
+          const host = formatWebSocketHostname(location.hostname);
+          wsUrl = `${protocol}//${host}:${info.wsPort}/ws`;
           if (!command && info.command) {
             command = info.command;
           }
@@ -354,13 +361,7 @@ export function AgentTerminal({
 
       // Chat bridge integration — listen for sendToAgentChat messages
       const messageHandler = (event: MessageEvent) => {
-        // Only accept messages from same origin or known frame
-        if (
-          event.origin !== window.location.origin &&
-          event.origin !== getFrameOrigin()
-        ) {
-          return;
-        }
+        if (!isTrustedFrameMessage(event)) return;
         if (event.data?.type === "builder.submitChat") {
           const message = event.data.data?.message;
           if (message && ws && ws.readyState === WebSocket.OPEN) {
@@ -401,7 +402,7 @@ export function AgentTerminal({
       cleanupMessageHandler?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hideInFrame, inFrame, command]);
+  }, [hideInFrame, inFrame, command, flags, wsUrlProp]);
 
   if (hideInFrame && inFrame) {
     return null;

@@ -7,6 +7,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/helpers.js";
 
@@ -20,6 +21,7 @@ const DEFAULT_STYLES = [
 export default defineAction({
   description:
     "Get the user's style presets for all dictation categories. Returns defaults for categories that have not been customized.",
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
     const db = getDb();

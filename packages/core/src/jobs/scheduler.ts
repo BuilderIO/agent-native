@@ -253,6 +253,76 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
   }
 }
 
+/**
+ * Validate that the run-as user still exists and (if scoped to an org) is
+ * still a member of that org. Skips the check for the dev-mode bypass
+ * identity and the shared-owner sentinel, neither of which map to a real
+ * user row.
+ *
+ * SECURITY: without this check the scheduler keeps running jobs as
+ * `meta.createdBy` indefinitely — even after the user has been deleted,
+ * removed from the org, or had their account disabled. The cron entry
+ * itself is left intact so an admin can purge it manually after the
+ * underlying user-state issue is investigated. See audit 12 #10.
+ */
+async function isJobRunAsStillValid(
+  jobUserEmail: string,
+  jobOrgId: string | undefined,
+): Promise<{ ok: boolean; reason?: string }> {
+  // Dev-mode bypass identity isn't a row in `user`. Don't validate.
+  // guard:allow-localhost-fallback — protective check, not a fallback identity (skip user-existence validation when the dev shim wrote the row).
+  if (jobUserEmail === "local@localhost") return { ok: true };
+  // Shared-owner sentinel isn't a real user (used by jobs run as the
+  // workspace identity).
+  if (jobUserEmail === "__shared__") return { ok: true };
+  try {
+    const { getDbExec } = await import("../db/client.js");
+    const db = getDbExec();
+    // Better Auth's user table is named "user" (singular). The reserved
+    // word is quoted to avoid ambiguity in Postgres.
+    const userResult = await db.execute({
+      sql: `SELECT 1 FROM "user" WHERE email = ? LIMIT 1`,
+      args: [jobUserEmail],
+    });
+    if (!userResult.rows || userResult.rows.length === 0) {
+      return { ok: false, reason: `user "${jobUserEmail}" no longer exists` };
+    }
+    if (jobOrgId) {
+      const memberResult = await db.execute({
+        sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = LOWER(?) LIMIT 1`,
+        args: [jobOrgId, jobUserEmail],
+      });
+      if (!memberResult.rows || memberResult.rows.length === 0) {
+        return {
+          ok: false,
+          reason: `user "${jobUserEmail}" is no longer a member of org "${jobOrgId}"`,
+        };
+      }
+    }
+    return { ok: true };
+  } catch (err: any) {
+    // Tables may not exist on a brand-new install (no auth tables yet).
+    // Treat that as "valid" rather than blocking every job. The check is
+    // only meaningful once the auth tables exist.
+    const msg = err?.message?.toLowerCase() ?? "";
+    if (
+      msg.includes("does not exist") ||
+      msg.includes("no such table") ||
+      msg.includes("undefined table")
+    ) {
+      return { ok: true };
+    }
+    // Any other DB error: be conservative and let the job run rather than
+    // blocking on an unexpected failure mode (e.g. transient connection
+    // issue). We log so it's visible.
+    console.warn(
+      `[recurring-jobs] User/membership validation failed for "${jobUserEmail}":`,
+      err?.message,
+    );
+    return { ok: true };
+  }
+}
+
 async function executeJob(
   resource: Resource,
   meta: JobFrontmatter,
@@ -261,12 +331,6 @@ async function executeJob(
   now: Date,
 ): Promise<void> {
   const jobName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
-
-  // Mark as running
-  meta.lastRun = now.toISOString();
-  meta.lastStatus = "running";
-  meta.lastError = undefined;
-  await updateResource(resource, meta, body);
 
   // Set owner context so all scoped operations (app-state, resources, etc.)
   // operate on the correct user's data
@@ -277,13 +341,30 @@ async function executeJob(
       : resource.owner;
   const jobOrgId = meta.orgId ?? undefined;
 
-  // Also set process.env for backwards compat with CLI scripts
-  process.env.AGENT_USER_EMAIL = jobUserEmail; // guard:allow-env-mutation — back-compat for legacy CLI scripts spawned by jobs; per-request truth lives in runWithRequestContext below
-  if (jobOrgId) {
-    process.env.AGENT_ORG_ID = jobOrgId; // guard:allow-env-mutation — back-compat for legacy CLI scripts spawned by jobs; per-request truth lives in runWithRequestContext below
-  } else {
-    delete process.env.AGENT_ORG_ID;
+  // SECURITY (audit 12 #10): re-validate the run-as user/membership on
+  // every tick. Sharing revocation, user deletion, and org-member removal
+  // must take effect for already-scheduled jobs. Skip the tick on
+  // failure; leave the cron entry alone so an admin can purge after
+  // investigation.
+  const validity = await isJobRunAsStillValid(jobUserEmail, jobOrgId);
+  if (!validity.ok) {
+    console.warn(
+      `[recurring-jobs] Skipping job "${jobName}": ${validity.reason}. ` +
+        `User/membership no longer valid — leaving cron entry for admin review.`,
+    );
+    // Mark as skipped without resetting nextRun so an admin can find it.
+    meta.lastRun = now.toISOString();
+    meta.lastStatus = "skipped";
+    meta.lastError = validity.reason;
+    await updateResource(resource, meta, body);
+    return;
   }
+
+  // Mark as running
+  meta.lastRun = now.toISOString();
+  meta.lastStatus = "running";
+  meta.lastError = undefined;
+  await updateResource(resource, meta, body);
 
   await runWithRequestContext(
     { userEmail: jobUserEmail, orgId: jobOrgId },

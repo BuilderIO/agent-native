@@ -1,4 +1,5 @@
 import {
+  createError,
   defineEventHandler,
   getQuery,
   getRequestURL,
@@ -8,7 +9,12 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 import { eq, and, gte, lte, ne, inArray } from "drizzle-orm";
-import { readBody, verifyCaptcha } from "@agent-native/core/server";
+import {
+  getSession,
+  readBody,
+  runWithRequestContext,
+  verifyCaptcha,
+} from "@agent-native/core/server";
 import { emit } from "@agent-native/core/event-bus";
 import { accessFilter } from "@agent-native/core/sharing";
 import type {
@@ -24,6 +30,20 @@ import { getDb, schema } from "../db/index.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 import { createZoomMeeting } from "../lib/zoom.js";
 
+async function requireRequestContext<T>(
+  event: H3Event,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    fn,
+  );
+}
+
 async function getBookingLinkSlugsForOwner(
   ownerEmail: string,
 ): Promise<string[]> {
@@ -35,24 +55,26 @@ async function getBookingLinkSlugsForOwner(
 }
 
 export const listBookings = defineEventHandler(async (_event: H3Event) => {
-  try {
-    const accessibleLinks = await getDb()
-      .select({ slug: schema.bookingLinks.slug })
-      .from(schema.bookingLinks)
-      .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
-    const slugs = accessibleLinks.map((link) => link.slug);
-    if (slugs.length === 0) return [];
+  return requireRequestContext(_event, async () => {
+    try {
+      const accessibleLinks = await getDb()
+        .select({ slug: schema.bookingLinks.slug })
+        .from(schema.bookingLinks)
+        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+      const slugs = accessibleLinks.map((link) => link.slug);
+      if (slugs.length === 0) return [];
 
-    const rows = await getDb()
-      .select()
-      .from(schema.bookings)
-      .where(inArray(schema.bookings.slug, slugs))
-      .orderBy(schema.bookings.start);
-    return rows.map(rowToBooking);
-  } catch (error: any) {
-    setResponseStatus(_event, 500);
-    return { error: error.message };
-  }
+      const rows = await getDb()
+        .select()
+        .from(schema.bookings)
+        .where(inArray(schema.bookings.slug, slugs))
+        .orderBy(schema.bookings.start);
+      return rows.map(rowToBooking);
+    } catch (error: any) {
+      setResponseStatus(_event, error?.statusCode ?? 500);
+      return { error: error.message };
+    }
+  });
 });
 
 export const createBooking = defineEventHandler(async (event: H3Event) => {
@@ -527,41 +549,43 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
 });
 
 export const deleteBooking = defineEventHandler(async (event: H3Event) => {
-  try {
-    const id = getRouterParam(event, "id") as string;
-    const db = getDb();
+  return requireRequestContext(event, async () => {
+    try {
+      const id = getRouterParam(event, "id") as string;
+      const db = getDb();
 
-    const existing = await db
-      .select()
-      .from(schema.bookings)
-      .where(eq(schema.bookings.id, id))
-      .then((rows) => rows[0]);
+      const existing = await db
+        .select()
+        .from(schema.bookings)
+        .where(eq(schema.bookings.id, id))
+        .then((rows) => rows[0]);
 
-    if (!existing) {
-      setResponseStatus(event, 404);
-      return { error: "Booking not found" };
+      if (!existing) {
+        setResponseStatus(event, 404);
+        return { error: "Booking not found" };
+      }
+
+      // Verify the caller has access to the booking link that owns this booking.
+      // Bookings have no ownerEmail of their own — scoping is via the slug →
+      // bookingLink ownership/sharing chain.
+      const accessibleLinks = await db
+        .select({ slug: schema.bookingLinks.slug })
+        .from(schema.bookingLinks)
+        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+      const accessibleSlugs = new Set(accessibleLinks.map((l) => l.slug));
+
+      if (!accessibleSlugs.has(existing.slug)) {
+        setResponseStatus(event, 403);
+        return { error: "Access denied" };
+      }
+
+      await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
+      return { success: true };
+    } catch (error: any) {
+      setResponseStatus(event, error?.statusCode ?? 500);
+      return { error: error.message };
     }
-
-    // Verify the caller has access to the booking link that owns this booking.
-    // Bookings have no ownerEmail of their own — scoping is via the slug →
-    // bookingLink ownership/sharing chain.
-    const accessibleLinks = await db
-      .select({ slug: schema.bookingLinks.slug })
-      .from(schema.bookingLinks)
-      .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
-    const accessibleSlugs = new Set(accessibleLinks.map((l) => l.slug));
-
-    if (!accessibleSlugs.has(existing.slug)) {
-      setResponseStatus(event, 403);
-      return { error: "Access denied" };
-    }
-
-    await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
-    return { success: true };
-  } catch (error: any) {
-    setResponseStatus(event, 500);
-    return { error: error.message };
-  }
+  });
 });
 
 /** Look up a booking by its cancel token (public, no auth) */

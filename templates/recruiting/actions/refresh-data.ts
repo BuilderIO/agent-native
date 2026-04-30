@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import {
   writeAppState,
   deleteAppState,
@@ -7,6 +8,7 @@ import {
 export default defineAction({
   description:
     "Force the UI to refresh all data from Greenhouse. Call after mutations.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     await writeAppState("refresh-trigger", { ts: Date.now() });

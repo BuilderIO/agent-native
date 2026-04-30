@@ -15,6 +15,8 @@ import {
   IconPlus,
   IconLayoutGrid,
   IconX,
+  IconPencilPlus,
+  IconPin,
 } from "@tabler/icons-react";
 import {
   useActionQuery,
@@ -37,6 +39,7 @@ import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { TweaksPanel } from "@/components/design/TweaksPanel";
 import { VariantGrid } from "@/components/design/VariantGrid";
+import { SaveStatusIndicator } from "@/components/visual-editor";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
@@ -98,6 +101,11 @@ export default function DesignEditor() {
     Record<string, string | number | boolean>
   >({});
   const [drawAnnotations, setDrawAnnotations] = useState<DrawAnnotation[]>([]);
+  // Shared visual-editor modes (overlays the iframe). drawMode toggles the
+  // pencil overlay, pinMode lets the user drop comment pins. They're
+  // mutually exclusive — turning one on turns the other off.
+  const [drawMode, setDrawMode] = useState(false);
+  const [pinMode, setPinMode] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
@@ -468,6 +476,43 @@ export default function DesignEditor() {
           >
             <IconSettings className="w-3.5 h-3.5" />
           </Button>
+
+          {/* Draw on canvas — overlays the iframe with pencil + text. */}
+          <Button
+            variant={drawMode ? "secondary" : "ghost"}
+            size="icon"
+            className="h-7 w-7 cursor-pointer"
+            data-toolbar-draw-button
+            onClick={() => {
+              setDrawMode((d) => !d);
+              setPinMode(false);
+            }}
+            title="Draw on canvas"
+          >
+            <IconPencilPlus className="w-3.5 h-3.5" />
+          </Button>
+
+          {/* Drop comment pin — overlays the iframe with click-to-comment. */}
+          <Button
+            variant={pinMode ? "secondary" : "ghost"}
+            size="icon"
+            className="h-7 w-7 cursor-pointer"
+            data-toolbar-pin-button
+            onClick={() => {
+              setPinMode((p) => !p);
+              setDrawMode(false);
+            }}
+            title="Drop comment pin"
+          >
+            <IconPin className="w-3.5 h-3.5" />
+          </Button>
+
+          {/* Save state — currently the design template doesn't expose a
+              dedicated "save in flight" signal (file edits go through Yjs +
+              update-file actions). Surface the indicator so the UX matches
+              slides; flip `saving` off until we wire a real source. */}
+          <SaveStatusIndicator saving={false} className="ml-1 mr-1" />
+
           <PresenceBar
             activeUsers={activeUsers}
             agentActive={agentActive}
@@ -576,6 +621,12 @@ export default function DesignEditor() {
               onElementSelect={handleElementSelect}
               onElementHover={handleElementHover}
               tweakValues={cssVarValues}
+              drawMode={drawMode}
+              onExitDrawMode={() => setDrawMode(false)}
+              pinMode={pinMode}
+              onExitPinMode={() => setPinMode(false)}
+              designId={id}
+              designTitle={design?.title}
             />
           )
         ) : (

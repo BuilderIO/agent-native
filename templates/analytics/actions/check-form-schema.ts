@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { runQuery } from "../server/lib/bigquery";
 
 export default defineAction({
   description:
     "Get the schema of the HubSpot form_submissions table in BigQuery.",
-  parameters: {},
+  schema: z.object({}),
   http: false,
   run: async () => {
     const sql = `

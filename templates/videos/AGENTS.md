@@ -32,11 +32,11 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
 
-| State Key        | Purpose                                   | Direction                  |
-| ---------------- | ----------------------------------------- | -------------------------- |
-| `navigation`     | Current view, composition ID              | UI -> Agent (read-only)    |
-| `navigate`       | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
-| `show-questions` | Trigger question flow overlay in the UI   | Agent -> UI                |
+| State Key        | Purpose                                     | Direction                  |
+| ---------------- | ------------------------------------------- | -------------------------- |
+| `navigation`     | Current view, composition ID, active folder | UI -> Agent (read-only)    |
+| `navigate`       | Navigate command (one-shot, auto-deleted)   | Agent -> UI (auto-deleted) |
+| `show-questions` | Trigger question flow overlay in the UI     | Agent -> UI                |
 
 ### Navigation state
 
@@ -45,11 +45,15 @@ The UI writes `navigation` whenever the user navigates:
 ```json
 {
   "view": "composition",
-  "compositionId": "logo-reveal"
+  "compositionId": "logo-reveal",
+  "folderId": "fld_abc",
+  "folderName": "Brand intros"
 }
 ```
 
 Views: `"home"` (studio home), `"composition"` (editing a composition), `"components"` (component library).
+
+When the open composition is filed in a library folder, `folderId` and `folderName` reveal which folder the user is browsing. Use `list-folders` for the full library hierarchy.
 
 ### Navigate command
 
@@ -163,39 +167,46 @@ cd templates/videos && pnpm action <name> [args]
 
 ### Actions
 
-| Action                        | Args                                                                         | Purpose                               |
-| ----------------------------- | ---------------------------------------------------------------------------- | ------------------------------------- |
-| `view-screen`                 |                                                                              | See current UI state + context        |
-| `navigate`                    | `--compositionId <id>` or `--view home`                                      | Navigate the UI                       |
-| `list-compositions`           | `[--compact]`                                                                | List all compositions                 |
-| `get-composition`             | `--id <id>`                                                                  | Get a composition with tracks         |
-| `save-composition`            | `--id <id> --title "..." --type <type> [--data '<json>']`                    | Create or update a composition        |
-| `update-composition`          | `--id <id> [--title "..."] [--type <type>] [--data '<json>']`                | Update composition fields             |
-| `delete-composition`          | `--id <id>`                                                                  | Delete a composition                  |
-| `generate-animated-component` | `--name <name> [--elements A,B]`                                             | Generate an animated component        |
-| `validate-compositions`       |                                                                              | Validate all compositions             |
-| `import-code`                 | `--files '[{\"filename\":\"...\",\"content\":\"...\"}]'`                     | Analyze uploaded code files           |
-| `import-from-url`             | `--url <url>`                                                                | Import content from a URL             |
-| `import-document`             | `--files '[{\"filename\":\"...\",\"fileType\":\".pdf\",\"sizeBytes\":123}]'` | Analyze uploaded document metadata    |
-| `import-design-project`       | `--designSystemId <id>`                                                      | Import from a design system           |
-| `import-github`               | `--repoUrl <org/repo-or-url>`                                                | Import from a GitHub repository       |
-| `create-design-system`        | `--title "X" [--description "..."] --data '<json>' [--assets '<json>']`      | Create a new design system            |
-| `update-design-system`        | `--id <id> [--title "X"] [--data '<json>'] [--assets '<json>']`              | Update design system tokens           |
-| `get-design-system`           | `--id <id>`                                                                  | Get design system with all tokens     |
-| `list-design-systems`         | `[--compact]`                                                                | List all accessible design systems    |
-| `set-default-design-system`   | `--id <id>`                                                                  | Set one as the default                |
-| `apply-design-system`         | `--compositionId <id> --designSystemId <id>`                                 | Link a design system to a composition |
-| `analyze-brand-assets`        | `[--websiteUrl "..."] [--companyName "..."] [--brandNotes "..."]`            | Gather brand data for analysis        |
+| Action                        | Args                                                                         | Purpose                                                       |
+| ----------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `view-screen`                 |                                                                              | See current UI state + context                                |
+| `navigate`                    | `--compositionId <id>` or `--view home`                                      | Navigate the UI                                               |
+| `list-compositions`           | `[--compact]`                                                                | List all compositions                                         |
+| `get-composition`             | `--id <id>`                                                                  | Get a composition with tracks                                 |
+| `save-composition`            | `--id <id> --title "..." --type <type> [--data '<json>']`                    | Create or update a composition                                |
+| `update-composition`          | `--id <id> [--title "..."] [--type <type>] [--data '<json>']`                | Update composition fields                                     |
+| `delete-composition`          | `--id <id>`                                                                  | Delete a composition                                          |
+| `generate-animated-component` | `--name <name> [--elements A,B]`                                             | Generate an animated component                                |
+| `validate-compositions`       |                                                                              | Validate all compositions                                     |
+| `import-code`                 | `--files '[{\"filename\":\"...\",\"content\":\"...\"}]'`                     | Analyze uploaded code files                                   |
+| `import-from-url`             | `--url <url>`                                                                | Import content from a URL                                     |
+| `import-document`             | `--files '[{\"filename\":\"...\",\"fileType\":\".pdf\",\"sizeBytes\":123}]'` | Analyze uploaded document metadata                            |
+| `import-design-project`       | `--designSystemId <id>`                                                      | Import from a design system                                   |
+| `import-github`               | `--repoUrl <org/repo-or-url>`                                                | Import from a GitHub repository                               |
+| `create-design-system`        | `--title "X" [--description "..."] --data '<json>' [--assets '<json>']`      | Create a new design system                                    |
+| `update-design-system`        | `--id <id> [--title "X"] [--data '<json>'] [--assets '<json>']`              | Update design system tokens                                   |
+| `get-design-system`           | `--id <id>`                                                                  | Get design system with all tokens                             |
+| `list-design-systems`         | `[--compact]`                                                                | List all accessible design systems                            |
+| `set-default-design-system`   | `--id <id>`                                                                  | Set one as the default                                        |
+| `apply-design-system`         | `--compositionId <id> --designSystemId <id>`                                 | Link a design system to a composition                         |
+| `analyze-brand-assets`        | `[--websiteUrl "..."] [--companyName "..."] [--brandNotes "..."]`            | Gather brand data for analysis                                |
+| `list-folders`                |                                                                              | List library folders + composition IDs filed into each        |
+| `create-folder`               | `--name "..."`                                                               | Create a library folder                                       |
+| `rename-folder`               | `--id <id> --name "..."`                                                     | Rename a library folder                                       |
+| `delete-folder`               | `--id <id>`                                                                  | Delete a folder (compositions inside revert to uncategorized) |
+| `move-composition-to-folder`  | `--compositionId <id> [--folderId <id>]`                                     | File a composition into a folder; omit `--folderId` to remove |
 
 ### Common Tasks
 
-| User request                     | What to do                                                                |
-| -------------------------------- | ------------------------------------------------------------------------- |
-| "What am I looking at?"          | `pnpm action view-screen`                                                 |
-| "Create a new composition"       | `pnpm action save-composition --id my-comp --title "..." --type custom`   |
-| "Open the logo reveal"           | `pnpm action navigate --compositionId=logo-reveal`                        |
-| "Go back to the studio"          | `pnpm action navigate --view=home`                                        |
-| "Generate an animated component" | `pnpm action generate-animated-component --name X --elements Button,Card` |
+| User request                     | What to do                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------ |
+| "What am I looking at?"          | `pnpm action view-screen`                                                      |
+| "Create a new composition"       | `pnpm action save-composition --id my-comp --title "..." --type custom`        |
+| "Open the logo reveal"           | `pnpm action navigate --compositionId=logo-reveal`                             |
+| "Go back to the studio"          | `pnpm action navigate --view=home`                                             |
+| "Generate an animated component" | `pnpm action generate-animated-component --name X --elements Button,Card`      |
+| "Make a folder for X"            | `pnpm action create-folder --name "X"`                                         |
+| "File this comp into folder X"   | `pnpm action move-composition-to-folder --compositionId <id> --folderId <fid>` |
 
 ## Sharing
 

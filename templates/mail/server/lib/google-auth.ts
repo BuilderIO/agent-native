@@ -239,9 +239,11 @@ export async function getClientForAccount(
  * avoid re-calling listOAuthAccounts. Use this inside loops that already
  * have the accounts list loaded (watch renewal, bootstrap).
  */
-export async function getClientFromAccount(
-  account: Awaited<ReturnType<typeof listOAuthAccounts>>[number],
-): Promise<{ accessToken: string; email: string } | null> {
+export async function getClientFromAccount(account: {
+  accountId: string;
+  owner?: string;
+  tokens: Record<string, unknown>;
+}): Promise<{ accessToken: string; email: string } | null> {
   const tokens = account.tokens as unknown as GoogleTokens;
   if (!tokens) return null;
 

@@ -1,6 +1,7 @@
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import { readBody } from "@agent-native/core/server";
 import { getOrgContext } from "@agent-native/core/org";
+import { runApiHandlerWithContext } from "../lib/credentials";
 import {
   getDashboard,
   listDashboards,
@@ -97,26 +98,28 @@ export const saveSqlDashboard = defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "Missing dashboard id" };
   }
-  try {
-    const body = (await readBody(event)) as Record<string, unknown>;
-    const validation = validateDashboardConfig(body);
-    if (validation) {
-      setResponseStatus(event, 400);
-      return { error: validation };
+  return runApiHandlerWithContext(event, async () => {
+    try {
+      const body = (await readBody(event)) as Record<string, unknown>;
+      const validation = validateDashboardConfig(body);
+      if (validation) {
+        setResponseStatus(event, 400);
+        return { error: validation };
+      }
+      const sqlError = await validatePanelSql(body);
+      if (sqlError) {
+        setResponseStatus(event, 400);
+        return { error: sqlError };
+      }
+      const ctx = await ctxFromEvent(event);
+      await upsertDashboard(id, "sql", body, ctx);
+      return { id, success: true };
+    } catch (err: any) {
+      const status = err?.statusCode ?? 500;
+      setResponseStatus(event, status);
+      return { error: err.message };
     }
-    const sqlError = await validatePanelSql(body);
-    if (sqlError) {
-      setResponseStatus(event, 400);
-      return { error: sqlError };
-    }
-    const ctx = await ctxFromEvent(event);
-    await upsertDashboard(id, "sql", body, ctx);
-    return { id, success: true };
-  } catch (err: any) {
-    const status = err?.statusCode ?? 500;
-    setResponseStatus(event, status);
-    return { error: err.message };
-  }
+  });
 });
 
 /**

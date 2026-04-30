@@ -3,6 +3,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
+import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 
 function slugify(text: string): string {
@@ -66,16 +67,22 @@ export default defineAction({
       }
     }
     if (args.settings !== undefined) {
+      let parsedSettings: FormSettings;
       if (typeof args.settings === "string") {
         try {
-          JSON.parse(args.settings);
+          parsedSettings = JSON.parse(args.settings) as FormSettings;
           updates.settings = args.settings;
         } catch {
           throw new Error("--settings must be valid JSON");
         }
       } else {
+        parsedSettings = args.settings as unknown as FormSettings;
         updates.settings = JSON.stringify(args.settings);
       }
+      // Reject blocked integration URLs at save time (private IPs,
+      // cloud-metadata, non-http(s) schemes). fireIntegrations also
+      // re-checks at runtime as defense-in-depth.
+      assertIntegrationUrlsAllowed(parsedSettings);
     }
     if (args.status !== undefined) updates.status = args.status;
 

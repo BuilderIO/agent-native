@@ -3,7 +3,10 @@
 // and ranked_keywords for keyword-level data
 
 import { resolveCredential } from "./credentials";
-import { requireRequestCredentialContext } from "./credentials-context";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_BASE = "https://api.dataforseo.com/v3";
 
@@ -23,7 +26,10 @@ async function getAuth(): Promise<string> {
 }
 
 async function apiPost<T>(path: string, body: unknown[]): Promise<T> {
-  const cacheKey = JSON.stringify({ path, body });
+  const cacheKey = scopedCredentialCacheKey(
+    JSON.stringify({ path, body }),
+    "DATAFORSEO_LOGIN",
+  );
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;

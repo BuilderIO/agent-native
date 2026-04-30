@@ -2,7 +2,10 @@
 // Fetches deals, pipelines/stages, and computes sales metrics
 
 import { resolveCredential } from "./credentials";
-import { requireRequestCredentialContext } from "./credentials-context";
+import {
+  requireRequestCredentialContext,
+  scopedCredentialCacheKey,
+} from "./credentials-context";
 
 const API_BASE = "https://api.hubapi.com";
 
@@ -18,14 +21,33 @@ async function getToken(): Promise<string> {
   return token;
 }
 
+async function hubspotFetch(
+  url: string,
+  options: RequestInit,
+): Promise<Response> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(url, options);
+    if (res.status === 429) {
+      const retryAfter = parseInt(res.headers.get("retry-after") || "1", 10);
+      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+      continue;
+    }
+    return res;
+  }
+  throw new Error("HubSpot rate limit: max retries exceeded");
+}
+
 async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
-  const key = cacheKey ?? path;
+  const key = scopedCredentialCacheKey(
+    cacheKey ?? path,
+    "HUBSPOT_ACCESS_TOKEN",
+  );
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await hubspotFetch(`${API_BASE}${path}`, {
     headers: { Authorization: `Bearer ${await getToken()}` },
   });
 
@@ -163,7 +185,10 @@ export function getMetricsPipelines(pipelines: Pipeline[]): Pipeline[] {
 
 export async function getAllDeals(): Promise<Deal[]> {
   // Check full-result cache first
-  const fullCacheKey = "all-deals-full";
+  const fullCacheKey = scopedCredentialCacheKey(
+    "all-deals-full",
+    "HUBSPOT_ACCESS_TOKEN",
+  );
   const cached = cache.get(fullCacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as Deal[];
@@ -176,7 +201,7 @@ export async function getAllDeals(): Promise<Deal[]> {
   // Paginate through all deals (up to 10K)
   for (let i = 0; i < 100; i++) {
     const url = `/crm/v3/objects/deals?limit=100&properties=${props}${after ? `&after=${after}` : ""}`;
-    const res = await fetch(`${API_BASE}${url}`, {
+    const res = await hubspotFetch(`${API_BASE}${url}`, {
       headers: { Authorization: `Bearer ${await getToken()}` },
     });
     if (!res.ok) {

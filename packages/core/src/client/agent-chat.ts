@@ -5,7 +5,7 @@
  * Messages are sent via postMessage to the parent window (or self if top-level).
  */
 
-import { getFrameOrigin } from "./frame.js";
+import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
 
 export interface AgentChatMessage {
   /** The visible prompt message sent to the chat */
@@ -66,6 +66,7 @@ const AGENT_CHAT_MESSAGE_TYPE = "builder.submitChat";
  */
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
+    if (!isTrustedFrameMessage(event)) return;
     if (event.data?.type === "builder.chatRunning") {
       window.dispatchEvent(
         new CustomEvent("builder.chatRunning", {

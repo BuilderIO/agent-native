@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/pinpoint",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Visual feedback and annotation tool for agent-native web applications",
   "license": "MIT",
@@ -51,7 +51,6 @@
     "test": "vitest --run"
   },
   "dependencies": {
-    "@agent-native/core": "workspace:*",
     "@medv/finder": "^4.0.2",
     "bippy": "^0.5.32",
     "element-source": "^0.0.3",
@@ -59,6 +58,7 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
+    "@agent-native/core": ">=0.7",
     "react": ">=18.0.0"
   },
   "peerDependenciesMeta": {
@@ -67,6 +67,7 @@
     }
   },
   "devDependencies": {
+    "@agent-native/core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@types/express": "^5.0.3",
     "@types/node": "^24.2.1",

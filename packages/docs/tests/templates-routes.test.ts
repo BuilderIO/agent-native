@@ -42,7 +42,23 @@ describe("template routes", () => {
       .filter((template) => template.slug !== "starter")
       .map((template) => `/templates/${template.slug}`);
 
-    expect(sidebarTemplatePaths).toEqual(catalogTemplatePaths);
+    // Every catalog template must be reachable from the sidebar — the sidebar
+    // is allowed to have additional entries for templates that don't yet have
+    // a rich catalog card (e.g. calls, voice, recruiting). The forward-only
+    // check still catches catalog drift (a new catalog entry without a
+    // sidebar link) without forcing every template to have a card.
+    for (const catalogPath of catalogTemplatePaths) {
+      expect(sidebarTemplatePaths).toContain(catalogPath);
+    }
+
+    for (const sidebarPath of sidebarTemplatePaths) {
+      const slug = sidebarPath.replace("/templates/", "");
+      expect(() =>
+        loader({
+          params: { slug },
+        } as unknown as Parameters<typeof loader>[0]),
+      ).not.toThrow();
+    }
   });
 
   it("includes every public docs page and template page in the sitemap", () => {

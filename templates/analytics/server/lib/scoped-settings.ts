@@ -65,7 +65,10 @@ export async function getScopedSettingRecord(
     const userValue = await getUserSetting(scope.email, key);
     if (userValue) return userValue;
   }
-  return getSetting(key);
+  if (scope.email === LOCAL_EMAIL) {
+    return getSetting(key);
+  }
+  return null;
 }
 
 export async function putScopedSettingRecord(
@@ -106,9 +109,11 @@ export async function listScopedSettingRecords(
   const all = await getAllSettings();
   const byKey: Record<string, Record<string, unknown>> = {};
 
-  for (const [key, value] of Object.entries(all)) {
-    if (!isGlobalAppKey(key, prefix)) continue;
-    byKey[key] = value;
+  if (scope.email === LOCAL_EMAIL) {
+    for (const [key, value] of Object.entries(all)) {
+      if (!isGlobalAppKey(key, prefix)) continue;
+      byKey[key] = value;
+    }
   }
 
   if (scope.email && scope.email !== LOCAL_EMAIL) {

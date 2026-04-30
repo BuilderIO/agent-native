@@ -11,6 +11,24 @@ import { toast } from "sonner";
 import { IconCircleCheck, IconRefresh } from "@tabler/icons-react";
 import type { FormField, FormSettings } from "@shared/types";
 
+function safeRedirectUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed;
+
+  try {
+    const url = new URL(trimmed, window.location.origin);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.href;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 export function FormFillPage() {
   const params = useParams();
   const slug = params["*"] || "";
@@ -119,7 +137,8 @@ export function FormFillPage() {
         onSuccess: () => {
           setSubmitted(true);
           if (settings.redirectUrl) {
-            window.location.href = settings.redirectUrl;
+            const redirectUrl = safeRedirectUrl(settings.redirectUrl);
+            if (redirectUrl) window.location.assign(redirectUrl);
           }
         },
         onError: (err: any) => {

@@ -3,11 +3,12 @@ import { readAppState } from "@agent-native/core/application-state";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
+import { z } from "zod";
 
 export default defineAction({
   description:
     "See what the user is currently looking at. Returns the CURRENT deck ID, current slide ID, and the full list of slide IDs in the open deck (or the deck list if the user is on the home page). Call this before any slide operation to get the exact IDs you need for add-slide / update-slide / create-deck.",
-  parameters: {},
+  schema: z.object({}),
   http: false,
   run: async (_args) => {
     const navigation = (await readAppState("navigation")) as {

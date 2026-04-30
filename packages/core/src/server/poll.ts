@@ -13,14 +13,25 @@
  * are picked up even though they don't call recordChange() in this process.
  */
 
-import { defineEventHandler, getQuery } from "h3";
+import { defineEventHandler, getQuery, setResponseStatus } from "h3";
 import { getDbExec } from "../db/client.js";
+import { getSession } from "./auth.js";
 
 export interface ChangeEvent {
   version: number;
   source: string;
   type: string;
   key?: string;
+  /**
+   * Owner email for tenant-scoped events. When absent, the event is treated
+   * as deployment-global (e.g. table-level "something changed" pings) and
+   * delivered to every authenticated poller. Specific events that should
+   * only fan out to one user MUST set this — otherwise polling clients
+   * across tenants see each other's signals.
+   */
+  owner?: string;
+  /** Optional org ID for org-scoped events. */
+  orgId?: string;
   [k: string]: unknown;
 }
 
@@ -89,6 +100,36 @@ export function getChangesSince(since: number): {
     return { version: _version, events: [] };
   }
   const events = _buffer.filter((e) => e.version > since);
+  return { version: _version, events };
+}
+
+/**
+ * Get changes after a given version, filtered to events the caller is
+ * allowed to see.
+ *
+ * Filtering rules:
+ *   - Events without an `owner` are deployment-global (table-level pings,
+ *     screen-refresh, etc.) and visible to every authenticated user.
+ *   - Events with `owner === userEmail` go to that user.
+ *   - Events with `orgId === orgId` go to anyone in that org.
+ *   - All other owned events are filtered out.
+ */
+export function getChangesSinceForUser(
+  since: number,
+  userEmail: string,
+  orgId: string | undefined,
+): { version: number; events: ChangeEvent[] } {
+  if (since >= _version) {
+    return { version: _version, events: [] };
+  }
+  const events = _buffer.filter((e) => {
+    if (e.version <= since) return false;
+    // Global / unowned events: every authenticated user gets them.
+    if (!e.owner && !e.orgId) return true;
+    if (e.owner && e.owner === userEmail) return true;
+    if (e.orgId && orgId && e.orgId === orgId) return true;
+    return false;
+  });
   return { version: _version, events };
 }
 
@@ -203,9 +244,20 @@ async function checkExternalDbChanges(): Promise<void> {
  * Create an H3 handler for the poll endpoint.
  *
  * GET /_agent-native/poll?since=N → { version, events[] }
+ *
+ * Requires an authenticated session. Events are filtered to the caller's
+ * tenant — global events (owner-less, table-level pings) reach every
+ * authenticated caller; owned events reach only the matching user/org.
+ * Without auth + filtering, an anonymous attacker could poll the deployment
+ * and infer cross-tenant activity from the global event stream.
  */
 export function createPollHandler() {
   return defineEventHandler(async (event) => {
+    const session = await getSession(event).catch(() => null);
+    if (!session?.email) {
+      setResponseStatus(event, 401);
+      return { error: "Unauthenticated" };
+    }
     // On cold start, seed _version from DB so we don't return version: 0
     await seedVersionFromDb();
     // Check for cross-process writes before responding
@@ -213,6 +265,6 @@ export function createPollHandler() {
 
     const query = getQuery(event);
     const since = parseInt(String(query.since ?? "0"), 10) || 0;
-    return getChangesSince(since);
+    return getChangesSinceForUser(since, session.email, session.orgId);
   });
 }

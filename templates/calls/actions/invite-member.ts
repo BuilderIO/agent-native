@@ -23,6 +23,12 @@ import {
   writeAppState,
   readAppState,
 } from "@agent-native/core/application-state";
+import {
+  sendEmail,
+  isEmailConfigured,
+  renderEmail,
+  emailStrong,
+} from "@agent-native/core/server";
 
 const RoleEnum = z.enum(["viewer", "creator-lite", "creator", "admin"]);
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -128,6 +134,33 @@ export default defineAction({
 
     const inviteUrl = `${baseUrl()}/invite/${token}`;
     console.log(`Invited ${args.email} to workspace ${args.workspaceId}`);
+
+    if (isEmailConfigured()) {
+      try {
+        const [ws] = await db
+          .select()
+          .from(schema.workspaces)
+          .where(eq(schema.workspaces.id, args.workspaceId));
+        const workspaceName = ws?.name ?? "a workspace";
+        const appName =
+          process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
+        const subject = `${inviter} invited you to join ${workspaceName} on ${appName}`;
+        const { html, text } = renderEmail({
+          preheader: subject,
+          heading: "You've been invited",
+          paragraphs: [
+            `${emailStrong(inviter)} has invited you to join ${emailStrong(workspaceName)} on ${emailStrong(appName)} as a ${emailStrong(args.role)}.`,
+            "Click the button below to accept the invitation. The link expires in 7 days.",
+          ],
+          cta: { label: "Accept invitation", url: inviteUrl },
+          footer:
+            "If you weren't expecting this invitation, you can safely ignore this email.",
+        });
+        await sendEmail({ to: args.email, subject, html, text });
+      } catch (err) {
+        console.error("[invite-member] failed to send invite email:", err);
+      }
+    }
 
     return {
       id,

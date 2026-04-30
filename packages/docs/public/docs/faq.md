@@ -86,9 +86,13 @@ The framework ships with production-ready templates that you can use as daily dr
 - **[Mail](/templates/mail)** — full-featured email client (like Superhuman)
 - **[Calendar](/templates/calendar)** — Google Calendar + Calendly-style meeting links
 - **[Content](/templates/content)** — Notion-style documents
+- **[Analytics](/templates/analytics)** — data platform (like Amplitude/Mixpanel)
 - **[Slides](/templates/slides)** — presentation builder
 - **[Video](/templates/video)** — video composition with Remotion
-- **[Analytics](/templates/analytics)** — data platform (like Amplitude/Mixpanel)
+- **[Forms](/templates/forms)** — agent-native form builder (like Typeform)
+- **[Clips](/templates/clips)** — async screen recording (like Loom)
+- **[Design](/templates/design)** — agent-native design tool (like Figma/Canva)
+- **[Dispatch](/templates/dispatch)** — workspace control plane: route, approve, and delegate across all your agents
 
 Each template is a complete app with UI, agent actions, database schema, and AI instructions. See all [Templates](/templates).
 

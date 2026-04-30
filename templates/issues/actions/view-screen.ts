@@ -5,6 +5,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getClient } from "../server/lib/jira-auth.js";
@@ -96,6 +97,7 @@ async function fetchIssueDetail(
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, issue list, and open issue details (if any). Always call this first before taking any action.",
+  schema: z.object({}),
   http: false,
   run: async () => {
     const navigation = await readAppState("navigation");

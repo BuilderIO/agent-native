@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
-import rehypeRaw from "rehype-raw";
 import type { Slide } from "@/context/DeckContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MermaidRenderer } from "./MermaidRenderer";
 import { ExcalidrawThumbnail, parseExcalidrawData } from "./ExcalidrawSlide";
 import type { DesignSystemData } from "../../../shared/api";
 import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
+import {
+  sanitizeCssValue,
+  sanitizeSlideHtml,
+  sanitizeSlideUrl,
+} from "@/lib/sanitize-slide-html";
 
 interface SlideRendererProps {
   slide: Slide;
@@ -38,8 +42,9 @@ function LazyImage({
 }: React.ImgHTMLAttributes<HTMLImageElement>) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
+  const safeSrc = sanitizeSlideUrl(src, "image");
 
-  if (src === "PLACEHOLDER_IMAGE" || !src) {
+  if (src === "PLACEHOLDER_IMAGE" || !safeSrc) {
     return (
       <div className="w-full max-w-[600px] mx-auto">
         <Skeleton className="w-full aspect-video rounded-lg bg-white/[0.06]" />
@@ -53,7 +58,7 @@ function LazyImage({
         <Skeleton className="w-full aspect-video rounded-lg bg-white/[0.06] absolute inset-0" />
       )}
       <img
-        src={src}
+        src={safeSrc}
         alt={alt || ""}
         onLoad={() => setLoaded(true)}
         onError={() => setError(true)}
@@ -68,6 +73,15 @@ function LazyImage({
 
 const markdownComponents = {
   img: (props: any) => <LazyImage {...props} />,
+  a: ({ href, children, ...props }: any) => {
+    const safeHref = sanitizeSlideUrl(href, "link");
+    if (!safeHref) return <>{children}</>;
+    return (
+      <a {...props} href={safeHref} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    );
+  },
   code: ({ className, children, ...props }: any) => {
     const match = /language-mermaid/.exec(className || "");
     if (match) {
@@ -99,17 +113,21 @@ function BlankSlideContent({ content }: { content: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
-  const processedContent = content.replace(
-    /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi,
-    (match, before, close) => {
-      if (before.includes('style="')) {
-        return (
-          before.replace('style="', 'style="filter:brightness(0) invert(1);') +
-          close
-        );
-      }
-      return before + ' style="filter:brightness(0) invert(1);"' + close;
-    },
+  const processedContent = sanitizeSlideHtml(
+    content.replace(
+      /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi,
+      (_match, before, close) => {
+        if (before.includes('style="')) {
+          return (
+            before.replace(
+              'style="',
+              'style="filter:brightness(0) invert(1);',
+            ) + close
+          );
+        }
+        return before + ' style="filter:brightness(0) invert(1);"' + close;
+      },
+    ),
   );
 
   // Extract mermaid blocks from HTML content for React-based rendering
@@ -192,7 +210,8 @@ export function SlideInner({
 
   const bg = slide.background || "bg-[#000000]";
   const isGradientClass = bg.startsWith("bg-");
-  const bgStyle = !isGradientClass ? { background: bg } : undefined;
+  const safeBackground = !isGradientClass ? sanitizeCssValue(bg) : null;
+  const bgStyle = safeBackground ? { background: safeBackground } : undefined;
   const bgClass = isGradientClass ? bg : "";
   const isCentered = slide.layout === "title";
 
@@ -257,18 +276,12 @@ export function SlideInner({
       >
         {imageLoadingOverlay}
         <div className="slide-content text-white/90">
-          <ReactMarkdown
-            rehypePlugins={[rehypeRaw]}
-            components={markdownComponents}
-          >
+          <ReactMarkdown components={markdownComponents}>
             {left.trim()}
           </ReactMarkdown>
         </div>
         <div className="slide-content text-white/90">
-          <ReactMarkdown
-            rehypePlugins={[rehypeRaw]}
-            components={markdownComponents}
-          >
+          <ReactMarkdown components={markdownComponents}>
             {right.trim()}
           </ReactMarkdown>
         </div>
@@ -301,12 +314,7 @@ export function SlideInner({
     >
       {imageLoadingOverlay}
       <div className="slide-content text-white/90 w-full">
-        <ReactMarkdown
-          rehypePlugins={[rehypeRaw]}
-          components={markdownComponents}
-        >
-          {content}
-        </ReactMarkdown>
+        <ReactMarkdown components={markdownComponents}>{content}</ReactMarkdown>
       </div>
     </div>
   );

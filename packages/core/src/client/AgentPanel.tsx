@@ -62,11 +62,16 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
 import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
+import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
 const AgentTerminal = lazy(() =>
   import("./terminal/index.js").then((m) => ({ default: m.AgentTerminal })),
 );
+
+function parentFrameTargetOrigin(): string {
+  return getFrameOrigin() ?? window.location.origin;
+}
 
 // Lazy-load ResourcesPanel to avoid bundling when not needed
 const ResourcesPanel = lazy(() =>
@@ -119,6 +124,7 @@ const AGENT_PANEL_CONTROL_STYLE = {
   fontSize: 12,
   lineHeight: 1,
 } satisfies React.CSSProperties;
+const ACTIVATE_KEYS = new Set(["Enter", " "]);
 
 interface AvailableCli {
   command: string;
@@ -288,6 +294,14 @@ export function AgentPanel({
   const switchMode = useCallback((m: PanelMode) => {
     startTransition(() => setMode(m));
   }, []);
+  const activateOnKeyDown = useCallback(
+    (activate: () => void) => (event: React.KeyboardEvent) => {
+      if (!ACTIVATE_KEYS.has(event.key)) return;
+      event.preventDefault();
+      activate();
+    },
+    [],
+  );
 
   // Listen for mode changes from the frame parent (via AgentSidebar)
   useEffect(() => {
@@ -405,7 +419,7 @@ export function AgentPanel({
       if (window.parent !== window) {
         window.parent.postMessage(
           { type: "builder.devModeChange", data: { isDevMode } },
-          "*",
+          parentFrameTargetOrigin(),
         );
       }
     }
@@ -468,6 +482,7 @@ export function AgentPanel({
         </button>
         <button
           onClick={() => switchMode("settings")}
+          aria-label="Setup and configuration"
           className={cn(
             "flex items-center justify-center rounded-md px-1.5 py-1",
             activeMode === "settings"
@@ -498,6 +513,7 @@ export function AgentPanel({
           >
             <button
               onClick={onToggleFullscreen}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
               {isFullscreen ? (
@@ -512,6 +528,7 @@ export function AgentPanel({
           <IconTooltip content="Collapse sidebar">
             <button
               onClick={onCollapse}
+              aria-label="Collapse sidebar"
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
               <IconLayoutSidebarRightCollapse size={14} />
@@ -602,6 +619,9 @@ export function AgentPanel({
                               tabIndex={0}
                               ref={isActive ? activeTabRefCb : undefined}
                               onClick={() => setActiveTabId(tab.id)}
+                              onKeyDown={activateOnKeyDown(() =>
+                                setActiveTabId(tab.id),
+                              )}
                               className={cn(
                                 "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
                                 isActive
@@ -647,6 +667,9 @@ export function AgentPanel({
                               id === activeCliTab ? activeTabRefCb : undefined
                             }
                             onClick={() => setActiveCliTab(id)}
+                            onKeyDown={activateOnKeyDown(() =>
+                              setActiveCliTab(id),
+                            )}
                             className={cn(
                               "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
                               id === activeCliTab
@@ -686,6 +709,7 @@ export function AgentPanel({
                         <IconTooltip content="New chat">
                           <button
                             onClick={addTab}
+                            aria-label="New chat"
                             className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
                           >
                             <IconPlus size={14} />
@@ -695,6 +719,7 @@ export function AgentPanel({
                           <IconTooltip content="Chat history">
                             <button
                               onClick={toggleHistory}
+                              aria-label="Chat history"
                               className={cn(
                                 "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
                                 showHistory && "bg-accent text-foreground",
@@ -719,6 +744,7 @@ export function AgentPanel({
                                 tabMenuOpen === "__chat_global" &&
                                   "bg-accent text-foreground",
                               )}
+                              aria-label="Chat tab options"
                             >
                               <IconDotsVertical size={14} />
                             </button>
@@ -774,6 +800,7 @@ export function AgentPanel({
                         <IconTooltip content="New terminal">
                           <button
                             onClick={addCliTab}
+                            aria-label="New terminal"
                             className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
                           >
                             <IconPlus size={14} />
@@ -785,6 +812,7 @@ export function AgentPanel({
                               <button
                                 ref={cliPickerBtnRef}
                                 onClick={() => setCliPickerOpen(!cliPickerOpen)}
+                                aria-label={`Select CLI, currently ${selectedLabel}`}
                                 className={cn(
                                   "flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
                                   cliPickerOpen && "bg-accent text-foreground",
@@ -864,6 +892,7 @@ export function AgentPanel({
                                 tabMenuOpen === "__cli_global" &&
                                   "bg-accent text-foreground",
                               )}
+                              aria-label="Terminal tab options"
                             >
                               <IconDotsVertical size={14} />
                             </button>
@@ -924,6 +953,9 @@ export function AgentPanel({
                         role="button"
                         tabIndex={0}
                         onClick={() => setActiveTabId(focusParentId)}
+                        onKeyDown={activateOnKeyDown(() =>
+                          setActiveTabId(focusParentId),
+                        )}
                         className={cn(
                           "flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer",
                           activeTabId === focusParentId
@@ -942,6 +974,9 @@ export function AgentPanel({
                             tab.id === activeTabId ? activeTabRefCb : undefined
                           }
                           onClick={() => setActiveTabId(tab.id)}
+                          onKeyDown={activateOnKeyDown(() =>
+                            setActiveTabId(tab.id),
+                          )}
                           className={cn(
                             "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer max-w-[140px]",
                             tab.id === activeTabId
@@ -1425,7 +1460,10 @@ export interface AgentSidebarProps {
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
   suggestions?: string[];
-  /** Width of the agent sidebar. Default: 380 */
+  /** Initial sidebar width in pixels. Mount-only; user resize and a saved
+   *  localStorage value override this. Default: 380 */
+  defaultSidebarWidth?: number;
+  /** @deprecated Use `defaultSidebarWidth` — this prop is mount-only. */
   sidebarWidth?: number;
   /** Which side the sidebar appears on. Default: "right" */
   position?: "left" | "right";
@@ -1443,11 +1481,13 @@ export function AgentSidebar({
   children,
   emptyStateText = "How can I help you?",
   suggestions,
-  sidebarWidth = 380,
+  defaultSidebarWidth,
+  sidebarWidth,
   position = "right",
   defaultOpen = false,
   animateMobile = false,
 }: AgentSidebarProps) {
+  const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(() => {
     // On mobile viewports the sidebar would cover most of the screen, so
     // always start closed regardless of any persisted desktop preference.
@@ -1464,7 +1504,7 @@ export function AgentSidebar({
     return defaultOpen;
   });
   const [presentationMode, setPresentationMode] = useState(false);
-  const [width, setWidth] = useState(sidebarWidth);
+  const [width, setWidth] = useState(initialWidth);
   const [fullscreen, setFullscreen] = useState(() => {
     // Force-disable on mobile: a Claude-style centered column makes no sense
     // when the sidebar already covers most of the viewport.
@@ -1537,7 +1577,10 @@ export function AgentSidebar({
     const toggleHandler = () => {
       if (frameCodeMode && window.parent !== window) {
         // Forward toggle to frame parent — the frame sidebar handles it
-        window.parent.postMessage({ type: "builder.toggleSidebar" }, "*");
+        window.parent.postMessage(
+          { type: "builder.toggleSidebar" },
+          parentFrameTargetOrigin(),
+        );
       } else {
         setOpenPersisted((prev) => !prev);
       }
@@ -1546,7 +1589,7 @@ export function AgentSidebar({
       if (frameCodeMode && window.parent !== window) {
         window.parent.postMessage(
           { type: "builder.toggleSidebar", data: { open: true } },
-          "*",
+          parentFrameTargetOrigin(),
         );
       } else {
         setOpenPersisted(true);
@@ -1568,6 +1611,8 @@ export function AgentSidebar({
 
     function handleMessage(event: MessageEvent) {
       if (event.data?.type !== "builder.sidebarMode") return;
+      if (event.source !== window.parent || !isTrustedFrameMessage(event))
+        return;
       const {
         mode,
         appMode,
@@ -1609,11 +1654,38 @@ export function AgentSidebar({
     return () => window.removeEventListener("message", handleMessage);
   }, [setOpenPersisted]);
 
-  // Cmd+I / Ctrl+I to focus the agent chat
+  // Cmd+I / Ctrl+I to focus the agent chat. If the user has selected text,
+  // capture it into application_state under `pending-selection-context` so
+  // the agent's next turn includes it as immediate context to act on.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "i") {
         e.preventDefault();
+        let selectionText = "";
+        try {
+          selectionText = window.getSelection()?.toString().trim() ?? "";
+        } catch {}
+        if (selectionText) {
+          fetch(
+            agentNativePath(
+              "/_agent-native/application-state/pending-selection-context",
+            ),
+            {
+              method: "PUT",
+              keepalive: true,
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                text: selectionText,
+                capturedAt: Date.now(),
+              }),
+            },
+          ).catch(() => {});
+          window.dispatchEvent(
+            new CustomEvent("agent-panel:selection-attached", {
+              detail: { text: selectionText, length: selectionText.length },
+            }),
+          );
+        }
         focusAgentChat();
       }
     };
@@ -1625,6 +1697,8 @@ export function AgentSidebar({
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type !== "builder.presentationMode") return;
+      if (event.source !== window.parent || !isTrustedFrameMessage(event))
+        return;
       setPresentationMode(event.data.data?.active === true);
     };
     window.addEventListener("message", handler);

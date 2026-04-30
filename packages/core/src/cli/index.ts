@@ -17,14 +17,82 @@ try {
   _version = pkg.version;
 } catch {}
 
+/**
+ * Build a redacted "command" tag from process.argv. Strips the value that
+ * follows any --token / --key / --secret / --password / --api-key flag so
+ * we don't ship developer secrets to Sentry alongside the crash.
+ *
+ * Supports both `--token foo` (separate argv item) and `--token=foo`
+ * (combined argv item) forms.
+ */
+const SECRET_FLAG_RE = /^--?(token|key|secret|password|api[_-]?key)$/i;
+const SECRET_FLAG_EQ_RE =
+  /^(--?(token|key|secret|password|api[_-]?key))=(.*)$/i;
+function buildRedactedCommandTag(argv: string[]): string {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (SECRET_FLAG_RE.test(a)) {
+      out.push(a);
+      // Consume the next argv item as the secret value
+      if (i + 1 < argv.length) {
+        out.push("<redacted>");
+        i++;
+      }
+      continue;
+    }
+    const m = a.match(SECRET_FLAG_EQ_RE);
+    if (m) {
+      out.push(`${m[1]}=<redacted>`);
+      continue;
+    }
+    out.push(a);
+  }
+  return out.join(" ");
+}
+
 Sentry.init({
   dsn: "https://0d384e9eff2f6542af468b92769f2f5b@o117565.ingest.us.sentry.io/4511270386466816",
   release: `agent-native-cli@${_version}`,
-  sendDefaultPii: true,
+  // sendDefaultPii MUST stay false — the CLI runs in third-party developer
+  // environments and we never want to ship request headers, IPs, cookies,
+  // or process env contents to Sentry without explicit consent.
+  sendDefaultPii: false,
   beforeSend(event) {
+    // Defense in depth: strip any sensitive fields that may have been
+    // attached to the event despite sendDefaultPii: false (e.g. integrations
+    // that capture request metadata).
+    if (event.request) {
+      if (event.request.headers) {
+        const headers = event.request.headers as Record<string, string>;
+        for (const k of Object.keys(headers)) {
+          const lk = k.toLowerCase();
+          if (
+            lk === "cookie" ||
+            lk === "authorization" ||
+            lk === "set-cookie" ||
+            lk === "proxy-authorization"
+          ) {
+            delete headers[k];
+          }
+        }
+      }
+      // Cookies are also exposed via event.request.cookies as a separate field
+      delete (event.request as Record<string, unknown>).cookies;
+    }
+    delete event.user;
+    // Sentry's contexts can carry process.env snapshots — strip env-shaped
+    // contexts so we don't leak deployment secrets.
+    if (event.contexts && typeof event.contexts === "object") {
+      delete (event.contexts as Record<string, unknown>).runtime_env;
+    }
+
     event.tags = {
       ...event.tags,
-      command: process.argv[2] ?? "none",
+      // Build the command tag from process.argv with secrets redacted so
+      // `agent-native ... --token foo` doesn't leak `foo` to Sentry.
+      command: buildRedactedCommandTag(process.argv.slice(2)),
+      subcommand: process.argv[2] ?? "none",
       nodeVersion: process.version,
       platform: process.platform,
     };

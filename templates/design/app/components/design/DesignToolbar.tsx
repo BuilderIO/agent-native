@@ -9,6 +9,8 @@ import {
   IconDownload,
   IconMinus,
   IconPlus,
+  IconPencilPlus,
+  IconPin,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { ShareButton } from "@agent-native/core/client";
+import { SaveStatusIndicator } from "@/components/visual-editor";
 import type { ViewportTab } from "./types";
 
 export type EditorMode = "comment" | "edit" | "draw";
@@ -41,6 +44,16 @@ interface DesignToolbarProps {
   tabs?: ViewportTab[];
   activeTabId?: string;
   onTabChange?: (tabId: string) => void;
+  /** Whether draw-on-canvas mode is active. */
+  drawMode?: boolean;
+  /** Toggle draw-on-canvas mode. */
+  onToggleDrawMode?: () => void;
+  /** Whether comment-pin drop mode is active. */
+  pinMode?: boolean;
+  /** Toggle comment-pin drop mode. */
+  onTogglePinMode?: () => void;
+  /** True while a save is in flight (drives the SaveStatusIndicator). */
+  saving?: boolean;
 }
 
 const MODE_ITEMS: {
@@ -83,6 +96,11 @@ export function DesignToolbar({
   tabs,
   activeTabId,
   onTabChange,
+  drawMode,
+  onToggleDrawMode,
+  pinMode,
+  onTogglePinMode,
+  saving,
 }: DesignToolbarProps) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(title);
@@ -168,6 +186,43 @@ export function DesignToolbar({
       >
         <IconAdjustments className="h-4 w-4" />
       </Button>
+
+      {/* Draw on canvas */}
+      {onToggleDrawMode && (
+        <Button
+          variant="ghost"
+          size="icon"
+          data-toolbar-draw-button
+          className={cn(
+            "h-8 w-8 cursor-pointer",
+            drawMode && "bg-muted text-foreground",
+          )}
+          onClick={onToggleDrawMode}
+          title="Draw on canvas"
+        >
+          <IconPencilPlus className="h-4 w-4" />
+        </Button>
+      )}
+
+      {/* Drop comment pin */}
+      {onTogglePinMode && (
+        <Button
+          variant="ghost"
+          size="icon"
+          data-toolbar-pin-button
+          className={cn(
+            "h-8 w-8 cursor-pointer",
+            pinMode && "bg-muted text-foreground",
+          )}
+          onClick={onTogglePinMode}
+          title="Drop comment pin"
+        >
+          <IconPin className="h-4 w-4" />
+        </Button>
+      )}
+
+      {/* Save status */}
+      <SaveStatusIndicator saving={!!saving} className="ml-1 mr-1" />
 
       {/* Mode switcher */}
       <div className="flex overflow-hidden rounded-md border border-border">

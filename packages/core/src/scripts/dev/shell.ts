@@ -57,7 +57,9 @@ export async function run(args: Record<string, string>): Promise<string> {
       output = output.slice(0, MAX_OUTPUT) + "\n... (output truncated)";
     }
 
-    return `Command failed (exit ${err?.status ?? "?"})\n${output}`;
+    // Throw so the agent framework marks this as isError:true, preventing the
+    // agent from synthesizing a success narrative when the command failed.
+    throw new Error(`Command failed (exit ${err?.status ?? "?"})\n${output}`);
   }
 }
 

@@ -51,6 +51,7 @@
  *   process.env.FOO = …            // member-assignment form
  *   process.env["FOO"] = …          // bracket-assignment form
  *   process.env.FOO += …            // any compound assignment
+ *   delete process.env.FOO          // member-delete form
  *
  * Lines inside string literals or comments are NOT flagged — the regex
  * requires the assignment to start the matched substring, and we skip any
@@ -132,6 +133,14 @@ const BRACKET_FORM = new RegExp(
   String.raw`process\.env\[\s*["'][A-Z_][A-Z0-9_]+["']\s*\]${ASSIGN_TAIL}`,
   "g",
 );
+const DELETE_MEMBER_FORM = new RegExp(
+  String.raw`\bdelete\s+process\.env\.[A-Z_][A-Z0-9_]*\b`,
+  "g",
+);
+const DELETE_BRACKET_FORM = new RegExp(
+  String.raw`\bdelete\s+process\.env\[\s*["'][A-Z_][A-Z0-9_]+["']\s*\]`,
+  "g",
+);
 
 async function* walk(dir) {
   let entries;
@@ -207,7 +216,12 @@ async function scan() {
 
     const lines = contents.split("\n");
 
-    for (const re of [MEMBER_FORM, BRACKET_FORM]) {
+    for (const re of [
+      MEMBER_FORM,
+      BRACKET_FORM,
+      DELETE_MEMBER_FORM,
+      DELETE_BRACKET_FORM,
+    ]) {
       re.lastIndex = 0;
       let m;
       while ((m = re.exec(contents)) !== null) {
@@ -291,5 +305,5 @@ if (violations.length > 0) {
 }
 
 console.log(
-  "guard-no-env-mutation: clean (no process.env mutations in production code).",
+  "guard-no-env-mutation: clean (no process.env mutations/deletions in production code).",
 );

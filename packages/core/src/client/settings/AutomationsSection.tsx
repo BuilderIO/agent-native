@@ -181,7 +181,10 @@ export function AutomationsSection() {
           agentNativePath(
             `/_agent-native/resources/${encodeURIComponent(item.id)}`,
           ),
-          { method: "DELETE" },
+          {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+          },
         );
         if (!res.ok) {
           showToast("err", "Failed to delete automation");

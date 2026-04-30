@@ -42,6 +42,10 @@ export function createProgressHandler() {
   return defineEventHandler(async (event: H3Event) => {
     const rawMethod = getMethod(event);
     const method = rawMethod === "HEAD" ? "GET" : rawMethod;
+    if (rawMethod === "OPTIONS") {
+      setResponseStatus(event, 204);
+      return "";
+    }
     const pathname = (event.url?.pathname || "")
       .replace(/^\/+/, "")
       .replace(/\/+$/, "");

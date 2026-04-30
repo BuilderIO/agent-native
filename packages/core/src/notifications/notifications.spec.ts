@@ -292,6 +292,27 @@ describe("notifications routes", () => {
       before: undefined,
     });
   });
+
+  it("short-circuits OPTIONS before auth", async () => {
+    const handler = createNotificationsHandler() as any;
+    mockGetSession.mockRejectedValue(new Error("should not authenticate"));
+
+    const event = createEvent("/", "OPTIONS");
+    await expect(handler(event)).resolves.toBe("");
+
+    expect(event._status).toBe(204);
+    expect(mockGetSession).not.toHaveBeenCalled();
+    expect(mockListNotifications).not.toHaveBeenCalled();
+  });
+
+  it("requires an authenticated session", async () => {
+    const handler = createNotificationsHandler() as any;
+    mockGetSession.mockResolvedValue(null);
+
+    await expect(handler(createEvent("/"))).rejects.toMatchObject({
+      statusCode: 401,
+    });
+  });
 });
 
 describe("notification action entries", () => {

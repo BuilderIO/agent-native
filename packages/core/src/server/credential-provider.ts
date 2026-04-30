@@ -43,6 +43,14 @@ export class FeatureNotConfiguredError extends Error {
   }
 }
 
+/**
+ * Deployment-level credential fallback for single-tenant/local operation.
+ * Multi-tenant call sites must gate this explicitly before calling.
+ */
+export function readDeployCredentialEnv(key: string): string | undefined {
+  return process.env[key] || undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Per-user Builder credential resolution
 //
@@ -80,7 +88,7 @@ export async function resolveBuilderCredential(
       return null;
     }
   }
-  return process.env[key] || null;
+  return readDeployCredentialEnv(key) || null;
 }
 
 /**

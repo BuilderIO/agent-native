@@ -32,6 +32,7 @@ export default runMigrations(
       last_error TEXT,
       warnings_json TEXT,
       has_conflict INTEGER NOT NULL DEFAULT 0,
+      sync_comments INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
@@ -125,6 +126,10 @@ export default runMigrations(
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
+    },
+    {
+      version: 16,
+      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_comments INTEGER NOT NULL DEFAULT 0`,
     },
   ],
   { table: "content_migrations" },

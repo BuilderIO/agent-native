@@ -1,19 +1,22 @@
 /**
  * Deepgram async-transcription callback.
  *
- * When we kick off transcription with `?callback=<this-url>?callId=<id>`
+ * When we kick off transcription with `?callback=<this-url>?callId=<id>&token=<hmac>`
  * Deepgram POSTs the response here once transcription is ready.
  *
  * This handler:
- *   1. Optionally verifies `dg-signature` if DEEPGRAM_WEBHOOK_SECRET is set.
- *   2. Parses the response via parseDeepgramResponse.
- *   3. Upserts `call_transcripts` (status="ready", segments, fullText).
- *   4. Materializes `call_participants` from unique speakerLabels.
- *   5. Flips `calls.status` transcribing → analyzing and bumps refresh-signal.
- *   6. Queues `ai-delegations:<callId>` in app-state so the agent chat picks
+ *   1. Verifies `dg-signature` against DEEPGRAM_WEBHOOK_SECRET (required in prod).
+ *   2. Verifies the per-call HMAC token bound to (callId, ownerEmail). Without
+ *      this, an attacker who guesses any callId could overwrite the
+ *      transcript by POSTing a forged Deepgram-shaped JSON body.
+ *   3. Parses the response via parseDeepgramResponse.
+ *   4. Upserts `call_transcripts` (status="ready", segments, fullText).
+ *   5. Materializes `call_participants` from unique speakerLabels.
+ *   6. Flips `calls.status` transcribing → analyzing and bumps refresh-signal.
+ *   7. Queues `ai-delegations:<callId>` in app-state so the agent chat picks
  *      up the summary / tracker pipeline.
  *
- * Route: POST /api/webhooks/deepgram?callId=<id>
+ * Route: POST /api/webhooks/deepgram?callId=<id>&token=<hmac>
  */
 
 import {
@@ -32,8 +35,12 @@ import {
   computeTalkStats,
   nanoid,
 } from "../../../lib/calls.js";
-import { parseDeepgramResponse } from "../../../lib/transcription/deepgram.js";
+import {
+  parseDeepgramResponse,
+  verifyDeepgramCallbackToken,
+} from "../../../lib/transcription/deepgram.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
 function verifySignature(
   rawBody: Buffer,
@@ -55,8 +62,9 @@ function verifySignature(
 }
 
 export default defineEventHandler(async (event: H3Event) => {
-  const q = getQuery(event) as { callId?: string };
+  const q = getQuery(event) as { callId?: string; token?: string };
   const callId = q.callId;
+  const callbackToken = q.token;
   if (!callId) {
     setResponseStatus(event, 400);
     return { error: "callId is required" };
@@ -76,9 +84,22 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 401);
       return { error: "Invalid signature" };
     }
+  } else if (
+    process.env.NODE_ENV === "production" &&
+    process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS !== "1"
+  ) {
+    // Fail-closed in production: an attacker who knows or guesses any
+    // callId can overwrite call transcripts and queue AI delegations under
+    // the call owner's identity. Set AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1
+    // for staging only.
+    console.error(
+      "[calls] DEEPGRAM_WEBHOOK_SECRET not configured — refusing webhook",
+    );
+    setResponseStatus(event, 401);
+    return { error: "DEEPGRAM_WEBHOOK_SECRET not configured" };
   } else {
     console.warn(
-      "[calls] DEEPGRAM_WEBHOOK_SECRET not set — accepting webhook without verification",
+      "[calls] DEEPGRAM_WEBHOOK_SECRET not set — accepting webhook without verification (dev only)",
     );
   }
 
@@ -94,7 +115,12 @@ export default defineEventHandler(async (event: H3Event) => {
   const db = getDb();
 
   const [call] = await db
-    .select({ id: schema.calls.id, status: schema.calls.status })
+    .select({
+      id: schema.calls.id,
+      status: schema.calls.status,
+      ownerEmail: schema.calls.ownerEmail,
+      orgId: schema.calls.orgId,
+    })
     .from(schema.calls)
     .where(eq(schema.calls.id, callId))
     .limit(1);
@@ -103,79 +129,109 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Call not found" };
   }
 
-  const now = new Date().toISOString();
-
-  const [existingTranscript] = await db
-    .select({ callId: schema.callTranscripts.callId })
-    .from(schema.callTranscripts)
-    .where(eq(schema.callTranscripts.callId, callId))
-    .limit(1);
-
-  if (existingTranscript) {
-    await db
-      .update(schema.callTranscripts)
-      .set({
-        provider: "deepgram",
-        status: "ready",
-        language: parsed.language || "en",
-        segmentsJson: JSON.stringify(parsed.segments),
-        fullText: parsed.fullText,
-        failureReason: null,
-        updatedAt: now,
-      })
-      .where(eq(schema.callTranscripts.callId, callId));
-  } else {
-    await db.insert(schema.callTranscripts).values({
-      callId,
-      provider: "deepgram",
-      status: "ready",
-      language: parsed.language || "en",
-      segmentsJson: JSON.stringify(parsed.segments),
-      fullText: parsed.fullText,
-      createdAt: now,
-      updatedAt: now,
-    });
+  // Per-call HMAC token: even with a valid `dg-signature`, an attacker who
+  // captured (or replayed) a Deepgram payload can't pivot it onto a
+  // different callId without re-deriving the per-call token. The token is
+  // bound to (callId, ownerEmail) and signed with the same shared secret.
+  // If the secret is set we require the token; if not (dev only) we skip.
+  if (secret) {
+    if (!callbackToken) {
+      setResponseStatus(event, 401);
+      return { error: "Missing callback token" };
+    }
+    if (
+      !verifyDeepgramCallbackToken(
+        callbackToken,
+        callId,
+        call.ownerEmail,
+        secret,
+      )
+    ) {
+      setResponseStatus(event, 401);
+      return { error: "Invalid callback token" };
+    }
   }
 
-  // Materialize participants from diarized segments. Replace the whole set
-  // so a re-transcribe collapses any leftover rows from an earlier pass.
-  const talkStats = computeTalkStats(parsed.segments);
-  await db
-    .delete(schema.callParticipants)
-    .where(eq(schema.callParticipants.callId, callId));
-  for (const p of talkStats.participants) {
-    await db.insert(schema.callParticipants).values({
-      id: nanoid(),
-      callId,
-      speakerLabel: p.speakerLabel,
-      color: colorForSpeaker(p.speakerLabel),
-      talkMs: p.talkMs,
-      talkPct: p.talkPct,
-      longestMonologueMs: p.longestMonologueMs,
-      interruptionsCount: p.interruptionsCount,
-      questionsCount: p.questionsCount,
-      createdAt: now,
-    });
-  }
+  return runWithRequestContext(
+    { userEmail: call.ownerEmail, orgId: call.orgId ?? undefined },
+    async () => {
+      const now = new Date().toISOString();
 
-  await db
-    .update(schema.calls)
-    .set({ status: "analyzing", updatedAt: now })
-    .where(eq(schema.calls.id, callId));
+      const [existingTranscript] = await db
+        .select({ callId: schema.callTranscripts.callId })
+        .from(schema.callTranscripts)
+        .where(eq(schema.callTranscripts.callId, callId))
+        .limit(1);
 
-  // Queue the AI pipeline — the agent chat polls for ai-delegations-* keys.
-  await writeAppState(`ai-delegations-${callId}`, {
-    callId,
-    kind: "call-ready-for-analysis",
-    requestedAt: now,
-    tasks: ["summary", "trackers", "topics", "questions"],
-  });
-  await writeAppState("refresh-signal", { ts: Date.now() });
+      if (existingTranscript) {
+        await db
+          .update(schema.callTranscripts)
+          .set({
+            ownerEmail: call.ownerEmail,
+            provider: "deepgram",
+            status: "ready",
+            language: parsed.language || "en",
+            segmentsJson: JSON.stringify(parsed.segments),
+            fullText: parsed.fullText,
+            failureReason: null,
+            updatedAt: now,
+          })
+          .where(eq(schema.callTranscripts.callId, callId));
+      } else {
+        await db.insert(schema.callTranscripts).values({
+          callId,
+          ownerEmail: call.ownerEmail,
+          provider: "deepgram",
+          status: "ready",
+          language: parsed.language || "en",
+          segmentsJson: JSON.stringify(parsed.segments),
+          fullText: parsed.fullText,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
 
-  return {
-    ok: true,
-    callId,
-    segments: parsed.segments.length,
-    participants: talkStats.participants.length,
-  };
+      // Materialize participants from diarized segments. Replace the whole set
+      // so a re-transcribe collapses any leftover rows from an earlier pass.
+      const talkStats = computeTalkStats(parsed.segments);
+      await db
+        .delete(schema.callParticipants)
+        .where(eq(schema.callParticipants.callId, callId));
+      for (const p of talkStats.participants) {
+        await db.insert(schema.callParticipants).values({
+          id: nanoid(),
+          callId,
+          speakerLabel: p.speakerLabel,
+          color: colorForSpeaker(p.speakerLabel),
+          talkMs: p.talkMs,
+          talkPct: p.talkPct,
+          longestMonologueMs: p.longestMonologueMs,
+          interruptionsCount: p.interruptionsCount,
+          questionsCount: p.questionsCount,
+          createdAt: now,
+        });
+      }
+
+      await db
+        .update(schema.calls)
+        .set({ status: "analyzing", updatedAt: now })
+        .where(eq(schema.calls.id, callId));
+
+      // Queue the AI pipeline — the agent chat polls for ai-delegations-* keys.
+      await writeAppState(`ai-delegations-${callId}`, {
+        callId,
+        kind: "call-ready-for-analysis",
+        requestedAt: now,
+        tasks: ["summary", "trackers", "topics", "questions"],
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+
+      return {
+        ok: true,
+        callId,
+        segments: parsed.segments.length,
+        participants: talkStats.participants.length,
+      };
+    },
+  );
 });

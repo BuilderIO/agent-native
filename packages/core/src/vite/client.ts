@@ -889,6 +889,16 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
           // and triggers a server restart when those files change.
           noExternal: [
             /^@agent-native\/core(\/.*)?$/,
+            // scheduling ships tsc-compiled dist files that contain literal
+            // `@/` path-alias imports (e.g. `import { Input } from
+            // "@/components/ui/input"`). In standalone (published) mode Node
+            // treats the package as an external CJS dep and can't resolve
+            // `@/components`. Adding it to noExternal makes Vite process it
+            // through the module pipeline, where the consumer app's `@` →
+            // `./app` alias is already registered.
+            ...(hasDep("@agent-native/scheduling", cwd)
+              ? [/^@agent-native\/scheduling(\/.*)?$/]
+              : []),
             ...workspaceCoreNoExternal,
           ],
           external: [

@@ -167,17 +167,32 @@ async function refireProcessor(
 
   const url = `${withConfiguredAppBasePath(baseUrl)}${PROCESSOR_PATH}`;
 
-  // Sign with HMAC if A2A_SECRET is configured. If it isn't, we still fire
-  // the request — the processor accepts unsigned requests when A2A_SECRET is
-  // absent (see plugin.ts). This keeps the retry job working on templates
-  // that haven't yet enrolled in the A2A identity scheme.
+  // Sign with HMAC if A2A_SECRET is configured. In production we MUST sign —
+  // an unsigned dispatch in production lets attackers re-trigger any queued
+  // task with a guessable id (C3 in the webhook security audit). In dev we
+  // fall back to unsigned so contributors can iterate without configuring
+  // A2A_SECRET locally.
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   try {
     headers["Authorization"] = `Bearer ${signInternalToken(taskId)}`;
-  } catch {
-    // No A2A_SECRET — proceed unsigned.
+  } catch (err) {
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        `[integrations] Refusing to dispatch task ${taskId} — A2A_SECRET not configured. ` +
+          "Set A2A_SECRET to enable signed retry dispatches.",
+      );
+      return;
+    }
+    // Dev: proceed unsigned. Log the underlying error path so a malformed
+    // secret (different from "not set") doesn't fail silently (L5 in the audit).
+    if (err instanceof Error && !/A2A_SECRET/i.test(err.message)) {
+      console.error(
+        `[integrations] signInternalToken failed unexpectedly for ${taskId}:`,
+        err,
+      );
+    }
   }
 
   // Don't await the body — we just want the request to leave the box.

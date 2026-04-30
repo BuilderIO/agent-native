@@ -195,6 +195,27 @@ describe("progress routes", () => {
       limit: 50,
     });
   });
+
+  it("short-circuits OPTIONS before auth", async () => {
+    const handler = createProgressHandler() as any;
+    mockGetSession.mockRejectedValue(new Error("should not authenticate"));
+
+    const event = createEvent("/", "OPTIONS");
+    await expect(handler(event)).resolves.toBe("");
+
+    expect(event._status).toBe(204);
+    expect(mockGetSession).not.toHaveBeenCalled();
+    expect(mockListRuns).not.toHaveBeenCalled();
+  });
+
+  it("requires an authenticated session", async () => {
+    const handler = createProgressHandler() as any;
+    mockGetSession.mockResolvedValue(null);
+
+    await expect(handler(createEvent("/"))).rejects.toMatchObject({
+      statusCode: 401,
+    });
+  });
 });
 
 describe("progress action entries", () => {

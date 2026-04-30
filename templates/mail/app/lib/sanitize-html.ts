@@ -58,6 +58,12 @@ const ALLOWED_ATTRS = new Set([
 const SAFE_URL_RE =
   /^(?:https?:\/\/|mailto:|tel:|\/|#|cid:|data:image\/(?:gif|png|jpe?g|webp);base64,)/i;
 
+function isSafeUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("//")) return false;
+  return SAFE_URL_RE.test(trimmed);
+}
+
 function cleanNode(node: Node, doc: Document): Node | null {
   if (node.nodeType === 3) {
     return doc.createTextNode(node.textContent ?? "");
@@ -94,7 +100,7 @@ function cleanNode(node: Node, doc: Document): Node | null {
   for (const attr of Array.from(el.attributes)) {
     const name = attr.name.toLowerCase();
     if (!ALLOWED_ATTRS.has(name)) continue;
-    if ((name === "href" || name === "src") && !SAFE_URL_RE.test(attr.value)) {
+    if ((name === "href" || name === "src") && !isSafeUrl(attr.value)) {
       continue;
     }
     out.setAttribute(name, attr.value);

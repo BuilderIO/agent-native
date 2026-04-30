@@ -13,6 +13,7 @@ import {
 import { createSharesTable, type ShareRole } from "./schema.js";
 import { registerShareableResource } from "./registry.js";
 import shareResource from "./actions/share-resource.js";
+import { isSyntheticQaEmail } from "./actions/share-resource.js";
 import unshareResource from "./actions/unshare-resource.js";
 import listResourceShares from "./actions/list-resource-shares.js";
 import setResourceVisibility from "./actions/set-resource-visibility.js";
@@ -101,6 +102,13 @@ afterEach(() => {
 });
 
 describe("shareable resource access helpers", () => {
+  it("recognizes reserved synthetic QA emails so share notifications can be suppressed", () => {
+    expect(isSyntheticQaEmail("steve+qa-tools-123@example.test")).toBe(true);
+    expect(isSyntheticQaEmail("codex+qa-lane@example.invalid")).toBe(true);
+    expect(isSyntheticQaEmail("steve+qa-tools-123@example.com")).toBe(false);
+    expect(isSyntheticQaEmail("steve@example.test")).toBe(false);
+  });
+
   it("filters list access across owner, private, org, public, user share, org share, and anonymous contexts", async () => {
     await insertDoc({ id: "owned" });
     await insertDoc({ id: "private-other", ownerEmail: outsiderEmail });

@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { z } from "zod";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -64,6 +65,7 @@ async function getDashboard(): Promise<DashboardStats> {
 
 export default defineAction({
   description: "Get a summary of dashboard statistics",
+  schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
     const orgId = getRequestOrgId() ?? null;

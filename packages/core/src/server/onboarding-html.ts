@@ -144,11 +144,20 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .marketing-content { max-width: 480px; }
   .app-name {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
     font-size: 2rem;
     font-weight: 700;
     color: #fff;
     margin-bottom: 0.625rem;
     letter-spacing: -0.02em;
+  }
+  .app-name img.brand-mark {
+    height: 1.75rem;
+    width: auto;
+    display: block;
+    flex-shrink: 0;
   }
   .app-tagline {
     font-size: 1.25rem;
@@ -211,6 +220,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .split { flex-direction: column; min-height: auto; }
     .marketing-panel { padding: 2rem 1.5rem 1.5rem; }
     .app-name { font-size: 1.375rem; }
+    .app-name img.brand-mark { height: 1.25rem; }
     .app-tagline { font-size: 1rem; margin-bottom: 1rem; }
     .app-desc { margin-bottom: 1rem; }
     .feature-list { gap: 0.5rem; }
@@ -224,7 +234,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 <div class="split">
   <div class="marketing-panel">
     <div class="marketing-content">
-      <h2 class="app-name">${esc(marketing!.appName)}</h2>
+      <h2 class="app-name">
+        <img class="brand-mark" src="/agent-native-icon-dark.svg" alt="" aria-hidden="true" />
+        <span>${esc(marketing!.appName)}</span>
+      </h2>
       <p class="app-tagline">${esc(marketing!.tagline)}</p>
 ${marketing!.description ? `      <p class="app-desc">${esc(marketing!.description)}</p>\n` : ""}${
         marketing!.features?.length

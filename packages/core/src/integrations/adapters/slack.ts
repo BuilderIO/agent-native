@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { getHeader } from "h3";
+import { getHeader, readRawBody } from "h3";
 import type {
   PlatformAdapter,
   IncomingMessage,
@@ -9,7 +9,6 @@ import type {
 } from "../types.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { getIntegrationConfig } from "../config-store.js";
-import { readBody } from "../../server/h3-helpers.js";
 
 /** Slack's max message length */
 const SLACK_MAX_LENGTH = 4000;
@@ -48,16 +47,17 @@ export function slackAdapter(): PlatformAdapter {
     async handleVerification(
       event: H3Event,
     ): Promise<{ handled: boolean; response?: unknown }> {
-      // Slack sends url_verification when first setting up the webhook
-      const body = await readRawBody(event);
+      // Slack sends url_verification when first setting up the webhook.
+      // readRawBodyCached caches the raw bytes on event.context.__rawBody so
+      // subsequent verifyWebhook + parseIncomingMessage calls re-use them
+      // without re-stringifying a parsed body (M2 in the audit).
+      const body = await readRawBodyCached(event);
       try {
         const parsed = JSON.parse(body);
         if (parsed.type === "url_verification") {
           return { handled: true, response: { challenge: parsed.challenge } };
         }
       } catch {}
-      // Store raw body for later use
-      event.context.__rawBody = body;
       return { handled: false };
     },
 
@@ -73,9 +73,7 @@ export function slackAdapter(): PlatformAdapter {
       const ts = parseInt(timestamp, 10);
       if (Math.abs(Date.now() / 1000 - ts) > 300) return false;
 
-      const body =
-        (event.context.__rawBody as string | undefined) ??
-        (await readRawBody(event));
+      const body = await readRawBodyCached(event);
       const crypto = await import("node:crypto");
       const basestring = `v0:${timestamp}:${body}`;
       const expectedSignature =
@@ -99,9 +97,7 @@ export function slackAdapter(): PlatformAdapter {
     async parseIncomingMessage(
       event: H3Event,
     ): Promise<IncomingMessage | null> {
-      const raw =
-        (event.context.__rawBody as string | undefined) ??
-        (await readRawBody(event));
+      const raw = await readRawBodyCached(event);
       let payload: any;
       try {
         payload = JSON.parse(raw);
@@ -333,11 +329,26 @@ export function slackAdapter(): PlatformAdapter {
   };
 }
 
-/** Read the raw body as a string (H3 may have already parsed it) */
-async function readRawBody(event: H3Event): Promise<string> {
-  if (event.context.__rawBody) return event.context.__rawBody as string;
-  const body = await readBody(event);
-  const raw = typeof body === "string" ? body : JSON.stringify(body);
+/**
+ * Read the raw request body as a string and cache on the event context.
+ *
+ * This MUST read raw bytes from the request stream — never `JSON.stringify`
+ * a parsed body, because Slack's HMAC is computed over the exact bytes Slack
+ * sent. Re-stringifying a parsed object loses key ordering, whitespace, and
+ * Unicode-escape choices, so the signature check would silently fail for
+ * legitimate requests (M2 in the webhook security audit).
+ *
+ * h3 v2's body stream is consume-once, so we cache the raw string on the
+ * event context after the first read. All call sites (handleVerification,
+ * verifyWebhook, parseIncomingMessage) MUST go through this helper.
+ */
+async function readRawBodyCached(event: H3Event): Promise<string> {
+  const cached = event.context.__rawBody;
+  if (typeof cached === "string") return cached;
+  // h3's readRawBody returns the bytes Slack actually sent, defaulting to
+  // utf8-decoded. Returns undefined for empty bodies — we coerce to "" so
+  // the HMAC check can proceed deterministically.
+  const raw = (await readRawBody(event)) ?? "";
   event.context.__rawBody = raw;
   return raw;
 }

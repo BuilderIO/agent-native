@@ -293,7 +293,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
     return (
       <div
-        className={`webview-slot${isActive ? "" : " webview-slot--hidden"}${isFullscreen ? " webview-slot--fullscreen" : ""}`}
+        className={`webview-slot${isActive ? " webview-slot--active" : " webview-slot--hidden"}${isFullscreen ? " webview-slot--fullscreen" : ""}`}
         onClick={() => {
           // Re-focus the webview when clicking the content area so
           // keyboard shortcuts (Tab, etc.) route into the app.
@@ -331,7 +331,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               ) as ElectronWebviewElement;
               wv.className = "app-webview";
               wv.setAttribute("allowpopups", "");
-              wv.setAttribute("webpreferences", "contextIsolation=false");
+              wv.setAttribute(
+                "webpreferences",
+                "contextIsolation=true,nodeIntegration=false,sandbox=true",
+              );
               wv.setAttribute("partition", `persist:app-${app.id}`);
               wv.setAttribute("src", url);
               container.appendChild(wv);

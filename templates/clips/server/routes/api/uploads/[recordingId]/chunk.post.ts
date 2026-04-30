@@ -31,6 +31,23 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
 
+const ALLOWED_RECORDING_MIME_TYPES = new Set([
+  "video/webm",
+  "video/mp4",
+  "video/quicktime",
+]);
+
+function normalizeRecordingMimeType(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const mimeType = value.trim();
+  if (!mimeType || mimeType.length > 120 || /[\r\n]/.test(mimeType)) {
+    return null;
+  }
+  const baseType = mimeType.split(";")[0]?.trim().toLowerCase();
+  if (!baseType || !ALLOWED_RECORDING_MIME_TYPES.has(baseType)) return null;
+  return mimeType;
+}
+
 function toBase64(bytes: Uint8Array): string {
   if (typeof Buffer !== "undefined") {
     return Buffer.from(bytes).toString("base64");
@@ -55,13 +72,13 @@ export default defineEventHandler(async (event: H3Event) => {
   // The client (recorder-engine) knows the exact mimeType it picked for the
   // whole recording and sends it on every chunk. Never guess — a wrong
   // default writes the wrong Content-Type to storage.
-  if (typeof query.mimeType !== "string" || !query.mimeType) {
+  const mimeType = normalizeRecordingMimeType(query.mimeType);
+  if (!mimeType) {
     throw createError({
       statusCode: 400,
-      message: "Missing mimeType query param",
+      message: "Unsupported or missing mimeType query param",
     });
   }
-  const mimeType = query.mimeType;
 
   debugLog("[chunk] received", {
     recordingId,

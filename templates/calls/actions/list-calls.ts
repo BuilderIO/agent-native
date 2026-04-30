@@ -16,6 +16,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 import { parseSpaceIds } from "../server/lib/calls.js";
 
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
+
 const stringArrayParam = z.preprocess((value) => {
   if (value == null || value === "") return undefined;
   if (Array.isArray(value)) {
@@ -131,9 +135,9 @@ export default defineAction({
     }
 
     if (args.search) {
-      const pat = `%${args.search}%`;
+      const pat = `%${escapeLike(args.search)}%`;
       whereClauses.push(
-        sql`(${schema.calls.title} LIKE ${pat} OR ${schema.calls.description} LIKE ${pat})`,
+        sql`(${schema.calls.title} LIKE ${pat} ESCAPE '\\' OR ${schema.calls.description} LIKE ${pat} ESCAPE '\\')`,
       );
     }
 

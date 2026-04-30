@@ -343,8 +343,7 @@ function LinkTab(props: {
   const data = sharesQuery.data;
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
-  const canManage =
-    data?.role === "owner" || data?.role === "admin" || !data?.role;
+  const canManage = data?.role === "owner" || data?.role === "admin";
   const meta = VIS_META[visibility];
 
   const handleVisibility = (next: Visibility) => {
@@ -411,8 +410,7 @@ function InviteTab(props: {
   const shares = data?.shares ?? [];
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
-  const canManage =
-    data?.role === "owner" || data?.role === "admin" || !data?.role;
+  const canManage = data?.role === "owner" || data?.role === "admin";
   const meta = VIS_META[visibility];
 
   const handleAdd = () => {

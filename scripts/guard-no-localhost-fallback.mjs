@@ -56,6 +56,17 @@
  *   'local@localhost'     (single-quoted)
  *   `local@localhost`     (backtick / template literal)
  *
+ * Symbolic alias caught:
+ *
+ *   ?? DEV_MODE_USER_EMAIL
+ *   || DEV_MODE_USER_EMAIL
+ *
+ * The audit (02 — getCurrentRunOwner) found that hiding the literal
+ * behind a symbolic alias slipped past the regex above. Use the same
+ * "no fallback to dev sentinel" rule for symbolic references on `??` /
+ * `||` chains. Imports and other reads of the constant are fine — only
+ * the fallback shape is dangerous.
+ *
  * Comments (lines starting with `*`, `//`, or `/*`) are skipped — the
  * literal often appears in JSDoc explaining the dev-mode behavior.
  *
@@ -134,6 +145,13 @@ const OPT_OUT_REQUIRES_REASON =
 // Match any of the three quoted forms. The flag `g` so we can iterate;
 // the offset gives us the line.
 const LITERAL_RE = /(?:"local@localhost"|'local@localhost'|`local@localhost`)/g;
+
+// Catch the symbolic-alias fallback shape:
+//   foo ?? DEV_MODE_USER_EMAIL
+//   foo || DEV_MODE_USER_EMAIL
+// Plain reads / imports of the constant are fine — only the fallback
+// chain is the dangerous pattern audit 02 found.
+const SYMBOLIC_FALLBACK_RE = /(?:\?\?|\|\|)\s*DEV_MODE_USER_EMAIL\b/g;
 
 // SQL DDL `DEFAULT 'local@localhost'` (case-insensitive, any whitespace) is
 // a legitimate schema column default. Drizzle's helper form
@@ -237,6 +255,22 @@ async function scan() {
         snippet: lineText.trim(),
       });
     }
+
+    // Catch symbolic-alias fallbacks (audit 02 — getCurrentRunOwner).
+    SYMBOLIC_FALLBACK_RE.lastIndex = 0;
+    let s;
+    while ((s = SYMBOLIC_FALLBACK_RE.exec(contents)) !== null) {
+      const { line, col } = lineColForOffset(contents, s.index);
+      const lineText = lines[line - 1] ?? "";
+      if (isCommentLine(lineText)) continue;
+      if (hasValidOptOut(lines, line - 1)) continue;
+      violations.push({
+        file: rel,
+        line,
+        col,
+        snippet: lineText.trim(),
+      });
+    }
   }
   return violations;
 }
@@ -247,7 +281,8 @@ if (violations.length > 0) {
   const bar = "=".repeat(72);
   console.error(`\n${bar}`);
   console.error(
-    'ERROR: forbidden `"local@localhost"` literal in production code.',
+    'ERROR: forbidden `"local@localhost"` (or DEV_MODE_USER_EMAIL alias) ' +
+      "fallback in production code.",
   );
   console.error(bar);
   console.error("");
@@ -260,6 +295,7 @@ if (violations.length > 0) {
   console.error(
     '    const userEmail = getRequestUserEmail() || "local@localhost";',
   );
+  console.error("    const owner = ctx?.owner ?? DEV_MODE_USER_EMAIL;");
   console.error("");
   console.error(
     "— silently pools every unauthenticated request into a single shared",

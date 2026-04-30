@@ -15,7 +15,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   nanoid,
-  requireActiveOrganizationId,
+  requireOrganizationAccess,
 } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 
@@ -69,8 +69,9 @@ export default defineAction({
     const id = args.id || nanoid();
     const now = new Date().toISOString();
 
-    const organizationId =
-      args.organizationId || (await requireActiveOrganizationId());
+    const { organizationId } = await requireOrganizationAccess(
+      args.organizationId,
+    );
 
     await db.insert(schema.recordings).values({
       id,

@@ -10,12 +10,15 @@
  *   AUTH_SECRET           — used to derive an encryption key. If unset we fall
  *                           back to plaintext with a console warning.
  *
- * Query: ?code=<oauth-code>&state=<b64url-json>
+ * Query: ?code=<oauth-code>&state=<random-nanoid>
  *
- * State is a base64url-encoded JSON blob of at least:
- *   { email, verifier? }
- * where `verifier` is the PKCE code_verifier (if we used PKCE). If state is
- * missing or can't be parsed we fall back to the current session email.
+ * Security model:
+ *   - The legitimate flow (actions/connect-zoom.ts) writes a random nanoid
+ *     `state` and the PKCE `verifier` into `application_state` keyed by
+ *     `zoom-oauth-${ownerEmail}`.
+ *   - The callback REQUIRES an authenticated session, looks up the stored
+ *     state by the session's email, and verifies the inbound `state` matches.
+ *   - We never trust attacker-controlled fields (email/verifier in `state`).
  *
  * Route: GET /api/oauth/zoom/callback
  */
@@ -32,10 +35,15 @@ import {
   createDecipheriv,
   createHash,
   randomBytes,
+  timingSafeEqual,
 } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../../../db/index.js";
-import { getSession } from "@agent-native/core/server";
+import { getSession, safeReturnPath } from "@agent-native/core/server";
+import {
+  appStateGet,
+  appStateDelete,
+} from "@agent-native/core/application-state";
 
 const ZOOM_TOKEN_URL = "https://zoom.us/oauth/token";
 
@@ -49,26 +57,11 @@ interface ZoomTokenResponse {
   error_description?: string;
 }
 
-interface PkceState {
-  email?: string;
+interface PkceFlowState {
+  state?: string;
   verifier?: string;
-  returnTo?: string;
-}
-
-function decodeState(raw: string | undefined): PkceState {
-  if (!raw || typeof raw !== "string") return {};
-  try {
-    const normalized = raw.replace(/-/g, "+").replace(/_/g, "/");
-    const pad =
-      normalized.length % 4 === 0
-        ? ""
-        : "=".repeat(4 - (normalized.length % 4));
-    const json = Buffer.from(normalized + pad, "base64").toString("utf8");
-    const parsed = JSON.parse(json);
-    return typeof parsed === "object" && parsed !== null ? parsed : {};
-  } catch {
-    return {};
-  }
+  redirectTo?: string;
+  createdAt?: string;
 }
 
 function deriveKey(): Buffer | null {
@@ -149,6 +142,19 @@ async function exchangeCode(
   return json;
 }
 
+/**
+ * Constant-time compare of two strings. Avoids leaking length differences
+ * between attacker-supplied state and the stored value via timing.
+ */
+function safeEqualString(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+  } catch {
+    return false;
+  }
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const q = getQuery(event) as {
     code?: string;
@@ -171,6 +177,16 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Missing authorization code" };
   }
 
+  // Require an authenticated session. The previous implementation honored an
+  // attacker-controlled `state.email`, which let anyone bind their Zoom
+  // tokens to any victim's `zoom_connections` row.
+  const session = await getSession(event).catch(() => null);
+  const email = session?.email?.toLowerCase();
+  if (!email) {
+    setResponseStatus(event, 401);
+    return { error: "No authenticated session — sign in and retry" };
+  }
+
   const clientId = process.env.ZOOM_CLIENT_ID;
   const clientSecret = process.env.ZOOM_CLIENT_SECRET;
   const redirectUri = process.env.ZOOM_REDIRECT_URI;
@@ -182,12 +198,24 @@ export default defineEventHandler(async (event: H3Event) => {
     };
   }
 
-  const state = decodeState(q.state);
-  const session = await getSession(event).catch(() => null);
-  const email = (state.email || session?.email || "").toLowerCase();
-  if (!email) {
-    setResponseStatus(event, 401);
-    return { error: "No authenticated session — cannot attach Zoom tokens" };
+  const inboundState = typeof q.state === "string" ? q.state : "";
+  if (!inboundState) {
+    setResponseStatus(event, 400);
+    return { error: "Missing OAuth state parameter" };
+  }
+
+  // Look up the random `state` + PKCE verifier that connect-zoom.ts wrote
+  // when the user kicked off the OAuth flow. Keyed by the session email so
+  // an attacker can't poison another user's flow.
+  const stateKey = `zoom-oauth-${email}`;
+  const stored = (await appStateGet(email, stateKey)) as PkceFlowState | null;
+  if (!stored?.state || !stored?.verifier) {
+    setResponseStatus(event, 400);
+    return { error: "No pending Zoom OAuth flow for this user" };
+  }
+  if (!safeEqualString(inboundState, stored.state)) {
+    setResponseStatus(event, 400);
+    return { error: "OAuth state mismatch" };
   }
 
   let tokens: ZoomTokenResponse;
@@ -197,7 +225,7 @@ export default defineEventHandler(async (event: H3Event) => {
       redirectUri,
       clientId,
       clientSecret,
-      state.verifier,
+      stored.verifier,
     );
   } catch (err) {
     console.error("[calls] Zoom OAuth exchange failed:", err);
@@ -248,9 +276,16 @@ export default defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  const returnTo =
-    typeof state.returnTo === "string" && state.returnTo.startsWith("/")
-      ? state.returnTo
-      : "/settings?zoom=connected";
+  // Best-effort cleanup of the one-time state row. A future replay of the
+  // same `?state=` is now invalid because the verifier is also gone.
+  await appStateDelete(email, stateKey).catch(() => {});
+
+  // Validate the redirect target is same-origin (path-relative). The
+  // previous `startsWith("/")` accepted `//evil.example/path` which is a
+  // protocol-relative URL.
+  const requested =
+    typeof stored.redirectTo === "string" ? stored.redirectTo : "";
+  const safe = safeReturnPath(requested);
+  const returnTo = safe === "/" ? "/settings?zoom=connected" : safe;
   return sendRedirect(event, returnTo, 302);
 });

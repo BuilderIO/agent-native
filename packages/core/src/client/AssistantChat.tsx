@@ -69,6 +69,7 @@ import {
   IconDots,
   IconGitFork,
   IconId,
+  IconQuote,
 } from "@tabler/icons-react";
 
 const ThumbsFeedbackLazy = React.lazy(() =>
@@ -91,9 +92,9 @@ const markdownStyles = `
 .agent-markdown h3 { font-size: 1em; font-weight: 600; margin: 0.75em 0 0.25em; }
 .agent-markdown strong { font-weight: 600; }
 .agent-markdown em { font-style: italic; }
-.agent-markdown code { font-size: 0.875em; padding: 0.15em 0.35em; border-radius: 0.25em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); }
-.agent-markdown pre { margin: 0.5em 0; padding: 0.75em 1em; border-radius: 0.375em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); overflow-x: auto; }
-.agent-markdown pre code { padding: 0; background: transparent; font-size: 0.8125em; color: inherit; }
+.agent-markdown code { font-size: 0.875em; padding: 0.15em 0.35em; border-radius: 0.25em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); border: 1px solid hsl(var(--border, 0 0% 80%)); }
+.agent-markdown pre { margin: 0.5em 0; padding: 0.75em 1em; border-radius: 0.375em; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); overflow-x: auto; border: 1px solid hsl(var(--border, 0 0% 80%)); }
+.agent-markdown pre code { padding: 0; background: transparent; font-size: 0.8125em; color: inherit; border: none; }
 .agent-markdown-shiki { margin: 0.5em 0; border-radius: 0.375em; overflow: hidden; font-size: 0.8125em; }
 .agent-markdown-shiki pre { margin: 0; padding: 0.75em 1em; overflow-x: auto; background: var(--shiki-light-bg); color: var(--shiki-light); }
 .agent-markdown-shiki pre code { background: transparent; padding: 0; font-size: inherit; color: inherit; }
@@ -108,6 +109,89 @@ const markdownStyles = `
 .agent-markdown th, .agent-markdown td { border: 1px solid hsl(var(--border, 0 0% 20%)); padding: 0.35em 0.65em; text-align: left; }
 .agent-markdown th { font-weight: 600; background: hsl(var(--muted, 0 0% 15%)); color: hsl(var(--foreground, 0 0% 90%)); }
 `;
+
+/**
+ * Pending selection context — written to application_state when the user
+ * presses Cmd+I with text selected on the page. The agent's next turn picks
+ * it up via the `selectionContextPromise` in production-agent. The pill
+ * below tells the user the context is attached and lets them clear it.
+ */
+const PENDING_SELECTION_KEY = "pending-selection-context";
+
+function clearPendingSelection() {
+  fetch(
+    agentNativePath(
+      `/_agent-native/application-state/${PENDING_SELECTION_KEY}`,
+    ),
+    { method: "DELETE", keepalive: true },
+  ).catch(() => {});
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("agent-panel:selection-cleared"));
+  }
+}
+
+function SelectionAttachedPill() {
+  const [length, setLength] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/${PENDING_SELECTION_KEY}`,
+      ),
+    )
+      .then((r) => (r.ok && r.status !== 204 ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const text =
+          (data?.value?.text as string | undefined) ??
+          (data?.text as string | undefined);
+        if (text) setLength(text.length);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    function onAttached(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (typeof detail?.length === "number") setLength(detail.length);
+    }
+    function onCleared() {
+      setLength(null);
+    }
+    window.addEventListener("agent-panel:selection-attached", onAttached);
+    window.addEventListener("agent-panel:selection-cleared", onCleared);
+    return () => {
+      window.removeEventListener("agent-panel:selection-attached", onAttached);
+      window.removeEventListener("agent-panel:selection-cleared", onCleared);
+    };
+  }, []);
+
+  if (length === null || length === 0) return null;
+
+  return (
+    <div className="shrink-0 px-3 pt-1.5 -mb-1">
+      <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] text-muted-foreground">
+        <IconQuote size={11} />
+        <span>{length.toLocaleString()} chars of selection attached</span>
+        <button
+          type="button"
+          aria-label="Clear selection context"
+          onClick={() => {
+            setLength(null);
+            clearPendingSelection();
+          }}
+          className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
+        >
+          <IconX size={11} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 let stylesInjected = false;
 function injectMarkdownStyles() {
@@ -2212,6 +2296,9 @@ const AssistantChatInner = forwardRef<
   const addToQueue = useCallback(
     (text: string, images?: string[], references?: Reference[]) => {
       setShowContinue(false);
+      // Selection context attached via Cmd+I is one-shot — clear it as soon
+      // as the user actually sends a message so it can't be re-used.
+      clearPendingSelection();
       if (isRunning) {
         setQueuedMessages((prev) => [
           ...prev,
@@ -2568,6 +2655,7 @@ const AssistantChatInner = forwardRef<
             )}
 
             {composerSlot}
+            <SelectionAttachedPill />
             {/* Input area */}
             <div className="agent-composer-area shrink-0 px-3 py-2">
               <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
@@ -2600,6 +2688,7 @@ const AssistantChatInner = forwardRef<
                   selectedModel={selectedModel ?? defaultModel}
                   availableModels={availableModels}
                   onModelChange={onModelChange}
+                  draftScope={threadId || tabId}
                   extraActionButton={
                     showRunningInUI ? (
                       <button

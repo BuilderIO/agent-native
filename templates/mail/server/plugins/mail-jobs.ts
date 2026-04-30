@@ -101,12 +101,17 @@ export default () => {
     }) as any,
   });
 
-  // Background cron must only run in one place — otherwise every dev server
-  // processes jobs and automations for every connected user globally, leading
-  // to duplicate actions and duplicate Anthropic spend.
-  if (process.env.RUN_BACKGROUND_JOBS !== "1") {
+  // Background cron defaults on in production and off in dev. The dev gate
+  // exists because every connected dev server would otherwise process jobs
+  // and automations for every user globally, causing duplicate actions and
+  // duplicate Anthropic spend. Set RUN_BACKGROUND_JOBS=1 to opt in locally,
+  // or RUN_BACKGROUND_JOBS=0 to opt out in production.
+  const isProd = process.env.NODE_ENV === "production";
+  const flag = process.env.RUN_BACKGROUND_JOBS;
+  const enabled = flag === "1" || (isProd && flag !== "0");
+  if (!enabled) {
     console.log(
-      "[mail-jobs] Skipping background cron (set RUN_BACKGROUND_JOBS=1 to enable)",
+      "[mail-jobs] Skipping background cron (set RUN_BACKGROUND_JOBS=1 to enable in dev; on by default in production)",
     );
     return;
   }

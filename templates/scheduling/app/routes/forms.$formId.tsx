@@ -20,6 +20,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+function safeExternalUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loader({ params }: LoaderFunctionArgs) {
   const db = getDb();
   const rows = await getDb()
@@ -97,7 +109,12 @@ export default function RoutingFormPublic() {
         `${route}?prefill=${encodeURIComponent(JSON.stringify(values))}`,
       );
     } else if (action.kind === "external-url") {
-      location.href = action.url;
+      const externalUrl = safeExternalUrl(action.url);
+      if (!externalUrl) {
+        setMessage("This form is not connected to a valid destination.");
+        return;
+      }
+      location.assign(externalUrl);
     } else {
       setMessage(action.message);
     }

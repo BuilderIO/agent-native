@@ -8,6 +8,7 @@ import { getH3App } from "./framework-request-handler.js";
 import {
   defineEventHandler,
   setResponseStatus,
+  setResponseHeader,
   getMethod,
   getQuery,
   getHeader,
@@ -33,6 +34,52 @@ function readTimezoneHeader(event: any): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+const LOCALHOST_ORIGIN_RE =
+  /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/;
+
+function getAllowedCorsOrigin(origin: string | undefined): string | null {
+  if (!origin) return null;
+  const allowlist = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (allowlist.length > 0) {
+    return allowlist.includes(origin) ? origin : null;
+  }
+  return LOCALHOST_ORIGIN_RE.test(origin) ? origin : null;
+}
+
+function handleOptionsRequest(event: any): string {
+  const origin = getHeader(event, "origin");
+  const allowedOrigin = getAllowedCorsOrigin(
+    typeof origin === "string" ? origin : undefined,
+  );
+
+  if (origin && !allowedOrigin) {
+    setResponseStatus(event, 403);
+    return "";
+  }
+
+  if (allowedOrigin) {
+    setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
+    setResponseHeader(event, "Vary", "Origin");
+    setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+    setResponseHeader(
+      event,
+      "Access-Control-Allow-Methods",
+      "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+    );
+    setResponseHeader(
+      event,
+      "Access-Control-Allow-Headers",
+      "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+    );
+  }
+
+  setResponseStatus(event, 204);
+  return "";
 }
 
 export interface MountActionRoutesOptions {
@@ -67,9 +114,15 @@ export function mountActionRoutes(
       routePath,
       defineEventHandler(async (event) => {
         const reqMethod = getMethod(event);
+        const effectiveMethod =
+          reqMethod === "HEAD" && method === "GET" ? "GET" : reqMethod;
+
+        if (reqMethod === "OPTIONS") {
+          return handleOptionsRequest(event);
+        }
 
         // Allow the declared method
-        if (reqMethod !== method) {
+        if (effectiveMethod !== method) {
           setResponseStatus(event, 405);
           return { error: `Method not allowed. Use ${method}.` };
         }
@@ -82,24 +135,6 @@ export function mountActionRoutes(
           ? ((await options.resolveOrgId(event)) ?? undefined)
           : undefined;
         const timezone = readTimezoneHeader(event);
-
-        // Also set process.env for backwards compat with scripts that
-        // read it directly (CLI invocations, legacy code paths).
-        if (userEmail) {
-          process.env.AGENT_USER_EMAIL = userEmail; // guard:allow-env-mutation — back-compat for legacy CLI scripts that read process.env directly; runWithRequestContext below is the per-request-safe source of truth, migrate readers off env over time
-        } else {
-          delete process.env.AGENT_USER_EMAIL;
-        }
-        if (orgId) {
-          process.env.AGENT_ORG_ID = orgId; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext
-        } else {
-          delete process.env.AGENT_ORG_ID;
-        }
-        if (timezone) {
-          process.env.AGENT_USER_TIMEZONE = timezone; // guard:allow-env-mutation — back-compat for legacy CLI scripts; per-request truth lives in runWithRequestContext
-        } else {
-          delete process.env.AGENT_USER_TIMEZONE;
-        }
 
         return runWithRequestContext(
           { userEmail, orgId, timezone },
@@ -157,6 +192,7 @@ export function mountActionRoutes(
                     source: "action",
                     type: "change",
                     key: name,
+                    owner: userEmail,
                   });
                 } catch {
                   // ignore
