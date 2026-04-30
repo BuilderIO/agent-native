@@ -66,11 +66,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    if (navCommand?.value) {
+    if (navCommand) {
+      const commandValue =
+        "value" in navCommand ? navCommand.value : navCommand;
       const cmd =
-        typeof navCommand.value === "string"
-          ? JSON.parse(navCommand.value)
-          : navCommand.value;
+        typeof commandValue === "string"
+          ? JSON.parse(commandValue)
+          : commandValue;
       if (cmd.view === "analytics") {
         navigate("/analytics");
       } else if (cmd.view === "entry") {
