@@ -99,7 +99,20 @@ export async function transcribeWithDeepgram(
     body = mediaBytes as BodyInit;
   }
 
-  const response = await fetch(url, { method: "POST", headers, body });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      body,
+      signal: AbortSignal.timeout(5 * 60_000),
+    });
+  } catch (err: any) {
+    if (err?.name === "TimeoutError" || err?.name === "AbortError") {
+      throw new Error("Deepgram transcription timed out after 5 minutes");
+    }
+    throw err;
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
