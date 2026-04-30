@@ -8,6 +8,7 @@ import type { EngineStreamOptions } from "./types.js";
 
 const credentialState = vi.hoisted(() => ({
   builderPrivateKey: "bpk-test" as string | null,
+  builderOrgName: null as string | null,
 }));
 
 // Mock the credential provider so tests do not hit the DB (app_secrets table).
@@ -17,9 +18,10 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
   return {
     ...original,
     resolveBuilderCredential: vi.fn(async (key: string) => {
-      return key === "BUILDER_PRIVATE_KEY"
-        ? credentialState.builderPrivateKey
-        : null;
+      if (key === "BUILDER_PRIVATE_KEY")
+        return credentialState.builderPrivateKey;
+      if (key === "BUILDER_ORG_NAME") return credentialState.builderOrgName;
+      return null;
     }),
     resolveBuilderAuthHeader: vi.fn(async () => {
       const key = credentialState.builderPrivateKey;
@@ -68,6 +70,7 @@ const BASE_OPTS: EngineStreamOptions = {
 describe("createBuilderEngine", () => {
   beforeEach(() => {
     credentialState.builderPrivateKey = "bpk-test";
+    credentialState.builderOrgName = null;
     vi.stubEnv("BUILDER_PRIVATE_KEY", "bpk-test");
     vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
   });
@@ -289,6 +292,7 @@ describe("createBuilderEngine", () => {
   });
 
   it("deep-links upgradeUrl to the org billing page when BUILDER_ORG_NAME is set", async () => {
+    credentialState.builderOrgName = "acme-corp";
     vi.stubEnv("BUILDER_ORG_NAME", "acme-corp");
     vi.stubGlobal(
       "fetch",
@@ -353,6 +357,7 @@ describe("createBuilderEngine", () => {
   });
 
   it("treats bare 402 (no structured code) as a credits-limit with upgrade CTA", async () => {
+    credentialState.builderOrgName = "acme";
     vi.stubEnv("BUILDER_ORG_NAME", "acme");
     vi.stubGlobal(
       "fetch",

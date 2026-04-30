@@ -89,6 +89,7 @@ import {
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
+  resolveOAuthRedirectUri,
 } from "./google-oauth.js";
 
 /**
@@ -1327,9 +1328,16 @@ async function mountBetterAuthRoutes(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        const redirectUri =
-          (getQuery(event).redirect_uri as string) ||
-          getAppUrl(event, "/_agent-native/google/callback");
+        // Validate the user-supplied `redirect_uri` against the framework's
+        // server-side allowlist (must be same-origin and under
+        // `/_agent-native/...`). Reject anything else so an attacker can't
+        // smuggle a different already-registered redirect URI past Google's
+        // host-prefix matching. See HIGH-1 in 09-oauth-session.md.
+        const redirectUri = resolveOAuthRedirectUri(event);
+        if (redirectUri === null) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid redirect_uri" };
+        }
         const q = getQuery(event);
         const desktop =
           isElectronRequest(event) || q.desktop === "1" || q.desktop === "true";

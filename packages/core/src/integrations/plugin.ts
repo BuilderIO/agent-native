@@ -37,6 +37,51 @@ import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
+// ─── Google Pub/Sub OIDC verifier (for Drive changes.watch push) ────────────
+// Cache Google's public keys for OIDC verification. jose handles TTL +
+// refresh internally — same pattern as templates/mail/.../gmail/push.post.ts.
+// Used to verify Google Pub/Sub push notifications carry a valid bearer token
+// signed by a configured service account. Without this, the webhook is wide
+// open to anonymous callers who can force a Drive sync (H7 in the audit).
+const GOOGLE_JWKS = createRemoteJWKSet(
+  new URL("https://www.googleapis.com/oauth2/v3/certs"),
+);
+const GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
+
+/**
+ * Verify a Pub/Sub OIDC bearer token. Throws on any verification failure.
+ * Requires GOOGLE_DOCS_PUSH_AUDIENCE and GOOGLE_DOCS_PUSH_SIGNER_EMAIL to be
+ * set; if either is missing in production, the webhook handler refuses the
+ * request entirely (so a misconfigured deployment fails closed, surfacing in
+ * Pub/Sub's delivery metrics).
+ */
+async function verifyGoogleDocsPushToken(authHeader: string): Promise<void> {
+  if (!authHeader.startsWith("Bearer ")) {
+    throw new Error("missing bearer token");
+  }
+  const token = authHeader.slice(7);
+  const audience = process.env.GOOGLE_DOCS_PUSH_AUDIENCE;
+  if (!audience) {
+    throw new Error("GOOGLE_DOCS_PUSH_AUDIENCE not configured");
+  }
+  const { payload } = await jwtVerify(token, GOOGLE_JWKS, {
+    issuer: GOOGLE_ISSUERS,
+    audience,
+  });
+  if (payload.email_verified !== true) {
+    throw new Error("email_verified claim is not true");
+  }
+  // Pin to a specific service account — without this, any Google-issued
+  // token with the right audience could trigger a Drive sync.
+  const expectedSigner = process.env.GOOGLE_DOCS_PUSH_SIGNER_EMAIL;
+  if (!expectedSigner) {
+    throw new Error("GOOGLE_DOCS_PUSH_SIGNER_EMAIL not configured");
+  }
+  if (payload.email !== expectedSigner) {
+    throw new Error(`unexpected signer: ${String(payload.email)}`);
+  }
+}
+
 /** Built-in adapters, instantiated lazily */
 function getDefaultAdapters(): PlatformAdapter[] {
   return [
@@ -173,15 +218,29 @@ export function createIntegrationsPlugin(
      * Solo / no-org sessions (i.e. ctx.orgId == null) are allowed — that's
      * the local-dev / single-user case where there's no privilege gradient
      * to enforce. The deployment is single-tenant by definition there.
+     *
+     * Returns an `{ ok: true }` on pass, or `{ ok: false, error }` with the
+     * status already set on the event. The error string lines up with the
+     * status code (401 → "unauthorized"; 403 → admin-required message).
      */
-    async function requireOrgAdmin(event: any): Promise<boolean> {
-      if (!(await requireSession(event))) return false;
+    async function checkOrgAdmin(
+      event: any,
+    ): Promise<{ ok: true } | { ok: false; error: string }> {
+      const session = await getSession(event).catch(() => null);
+      if (!session?.email) {
+        setResponseStatus(event, 401);
+        return { ok: false, error: "unauthorized" };
+      }
       const ctx = await getOrgContext(event).catch(() => null);
       // Solo (no org membership) — single-tenant flow, allow.
-      if (!ctx?.orgId) return true;
-      if (ctx.role === "owner" || ctx.role === "admin") return true;
+      if (!ctx?.orgId) return { ok: true };
+      if (ctx.role === "owner" || ctx.role === "admin") return { ok: true };
       setResponseStatus(event, 403);
-      return false;
+      return {
+        ok: false,
+        error:
+          "Only organization owners and admins can mutate integration config",
+      };
     }
 
     // ─── Status endpoint (all integrations) ───────────────────────
@@ -388,7 +447,39 @@ export function createIntegrationsPlugin(
         if (action === "webhook" && method === "POST") {
           // Google Docs push notifications bypass the normal webhook flow —
           // they're opaque "something changed" pings, not message payloads.
+          // We MUST verify the Pub/Sub OIDC token here. Without it, anyone
+          // could POST any body to this URL and force a Drive changes pull
+          // (H7 in the webhook security audit).
           if (platform === "google-docs") {
+            const audience = process.env.GOOGLE_DOCS_PUSH_AUDIENCE;
+            if (!audience) {
+              if (process.env.NODE_ENV === "production") {
+                // Fail closed in prod so a misconfigured deployment surfaces
+                // in Pub/Sub's delivery metrics rather than silently
+                // accepting anonymous requests.
+                setResponseStatus(event, 503);
+                return {
+                  ok: false,
+                  error: "google-docs push endpoint disabled (audience not configured)",
+                };
+              }
+              // Dev: keep the loose posture so contributors can play with the
+              // integration locally without configuring Pub/Sub.
+              handlePushNotification().catch((err) => {
+                console.error("[google-docs] Push handler error:", err);
+              });
+              return "ok";
+            }
+            const authHeader = getRequestHeader(event, "authorization") || "";
+            try {
+              await verifyGoogleDocsPushToken(authHeader);
+            } catch (err: any) {
+              console.warn(
+                `[google-docs] OIDC verify failed: ${err?.message ?? String(err)}`,
+              );
+              setResponseStatus(event, 401);
+              return { ok: false, error: "unauthorized" };
+            }
             handlePushNotification().catch((err) => {
               console.error("[google-docs] Push handler error:", err);
             });

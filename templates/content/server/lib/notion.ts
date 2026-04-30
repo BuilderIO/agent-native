@@ -630,15 +630,15 @@ export async function listNotionComments(
   pageId: string,
   accessToken: string,
 ): Promise<NotionComment[]> {
-  const res = await fetch(`${NOTION_API_BASE}/comments?block_id=${pageId}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Notion-Version": NOTION_API_VERSION,
-    },
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.results ?? []) as NotionComment[];
+  try {
+    const data = await notionFetch<{ results?: NotionComment[] }>(
+      `/comments?block_id=${pageId}`,
+      accessToken,
+    );
+    return data.results ?? [];
+  } catch {
+    return [];
+  }
 }
 
 /** Add a comment to a Notion page. */
@@ -647,19 +647,16 @@ export async function addNotionComment(
   text: string,
   accessToken: string,
 ): Promise<string | null> {
-  const res = await fetch(`${NOTION_API_BASE}/comments`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Notion-Version": NOTION_API_VERSION,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      parent: { page_id: pageId },
-      rich_text: [{ text: { content: text } }],
-    }),
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.id ?? null;
+  try {
+    const data = await notionFetch<{ id?: string }>("/comments", accessToken, {
+      method: "POST",
+      body: JSON.stringify({
+        parent: { page_id: pageId },
+        rich_text: [{ text: { content: text } }],
+      }),
+    });
+    return data.id ?? null;
+  } catch {
+    return null;
+  }
 }

@@ -2,8 +2,33 @@ import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
 import type {
   FormIntegration,
   FormField,
+  FormSettings,
   IntegrationType,
 } from "../../shared/types.js";
+
+// ---------------------------------------------------------------------------
+// Save-time validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate every integration URL on a FormSettings object before persistence.
+ *
+ * Rejects non-http(s) schemes, private IPs, cloud-metadata endpoints, and
+ * known DNS-rebinding suffixes by routing each URL through `isBlockedToolUrl`.
+ * Throws on the first violation so the form-author sees the reason
+ * immediately. Defense-in-depth — `fireIntegrations` re-checks at fire time.
+ */
+export function assertIntegrationUrlsAllowed(settings: FormSettings): void {
+  const list = settings.integrations ?? [];
+  for (const integration of list) {
+    if (!integration.url) continue;
+    if (isBlockedToolUrl(integration.url)) {
+      throw new Error(
+        `Integration "${integration.name || integration.type}" URL is not allowed (private/internal/non-http(s) URL).`,
+      );
+    }
+  }
+}
 
 interface SubmissionPayload {
   formId: string;

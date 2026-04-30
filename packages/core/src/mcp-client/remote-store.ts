@@ -9,6 +9,15 @@
  * Both scopes store the same shape — a list of `StoredRemoteMcpServer`
  * records. The running MCP manager merges this list with the file-based
  * `mcp.config.json` on startup and after every mutation.
+ *
+ * SECURITY: HTTP MCP servers commonly require a bearer token in the
+ * `Authorization` header. Those values are written to the encrypted
+ * `app_secrets` table (AES-256-GCM via writeAppSecret). The settings row
+ * stores only the secret-key reference (`headerSecretKey`), not the raw
+ * value. Callers retrieving headers must call `materializeHeaders` to
+ * fetch the cleartext at request time. Legacy rows that wrote headers
+ * cleartext into `headers` continue to work read-only — they should be
+ * re-saved to migrate.
  */
 
 import { createHash } from "node:crypto";
@@ -22,6 +31,11 @@ import {
   putOrgSetting,
   deleteOrgSetting,
 } from "../settings/org-settings.js";
+import {
+  writeAppSecret,
+  readAppSecret,
+  deleteAppSecret,
+} from "../secrets/storage.js";
 import type { McpHttpServerConfig } from "./config.js";
 
 const SETTINGS_KEY = "mcp-servers-remote";
@@ -35,12 +49,63 @@ export interface StoredRemoteMcpServer {
   name: string;
   /** Streamable HTTP MCP server URL. */
   url: string;
-  /** Optional headers to pass (e.g. `Authorization: Bearer …`). */
+  /**
+   * Optional non-secret headers to pass to the MCP server. SECURITY: secret
+   * material (Authorization, X-Api-Key, …) is moved out of this field at
+   * write time and stored encrypted in `app_secrets`; see
+   * `headerSecretKey`. Legacy rows may still contain cleartext headers and
+   * are honored read-only.
+   */
   headers?: Record<string, string>;
+  /**
+   * Reference to the encrypted secret holding the JSON-stringified secret
+   * headers map (e.g. `{"Authorization":"Bearer …"}`). Resolved at request
+   * time via `readAppSecret`. Undefined when no secret-class headers were
+   * supplied (or for legacy cleartext rows).
+   */
+  headerSecretKey?: string;
   /** Optional description shown in the UI. */
   description?: string;
   /** ms since epoch. */
   createdAt: number;
+}
+
+/**
+ * Header names that are routed through the encrypted-at-rest secrets store
+ * instead of being written to the plaintext `settings` row. Match is
+ * case-insensitive and substring-based to catch one-off names like
+ * `x-zapier-api-key`.
+ */
+const SECRET_HEADER_NAME_PATTERNS = [
+  /authorization/i,
+  /api[-_]?key/i,
+  /token/i,
+  /secret/i,
+  /bearer/i,
+  /x-.*-key/i,
+];
+
+function isSecretHeaderName(name: string): boolean {
+  return SECRET_HEADER_NAME_PATTERNS.some((re) => re.test(name));
+}
+
+/** Split a headers map into (cleartext, secret) buckets. */
+function partitionHeaders(headers: Record<string, string> | undefined): {
+  cleartext: Record<string, string> | undefined;
+  secret: Record<string, string> | undefined;
+} {
+  if (!headers) return { cleartext: undefined, secret: undefined };
+  const cleartext: Record<string, string> = {};
+  const secret: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (typeof v !== "string") continue;
+    if (isSecretHeaderName(k)) secret[k] = v;
+    else cleartext[k] = v;
+  }
+  return {
+    cleartext: Object.keys(cleartext).length > 0 ? cleartext : undefined,
+    secret: Object.keys(secret).length > 0 ? secret : undefined,
+  };
 }
 
 /** Tiny nanoid — matches the inline helper used elsewhere in this package. */

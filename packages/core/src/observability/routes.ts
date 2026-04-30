@@ -244,7 +244,8 @@ export function createObservabilityHandler() {
       return getEvalStats(parseSince(q), { userId: owner });
     }
 
-    // POST /experiments — create experiment
+    // POST /experiments — create experiment. Records the calling user as
+    // the owner so subsequent PUT / POST results require the same caller.
     if (method === "POST" && parts.length === 1 && parts[0] === "experiments") {
       let body: any;
       try {
@@ -273,6 +274,7 @@ export function createObservabilityHandler() {
         startedAt: null,
         endedAt: null,
         createdAt: Date.now(),
+        ownerEmail: owner,
       });
       return { id };
     }
@@ -287,18 +289,29 @@ export function createObservabilityHandler() {
       return listExperiments();
     }
 
-    // POST /experiments/:id/results — compute experiment results
+    // POST /experiments/:id/results — compute experiment results. Only
+    // the experiment's owner may trigger a recomputation in a multi-tenant
+    // deployment; legacy rows (no owner) fall through to the
+    // authenticated-only gate above.
     if (
       method === "POST" &&
       parts.length === 3 &&
       parts[0] === "experiments" &&
       parts[2] === "results"
     ) {
+      const id = decodeURIComponent(parts[1]);
+      const existing = await getExperiment(id);
+      if (!existing) {
+        setResponseStatus(event, 404);
+        return { error: "Experiment not found" };
+      }
+      if (existing.ownerEmail && existing.ownerEmail !== owner) {
+        setResponseStatus(event, 404);
+        return { error: "Experiment not found" };
+      }
       try {
         const { computeExperimentResults } = await import("./experiments.js");
-        const results = await computeExperimentResults(
-          decodeURIComponent(parts[1]),
-        );
+        const results = await computeExperimentResults(id);
         return results;
       } catch (err: any) {
         setResponseStatus(event, 500);
@@ -316,11 +329,20 @@ export function createObservabilityHandler() {
       return getExperimentResults(decodeURIComponent(parts[1]));
     }
 
-    // PUT /experiments/:id — update experiment
+    // PUT /experiments/:id — update experiment. Restricted to the
+    // experiment owner; cross-user mutation would let one signed-in user
+    // silently end / reshape another user's experiment (variant
+    // assignments, status, metrics). Legacy rows without an owner remain
+    // updatable by any authenticated user — they're treated as
+    // platform-wide and operators should re-save them to lock down ownership.
     if (method === "PUT" && parts.length === 2 && parts[0] === "experiments") {
       const id = decodeURIComponent(parts[1]);
       const existing = await getExperiment(id);
       if (!existing) {
+        setResponseStatus(event, 404);
+        return { error: "Experiment not found" };
+      }
+      if (existing.ownerEmail && existing.ownerEmail !== owner) {
         setResponseStatus(event, 404);
         return { error: "Experiment not found" };
       }

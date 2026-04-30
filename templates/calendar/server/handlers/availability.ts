@@ -6,10 +6,7 @@ import {
 } from "h3";
 import { eq } from "drizzle-orm";
 import type { AvailabilityConfig } from "../../shared/api.js";
-import {
-  getUserSetting,
-  putUserSetting,
-} from "@agent-native/core/settings";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { readBody, getSession } from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
 

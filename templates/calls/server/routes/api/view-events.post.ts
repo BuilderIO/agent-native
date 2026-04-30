@@ -132,13 +132,23 @@ export default defineEventHandler(async (event) => {
     session?.email && session.email !== DEV_MODE_USER_EMAIL
       ? session.email
       : undefined;
-  const viewerEmail =
-    (body.viewerEmail && typeof body.viewerEmail === "string"
+  // Authenticated viewers: force `viewerEmail` to the session email so a
+  // body field cannot spoof someone else's identity in the analytics. For
+  // anonymous viewers, ignore the body's `viewerEmail` entirely (it would
+  // otherwise let one viewer poison another user's view counts) — surface
+  // it only as a non-attributing display claim.
+  const viewerEmail = sessionEmail ?? null;
+  const claimedViewerEmail =
+    !sessionEmail &&
+    body.viewerEmail &&
+    typeof body.viewerEmail === "string"
       ? body.viewerEmail
-      : undefined) ??
-    sessionEmail ??
+      : null;
+  const viewerName =
+    body.viewerName ??
+    sessionEmail?.split("@")[0] ??
+    claimedViewerEmail ??
     null;
-  const viewerName = body.viewerName ?? sessionEmail?.split("@")[0] ?? null;
   const now = new Date().toISOString();
   const viewerKey = viewerEmail ?? `anon:${sessionId}`;
   const boundedTotalWatchMs = Math.max(0, Math.floor(totalWatchMs));

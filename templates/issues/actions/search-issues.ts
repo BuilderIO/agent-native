@@ -21,7 +21,9 @@ export default defineAction({
     const client = await getClient(getRequestUserEmail());
     if (!client) throw new Error("Jira not connected");
 
-    const query = jql || `text ~ "${q!.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}" ORDER BY updated DESC`;
+    const query =
+      jql ||
+      `text ~ "${q!.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}" ORDER BY updated DESC`;
 
     return await jiraSearchIssues(client.cloudId, client.accessToken, {
       jql: query,
