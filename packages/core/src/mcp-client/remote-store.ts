@@ -88,6 +88,76 @@ function sanitiseOrgId(orgId: string): string {
   return orgId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 }
 
+/**
+ * Hostname patterns that are always rejected to prevent SSRF via DNS rebinding
+ * or well-known internal service names.
+ */
+const BLOCKED_HOSTNAME_PATTERNS: RegExp[] = [
+  /^localhost$/i,
+  /\.localhost$/i,
+  /\.local$/i,
+  /\.internal$/i,
+  // DNS rebind services
+  /\.nip\.io$/i,
+  /\.sslip\.io$/i,
+  /\.xip\.io$/i,
+  /\.localtest\.me$/i,
+  /\.lvh\.me$/i,
+  // Cloud metadata hosts
+  /^metadata\.google\.internal$/i,
+  /^instance-data$/i,
+];
+
+/** Literal IPs that are always rejected (cloud metadata endpoints). */
+const BLOCKED_IPS = new Set([
+  "169.254.169.254", // AWS/GCP/Azure IMDS
+  "100.100.100.200", // Alibaba Cloud metadata
+  "::1",
+]);
+
+/** Parse a dotted-decimal IPv4 string to a 32-bit integer for range checks. */
+function ipv4ToInt(ip: string): number | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  let n = 0;
+  for (const part of parts) {
+    const byte = parseInt(part, 10);
+    if (isNaN(byte) || byte < 0 || byte > 255) return null;
+    n = (n << 8) | byte;
+  }
+  return n >>> 0;
+}
+
+function isPrivateIpv4(hostname: string): boolean {
+  const n = ipv4ToInt(hostname);
+  if (n === null) return false;
+  // 10.0.0.0/8
+  if ((n & 0xff000000) >>> 0 === 0x0a000000) return true;
+  // 172.16.0.0/12
+  if ((n & 0xfff00000) >>> 0 === 0xac100000) return true;
+  // 192.168.0.0/16
+  if ((n & 0xffff0000) >>> 0 === 0xc0a80000) return true;
+  // 169.254.0.0/16 (link-local, includes AWS/GCP metadata)
+  if ((n & 0xffff0000) >>> 0 === 0xa9fe0000) return true;
+  // 127.0.0.0/8 (loopback)
+  if ((n & 0xff000000) >>> 0 === 0x7f000000) return true;
+  return false;
+}
+
+function isBlockedHostname(hostname: string): boolean {
+  if (BLOCKED_IPS.has(hostname)) return true;
+  if (isPrivateIpv4(hostname)) return true;
+  // IPv6 ULA (fc00::/7) and link-local (fe80::/10)
+  const lower = hostname.toLowerCase();
+  if (lower === "::1") return true;
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+  if (lower.startsWith("fe80")) return true;
+  for (const pattern of BLOCKED_HOSTNAME_PATTERNS) {
+    if (pattern.test(hostname)) return true;
+  }
+  return false;
+}
+
 /** Reject obviously-wrong URLs. Allows http only for localhost. */
 export function validateRemoteUrl(raw: string): {
   ok: boolean;
@@ -100,10 +170,18 @@ export function validateRemoteUrl(raw: string): {
   } catch {
     return { ok: false, error: "Not a valid URL" };
   }
-  if (url.protocol === "https:") return { ok: true, url };
+  if (url.protocol === "https:") {
+    if (isBlockedHostname(url.hostname)) {
+      return {
+        ok: false,
+        error: `Host "${url.hostname}" is not allowed (private/internal address)`,
+      };
+    }
+    return { ok: true, url };
+  }
   if (url.protocol === "http:") {
     const host = url.hostname;
-    if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+    if (host === "localhost" || host === "127.0.0.1") {
       return { ok: true, url };
     }
     return { ok: false, error: "Plain http is only allowed for localhost" };
