@@ -147,6 +147,11 @@ function DbSyncSetup() {
             refetchType: "all",
           });
         }
+        if (data.key === "refresh-signal" && !isOwnEvent) {
+          qc.invalidateQueries({ queryKey: ["emails"] });
+          qc.invalidateQueries({ queryKey: ["email"] });
+          qc.invalidateQueries({ queryKey: ["labels"] });
+        }
         if (!isOwnEvent) {
           qc.invalidateQueries({ queryKey: ["navigate-command"] });
         }
