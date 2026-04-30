@@ -112,7 +112,7 @@ export default defineAction({
     if (args.search) {
       const pat = `%${escapeLike(args.search)}%`;
       whereClauses.push(
-        sql`(${schema.recordings.title} LIKE ${pat} OR ${schema.recordings.description} LIKE ${pat})`,
+        sql`(${schema.recordings.title} LIKE ${pat} ESCAPE '\\' OR ${schema.recordings.description} LIKE ${pat} ESCAPE '\\')`,
       );
     }
 

@@ -2,7 +2,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   marketing: {
-    appName: "Agent-Native Documents",
+    appName: "Agent-Native Content",
     tagline:
       "Your AI agent creates, edits, and organizes documents alongside you in a Notion-like workspace.",
     features: [
