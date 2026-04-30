@@ -193,7 +193,7 @@ export function buildBuilderCliAuthUrl(
  * session.
  */
 export function getBuilderBrowserConnectUrl(origin: string): string {
-  return `${normalizeOrigin(origin)}/_agent-native/builder/connect`;
+  return `${normalizeOrigin(origin)}${getAppBasePath()}/_agent-native/builder/connect`;
 }
 
 export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
