@@ -139,7 +139,16 @@ export function createTranscribeVoiceHandler() {
         ? "local"
         : (session?.email ?? "local");
     let providerPref: string | undefined;
+    // CRITICAL: presence of the "provider" form field is the explicit
+    // signal that the client is making a per-request choice. Even if
+    // the value is "auto" (→ undefined providerPref → fallback chain),
+    // we must NOT fall back to app-state's stored preference — the
+    // client just told us what it wants. Without this gate, a stale
+    // `voice-transcription-prefs.provider = "browser"` in app-state
+    // (from earlier testing) would override the client's "auto" and
+    // 400 with "Voice provider is set to browser".
     const providerPart = parts?.find((p) => p.name === "provider");
+    let providerExplicit = false;
     if (providerPart?.data) {
       const v = providerPart.data.toString("utf8").trim().toLowerCase();
       if (
@@ -150,10 +159,11 @@ export function createTranscribeVoiceHandler() {
         v === "openai" ||
         v === "groq"
       ) {
+        providerExplicit = true;
         providerPref = v === "auto" ? undefined : v;
       }
     }
-    if (providerPref === undefined) {
+    if (!providerExplicit) {
       try {
         const prefs = await appStateGet(sessionId, "voice-transcription-prefs");
         providerPref = (
