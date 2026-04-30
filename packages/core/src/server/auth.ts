@@ -42,14 +42,14 @@ function toWebRequest(event: H3Event): Request {
       const url = new URL(req.url);
       if (url.pathname !== ctx._mountedPathname) {
         url.pathname = ctx._mountedPathname;
+        const method = req.method.toUpperCase();
+        const hasBody = method !== "GET" && method !== "HEAD";
         return new Request(url.href, {
           method: req.method,
           headers: req.headers,
           // Body may already be partially consumed; pass through as-is.
-          body: req.body,
-          // Undici duplex option required for streaming bodies.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          duplex: "half",
+          // GET/HEAD cannot have a body — omit to avoid spec errors.
+          ...(hasBody ? { body: req.body, duplex: "half" } : {}),
         } as any);
       }
     } catch {

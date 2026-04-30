@@ -94,6 +94,40 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7366585df5a545e697e254bb0138182d?format=webp&width=800",
   },
   {
+    name: "Calls",
+    slug: "calls",
+    replaces: "Replaces or augments Gong, Chorus",
+    cliCommand: "npx @agent-native/core create my-calls-app --template calls",
+    demoUrl: "https://calls.agent-native.com",
+    description:
+      "Record, transcribe, and analyze sales calls with accounts, spaces, comments, trackers, snippets, and agent-generated summaries.",
+    color: "#111111",
+    screenshot: "",
+  },
+  {
+    name: "Meeting Notes",
+    slug: "meeting-notes",
+    replaces: "Replaces or augments Otter, meeting note takers",
+    cliCommand:
+      "npx @agent-native/core create my-meeting-notes-app --template meeting-notes",
+    demoUrl: "https://meeting-notes.agent-native.com",
+    description:
+      "Capture meetings, enhance rough notes into reusable templates, and organize people, companies, decisions, and follow-ups.",
+    color: "#16A34A",
+    screenshot: "",
+  },
+  {
+    name: "Voice",
+    slug: "voice",
+    replaces: "Replaces or augments Wispr Flow",
+    cliCommand: "npx @agent-native/core create my-voice-app --template voice",
+    demoUrl: "https://voice.agent-native.com",
+    description:
+      "Voice dictation with context-aware formatting, snippets, custom vocabulary, style presets, history, and usage stats.",
+    color: "#8B5CF6",
+    screenshot: "",
+  },
+  {
     name: "Design",
     slug: "design",
     replaces: "Replaces or augments Figma, Canva",
@@ -104,6 +138,18 @@ export const templates = [
     color: "#F472B6",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800",
+  },
+  {
+    name: "Scheduling",
+    slug: "scheduling",
+    replaces: "Replaces or augments Calendly",
+    cliCommand:
+      "npx @agent-native/core create my-scheduling-app --template scheduling",
+    demoUrl: "https://scheduling.agent-native.com",
+    description:
+      "Full scheduling with event types, availability, bookings, routing forms, workflows, team round-robin, and calendar integrations.",
+    color: "#7C3AED",
+    screenshot: "",
   },
   {
     name: "Dispatch",
@@ -129,6 +175,41 @@ export const templates = [
     color: "#06B6D4",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190c3fabd51f4c1bba5aa4e091ad4e9b?format=webp&width=800",
+  },
+  {
+    name: "Issues",
+    slug: "issues",
+    replaces: "Replaces or augments Jira, Linear",
+    cliCommand:
+      "npx @agent-native/core create my-issues-app --template issues",
+    demoUrl: "https://issues.agent-native.com",
+    description:
+      "Project and issue tracking with boards, sprints, comments, transitions, search, and an agent that can triage work.",
+    color: "#6366F1",
+    screenshot: "",
+  },
+  {
+    name: "Recruiting",
+    slug: "recruiting",
+    replaces: "Replaces or augments Greenhouse",
+    cliCommand:
+      "npx @agent-native/core create my-recruiting-app --template recruiting",
+    demoUrl: "https://recruiting.agent-native.com",
+    description:
+      "Manage recruiting pipelines, candidates, jobs, interviews, scorecards, action items, and AI candidate notes around Greenhouse data.",
+    color: "#16A34A",
+    screenshot: "",
+  },
+  {
+    name: "Starter",
+    slug: "starter",
+    replaces: "Minimal agent-native scaffold",
+    cliCommand:
+      "npx @agent-native/core create my-agent-native-app --template starter",
+    description:
+      "A small starting point with the agent chat, shared state, actions, routing, and the framework conventions already wired up.",
+    color: "#71717A",
+    screenshot: "",
   },
 ];
 
@@ -345,11 +426,15 @@ export function TemplateCard({ template }: { template: Template }) {
           />
         ) : (
           <div
-            className="h-full w-full"
+            className="flex h-full w-full items-center justify-center"
             style={{
-              background: `linear-gradient(135deg, ${template.color}, ${template.color}33)`,
+              background: `linear-gradient(135deg, ${template.color}, ${template.color}22)`,
             }}
-          />
+          >
+            <span className="rounded-lg bg-[var(--bg)]/80 px-4 py-2 text-sm font-semibold text-[var(--fg)] shadow-sm">
+              {template.name}
+            </span>
+          </div>
         )}
       </Link>
       <h3 className="text-base font-semibold">

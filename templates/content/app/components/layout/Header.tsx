@@ -1,6 +1,6 @@
 import { useLocation } from "react-router";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import { AgentToggleButton } from "@agent-native/core/client";
+import { AgentToggleButton, NotificationsBell } from "@agent-native/core/client";
 
 const pageTitles: Record<string, string> = {
   "/": "Documents",

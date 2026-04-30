@@ -303,10 +303,12 @@ async function withA2ARequestContext<T>(
 
   const verifiedEmail =
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
+  // Only trust the org domain from the cryptographically verified JWT claim on
+  // the event context. metadata.orgDomain is caller-supplied and must not be
+  // used for org resolution — an unauthenticated caller could forge it and
+  // gain access to another org's data.
   const orgDomain =
-    (event?.context?.__a2aOrgDomain as string | undefined) ??
-    (metadata?.orgDomain as string | undefined) ??
-    undefined;
+    (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
 
   let resolvedOrgId: string | undefined;
   if (orgDomain) {
@@ -582,6 +584,13 @@ async function handleGet(
   const task = await getTask(id);
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
+  }
+  // Strip internal processor metadata before returning to callers — it may
+  // contain verifiedEmail and callerMetadata that should not be exposed.
+  if (task.metadata && typeof task.metadata === "object") {
+    const { __a2a_processor: _proc, ...publicMeta } =
+      task.metadata as Record<string, unknown>;
+    return jsonRpcResult(0, { ...task, metadata: publicMeta });
   }
   return jsonRpcResult(0, task);
 }

@@ -4,9 +4,11 @@ import {
   asc,
   desc,
   eq,
+  gte,
   inArray,
   isNull,
   isNotNull,
+  lte,
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
@@ -43,10 +45,32 @@ export default defineAction({
       .string()
       .nullish()
       .describe("Filter to calls with at least one hit for this tracker"),
+    trackerIds: z
+      .array(z.string())
+      .nullish()
+      .describe("Filter to calls with at least one hit for any tracker"),
     source: z
       .enum(["upload", "browser", "recall-bot", "zoom-cloud"])
       .nullish()
       .describe("Filter by capture origin"),
+    dateFrom: z.string().nullish().describe("Recorded/created lower bound"),
+    dateTo: z.string().nullish().describe("Recorded/created upper bound"),
+    durationMinMs: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .nullish()
+      .describe("Minimum call duration"),
+    durationMaxMs: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .nullish()
+      .describe("Maximum call duration"),
+    internalOnly: z
+      .boolean()
+      .nullish()
+      .describe("Only calls with an internal participant"),
     participantEmail: z
       .string()
       .nullish()
@@ -107,26 +131,61 @@ export default defineAction({
       whereClauses.push(eq(schema.calls.source, args.source));
     }
 
+    if (args.dateFrom) {
+      whereClauses.push(gte(schema.calls.createdAt, args.dateFrom));
+    }
+
+    if (args.dateTo) {
+      whereClauses.push(lte(schema.calls.createdAt, args.dateTo));
+    }
+
+    if (args.durationMinMs != null) {
+      whereClauses.push(gte(schema.calls.durationMs, args.durationMinMs));
+    }
+
+    if (args.durationMaxMs != null) {
+      whereClauses.push(lte(schema.calls.durationMs, args.durationMaxMs));
+    }
+
     if (args.tag) {
       whereClauses.push(
         sql`EXISTS (SELECT 1 FROM ${schema.callTags} ct WHERE ct.call_id = ${schema.calls.id} AND ct.tag = ${args.tag})`,
       );
     }
 
-    if (args.trackerId) {
+    const trackerIds = [
+      ...(args.trackerId ? [args.trackerId] : []),
+      ...(args.trackerIds ?? []),
+    ].filter((id): id is string => Boolean(id));
+
+    if (trackerIds.length) {
+      const trackerIdList = sql.join(
+        trackerIds.map((id) => sql`${id}`),
+        sql`, `,
+      );
       whereClauses.push(
-        sql`EXISTS (SELECT 1 FROM ${schema.trackerHits} th WHERE th.call_id = ${schema.calls.id} AND th.tracker_id = ${args.trackerId})`,
+        sql`EXISTS (SELECT 1 FROM ${schema.trackerHits} th WHERE th.call_id = ${schema.calls.id} AND th.tracker_id IN (${trackerIdList}))`,
       );
     }
 
     const participantEmails = [
       ...(args.participantEmail ? [args.participantEmail] : []),
       ...(args.participantEmails ?? []),
-    ].filter(Boolean);
+    ].filter((email): email is string => Boolean(email));
 
     if (participantEmails.length) {
+      const participantEmailList = sql.join(
+        participantEmails.map((email) => sql`${email}`),
+        sql`, `,
+      );
       whereClauses.push(
-        sql`EXISTS (SELECT 1 FROM ${schema.callParticipants} cp WHERE cp.call_id = ${schema.calls.id} AND cp.email IN ${participantEmails})`,
+        sql`EXISTS (SELECT 1 FROM ${schema.callParticipants} cp WHERE cp.call_id = ${schema.calls.id} AND cp.email IN (${participantEmailList}))`,
+      );
+    }
+
+    if (args.internalOnly) {
+      whereClauses.push(
+        sql`EXISTS (SELECT 1 FROM ${schema.callParticipants} cp WHERE cp.call_id = ${schema.calls.id} AND cp.is_internal = 1)`,
       );
     }
 
