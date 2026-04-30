@@ -82,6 +82,11 @@ interface VoiceSession {
   // Marks the session as user-cancelled so the recorder.onstop handler
   // skips transcription + paste and just hides the bar.
   cancelled: boolean;
+  // Native-only: invoked once the post-stop final transcript lands (or
+  // a safety timer fires). The callback pastes + lingers + dismisses.
+  // Lets the install-time `voice:final-transcript` listener trigger
+  // the lingered finalize without it having to know the timer state.
+  onNativeFinalize?: (() => void) | null;
 }
 
 // Minimal type shim for webkitSpeechRecognition — TypeScript's lib.dom
@@ -967,40 +972,57 @@ export function installDesktopVoiceDictation(
       if (current.kind === "server") {
         current.recorder?.stop();
       } else if (current.kind === "native") {
-        // NATIVE PATH: same immediate-dismiss + immediate-paste behavior as
-        // the browser path. We've been accumulating partials in
-        // `browserTranscript` from the `voice:partial-transcript` listener,
-        // so the latest hypothesis is already in hand. We tell Rust to
-        // `endAudio()` (`native_speech_stop`) so the recognizer can deliver
-        // its final result, but we don't wait for it — pasting the partial
-        // is faster and more responsive. The tail of the final transcript
-        // (if any) won't double-paste because `complete_voice_dictation`
-        // already fired and the Rust task gets cleared on the final result.
-        const text = current.browserTranscript.trim();
-        current.browserTranscript = "";
-        if (session === current) session = null;
-        startInFlight = false;
-        stopRequestedBeforeReady = false;
-        setFlowState("idle");
-        invoke("hide_flow_bar").catch(() => {});
-        emit("voice:partial-transcript", { text: "" }).catch(() => {});
+        // NATIVE PATH: don't dismiss the bar yet — let the user see the
+        // final word land before we tear down. Tell Rust to `endAudio()`
+        // so SFSpeechRecognizer can emit its `voice:final-transcript`,
+        // wait for that event (or a safety timeout), then paste, linger
+        // ~1s with the text on screen, and finally dismiss.
         invoke("native_speech_stop").catch((err) => {
           console.warn("[voice-dictation] native_speech_stop failed:", err);
         });
-        stopMeter(current);
-        if (text) {
-          console.log(
-            `[voice-dictation] native paste on Fn release (${text.length} chars):`,
-            text.slice(0, 120),
-          );
-          invoke("complete_voice_dictation", { text }).catch((err) => {
-            console.error("[voice-dictation] paste failed:", err);
-          });
-        } else {
-          console.warn(
-            "[voice-dictation] no transcript captured — native recognizer didn't produce results",
-          );
-        }
+
+        let finalized = false;
+        const finalize = () => {
+          if (finalized) return;
+          finalized = true;
+          // If the user cancelled (X button) during the wait window,
+          // skip paste + linger. cleanup() already ran via cancel().
+          if (current.cancelled) return;
+          const text = current.browserTranscript.trim();
+          current.browserTranscript = "";
+          if (text) {
+            console.log(
+              `[voice-dictation] native paste (${text.length} chars):`,
+              text.slice(0, 120),
+            );
+            invoke("complete_voice_dictation", { text }).catch((err) => {
+              console.error("[voice-dictation] paste failed:", err);
+            });
+          } else {
+            console.warn(
+              "[voice-dictation] no transcript captured — native recognizer didn't produce results",
+            );
+          }
+          // Linger ~1s with the final transcript visible above the
+          // pill, then dismiss everything.
+          window.setTimeout(() => {
+            if (disposed) return;
+            stopMeter(current);
+            setFlowState("idle");
+            invoke("hide_flow_bar").catch(() => {});
+            emit("voice:partial-transcript", { text: "" }).catch(() => {});
+            if (session === current) session = null;
+            startInFlight = false;
+            stopRequestedBeforeReady = false;
+          }, 1000);
+        };
+
+        // The install-time `voice:final-transcript` listener calls
+        // `current.onNativeFinalize` when the final result arrives.
+        current.onNativeFinalize = finalize;
+        // Safety timer: if final never arrives (unsupported locale,
+        // crash, etc.), proceed after 3s with whatever partial we have.
+        window.setTimeout(finalize, 3000);
       } else {
         // BROWSER PATH: dismiss the bar IMMEDIATELY and paste whatever
         // transcript we have right now. recognition.stop() / .abort()
@@ -1072,6 +1094,9 @@ export function installDesktopVoiceDictation(
     // Final beats partial — overwrite so a `complete_voice_dictation`
     // from a late stop() picks up the better text.
     current.browserTranscript = (ev.payload.text || "").trim();
+    // If stop() is waiting on this event before lingering, trigger the
+    // finalize sequence now (paste → 1s linger → dismiss).
+    current.onNativeFinalize?.();
   })
     .then((u) => unlistens.push(u))
     .catch(() => {});

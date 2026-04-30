@@ -142,6 +142,12 @@ export function App() {
     // no API keys. Users wanting cloud-quality can pick a server
     // provider in Settings → Voice transcription.
     const saved = loadString(VOICE_PROVIDER_KEY, "browser");
+    const isMac =
+      typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+    // `macos-native` calls into native_speech_start which only works on
+    // macOS; on Windows/Linux a saved selection would be permanently
+    // broken. Coerce back to "browser" if we're not on a Mac.
+    if (saved === "macos-native" && !isMac) return "browser";
     return saved === "auto" ||
       saved === "browser" ||
       saved === "macos-native" ||
@@ -2129,9 +2135,12 @@ function Setup({
             >
               <option value="auto">Auto (recommended)</option>
               <option value="browser">Browser (free, built-in)</option>
-              <option value="macos-native">
-                macOS native (on-device, fastest)
-              </option>
+              {typeof navigator !== "undefined" &&
+              /Mac/i.test(navigator.platform) ? (
+                <option value="macos-native">
+                  macOS native (on-device, fastest)
+                </option>
+              ) : null}
               <option value="builder">Builder.io</option>
               <option value="gemini">Google Gemini Flash Lite</option>
               <option value="openai">OpenAI Whisper</option>

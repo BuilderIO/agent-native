@@ -64,6 +64,16 @@ export function FlowBar() {
       }),
     );
 
+    trackListen(
+      listen<{ text: string }>("voice:final-transcript", (ev) => {
+        // Final result from the recognizer (only fires after stop is
+        // requested). Show it on the bar — the last word lingers there
+        // for ~1s before voice-dictation.ts dismisses everything.
+        const text = ev.payload.text || "";
+        if (text) setPartialTranscript(text);
+      }),
+    );
+
     return () => {
       stopped = true;
       unlistens.forEach((u) => {
