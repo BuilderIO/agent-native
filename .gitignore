@@ -53,6 +53,10 @@ ralph-loop.local.md
 .vercel
 templates/*/.vercel
 
+# Scaffolded test workspaces (from `agent-native create` smoke tests)
+test-starter/
+test-*-workspace/
+
 # Wrangler local state
 .wrangler
 
