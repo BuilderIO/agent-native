@@ -685,12 +685,33 @@ export function installDesktopVoiceDictation(
       // mic consumers coexist fine on macOS. We deliberately don't do
       // this on the browser path because webkitSpeechRecognition fights
       // a sibling getUserMedia in WKWebView.
+      //
+      // Disable echoCancellation / noiseSuppression / autoGainControl so
+      // we stay in standard mic mode. With them ON, macOS may switch
+      // into voice-call mode which conflicts with AVAudioEngine's
+      // input bus and causes getUserMedia to silently return a dead
+      // stream that produces no audio levels.
       const meterStream = await navigator.mediaDevices
-        .getUserMedia({ audio: true })
+        .getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+        })
         .catch((err) => {
-          console.warn("[voice-dictation] meter getUserMedia failed:", err);
+          console.warn(
+            `[voice-dictation] meter getUserMedia failed (${(err as Error)?.name ?? "Error"}): ${(err as Error)?.message ?? String(err)} — falling back to synthetic meter`,
+          );
           return null;
         });
+      if (meterStream) {
+        const tracks = meterStream.getAudioTracks();
+        console.log(
+          `[voice-dictation] meter mic ready: ${tracks.length} track(s)`,
+          tracks[0]?.label || "unlabeled",
+        );
+      }
       await invoke("show_flow_bar");
       setFlowState("recording");
       // Reset any prior partial transcript display in the flow-bar.
