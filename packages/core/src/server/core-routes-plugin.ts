@@ -395,7 +395,7 @@ export function createCoreRoutesPlugin(
           // This is consistent with resolveBuilderCredential()'s design which
           // refuses the env fallback for authenticated users to prevent
           // cross-tenant credential leakage in shared-DB deployments.
-          if (userEmail && userEmail !== "local@localhost") {
+          if (userEmail && userEmail !== DEV_MODE_USER_EMAIL) {
             return {
               ...envStatus,
               configured: false,

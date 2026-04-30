@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
@@ -139,9 +139,9 @@ function Shell({
 }: {
   title: string;
   subtitle: string;
-  icon: React.ReactNode;
-  action?: React.ReactNode;
-  children: React.ReactNode;
+  icon: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="min-h-full bg-background">
@@ -173,7 +173,7 @@ function EmptyState({
   title,
   body,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   body: string;
 }) {
@@ -332,7 +332,7 @@ export function MeetingDetailPage({ meetingId }: { meetingId: string }) {
   const templates = templatesQuery.data?.templates ?? [];
   const [templateId, setTemplateId] = useState("");
 
-  useMemo(() => {
+  useEffect(() => {
     if (meeting?.title) setTitleDraft(meeting.title);
   }, [meeting?.title]);
 
@@ -560,7 +560,7 @@ export function TemplatesPage() {
   });
   const templates = templatesQuery.data?.templates ?? [];
 
-  function handleCreate(event: React.FormEvent) {
+  function handleCreate(event: FormEvent) {
     event.preventDefault();
     const trimmedName = name.trim();
     const trimmedPrompt = prompt.trim();
