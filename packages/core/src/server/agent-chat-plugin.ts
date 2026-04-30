@@ -2504,16 +2504,65 @@ export function createAgentChatPlugin(
             userEmail = getRequestUserEmail();
           } catch {}
 
+          // Dev-mode-only: when no JWT-verified email is present, fall back
+          // to the most recently logged-in session. This is convenient for a
+          // single-developer dev box but is a silent-impersonation hole if
+          // it ever fires in production or on an exposed dev environment
+          // (preview deploys, ngrok tunnels, etc.).
+          //
+          // SECURITY: gate this fallback narrowly:
+          //   - NODE_ENV strictly === "development" (not "test", not unset).
+          //   - AUTH_MODE === "local" (the dev-only auth shim).
+          //   - Request host is localhost / 127.0.0.1 (best-effort: when the
+          //     A2A handler doesn't have direct H3 event access, we rely on
+          //     env-based shape checks).
+          //
+          // In production this MUST never fire — the runtime assertion
+          // below crashes loud if NODE_ENV === "production" somehow reaches
+          // this block.
           if (!userEmail && isDev) {
+            if (process.env.NODE_ENV === "production") {
+              throw new Error(
+                "[agent-chat] Dev-mode 'latest session' fallback reached in production — refusing.",
+              );
+            }
+            const strictlyDev = process.env.NODE_ENV === "development";
+            const localAuthMode = process.env.AUTH_MODE === "local";
+            // Request host check: rely on the request-context request origin
+            // which prepareRun() / mountActionRoutes populate. The A2A
+            // handler doesn't have direct H3 event access, but on a
+            // misconfigured non-localhost dev box we still want to refuse.
+            let isLocalHost = false;
             try {
-              const { getDbExec } = await import("../db/client.js");
-              const db = getDbExec();
-              const { rows } = await db.execute({
-                sql: "SELECT email FROM sessions ORDER BY created_at DESC LIMIT 1",
-                args: [],
-              });
-              if (rows[0]) userEmail = rows[0].email as string;
-            } catch {}
+              const origin = getRequestRunContext()?.requestOrigin;
+              if (origin) {
+                const url = new URL(origin);
+                isLocalHost =
+                  url.hostname === "localhost" ||
+                  url.hostname === "127.0.0.1" ||
+                  url.hostname === "::1";
+              } else {
+                // No origin in context — the A2A handler runs without an
+                // explicit request origin. Treat absence as permissive only
+                // when we're confident the process is dev-only (NODE_ENV
+                // strictly "development" + AUTH_MODE=local). Otherwise
+                // refuse.
+                isLocalHost = strictlyDev && localAuthMode;
+              }
+            } catch {
+              isLocalHost = false;
+            }
+            if (strictlyDev && localAuthMode && isLocalHost) {
+              try {
+                const { getDbExec } = await import("../db/client.js");
+                const db = getDbExec();
+                const { rows } = await db.execute({
+                  sql: "SELECT email FROM sessions ORDER BY created_at DESC LIMIT 1",
+                  args: [],
+                });
+                if (rows[0]) userEmail = rows[0].email as string;
+              } catch {}
+            }
           }
 
           if (!userEmail && !isDev) {

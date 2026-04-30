@@ -139,7 +139,21 @@ async function dispatch(
     const search = event.url?.search || "";
     const isDark = search.includes("dark=1") || search.includes("dark=true");
     const themeVars = getThemeVars(isDark);
-    const html = buildToolHtml(tool.content, themeVars, isDark, parts[0]);
+    // Compute viewer-vs-author binding so the iframe can warn when the
+    // viewer is NOT the author. This is the minimum-viable trust signal —
+    // a full consent flow is tracked as TODO C1 in audit 05-tools-sandbox.md.
+    // Resolved access role is plumbed through so future bridge gating can
+    // be conditional on owner/editor/viewer (audit H4 — scaffold only).
+    const isAuthor = tool.ownerEmail === userEmail;
+    const role: "owner" | "editor" | "viewer" = isAuthor
+      ? "owner"
+      : "viewer";
+    const html = buildToolHtml(tool.content, themeVars, isDark, parts[0], {
+      authorEmail: tool.ownerEmail,
+      viewerEmail: userEmail,
+      isAuthor,
+      role,
+    });
     // Security headers per render. We set these explicitly here (rather than
     // rely on the global security-headers middleware) because:
     //   - The global middleware sets X-Frame-Options: DENY which would break

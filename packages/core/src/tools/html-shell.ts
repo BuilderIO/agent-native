@@ -24,14 +24,43 @@ export const TOOL_IFRAME_CSP =
  * `tools` skill. When in doubt, fail closed.
  */
 
+export interface ToolRenderBinding {
+  /** Email of the user who authored / owns the tool. */
+  authorEmail: string;
+  /** Email of the user currently viewing/running the tool. */
+  viewerEmail: string;
+  /** True when viewer === author. */
+  isAuthor: boolean;
+  /**
+   * Resolved role for the viewer ("owner" | "editor" | "viewer").
+   *
+   * TODO(security, audit H4): the host-side bridge does not yet gate any
+   * helper based on this value — every viewer gets the same powers as the
+   * author. The role is plumbed through so a follow-up PR can constrain
+   * `appAction` / `dbExec` / `toolFetch` for non-author viewers (and
+   * eventually require an explicit consent step before running a shared
+   * tool, audit C1). For now this is metadata only.
+   */
+  role: "owner" | "editor" | "viewer";
+}
+
 export function buildToolHtml(
   content: string,
   themeVars: string,
   isDark: boolean,
   toolId?: string,
+  binding?: ToolRenderBinding,
 ): string {
   const toolIdJson = JSON.stringify(toolId ?? "");
   const toolIdAttr = escapeHtmlAttribute(toolId ?? "");
+  const bindingJson = JSON.stringify(
+    binding ?? {
+      authorEmail: "",
+      viewerEmail: "",
+      isAuthor: true,
+      role: "owner",
+    },
+  );
 
   return `<!DOCTYPE html>
 <html lang="en"${isDark ? ' class="dark"' : ""}>
@@ -39,6 +68,7 @@ export function buildToolHtml(
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta http-equiv="Content-Security-Policy" content="${TOOL_IFRAME_CSP}" />
+  ${binding && !binding.isAuthor ? `<meta name="agent-native-tool-author" content="${escapeHtmlAttribute(binding.authorEmail)}" />` : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet" />
@@ -293,6 +323,24 @@ export function buildToolHtml(
     }
 
     var _toolId = ${toolIdJson};
+    var _toolBinding = ${bindingJson};
+    window.toolBinding = _toolBinding;
+    // SECURITY: when the viewer is not the author of this tool, emit a clear
+    // console warning. The bridge currently runs every helper with the
+    // viewer's session — a malicious shared tool can call any action, read
+    // any owned table row in scope, and resolve any user-scope secret. A
+    // full consent step is tracked as TODO C1 in audit 05-tools-sandbox.md.
+    if (_toolBinding && !_toolBinding.isAuthor) {
+      try {
+        console.warn(
+          '[agent-native] Shared tool — running with viewer\\'s session. ' +
+            'Author: ' + (_toolBinding.authorEmail || '<unknown>') + '. ' +
+            'Bridge calls (appAction, dbExec, toolFetch) execute under ' +
+            'your account; they are gated by your permissions, not the ' +
+            'author\\'s. Do not run untrusted shared tools.',
+        );
+      } catch (_) {}
+    }
 
     var toolData = {
 	      async list(collection, opts) {
