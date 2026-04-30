@@ -421,10 +421,10 @@ async function handleSend(
     // the task metadata and runs the handler with its own full timeout.
     const verifiedEmail =
       (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
+    // Only trust the verified org domain from the JWT claim — do not fall back
+    // to metadata.orgDomain which is caller-supplied and unverified.
     const orgDomainHint =
-      (event?.context?.__a2aOrgDomain as string | undefined) ??
-      ((metadata as any)?.orgDomain as string | undefined) ??
-      undefined;
+      (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
 
     const taskMetadata: Record<string, unknown> = {
       ...(metadata ?? {}),
@@ -588,8 +588,10 @@ async function handleGet(
   // Strip internal processor metadata before returning to callers — it may
   // contain verifiedEmail and callerMetadata that should not be exposed.
   if (task.metadata && typeof task.metadata === "object") {
-    const { __a2a_processor: _proc, ...publicMeta } =
-      task.metadata as Record<string, unknown>;
+    const { __a2a_processor: _proc, ...publicMeta } = task.metadata as Record<
+      string,
+      unknown
+    >;
     return jsonRpcResult(0, { ...task, metadata: publicMeta });
   }
   return jsonRpcResult(0, task);

@@ -180,8 +180,7 @@ export const templates = [
     name: "Issues",
     slug: "issues",
     replaces: "Replaces or augments Jira, Linear",
-    cliCommand:
-      "npx @agent-native/core create my-issues-app --template issues",
+    cliCommand: "npx @agent-native/core create my-issues-app --template issues",
     demoUrl: "https://issues.agent-native.com",
     description:
       "Project and issue tracking with boards, sprints, comments, transitions, search, and an agent that can triage work.",

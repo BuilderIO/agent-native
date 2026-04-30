@@ -1,9 +1,6 @@
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import { getDbExec } from "@agent-native/core/db";
-import {
-  getSession,
-  runWithRequestContext,
-} from "@agent-native/core/server";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 
 /**

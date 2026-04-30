@@ -2,10 +2,8 @@ import { defineEventHandler, createError } from "h3";
 import { eq, and } from "drizzle-orm";
 import { getDb } from "../../../../../db/index.js";
 import { schema } from "../../../../../db/index.js";
-import {
-  getEventOwnerEmail,
-  parseDocumentFavorite,
-} from "../../../../../lib/documents.js";
+import { parseDocumentFavorite } from "../../../../../lib/documents.js";
+import { assertAccess } from "@agent-native/core/sharing";
 
 function nanoid(size = 12): string {
   const chars =
@@ -18,22 +16,14 @@ function nanoid(size = 12): string {
 
 export default defineEventHandler(async (event) => {
   const { id, versionId } = event.context.params!;
-  const ownerEmail = await getEventOwnerEmail(event);
-  const db = getDb();
-
-  const [doc] = await db
-    .select()
-    .from(schema.documents)
-    .where(
-      and(
-        eq(schema.documents.id, id),
-        eq(schema.documents.ownerEmail, ownerEmail),
-      ),
-    );
-
-  if (!doc) {
+  const access = await assertAccess("document", id, "editor").catch(() => null);
+  if (!access) {
     throw createError({ statusCode: 404, statusMessage: "Document not found" });
   }
+  const ownerEmail = access.resource.ownerEmail as string;
+  const db = getDb();
+
+  const doc = access.resource;
 
   const [version] = await db
     .select()

@@ -3,24 +3,17 @@ import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db/index.js";
 import { schema } from "../../../../db/index.js";
 import { parseDocumentFavorite } from "../../../../lib/documents.js";
-import { getEventOwnerEmail } from "../../../../lib/documents.js";
 import { readBody } from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
 
 export default defineEventHandler(async (event) => {
   const id = event.context.params!.id;
   const body = await readBody(event);
-  const ownerEmail = await getEventOwnerEmail(event);
+  const access = await assertAccess("document", id, "editor");
+  const ownerEmail = access.resource.ownerEmail as string;
   const db = getDb();
 
-  const [existing] = await db
-    .select()
-    .from(schema.documents)
-    .where(
-      and(
-        eq(schema.documents.id, id),
-        eq(schema.documents.ownerEmail, ownerEmail),
-      ),
-    );
+  const existing = access.resource;
 
   if (!existing) {
     throw createError({ statusCode: 404, statusMessage: "Document not found" });
@@ -30,7 +23,22 @@ export default defineEventHandler(async (event) => {
     updatedAt: new Date().toISOString(),
   };
 
-  if (body.parentId !== undefined) updates.parentId = body.parentId;
+  if (body.parentId !== undefined) {
+    if (body.parentId) {
+      const parentAccess = await assertAccess(
+        "document",
+        body.parentId,
+        "editor",
+      );
+      if (parentAccess.resource.ownerEmail !== ownerEmail) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: "Parent document must belong to the same owner",
+        });
+      }
+    }
+    updates.parentId = body.parentId;
+  }
 
   if (body.position !== undefined) {
     updates.position = body.position;

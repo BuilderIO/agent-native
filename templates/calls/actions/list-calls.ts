@@ -192,13 +192,13 @@ export default defineAction({
     const orderBy =
       args.sort === "oldest"
         ? asc(schema.calls.createdAt)
-      : args.sort === "longest"
-        ? desc(schema.calls.durationMs)
-        : args.sort === "title"
-          ? asc(schema.calls.title)
-        : args.sort === "most-viewed"
-          ? sql`(SELECT COUNT(1) FROM ${schema.callViewers} cv WHERE cv.call_id = ${schema.calls.id} AND cv.counted_view = 1) DESC, ${schema.calls.createdAt} DESC`
-          : desc(schema.calls.createdAt);
+        : args.sort === "longest"
+          ? desc(schema.calls.durationMs)
+          : args.sort === "title"
+            ? asc(schema.calls.title)
+            : args.sort === "most-viewed"
+              ? sql`(SELECT COUNT(1) FROM ${schema.callViewers} cv WHERE cv.call_id = ${schema.calls.id} AND cv.counted_view = 1) DESC, ${schema.calls.createdAt} DESC`
+              : desc(schema.calls.createdAt);
 
     const rows = await db
       .select()

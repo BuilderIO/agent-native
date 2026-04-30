@@ -70,8 +70,10 @@ export function CallRow({
     [call.recordedAt, call.createdAt],
   );
 
-  const shown = call.participants.slice(0, 4);
-  const extra = Math.max(0, call.participants.length - 4);
+  const participants = call.participants ?? [];
+  const topTrackers = call.topTrackers ?? [];
+  const shown = participants.slice(0, 4);
+  const extra = Math.max(0, participants.length - 4);
 
   function openCall() {
     navigate(`/calls/${call.id}`);
@@ -163,7 +165,7 @@ export function CallRow({
       )}
 
       <div className="hidden lg:flex items-center gap-1 shrink-0 max-w-[22rem] overflow-hidden">
-        {call.topTrackers.slice(0, 3).map((t) => (
+        {topTrackers.slice(0, 3).map((t) => (
           <TrackerChip
             key={t.trackerId}
             name={t.name}
