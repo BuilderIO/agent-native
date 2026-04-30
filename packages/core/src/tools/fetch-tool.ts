@@ -11,8 +11,17 @@ import type { ActionEntry } from "../agent/production-agent.js";
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_SIZE = 1024 * 1024; // 1 MB
 
-const METADATA_HOSTS = ["metadata.google.internal", "metadata.google.internal."];
-const DNS_REBIND_SUFFIXES = [".nip.io", ".sslip.io", ".xip.io", ".localtest.me", ".lvh.me"];
+const METADATA_HOSTS = [
+  "metadata.google.internal",
+  "metadata.google.internal.",
+];
+const DNS_REBIND_SUFFIXES = [
+  ".nip.io",
+  ".sslip.io",
+  ".xip.io",
+  ".localtest.me",
+  ".lvh.me",
+];
 
 function isPrivateIpv4(a: number, b: number): boolean {
   if (a === 127) return true;
@@ -27,9 +36,16 @@ function isPrivateIpv4(a: number, b: number): boolean {
 function isBlockedUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return true;
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+      return true;
     const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    if (host === "localhost" || host === "::1" || host === "::0" || host === "::") return true;
+    if (
+      host === "localhost" ||
+      host === "::1" ||
+      host === "::0" ||
+      host === "::"
+    )
+      return true;
     if (METADATA_HOSTS.includes(host)) return true;
     if (DNS_REBIND_SUFFIXES.some((s) => host.endsWith(s))) return true;
     // IPv6 ULA/link-local

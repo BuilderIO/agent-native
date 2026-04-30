@@ -3,6 +3,7 @@
 Generated: 2026-04-30 by autonomous QA sweep (overnight round 2).
 
 ## Severity legend
+
 - CRITICAL: data integrity / security / multi-tenant correctness
 - HIGH: user-facing breakage
 - MEDIUM: subtle correctness or UX gap
@@ -18,6 +19,7 @@ Generated: 2026-04-30 by autonomous QA sweep (overnight round 2).
 **File:** `packages/core/src/server/agent-chat-plugin.ts:2199, 2343, 2984–2991`
 
 **Variables:**
+
 - `_currentRequestOrigin` (line 2199)
 - `_currentRunOwner` (line 2343)
 - `_currentRunUserApiKey` (line 2984)
@@ -45,6 +47,7 @@ Generated: 2026-04-30 by autonomous QA sweep (overnight round 2).
 **Symptom:** When the agent makes multiple tool calls in one turn (very common — Anthropic models frequently return multiple tool-call blocks), `production-agent.ts:441` runs them all concurrently via `Promise.all`. Each tool call invokes either `wrapDefaultExport` (line 104) or `wrapCliScript` (line 91 in agent-chat-plugin.ts). Both monkey-patch `console.log`, `console.error`, `process.stdout.write`, and `process.exit` on the shared global object immediately before the call, and restore them in `finally`.
 
 **Root cause:** The save/restore pattern is:
+
 ```
 origLog = console.log          // A saves real log
 console.log = captureA         // A installs capture
@@ -62,6 +65,7 @@ After two concurrent tool calls complete, the real `console.log` is never restor
 **Reproduce:** Send a message that causes two CLI tool calls in one agent turn (e.g., `db-schema` + `docs-search`). After the response, check that `console.log("ping")` still prints to server stdout.
 
 **Proposed fix:** Replace global monkey-patching with one of:
+
 1. Spawn each CLI invocation in a subprocess (child_process) and capture stdout/stderr there — fully isolated, no globals touched.
 2. AsyncLocalStorage-based interception: install one global interceptor that reads `AsyncLocalStorage.getStore()` to decide where to route output, rather than swapping the function pointer.
 
@@ -80,9 +84,11 @@ After two concurrent tool calls complete, the real `console.log` is never restor
 **Server-side impact:** `assertAccess` in the actions layer still enforces authorization correctly, so no actual data mutation is possible. This is a UI-only exposure of controls the server will reject.
 
 **Proposed fix:**
+
 ```ts
 // Before:
-const canManage = data?.role === "owner" || data?.role === "admin" || !data?.role;
+const canManage =
+  data?.role === "owner" || data?.role === "admin" || !data?.role;
 
 // After:
 const canManage = data?.role === "owner" || data?.role === "admin";
@@ -100,11 +106,12 @@ const canManage = data?.role === "owner" || data?.role === "admin";
 **Symptom:** `highestShareRole` selects ALL rows from `sharesTable` for a given `resourceId` with no filter on `principalId` and no LIMIT clause. For a resource shared with many principals (e.g., a public org-wide resource), this returns every grant ever made and iterates them in application code.
 
 **Root cause:**
+
 ```ts
 const rows = await db
   .select()
   .from(reg.sharesTable)
-  .where(eq(reg.sharesTable.resourceId, resourceId));  // no LIMIT, no principal filter
+  .where(eq(reg.sharesTable.resourceId, resourceId)); // no LIMIT, no principal filter
 ```
 
 This query runs on every authorization check (every read and write to any shared resource). The in-application loop at lines 169+ filters to the current user/org, but the full table scan still hits the DB and transfers all rows over the wire.
@@ -124,6 +131,7 @@ This query runs on every authorization check (every read and write to any shared
 **Root cause:** The feature was designed and documented but never implemented.
 
 **Proposed implementation:**
+
 1. In the `handleKeyDown` callback (line 1608), capture `window.getSelection()?.toString().trim()` before calling `focusAgentChat()`.
 2. If the selection is non-empty, either:
    - Pre-populate the composer input with a quoted block (e.g., `> {selection}\n\n`) so the user can see what context is included, OR
@@ -197,6 +205,7 @@ This query runs on every authorization check (every read and write to any shared
 **Root cause:** Mount-only effect. The `sidebarWidth` prop is not in the effect's dep array, so React never re-runs the local-storage read when the parent passes a new value.
 
 **Fix:** Either:
+
 1. Add `sidebarWidth` to the effect dep array (and handle the case where a saved localStorage value should take precedence over the prop), OR
 2. Remove the `sidebarWidth` prop from the component if it is genuinely intended as a mount-only default — document this clearly so callers know it cannot be changed reactively.
 
@@ -206,17 +215,17 @@ This query runs on every authorization check (every read and write to any shared
 
 ## Summary for prioritization
 
-| # | Severity | Fix complexity | Fix scope |
-|---|----------|----------------|-----------|
-| 1 | CRITICAL | High | packages/core/src/server/agent-chat-plugin.ts (widespread refactor) |
-| 2 | CRITICAL | High | packages/core/src/server/action-discovery.ts + agent-chat-plugin.ts |
-| 3 | MEDIUM | Trivial | packages/core/src/client/sharing/ShareButton.tsx:229 |
-| 4 | MEDIUM | Medium | packages/core/src/sharing/access.ts:164–167 |
-| 5 | FEATURE GAP | Medium | packages/core/src/client/AgentPanel.tsx:1609 |
-| 6 | MEDIUM | Medium | packages/core/src/server/agent-chat-plugin.ts:4259–4279 + template grep |
-| 7 | LOW | Easy | packages/core/src/server/agent-chat-plugin.ts:3807 |
-| 8 | MEDIUM | Easy | packages/core/src/client/MultiTabAssistantChat.tsx:1209 |
-| 9 | MEDIUM | Easy | AgentPanel.tsx + PopoverContent portal check |
-| 10 | LOW | Easy | packages/core/src/client/AgentPanel.tsx:1490 |
+| #   | Severity    | Fix complexity | Fix scope                                                               |
+| --- | ----------- | -------------- | ----------------------------------------------------------------------- |
+| 1   | CRITICAL    | High           | packages/core/src/server/agent-chat-plugin.ts (widespread refactor)     |
+| 2   | CRITICAL    | High           | packages/core/src/server/action-discovery.ts + agent-chat-plugin.ts     |
+| 3   | MEDIUM      | Trivial        | packages/core/src/client/sharing/ShareButton.tsx:229                    |
+| 4   | MEDIUM      | Medium         | packages/core/src/sharing/access.ts:164–167                             |
+| 5   | FEATURE GAP | Medium         | packages/core/src/client/AgentPanel.tsx:1609                            |
+| 6   | MEDIUM      | Medium         | packages/core/src/server/agent-chat-plugin.ts:4259–4279 + template grep |
+| 7   | LOW         | Easy           | packages/core/src/server/agent-chat-plugin.ts:3807                      |
+| 8   | MEDIUM      | Easy           | packages/core/src/client/MultiTabAssistantChat.tsx:1209                 |
+| 9   | MEDIUM      | Easy           | AgentPanel.tsx + PopoverContent portal check                            |
+| 10  | LOW         | Easy           | packages/core/src/client/AgentPanel.tsx:1490                            |
 
 Findings #1 and #2 are the most urgent — both are concurrency bugs in core framework code that affect all templates simultaneously under any real production load. They were not introduced by a recent change; they are structural issues in how the plugin was architected. Recommend fixing before the next hosted production traffic increase.

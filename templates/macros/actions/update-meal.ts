@@ -30,7 +30,8 @@ export default defineAction({
     if (args.carbs !== undefined) changes.carbs = args.carbs;
     if (args.fat !== undefined) changes.fat = args.fat;
     if (args.date !== undefined) changes.date = String(args.date).split("T")[0];
-    if (args.image_url !== undefined) changes.image_url = args.image_url || null;
+    if (args.image_url !== undefined)
+      changes.image_url = args.image_url || null;
     if (args.notes !== undefined) changes.notes = args.notes;
 
     const result = await db()

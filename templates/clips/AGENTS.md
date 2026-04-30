@@ -233,6 +233,14 @@ Start / stop / pause are **UI gestures** — there is no server action. MediaRec
 | `clear-edits`         | `--recordingId <id>`                           | Clear `editsJson` back to `{}`                                     |
 | `undo-edit`           | `--recordingId <id>`                           | Remove the last edit from `editsJson`                              |
 
+### Call-to-Actions (CTAs)
+
+| Action       | Args                                                               | Purpose                         |
+| ------------ | ------------------------------------------------------------------ | ------------------------------- |
+| `create-cta` | `--recordingId <id> --label <text> --url <url> [--placement <ms>]` | Add a CTA button to a recording |
+| `update-cta` | `--id <id> [--label <text>] [--url <url>] [--placement <ms>]`      | Update an existing CTA          |
+| `delete-cta` | `--id <id>`                                                        | Remove a CTA                    |
+
 ### Sharing (framework-wide, auto-mounted)
 
 | Action                    | Args                                                                                                                               | Purpose                              |

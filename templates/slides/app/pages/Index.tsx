@@ -7,14 +7,25 @@ import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import { Button } from "@/components/ui/button";
 
 export default function Index() {
-  const { decks, createDeck, deleteDeck, loading } = useDecks();
+  const { decks, createDeck, deleteDeck, updateDeck, loading } = useDecks();
   const navigate = useNavigate();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
+  const [duplicating, setDuplicating] = useState<string | null>(null);
   const { generating, submit: agentSubmit } = useAgentGenerating();
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
@@ -65,6 +76,37 @@ export default function Index() {
       setDeckToDelete(null);
     }
   };
+
+  const handleRename = useCallback(
+    (id: string, newTitle: string) => {
+      updateDeck(id, { title: newTitle });
+    },
+    [updateDeck],
+  );
+
+  const handleDuplicate = useCallback(
+    async (id: string) => {
+      if (duplicating) return;
+      setDuplicating(id);
+      try {
+        const res = await fetch(
+          `/_agent-native/actions/duplicate-deck`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deckId: id }),
+          },
+        );
+        if (res.ok) {
+          const { id: newId } = await res.json();
+          navigate(`/deck/${newId}`);
+        }
+      } finally {
+        setDuplicating(null);
+      }
+    },
+    [duplicating, navigate],
+  );
 
   // Inject "New Deck" into the global header actions slot.
   useSetHeaderActions(
@@ -136,6 +178,8 @@ export default function Index() {
                 key={deck.id}
                 deck={deck}
                 onDelete={(id) => setDeckToDelete(id)}
+                onRename={handleRename}
+                onDuplicate={handleDuplicate}
               />
             ))}
           </div>
