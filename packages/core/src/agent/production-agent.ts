@@ -1087,6 +1087,19 @@ export function createProductionAgentHandler(
       { role: "user" as const, content: userContent },
     ];
 
+    // If there's already an active run for this thread, reject with 409 so
+    // the client can queue or wait rather than silently aborting the existing run.
+    if (threadId) {
+      const existingRun = getActiveRunForThread(threadId);
+      if (existingRun && existingRun.status === "running") {
+        setResponseStatus(event, 409);
+        return {
+          error: "Run already in progress for this thread",
+          activeRunId: existingRun.runId,
+        };
+      }
+    }
+
     // Start agent loop in background via run-manager
     const runId = generateRunId();
     startRun(
