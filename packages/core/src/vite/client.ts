@@ -497,6 +497,26 @@ function baseRedirectGuard(): Plugin {
       // internal middleware.
       server.middlewares.use((req, _res, next) => {
         const base = server.config.base;
+        if (base && base !== "/" && req.url?.startsWith(base)) {
+          const relativeUrl = req.url.slice(base.length - 1);
+          try {
+            const url = new URL(relativeUrl, "http://agent-native.local");
+            const publicDir = server.config.publicDir;
+            const publicPath = path.normalize(
+              path.join(publicDir, decodeURIComponent(url.pathname)),
+            );
+            if (
+              publicPath.startsWith(publicDir + path.sep) &&
+              fs.existsSync(publicPath) &&
+              fs.statSync(publicPath).isFile()
+            ) {
+              req.url = `${url.pathname}${url.search}`;
+            }
+          } catch {
+            // Fall through to Vite/Nitro. Malformed URLs should keep their
+            // original path so the normal dev-server error handling applies.
+          }
+        }
         if (
           base &&
           base !== "/" &&
