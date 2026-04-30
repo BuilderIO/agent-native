@@ -11,7 +11,7 @@ export default defineAction({
     ).startsWith("file:");
     try {
       const db = getDb();
-      await db.run(sql`SELECT 1`);
+      await db.execute(sql`SELECT 1`);
       return { ok: true, local: isLocal };
     } catch (e) {
       return {

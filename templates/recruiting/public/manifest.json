@@ -2,7 +2,7 @@
   "name": "Agent Native Recruiting",
   "short_name": "Recruiting",
   "description": "AI-powered recruiting with Greenhouse",
-  "start_url": "/",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#16A34A",

@@ -2,16 +2,53 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockInsertNotification = vi.fn();
 const mockUpdateDeliveredChannels = vi.fn();
+const mockListNotifications = vi.fn();
+const mockCountUnread = vi.fn();
+const mockMarkNotificationRead = vi.fn();
+const mockMarkAllNotificationsRead = vi.fn();
+const mockDeleteNotification = vi.fn();
 const mockEmit = vi.fn();
+const mockGetSession = vi.fn();
+
+vi.mock("h3", () => ({
+  defineEventHandler: (handler: any) => handler,
+  getMethod: (event: any) => event.method ?? "GET",
+  getQuery: (event: any) =>
+    Object.fromEntries(event.url?.searchParams?.entries?.() ?? []),
+  setResponseStatus: (event: any, status: number) => {
+    event._status = status;
+  },
+  createError: ({
+    statusCode,
+    statusMessage,
+  }: {
+    statusCode: number;
+    statusMessage?: string;
+  }) =>
+    Object.assign(new Error(statusMessage ?? String(statusCode)), {
+      statusCode,
+    }),
+}));
 
 vi.mock("./store.js", () => ({
   insertNotification: (...args: unknown[]) => mockInsertNotification(...args),
   updateDeliveredChannels: (...args: unknown[]) =>
     mockUpdateDeliveredChannels(...args),
+  listNotifications: (...args: unknown[]) => mockListNotifications(...args),
+  countUnread: (...args: unknown[]) => mockCountUnread(...args),
+  markNotificationRead: (...args: unknown[]) =>
+    mockMarkNotificationRead(...args),
+  markAllNotificationsRead: (...args: unknown[]) =>
+    mockMarkAllNotificationsRead(...args),
+  deleteNotification: (...args: unknown[]) => mockDeleteNotification(...args),
 }));
 
 vi.mock("../event-bus/bus.js", () => ({
   emit: (...args: unknown[]) => mockEmit(...args),
+}));
+
+vi.mock("../server/auth.js", () => ({
+  getSession: (...args: unknown[]) => mockGetSession(...args),
 }));
 
 import {
@@ -21,11 +58,25 @@ import {
   listNotificationChannels,
   __resetNotificationChannels,
 } from "./registry.js";
+import { createNotificationToolEntries } from "./actions.js";
+import { createNotificationsHandler } from "./routes.js";
+
+function createEvent(path: string, method = "GET") {
+  return {
+    method,
+    url: new URL(`http://app.test${path}`),
+    context: {},
+    _status: 200,
+  };
+}
 
 describe("notifications registry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetNotificationChannels();
+    mockGetSession.mockResolvedValue({ email: "boni@local" });
+    mockListNotifications.mockResolvedValue([]);
+    mockCountUnread.mockResolvedValue(0);
     mockInsertNotification.mockResolvedValue({
       id: "n-1",
       owner: "boni@local",
@@ -208,6 +259,58 @@ describe("notifications registry", () => {
       expect(listNotificationChannels().sort()).toEqual(["a", "b"]);
       unregisterNotificationChannel("a");
       expect(listNotificationChannels()).toEqual(["b"]);
+    });
+  });
+});
+
+describe("notifications routes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetSession.mockResolvedValue({ email: "boni@local" });
+    mockListNotifications.mockResolvedValue([]);
+    mockCountUnread.mockResolvedValue(3);
+  });
+
+  it("handles HEAD like GET for read endpoints", async () => {
+    const handler = createNotificationsHandler() as any;
+
+    await expect(handler(createEvent("/count", "HEAD"))).resolves.toEqual({
+      count: 3,
+    });
+
+    expect(mockCountUnread).toHaveBeenCalledWith("boni@local");
+  });
+
+  it("clamps invalid list limits before reaching the store", async () => {
+    const handler = createNotificationsHandler() as any;
+
+    await handler(createEvent("/?limit=-1&unread=true"));
+
+    expect(mockListNotifications).toHaveBeenCalledWith("boni@local", {
+      unreadOnly: true,
+      limit: 50,
+      before: undefined,
+    });
+  });
+});
+
+describe("notification action entries", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListNotifications.mockResolvedValue([]);
+    mockCountUnread.mockResolvedValue(0);
+  });
+
+  it("clamps invalid list limits before reaching the store", async () => {
+    const tool = createNotificationToolEntries(() => "boni@local")[
+      "manage-notifications"
+    ];
+
+    await tool.run({ action: "list", limit: -1 });
+
+    expect(mockListNotifications).toHaveBeenCalledWith("boni@local", {
+      unreadOnly: false,
+      limit: 20,
     });
   });
 });

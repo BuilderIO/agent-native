@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import type { MentionItem } from "./types.js";
+import { agentNativePath } from "../api-path.js";
 
 export function useMentionSearch(query: string, enabled: boolean) {
   const [items, setItems] = useState<MentionItem[]>([]);
@@ -28,7 +29,9 @@ export function useMentionSearch(query: string, enabled: boolean) {
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(
-          `/_agent-native/agent-chat/mentions?q=${encodeURIComponent(query)}`,
+          agentNativePath(
+            `/_agent-native/agent-chat/mentions?q=${encodeURIComponent(query)}`,
+          ),
           { signal: abort.signal },
         );
         if (!res.ok || !res.body) throw new Error();

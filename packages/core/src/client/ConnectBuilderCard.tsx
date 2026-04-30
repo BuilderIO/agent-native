@@ -4,6 +4,7 @@ import { getCallbackOrigin } from "./frame.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { BuilderBMark } from "./builder-mark.js";
 import { cn } from "./utils.js";
+import { agentNativePath } from "./api-path.js";
 
 export interface ConnectBuilderCardProps {
   configured: boolean;
@@ -66,11 +67,14 @@ export function ConnectBuilderCard({
     setSendErr(null);
     try {
       const origin = getCallbackOrigin() || window.location.origin;
-      const res = await fetch(`${origin}/_agent-native/builder/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
+      const res = await fetch(
+        new URL(agentNativePath("/_agent-native/builder/run"), origin).href,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt }),
+        },
+      );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(

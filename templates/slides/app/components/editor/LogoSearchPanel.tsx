@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
-import { useActionQuery } from "@agent-native/core/client";
+import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 
 const LOGO_DEV_PK = "pk_VwOyCAOgT0aBNpecT2qO-A";
 
@@ -80,7 +80,9 @@ export default function LogoSearchPanel({
     setSelectedDomain(null);
     try {
       const res = await fetch(
-        `/_agent-native/actions/search-logos?q=${encodeURIComponent(q)}`,
+        agentNativePath(
+          `/_agent-native/actions/search-logos?q=${encodeURIComponent(q)}`,
+        ),
       );
       if (!res.ok) {
         const data = await res.json();

@@ -35,7 +35,7 @@ const JSON_LD = JSON.stringify({
   applicationCategory: "DeveloperApplication",
   operatingSystem: "Cross-platform",
   description:
-    "Open source framework for building Agent-native applications where agents and UI share state through files.",
+    "Open source framework for building agentic applications where AI agents and UI share the same database and state.",
   url: "https://agent-native.com",
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
   license: "https://opensource.org/licenses/MIT",
@@ -57,7 +57,8 @@ export const meta = () => [
   { title: "Agent-Native — Framework for Agent-Native Apps" },
   {
     name: "description",
-    content: "Build apps where AI agents and UI share state through files.",
+    content:
+      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork templates.",
   },
   {
     property: "og:image",
@@ -70,7 +71,8 @@ export const meta = () => [
   },
   {
     property: "og:description",
-    content: "Build apps where AI agents and UI share state through files.",
+    content:
+      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork templates.",
   },
   { property: "og:type", content: "website" },
   { property: "og:url", content: "https://agent-native.com" },
@@ -117,10 +119,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
-        <meta
-          name="viewport"
-          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
-        />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script
           async

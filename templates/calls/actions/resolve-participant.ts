@@ -21,6 +21,12 @@ function gravatarUrl(email: string): string {
   return `https://www.gravatar.com/avatar/${hash}?d=identicon`;
 }
 
+const cliBoolean = z.preprocess((value) => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return value;
+}, z.boolean());
+
 export default defineAction({
   description:
     "Resolve a diarized participant's identity (email, displayName, isInternal). Back-fills avatarUrl from Gravatar.",
@@ -29,8 +35,8 @@ export default defineAction({
     speakerLabel: z.string().describe("Diarized label, e.g. 'Speaker 0'"),
     email: z.string().email().describe("Email of the real person"),
     displayName: z.string().optional().describe("Full name"),
-    isInternal: z.coerce
-      .boolean()
+    isInternal: z
+      .union([z.boolean(), cliBoolean])
       .optional()
       .describe("Mark as a teammate vs. external"),
   }),

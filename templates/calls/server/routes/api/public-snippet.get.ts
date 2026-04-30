@@ -24,6 +24,13 @@ function notFound(event: H3Event) {
   return { error: "Not found" };
 }
 
+function appPath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return base ? `/${base}${path}` : path;
+}
+
 export default defineEventHandler(async (event) => {
   const q = getQuery(event) as { snippetId?: string; password?: string };
   const snippetId = q.snippetId;
@@ -73,7 +80,7 @@ export default defineEventHandler(async (event) => {
     base = `${base}${sep}p=${encodeURIComponent(call.password)}`;
   }
 
-  const mediaUrl = `${base}${fragment}`;
+  const mediaUrl = `${base.startsWith("/") ? appPath(base) : base}${fragment}`;
 
   return {
     snippet: {

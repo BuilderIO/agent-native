@@ -11,6 +11,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/helpers.js";
+import { cliBoolean } from "./utils.js";
 
 export default defineAction({
   description:
@@ -19,7 +20,7 @@ export default defineAction({
     id: z.string().describe("Snippet ID"),
     trigger: z.string().optional().describe("New trigger text"),
     expansion: z.string().optional().describe("New expansion text"),
-    isTeam: z.boolean().optional().describe("Whether this is a team snippet"),
+    isTeam: cliBoolean.optional().describe("Whether this is a team snippet"),
   }),
   run: async (args) => {
     const db = getDb();

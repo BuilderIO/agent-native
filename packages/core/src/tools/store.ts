@@ -21,6 +21,9 @@ import {
   TOOL_DATA_ITEM_INDEX_SQL_PG,
   TOOL_DATA_DROP_OLD_INDEX_SQL,
   TOOL_DATA_DROP_OLD_INDEX_SQL_PG,
+  TOOLS_OWNER_INDEX_SQL,
+  TOOLS_ORG_INDEX_SQL,
+  TOOL_SHARES_RESOURCE_INDEX_SQL,
 } from "./schema.js";
 
 const getDb = createGetDb({ tools, toolShares });
@@ -45,6 +48,9 @@ export async function ensureToolsTables(): Promise<void> {
       await client.execute(
         pg ? TOOL_DATA_ITEM_INDEX_SQL_PG : TOOL_DATA_ITEM_INDEX_SQL,
       );
+      await client.execute(TOOLS_OWNER_INDEX_SQL);
+      await client.execute(TOOLS_ORG_INDEX_SQL);
+      await client.execute(TOOL_SHARES_RESOURCE_INDEX_SQL);
     })();
   }
   return _initPromise;
@@ -58,48 +64,22 @@ async function ensureToolDataItemId(
     await client.execute(
       `ALTER TABLE tool_data ADD COLUMN IF NOT EXISTS item_id TEXT`,
     );
-    await client.execute(
-      `ALTER TABLE tool_data ALTER COLUMN item_id DROP NOT NULL`,
-    );
-  } else {
-    try {
-      await client.execute(`ALTER TABLE tool_data ADD COLUMN item_id TEXT`);
-    } catch (err: any) {
-      if (
-        !String(err?.message ?? err)
-          .toLowerCase()
-          .includes("duplicate")
-      ) {
-        throw err;
-      }
-    }
-    await makeSqliteToolDataItemIdNullable(client);
-  }
-  await client.execute(
-    `UPDATE tool_data SET item_id = NULL WHERE item_id = id`,
-  );
-}
-
-async function makeSqliteToolDataItemIdNullable(
-  client: ReturnType<typeof getDbExec>,
-): Promise<void> {
-  const info = await client.execute(`PRAGMA table_info(tool_data)`);
-  const itemIdColumn = (info.rows ?? []).find(
-    (row: any) => String(row.name) === "item_id",
-  );
-  if (!itemIdColumn || Number((itemIdColumn as any).notnull ?? 0) === 0) {
     return;
   }
 
-  await client.execute(`DROP INDEX IF EXISTS tool_data_scope_item_idx`);
-  await client.execute(`ALTER TABLE tool_data RENAME TO tool_data_old`);
-  await client.execute(TOOL_DATA_CREATE_SQL);
-  await client.execute(`
-    INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, created_at, updated_at)
-    SELECT id, tool_id, collection, item_id, data, owner_email, created_at, updated_at
-    FROM tool_data_old
-  `);
-  await client.execute(`DROP TABLE tool_data_old`);
+  // Keep this additive: legacy rows with item_id=id are still read correctly
+  // through COALESCE(item_id, id), so SQLite never needs a table rebuild here.
+  try {
+    await client.execute(`ALTER TABLE tool_data ADD COLUMN item_id TEXT`);
+  } catch (err: any) {
+    if (
+      !String(err?.message ?? err)
+        .toLowerCase()
+        .includes("duplicate")
+    ) {
+      throw err;
+    }
+  }
 }
 
 async function ensureToolDataScope(

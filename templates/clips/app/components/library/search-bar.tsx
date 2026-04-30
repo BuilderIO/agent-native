@@ -51,10 +51,24 @@ export function SearchBar({ className }: SearchBarProps) {
   const { data, isFetching } = useRecordingSearch(query);
   const results: SearchHit[] = data?.results ?? [];
 
-  // Cmd+K / Ctrl+K global shortcut
+  // Cmd+K / Ctrl+K and "/" global shortcuts to focus search
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+        inputRef.current?.select();
+        setOpen(true);
+      }
+      if (
+        e.key === "/" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        (e.target as HTMLElement)?.tagName?.toLowerCase() !== "input" &&
+        (e.target as HTMLElement)?.tagName?.toLowerCase() !== "textarea" &&
+        !(e.target as HTMLElement)?.isContentEditable
+      ) {
         e.preventDefault();
         inputRef.current?.focus();
         inputRef.current?.select();

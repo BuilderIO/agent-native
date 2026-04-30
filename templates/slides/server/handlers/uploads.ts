@@ -5,6 +5,7 @@ import {
 } from "h3";
 import path from "path";
 import fs from "fs";
+import { getSession } from "@agent-native/core/server";
 
 const UPLOADS_DIR = path.join(process.cwd(), "data", "uploads");
 
@@ -17,6 +18,12 @@ try {
 
 // Upload one or more files
 export const uploadFiles = defineEventHandler(async (event) => {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
   const parts = await readMultipartFormData(event);
   const fileParts = parts?.filter((p) => p.name === "files" && p.data) ?? [];
 

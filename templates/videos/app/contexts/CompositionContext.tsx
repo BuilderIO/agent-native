@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router";
+import { toast } from "sonner";
+import { agentNativePath } from "@agent-native/core/client";
 import { compositions, type CompositionEntry } from "@/remotion/registry";
 import type { CompSettings } from "@/components/CompSettingsEditor";
 import type { CompositionCollabData } from "@/hooks/use-composition-collab";
@@ -321,11 +323,14 @@ export function CompositionProvider({
       // Note: action routes return HTTP 200 even when the action body
       // contains `{ error }`, so we have to check the body too.
       try {
-        const res = await fetch(`/_agent-native/actions/delete-composition`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
-        });
+        const res = await fetch(
+          agentNativePath("/_agent-native/actions/delete-composition"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id }),
+          },
+        );
         if (!res.ok) {
           throw new Error(`delete-composition failed: ${res.status}`);
         }
@@ -339,8 +344,7 @@ export function CompositionProvider({
           );
         }
       } catch (err) {
-        console.error("[Videos] Failed to delete composition:", err);
-        // Bail out — UI stays in sync with the database
+        toast.error("Failed to delete composition");
         return;
       }
 
@@ -364,13 +368,36 @@ export function CompositionProvider({
   );
 
   const handleTitleChange = useCallback(
-    (title: string) => {
+    async (title: string) => {
       if (!selected) return;
       const compIndex = compositions.findIndex((c) => c.id === selected.id);
-      if (compIndex !== -1) {
-        compositions[compIndex].title = title;
-        console.log(`[Videos] Renamed composition to: ${title}`);
-        setPropsOverrides((prev) => ({ ...prev }));
+      if (compIndex === -1) return;
+
+      // Optimistically update in-memory registry and trigger re-render
+      compositions[compIndex].title = title;
+      setRegistryVersion((v) => v + 1);
+
+      // Persist to DB
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/actions/update-composition"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: selected.id, title }),
+          },
+        );
+        if (!res.ok) {
+          throw new Error(`update-composition failed: ${res.status}`);
+        }
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        if (data?.error) {
+          throw new Error(data.error);
+        }
+      } catch (err) {
+        toast.error("Failed to rename composition");
       }
     },
     [selected],

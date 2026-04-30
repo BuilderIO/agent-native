@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
+import { appBasePath } from "@agent-native/core/client";
 import { CallPlayer } from "@/components/player/call-player";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -32,7 +33,7 @@ function parseTimeParam(raw: string | null): number {
 
 async function reportViewEvent(payload: Record<string, unknown>) {
   try {
-    await fetch("/api/view-events", {
+    await fetch(`${appBasePath()}/api/view-events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -53,7 +54,10 @@ export default function EmbedCallRoute() {
   const dataQ = useQuery({
     queryKey: ["public-call-embed", callId, password],
     queryFn: async () => {
-      const url = new URL("/api/public-call", window.location.origin);
+      const url = new URL(
+        `${appBasePath()}/api/public-call`,
+        window.location.origin,
+      );
       url.searchParams.set("callId", callId ?? "");
       if (password) url.searchParams.set("p", password);
       const res = await fetch(url.toString());

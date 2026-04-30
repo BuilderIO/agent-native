@@ -30,10 +30,10 @@ function ctxScope<T extends { ownerEmail: any; orgId: any }>(
   table: T,
   ctx: WorkspaceResourceCtx,
 ) {
-  return or(
-    eq(table.ownerEmail, ctx.ownerEmail),
-    ctx.orgId ? eq(table.orgId, ctx.orgId) : isNull(table.orgId),
-  );
+  if (!ctx.orgId) {
+    return and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId));
+  }
+  return or(eq(table.ownerEmail, ctx.ownerEmail), eq(table.orgId, ctx.orgId));
 }
 
 function id() {
@@ -79,12 +79,20 @@ export async function listWorkspaceResources(filter?: { kind?: string }) {
     .orderBy(desc(schema.workspaceResources.updatedAt));
 }
 
-export async function getWorkspaceResource(resourceId: string) {
+export async function getWorkspaceResource(
+  resourceId: string,
+  ctx: WorkspaceResourceCtx = requireWorkspaceResourceCtx(),
+) {
   const db = getDb();
   const [row] = await db
     .select()
     .from(schema.workspaceResources)
-    .where(eq(schema.workspaceResources.id, resourceId))
+    .where(
+      and(
+        eq(schema.workspaceResources.id, resourceId),
+        ctxScope(schema.workspaceResources, ctx),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
@@ -127,7 +135,8 @@ export async function updateWorkspaceResource(
   >,
 ) {
   const db = getDb();
-  const existing = await getWorkspaceResource(resourceId);
+  const ctx = requireWorkspaceResourceCtx();
+  const existing = await getWorkspaceResource(resourceId, ctx);
   if (!existing) throw new Error("Workspace resource not found");
 
   const updates: Record<string, unknown> = { updatedAt: now() };
@@ -140,7 +149,12 @@ export async function updateWorkspaceResource(
   await db
     .update(schema.workspaceResources)
     .set(updates)
-    .where(eq(schema.workspaceResources.id, resourceId));
+    .where(
+      and(
+        eq(schema.workspaceResources.id, resourceId),
+        ctxScope(schema.workspaceResources, ctx),
+      ),
+    );
 
   await recordAudit({
     action: `workspace.${existing.kind}.updated`,
@@ -149,12 +163,13 @@ export async function updateWorkspaceResource(
     summary: `Updated workspace ${existing.kind} "${input.name || existing.name}"`,
   });
 
-  return getWorkspaceResource(resourceId);
+  return getWorkspaceResource(resourceId, ctx);
 }
 
 export async function deleteWorkspaceResource(resourceId: string) {
   const db = getDb();
-  const existing = await getWorkspaceResource(resourceId);
+  const ctx = requireWorkspaceResourceCtx();
+  const existing = await getWorkspaceResource(resourceId, ctx);
   if (!existing) throw new Error("Workspace resource not found");
 
   // Revoke all grants
@@ -167,7 +182,12 @@ export async function deleteWorkspaceResource(resourceId: string) {
 
   await db
     .delete(schema.workspaceResources)
-    .where(eq(schema.workspaceResources.id, resourceId));
+    .where(
+      and(
+        eq(schema.workspaceResources.id, resourceId),
+        ctxScope(schema.workspaceResources, ctx),
+      ),
+    );
 
   await recordAudit({
     action: `workspace.${existing.kind}.deleted`,
@@ -224,7 +244,8 @@ export async function getResourceGrant(
 
 export async function createResourceGrant(resourceId: string, appId: string) {
   const db = getDb();
-  const resource = await getWorkspaceResource(resourceId);
+  const ctx = requireWorkspaceResourceCtx();
+  const resource = await getWorkspaceResource(resourceId, ctx);
   if (!resource) throw new Error("Workspace resource not found");
 
   const timestamp = now();

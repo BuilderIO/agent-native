@@ -94,6 +94,16 @@ export default runMigrations(
         return `SELECT 1`;
       },
     },
+    // v7: align fresh databases with the Drizzle schema. user_id is kept as a
+    // nullable legacy compatibility column; owner_email is the active scope.
+    {
+      version: 7,
+      get sql() {
+        return `ALTER TABLE meals ADD COLUMN IF NOT EXISTS user_id TEXT;
+              ALTER TABLE exercises ADD COLUMN IF NOT EXISTS user_id TEXT;
+              ALTER TABLE weights ADD COLUMN IF NOT EXISTS user_id TEXT;`;
+      },
+    },
   ],
   { table: "macros_migrations" },
 );

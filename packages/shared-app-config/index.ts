@@ -1,4 +1,4 @@
-import { coreTemplates } from "./templates";
+import { coreTemplates, TEMPLATES, type TemplateMeta } from "./templates";
 export {
   TEMPLATES,
   visibleTemplates,
@@ -62,24 +62,37 @@ export interface FrameSettings {
   prodUrl?: string;
 }
 
+export function templateToAppConfig(
+  template: TemplateMeta,
+  opts: { isBuiltIn?: boolean; enabled?: boolean } = {},
+): AppConfig {
+  return {
+    id: template.name,
+    name: template.label,
+    icon: template.icon,
+    description: template.description ?? template.hint,
+    url: template.prodUrl ?? "",
+    devPort: template.devPort,
+    devUrl: `http://localhost:${template.devPort}`,
+    color: template.color,
+    colorRgb: template.colorRgb,
+    isBuiltIn: opts.isBuiltIn ?? Boolean(template.core),
+    enabled: opts.enabled ?? true,
+    mode: template.defaultMode ?? "prod",
+  };
+}
+
+export const TEMPLATE_APPS: AppConfig[] = TEMPLATES.map((template) =>
+  templateToAppConfig(template),
+);
+
 /**
  * Default apps derived from the template registry. Only core templates are
  * included — non-core apps can still be added manually via "Add app".
  */
-export const DEFAULT_APPS: AppConfig[] = coreTemplates().map((t) => ({
-  id: t.name,
-  name: t.label,
-  icon: t.icon,
-  description: t.description ?? t.hint,
-  url: t.prodUrl ?? "",
-  devPort: t.devPort,
-  devUrl: `http://localhost:${t.devPort}`,
-  color: t.color,
-  colorRgb: t.colorRgb,
-  isBuiltIn: true,
-  enabled: true,
-  mode: t.defaultMode ?? "prod",
-}));
+export const DEFAULT_APPS: AppConfig[] = coreTemplates().map((template) =>
+  templateToAppConfig(template, { isBuiltIn: true, enabled: true }),
+);
 
 /**
  * Convert an AppConfig to AppDefinition (for backward compatibility

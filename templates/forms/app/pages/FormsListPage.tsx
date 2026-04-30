@@ -50,9 +50,11 @@ export function FormsListPage() {
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
 
   function handleCreate() {
+    const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+    navigate(`/forms/${tempId}`);
     createForm.mutate(
       { title: "Untitled Form" },
-      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
     );
   }
 

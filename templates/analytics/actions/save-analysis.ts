@@ -6,6 +6,15 @@ import {
 import { z } from "zod";
 import { upsertAnalysis } from "../server/lib/dashboards-store";
 
+function parseJsonArg(value: unknown, label: string): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(`--${label} must be valid JSON`);
+  }
+}
+
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
   const email = getRequestUserEmail();
@@ -43,7 +52,7 @@ export default defineAction({
           "These instructions are sent verbatim to the agent on re-run.",
       ),
     dataSources: z
-      .array(z.string())
+      .preprocess((v) => parseJsonArg(v, "dataSources"), z.array(z.string()))
       .describe(
         "List of data sources used (e.g. ['bigquery', 'hubspot', 'gong', 'slack'])",
       ),
@@ -54,7 +63,10 @@ export default defineAction({
           "This is what users see when they load the analysis.",
       ),
     resultData: z
-      .record(z.string(), z.unknown())
+      .preprocess(
+        (v) => (v === undefined ? undefined : parseJsonArg(v, "resultData")),
+        z.record(z.string(), z.unknown()),
+      )
       .optional()
       .describe(
         "Optional structured data (JSON) backing the analysis — raw query results, metrics, etc. " +

@@ -35,6 +35,17 @@ export const designSystems = table("design_systems", {
 
 export const designSystemShares = createSharesTable("design_system_shares");
 
+// Persisted public share-link snapshots (token → deck snapshot).
+// Replaces the old in-memory Map so links survive server restarts and
+// work across multiple serverless instances.
+export const deckShareLinks = table("deck_share_links", {
+  token: text("token").primaryKey(),
+  title: text("title").notNull(),
+  slides: text("slides").notNull(), // JSON array of slide snapshots
+  aspectRatio: text("aspect_ratio"),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
 export const slideComments = table("slide_comments", {
   id: text("id").primaryKey(),
   deckId: text("deck_id").notNull(),

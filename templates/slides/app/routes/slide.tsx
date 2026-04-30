@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { IconExternalLink } from "@tabler/icons-react";
-import { isInAgentEmbed, postNavigate } from "@agent-native/core/client";
+import {
+  appBasePath,
+  isInAgentEmbed,
+  postNavigate,
+} from "@agent-native/core/client";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
@@ -55,7 +59,7 @@ export default function SlideRoute() {
       return;
     }
 
-    fetch(`/api/decks/${deckId}`)
+    fetch(`${appBasePath()}/api/decks/${deckId}`)
       .then(async (res) => {
         if (!res.ok) {
           if (res.status === 404) throw new Error("Deck not found.");

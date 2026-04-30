@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import { useOrg } from "@agent-native/core/client/org";
 import { toast } from "sonner";
 import { DispatchShell } from "@/components/dispatch-shell";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,8 @@ export function meta() {
 export default function ApprovalsRoute() {
   const { data: settings } = useActionQuery("get-dispatch-settings", {});
   const { data: approvals } = useActionQuery("list-dispatch-approvals", {});
+  const { data: org } = useOrg();
+  const hasOrg = !!org?.orgId;
   const [emails, setEmails] = useState("");
 
   const approverList = useMemo(
@@ -26,12 +29,15 @@ export default function ApprovalsRoute() {
 
   const savePolicy = useActionMutation("set-dispatch-approval-policy", {
     onSuccess: () => toast.success("Approval policy updated"),
+    onError: (err) => toast.error(String(err)),
   });
   const approve = useActionMutation("approve-dispatch-change", {
     onSuccess: () => toast.success("Change approved"),
+    onError: (err) => toast.error(String(err)),
   });
   const reject = useActionMutation("reject-dispatch-change", {
     onSuccess: () => toast.success("Change rejected"),
+    onError: (err) => toast.error(String(err)),
   });
 
   return (
@@ -51,11 +57,14 @@ export default function ApprovalsRoute() {
                   Require approval for durable changes
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  Applies to saved destinations and dispatch settings today.
+                  {hasOrg
+                    ? "Applies to saved destinations and dispatch settings today."
+                    : "Requires a team workspace. Set one up on the Team page."}
                 </div>
               </div>
               <Switch
                 checked={settings?.enabled || false}
+                disabled={!hasOrg || savePolicy.isPending}
                 onCheckedChange={(checked) =>
                   savePolicy.mutate({
                     enabled: checked,
@@ -72,10 +81,12 @@ export default function ApprovalsRoute() {
                 value={emails}
                 onChange={(event) => setEmails(event.target.value)}
                 placeholder={(settings?.approverEmails || []).join(", ")}
+                disabled={!hasOrg}
               />
               <Button
                 className="w-full"
                 variant="outline"
+                disabled={!hasOrg || savePolicy.isPending}
                 onClick={() =>
                   savePolicy.mutate({
                     enabled: settings?.enabled || false,

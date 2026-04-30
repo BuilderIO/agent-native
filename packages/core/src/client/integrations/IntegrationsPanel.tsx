@@ -18,6 +18,7 @@ import {
   useIntegrationStatus,
   type IntegrationStatus,
 } from "./useIntegrationStatus.js";
+import { agentNativePath } from "../api-path.js";
 
 // ─── Platform config ─────────────────────────────────────────────────────────
 
@@ -153,7 +154,7 @@ function IntegrationDetail({
     try {
       const action = serverStatus?.enabled ? "disable" : "enable";
       const res = await fetch(
-        `/_agent-native/integrations/${platform.id}/${action}`,
+        agentNativePath(`/_agent-native/integrations/${platform.id}/${action}`),
         { method: "POST" },
       );
       if (res.ok) onRefresh();

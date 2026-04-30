@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
+import { appBasePath } from "@agent-native/core/client";
 import {
   IconDots,
   IconPlayerPlayFilled,
@@ -103,11 +104,13 @@ export function CallCard({
     [call.recordedAt, call.createdAt],
   );
 
-  const shownParticipants = call.participants.slice(0, 3);
-  const extraParticipants = Math.max(0, call.participants.length - 3);
+  const participants = call.participants ?? [];
+  const topTrackers = call.topTrackers ?? [];
+  const shownParticipants = participants.slice(0, 3);
+  const extraParticipants = Math.max(0, participants.length - 3);
 
   const talkTotals = useMemo(() => {
-    const totals = call.participants
+    const totals = participants
       .map((p) => ({
         label: p.speakerLabel,
         pct: Math.max(0, Math.min(100, p.talkPct ?? 0)),
@@ -117,9 +120,9 @@ export function CallCard({
     const sum = totals.reduce((a, b) => a + b.pct, 0);
     if (sum === 0) return [];
     return totals.map((t) => ({ ...t, width: (t.pct / sum) * 100 }));
-  }, [call.participants]);
+  }, [participants]);
 
-  const thumbnailUrl = `/api/call-thumbnail/${call.id}`;
+  const thumbnailUrl = `${appBasePath()}/api/call-thumbnail/${call.id}`;
 
   function openCall() {
     navigate(`/calls/${call.id}`);
@@ -274,9 +277,9 @@ export function CallCard({
               </div>
             )}
           </div>
-          {call.topTrackers.length > 0 && (
+          {topTrackers.length > 0 && (
             <div className="ml-auto flex items-center gap-1 overflow-hidden">
-              {call.topTrackers.slice(0, 3).map((t) => (
+              {topTrackers.slice(0, 3).map((t) => (
                 <TrackerChip
                   key={t.trackerId}
                   name={t.name}

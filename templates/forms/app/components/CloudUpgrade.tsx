@@ -1,11 +1,11 @@
 import { useState, useRef, useCallback } from "react";
 import {
-  Check,
-  LoaderCircle,
-  Database,
-  Cloud,
-  ChevronRight,
-} from "lucide-react";
+  IconCheck,
+  IconLoader2,
+  IconDatabase,
+  IconCloud,
+  IconChevronRight,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { agentNativePath, appApiPath } from "@agent-native/core/client";
 
 interface CloudUpgradeProps {
   title?: string;
@@ -131,7 +132,7 @@ export function CloudUpgrade({
         vars.push({ key: "DATABASE_AUTH_TOKEN", value: authToken.trim() });
       }
 
-      const saveRes = await fetch("/_agent-native/env-vars", {
+      const saveRes = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vars }),
@@ -148,7 +149,7 @@ export function CloudUpgrade({
       for (let i = 0; i < 30; i++) {
         await new Promise((r) => setTimeout(r, 1000));
         try {
-          const healthRes = await fetch("/api/db-health");
+          const healthRes = await fetch(appApiPath("/api/db-health"));
           const health = await healthRes.json();
           if (health.ok && health.local === false) {
             ok = true;
@@ -184,7 +185,7 @@ export function CloudUpgrade({
       <DialogContent className="max-w-lg w-[calc(100vw-1.5rem)] sm:w-full max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2">
-            <Cloud className="h-5 w-5 text-primary" />
+            <IconCloud className="h-5 w-5 text-primary" />
             <DialogTitle>{title}</DialogTitle>
           </div>
           <DialogDescription>{description}</DialogDescription>
@@ -232,7 +233,7 @@ export function CloudUpgrade({
                   key={i}
                   className="flex items-start gap-2 text-xs text-muted-foreground"
                 >
-                  <ChevronRight className="mt-0.5 h-3 w-3 shrink-0" />
+                  <IconChevronRight className="mt-0.5 h-3 w-3 shrink-0" />
                   <span className="font-mono break-words">{step}</span>
                 </li>
               ))}
@@ -285,7 +286,7 @@ export function CloudUpgrade({
         {/* Success message */}
         {status === "success" && (
           <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-            <Check className="h-3.5 w-3.5" />
+            <IconCheck className="h-3.5 w-3.5" />
             <span>Connected successfully. Reloading...</span>
           </div>
         )}
@@ -298,7 +299,7 @@ export function CloudUpgrade({
         >
           {isConnecting ? (
             <>
-              <LoaderCircle className="h-4 w-4 animate-spin" />
+              <IconLoader2 className="h-4 w-4 animate-spin" />
               <span>
                 {status === "saving"
                   ? "Saving credentials..."
@@ -307,7 +308,7 @@ export function CloudUpgrade({
             </>
           ) : (
             <>
-              <Database className="h-4 w-4" />
+              <IconDatabase className="h-4 w-4" />
               <span>Test & Connect</span>
             </>
           )}

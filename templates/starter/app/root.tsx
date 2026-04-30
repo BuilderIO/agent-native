@@ -16,7 +16,7 @@ import {
 } from "@agent-native/core/client";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { Toaster } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import type { LinksFunction } from "react-router";
@@ -100,7 +100,7 @@ function AppContent() {
       <AppLayout>
         <Outlet />
       </AppLayout>
-      <Toaster position="bottom-left" />
+      <Toaster richColors position="bottom-left" />
     </>
   );
 }

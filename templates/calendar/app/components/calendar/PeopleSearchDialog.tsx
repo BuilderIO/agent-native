@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { agentNativePath } from "@agent-native/core/client";
 import {
   IconSearch,
   IconX,
@@ -64,7 +65,7 @@ export function PeopleSearchDialog({
       const url = q
         ? `/_agent-native/actions/search-people?q=${encodeURIComponent(q)}`
         : `/_agent-native/actions/search-people`;
-      const res = await fetch(url);
+      const res = await fetch(agentNativePath(url));
       if (res.ok) {
         const data: SearchResponse = await res.json();
         setResults(data.results ?? []);

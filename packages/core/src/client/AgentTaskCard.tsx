@@ -10,6 +10,7 @@ import {
   IconSubtask,
 } from "@tabler/icons-react";
 import { cn } from "./utils.js";
+import { agentNativePath } from "./api-path.js";
 
 export interface AgentTaskCardProps {
   taskId: string;
@@ -72,7 +73,9 @@ export function AgentTaskCard({
         pollCount++;
         try {
           const res = await fetch(
-            `/_agent-native/application-state/agent-task:${taskId}`,
+            agentNativePath(
+              `/_agent-native/application-state/agent-task:${taskId}`,
+            ),
           );
           if (!res.ok) continue;
           const data = await res.json();
@@ -102,7 +105,9 @@ export function AgentTaskCard({
           if (pollCount % 5 === 0) {
             try {
               const runRes = await fetch(
-                `/_agent-native/agent-chat/runs/active?threadId=${encodeURIComponent(threadId)}`,
+                agentNativePath(
+                  `/_agent-native/agent-chat/runs/active?threadId=${encodeURIComponent(threadId)}`,
+                ),
               );
               if (runRes.ok) {
                 const runData = await runRes.json();

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router";
+import { agentNativePath } from "@agent-native/core/client";
 import {
   IconCalendar,
   IconSettings,
@@ -709,9 +710,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               type="button"
               className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={async () => {
-                await fetch("/_agent-native/auth/exit-local-mode", {
-                  method: "POST",
-                });
+                await fetch(
+                  agentNativePath("/_agent-native/auth/exit-local-mode"),
+                  {
+                    method: "POST",
+                  },
+                );
                 window.location.reload();
               }}
             >

@@ -1,7 +1,7 @@
 /**
  * Data access for bookings + their attendees, references, and notes.
  */
-import { eq, and, gte, lt, or, desc, asc } from "drizzle-orm";
+import { eq, and, gte, lt, or, desc, asc, isNotNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { accessFilter } from "@agent-native/core/sharing";
 import type {
@@ -95,7 +95,7 @@ export async function getBookingByUid(uid: string): Promise<Booking | null> {
 export interface ListBookingsFilter {
   hostEmail?: string;
   eventTypeId?: string;
-  status?: BookingStatus | "upcoming" | "past" | "unconfirmed";
+  status?: BookingStatus | "upcoming" | "past" | "unconfirmed" | "recurring";
   attendeeEmail?: string;
   /** Inclusive start (ISO) */
   from?: string;
@@ -131,6 +131,8 @@ export async function listBookings(
     wheres.push(lt(schema.bookings.endTime, now));
   } else if (filter.status === "unconfirmed") {
     wheres.push(eq(schema.bookings.status, "pending"));
+  } else if (filter.status === "recurring") {
+    wheres.push(isNotNull(schema.bookings.recurringEventId));
   } else if (filter.status) {
     wheres.push(eq(schema.bookings.status, filter.status));
   }
@@ -204,6 +206,7 @@ export interface InsertBookingInput {
   attendees: Attendee[];
   customResponses?: Record<string, any>;
   iCalUid?: string;
+  iCalSequence?: number;
   references?: BookingReference[];
   fromReschedule?: string;
   ownerEmail: string;
@@ -238,7 +241,7 @@ export async function insertBooking(
     rescheduleToken: nanoid(24),
     fromReschedule: input.fromReschedule ?? null,
     iCalUid,
-    iCalSequence: 0,
+    iCalSequence: input.iCalSequence ?? 0,
     paid: false,
     createdAt: now,
     updatedAt: now,

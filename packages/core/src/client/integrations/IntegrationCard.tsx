@@ -10,6 +10,7 @@ import {
   IconCheck,
 } from "@tabler/icons-react";
 import type { IntegrationStatus } from "./useIntegrationStatus.js";
+import { agentNativePath } from "../api-path.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const platformIcons: Record<string, React.ComponentType<any>> = {
@@ -52,7 +53,9 @@ export function IntegrationCard({
     try {
       const action = status.enabled ? "disable" : "enable";
       const res = await fetch(
-        `/_agent-native/integrations/${status.platform}/${action}`,
+        agentNativePath(
+          `/_agent-native/integrations/${status.platform}/${action}`,
+        ),
         { method: "POST" },
       );
       if (res.ok) {

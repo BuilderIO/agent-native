@@ -278,7 +278,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
     <div className="space-y-4 p-4 border-t">
       {/* Keyframe status message */}
       {!isOnKeyframe && (
-        <div className="text-center py-6 px-4 bg-muted/30 rounded-lg border border-dashed border-border animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="text-center py-6 px-4 bg-muted/30 rounded-lg border border-dashed border-border">
           <p className="text-xs text-muted-foreground">No keyframe selected</p>
           <p className="text-xs text-muted-foreground/60 mt-1">
             Use the camera toolbar above the video to create keyframes
@@ -288,7 +288,7 @@ export const CameraControls: React.FC<CameraControlsProps> = ({
 
       {/* Only show controls when on a keyframe */}
       {isOnKeyframe && (
-        <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="space-y-3">
           {/* Keyframe Navigation */}
           <KeyframeNavigation
             currentFrame={currentFrame}

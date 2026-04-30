@@ -79,8 +79,18 @@ export function PreRecordPanel({
         }
         const devices = await navigator.mediaDevices.enumerateDevices();
         if (cancelled) return;
-        setMics(devices.filter((d) => d.kind === "audioinput"));
-        setCameras(devices.filter((d) => d.kind === "videoinput"));
+        setMics(
+          devices.filter(
+            (d) =>
+              d.kind === "audioinput" && d.deviceId && d.deviceId !== "default",
+          ),
+        );
+        setCameras(
+          devices.filter(
+            (d) =>
+              d.kind === "videoinput" && d.deviceId && d.deviceId !== "default",
+          ),
+        );
         if (temp) {
           for (const t of temp.getTracks()) t.stop();
         }

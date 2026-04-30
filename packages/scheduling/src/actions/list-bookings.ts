@@ -9,6 +9,7 @@ export default defineAction({
   schema: z.object({
     status: z
       .enum(["upcoming", "past", "unconfirmed", "cancelled", "confirmed"])
+      .or(z.literal("recurring"))
       .optional(),
     eventTypeId: z.string().optional(),
     attendeeEmail: z.string().optional(),

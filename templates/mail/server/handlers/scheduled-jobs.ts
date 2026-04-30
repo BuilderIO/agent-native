@@ -4,7 +4,7 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, schema } from "../db/index.js";
 import { readBody, getSession } from "@agent-native/core/server";
 import * as chrono from "chrono-node";
@@ -115,6 +115,12 @@ export const createScheduledJob = defineEventHandler(async (event: H3Event) => {
 
 /** PATCH /api/scheduled-jobs/:id — reschedule (update runAt, reset to pending) */
 export const updateScheduledJob = defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthenticated" };
+  }
+  const ownerEmail = session.email;
   const id = getRouterParam(event, "id");
   if (!id) {
     setResponseStatus(event, 400);
@@ -132,7 +138,12 @@ export const updateScheduledJob = defineEventHandler(async (event: H3Event) => {
   const [existing] = await db
     .select()
     .from(schema.scheduledJobs)
-    .where(eq(schema.scheduledJobs.id, id));
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+      ),
+    );
 
   if (!existing) {
     setResponseStatus(event, 404);
@@ -142,13 +153,24 @@ export const updateScheduledJob = defineEventHandler(async (event: H3Event) => {
   await db
     .update(schema.scheduledJobs)
     .set({ runAt, status: "pending" } as any)
-    .where(eq(schema.scheduledJobs.id, id));
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+      ),
+    );
 
   return { ...existing, runAt, status: "pending" };
 });
 
 /** DELETE /api/scheduled-jobs/:id — cancel (set status = cancelled) */
 export const deleteScheduledJob = defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthenticated" };
+  }
+  const ownerEmail = session.email;
   const id = getRouterParam(event, "id");
   if (!id) {
     setResponseStatus(event, 400);
@@ -158,7 +180,12 @@ export const deleteScheduledJob = defineEventHandler(async (event: H3Event) => {
   await db
     .update(schema.scheduledJobs)
     .set({ status: "cancelled" } as any)
-    .where(eq(schema.scheduledJobs.id, id));
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+      ),
+    );
 
   return { ok: true };
 });

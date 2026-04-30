@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
+import { appBasePath } from "@agent-native/core/client";
 import { CallPlayer } from "@/components/player/call-player";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -18,7 +19,7 @@ export function HydrateFallback() {
 
 async function reportViewEvent(payload: Record<string, unknown>) {
   try {
-    await fetch("/api/view-events", {
+    await fetch(`${appBasePath()}/api/view-events`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -35,7 +36,10 @@ export default function EmbedSnippetRoute() {
   const dataQ = useQuery({
     queryKey: ["public-snippet-embed", snippetId, password],
     queryFn: async () => {
-      const url = new URL("/api/public-snippet", window.location.origin);
+      const url = new URL(
+        `${appBasePath()}/api/public-snippet`,
+        window.location.origin,
+      );
       url.searchParams.set("snippetId", snippetId ?? "");
       if (password) url.searchParams.set("p", password);
       const res = await fetch(url.toString());

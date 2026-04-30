@@ -60,7 +60,7 @@ Resources are SQL-backed persistent files for notes, learnings, and context.
 - **data-querying** — General patterns for querying data, filtering, and charts
 - **storing-data** — Settings and config in SQL via settings API
 - **delegate-to-agent** — UI never calls LLMs directly
-- **scripts** — Complex operations as `pnpm action <name>`
+- **actions** — Complex operations as `pnpm action <name>`
 - **real-time-sync** — Real-time UI sync via SSE (DB change events)
 - **frontend-design** — Build distinctive, production-grade UI
 
@@ -240,35 +240,43 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 
 ### Data Source Scripts
 
-| Action               | Args / Flags                | Use For                                                                                                                     |
-| -------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `github-prs`         | `--org`, `--query`          | PR & issue search                                                                                                           |
-| `hubspot-deals`      | `--grep`, `--fields`        | CRM deals, pipelines                                                                                                        |
-| `hubspot-metrics`    |                             | CRM metrics summary                                                                                                         |
-| `hubspot-pipelines`  |                             | Pipeline stages                                                                                                             |
-| `jira-search`        | `--jql`, `--fields`         | Ticket search                                                                                                               |
-| `jira-analytics`     |                             | Sprint tracking, velocity                                                                                                   |
-| `pylon-issues`       | `--account`, `--state`      | Support tickets                                                                                                             |
-| `gong-calls`         | `--company`, `--days`       | Sales call recordings                                                                                                       |
-| `apollo-search`      | `--query`                   | Contact/company enrichment                                                                                                  |
-| `seo-top-keywords`   | `--grep`, `--fields`        | Keyword rankings                                                                                                            |
-| `seo-page-keywords`  | `--url`                     | Keywords for a specific page                                                                                                |
-| `seo-blog-pages`     |                             | Blog page SEO metrics                                                                                                       |
-| `ga4-report`         | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                    |
-| `bigquery`           | `--sql`                     | Ad-hoc BigQuery queries (**also available as a native callable agent tool** — call it directly; don't use HTTP workarounds) |
-| `mixpanel-events`    |                             | Mixpanel event data                                                                                                         |
-| `posthog-events`     |                             | PostHog event data                                                                                                          |
-| `amplitude-events`   |                             | Amplitude event data                                                                                                        |
-| `commonroom-members` | `--grep`                    | Community member lookup                                                                                                     |
-| `twitter-tweets`     |                             | Tweet engagement                                                                                                            |
-| `generate-chart`     | `--type`, `--data`          | Generate inline charts for chat                                                                                             |
+| Action                    | Args / Flags                | Use For                                                                                                                     |
+| ------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `github-prs`              | `--org`, `--query`          | PR & issue search                                                                                                           |
+| `hubspot-deals`           |                             | CRM deals, pipelines                                                                                                        |
+| `hubspot-metrics`         |                             | CRM metrics summary                                                                                                         |
+| `hubspot-pipelines`       |                             | Pipeline stages                                                                                                             |
+| `jira-search`             | `--jql`, `--fields`         | Ticket search                                                                                                               |
+| `jira-analytics`          |                             | Sprint tracking, velocity                                                                                                   |
+| `pylon-issues`            | `--account`, `--state`      | Support tickets                                                                                                             |
+| `gong-calls`              | `--company`, `--days`       | Sales call recordings                                                                                                       |
+| `apollo-search`           | `--query`                   | Contact/company enrichment                                                                                                  |
+| `seo-top-keywords`        | `--limit`                   | Keyword rankings                                                                                                            |
+| `seo-page-keywords`       | `--url`                     | Keywords for a specific page                                                                                                |
+| `seo-blog-pages`          |                             | Blog page SEO metrics                                                                                                       |
+| `ga4-report`              | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                    |
+| `bigquery`                | `--sql`                     | Ad-hoc BigQuery queries (**also available as a native callable agent tool** — call it directly; don't use HTTP workarounds) |
+| `mixpanel-events`         |                             | Mixpanel event data                                                                                                         |
+| `posthog-events`          |                             | PostHog event data                                                                                                          |
+| `amplitude-events`        |                             | Amplitude event data                                                                                                        |
+| `commonroom-members`      | `--query`, `--email`        | Community member lookup                                                                                                     |
+| `twitter-tweets`          |                             | Tweet engagement                                                                                                            |
+| `generate-chart`          | `--type`, `--data`          | Generate inline charts for chat                                                                                             |
+| `top-amplitude-events`    | `[--days N]`                | Top 20 Amplitude events by count from BigQuery (default 90 days)                                                            |
+| `bigquery-table-info`     |                             | Return embedded BigQuery table schema reference (no network call)                                                           |
+| `content-calendar`        |                             | Get all entries from the Notion content calendar                                                                            |
+| `content-calendar-schema` |                             | Return content calendar field schema                                                                                        |
+| `check-form-schema`       |                             | Show the inbound forms table schema in the app database                                                                     |
+| `query-inbound-forms`     | `[--limit N]`               | Query inbound form submissions from the app database                                                                        |
+| `check-contact-signup`    |                             | Check contacts with signup timestamps from BigQuery dim_hs_contacts                                                         |
+| `onboarding-events`       | `[--days N]`                | Onboarding funnel events from BigQuery                                                                                      |
 
-### Built-in Filtering
+### Action-Specific Filtering
 
-All scripts that use `output()` support:
+Use each action's schema-specific filters. For example:
 
 ```bash
-pnpm action hubspot-deals --grep="enterprise" --fields=dealname,amount,stageLabel
+pnpm action commonroom-members --query="enterprise" --limit=10
 ```
 
 ## Common Tasks

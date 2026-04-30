@@ -5,6 +5,7 @@ import {
   IconDownload,
   IconPlayerRecord,
 } from "@tabler/icons-react";
+import { appBasePath, appPath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 
 export function meta() {
@@ -34,7 +35,7 @@ interface PlatformVariant {
   icon: typeof IconBrandApple;
 }
 
-const LATEST_JSON_URL = "/api/clips-latest.json";
+const LATEST_JSON_URL = `${appBasePath()}/api/clips-latest.json`;
 
 const RELEASE_PAGE_URL =
   "https://github.com/BuilderIO/agent-native/releases?q=clips-v";
@@ -156,14 +157,17 @@ export default function DownloadPage() {
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-4">
-          <a href="/" className="flex items-center gap-2 font-semibold">
+          <a
+            href={appPath("/")}
+            className="flex items-center gap-2 font-semibold"
+          >
             <span className="grid h-7 w-7 place-items-center rounded-md bg-primary text-primary-foreground">
               <IconPlayerRecord className="h-4 w-4" />
             </span>
             <span>Clips</span>
           </a>
           <a
-            href="/library"
+            href={appPath("/library")}
             className="ml-auto text-sm text-muted-foreground hover:text-foreground"
           >
             Back to library

@@ -36,6 +36,7 @@ import { useAliases } from "@/hooks/use-aliases";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
 import { SendLaterButton } from "./SendLaterButton";
 import { expandAliasTokens } from "@/lib/alias-utils";
+import { appApiPath } from "@/lib/api-path";
 import { useAgentChatGenerating } from "@agent-native/core";
 import { toast } from "sonner";
 import type { ComposeState } from "@shared/types";
@@ -217,7 +218,9 @@ export function ComposeModal({
 
     // Clean up any persistent draft
     if (savedDraftId) {
-      fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
+      fetch(appApiPath(`/api/emails/draft/${savedDraftId}`), {
+        method: "DELETE",
+      });
     }
 
     // Show optimistic reply in the thread immediately (for replies)
@@ -317,7 +320,9 @@ export function ComposeModal({
       // Job created successfully — now discard the draft
       onDiscard(activeId);
       if (savedDraftId) {
-        fetch(`/api/emails/draft/${savedDraftId}`, { method: "DELETE" });
+        fetch(appApiPath(`/api/emails/draft/${savedDraftId}`), {
+          method: "DELETE",
+        });
       }
 
       const scheduledDate = new Date(runAt).toLocaleString("en-US", {

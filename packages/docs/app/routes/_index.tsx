@@ -345,7 +345,7 @@ export default function Home() {
 
           <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
             {templates
-              .filter((t) => t.slug !== "forms")
+              .filter((t) => t.slug !== "starter")
               .map((t) => (
                 <TemplateCard key={t.name} template={t} />
               ))}

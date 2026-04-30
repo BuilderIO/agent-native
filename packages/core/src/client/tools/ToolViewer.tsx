@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconLoader2, IconPencil, IconRefresh } from "@tabler/icons-react";
@@ -266,7 +267,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
       try {
         const options = sanitizeToolRequestOptions(message.options);
-        const res = await fetch(path, {
+        const res = await fetch(agentNativePath(path), {
           ...options,
           credentials: "same-origin",
         });
@@ -299,7 +300,9 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
   const { data: tool, isLoading } = useQuery<Tool>({
     queryKey: ["tool", toolId],
     queryFn: async () => {
-      const res = await fetch(`/_agent-native/tools/${toolId}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/tools/${toolId}`),
+      );
       if (!res.ok) throw new Error("Failed to fetch tool");
       return res.json();
     },
@@ -309,7 +312,9 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 
   const iframeSrc = useMemo(
     () =>
-      `/_agent-native/tools/${toolId}/render?dark=${document.documentElement.classList.contains("dark")}&v=${encodeURIComponent(tool?.updatedAt ?? "")}&r=${refreshKey}`,
+      agentNativePath(
+        `/_agent-native/tools/${toolId}/render?dark=${document.documentElement.classList.contains("dark")}&v=${encodeURIComponent(tool?.updatedAt ?? "")}&r=${refreshKey}`,
+      ),
     [toolId, tool?.updatedAt, refreshKey],
   );
 
@@ -338,7 +343,7 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
     );
     setIsRenaming(false);
     try {
-      await fetch(`/_agent-native/tools/${toolId}`, {
+      await fetch(agentNativePath(`/_agent-native/tools/${toolId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: trimmed }),
@@ -449,6 +454,14 @@ export function ToolViewer({ toolId }: ToolViewerProps) {
 function isAllowedToolPath(path: string): boolean {
   if (!path.startsWith("/") || path.startsWith("//")) return false;
   if (path.includes("\\") || path.includes("\0")) return false;
+  // Reject path traversal: normalize via URL and check the resolved path didn't escape.
+  try {
+    const resolved = new URL(path, "http://x").pathname;
+    if (resolved.includes("..") || resolved !== path.split("?")[0])
+      return false;
+  } catch {
+    return false;
+  }
   return true;
 }
 

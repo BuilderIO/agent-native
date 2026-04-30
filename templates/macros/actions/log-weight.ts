@@ -9,7 +9,7 @@ import { z } from "zod";
 export default defineAction({
   description: "Log a weight entry",
   schema: z.object({
-    weight: z.coerce.number().optional().describe("Weight in pounds"),
+    weight: z.coerce.number().describe("Weight in pounds"),
     date: z
       .string()
       .optional()
@@ -26,7 +26,7 @@ export default defineAction({
       .insert(schema.weights)
       .values({
         owner_email: ownerEmail,
-        weight: args.weight!,
+        weight: args.weight,
         date: String(date).split("T")[0],
         notes: args.notes || null,
       })

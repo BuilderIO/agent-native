@@ -1,5 +1,6 @@
 import { getDbExec } from "../db/client.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
+import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { signInternalToken } from "./internal-token.js";
 
 /**
@@ -164,7 +165,7 @@ async function refireProcessor(
     process.env.DEPLOY_URL ||
     `http://localhost:${process.env.PORT || 3000}`;
 
-  const url = `${baseUrl.replace(/\/$/, "")}${PROCESSOR_PATH}`;
+  const url = `${withConfiguredAppBasePath(baseUrl)}${PROCESSOR_PATH}`;
 
   // Sign with HMAC if A2A_SECRET is configured. If it isn't, we still fire
   // the request — the processor accepts unsigned requests when A2A_SECRET is

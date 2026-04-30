@@ -304,12 +304,12 @@ export async function resolveEngine(
   const detectedFromUser = await detectEngineFromUserSecrets();
   if (detectedFromUser) return detectedFromUser.create({ apiKey });
 
-  // 7. Auto-detect from any provider env var — so just dropping a key in
+  // 8. Auto-detect from any provider env var — so just dropping a key in
   // .env works without also setting AGENT_ENGINE.
   const detected = detectEngineFromEnv();
   if (detected) return detected.create({ apiKey });
 
-  // 7. Default: anthropic
+  // 9. Default: anthropic
   const anthropicEntry = _registry.get("anthropic");
   if (!anthropicEntry) {
     throw new Error(

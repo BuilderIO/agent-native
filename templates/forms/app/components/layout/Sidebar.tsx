@@ -1,7 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { ArrowUp, Plus, Menu, X } from "lucide-react";
-import { IconUsers } from "@tabler/icons-react";
+import {
+  IconUsers,
+  IconArrowUp,
+  IconPlus,
+  IconMenu2,
+  IconX,
+} from "@tabler/icons-react";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -47,9 +52,11 @@ export function Sidebar() {
 
   function handleSkip() {
     setPopoverOpen(false);
+    const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+    navigate(`/forms/${tempId}`);
     createForm.mutate(
       { title: "Untitled Form" },
-      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
     );
   }
 
@@ -65,8 +72,8 @@ export function Sidebar() {
 
   const newFormButton = (
     <PopoverTrigger asChild>
-      <button className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground min-h-[44px]">
-        <Plus size={14} className="shrink-0" />
+      <button className="cursor-pointer flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground min-h-[44px]">
+        <IconPlus size={14} className="shrink-0" />
         <span>New form</span>
       </button>
     </PopoverTrigger>
@@ -115,7 +122,7 @@ export function Sidebar() {
             disabled={!prompt.trim()}
             aria-label="Send prompt"
           >
-            <ArrowUp size={14} />
+            <IconArrowUp size={14} />
           </Button>
         </div>
       </div>
@@ -145,7 +152,7 @@ export function Sidebar() {
             className="h-8 w-8"
             onClick={() => setMobileOpen(false)}
           >
-            <X size={18} />
+            <IconX size={18} />
           </Button>
         )}
       </div>
@@ -245,7 +252,7 @@ export function Sidebar() {
           onClick={() => setMobileOpen(true)}
           aria-label="Open sidebar"
         >
-          <Menu size={20} />
+          <IconMenu2 size={20} />
         </Button>
         {mobileOpen && (
           <>

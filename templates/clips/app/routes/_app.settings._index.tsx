@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { IconSettings, IconUser } from "@tabler/icons-react";
-import { useSession } from "@agent-native/core/client";
+import { useSession, agentNativePath } from "@agent-native/core/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,7 +29,9 @@ interface ClipsUserSettings {
 
 async function loadSettings(): Promise<ClipsUserSettings> {
   try {
-    const res = await fetch("/_agent-native/settings/clips-user-prefs");
+    const res = await fetch(
+      agentNativePath("/_agent-native/settings/clips-user-prefs"),
+    );
     if (!res.ok) return {};
     const json = await res.json();
     // The store's GET returns the stored object directly, not wrapped.
@@ -43,11 +45,14 @@ async function loadSettings(): Promise<ClipsUserSettings> {
 }
 
 async function saveSettings(value: ClipsUserSettings): Promise<void> {
-  const res = await fetch("/_agent-native/settings/clips-user-prefs", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(value),
-  });
+  const res = await fetch(
+    agentNativePath("/_agent-native/settings/clips-user-prefs"),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    },
+  );
   if (!res.ok) {
     throw new Error(`Save failed (${res.status})`);
   }

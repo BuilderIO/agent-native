@@ -11,23 +11,26 @@ export default createAgentChatPlugin({
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
-    const { forms } = await import("../db/schema.js");
-    const { like, desc } = await import("drizzle-orm");
+    const { forms, formShares } = await import("../db/schema.js");
+    const { like, desc, and } = await import("drizzle-orm");
+    const { accessFilter } = await import("@agent-native/core/sharing");
     return {
       forms: {
         label: "Forms",
         icon: "form",
         search: async (query: string) => {
           const db = getDb();
+          const access = accessFilter(forms, formShares);
           const rows = query
             ? await db
                 .select()
                 .from(forms)
-                .where(like(forms.title, `%${query}%`))
+                .where(and(access, like(forms.title, `%${query}%`)))
                 .limit(15)
             : await db
                 .select()
                 .from(forms)
+                .where(access)
                 .orderBy(desc(forms.updatedAt))
                 .limit(15);
           return rows.map((form) => ({

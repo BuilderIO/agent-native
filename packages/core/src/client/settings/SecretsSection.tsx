@@ -6,6 +6,7 @@
  */
 
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { agentNativePath } from "../api-path.js";
 import {
   IconCheck,
   IconExternalLink,
@@ -32,7 +33,7 @@ interface SecretStatus {
   error?: string;
 }
 
-const ENDPOINT = "/_agent-native/secrets";
+const ENDPOINT = agentNativePath("/_agent-native/secrets");
 
 export interface SecretsSectionProps {
   /** Optional hash fragment to focus a specific secret (e.g. "secrets:OPENAI_API_KEY"). */
@@ -390,7 +391,7 @@ interface AdHocKey {
   updatedAt: number;
 }
 
-const ADHOC_ENDPOINT = "/_agent-native/secrets/adhoc";
+const ADHOC_ENDPOINT = agentNativePath("/_agent-native/secrets/adhoc");
 
 function AdHocKeysSection() {
   const [keys, setKeys] = useState<AdHocKey[]>([]);

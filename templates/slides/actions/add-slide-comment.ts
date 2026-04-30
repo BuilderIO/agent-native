@@ -1,7 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
   description:
@@ -22,10 +24,13 @@ export default defineAction({
   }),
   run: async (args) => {
     const { deckId, slideId, content, quotedText, parentId } = args;
+    await assertAccess("deck", deckId, "viewer");
+
     const client = getDbExec();
     const id = Math.random().toString(36).slice(2, 14);
     const threadId = args.threadId ?? id;
-    const authorEmail = getRequestUserEmail() ?? "agent@localhost";
+    const authorEmail = getRequestUserEmail();
+    if (!authorEmail) throw new Error("no authenticated user");
     const authorName = "AI Agent";
 
     const nowExpr = isPostgres() ? "NOW()::text" : "datetime('now')";

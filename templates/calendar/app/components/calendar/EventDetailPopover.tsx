@@ -409,12 +409,14 @@ export function EventDetailPopover({
   const locationIsMeetingLink =
     meetingLink && event.location?.includes(meetingLink.url);
   const recurrenceText = formatRecurrence(event.recurrence);
-  // Detect timezone from event start (offset-based)
-  const startDate = parseISO(event.start);
-  const offsetMinutes = -startDate.getTimezoneOffset();
-  const offsetHours = Math.floor(Math.abs(offsetMinutes) / 60);
-  const offsetSign = offsetMinutes >= 0 ? "+" : "-";
-  const tzLabel = `GMT${offsetSign}${offsetHours}`;
+  // Show the browser's local timezone offset (this is what the user sees times in)
+  const localOffsetMinutes = -new Date().getTimezoneOffset();
+  const localOffsetSign = localOffsetMinutes >= 0 ? "+" : "-";
+  const localOffsetH = Math.floor(Math.abs(localOffsetMinutes) / 60);
+  const localOffsetM = Math.abs(localOffsetMinutes) % 60;
+  const tzLabel = localOffsetM
+    ? `GMT${localOffsetSign}${localOffsetH}:${String(localOffsetM).padStart(2, "0")}`
+    : `GMT${localOffsetSign}${localOffsetH}`;
 
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {

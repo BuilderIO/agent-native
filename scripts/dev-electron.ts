@@ -2,7 +2,7 @@
 /**
  * dev-electron.ts — Start the Electron shell together with the template apps it loads.
  *
- * Usage:  node scripts/dev-electron.ts [--apps calendar,content]
+ * Usage:  node scripts/dev-electron.ts [--apps calendar,content] [--dry-run]
  *
  * By default starts the core template set (mail, calendar, slides, etc.).
  * Pass --apps to override, e.g.: --apps calendar,slides
@@ -10,6 +10,47 @@
 import { spawn, execSync } from "child_process";
 import fs from "fs";
 import path from "path";
+
+const argv = process.argv.slice(2);
+
+function hasFlag(name: string): boolean {
+  return argv.includes(name);
+}
+
+function flagValue(name: string): string | null {
+  const eq = argv.find((arg) => arg.startsWith(`${name}=`));
+  if (eq) return eq.slice(name.length + 1);
+  const i = argv.indexOf(name);
+  return i !== -1 && argv[i + 1] && !argv[i + 1].startsWith("-")
+    ? argv[i + 1]
+    : null;
+}
+
+function printHelp(): void {
+  console.log(`dev-electron
+
+Start the Electron shell together with the template dev servers it loads.
+
+Usage:
+  node scripts/dev-electron.ts [options]
+
+Options:
+  --apps <names>       Comma-separated templates to start (default: core apps)
+  --apps=<names>       Same as --apps <names>
+  --dry-run            Print ports and commands without killing ports or spawning
+  -h, --help           Show this help message
+
+Examples:
+  node scripts/dev-electron.ts --apps calendar,slides
+  node scripts/dev-electron.ts --apps=mail,forms --dry-run`);
+}
+
+if (hasFlag("--help") || hasFlag("-h")) {
+  printHelp();
+  process.exit(0);
+}
+
+const dryRun = hasFlag("--dry-run");
 
 // ── App port assignments ───────────────────────────────────────
 // Parsed from packages/shared-app-config/templates.ts (same approach
@@ -31,13 +72,15 @@ while ((portMatch = coreRe.exec(configSrc)) !== null) {
 }
 
 // ── Parse --apps flag ──────────────────────────────────────────
-const argsIdx = process.argv.indexOf("--apps");
-const requestedApps =
-  argsIdx !== -1 && process.argv[argsIdx + 1]
-    ? process.argv[argsIdx + 1].split(",")
-    : CORE_APPS;
+const appsArg = flagValue("--apps");
+const requestedApps = appsArg
+  ? appsArg
+      .split(",")
+      .map((app) => app.trim())
+      .filter(Boolean)
+  : CORE_APPS;
 
-// ── Kill stale processes on our ports ─────────────────────────
+// ── Ports that may need cleanup before starting ────────────────
 const portsToUse = requestedApps
   .map((a) => PORT_MAP[a])
   .filter(Boolean) as number[];
@@ -52,8 +95,6 @@ function tryKillPort(port: number) {
     // Port not in use — fine
   }
 }
-
-portsToUse.forEach(tryKillPort);
 
 // ── Build concurrently command list ───────────────────────────
 const names: string[] = [];
@@ -83,6 +124,25 @@ requestedApps.forEach((appName, i) => {
 names.push("electron");
 commands.push("pnpm --filter @agent-native/desktop-app dev");
 colors.push("yellow");
+
+if (dryRun) {
+  console.log(`\x1b[36m[dev-electron]\x1b[0m Dry run: ${names.join(", ")}`);
+  requestedApps.forEach((app) => {
+    const port = PORT_MAP[app];
+    if (port) {
+      console.log(
+        `\x1b[36m[dev-electron]\x1b[0m  ${app}: http://localhost:${port}`,
+      );
+    }
+  });
+  console.log(`\nCommands:`);
+  names.forEach((name, i) => {
+    console.log(`  ${name}: ${commands[i]}`);
+  });
+  process.exit(0);
+}
+
+portsToUse.forEach(tryKillPort);
 
 console.log(`\x1b[36m[dev-electron]\x1b[0m Starting: ${names.join(", ")}`);
 requestedApps.forEach((app) => {

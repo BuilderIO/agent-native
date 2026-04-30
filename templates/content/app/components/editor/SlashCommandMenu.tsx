@@ -310,7 +310,7 @@ export function SlashCommandMenu({
     const content = (editor.storage as any).markdown.getMarkdown();
     send({
       message: generatePrompt.trim(),
-      context: `The user is asking you to generate content for their document (id: ${documentId}). Update the document using db-exec — write the generated markdown into the content column, and update the title if appropriate.${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
+      context: `The user is asking you to generate content for their document (id: ${documentId}). Use the update-document action to write the generated markdown content. Do NOT use db-exec or raw SQL — use \`update-document --id ${documentId} --content "..."\` (and \`--title\` if appropriate).${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
     });
   }
 

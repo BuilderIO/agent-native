@@ -7,9 +7,10 @@ import {
   type H3Event,
 } from "h3";
 import { nanoid } from "nanoid";
-import { eq, and, gte, lte, ne } from "drizzle-orm";
+import { eq, and, gte, lte, ne, inArray } from "drizzle-orm";
 import { readBody, verifyCaptcha } from "@agent-native/core/server";
 import { emit } from "@agent-native/core/event-bus";
+import { accessFilter } from "@agent-native/core/sharing";
 import type {
   Booking,
   CalendarEvent,
@@ -18,16 +19,34 @@ import type {
   CustomField,
   TimeSlot,
 } from "../../shared/api.js";
-import { getSetting } from "@agent-native/core/settings";
+import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { getDb, schema } from "../db/index.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 import { createZoomMeeting } from "../lib/zoom.js";
 
+async function getBookingLinkSlugsForOwner(
+  ownerEmail: string,
+): Promise<string[]> {
+  const rows = await getDb()
+    .select({ slug: schema.bookingLinks.slug })
+    .from(schema.bookingLinks)
+    .where(eq(schema.bookingLinks.ownerEmail, ownerEmail));
+  return rows.map((row) => row.slug);
+}
+
 export const listBookings = defineEventHandler(async (_event: H3Event) => {
   try {
+    const accessibleLinks = await getDb()
+      .select({ slug: schema.bookingLinks.slug })
+      .from(schema.bookingLinks)
+      .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+    const slugs = accessibleLinks.map((link) => link.slug);
+    if (slugs.length === 0) return [];
+
     const rows = await getDb()
       .select()
       .from(schema.bookings)
+      .where(inArray(schema.bookings.slug, slugs))
       .orderBy(schema.bookings.start);
     return rows.map(rowToBooking);
   } catch (error: any) {
@@ -145,6 +164,11 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
     // Check for conflicts + insert atomically in a transaction
     const db = getDb();
+    const conflictSlugs = bookingLink?.ownerEmail
+      ? await getBookingLinkSlugsForOwner(bookingLink.ownerEmail)
+      : body.slug
+        ? [String(body.slug)]
+        : [];
     const insertResult = await db.transaction(async (tx) => {
       const conflicting = await tx
         .select()
@@ -154,6 +178,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             ne(schema.bookings.status, "cancelled"),
             lte(schema.bookings.start, body.end),
             gte(schema.bookings.end, body.start),
+            conflictSlugs.length > 0
+              ? inArray(schema.bookings.slug, conflictSlugs)
+              : undefined,
           ),
         );
 
@@ -357,7 +384,23 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
     const config = (await getSetting(
       "calendar-availability",
     )) as unknown as AvailabilityConfig | null;
-    if (!config) {
+    const slug = typeof query.slug === "string" ? query.slug : "";
+    const bookingLink = slug
+      ? await getDb()
+          .select()
+          .from(schema.bookingLinks)
+          .where(eq(schema.bookingLinks.slug, slug))
+          .then((rows) => rows[0])
+      : undefined;
+    const ownerEmail = bookingLink?.ownerEmail;
+    const ownerConfig = ownerEmail
+      ? ((await getUserSetting(
+          ownerEmail,
+          "calendar-availability",
+        )) as unknown as AvailabilityConfig | null)
+      : null;
+    const effectiveConfig = ownerConfig || config;
+    if (!effectiveConfig) {
       return { slots: [] };
     }
 
@@ -374,7 +417,9 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
     ] as const;
     const dayName = dayNames[targetDate.getDay()];
     const daySchedule =
-      config.weeklySchedule[dayName as keyof typeof config.weeklySchedule];
+      effectiveConfig.weeklySchedule[
+        dayName as keyof typeof effectiveConfig.weeklySchedule
+      ];
 
     if (
       !daySchedule ||
@@ -390,11 +435,12 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
 
     // Fetch Google Calendar events for the day if connected
     let dayEvents: Array<{ start: string; end: string }> = [];
-    if (await googleCalendar.isConnected()) {
+    if (await googleCalendar.isConnected(ownerEmail)) {
       try {
         const { events: googleEvents } = await googleCalendar.listEvents(
           dayStart,
           dayEnd,
+          ownerEmail,
         );
         dayEvents = googleEvents.map((e) => ({ start: e.start, end: e.end }));
       } catch {
@@ -403,6 +449,11 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
     }
 
     // Get bookings for this date from DB
+    const conflictSlugs = ownerEmail
+      ? await getBookingLinkSlugsForOwner(ownerEmail)
+      : slug
+        ? [slug]
+        : [];
     const dayBookings = await getDb()
       .select()
       .from(schema.bookings)
@@ -411,13 +462,16 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
           ne(schema.bookings.status, "cancelled"),
           lte(schema.bookings.start, dayEnd),
           gte(schema.bookings.end, dayStart),
+          conflictSlugs.length > 0
+            ? inArray(schema.bookings.slug, conflictSlugs)
+            : undefined,
         ),
       );
 
     // Generate available slots
     const availableSlots: TimeSlot[] = [];
-    const slotDuration = duration || config.slotDurationMinutes;
-    const bufferMs = config.bufferMinutes * 60 * 1000;
+    const slotDuration = duration || effectiveConfig.slotDurationMinutes;
+    const bufferMs = effectiveConfig.bufferMinutes * 60 * 1000;
 
     for (const scheduleSlot of daySchedule.slots) {
       const [startHour, startMin] = scheduleSlot.start.split(":").map(Number);
@@ -486,6 +540,20 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
     if (!existing) {
       setResponseStatus(event, 404);
       return { error: "Booking not found" };
+    }
+
+    // Verify the caller has access to the booking link that owns this booking.
+    // Bookings have no ownerEmail of their own — scoping is via the slug →
+    // bookingLink ownership/sharing chain.
+    const accessibleLinks = await db
+      .select({ slug: schema.bookingLinks.slug })
+      .from(schema.bookingLinks)
+      .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+    const accessibleSlugs = new Set(accessibleLinks.map((l) => l.slug));
+
+    if (!accessibleSlugs.has(existing.slug)) {
+      setResponseStatus(event, 403);
+      return { error: "Access denied" };
     }
 
     await db.delete(schema.bookings).where(eq(schema.bookings.id, id));

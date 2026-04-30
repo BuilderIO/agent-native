@@ -15,6 +15,7 @@ import {
   useActionQuery,
   sendToAgentChat,
   openAgentSidebar,
+  agentNativePath,
 } from "@agent-native/core/client";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -190,15 +191,18 @@ export function DesignSystemSetup({
     if (!editingId) return;
     setGenerating(true);
     try {
-      const res = await fetch("/_agent-native/actions/update-design-system", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: editingId,
-          title: companyName || "My Brand",
-          description: brandNotes || undefined,
-        }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/update-design-system"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: editingId,
+            title: companyName || "My Brand",
+            description: brandNotes || undefined,
+          }),
+        },
+      );
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       onComplete();
       toast({ title: "Design system updated" });

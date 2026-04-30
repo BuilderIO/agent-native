@@ -1,12 +1,38 @@
-import { defineEventHandler } from "h3";
-import { getDocumentOwnerEmail } from "../../../../../lib/notion.js";
+import { createError, defineEventHandler } from "h3";
 import { refreshDocumentSyncStatus } from "../../../../../lib/notion-sync.js";
-import { readBody } from "@agent-native/core/server";
+import {
+  getSession,
+  readBody,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
 
 export default defineEventHandler(async (event) => {
-  const owner = await getDocumentOwnerEmail(event);
+  const id = event.context.params!.id;
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
   const body = await readBody(event).catch(() => ({}));
-  return refreshDocumentSyncStatus(owner, event.context.params!.id, {
-    autoSync: !!body?.autoSync,
-  });
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    async () => {
+      const access = await assertAccess("document", id, "viewer").catch(
+        () => null,
+      );
+      if (!access) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: "Document not found",
+        });
+      }
+      return refreshDocumentSyncStatus(
+        access.resource.ownerEmail as string,
+        id,
+        {
+          autoSync: !!body?.autoSync,
+        },
+      );
+    },
+  );
 });

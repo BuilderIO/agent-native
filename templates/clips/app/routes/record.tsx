@@ -1,17 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { IconArrowLeft, IconVideo } from "@tabler/icons-react";
+import { agentNativePath, appBasePath } from "@agent-native/core/client";
 import { RequireActiveOrg } from "@agent-native/core/client/org";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
 // and cannot be bundled for the browser).
 async function writeAppState(key: string, value: unknown): Promise<void> {
-  await fetch(`/_agent-native/application-state/${encodeURIComponent(key)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ value }),
-  });
+  await fetch(
+    agentNativePath(
+      `/_agent-native/application-state/${encodeURIComponent(key)}`,
+    ),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value }),
+    },
+  );
 }
 import {
   AlertDialog,
@@ -74,7 +80,7 @@ function captureThumbnailFromPreview(
     canvas.toBlob(
       (blob) => {
         if (!blob) return;
-        fetch(`/api/recordings/${recordingId}/thumbnail`, {
+        fetch(`${appBasePath()}/api/recordings/${recordingId}/thumbnail`, {
           method: "POST",
           headers: { "Content-Type": blob.type || "image/jpeg" },
           body: blob,
@@ -114,7 +120,7 @@ export default function RecordRoute() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/_agent-native/file-upload/status")
+    fetch(agentNativePath("/_agent-native/file-upload/status"))
       .then((r) => (r.ok ? r.json() : null))
       .then((s: { configured?: boolean } | null) => {
         if (cancelled) return;
@@ -197,7 +203,9 @@ export default function RecordRoute() {
       setUiState("pickingSources");
 
       try {
-        const statusRes = await fetch("/_agent-native/file-upload/status");
+        const statusRes = await fetch(
+          agentNativePath("/_agent-native/file-upload/status"),
+        );
         if (statusRes.ok) {
           const status = (await statusRes.json()) as { configured?: boolean };
           if (!status.configured) {
@@ -208,15 +216,18 @@ export default function RecordRoute() {
         }
 
         // 1. Create the recording row server-side.
-        const res = await fetch("/_agent-native/actions/create-recording", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: "Untitled recording",
-            hasCamera: opts.mode !== "screen",
-            hasAudio: true,
-          }),
-        });
+        const res = await fetch(
+          agentNativePath("/_agent-native/actions/create-recording"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: "Untitled recording",
+              hasCamera: opts.mode !== "screen",
+              hasAudio: true,
+            }),
+          },
+        );
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) {
             throw new Error("SESSION_EXPIRED");
@@ -244,8 +255,8 @@ export default function RecordRoute() {
         }
         pendingRef.current = {
           id: info.id,
-          uploadChunkUrl: info.uploadChunkUrl!,
-          abortUrl: info.abortUrl!,
+          uploadChunkUrl: `${appBasePath()}${info.uploadChunkUrl!}`,
+          abortUrl: `${appBasePath()}${info.abortUrl!}`,
         };
 
         // 2. Build the engine and acquire media (triggers permission prompts).
@@ -254,8 +265,8 @@ export default function RecordRoute() {
           mode: opts.mode,
           micDeviceId: opts.micDeviceId,
           cameraDeviceId: opts.cameraDeviceId,
-          uploadUrl: info.uploadChunkUrl,
-          abortUrl: info.abortUrl,
+          uploadUrl: `${appBasePath()}${info.uploadChunkUrl!}`,
+          abortUrl: `${appBasePath()}${info.abortUrl!}`,
           onError: (err) => {
             console.error("[recorder] error:", err);
             toast.error(err.message);
@@ -354,14 +365,17 @@ export default function RecordRoute() {
       // configured, request-transcript will refine it with Whisper later.
       const browserTranscript = liveTranscription.stop();
       if (browserTranscript.trim()) {
-        void fetch("/_agent-native/actions/save-browser-transcript", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            recordingId: pending.id,
-            fullText: browserTranscript,
-          }),
-        }).catch(() => {});
+        void fetch(
+          agentNativePath("/_agent-native/actions/save-browser-transcript"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recordingId: pending.id,
+              fullText: browserTranscript,
+            }),
+          },
+        ).catch(() => {});
       }
 
       await engine.stop();
@@ -427,7 +441,7 @@ export default function RecordRoute() {
       // ignore
     }
     if (pendingId) {
-      fetch("/_agent-native/actions/trash-recording", {
+      fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: pendingId }),
@@ -607,7 +621,7 @@ export default function RecordRoute() {
             void doCancel();
             navigate("/library");
           }}
-          className="fixed left-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="fixed left-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <IconArrowLeft className="h-5 w-5" />
         </button>
@@ -719,6 +733,12 @@ export default function RecordRoute() {
         <div className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-3 bg-black/70 text-white backdrop-blur">
           <Spinner className="h-10 w-10 text-white/70" />
           <div className="text-sm">Saving your recording…</div>
+          <button
+            onClick={doCancel}
+            className="mt-1 text-xs text-white/50 underline-offset-2 hover:text-white/80 hover:underline"
+          >
+            Cancel
+          </button>
         </div>
       )}
 

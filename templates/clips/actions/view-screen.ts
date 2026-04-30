@@ -218,14 +218,16 @@ export default defineAction({
       case "recording":
       case "insights": {
         if (nav.recordingId) {
-          const [recording, transcript, comments] = await Promise.all([
-            fetchRecording(nav.recordingId),
-            fetchTranscript(nav.recordingId),
-            fetchComments(nav.recordingId),
-          ]);
-          if (recording) screen.recording = recording;
-          if (transcript) screen.transcript = transcript;
-          screen.comments = comments;
+          const recording = await fetchRecording(nav.recordingId);
+          if (recording) {
+            const [transcript, comments] = await Promise.all([
+              fetchTranscript(nav.recordingId),
+              fetchComments(nav.recordingId),
+            ]);
+            screen.recording = recording;
+            if (transcript) screen.transcript = transcript;
+            screen.comments = comments;
+          }
         }
         break;
       }

@@ -6,11 +6,20 @@ import {
   useRef,
   useState,
 } from "react";
+import { appBasePath } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 import { PlayerControls } from "./player-controls";
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
+
+function resolveLocalUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("/") && !url.startsWith("//")) {
+    return `${appBasePath()}${url}`;
+  }
+  return url;
+}
 
 export interface VideoPlayerHandle {
   video: HTMLVideoElement | null;
@@ -285,7 +294,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         canvas.toBlob(
           (blob) => {
             if (!blob) return;
-            fetch(`/api/recordings/${recordingId}/thumbnail`, {
+            fetch(`${appBasePath()}/api/recordings/${recordingId}/thumbnail`, {
               method: "POST",
               headers: { "Content-Type": blob.type || "image/jpeg" },
               body: blob,
@@ -423,8 +432,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {videoUrl ? (
           <video
             ref={videoRef}
-            src={videoUrl}
-            poster={thumbnailUrl ?? undefined}
+            src={resolveLocalUrl(videoUrl)}
+            poster={resolveLocalUrl(thumbnailUrl)}
             className={cn(
               "w-full h-full",
               cover ? "object-cover" : "object-contain",

@@ -18,6 +18,13 @@ import { asc, eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { parseSpaceIds } from "../../lib/recordings.js";
 
+function appPath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return base ? `/${base}${path}` : path;
+}
+
 export default defineEventHandler(async (event) => {
   const q = getQuery(event) as { id?: string; password?: string };
   const recordingId = q.id;
@@ -138,6 +145,9 @@ export default defineEventHandler(async (event) => {
       const sep = resolvedVideoUrl.includes("?") ? "&" : "?";
       resolvedVideoUrl =
         resolvedVideoUrl + sep + "password=" + encodeURIComponent(rec.password);
+    }
+    if (resolvedVideoUrl.startsWith("/")) {
+      resolvedVideoUrl = appPath(resolvedVideoUrl);
     }
   }
 

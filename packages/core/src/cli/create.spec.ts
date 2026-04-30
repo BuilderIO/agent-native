@@ -79,6 +79,15 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(fs.existsSync(gitignore)).toBe(true);
   });
 
+  it("normalizes @agent-native/core to latest for blank standalone apps", async () => {
+    await createApp("my-app", { template: "blank" });
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, "my-app", "package.json"), "utf-8"),
+    );
+
+    expect(pkg.dependencies["@agent-native/core"]).toBe("latest");
+  });
+
   it("exits with error for invalid app name", async () => {
     let exited = false;
     const origExit = process.exit.bind(process);

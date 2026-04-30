@@ -21,6 +21,11 @@ function bumpPoll(owner: string): void {
 
 let _initPromise: Promise<void> | undefined;
 
+function normalizeLimit(value: number | undefined, fallback = 50): number {
+  if (!Number.isFinite(value) || value == null || value <= 0) return fallback;
+  return Math.min(Math.floor(value), 200);
+}
+
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -211,7 +216,7 @@ export async function listRuns(
 ): Promise<AgentRun[]> {
   await ensureTable();
   const client = getDbExec();
-  const limit = Math.min(options.limit ?? 50, 200);
+  const limit = normalizeLimit(options.limit);
   let where = `owner = ?`;
   const args: Array<string | number> = [owner];
   if (options.activeOnly) where += ` AND status = 'running'`;

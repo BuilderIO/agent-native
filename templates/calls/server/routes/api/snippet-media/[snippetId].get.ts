@@ -34,6 +34,13 @@ interface SnippetRow {
   expiresAt?: string | null;
 }
 
+function appPath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
+  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return base ? `/${base}${path}` : path;
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const snippetId = getRouterParam(event, "snippetId");
   if (!snippetId) {
@@ -100,5 +107,9 @@ export default defineEventHandler(async (event: H3Event) => {
     target = `${target}${sep}p=${encodeURIComponent(call.password)}`;
   }
 
-  return sendRedirect(event, `${target}${fragment}`, 302);
+  return sendRedirect(
+    event,
+    `${target.startsWith("/") ? appPath(target) : target}${fragment}`,
+    302,
+  );
 });

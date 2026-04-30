@@ -39,9 +39,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [boardsOpen, setBoardsOpen] = useState(true);
   const [cmdOpen, setCmdOpen] = useState(false);
   const { data: authStatus } = useJiraAuthStatus();
-  const { data: projectsData } = useProjects();
-  const { data: boardsData } = useBoards();
-  const isConnected = authStatus?.connected;
+  const isConnected = authStatus?.connected === true;
+  const { data: projectsData } = useProjects(isConnected);
+  const { data: boardsData } = useBoards(isConnected);
 
   useNavigationState();
 

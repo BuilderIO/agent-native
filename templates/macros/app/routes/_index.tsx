@@ -55,12 +55,14 @@ export default function IndexPage() {
     onSuccess: () => {
       toast.success("Meal deleted");
     },
+    onError: () => toast.error("Failed to delete meal"),
   });
 
   const deleteExerciseMutation = useActionMutation("delete-exercise", {
     onSuccess: () => {
       toast.success("Exercise deleted");
     },
+    onError: () => toast.error("Failed to delete exercise"),
   });
 
   const mealTotals = meals.reduce(

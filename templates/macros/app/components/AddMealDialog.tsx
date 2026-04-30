@@ -6,6 +6,7 @@ import { formatLocalDate } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -81,6 +82,7 @@ export function AddMealDialog({
       form.reset();
       setShowMacros(false);
     },
+    onError: () => toast.error("Failed to add meal"),
   });
 
   const updateMutation = useActionMutation("update-meal", {
@@ -90,6 +92,7 @@ export function AddMealDialog({
       form.reset();
       setShowMacros(false);
     },
+    onError: () => toast.error("Failed to update meal"),
   });
 
   const onSubmit = (data: FormData) => {
@@ -156,6 +159,11 @@ export function AddMealDialog({
       <DialogContent className="sm:max-w-[425px] gap-6">
         <DialogHeader>
           <DialogTitle>{isEditing ? "Edit Meal" : "Add New Meal"}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {isEditing
+              ? "Update the selected meal entry."
+              : "Log a meal with calories and optional macro details."}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">

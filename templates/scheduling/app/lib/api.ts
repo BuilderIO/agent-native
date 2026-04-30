@@ -2,12 +2,14 @@
  * Thin client for calling scheduling actions via the framework HTTP endpoint
  * (`/_agent-native/actions/:name`). Uses @tanstack/react-query.
  */
+import { agentNativePath } from "@agent-native/core/client";
+
 export async function callAction<T = any>(
   name: string,
   args?: Record<string, any>,
   init?: { signal?: AbortSignal },
 ): Promise<T> {
-  const res = await fetch(`/_agent-native/actions/${name}`, {
+  const res = await fetch(agentNativePath(`/_agent-native/actions/${name}`), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(args ?? {}),
@@ -30,11 +32,16 @@ export async function writeAppState(
   value: unknown,
 ): Promise<void> {
   try {
-    await fetch(`/_agent-native/application-state/${encodeURIComponent(key)}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ value }),
-    });
+    await fetch(
+      agentNativePath(
+        `/_agent-native/application-state/${encodeURIComponent(key)}`,
+      ),
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ value }),
+      },
+    );
   } catch {
     // Swallow — application state is best-effort in the UI.
   }
@@ -45,7 +52,9 @@ export async function readAppState<T = unknown>(
 ): Promise<T | null> {
   try {
     const res = await fetch(
-      `/_agent-native/application-state/${encodeURIComponent(key)}`,
+      agentNativePath(
+        `/_agent-native/application-state/${encodeURIComponent(key)}`,
+      ),
     );
     if (!res.ok) return null;
     const body = (await res.json()) as { value?: T };
@@ -57,9 +66,14 @@ export async function readAppState<T = unknown>(
 
 export async function deleteAppState(key: string): Promise<void> {
   try {
-    await fetch(`/_agent-native/application-state/${encodeURIComponent(key)}`, {
-      method: "DELETE",
-    });
+    await fetch(
+      agentNativePath(
+        `/_agent-native/application-state/${encodeURIComponent(key)}`,
+      ),
+      {
+        method: "DELETE",
+      },
+    );
   } catch {
     // best-effort
   }

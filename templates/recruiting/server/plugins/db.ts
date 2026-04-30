@@ -15,7 +15,7 @@ export default runMigrations(
     },
     {
       version: 5,
-      sql: `ALTER TABLE agent_notes ADD COLUMN org_id TEXT`,
+      sql: `ALTER TABLE agent_notes ADD COLUMN IF NOT EXISTS org_id TEXT`,
     },
   ],
   { table: "recruiting_migrations" },

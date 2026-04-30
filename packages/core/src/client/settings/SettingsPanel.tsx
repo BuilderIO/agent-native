@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import React, {
   Suspense,
   lazy,
@@ -179,10 +180,13 @@ function DisconnectBuilderButton() {
     setErr(null);
     clearArmedTimer();
     try {
-      const res = await fetch("/_agent-native/builder/disconnect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/builder/disconnect"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        },
+      );
       // Parse defensively — a nitro 404 fallback returns HTML, not JSON,
       // and res.json() on that would throw.
       const text = await res.text();
@@ -587,7 +591,7 @@ function LLMSectionInner({
     !envLoaded || !enginesLoaded || !statusLoaded || !!builderLoading;
 
   useEffect(() => {
-    fetch("/_agent-native/env-status")
+    fetch(agentNativePath("/_agent-native/env-status"))
       .then((r) => (r.ok ? r.json() : []))
       .then(setEnvKeys)
       .catch(() => {})
@@ -599,7 +603,7 @@ function LLMSectionInner({
   }, []);
 
   const refreshSettingsStatus = useCallback(() => {
-    fetch("/_agent-native/agent-engine/status")
+    fetch(agentNativePath("/_agent-native/agent-engine/status"))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (
@@ -625,7 +629,7 @@ function LLMSectionInner({
   }, [refreshSettingsStatus]);
 
   useEffect(() => {
-    fetch("/_agent-native/actions/manage-agent-engine", {
+    fetch(agentNativePath("/_agent-native/actions/manage-agent-engine"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "list" }),
@@ -682,7 +686,7 @@ function LLMSectionInner({
     if (!apiKey.trim() || !envVar) return;
     setSaving(true);
     try {
-      const res = await fetch("/_agent-native/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -704,9 +708,12 @@ function LLMSectionInner({
   const handleDisconnect = async () => {
     setDisconnectError(null);
     try {
-      const res = await fetch("/_agent-native/agent-engine/disconnect", {
-        method: "POST",
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/agent-engine/disconnect"),
+        {
+          method: "POST",
+        },
+      );
       if (res.ok) {
         setTestResult(null);
         setApplyNote(false);
@@ -732,15 +739,18 @@ function LLMSectionInner({
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch("/_agent-native/actions/manage-agent-engine", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "test",
-          engine: selectedEngine,
-          model: selectedModel || selectedEngineInfo?.defaultModel,
-        }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/manage-agent-engine"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "test",
+            engine: selectedEngine,
+            model: selectedModel || selectedEngineInfo?.defaultModel,
+          }),
+        },
+      );
       // The action endpoint wraps tool output; some paths return the JSON
       // string as-is, others wrap in { result }. Accept either shape.
       const data = await res.json();
@@ -774,15 +784,18 @@ function LLMSectionInner({
 
   const handleApply = async () => {
     try {
-      const res = await fetch("/_agent-native/actions/manage-agent-engine", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "set",
-          engine: selectedEngine,
-          model: selectedModel,
-        }),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/manage-agent-engine"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "set",
+            engine: selectedEngine,
+            model: selectedModel,
+          }),
+        },
+      );
       if (res.ok) {
         setCurrentEngine(selectedEngine);
         setCurrentModel(selectedModel);
@@ -983,7 +996,7 @@ function EmailSectionInner({
   const [envLoaded, setEnvLoaded] = useState(false);
 
   useEffect(() => {
-    fetch("/_agent-native/env-status")
+    fetch(agentNativePath("/_agent-native/env-status"))
       .then((r) => (r.ok ? r.json() : []))
       .then(setEnvKeys)
       .catch(() => {})
@@ -1001,7 +1014,7 @@ function EmailSectionInner({
   const save = async (vars: Array<{ key: string; value: string }>) => {
     setSaving(true);
     try {
-      const res = await fetch("/_agent-native/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vars }),
@@ -1212,7 +1225,7 @@ export function SettingsPanel({
   // ENABLE_BUILDER flag — read from env-status (always available)
   const [builderEnabled, setBuilderEnabled] = useState(false);
   useEffect(() => {
-    fetch("/_agent-native/env-status")
+    fetch(agentNativePath("/_agent-native/env-status"))
       .then((r) => (r.ok ? r.json() : []))
       .then((keys: Array<{ key: string; configured: boolean }>) => {
         if (keys.find((k) => k.key === "ENABLE_BUILDER")?.configured) {
@@ -1229,7 +1242,7 @@ export function SettingsPanel({
     undefined,
   );
   useEffect(() => {
-    fetch("/_agent-native/secrets")
+    fetch(agentNativePath("/_agent-native/secrets"))
       .then((r) => (r.ok ? r.json() : []))
       .then((list: Array<{ key: string }>) => {
         setHasSecrets(Array.isArray(list) && list.length > 0);

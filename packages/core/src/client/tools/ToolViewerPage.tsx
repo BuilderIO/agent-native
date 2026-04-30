@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useEffect } from "react";
 import { useParams } from "react-router";
 import { ToolViewer } from "./ToolViewer.js";
@@ -7,7 +8,7 @@ export function ToolViewerPage() {
   const { id } = useParams<{ id: string }>();
 
   useEffect(() => {
-    fetch("/_agent-native/application-state/navigation", {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: { view: "tools", toolId: id } }),

@@ -25,6 +25,30 @@ import {
   disconnect,
 } from "../lib/jira-auth.js";
 
+function normalizeBasePath(value: string | undefined): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function appBasePath(): string {
+  return normalizeBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+}
+
+function appPath(path: string): string {
+  const basePath = appBasePath();
+  if (!basePath) return path;
+  if (path === basePath || path.startsWith(`${basePath}/`)) return path;
+  return `${basePath}${path}`;
+}
+
+function absoluteAppUrl(event: H3Event, path: string): string {
+  return `${getOrigin(event)}${appPath(path)}`;
+}
+
 export const getAtlassianAuthUrl = defineEventHandler(
   async (event: H3Event) => {
     if (
@@ -41,7 +65,7 @@ export const getAtlassianAuthUrl = defineEventHandler(
     try {
       const redirectUri =
         (getQuery(event).redirect_uri as string) ||
-        `${getOrigin(event)}/api/atlassian/callback`;
+        absoluteAppUrl(event, "/api/atlassian/callback");
       const session = await getSession(event);
       const owner =
         session?.email && session.email !== DEV_MODE_USER_EMAIL
@@ -75,7 +99,7 @@ export const handleAtlassianCallback = defineEventHandler(
         addAccount,
       } = decodeOAuthState(
         query.state as string | undefined,
-        `${getOrigin(event)}/api/atlassian/callback`,
+        absoluteAppUrl(event, "/api/atlassian/callback"),
       );
 
       const { owner, hasProductionSession } = await resolveOAuthOwner(
@@ -108,10 +132,10 @@ export const handleAtlassianCallback = defineEventHandler(
       if (msg.includes("invalid_grant") || msg.includes("authorization_code")) {
         const { connected } = await getAuthStatus();
         if (connected) {
-          return sendRedirect(event, "/", 302);
+          return sendRedirect(event, appPath("/"), 302);
         }
         // Not connected — redirect back to try again with a fresh auth URL
-        return sendRedirect(event, "/?connect=retry", 302);
+        return sendRedirect(event, appPath("/?connect=retry"), 302);
       }
       return oauthErrorPage(`Connection failed: ${msg}`);
     }

@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { appApiPath } from "@/lib/api-path";
 import { toast } from "sonner";
 
 interface BookingInfo {
@@ -46,7 +47,7 @@ export function ManageBookingPage() {
   } = useQuery<BookingInfo>({
     queryKey: ["manage-booking", token],
     queryFn: async () => {
-      const res = await fetch(`/api/public/bookings/${token}`);
+      const res = await fetch(appApiPath(`/api/public/bookings/${token}`));
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || "Booking not found");
@@ -58,7 +59,7 @@ export function ManageBookingPage() {
 
   const cancelMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/public/bookings/${token}`, {
+      const res = await fetch(appApiPath(`/api/public/bookings/${token}`), {
         method: "DELETE",
       });
       if (!res.ok) {

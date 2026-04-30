@@ -3,6 +3,7 @@
  */
 import { useEffect, useState } from "react";
 import { callAction } from "@/lib/api";
+import { appPath } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -87,7 +88,10 @@ export default function ConferencingSettings() {
             </CardTitle>
             <CardDescription>
               Connect Zoom, Google Meet, or Microsoft Teams from the
-              <a href="/apps" className="ml-1 underline underline-offset-2">
+              <a
+                href={appPath("/apps")}
+                className="ml-1 underline underline-offset-2"
+              >
                 Integrations
               </a>{" "}
               page.

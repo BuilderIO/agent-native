@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router";
+import { agentNativePath } from "@agent-native/core/client";
 import { cn } from "@/lib/utils";
 import { useBoardConfig } from "@/hooks/use-boards";
 import { useIssues } from "@/hooks/use-issues";
@@ -46,7 +47,9 @@ export function BoardPage({
 
       // We need to fetch transitions for this issue to find the right one
       fetch(
-        `/_agent-native/actions/get-transitions?key=${encodeURIComponent(issueKey)}`,
+        agentNativePath(
+          `/_agent-native/actions/get-transitions?key=${encodeURIComponent(issueKey)}`,
+        ),
       )
         .then((r) => r.json())
         .then((data) => {

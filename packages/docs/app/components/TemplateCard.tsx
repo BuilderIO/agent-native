@@ -10,7 +10,7 @@ export const templates = [
     name: "Mail",
     slug: "mail",
     replaces: "Replaces or augments Superhuman, Gmail",
-    cliCommand: "npx @agent-native/core create my-mail-app",
+    cliCommand: "npx @agent-native/core create my-mail-app --template mail",
     demoUrl: "https://mail.agent-native.com",
     description:
       "Superhuman-style email client with keyboard shortcuts, AI triage, multi-account support, and email automations. Own your inbox workflow.",
@@ -22,7 +22,8 @@ export const templates = [
     name: "Calendar",
     slug: "calendar",
     replaces: "Replaces or augments Google Calendar, Calendly",
-    cliCommand: "npx @agent-native/core create my-calendar-app",
+    cliCommand:
+      "npx @agent-native/core create my-calendar-app --template calendar",
     demoUrl: "https://calendar.agent-native.com",
     description:
       "Full calendar with Google sync, availability management, and a public booking page. The agent finds open slots, creates events, and manages your schedule.",
@@ -34,7 +35,8 @@ export const templates = [
     name: "Content",
     slug: "content",
     replaces: "Replaces or augments Notion, Google Docs",
-    cliCommand: "npx @agent-native/core create my-content-app",
+    cliCommand:
+      "npx @agent-native/core create my-content-app --template content",
     demoUrl: "https://content.agent-native.com",
     description:
       "Write and organize documents with a rich editor, Notion import/export, and an AI agent that drafts, rewrites, and publishes to any CMS.",
@@ -46,7 +48,7 @@ export const templates = [
     name: "Slides",
     slug: "slides",
     replaces: "Replaces or augments Google Slides, Pitch",
-    cliCommand: "npx @agent-native/core create my-slides-app",
+    cliCommand: "npx @agent-native/core create my-slides-app --template slides",
     demoUrl: "https://slides.agent-native.com",
     description:
       "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
@@ -58,7 +60,7 @@ export const templates = [
     name: "Video",
     slug: "video",
     replaces: "Replaces or augments video editing",
-    cliCommand: "npx @agent-native/core create my-video-app",
+    cliCommand: "npx @agent-native/core create my-video-app --template videos",
     demoUrl: "https://videos.agent-native.com",
     description:
       "Build React-based video compositions with Remotion. Keyframe animation, 30+ easing curves, camera controls, and agent-assisted editing.",
@@ -70,7 +72,8 @@ export const templates = [
     name: "Analytics",
     slug: "analytics",
     replaces: "Replaces or augments Amplitude, Mixpanel, Looker",
-    cliCommand: "npx @agent-native/core create my-analytics-app",
+    cliCommand:
+      "npx @agent-native/core create my-analytics-app --template analytics",
     demoUrl: "https://analytics.agent-native.com",
     description:
       "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
@@ -82,7 +85,7 @@ export const templates = [
     name: "Clips",
     slug: "clips",
     replaces: "Replaces or augments Loom",
-    cliCommand: "npx @agent-native/core create my-clips-app",
+    cliCommand: "npx @agent-native/core create my-clips-app --template clips",
     demoUrl: "https://clips.agent-native.com",
     description:
       "Async screen recording with auto-transcripts, shareable links, and an agent that summarizes, captions, and edits clips on demand.",
@@ -91,10 +94,44 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7366585df5a545e697e254bb0138182d?format=webp&width=800",
   },
   {
+    name: "Calls",
+    slug: "calls",
+    replaces: "Replaces or augments Gong, Chorus",
+    cliCommand: "npx @agent-native/core create my-calls-app --template calls",
+    demoUrl: "https://calls.agent-native.com",
+    description:
+      "Record, transcribe, and analyze sales calls with accounts, spaces, comments, trackers, snippets, and agent-generated summaries.",
+    color: "#111111",
+    screenshot: "",
+  },
+  {
+    name: "Meeting Notes",
+    slug: "meeting-notes",
+    replaces: "Replaces or augments Otter, meeting note takers",
+    cliCommand:
+      "npx @agent-native/core create my-meeting-notes-app --template meeting-notes",
+    demoUrl: "https://meeting-notes.agent-native.com",
+    description:
+      "Capture meetings, enhance rough notes into reusable templates, and organize people, companies, decisions, and follow-ups.",
+    color: "#16A34A",
+    screenshot: "",
+  },
+  {
+    name: "Voice",
+    slug: "voice",
+    replaces: "Replaces or augments Wispr Flow",
+    cliCommand: "npx @agent-native/core create my-voice-app --template voice",
+    demoUrl: "https://voice.agent-native.com",
+    description:
+      "Voice dictation with context-aware formatting, snippets, custom vocabulary, style presets, history, and usage stats.",
+    color: "#8B5CF6",
+    screenshot: "",
+  },
+  {
     name: "Design",
     slug: "design",
     replaces: "Replaces or augments Figma, Canva",
-    cliCommand: "npx @agent-native/core create my-design-app",
+    cliCommand: "npx @agent-native/core create my-design-app --template design",
     demoUrl: "https://design.agent-native.com",
     description:
       "Agent-native design tool. Create and edit visual designs by prompt or by hand, with the agent as your co-designer.",
@@ -103,10 +140,23 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2F348da13fcd8b414c87de9066196f7266%2F961bedb713a94463b834c1f2f4643bcf?format=webp&width=800",
   },
   {
+    name: "Scheduling",
+    slug: "scheduling",
+    replaces: "Replaces or augments Calendly",
+    cliCommand:
+      "npx @agent-native/core create my-scheduling-app --template scheduling",
+    demoUrl: "https://scheduling.agent-native.com",
+    description:
+      "Full scheduling with event types, availability, bookings, routing forms, workflows, team round-robin, and calendar integrations.",
+    color: "#7C3AED",
+    screenshot: "",
+  },
+  {
     name: "Dispatch",
     slug: "dispatch",
     replaces: "Mission control for your agent-native apps",
-    cliCommand: "npx @agent-native/core create my-dispatch-app",
+    cliCommand:
+      "npx @agent-native/core create my-dispatch-app --template dispatch",
     demoUrl: "https://dispatch.agent-native.com",
     description:
       "Centralized messaging and management for every agent in your stack. Talk to your agents from Slack, Telegram, or the web; route jobs, hold memory, approve actions, and delegate across apps over A2A.",
@@ -118,13 +168,47 @@ export const templates = [
     name: "Forms",
     slug: "forms",
     replaces: "Replaces or augments Typeform, Google Forms",
-    cliCommand: "npx @agent-native/core create my-forms-app",
+    cliCommand: "npx @agent-native/core create my-forms-app --template forms",
     demoUrl: "https://forms.agent-native.com",
     description:
       "Agent-native form builder. Generate forms from a prompt, branch logic with the agent, and own every response in your own database.",
     color: "#06B6D4",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190c3fabd51f4c1bba5aa4e091ad4e9b?format=webp&width=800",
+  },
+  {
+    name: "Issues",
+    slug: "issues",
+    replaces: "Replaces or augments Jira, Linear",
+    cliCommand: "npx @agent-native/core create my-issues-app --template issues",
+    demoUrl: "https://issues.agent-native.com",
+    description:
+      "Project and issue tracking with boards, sprints, comments, transitions, search, and an agent that can triage work.",
+    color: "#6366F1",
+    screenshot: "",
+  },
+  {
+    name: "Recruiting",
+    slug: "recruiting",
+    replaces: "Replaces or augments Greenhouse",
+    cliCommand:
+      "npx @agent-native/core create my-recruiting-app --template recruiting",
+    demoUrl: "https://recruiting.agent-native.com",
+    description:
+      "Manage recruiting pipelines, candidates, jobs, interviews, scorecards, action items, and AI candidate notes around Greenhouse data.",
+    color: "#16A34A",
+    screenshot: "",
+  },
+  {
+    name: "Starter",
+    slug: "starter",
+    replaces: "Minimal agent-native scaffold",
+    cliCommand:
+      "npx @agent-native/core create my-agent-native-app --template starter",
+    description:
+      "A small starting point with the agent chat, shared state, actions, routing, and the framework conventions already wired up.",
+    color: "#71717A",
+    screenshot: "",
   },
 ];
 
@@ -341,11 +425,15 @@ export function TemplateCard({ template }: { template: Template }) {
           />
         ) : (
           <div
-            className="h-full w-full"
+            className="flex h-full w-full items-center justify-center"
             style={{
-              background: `linear-gradient(135deg, ${template.color}, ${template.color}33)`,
+              background: `linear-gradient(135deg, ${template.color}, ${template.color}22)`,
             }}
-          />
+          >
+            <span className="rounded-lg bg-[var(--bg)]/80 px-4 py-2 text-sm font-semibold text-[var(--fg)] shadow-sm">
+              {template.name}
+            </span>
+          </div>
         )}
       </Link>
       <h3 className="text-base font-semibold">

@@ -12,6 +12,7 @@ import {
   generateAppId,
   visibleTemplates,
   DEFAULT_APPS,
+  templateToAppConfig,
 } from "@shared/app-registry";
 
 interface FrameSettings {
@@ -44,6 +45,18 @@ function hexToRgb(hex: string): string {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `${r} ${g} ${b}`;
+}
+
+function inferPortFromUrl(url: string): number {
+  try {
+    const parsed = new URL(url);
+    if (parsed.port) return Number(parsed.port);
+    if (parsed.protocol === "http:") return 80;
+    if (parsed.protocol === "https:") return 443;
+  } catch {
+    // URL input validation handles invalid values.
+  }
+  return 0;
 }
 
 export default function AppSettings({
@@ -279,20 +292,10 @@ export default function AppSettings({
               const preset = DEFAULT_APPS.find((a) => a.id === template.name);
               const next: AppConfig = preset
                 ? { ...preset, enabled: true }
-                : {
-                    id: template.name,
-                    name: template.label,
-                    icon: template.icon,
-                    description: template.hint,
-                    url: template.prodUrl ?? "",
-                    devPort: template.devPort,
-                    devUrl: `http://localhost:${template.devPort}`,
-                    color: template.color,
-                    colorRgb: template.colorRgb,
+                : templateToAppConfig(template, {
                     isBuiltIn: false,
                     enabled: true,
-                    mode: template.defaultMode ?? "prod",
-                  };
+                  });
               if (window.electronAPI?.appConfig) {
                 const updated = await window.electronAPI.appConfig.add(next);
                 onAppsChanged(updated);
@@ -339,22 +342,24 @@ function AppEditForm({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !url.trim()) return;
+    const trimmedUrl = url.trim();
+    const trimmedDevUrl = devUrl.trim();
+    if (!name.trim() || (!trimmedUrl && !trimmedDevUrl)) return;
 
     onSave({
       id: app?.id ?? generateAppId(),
       name: name.trim(),
       icon: app?.icon ?? "Globe",
       description: description.trim() || name.trim(),
-      url: url.trim(),
-      devPort: app?.devPort ?? 0,
-      devUrl: devUrl.trim() || undefined,
+      url: trimmedUrl,
+      devPort: app?.devPort || inferPortFromUrl(trimmedDevUrl),
+      devUrl: trimmedDevUrl || undefined,
       devCommand: devCommand.trim() || undefined,
       color,
       colorRgb: hexToRgb(color),
       isBuiltIn: app?.isBuiltIn ?? false,
       enabled: app?.enabled ?? true,
-      mode: app?.mode ?? "dev",
+      mode: app?.mode ?? (trimmedUrl ? "prod" : "dev"),
     });
   }
 
@@ -379,13 +384,12 @@ function AppEditForm({
         </label>
 
         <label>
-          Production URL *
+          Production URL
           <input
             type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://myapp.example.com"
-            required
           />
         </label>
 

@@ -18,7 +18,7 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import type { AppDefinition, AppConfig } from "@shared/app-registry";
-import { getAppUrl, FRAME_PORT } from "@shared/app-registry";
+import { getAppUrl, FRAME_PORT, getTemplate } from "@shared/app-registry";
 
 const IS_DEV = window.location.protocol !== "file:";
 
@@ -29,6 +29,7 @@ interface AppWebviewProps {
   isActive: boolean;
   /** Increment to trigger a webview reload (Cmd+R) */
   refreshKey?: number;
+  onAppsChanged?: (apps: AppConfig[]) => void;
 }
 
 export interface AppWebviewHandle {
@@ -49,7 +50,12 @@ export interface AppWebviewHandle {
  */
 function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
   if (appConfig?.mode === "dev") {
-    // Dev mode: load through the local dev frame
+    // First-party templates load through the local dev frame. Custom apps
+    // do not have a frame route, so honor their explicit dev URL/port.
+    if (getTemplate(appConfig.id)) return getAppUrl(app);
+    if (appConfig.devUrl?.trim()) return appConfig.devUrl.trim();
+    if (appConfig.devPort) return `http://localhost:${appConfig.devPort}`;
+    if (appConfig.url) return appConfig.url;
     return getAppUrl(app);
   }
 
@@ -63,7 +69,16 @@ function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
 }
 
 const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
-  ({ app, appConfig, isActive, refreshKey = 0 }: AppWebviewProps, ref) => {
+  (
+    {
+      app,
+      appConfig,
+      isActive,
+      refreshKey = 0,
+      onAppsChanged,
+    }: AppWebviewProps,
+    ref,
+  ) => {
     const webviewRef = useRef<ElectronWebviewElement>(null);
     const [error, setError] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -72,6 +87,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const url = resolveUrl(app, appConfig);
     const isDevMode = appConfig?.mode === "dev";
     const optimizeDepRecoveryRef = useRef(false);
+    const prevUrlRef = useRef(url);
 
     useImperativeHandle(
       ref,
@@ -191,6 +207,19 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       }
     }, [refreshKey, isActive, app.placeholder]);
 
+    // React does not update an imperatively-created <webview>'s src for us.
+    // Keep mode toggles, edited prod URLs, and custom dev URLs in sync.
+    useEffect(() => {
+      const wv = webviewRef.current;
+      if (!wv || app.placeholder || prevUrlRef.current === url) return;
+      prevUrlRef.current = url;
+      optimizeDepRecoveryRef.current = false;
+      setError(false);
+      setIsLoading(true);
+      setSlowLoad(false);
+      wv.setAttribute("src", url);
+    }, [url, app.placeholder]);
+
     // If the webview hasn't fired dom-ready within a few seconds, surface
     // a "still loading" hint. If it's still not ready after a bit longer,
     // assume the dev server isn't running and show the error screen.
@@ -250,10 +279,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     async function handleSwitchToProd() {
       if (!appConfig?.id) return;
       try {
-        await window.electronAPI?.appConfig?.update(appConfig.id, {
-          mode: "prod",
-        });
-        // Reload will happen when parent re-renders with new appConfig.
+        const updated = await window.electronAPI?.appConfig?.update(
+          appConfig.id,
+          {
+            mode: "prod",
+          },
+        );
+        if (updated) onAppsChanged?.(updated);
       } catch {
         /* ignore */
       }

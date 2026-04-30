@@ -37,10 +37,6 @@ export function parseArgs(
  *   --grep=<term>       Case-insensitive search across all string values.
  *                        Filters arrays to matching items, or checks the whole object.
  *   --fields=<a,b,c>    Comma-separated list of fields to pluck from each result object.
- *
- * Examples:
- *   pnpm action hubspot-deals --grep=enterprise
- *   pnpm action hubspot-deals --grep=enterprise --fields=dealname,amount,stageLabel
  */
 export function output(data: unknown): void {
   const args = parseArgs();

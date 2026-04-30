@@ -46,18 +46,28 @@ pub fn register_shortcuts(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
 pub fn install_popover_dismiss_handler(app: &tauri::App) {
     let handle = app.handle().clone();
     app.listen("clips:popover-visible", move |event| {
-        let visible: bool = serde_json::from_str(event.payload()).unwrap_or(false);
-        let shortcut = escape_shortcut();
-        let gs = handle.global_shortcut();
-        if visible {
-            if !gs.is_registered(shortcut) {
-                if let Err(err) = gs.register(shortcut) {
-                    eprintln!("[clips-tray] failed to register Escape: {err}");
+        let payload = event.payload().to_string();
+        let handle = handle.clone();
+        // Defer register/unregister to a worker thread. Calling
+        // global_shortcut::{register,unregister,is_registered} from inside
+        // a listener fired by an Escape press freezes the app on macOS:
+        // the listener runs while the Carbon hotkey callback is still on
+        // the stack, and Carbon's hotkey table is not reentrant from
+        // within its own callback.
+        std::thread::spawn(move || {
+            let visible: bool = serde_json::from_str(&payload).unwrap_or(false);
+            let shortcut = escape_shortcut();
+            let gs = handle.global_shortcut();
+            if visible {
+                if !gs.is_registered(shortcut) {
+                    if let Err(err) = gs.register(shortcut) {
+                        eprintln!("[clips-tray] failed to register Escape: {err}");
+                    }
                 }
+            } else if gs.is_registered(shortcut) {
+                let _ = gs.unregister(shortcut);
             }
-        } else if gs.is_registered(shortcut) {
-            let _ = gs.unregister(shortcut);
-        }
+        });
     });
 }
 

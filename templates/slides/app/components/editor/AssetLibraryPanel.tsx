@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { IconUpload, IconTrash, IconLoader2, IconX } from "@tabler/icons-react";
+import { appBasePath } from "@agent-native/core/client";
 
 interface Asset {
   url: string;
@@ -48,7 +49,7 @@ export default function AssetLibraryPanel({
   const fetchAssets = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/assets");
+      const res = await fetch(`${appBasePath()}/api/assets`);
       if (res.ok) setAssets(await res.json());
     } catch {
     } finally {
@@ -68,7 +69,10 @@ export default function AssetLibraryPanel({
       for (const file of Array.from(files)) {
         const form = new FormData();
         form.append("file", file);
-        await fetch("/api/assets/upload", { method: "POST", body: form });
+        await fetch(`${appBasePath()}/api/assets/upload`, {
+          method: "POST",
+          body: form,
+        });
       }
       await fetchAssets();
     } catch {
@@ -80,9 +84,12 @@ export default function AssetLibraryPanel({
 
   const handleDelete = async (filename: string) => {
     try {
-      await fetch(`/api/assets/${encodeURIComponent(filename)}`, {
-        method: "DELETE",
-      });
+      await fetch(
+        `${appBasePath()}/api/assets/${encodeURIComponent(filename)}`,
+        {
+          method: "DELETE",
+        },
+      );
       setAssets((prev) => prev.filter((a) => a.filename !== filename));
     } catch {}
   };

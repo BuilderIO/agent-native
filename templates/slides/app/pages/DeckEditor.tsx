@@ -42,6 +42,8 @@ import {
   emailToColor,
   emailToName,
   sendToAgentChat,
+  agentNativePath,
+  appBasePath,
 } from "@agent-native/core/client";
 import type { QuestionFlowQuestion } from "@shared/api";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
@@ -53,6 +55,7 @@ import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { toast } from "@/hooks/use-toast";
+import { nanoid } from "nanoid";
 const Pinpoint = lazy(() =>
   import("@agent-native/pinpoint/react").then((m) => ({
     default: m.Pinpoint,
@@ -73,6 +76,7 @@ export default function DeckEditor() {
     updateSlide,
     deleteSlide,
     duplicateSlide,
+    duplicateDeck,
     reorderSlides,
     undo,
     redo,
@@ -122,7 +126,7 @@ export default function DeckEditor() {
     queryKey: ["show-questions"],
     queryFn: async () => {
       const res = await fetch(
-        "/_agent-native/application-state/show-questions",
+        agentNativePath("/_agent-native/application-state/show-questions"),
       );
       if (!res.ok) return null;
       const text = await res.text();
@@ -170,9 +174,12 @@ export default function DeckEditor() {
 
       // Clear the question flow state — optimistically clear cache so overlay hides immediately
       queryClient.setQueryData(["show-questions"], null);
-      fetch("/_agent-native/application-state/show-questions", {
-        method: "DELETE",
-      }).catch(() => {});
+      fetch(
+        agentNativePath("/_agent-native/application-state/show-questions"),
+        {
+          method: "DELETE",
+        },
+      ).catch(() => {});
     },
     [id, queryClient],
   );
@@ -187,7 +194,7 @@ export default function DeckEditor() {
 
     // Clear the question flow state — optimistically clear cache so overlay hides immediately
     queryClient.setQueryData(["show-questions"], null);
-    fetch("/_agent-native/application-state/show-questions", {
+    fetch(agentNativePath("/_agent-native/application-state/show-questions"), {
       method: "DELETE",
     }).catch(() => {});
   }, [id, queryClient]);
@@ -297,7 +304,7 @@ export default function DeckEditor() {
       const form = new FormData();
       form.append("file", files[0]);
       try {
-        const res = await fetch("/api/assets/upload", {
+        const res = await fetch(`${appBasePath()}/api/assets/upload`, {
           method: "POST",
           body: form,
         });
@@ -508,20 +515,10 @@ export default function DeckEditor() {
         onToggleAnimations={() => setAnimationsOpen((o) => !o)}
         tweaksOpen={tweaksOpen}
         onToggleTweaks={() => setTweaksOpen((o) => !o)}
-        onDuplicateDeck={async () => {
-          try {
-            const res = await fetch("/_agent-native/actions/duplicate-deck", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ deckId: id }),
-            });
-            const data = await res.json();
-            if (data.id) {
-              navigate(`/deck/${data.id}`);
-            }
-          } catch (err) {
-            console.error("Duplicate failed:", err);
-          }
+        onDuplicateDeck={() => {
+          const newId = `deck-${nanoid()}`;
+          const optimistic = duplicateDeck(id, newId);
+          if (optimistic) navigate(`/deck/${optimistic.id}`);
         }}
         onExportPdf={async () => {
           try {
@@ -550,11 +547,14 @@ export default function DeckEditor() {
           const previous = deck.aspectRatio;
           // Optimistic UI: update local cache immediately so canvas resizes.
           updateDeck(id, { aspectRatio: ratio });
-          fetch("/_agent-native/actions/update-deck-aspect-ratio", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ deckId: id, aspectRatio: ratio }),
-          }).catch((err) => {
+          fetch(
+            agentNativePath("/_agent-native/actions/update-deck-aspect-ratio"),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ deckId: id, aspectRatio: ratio }),
+            },
+          ).catch((err) => {
             console.error("Failed to set aspect ratio:", err);
             updateDeck(id, { aspectRatio: previous });
           });

@@ -833,6 +833,195 @@ async function scanFiles(ownablesByDir) {
   return violations;
 }
 
+/**
+ * Additional targeted scan: mentionProviders closures.
+ *
+ * The main scanFiles() gate (`fileHasAccessControl`) skips files that contain
+ * no access-control helpers at all. A mentionProviders callback that queries
+ * an ownable table without any scoping would slip through that gate silently.
+ * This scan specifically targets files that define `mentionProviders` and
+ * checks every provider's search closure body independently.
+ *
+ * The check is intentionally broad — any `db.select().from(<ownableTable>)`
+ * inside a mentionProviders closure must have one of the standard access
+ * helpers in the SAME closure body. This is simpler (and faster) than the
+ * full per-statement block-walking done by scanFiles, but safe because
+ * mentionProviders search functions are short self-contained closures.
+ */
+async function scanMentionProviders(ownablesByDir) {
+  const allOwnableNames = new Set();
+  for (const set of ownablesByDir.values()) {
+    for (const name of set) {
+      if (!name.startsWith("__sql__")) allOwnableNames.add(name);
+    }
+  }
+  if (allOwnableNames.size === 0) return [];
+
+  const namesAlt = [...allOwnableNames]
+    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+
+  // Matches `.from(schema.TABLE)` or `.from(TABLE)` for any ownable table.
+  const fromOwnableRe = new RegExp(
+    `\\.\\s*from\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*\\.\\s*)?(${namesAlt})\\b`,
+    "g",
+  );
+
+  // Helpers that establish access control inside the closure.
+  const CLOSURE_ACCESS_PATTERNS = [
+    ...ACCESS_CONTROL_HELPERS,
+    ...EXPLICIT_OWNER_FILTERS,
+    ...BLOCK_OWNERSHIP_SIGNALS,
+  ];
+
+  const violations = [];
+
+  for await (const file of walk(REPO_ROOT)) {
+    if (!file.endsWith(".ts") && !file.endsWith(".tsx")) continue;
+    if (file.endsWith(".d.ts")) continue;
+    const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
+    if (FILE_ALLOWLIST.has(rel)) continue;
+    // Only files that can define mentionProviders — server plugins and
+    // any file in templates/*/server/ or packages/*/src/.
+    if (
+      !/^templates\/[^/]+\/server\//.test(rel) &&
+      !/^packages\/[^/]+\/src\//.test(rel)
+    ) {
+      continue;
+    }
+
+    let contents;
+    try {
+      contents = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+
+    // Cheap pre-filter: must mention mentionProviders and a db.from call.
+    if (
+      !/\bmentionProviders\b/.test(contents) ||
+      !/\bfrom\s*\(/.test(contents)
+    ) {
+      continue;
+    }
+
+    // File-wide opt-out.
+    const head = contents.split("\n").slice(0, 30).join("\n");
+    if (OPT_OUT_MARKER.test(head)) continue;
+
+    const lineOffsets = computeLineOffsets(contents);
+
+    // Find the mentionProviders: { ... } or mentionProviders: async () => { ... }
+    // value block. We locate each occurrence and brace-count to extract its body.
+    const mpHeaderRe = /\bmentionProviders\s*:/g;
+    let mpMatch;
+    while ((mpMatch = mpHeaderRe.exec(contents)) !== null) {
+      // Skip to the opening `{` of the value (there may be `async () =>` in between).
+      let i = mpHeaderRe.lastIndex;
+      while (i < contents.length && contents[i] !== "{" && contents[i] !== "\n")
+        i++;
+      if (i >= contents.length || contents[i] !== "{") continue;
+
+      // Brace-count to find the end of the mentionProviders object.
+      let depth = 0;
+      let inStr = null;
+      let mpStart = i;
+      let mpEnd = -1;
+      for (let j = i; j < contents.length; j++) {
+        const c = contents[j];
+        if (inStr) {
+          if (c === "\\" && inStr !== "`") {
+            j++;
+            continue;
+          }
+          if (c === inStr) inStr = null;
+          continue;
+        }
+        if (c === '"' || c === "'" || c === "`") {
+          inStr = c;
+          continue;
+        }
+        if (c === "{") depth++;
+        else if (c === "}") {
+          depth--;
+          if (depth === 0) {
+            mpEnd = j;
+            break;
+          }
+        }
+      }
+      if (mpEnd === -1) continue;
+
+      const mpBody = contents.slice(mpStart, mpEnd + 1);
+
+      // Now look for every provider definition inside — each is a key whose
+      // value contains a `search: async (query) => { ... }` closure.
+      // We extract each search closure body and check it independently.
+      const searchRe = /\bsearch\s*:\s*async\s*\([^)]*\)\s*=>\s*\{/g;
+      let searchMatch;
+      while ((searchMatch = searchRe.exec(mpBody)) !== null) {
+        // Find the matching `}` for this closure.
+        const closureStart =
+          mpStart + searchMatch.index + searchMatch[0].length - 1; // position of the `{`
+        let closureDepth = 0;
+        let closureEnd = -1;
+        let closureInStr = null;
+        for (let j = closureStart; j < mpEnd; j++) {
+          const c = contents[j];
+          if (closureInStr) {
+            if (c === "\\" && closureInStr !== "`") {
+              j++;
+              continue;
+            }
+            if (c === closureInStr) closureInStr = null;
+            continue;
+          }
+          if (c === '"' || c === "'" || c === "`") {
+            closureInStr = c;
+            continue;
+          }
+          if (c === "{") closureDepth++;
+          else if (c === "}") {
+            closureDepth--;
+            if (closureDepth === 0) {
+              closureEnd = j;
+              break;
+            }
+          }
+        }
+        if (closureEnd === -1) continue;
+
+        const closureBody = contents.slice(closureStart, closureEnd + 1);
+
+        // Block-level opt-out inside the closure.
+        if (OPT_OUT_MARKER.test(closureBody)) continue;
+
+        // Check if closure queries an ownable table.
+        fromOwnableRe.lastIndex = 0;
+        let fromMatch;
+        while ((fromMatch = fromOwnableRe.exec(closureBody)) !== null) {
+          const tableName = fromMatch[1];
+
+          // If ANY access-control helper appears in the closure body, it's fine.
+          if (CLOSURE_ACCESS_PATTERNS.some((re) => re.test(closureBody)))
+            continue;
+
+          const absOffset = closureStart + fromMatch.index;
+          const line = offsetToLine(lineOffsets, absOffset);
+          violations.push({
+            file: rel,
+            line,
+            table: tableName,
+            context: "mentionProviders search closure",
+          });
+        }
+      }
+    }
+  }
+
+  return violations;
+}
+
 const ownablesByDir = await collectOwnableTables();
 if (ownablesByDir.size === 0) {
   console.log(
@@ -841,35 +1030,65 @@ if (ownablesByDir.size === 0) {
   process.exit(0);
 }
 const violations = await scanFiles(ownablesByDir);
+const mentionViolations = await scanMentionProviders(ownablesByDir);
 
-if (violations.length > 0) {
+if (violations.length > 0 || mentionViolations.length > 0) {
   const bar = "=".repeat(72);
   console.error(`\n${bar}`);
   console.error("ERROR: unscoped query against an ownable resource table.");
   console.error(bar);
   console.error("");
-  console.error(
-    "These statements query a table that includes `ownableColumns()`",
-  );
-  console.error("but do NOT use `accessFilter` / `resolveAccess` /");
-  console.error(
-    "`assertAccess` and do NOT filter by `ownerEmail` / `userEmail` /",
-  );
-  console.error("`orgId` in their WHERE clause (or in the enclosing block).");
-  console.error("That is how the slides leak happened on 2026-04-28 —");
-  console.error("anyone signing in saw every other user's decks. Same");
-  console.error("class of bug for inserts that don't set ownerEmail from the");
-  console.error("request context.");
-  console.error("");
-  for (const v of violations) {
-    console.error(`  ${v.file}`);
-    for (const hit of v.hits) {
+
+  if (violations.length > 0) {
+    console.error(
+      "These statements query a table that includes `ownableColumns()`",
+    );
+    console.error("but do NOT use `accessFilter` / `resolveAccess` /");
+    console.error(
+      "`assertAccess` and do NOT filter by `ownerEmail` / `userEmail` /",
+    );
+    console.error("`orgId` in their WHERE clause (or in the enclosing block).");
+    console.error("That is how the slides leak happened on 2026-04-28 —");
+    console.error("anyone signing in saw every other user's decks. Same");
+    console.error(
+      "class of bug for inserts that don't set ownerEmail from the",
+    );
+    console.error("request context.");
+    console.error("");
+    for (const v of violations) {
+      console.error(`  ${v.file}`);
+      for (const hit of v.hits) {
+        console.error(
+          `    line ${hit.line}: unscoped ${hit.op} on "${hit.name}" (${hit.kind})`,
+        );
+      }
+      console.error("");
+    }
+  }
+
+  if (mentionViolations.length > 0) {
+    console.error(
+      "These mentionProviders search closures query an ownable table",
+    );
+    console.error(
+      "without `accessFilter` / `resolveAccess` / `assertAccess` /",
+    );
+    console.error(
+      "`getRequestUserEmail` / `getCurrentOwnerEmail` / explicit owner filter.",
+    );
+    console.error(
+      "mentionProviders run in a shared server context — every user who",
+    );
+    console.error("types `@` in the chat would see rows owned by other users.");
+    console.error("");
+    for (const v of mentionViolations) {
       console.error(
-        `    line ${hit.line}: unscoped ${hit.op} on "${hit.name}" (${hit.kind})`,
+        `  ${v.file}  line ${v.line}: unscoped select on "${v.table}" in ${v.context}`,
       );
     }
     console.error("");
   }
+
   console.error(bar);
   console.error("Fix:");
   console.error("");
@@ -891,10 +1110,14 @@ if (violations.length > 0) {
     "    wrap the call with `runWithRequestContext({ userEmail, orgId },",
   );
   console.error("    fn)` after reading the session via `getSession(event)`.");
+  console.error("  - mentionProviders search closures: use accessFilter() or");
+  console.error(
+    "    eq(table.ownerEmail, getCurrentOwnerEmail()) in the WHERE clause.",
+  );
   console.error("");
   console.error("  Last-resort opt-out (requires reviewer approval):");
   console.error("    // guard:allow-unscoped — explain why this is safe");
-  console.error("    (place inside the enclosing block, or as a file header)");
+  console.error("    (place inside the search closure, or as a file header)");
   console.error(`${bar}\n`);
   process.exit(1);
 }

@@ -433,6 +433,7 @@ export default function App() {
               appConfig={app}
               isActive={isActive}
               refreshKey={isActive ? refreshKey : 0}
+              onAppsChanged={handleAppsChanged}
             />
           ))}
         </div>

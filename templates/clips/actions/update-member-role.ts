@@ -14,7 +14,13 @@ import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { z } from "zod";
 import { requireActiveOrganizationId } from "../server/lib/recordings.js";
 
-const ClipsRoleEnum = z.enum(["viewer", "creator-lite", "creator", "admin"]);
+const ClipsRoleEnum = z.enum([
+  "viewer",
+  "creator-lite",
+  "creator",
+  "member",
+  "admin",
+]);
 
 function mapRole(role: z.infer<typeof ClipsRoleEnum>): "admin" | "member" {
   return role === "admin" ? "admin" : "member";

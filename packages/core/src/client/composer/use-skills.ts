@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import type { SkillResult } from "./types.js";
+import { agentNativePath } from "../api-path.js";
 
 export function useSkills(enabled: boolean) {
   const [skills, setSkills] = useState<SkillResult[]>([]);
@@ -15,7 +16,7 @@ export function useSkills(enabled: boolean) {
     setIsLoading(true);
     const id = ++requestIdRef.current;
 
-    fetch("/_agent-native/agent-chat/skills")
+    fetch(agentNativePath("/_agent-native/agent-chat/skills"))
       .then((res) => {
         if (!res.ok) throw new Error();
         return res.json();

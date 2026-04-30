@@ -80,6 +80,7 @@ import {
   useCreateBookingLink,
   useDeleteBookingLink,
   useUpdateBookingLink,
+  OPTIMISTIC_PREFIX,
 } from "@/hooks/use-booking-links";
 import {
   useAvailability,
@@ -414,6 +415,11 @@ export default function BookingLinksPage({
 
   async function handleSave() {
     if (!draft.id) return;
+    // Optimistic row hasn't resolved to a real ID yet — wait for it
+    if (draft.id.startsWith(OPTIMISTIC_PREFIX)) {
+      toast.error("Still creating — please try again in a moment");
+      return;
+    }
     try {
       await updateBookingLink.mutateAsync({
         id: draft.id,
@@ -482,8 +488,12 @@ export default function BookingLinksPage({
                 resourceId={selectedLink.id}
                 resourceTitle={selectedLink.title}
               />
-              <Button type="button" onClick={handleSave}>
-                Save changes
+              <Button
+                type="button"
+                onClick={handleSave}
+                disabled={updateBookingLink.isPending}
+              >
+                {updateBookingLink.isPending ? "Saving…" : "Save changes"}
               </Button>
             </div>
           )}

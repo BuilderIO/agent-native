@@ -54,6 +54,26 @@ export function getOrigin(event: H3Event): string {
   return `${proto}://${host}`;
 }
 
+function normalizeAppBasePath(value: string | undefined): string {
+  if (!value || value === "/") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+/** App mount prefix, if the template is served under APP_BASE_PATH. */
+export function getAppBasePath(): string {
+  return normalizeAppBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
+}
+
+/** Build an absolute same-origin URL that preserves APP_BASE_PATH. */
+export function getAppUrl(event: H3Event, path = "/"): string {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  return `${getOrigin(event)}${getAppBasePath()}${cleanPath}`;
+}
+
 // ─── OAuth State ─────────────────────────────────────────────────────────────
 
 export interface OAuthStatePayload {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { agentNativePath } from "./api-path.js";
 
 interface QueryClient {
   invalidateQueries(opts?: { queryKey?: string[] }): void;
@@ -35,7 +36,7 @@ export function useDbSync(
   const {
     queryClient,
     queryKeys = ["data"],
-    pollUrl = options.eventsUrl ?? "/_agent-native/poll",
+    pollUrl = agentNativePath(options.eventsUrl ?? "/_agent-native/poll"),
     interval = 2000,
   } = options;
 
@@ -136,7 +137,10 @@ export const useFileWatcher = useDbSync;
 export function useScreenRefreshKey(
   options: { pollUrl?: string; interval?: number } = {},
 ): number {
-  const { pollUrl = "/_agent-native/poll", interval = 2000 } = options;
+  const {
+    pollUrl = agentNativePath(options.pollUrl ?? "/_agent-native/poll"),
+    interval = 2000,
+  } = options;
   const [key, setKey] = useState(0);
 
   useEffect(() => {

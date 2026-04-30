@@ -31,10 +31,7 @@ export default defineEventHandler(async (event: H3Event) => {
     }
 
     // Read the current registry file
-    const registryPath = path.join(
-      process.cwd(),
-      "client/remotion/registry.ts",
-    );
+    const registryPath = path.join(process.cwd(), "app/remotion/registry.ts");
     let registryContent = await fs.readFile(registryPath, "utf-8");
 
     // Format tracks and props

@@ -28,12 +28,16 @@ import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 import finalizeCall from "../../../../../actions/finalize-call.js";
+import requestTranscript from "../../../../../actions/request-transcript.js";
 
 interface CompleteBody {
   durationMs?: number;
   width?: number;
   height?: number;
   mimeType?: string;
+  mediaUrl?: string | null;
+  mediaFormat?: string | null;
+  sizeBytes?: number;
 }
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -66,6 +70,53 @@ export default defineEventHandler(async (event: H3Event) => {
       )) as CompleteBody | null;
 
       try {
+        if (typeof body?.mediaUrl === "string" && body.mediaUrl.trim()) {
+          const db = getDb();
+          const now = new Date().toISOString();
+          await db
+            .update(schema.calls)
+            .set({
+              status: "processing",
+              mediaUrl: body.mediaUrl.trim(),
+              mediaFormat:
+                typeof body.mediaFormat === "string" && body.mediaFormat
+                  ? body.mediaFormat
+                  : undefined,
+              mediaSizeBytes:
+                typeof body.sizeBytes === "number" ? body.sizeBytes : undefined,
+              durationMs:
+                typeof body.durationMs === "number"
+                  ? body.durationMs
+                  : undefined,
+              width: typeof body.width === "number" ? body.width : undefined,
+              height: typeof body.height === "number" ? body.height : undefined,
+              progressPct: 100,
+              updatedAt: now,
+            })
+            .where(eq(schema.calls.id, callId));
+
+          await writeAppState(`call-upload-${callId}`, {
+            callId,
+            status: "processing",
+            progress: 100,
+            mediaUrl: body.mediaUrl.trim(),
+            finishedAt: now,
+          });
+          await writeAppState("refresh-signal", { ts: Date.now() });
+          try {
+            await requestTranscript.run({ callId });
+          } catch (err) {
+            console.warn("[calls] request-transcript failed:", err);
+          }
+          return {
+            ok: true,
+            finalized: true,
+            id: callId,
+            status: "processing",
+            mediaUrl: body.mediaUrl.trim(),
+          };
+        }
+
         const result = await finalizeCall.run({
           id: callId,
           durationMs:

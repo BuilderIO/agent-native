@@ -1,9 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { getAccessTokens } from "./helpers.js";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
   gmailGetMessage,
   gmailModifyThread,
 } from "../server/lib/google-api.js";
+import { isConnected } from "../server/lib/google-auth.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -24,6 +27,24 @@ export default defineAction({
 
     if (!ids || ids.length === 0) {
       return "Error: --id is required";
+    }
+
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
+    if (!(await isConnected(ownerEmail))) {
+      const data = await getUserSetting(ownerEmail, "local-emails");
+      const emails =
+        data && Array.isArray((data as any).emails) ? (data as any).emails : [];
+      const idSet = new Set(ids);
+      let changed = 0;
+      const updated = emails.map((email: any) => {
+        if (!idSet.has(email.id)) return email;
+        changed++;
+        return { ...email, isArchived: true };
+      });
+      await putUserSetting(ownerEmail, "local-emails", { emails: updated });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return `Archived ${changed}/${ids.length} email(s) successfully`;
     }
 
     const accounts = await getAccessTokens();

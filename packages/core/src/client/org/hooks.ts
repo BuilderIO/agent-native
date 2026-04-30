@@ -4,8 +4,9 @@ import type {
   OrgMember,
   OrgPendingInvitation,
 } from "../../org/types.js";
+import { agentNativePath } from "../api-path.js";
 
-const ORG_BASE = "/_agent-native/org";
+const ORG_BASE = agentNativePath("/_agent-native/org");
 
 async function apiFetch(path: string, init?: RequestInit) {
   const res = await fetch(path, {

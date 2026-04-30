@@ -251,6 +251,15 @@ export default function PresentationView({
           e.preventDefault();
           goPrev();
           break;
+        case "f":
+        case "F":
+          e.preventDefault();
+          if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          } else {
+            document.exitFullscreen().catch(() => {});
+          }
+          break;
         case "Escape":
           if (!document.fullscreenElement) {
             exit();

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { addBytesProcessed } from "./cost-tracker";
 import { getIdToken } from "./auth";
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
+import { appApiPath } from "@agent-native/core/client";
 
 export interface SqlQueryResult {
   rows: Record<string, unknown>[];
@@ -14,7 +15,7 @@ export async function executeSqlQuery(
   source: DataSourceType,
 ): Promise<SqlQueryResult> {
   const token = await getIdToken();
-  const res = await fetch("/api/sql-query", {
+  const res = await fetch(appApiPath("/api/sql-query"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

@@ -159,6 +159,8 @@ export {
   isElectron,
   isMobile,
   getOrigin,
+  getAppBasePath,
+  getAppUrl,
   encodeOAuthState,
   decodeOAuthState,
   resolveOAuthOwner,

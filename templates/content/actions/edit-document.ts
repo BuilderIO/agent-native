@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+import "../server/db/index.js";
 
 interface TextEdit {
   find: string;

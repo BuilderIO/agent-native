@@ -54,6 +54,7 @@ export type CompositionEntry = {
   height: number;
   defaultProps: Record<string, any>;
   tracks: AnimationTrack[];
+  storage?: "registry" | "database";
   /**
    * Version number for this composition's data structure.
    * Increment this when you make changes to tracks/props that should

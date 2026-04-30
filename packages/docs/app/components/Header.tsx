@@ -8,6 +8,7 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
+      aria-label="Search docs"
       className="flex items-center gap-2 rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)]"
     >
       <svg
@@ -183,6 +184,7 @@ export default function Header() {
               onClick={() =>
                 window.dispatchEvent(new Event("agent-panel:toggle"))
               }
+              aria-label="Ask the AI assistant"
               className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
               title="Ask the AI assistant"
             >

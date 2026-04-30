@@ -23,10 +23,10 @@ Resources are SQL-backed persistent files for storing notes, learnings, and cont
 
 | Action            | Args                                           | Purpose                 |
 | ----------------- | ---------------------------------------------- | ----------------------- |
-| `resource-read`   | `--name <name> [--scope personal\|shared]`     | Read a resource         |
-| `resource-write`  | `--name <name> --content <text> [--scope ...]` | Write/update a resource |
+| `resource-read`   | `--path <path> [--scope personal\|shared]`     | Read a resource         |
+| `resource-write`  | `--path <path> --content <text> [--scope ...]` | Write/update a resource |
 | `resource-list`   | `[--scope personal\|shared]`                   | List all resources      |
-| `resource-delete` | `--name <name> [--scope personal\|shared]`     | Delete a resource       |
+| `resource-delete` | `--path <path> [--scope personal\|shared]`     | Delete a resource       |
 
 ## Application State
 
@@ -163,23 +163,39 @@ cd templates/videos && pnpm action <name> [args]
 
 ### Actions
 
-| Action                        | Args                                    | Purpose                        |
-| ----------------------------- | --------------------------------------- | ------------------------------ |
-| `view-screen`                 |                                         | See current UI state + context |
-| `navigate`                    | `--compositionId <id>` or `--view home` | Navigate the UI                |
-| `create-composition`          | `--id <id> --title "..."`               | Create a new composition       |
-| `generate-animated-component` | `--name <name> --description "..."`     | Generate an animated component |
-| `validate-compositions`       |                                         | Validate all compositions      |
+| Action                        | Args                                                                         | Purpose                               |
+| ----------------------------- | ---------------------------------------------------------------------------- | ------------------------------------- |
+| `view-screen`                 |                                                                              | See current UI state + context        |
+| `navigate`                    | `--compositionId <id>` or `--view home`                                      | Navigate the UI                       |
+| `list-compositions`           | `[--compact]`                                                                | List all compositions                 |
+| `get-composition`             | `--id <id>`                                                                  | Get a composition with tracks         |
+| `save-composition`            | `--id <id> --title "..." --type <type> [--data '<json>']`                    | Create or update a composition        |
+| `update-composition`          | `--id <id> [--title "..."] [--type <type>] [--data '<json>']`                | Update composition fields             |
+| `delete-composition`          | `--id <id>`                                                                  | Delete a composition                  |
+| `generate-animated-component` | `--name <name> [--elements A,B]`                                             | Generate an animated component        |
+| `validate-compositions`       |                                                                              | Validate all compositions             |
+| `import-code`                 | `--files '[{\"filename\":\"...\",\"content\":\"...\"}]'`                     | Analyze uploaded code files           |
+| `import-from-url`             | `--url <url>`                                                                | Import content from a URL             |
+| `import-document`             | `--files '[{\"filename\":\"...\",\"fileType\":\".pdf\",\"sizeBytes\":123}]'` | Analyze uploaded document metadata    |
+| `import-design-project`       | `--designSystemId <id>`                                                      | Import from a design system           |
+| `import-github`               | `--repoUrl <org/repo-or-url>`                                                | Import from a GitHub repository       |
+| `create-design-system`        | `--title "X" [--description "..."] --data '<json>' [--assets '<json>']`      | Create a new design system            |
+| `update-design-system`        | `--id <id> [--title "X"] [--data '<json>'] [--assets '<json>']`              | Update design system tokens           |
+| `get-design-system`           | `--id <id>`                                                                  | Get design system with all tokens     |
+| `list-design-systems`         | `[--compact]`                                                                | List all accessible design systems    |
+| `set-default-design-system`   | `--id <id>`                                                                  | Set one as the default                |
+| `apply-design-system`         | `--compositionId <id> --designSystemId <id>`                                 | Link a design system to a composition |
+| `analyze-brand-assets`        | `[--websiteUrl "..."] [--companyName "..."] [--brandNotes "..."]`            | Gather brand data for analysis        |
 
 ### Common Tasks
 
-| User request                     | What to do                                                             |
-| -------------------------------- | ---------------------------------------------------------------------- |
-| "What am I looking at?"          | `pnpm action view-screen`                                              |
-| "Create a new composition"       | `pnpm action create-composition --id my-comp --title "..."`            |
-| "Open the logo reveal"           | `pnpm action navigate --compositionId=logo-reveal`                     |
-| "Go back to the studio"          | `pnpm action navigate --view=home`                                     |
-| "Generate an animated component" | `pnpm action generate-animated-component --name X --description "..."` |
+| User request                     | What to do                                                                |
+| -------------------------------- | ------------------------------------------------------------------------- |
+| "What am I looking at?"          | `pnpm action view-screen`                                                 |
+| "Create a new composition"       | `pnpm action save-composition --id my-comp --title "..." --type custom`   |
+| "Open the logo reveal"           | `pnpm action navigate --compositionId=logo-reveal`                        |
+| "Go back to the studio"          | `pnpm action navigate --view=home`                                        |
+| "Generate an animated component" | `pnpm action generate-animated-component --name X --elements Button,Card` |
 
 ## Sharing
 

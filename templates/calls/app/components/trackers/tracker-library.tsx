@@ -7,7 +7,7 @@ import {
   IconBrain,
   IconEdit,
   IconTrash,
-  IconSparkles,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -154,7 +154,7 @@ export function TrackerLibrary({
 
       {hasDefaults && (
         <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
-          <IconSparkles className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+          <IconInfoCircle className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
           <p className="text-muted-foreground">
             We added 7 default trackers to get you started. Edit, disable, or
             delete them to fit your team.

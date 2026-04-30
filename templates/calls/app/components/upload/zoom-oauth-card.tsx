@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import {
+  appPath,
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   IconBrandZoom,
@@ -114,7 +118,7 @@ export function ZoomOauthCard() {
       setRecordingId("");
       qc.invalidateQueries({ queryKey: ["action", "list-calls"] });
       if (res?.callId) {
-        window.location.href = `/calls/${res.callId}`;
+        window.location.href = appPath(`/calls/${res.callId}`);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Import failed");

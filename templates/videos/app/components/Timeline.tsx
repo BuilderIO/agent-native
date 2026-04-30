@@ -869,7 +869,6 @@ export function Timeline({
                       size={12}
                       style={{
                         color: isSelected ? CAMERA_COLOR : `${CAMERA_COLOR}99`,
-                        transition: "color 0.15s ease",
                       }}
                     />
                   ) : isCursor ? (
@@ -878,7 +877,6 @@ export function Timeline({
                       size={12}
                       style={{
                         color: isSelected ? CURSOR_COLOR : `${CURSOR_COLOR}99`,
-                        transition: "color 0.15s ease",
                       }}
                     />
                   ) : isExpr ? (
@@ -887,15 +885,13 @@ export function Timeline({
                       style={{
                         backgroundColor: `${EXPR_COLOR}${isSelected ? "30" : "18"}`,
                         color: isSelected ? EXPR_COLOR : `${EXPR_COLOR}99`,
-                        transition:
-                          "background-color 0.15s ease, color 0.15s ease",
                       }}
                     >
                       fx
                     </span>
                   ) : isKeyframeTrack ? (
                     <div
-                      className="w-2 h-2 rotate-45 flex-shrink-0 transition-opacity duration-150"
+                      className="w-2 h-2 rotate-45 flex-shrink-0"
                       style={{
                         backgroundColor: colors.text,
                         opacity: isSelected ? 1 : 0.5,
@@ -903,7 +899,7 @@ export function Timeline({
                     />
                   ) : (
                     <div
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0 transition-opacity duration-150"
+                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                       style={{
                         backgroundColor: colors.text,
                         opacity: isSelected ? 1 : 0.5,
@@ -912,7 +908,7 @@ export function Timeline({
                   )}
                   <span
                     className={cn(
-                      "text-[10px] transition-colors duration-150 min-w-0",
+                      "text-[10px] min-w-0",
                       isSelected ? "" : "text-muted-foreground/55",
                     )}
                     style={{
@@ -1469,10 +1465,7 @@ export function Timeline({
                           }
                         >
                           <div
-                            className={cn(
-                              "w-2 h-2 rotate-45 transition-transform relative",
-                              !isPlaying && "group-hover:scale-125",
-                            )}
+                            className={cn("w-2 h-2 rotate-45 relative")}
                             style={{
                               // Different styles for cursor keyframes based on what changed
                               backgroundColor: selected
@@ -1670,8 +1663,7 @@ export function Timeline({
                     <div
                       className={cn(
                         "absolute top-1/2 -translate-y-1/2 -translate-x-1/2",
-                        "w-2 h-2 rotate-45 cursor-pointer transition-all",
-                        !isPlaying && "hover:scale-125",
+                        "w-2 h-2 rotate-45 cursor-pointer",
                       )}
                       style={{
                         left: `${keyframePos}%`,
@@ -1773,7 +1765,6 @@ export function Timeline({
                         isSelected ? colors.activeBorder : colors.border
                       }`,
                       opacity: isSelected ? 1 : 0.65,
-                      transition: "opacity 0.15s ease, border-color 0.15s ease",
                       boxShadow: isSelected
                         ? `0 0 0 1px ${colors.activeBorder}22, 0 2px 8px ${colors.activeBorder}20`
                         : "none",

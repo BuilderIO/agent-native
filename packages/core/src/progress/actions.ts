@@ -15,6 +15,12 @@ import {
   listRuns,
 } from "./registry.js";
 
+function parseLimit(value: unknown, fallback = 20): number {
+  const n = Number(value ?? fallback);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), 200);
+}
+
 export function createProgressToolEntries(
   getCurrentUser: () => string,
 ): Record<string, ActionEntry> {
@@ -125,6 +131,9 @@ Actions:
             if (!runId || !status) {
               return "Error: runId and status are required for the complete action.";
             }
+            if (!["succeeded", "failed", "cancelled"].includes(status)) {
+              return 'Error: status must be "succeeded", "failed", or "cancelled".';
+            }
             const run = await completeRun(
               runId,
               owner,
@@ -138,7 +147,7 @@ Actions:
           case "list": {
             const rows = await listRuns(owner, {
               activeOnly: args.active === true || args.active === "true",
-              limit: Math.min(Number(args.limit ?? 20), 200),
+              limit: parseLimit(args.limit),
             });
             if (rows.length === 0) {
               return args.active ? "No active runs." : "No runs.";

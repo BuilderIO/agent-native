@@ -8,6 +8,7 @@ import {
 import { getFrameOrigin } from "./frame.js";
 import { cn } from "./utils.js";
 import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
+import { agentNativePath } from "./api-path.js";
 
 interface EngineModelGroup {
   engine: string;
@@ -292,7 +293,7 @@ export function MultiTabAssistantChat({
   renderHeader,
   renderOverlay,
   contentHidden = false,
-  apiUrl = "/_agent-native/agent-chat",
+  apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
   ...props
 }: MultiTabAssistantChatProps) {
@@ -347,15 +348,15 @@ export function MultiTabAssistantChat({
 
   const refreshEngines = useCallback(() => {
     Promise.all([
-      fetch("/_agent-native/actions/manage-agent-engine", {
+      fetch(agentNativePath("/_agent-native/actions/manage-agent-engine"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "list" }),
       }).then((r) => (r.ok ? r.json() : null)),
-      fetch("/_agent-native/env-status")
+      fetch(agentNativePath("/_agent-native/env-status"))
         .then((r) => (r.ok ? r.json() : []))
         .catch(() => []),
-      fetch("/_agent-native/builder/status")
+      fetch(agentNativePath("/_agent-native/builder/status"))
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
     ])
@@ -1001,7 +1002,7 @@ export function MultiTabAssistantChat({
       if (stopped) return;
       try {
         const res = await fetch(
-          "/_agent-native/application-state/chat-command",
+          agentNativePath("/_agent-native/application-state/chat-command"),
         );
         if (res.ok) {
           const data = await res.json();
@@ -1018,9 +1019,12 @@ export function MultiTabAssistantChat({
             }
             switchThread(threadId);
             // Clear the command
-            fetch("/_agent-native/application-state/chat-command", {
-              method: "DELETE",
-            }).catch(() => {});
+            fetch(
+              agentNativePath("/_agent-native/application-state/chat-command"),
+              {
+                method: "DELETE",
+              },
+            ).catch(() => {});
           }
         }
       } catch {}
@@ -1208,9 +1212,18 @@ export function MultiTabAssistantChat({
                             )}
                             <span
                               role="button"
+                              tabIndex={0}
+                              aria-label="Close tab"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 closeTab(tab.id);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  closeTab(tab.id);
+                                }
                               }}
                               className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
                               style={{
@@ -1289,9 +1302,18 @@ export function MultiTabAssistantChat({
                             )}
                             <span
                               role="button"
+                              tabIndex={0}
+                              aria-label="Close tab"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 closeTab(tab.id);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  closeTab(tab.id);
+                                }
                               }}
                               className="agent-tab-close flex items-center justify-end text-muted-foreground hover:!text-foreground"
                               style={{

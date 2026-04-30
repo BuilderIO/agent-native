@@ -7,7 +7,15 @@ import { z } from "zod";
 import { eq, and, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db, schema } from "../server/db/index.js";
+import migrateDb from "../server/plugins/db.js";
 import type { AgentNote } from "@shared/types";
+
+let migrationPromise: Promise<void> | null = null;
+
+async function ensureSchema() {
+  migrationPromise ??= Promise.resolve(migrateDb({}));
+  await migrationPromise;
+}
 
 function getContext() {
   const email = getRequestUserEmail();
@@ -98,6 +106,8 @@ export default defineAction({
     id: z.string().optional().describe("Note ID (for delete)"),
   }),
   run: async (args) => {
+    await ensureSchema();
+
     switch (args.action) {
       case "create": {
         if (!args.candidateId || !args.content || !args.type) {

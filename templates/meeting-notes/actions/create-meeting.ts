@@ -8,6 +8,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -95,12 +96,25 @@ export default defineAction({
 
     // Add attendees if provided
     if (args.attendees?.length) {
+      const seenPeople = new Set<string>();
       for (const attendee of args.attendees) {
+        const email = attendee.email?.trim().toLowerCase() || null;
+        const personId = email
+          ? await upsertPersonForAttendee({
+              organizationId,
+              name: attendee.name,
+              email,
+              seenAt: args.startTime ?? now,
+              seenPeople,
+            })
+          : null;
+
         await db.insert(schema.meetingAttendees).values({
           id: nanoid(),
           meetingId: id,
+          personId,
           name: attendee.name,
-          email: attendee.email ?? null,
+          email,
           role: attendee.role ?? "required",
         });
       }
@@ -119,3 +133,110 @@ export default defineAction({
     };
   },
 });
+
+async function upsertPersonForAttendee({
+  organizationId,
+  name,
+  email,
+  seenAt,
+  seenPeople,
+}: {
+  organizationId: string;
+  name: string;
+  email: string;
+  seenAt: string;
+  seenPeople: Set<string>;
+}): Promise<string> {
+  const db = getDb();
+  const domain = email.split("@")[1]?.trim().toLowerCase() || null;
+  const companyId = domain
+    ? await upsertCompanyForDomain(organizationId, domain)
+    : null;
+  const now = new Date().toISOString();
+
+  const [existing] = await db
+    .select()
+    .from(schema.people)
+    .where(
+      and(
+        eq(schema.people.organizationId, organizationId),
+        eq(schema.people.email, email),
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(schema.people)
+      .set({
+        name: existing.name || name,
+        companyId: existing.companyId ?? companyId,
+        lastSeenAt: seenAt,
+        meetingCount: seenPeople.has(email)
+          ? existing.meetingCount
+          : existing.meetingCount + 1,
+        updatedAt: now,
+      })
+      .where(eq(schema.people.id, existing.id));
+    seenPeople.add(email);
+    return existing.id;
+  }
+
+  const id = nanoid();
+  await db.insert(schema.people).values({
+    id,
+    organizationId,
+    name,
+    email,
+    companyId,
+    title: null,
+    avatarUrl: null,
+    lastSeenAt: seenAt,
+    meetingCount: seenPeople.has(email) ? 0 : 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  seenPeople.add(email);
+  return id;
+}
+
+async function upsertCompanyForDomain(
+  organizationId: string,
+  domain: string,
+): Promise<string> {
+  const db = getDb();
+  const [existing] = await db
+    .select()
+    .from(schema.companies)
+    .where(
+      and(
+        eq(schema.companies.organizationId, organizationId),
+        eq(schema.companies.domain, domain),
+      ),
+    )
+    .limit(1);
+
+  if (existing) return existing.id;
+
+  const id = nanoid();
+  const now = new Date().toISOString();
+  await db.insert(schema.companies).values({
+    id,
+    organizationId,
+    name: companyNameFromDomain(domain),
+    domain,
+    logoUrl: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
+function companyNameFromDomain(domain: string): string {
+  const base = domain.split(".")[0] || domain;
+  return base
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}

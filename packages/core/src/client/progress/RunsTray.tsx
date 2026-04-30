@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { IconLoader2, IconCheck, IconX, IconClock } from "@tabler/icons-react";
 import { usePausingInterval } from "../use-pausing-interval.js";
@@ -33,7 +34,9 @@ export function RunsTray({
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(`/_agent-native/runs?active=true&limit=${limit}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/runs?active=true&limit=${limit}`),
+      );
       if (!res.ok) return;
       const rows = (await res.json()) as AgentRunDto[];
       setRuns(rows);

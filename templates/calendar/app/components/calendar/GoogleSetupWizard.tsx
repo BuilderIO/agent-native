@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { agentNativePath } from "@agent-native/core/client";
 
 interface EnvKeyStatus {
   key: string;
@@ -60,11 +61,11 @@ export function GoogleSetupWizard() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const redirectUri = `${typeof window !== "undefined" ? window.location.origin : ""}/_agent-native/google/callback`;
+  const redirectUri = `${typeof window !== "undefined" ? window.location.origin : ""}${agentNativePath("/_agent-native/google/callback")}`;
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch("/_agent-native/env-status");
+      const res = await fetch(agentNativePath("/_agent-native/env-status"));
       if (res.ok) {
         const data: EnvKeyStatus[] = await res.json();
         setEnvStatus(data);
@@ -103,7 +104,7 @@ export function GoogleSetupWizard() {
         throw new Error("Could not find client_id and client_secret in JSON");
       }
 
-      const res = await fetch("/api/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -137,7 +138,7 @@ export function GoogleSetupWizard() {
     setError(null);
 
     try {
-      const res = await fetch("/_agent-native/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

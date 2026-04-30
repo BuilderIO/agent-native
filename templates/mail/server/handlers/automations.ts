@@ -106,7 +106,12 @@ export const updateAutomation = defineEventHandler(async (event) => {
   const [updated] = await db
     .select()
     .from(schema.automationRules)
-    .where(eq(schema.automationRules.id, id));
+    .where(
+      and(
+        eq(schema.automationRules.id, id),
+        eq(schema.automationRules.ownerEmail, ownerEmail),
+      ),
+    );
 
   if (!updated) throw new Error("Rule not found");
   return toApiRule(updated);
@@ -140,8 +145,8 @@ export const deleteAutomation = defineEventHandler(async (event) => {
 
 export const triggerAutomations = defineEventHandler(async (event) => {
   const session = await getSession(event);
-  if (!session) {
+  if (!session?.email) {
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
-  return triggerAutomationsDebounced();
+  return triggerAutomationsDebounced(session.email);
 });

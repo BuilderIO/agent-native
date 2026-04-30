@@ -15,6 +15,10 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { getVideoProvider } from "../server/providers/registry.js";
 
+function badRequest(message: string): Error & { statusCode: number } {
+  return Object.assign(new Error(message), { statusCode: 400 });
+}
+
 export default defineAction({
   description: "Start the OAuth flow for a video conferencing provider",
   schema: z.object({
@@ -24,10 +28,10 @@ export default defineAction({
   run: async (args) => {
     const provider = getVideoProvider(args.kind);
     if (!provider) {
-      throw new Error(`No video provider registered for ${args.kind}`);
+      throw badRequest(`No video provider registered for ${args.kind}`);
     }
     if (!provider.startOAuth) {
-      throw new Error(
+      throw badRequest(
         `Video provider ${args.kind} does not support OAuth — install it with 'install-conferencing-app' instead`,
       );
     }

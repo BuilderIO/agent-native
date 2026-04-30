@@ -83,8 +83,18 @@ export function flushTracking(): Promise<void[]> {
     if (!provider.flush) continue;
     try {
       const result = provider.flush();
-      if (result) promises.push(result);
-    } catch {
+      if (result) {
+        promises.push(
+          result.catch((err) => {
+            console.error(
+              `[tracking] Provider "${provider.name}" flush rejected:`,
+              err,
+            );
+          }),
+        );
+      }
+    } catch (err) {
+      console.error(`[tracking] Provider "${provider.name}" flush threw:`, err);
       // best-effort
     }
   }

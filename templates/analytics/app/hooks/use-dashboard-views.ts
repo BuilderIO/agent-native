@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getIdToken } from "@/lib/auth";
+import { appApiPath } from "@agent-native/core/client";
 
 export interface DashboardView {
   id: string;
@@ -11,7 +12,7 @@ export interface DashboardView {
 
 async function fetchWithAuth(url: string, options?: RequestInit) {
   const token = await getIdToken();
-  return fetch(url, {
+  return fetch(appApiPath(url), {
     ...options,
     headers: {
       "Content-Type": "application/json",

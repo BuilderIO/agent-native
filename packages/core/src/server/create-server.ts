@@ -193,12 +193,12 @@ export function createServer(
         setResponseHeader(
           event,
           "Access-Control-Allow-Methods",
-          "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+          "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
         );
         setResponseHeader(
           event,
           "Access-Control-Allow-Headers",
-          "Content-Type,Authorization,X-Requested-With",
+          "Content-Type,Authorization,X-Requested-With,X-Request-Source",
         );
 
         if (getMethod(event) === "OPTIONS") {

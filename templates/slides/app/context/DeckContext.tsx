@@ -8,6 +8,7 @@ import {
   ReactNode,
 } from "react";
 import { nanoid } from "nanoid";
+import { appBasePath } from "@agent-native/core/client";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 export type SlideLayout =
@@ -79,6 +80,19 @@ interface DeckContextType {
   decks: Deck[];
   loading: boolean;
   createDeck: (title?: string, options?: { noDefaultSlides?: boolean }) => Deck;
+  /**
+   * Optimistically duplicate a deck. Inserts a copy into local state with the
+   * supplied `newId` immediately so the UI can navigate without awaiting the
+   * server, then fires the duplicate-deck action in the background. On error,
+   * the optimistic deck is rolled back.
+   *
+   * Returns the optimistic deck (or `null` if the source deck isn't found).
+   */
+  duplicateDeck: (
+    sourceDeckId: string,
+    newId: string,
+    title?: string,
+  ) => Deck | null;
   deleteDeck: (id: string) => void;
   updateDeck: (
     id: string,
@@ -121,7 +135,7 @@ function saveDeckToAPI(deck: Deck) {
   const timer = setTimeout(async () => {
     pendingSaves.delete(deck.id);
     try {
-      await fetch(`/api/decks/${deck.id}`, {
+      await fetch(`${appBasePath()}/api/decks/${deck.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(deck),
@@ -135,7 +149,7 @@ function saveDeckToAPI(deck: Deck) {
 
 async function fetchDecksFromAPI(): Promise<Deck[]> {
   try {
-    const res = await fetch("/api/decks");
+    const res = await fetch(`${appBasePath()}/api/decks`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -146,7 +160,7 @@ async function fetchDecksFromAPI(): Promise<Deck[]> {
 
 async function deleteDeckFromAPI(id: string): Promise<void> {
   try {
-    await fetch(`/api/decks/${id}`, { method: "DELETE" });
+    await fetch(`${appBasePath()}/api/decks/${id}`, { method: "DELETE" });
   } catch (err) {
     console.error(`Failed to delete deck ${id}:`, err);
   }
@@ -154,7 +168,7 @@ async function deleteDeckFromAPI(id: string): Promise<void> {
 
 async function createDeckOnAPI(deck: Deck): Promise<void> {
   try {
-    await fetch("/api/decks", {
+    await fetch(`${appBasePath()}/api/decks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(deck),
@@ -290,7 +304,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         const currentOpenId = readOpenDeckId();
         if (currentOpenId && !pending.has(currentOpenId)) {
           try {
-            const res = await fetch(`/api/decks/${currentOpenId}`);
+            const res = await fetch(
+              `${appBasePath()}/api/decks/${currentOpenId}`,
+            );
             if (res.ok) {
               const serverDeck = (await res.json()) as Deck;
               const clientDeck = decks.find((d) => d.id === currentOpenId);
@@ -328,7 +344,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   // Listen for file changes via SSE (so agent edits show up in real-time)
   useEffect(() => {
-    const evtSource = new EventSource("/api/decks/events");
+    const evtSource = new EventSource(`${appBasePath()}/api/decks/events`);
     evtSource.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
@@ -337,7 +353,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           setDecks((prev) => prev.filter((d) => d.id !== data.deckId));
         } else if (data.type === "deck-changed" && data.deckId) {
           // Refetch the changed deck from the API
-          const res = await fetch(`/api/decks/${data.deckId}`);
+          const res = await fetch(`${appBasePath()}/api/decks/${data.deckId}`);
           if (!res.ok) return;
           const updated = await res.json();
           lastExternalUpdateRef.current = Date.now(); // Suppress save-back
@@ -492,6 +508,62 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [setDecksWithHistory],
   );
 
+  const duplicateDeck = useCallback(
+    (sourceDeckId: string, newId: string, title?: string): Deck | null => {
+      const source = decks.find((d) => d.id === sourceDeckId);
+      if (!source) return null;
+
+      const now = new Date().toISOString();
+      const newTitle = title || `Copy of ${source.title}`;
+      // Re-id slides so optimistic edits to the copy don't collide with the
+      // original. The server does the same thing — these client ids will be
+      // replaced by server-generated ones once the duplicate action lands and
+      // the next poll/SSE refresh syncs the row.
+      const optimistic: Deck = {
+        ...(JSON.parse(JSON.stringify(source)) as Deck),
+        id: newId,
+        title: newTitle,
+        createdAt: now,
+        updatedAt: now,
+        // Visibility/share state doesn't carry over to a fresh copy — server
+        // creates the new row owned by the current user, private by default.
+        visibility: "private",
+        shareToken: undefined,
+      };
+      optimistic.slides = optimistic.slides.map((s) => ({
+        ...s,
+        id: nanoid(8),
+      }));
+
+      // Track as pending so the poll doesn't wipe the optimistic deck before
+      // the duplicate-deck action's INSERT lands.
+      pendingCreateIdsRef.current.add(newId);
+
+      // Fire the action in the background. On error, roll back.
+      fetch(`${appBasePath()}/_agent-native/actions/duplicate-deck`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deckId: sourceDeckId, newId, title }),
+      })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.json();
+        })
+        .catch((err) => {
+          console.error("Duplicate failed:", err);
+          // Roll back: drop the optimistic deck from local state.
+          setDecks((prev) => prev.filter((d) => d.id !== newId));
+        })
+        .finally(() => {
+          pendingCreateIdsRef.current.delete(newId);
+        });
+
+      setDecksWithHistory("Duplicate deck", (prev) => [...prev, optimistic]);
+      return optimistic;
+    },
+    [decks, setDecksWithHistory],
+  );
+
   const deleteDeck = useCallback(
     (id: string) => {
       deleteDeckFromAPI(id);
@@ -505,6 +577,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const updateDeck = useCallback(
     (id: string, updates: Partial<Omit<Deck, "id" | "createdAt">>) => {
       // Don't push history for title changes (too noisy)
+      // Clear the external-update suppression window so a rename/update that
+      // happens within 2s of page load (or an SSE event) is not silently dropped.
+      lastExternalUpdateRef.current = 0;
       setDecks((prev) =>
         prev.map((d) =>
           d.id === id
@@ -641,6 +716,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         decks,
         loading,
         createDeck,
+        duplicateDeck,
         deleteDeck,
         updateDeck,
         getDeck,

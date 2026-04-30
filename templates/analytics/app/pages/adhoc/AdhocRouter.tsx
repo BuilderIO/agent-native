@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getIdToken } from "@/lib/auth";
 import { dashboardComponents } from "./registry";
 import BlankDashboard from "./BlankDashboard";
+import { appApiPath } from "@agent-native/core/client";
 
 const SqlDashboardPage = lazy(() => import("./sql-dashboard"));
 
@@ -34,7 +35,7 @@ function SqlDashboardLoader({ id }: { id: string }) {
     queryKey: ["sql-dashboard-exists", id],
     queryFn: async () => {
       const token = await getIdToken();
-      const res = await fetch(`/api/sql-dashboards/${id}`, {
+      const res = await fetch(appApiPath(`/api/sql-dashboards/${id}`), {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       return res.ok;

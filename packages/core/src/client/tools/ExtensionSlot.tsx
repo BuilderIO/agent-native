@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconPlus } from "@tabler/icons-react";
@@ -65,7 +66,9 @@ export function ExtensionSlot({
     queryKey: ["slot-installs", id],
     queryFn: async () => {
       const res = await fetch(
-        `/_agent-native/slots/${encodeURIComponent(id)}/installs`,
+        agentNativePath(
+          `/_agent-native/slots/${encodeURIComponent(id)}/installs`,
+        ),
       );
       if (!res.ok) return [];
       return res.json();
@@ -106,7 +109,9 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
     queryKey: ["slot-available", slotId],
     queryFn: async () => {
       const res = await fetch(
-        `/_agent-native/slots/${encodeURIComponent(slotId)}/available`,
+        agentNativePath(
+          `/_agent-native/slots/${encodeURIComponent(slotId)}/available`,
+        ),
       );
       if (!res.ok) return [];
       return res.json();
@@ -139,7 +144,9 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
     setOpen(false);
     try {
       await fetch(
-        `/_agent-native/slots/${encodeURIComponent(slotId)}/install`,
+        agentNativePath(
+          `/_agent-native/slots/${encodeURIComponent(slotId)}/install`,
+        ),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

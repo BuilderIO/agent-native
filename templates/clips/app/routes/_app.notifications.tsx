@@ -16,30 +16,6 @@ export function meta() {
   return [{ title: "Notifications · Clips" }];
 }
 
-interface CommentRow {
-  id: string;
-  recordingId: string;
-  authorEmail: string;
-  authorName: string | null;
-  content: string;
-  createdAt: string;
-}
-
-interface ReactionRow {
-  id: string;
-  recordingId: string;
-  viewerEmail: string | null;
-  viewerName: string | null;
-  emoji: string;
-  createdAt: string;
-}
-
-interface RecordingSummary {
-  id: string;
-  title: string;
-  ownerEmail: string;
-}
-
 function inLast30Days(iso: string): boolean {
   try {
     const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -55,28 +31,6 @@ export default function NotificationsRoute() {
   const [replyText, setReplyText] = useState("");
 
   const qc = useQueryClient();
-  const { data: recordingsData } = useActionQuery<{
-    recordings: RecordingSummary[];
-  }>("list-recordings", { view: "all", limit: 500 } as any);
-
-  // Build per-recording comments/reactions for the user's own recordings.
-  // We use the server snapshot helpers: list-comments / list-viewers exist but
-  // we want a cheap aggregated feed — instead poll application_state-derived
-  // activity via the existing actions when available. For now we surface
-  // comments + reactions for the latest 20 recordings so the page renders
-  // something meaningful in local dev.
-  const recordings = recordingsData?.recordings ?? [];
-
-  const { data: commentsData } = useActionQuery<{ comments: CommentRow[] }>(
-    "list-comments-for-user",
-    undefined,
-    { enabled: false },
-  );
-
-  // Fallback — fetch comments for each recording we own using the existing
-  // list-comments action. We do this in a dependent loop via React Query's
-  // `useActionQuery` on a single aggregated action where available; the page
-  // still renders (as empty) when the backing actions don't exist yet.
   const { data: aggregated, isLoading } = useActionQuery<{
     items: NotificationItem[];
   }>("list-notifications", { days: 30 } as any, { retry: false });
@@ -85,25 +39,8 @@ export default function NotificationsRoute() {
     if (aggregated?.items?.length) {
       return aggregated.items.filter((it) => inLast30Days(it.createdAt));
     }
-    const fallback: NotificationItem[] = [];
-    if (commentsData?.comments?.length) {
-      for (const c of commentsData.comments) {
-        if (!inLast30Days(c.createdAt)) continue;
-        const rec = recordings.find((r) => r.id === c.recordingId);
-        if (!rec) continue;
-        fallback.push({
-          id: `c:${c.id}`,
-          kind: "comment",
-          recordingId: c.recordingId,
-          recordingTitle: rec.title,
-          authorEmail: c.authorEmail,
-          preview: c.content,
-          createdAt: c.createdAt,
-        });
-      }
-    }
-    return fallback.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-  }, [aggregated, commentsData, recordings]);
+    return [];
+  }, [aggregated]);
 
   const filtered = items.filter((i) => filter === "all" || i.kind === filter);
 

@@ -1,3 +1,4 @@
+import { agentNativePath } from "../api-path.js";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
@@ -82,7 +83,7 @@ export function ToolsListPage() {
   const [createPrompt, setCreatePrompt] = useState("");
 
   useEffect(() => {
-    fetch("/_agent-native/application-state/navigation", {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: { view: "tools" } }),
@@ -92,7 +93,7 @@ export function ToolsListPage() {
   const { data: tools, isLoading } = useQuery<Tool[]>({
     queryKey: ["tools"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/tools");
+      const res = await fetch(agentNativePath("/_agent-native/tools"));
       if (!res.ok) return [];
       return res.json();
     },

@@ -14,6 +14,7 @@ import {
   setResponseHeader,
   type H3Event,
 } from "h3";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import exportInsightsCsv from "../../../../actions/export-insights-csv.js";
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -21,7 +22,11 @@ export default defineEventHandler(async (event: H3Event) => {
   const organizationId =
     typeof query.organizationId === "string" ? query.organizationId : undefined;
 
-  const result = await exportInsightsCsv.run({ organizationId });
+  const session = await getSession(event).catch(() => null);
+  const result = await runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    () => exportInsightsCsv.run({ organizationId }),
+  );
 
   setResponseHeader(event, "Content-Type", "text/csv; charset=utf-8");
   setResponseHeader(

@@ -1,12 +1,12 @@
 import { Link, useLocation } from "react-router";
-import { IconHome, IconSettings } from "@tabler/icons-react";
+import { IconActivity, IconHome } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { FeedbackButton } from "@agent-native/core/client";
 
 const navItems = [
   { icon: IconHome, label: "Home", href: "/" },
-  { icon: IconSettings, label: "Settings", href: "/settings" },
+  { icon: IconActivity, label: "Observability", href: "/observability" },
 ];
 
 export function Sidebar() {

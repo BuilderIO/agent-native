@@ -48,10 +48,12 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
     // so wrap inside withRequestContextFromEvent. The fetch itself still
     // doesn't block the response (resolved upfront, fired async after).
     const ctxResult = await withRequestContextFromEvent(event, async (ctx) => {
-      const [token, projectId] = await Promise.all([
-        getAccessToken(),
+      const [credentials, projectId] = await Promise.all([
+        resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
         resolveCredential("BIGQUERY_PROJECT_ID", ctx),
       ]);
+      if (!credentials || !projectId) return null;
+      const token = await getAccessToken();
       return { token, projectId };
     });
 

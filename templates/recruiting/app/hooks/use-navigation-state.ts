@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
 import type { NavigationState } from "@shared/types";
 
 function resolveNavPath(cmd: NavigationState): string {
@@ -46,7 +47,7 @@ export function useNavigationState() {
       state.view = "settings";
     }
 
-    fetch("/_agent-native/application-state/navigation", {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       keepalive: true,
       headers: { "Content-Type": "application/json" },
@@ -60,12 +61,14 @@ export function useNavigationState() {
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/application-state/navigate");
+      const res = await fetch(
+        agentNativePath("/_agent-native/application-state/navigate"),
+      );
       if (!res.ok) return null;
       const data = await res.json();
       if (data && data.view) {
         // Delete the one-shot command immediately
-        fetch("/_agent-native/application-state/navigate", {
+        fetch(agentNativePath("/_agent-native/application-state/navigate"), {
           method: "DELETE",
         }).catch(() => {});
         // Return with a timestamp to ensure uniqueness

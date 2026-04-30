@@ -69,7 +69,7 @@ export default function OrganizationSettingsRoute() {
     const me = members.find((m) => m.email === email);
     if (me) return me.role;
     if (isOwner) return "admin";
-    return "viewer";
+    return "member";
   }, [members, email, isOwner]);
 
   const isAdmin = currentRole === "admin" || isOwner;

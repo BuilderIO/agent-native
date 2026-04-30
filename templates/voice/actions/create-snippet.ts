@@ -10,6 +10,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail, nanoid } from "../server/lib/helpers.js";
+import { cliBoolean } from "./utils.js";
 
 export default defineAction({
   description:
@@ -20,8 +21,7 @@ export default defineAction({
       .string()
       .min(1)
       .describe("Expansion text (e.g. 'Best regards, Steve')"),
-    isTeam: z
-      .boolean()
+    isTeam: cliBoolean
       .optional()
       .default(false)
       .describe("Whether this snippet is shared with the team"),

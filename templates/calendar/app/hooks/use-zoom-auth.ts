@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
 
 export interface ZoomAuthStatus {
   connected: boolean;
@@ -15,7 +16,8 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 export function useZoomStatus() {
   return useQuery<ZoomAuthStatus>({
     queryKey: ["zoom-status"],
-    queryFn: () => fetchJson<ZoomAuthStatus>("/_agent-native/zoom/status"),
+    queryFn: () =>
+      fetchJson<ZoomAuthStatus>(agentNativePath("/_agent-native/zoom/status")),
     staleTime: 30_000,
   });
 }
@@ -29,9 +31,13 @@ export function useConnectZoom() {
   return useMutation({
     mutationFn: async () => {
       const { getCallbackOrigin } = await import("@agent-native/core/client");
-      const redirectUri = `${getCallbackOrigin()}/_agent-native/zoom/callback`;
+      const redirectUri = `${getCallbackOrigin()}${agentNativePath(
+        "/_agent-native/zoom/callback",
+      )}`;
       const { url } = await fetchJson<{ url: string }>(
-        `/_agent-native/zoom/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`,
+        agentNativePath(
+          `/_agent-native/zoom/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`,
+        ),
       );
       location.href = url;
     },
@@ -42,7 +48,9 @@ export function useDisconnectZoom() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      fetchJson("/_agent-native/zoom/disconnect", { method: "POST" }),
+      fetchJson(agentNativePath("/_agent-native/zoom/disconnect"), {
+        method: "POST",
+      }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["zoom-status"] }),
   });

@@ -140,16 +140,17 @@ export async function claimPendingTask(
   const client = getDbExec();
   const now = Date.now();
 
-  // Conditional update: only flip if currently pending or failed.
+  // Conditional update: only flip if currently pending. Failed tasks are
+  // terminal unless an explicit retry path resets them to pending first.
   const { rows } = await client.execute({
     sql: isPostgres()
       ? `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?
-         WHERE id = ? AND status IN ('pending', 'failed')
+         WHERE id = ? AND status = 'pending'
          RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, error_message, created_at, updated_at, completed_at`
       : `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?
-         WHERE id = ? AND status IN ('pending', 'failed')`,
+         WHERE id = ? AND status = 'pending'`,
     args: ["processing", now, id],
   });
 

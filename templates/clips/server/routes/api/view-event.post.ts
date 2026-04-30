@@ -28,7 +28,7 @@ import { defineEventHandler, readBody, setResponseStatus } from "h3";
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { nanoid, shouldCountView } from "../../lib/recordings.js";
-import { getSession } from "@agent-native/core/server";
+import { DEV_MODE_USER_EMAIL, getSession } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
 
@@ -126,13 +126,17 @@ export default defineEventHandler(async (event) => {
 
   const db = getDb();
   const session = await getSession(event);
+  const sessionEmail =
+    session?.email && session.email !== DEV_MODE_USER_EMAIL
+      ? session.email
+      : undefined;
   const viewerEmail =
     (body.viewerEmail && typeof body.viewerEmail === "string"
       ? body.viewerEmail
       : undefined) ??
-    session?.email ??
+    sessionEmail ??
     null;
-  const viewerName = body.viewerName ?? session?.email?.split("@")[0] ?? null;
+  const viewerName = body.viewerName ?? sessionEmail?.split("@")[0] ?? null;
   const now = new Date().toISOString();
 
   // Verify the recording exists (don't leak existence for non-public ones —

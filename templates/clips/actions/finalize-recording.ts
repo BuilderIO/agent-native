@@ -55,6 +55,12 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
+const cliBoolean = z.preprocess((value) => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return value;
+}, z.boolean());
+
 export default defineAction({
   description:
     "Assemble recorded chunks into a final video blob, upload it to the configured storage provider, update the recording row (videoUrl, durationMs, width/height/hasAudio/hasCamera), flip status to 'ready', and trigger the agent to produce a title, summary, transcript, and chapters in the background.",
@@ -67,11 +73,11 @@ export default defineAction({
     width: z.number().optional().describe("Video width in pixels"),
     height: z.number().optional().describe("Video height in pixels"),
     hasAudio: z
-      .boolean()
+      .union([z.boolean(), cliBoolean])
       .optional()
       .describe("Whether the recording contains audio"),
     hasCamera: z
-      .boolean()
+      .union([z.boolean(), cliBoolean])
       .optional()
       .describe("Whether the recording contains a camera feed"),
     mimeType: z

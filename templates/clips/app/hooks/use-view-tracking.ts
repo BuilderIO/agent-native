@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { appBasePath } from "@agent-native/core/client";
 
 const SESSION_KEY = "clips-view-session-id";
 
@@ -65,7 +66,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
       const completedPct =
         durationMs > 0 ? (watchMsRef.current / durationMs) * 100 : 0;
       maxPctRef.current = Math.max(maxPctRef.current, completedPct);
-      fetch("/api/view-event", {
+      fetch(`${appBasePath()}/api/view-event`, {
         method: "POST",
         keepalive: kind === "watch-progress" || kind === "pause",
         headers: { "Content-Type": "application/json" },
@@ -144,7 +145,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
 
   return {
     reportCtaClick: () => {
-      fetch("/api/view-event", {
+      fetch(`${appBasePath()}/api/view-event`, {
         method: "POST",
         keepalive: true,
         headers: { "Content-Type": "application/json" },
@@ -156,7 +157,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
       }).catch(() => {});
     },
     reportReaction: (emoji: string) => {
-      fetch("/api/view-event", {
+      fetch(`${appBasePath()}/api/view-event`, {
         method: "POST",
         keepalive: true,
         headers: { "Content-Type": "application/json" },

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { agentNativePath } from "./api-path.js";
 
 interface DevModeState {
   devMode: boolean;
@@ -52,7 +53,9 @@ function fetchDevMode(apiBase: string): Promise<DevModeState> {
  * Returns whether the app is running in dev mode and whether mode can be toggled.
  * Fetches /_agent-native/agent-chat/mode on first call, then stays in sync via setDevMode.
  */
-export function useDevMode(apiBase = "/_agent-native/agent-chat"): {
+export function useDevMode(
+  apiBase = agentNativePath("/_agent-native/agent-chat"),
+): {
   isDevMode: boolean;
   canToggle: boolean;
   isLoading: boolean;

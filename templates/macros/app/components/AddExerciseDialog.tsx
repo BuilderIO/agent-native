@@ -6,6 +6,7 @@ import { formatLocalDate } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -70,6 +71,7 @@ export function AddExerciseDialog({
       setOpen(false);
       form.reset();
     },
+    onError: () => toast.error("Failed to log exercise"),
   });
 
   const updateMutation = useActionMutation("update-exercise", {
@@ -78,6 +80,7 @@ export function AddExerciseDialog({
       setOpen(false);
       form.reset();
     },
+    onError: () => toast.error("Failed to update exercise"),
   });
 
   const handleOpenChange = (newOpen: boolean) => {
@@ -137,6 +140,11 @@ export function AddExerciseDialog({
           <DialogTitle>
             {isEditing ? "Edit Exercise" : "Log Exercise"}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            {isEditing
+              ? "Update the selected exercise entry."
+              : "Log an exercise with calories burned."}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">

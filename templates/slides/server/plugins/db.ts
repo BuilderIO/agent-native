@@ -132,6 +132,18 @@ export default runMigrations(
         postgres: `ALTER TABLE slide_comments ALTER COLUMN resolved SET DEFAULT false`,
       },
     },
+    // v16: persist public share-link snapshots to DB so they survive server
+    // restarts and work across multiple serverless instances.
+    {
+      version: 16,
+      sql: `CREATE TABLE IF NOT EXISTS deck_share_links (
+    token TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    slides TEXT NOT NULL,
+    aspect_ratio TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+    },
   ],
   { table: "slides_migrations" },
 );

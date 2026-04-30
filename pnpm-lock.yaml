@@ -6,12 +6,36 @@ settings:
 
 catalogs:
   default:
+    '@tabler/icons-react':
+      specifier: ^3.41.1
+      version: 3.41.1
     '@tailwindcss/vite':
       specifier: ^4.2.4
       version: 4.2.4
+    '@vitejs/plugin-react':
+      specifier: ^6.0.1
+      version: 6.0.1
+    h3:
+      specifier: ^2.0.1-rc.20
+      version: 2.0.1-rc.20
+    listhen:
+      specifier: ^1.9.1
+      version: 1.9.1
+    react:
+      specifier: ^19.2.5
+      version: 19.2.5
+    react-dom:
+      specifier: ^19.2.5
+      version: 19.2.5
     tailwindcss:
       specifier: ^4.2.4
       version: 4.2.4
+    tsx:
+      specifier: ^4.20.3
+      version: 4.21.0
+    typescript:
+      specifier: ^6.0.3
+      version: 6.0.3
     vite:
       specifier: 8.0.3
       version: 8.0.3
@@ -1618,6 +1642,9 @@ importers:
       '@libsql/client':
         specifier: ^0.15.0
         version: 0.15.15
+      '@radix-ui/react-alert-dialog':
+        specifier: ^1.1.15
+        version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@radix-ui/react-popover':
         specifier: ^1.1.15
         version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)

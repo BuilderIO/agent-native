@@ -439,14 +439,8 @@ export function installDesktopVoiceDictation(
       return { kind: "server", providerPref: provider };
     }
     const status = await refreshProviderStatus();
-    // Auto: prefer the BYOK transcription providers (user explicitly
-    // pasted these keys for transcription). NOTE: we deliberately DO NOT
-    // auto-route to Builder here even though BUILDER_PRIVATE_KEY may be
-    // set — that key is framework-wide (CMS / agent runtime) and isn't
-    // a user opt-in for voice. Pick browser when no transcription-
-    // specific key is configured; users who want Builder for voice can
-    // pick it explicitly in Settings → Voice transcription.
     if (status.gemini) return { kind: "server", providerPref: "gemini" };
+    if (status.builder) return { kind: "server", providerPref: "builder" };
     if (status.groq) return { kind: "server", providerPref: "groq" };
     if (status.openai) return { kind: "server", providerPref: "openai" };
     return { kind: "browser" };
@@ -633,6 +627,14 @@ export function installDesktopVoiceDictation(
       console.error("[voice-dictation] startServer failed", err);
       startInFlight = false;
       stopRequestedBeforeReady = false;
+      // CRITICAL: clear `session` if we'd assigned it. Without this, a
+      // post-`session = next` throw leaves the global session pointing
+      // at a defunct recorder, and every subsequent start() bails at
+      // its "if (session) return" guard — manifesting as "Fn does
+      // nothing." We can safely null it because start() only proceeds
+      // when session is null (and any concurrent start would have
+      // bailed on `startInFlight`).
+      session = null;
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
@@ -738,6 +740,9 @@ export function installDesktopVoiceDictation(
       console.error("[voice-dictation] startBrowser failed", err);
       startInFlight = false;
       stopRequestedBeforeReady = false;
+      // See note in startServer's catch — clear leaked session so the
+      // next Fn press isn't blocked on a stale `if (session) return`.
+      session = null;
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
