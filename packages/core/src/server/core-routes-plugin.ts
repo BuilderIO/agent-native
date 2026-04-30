@@ -62,6 +62,7 @@ import { registerBuiltinNotificationChannels } from "../notifications/channels.j
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
+import { runWithRequestContext } from "./request-context.js";
 import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import {
   isAgentEngineSettingConfigured,
@@ -911,21 +912,25 @@ export function createCoreRoutesPlugin(
     // POST /_agent-native/file-upload        — upload a file, return { url }
     getH3App(nitroApp).use(
       `${P}/file-upload/status`,
-      defineEventHandler(async () => {
+      defineEventHandler(async (event) => {
         const active = getActiveFileUploadProvider();
+        // resolveBuilderPrivateKey() reads per-user credentials from app_secrets
+        // (DB), which requires request context (AsyncLocalStorage) to know which
+        // user to scope by. Without runWithRequestContext() the ALS store is empty
+        // and it falls back to process.env only — missing OAuth-connected users.
+        const session = await getSession(event).catch(() => null);
+        const userEmail = session?.email;
         let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
         try {
           const { resolveBuilderPrivateKey } =
             await import("./credential-provider.js");
-          builderConfigured = !!(await resolveBuilderPrivateKey());
+          const resolve = () => resolveBuilderPrivateKey().then((k) => !!k);
+          builderConfigured = userEmail
+            ? await runWithRequestContext({ userEmail }, resolve)
+            : await resolve();
         } catch {
           // fall back to env check above
         }
-        // builderConfigured already resolved via resolveBuilderPrivateKey() above,
-        // which reads from app_secrets (DB) as well as process.env. We need to
-        // include it in `configured` so the recorder's startFlow doesn't throw
-        // "No video storage configured" for users who connected Builder via OAuth
-        // (where the key lives in DB, not process.env).
         return {
           configured: !!active || builderConfigured,
           activeProvider: active ? { id: active.id, name: active.name } : null,
@@ -954,12 +959,17 @@ export function createCoreRoutesPlugin(
         }
 
         const session = await getSession(event);
-        const result = await uploadFile({
-          data: filePart.data,
-          filename: filePart.filename,
-          mimeType: filePart.type,
-          ownerEmail: session?.email,
-        });
+        const userEmail = session?.email;
+        const doUpload = () =>
+          uploadFile({
+            data: filePart.data,
+            filename: filePart.filename,
+            mimeType: filePart.type,
+            ownerEmail: userEmail,
+          });
+        const result = userEmail
+          ? await runWithRequestContext({ userEmail }, doUpload)
+          : await doUpload();
 
         if (result) {
           setResponseStatus(event, 201);

@@ -53,17 +53,36 @@ export async function uploadFile(
   if (provider) {
     return provider.upload(input);
   }
+
   // getActiveFileUploadProvider() uses the synchronous isConfigured() which only
   // checks process.env.BUILDER_PRIVATE_KEY. When the user connected Builder via
   // OAuth, credentials live in app_secrets (DB) and resolveBuilderPrivateKey()
-  // finds them — but isConfigured() misses them. Try the Builder provider's async
-  // upload() directly as a last resort before falling back to SQL storage.
+  // finds them — but isConfigured() misses them.
+  //
+  // Resolve credentials asynchronously first (works when request context is set
+  // via runWithRequestContext — actions always have one via action-routes.ts).
+  // Two separate try-catch blocks ensure a real upload failure is never
+  // silently swallowed as a "no credentials" case.
+  let builderKey: string | null = null;
   try {
-    const result = await builderFileUploadProvider.upload(input);
-    if (result) return result;
-  } catch {
-    // No Builder credentials in env or DB — fall through to SQL fallback.
+    const { resolveBuilderPrivateKey } =
+      await import("../server/credential-provider.js");
+    builderKey = await resolveBuilderPrivateKey();
+  } catch (err) {
+    // DB unavailable or credential store not ready — can't resolve key.
+    // Log and fall through to the SQL fallback below.
+    console.warn(
+      "[agent-native] Builder credential check failed:",
+      err instanceof Error ? err.message : String(err),
+    );
   }
+
+  if (builderKey) {
+    // Credentials confirmed — attempt the upload. Real errors (network,
+    // API, rate-limit) propagate to the caller; do NOT catch them here.
+    return await builderFileUploadProvider.upload(input);
+  }
+
   if (!warnedFallback) {
     warnedFallback = true;
     console.warn(
