@@ -53,18 +53,6 @@ export function Header() {
         <IconMenu2 className="h-4 w-4" />
       </button>
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <img
-          src="/agent-native-icon-light.svg"
-          alt=""
-          aria-hidden="true"
-          className="block h-4 w-auto shrink-0 dark:hidden"
-        />
-        <img
-          src="/agent-native-icon-dark.svg"
-          alt=""
-          aria-hidden="true"
-          className="hidden h-4 w-auto shrink-0 dark:block"
-        />
         {title ?? (
           <span className="truncate text-sm font-semibold text-foreground">
             {resolveTitle(location.pathname)}

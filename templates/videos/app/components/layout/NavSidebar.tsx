@@ -21,7 +21,19 @@ export function NavSidebar() {
 
   return (
     <aside className="flex h-full w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
-      <div className="flex h-12 items-center px-4 border-b border-border">
+      <div className="flex h-12 items-center gap-2 px-4 border-b border-border">
+        <img
+          src="/agent-native-icon-light.svg"
+          alt=""
+          aria-hidden="true"
+          className="block h-4 w-auto shrink-0 dark:hidden"
+        />
+        <img
+          src="/agent-native-icon-dark.svg"
+          alt=""
+          aria-hidden="true"
+          className="hidden h-4 w-auto shrink-0 dark:block"
+        />
         <span className="text-sm font-semibold tracking-tight">Videos</span>
       </div>
 
