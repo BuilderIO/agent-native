@@ -88,7 +88,11 @@ export function useDeleteMcpServer() {
     mutationFn: async (args: { id: string; scope: McpServerScope }) => {
       const res = await fetch(
         `${ENDPOINT}/${encodeURIComponent(args.id)}?scope=${args.scope}`,
-        { method: "DELETE", credentials: "include" },
+        {
+          method: "DELETE",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        },
       );
       const body = (await res.json().catch(() => ({}))) as {
         ok?: boolean;

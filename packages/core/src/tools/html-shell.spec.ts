@@ -23,6 +23,20 @@ describe("buildToolHtml", () => {
     expect(html).toContain("if (event.source !== window.parent) return;");
   });
 
+  it("serializes authenticated tool binding metadata", () => {
+    const html = buildToolHtml("<div/>", ":root{}", false, "tool-1", {
+      authorEmail: "owner+qa@example.test",
+      viewerEmail: "viewer+qa@example.test",
+      isAuthor: false,
+      role: "admin",
+    });
+
+    expect(html).toContain('"authorEmail":"owner+qa@example.test"');
+    expect(html).toContain('"viewerEmail":"viewer+qa@example.test"');
+    expect(html).toContain('"role":"admin"');
+    expect(html).toContain('name="agent-native-tool-author"');
+  });
+
   it("pins CDN scripts to exact versions with SRI integrity hashes", () => {
     const html = buildToolHtml("<div/>", ":root{}", false, "t");
     // Tailwind: pinned to a patch version + SRI.

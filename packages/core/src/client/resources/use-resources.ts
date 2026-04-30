@@ -273,6 +273,7 @@ export function useDeleteResource() {
         agentNativePath(`/_agent-native/resources/${id}`),
         {
           method: "DELETE",
+          headers: { "Content-Type": "application/json" },
         },
       );
       if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);

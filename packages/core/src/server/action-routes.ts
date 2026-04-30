@@ -8,6 +8,7 @@ import { getH3App } from "./framework-request-handler.js";
 import {
   defineEventHandler,
   setResponseStatus,
+  setResponseHeader,
   getMethod,
   getQuery,
   getHeader,
@@ -33,6 +34,52 @@ function readTimezoneHeader(event: any): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+const LOCALHOST_ORIGIN_RE =
+  /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/;
+
+function getAllowedCorsOrigin(origin: string | undefined): string | null {
+  if (!origin) return null;
+  const allowlist = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (allowlist.length > 0) {
+    return allowlist.includes(origin) ? origin : null;
+  }
+  return LOCALHOST_ORIGIN_RE.test(origin) ? origin : null;
+}
+
+function handleOptionsRequest(event: any): string {
+  const origin = getHeader(event, "origin");
+  const allowedOrigin = getAllowedCorsOrigin(
+    typeof origin === "string" ? origin : undefined,
+  );
+
+  if (origin && !allowedOrigin) {
+    setResponseStatus(event, 403);
+    return "";
+  }
+
+  if (allowedOrigin) {
+    setResponseHeader(event, "Access-Control-Allow-Origin", allowedOrigin);
+    setResponseHeader(event, "Vary", "Origin");
+    setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
+    setResponseHeader(
+      event,
+      "Access-Control-Allow-Methods",
+      "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
+    );
+    setResponseHeader(
+      event,
+      "Access-Control-Allow-Headers",
+      "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF",
+    );
+  }
+
+  setResponseStatus(event, 204);
+  return "";
 }
 
 export interface MountActionRoutesOptions {
@@ -71,8 +118,7 @@ export function mountActionRoutes(
           reqMethod === "HEAD" && method === "GET" ? "GET" : reqMethod;
 
         if (reqMethod === "OPTIONS") {
-          setResponseStatus(event, 204);
-          return "";
+          return handleOptionsRequest(event);
         }
 
         // Allow the declared method

@@ -17,10 +17,7 @@ import ImageOverlay from "./ImageOverlay";
 import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
 import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
-import {
-  DrawOverlay,
-  CanvasCommentPins,
-} from "@/components/visual-editor";
+import { DrawOverlay, CanvasCommentPins } from "@/components/visual-editor";
 import type { DesignSystemData } from "../../../shared/api";
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
@@ -612,6 +609,36 @@ export default function SlideEditor({
           onClose={() => setImageOverlay(null)}
         />
       )}
+
+      <DrawOverlay
+        visible={!!drawMode}
+        onClose={() => onExitDrawMode?.()}
+        onSend={(annotations, instruction, canvasSize) => {
+          const summary = annotations
+            .map((a) =>
+              a.type === "path"
+                ? `[stroke ${a.color} w=${a.lineWidth}] ${a.pathData}`
+                : `[label "${a.text}" at ${a.position.x.toFixed(0)},${a.position.y.toFixed(0)}]`,
+            )
+            .join("\n");
+          const lines = [
+            `[Drawing on slide ${slide.id}]`,
+            `Canvas size: ${canvasSize.width.toFixed(0)}x${canvasSize.height.toFixed(0)}`,
+            summary,
+            "",
+            instruction || "Apply these annotations to the slide.",
+          ];
+          agentChat.submit(lines.join("\n"));
+          onExitDrawMode?.();
+        }}
+      />
+      <CanvasCommentPins
+        active={!!pinMode}
+        onClose={() => onExitPinMode?.()}
+        canvasSelector=".slide-content"
+        contextId={slideId || slide.id}
+        contextLabel={slideTitle || `slide ${slideIndex + 1}`}
+      />
     </div>
   );
 }

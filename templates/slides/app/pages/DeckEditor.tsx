@@ -105,6 +105,8 @@ export default function DeckEditor() {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [animationsOpen, setAnimationsOpen] = useState(false);
   const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [drawMode, setDrawMode] = useState(false);
+  const [pinMode, setPinMode] = useState(false);
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
@@ -335,8 +337,7 @@ export default function DeckEditor() {
         if (!slide) return "Slide";
         const m = slide.content.match(/<h[12][^>]*>([^<]+)<\/h[12]>/i);
         return (
-          m?.[1]?.trim() ||
-          `Slide ${(deck?.slides.indexOf(slide) ?? 0) + 1}`
+          m?.[1]?.trim() || `Slide ${(deck?.slides.indexOf(slide) ?? 0) + 1}`
         );
       })();
       deleteSlide(deckId, slideId);
@@ -567,6 +568,10 @@ export default function DeckEditor() {
         onToggleAnimations={() => setAnimationsOpen((o) => !o)}
         tweaksOpen={tweaksOpen}
         onToggleTweaks={() => setTweaksOpen((o) => !o)}
+        drawMode={drawMode}
+        onToggleDrawMode={() => setDrawMode((v) => !v)}
+        pinMode={pinMode}
+        onTogglePinMode={() => setPinMode((v) => !v)}
         onDuplicateDeck={() => {
           const newId = `deck-${nanoid()}`;
           const optimistic = duplicateDeck(id, newId);
@@ -702,6 +707,20 @@ export default function DeckEditor() {
               setPendingComment({ quotedText });
               setCommentsOpen(true);
             }}
+            drawMode={drawMode}
+            onExitDrawMode={() => setDrawMode(false)}
+            pinMode={pinMode}
+            onExitPinMode={() => setPinMode(false)}
+            slideId={currentSlide.id}
+            slideTitle={(() => {
+              const m = currentSlide.content?.match(
+                /<h[12][^>]*>([^<]+)<\/h[12]>/i,
+              );
+              return (
+                m?.[1]?.trim() ||
+                `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
+              );
+            })()}
           />
         )}
 

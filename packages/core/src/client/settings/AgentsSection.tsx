@@ -330,6 +330,7 @@ export function AgentsSection() {
         agentNativePath(`/_agent-native/resources/${agentId}`),
         {
           method: "DELETE",
+          headers: { "Content-Type": "application/json" },
         },
       );
       if (res.ok) {

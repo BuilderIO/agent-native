@@ -45,7 +45,11 @@ export function McpServerDetail({ server }: McpServerDetailProps) {
         agentNativePath(
           `/_agent-native/mcp/servers/${encodeURIComponent(server.id)}/test?scope=${server.scope}`,
         ),
-        { method: "POST", credentials: "include" },
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        },
       );
       const body = (await res.json().catch(() => ({}))) as TestMcpUrlResult;
       setTestResult(body.ok ? body : { ok: false, error: body.error });

@@ -168,6 +168,7 @@ function SecretCard({ secret, onChanged, focusInput }: SecretCardProps) {
     try {
       const res = await fetch(`${ENDPOINT}/${encodeURIComponent(secret.key)}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) {
         const err = await res
@@ -529,7 +530,10 @@ function AdHocKeysSection() {
       try {
         const res = await fetch(
           `${ADHOC_ENDPOINT}/${encodeURIComponent(name)}`,
-          { method: "DELETE" },
+          {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+          },
         );
         if (!res.ok) {
           showToast("err", "Failed to delete key");

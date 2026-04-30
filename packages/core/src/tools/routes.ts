@@ -43,6 +43,7 @@ import {
   createSsrfSafeDispatcher,
   isBlockedToolUrlWithDns,
 } from "./url-safety.js";
+import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 
 export function createToolsHandler() {
   return defineEventHandler(async (event: H3Event) => {
@@ -62,9 +63,17 @@ export function createToolsHandler() {
     const userEmail = session.email;
     const orgId = orgCtx?.orgId ?? undefined;
 
-    return runWithRequestContext({ userEmail, orgId }, () =>
-      dispatch(event, method, parts, userEmail),
-    );
+    try {
+      return await runWithRequestContext({ userEmail, orgId }, () =>
+        dispatch(event, method, parts, userEmail),
+      );
+    } catch (err) {
+      if (err instanceof ForbiddenError) {
+        setResponseStatus(event, 403);
+        return { error: err.message };
+      }
+      throw err;
+    }
   });
 }
 
@@ -134,7 +143,8 @@ async function dispatch(
 
   // GET /:id/render
   if (method === "GET" && parts.length === 2 && parts[1] === "render") {
-    const tool = await getTool(parts[0]);
+    const access = await resolveAccess("tool", parts[0]);
+    const tool = access?.resource;
     if (!tool) {
       setResponseStatus(event, 404);
       return { error: "Tool not found" };
@@ -148,12 +158,11 @@ async function dispatch(
     // Resolved access role is plumbed through so future bridge gating can
     // be conditional on owner/editor/viewer (audit H4 — scaffold only).
     const isAuthor = tool.ownerEmail === userEmail;
-    const role: "owner" | "editor" | "viewer" = isAuthor ? "owner" : "viewer";
     const html = buildToolHtml(tool.content, themeVars, isDark, parts[0], {
       authorEmail: tool.ownerEmail,
       viewerEmail: userEmail,
       isAuthor,
-      role,
+      role: access.role,
     });
     // Security headers per render. We set these explicitly here (rather than
     // rely on the global security-headers middleware) because:
