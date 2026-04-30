@@ -10,7 +10,7 @@ import {
   ForbiddenError,
   resolveAccess,
 } from "./access.js";
-import { createSharesTable } from "./schema.js";
+import { createSharesTable, type ShareRole } from "./schema.js";
 import { registerShareableResource } from "./registry.js";
 import shareResource from "./actions/share-resource.js";
 import unshareResource from "./actions/unshare-resource.js";
@@ -52,12 +52,15 @@ async function insertDoc(values: {
   });
 }
 
-async function listVisible(ctx: { userEmail?: string; orgId?: string }) {
+async function listVisible(
+  ctx: { userEmail?: string; orgId?: string },
+  minRole: ShareRole = "viewer",
+) {
   return runWithRequestContext(ctx, async () => {
     const rows = await db
       .select()
       .from(docs)
-      .where(accessFilter(docs, docShares));
+      .where(accessFilter(docs, docShares, undefined, minRole));
     return rows.map((row) => row.id).sort();
   });
 }
@@ -157,6 +160,9 @@ describe("shareable resource access helpers", () => {
       "shared-user",
     ]);
     await expect(listVisible({})).resolves.toEqual(["public-other"]);
+    await expect(
+      listVisible({ userEmail: viewerEmail, orgId }, "editor"),
+    ).resolves.toEqual(["shared-org"]);
   });
 
   it("resolves read and write roles without letting visibility imply edit access", async () => {

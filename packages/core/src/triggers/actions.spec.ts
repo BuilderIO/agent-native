@@ -110,7 +110,10 @@ Other body`,
       body: "Record the QA signal.",
     });
 
-    expect(resourceGetByPathMock).toHaveBeenCalledWith(owner, "jobs/qa-alert.md");
+    expect(resourceGetByPathMock).toHaveBeenCalledWith(
+      owner,
+      "jobs/qa-alert.md",
+    );
     expect(resourcePutMock).toHaveBeenCalledWith(
       owner,
       "jobs/qa-alert.md",

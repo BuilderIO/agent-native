@@ -6,6 +6,10 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
 }));
 
+vi.mock("../server/core-routes-plugin.js", () => ({
+  FRAMEWORK_ROUTE_PREFIX: "/_agent-native",
+}));
+
 async function loadRetryJob() {
   vi.resetModules();
   return import("./pending-tasks-retry-job.js");

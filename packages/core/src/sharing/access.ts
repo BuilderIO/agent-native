@@ -69,11 +69,16 @@ export function accessFilter(
   if (userEmail) {
     clauses.push(eq(resourceTable.ownerEmail, userEmail));
   }
-  clauses.push(eq(resourceTable.visibility, "public"));
-  if (orgId) {
-    clauses.push(
-      and(eq(resourceTable.visibility, "org"), eq(resourceTable.orgId, orgId))!,
-    );
+  if (minRole === "viewer") {
+    clauses.push(eq(resourceTable.visibility, "public"));
+    if (orgId) {
+      clauses.push(
+        and(
+          eq(resourceTable.visibility, "org"),
+          eq(resourceTable.orgId, orgId),
+        )!,
+      );
+    }
   }
   if (userEmail) {
     clauses.push(
@@ -94,8 +99,7 @@ export function accessFilter(
     );
   }
 
-  // If there's no user and no org (fully anonymous), only public resources.
-  return or(...clauses) ?? eq(resourceTable.visibility, "public");
+  return or(...clauses) ?? sql`1=0`;
 }
 
 function minRoleSql(minRole: ShareRole): SQL {
