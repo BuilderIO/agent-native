@@ -400,6 +400,7 @@ export function installDesktopVoiceDictation(
         openai: !!data.openai,
         groq: !!data.groq,
         browser: true,
+        native: !!data.native,
       };
       providerStatusFetchedAt = Date.now();
       return providerStatus;
@@ -422,6 +423,7 @@ export function installDesktopVoiceDictation(
         openai: false,
         groq: false,
         browser: true,
+        native: false,
       };
     }
   };
@@ -502,6 +504,8 @@ export function installDesktopVoiceDictation(
     const resolved = await resolveProvider();
     if (resolved.kind === "browser") {
       await startBrowser();
+    } else if (resolved.kind === "native") {
+      await startNative();
     } else {
       await startServer(resolved.providerPref);
     }
@@ -644,6 +648,73 @@ export function installDesktopVoiceDictation(
       // nothing." We can safely null it because start() only proceeds
       // when session is null (and any concurrent start would have
       // bailed on `startInFlight`).
+      session = null;
+      setFlowState("error");
+      window.setTimeout(() => {
+        if (disposed || session) return;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+      }, 800);
+    }
+  };
+
+  /**
+   * Native macOS path: drive Apple's SFSpeechRecognizer + AVAudioEngine
+   * from Rust via the `native_speech_*` Tauri commands. Partial and final
+   * transcripts arrive as `voice:partial-transcript` / `voice:final-transcript`
+   * Tauri events (wired up below at install time) and we accumulate them
+   * into `next.browserTranscript` so the existing immediate-paste logic in
+   * `stop()` works the same way as for the browser path.
+   *
+   * No `getUserMedia()` here — the audio engine handles the mic on the Rust
+   * side. The synthetic meter still drives the flow-bar's waveform.
+   */
+  const startNative = async () => {
+    console.log("[voice-dictation] startNative: invoke native_speech_start");
+    try {
+      startInFlight = true;
+      stopRequestedBeforeReady = false;
+      await invoke("show_flow_bar");
+      setFlowState("recording");
+      // Reset any prior partial transcript display in the flow-bar.
+      emit("voice:partial-transcript", { text: "" }).catch(() => {});
+      const next: VoiceSession = {
+        kind: "native",
+        stream: null,
+        recorder: null,
+        chunks: [],
+        audioContext: null,
+        analyser: null,
+        raf: null,
+        mimeType: "",
+        recognition: null,
+        browserTranscript: "",
+        startedAt: Date.now(),
+        stopping: false,
+        transcribeAbort: null,
+        cancelled: false,
+      };
+      session = next;
+      startInFlight = false;
+      // Pulse the waveform without opening a parallel mic stream — the
+      // Rust side owns the audio device and we don't want to fight over
+      // it in the WebView layer.
+      startSyntheticMeter(next);
+      try {
+        await invoke("native_speech_start", { locale: navigator.language || "en-US" });
+        console.log("[voice-dictation] native_speech_start ok");
+      } catch (err) {
+        console.error("[voice-dictation] native_speech_start failed:", err);
+        if (session === next) session = null;
+        throw err;
+      }
+      if (stopRequestedBeforeReady) {
+        stop();
+      }
+    } catch (err) {
+      console.error("[voice-dictation] startNative failed", err);
+      startInFlight = false;
+      stopRequestedBeforeReady = false;
       session = null;
       setFlowState("error");
       window.setTimeout(() => {
@@ -836,6 +907,12 @@ export function installDesktopVoiceDictation(
           // recorder.stop can throw if not in 'recording' state — fall
           // through to the cleanup below regardless.
         }
+      } else if (current.kind === "native") {
+        // Tear the Rust-side session down without delivering a final
+        // transcript.
+        invoke("native_speech_cancel").catch((err) => {
+          console.warn("[voice-dictation] native_speech_cancel failed:", err);
+        });
       } else {
         try {
           current.recognition?.abort();
