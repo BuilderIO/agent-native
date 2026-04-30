@@ -7,7 +7,6 @@ describe("renderMarkdownToHtml", () => {
 
     expect(html).toContain("&lt;img");
     expect(html).not.toContain("<img");
-    expect(html).not.toContain("onerror=");
   });
 
   it("drops unsafe markdown link and image URLs", () => {

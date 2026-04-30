@@ -13,6 +13,7 @@ const TWEAK_BRIDGE_SCRIPT = `
 <script>
 (function() {
   window.addEventListener('message', function(e) {
+    if (e.origin !== window.location.origin) return;
     if (!e.data || e.data.type !== 'tweak-values') return;
     var root = document.documentElement;
     var vals = e.data.values || {};
@@ -95,7 +96,7 @@ const EDIT_BRIDGE_SCRIPT = `
     selectionOverlay.style.left = rect.left + 'px';
     selectionOverlay.style.width = rect.width + 'px';
     selectionOverlay.style.height = rect.height + 'px';
-    window.parent.postMessage({ type: 'element-select', payload: info }, '*');
+    window.parent.postMessage({ type: 'element-select', payload: info }, window.location.origin);
   });
 
   document.addEventListener('mouseover', function(e) {
@@ -106,7 +107,7 @@ const EDIT_BRIDGE_SCRIPT = `
     highlightOverlay.style.width = rect.width + 'px';
     highlightOverlay.style.height = rect.height + 'px';
     var info = getElementInfo(e.target);
-    window.parent.postMessage({ type: 'element-hover', payload: info }, '*');
+    window.parent.postMessage({ type: 'element-hover', payload: info }, window.location.origin);
   });
 
   document.addEventListener('mouseout', function() {
@@ -114,6 +115,7 @@ const EDIT_BRIDGE_SCRIPT = `
   });
 
   window.addEventListener('message', function(e) {
+    if (e.origin !== window.location.origin) return;
     if (!e.data || e.data.type !== 'style-change') return;
     var sel = e.data.selector;
     var prop = e.data.property;
@@ -164,6 +166,8 @@ export function DesignCanvas({
   // Listen for messages from the iframe
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      if (e.origin !== window.location.origin) return;
       if (!e.data || !e.data.type) return;
       if (e.data.type === "element-select") {
         onElementSelect(e.data.payload);
@@ -186,7 +190,7 @@ export function DesignCanvas({
     const send = () => {
       iframe.contentWindow?.postMessage(
         { type: "tweak-values", values: tweakValues },
-        "*",
+        window.location.origin,
       );
     };
     send();
@@ -200,7 +204,7 @@ export function DesignCanvas({
       if (!iframe?.contentWindow) return;
       iframe.contentWindow.postMessage(
         { type: "style-change", selector, property, value },
-        "*",
+        window.location.origin,
       );
     },
     [],

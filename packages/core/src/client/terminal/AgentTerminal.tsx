@@ -17,7 +17,7 @@ import React, {
   type CSSProperties,
 } from "react";
 import { agentNativePath } from "../api-path.js";
-import { getFrameOrigin } from "../frame.js";
+import { getFrameOrigin, isTrustedFrameMessage } from "../frame.js";
 
 export interface AgentTerminalProps {
   /** CLI command to run. Default: 'builder' */
@@ -361,13 +361,7 @@ export function AgentTerminal({
 
       // Chat bridge integration — listen for sendToAgentChat messages
       const messageHandler = (event: MessageEvent) => {
-        // Only accept messages from same origin or known frame
-        if (
-          event.origin !== window.location.origin &&
-          event.origin !== getFrameOrigin()
-        ) {
-          return;
-        }
+        if (!isTrustedFrameMessage(event)) return;
         if (event.data?.type === "builder.submitChat") {
           const message = event.data.data?.message;
           if (message && ws && ws.readyState === WebSocket.OPEN) {

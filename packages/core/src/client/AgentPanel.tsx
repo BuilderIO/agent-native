@@ -62,11 +62,16 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
 import { cn } from "./utils.js";
 import { agentNativePath } from "./api-path.js";
+import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
 
 // Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
 const AgentTerminal = lazy(() =>
   import("./terminal/index.js").then((m) => ({ default: m.AgentTerminal })),
 );
+
+function parentFrameTargetOrigin(): string {
+  return getFrameOrigin() ?? window.location.origin;
+}
 
 // Lazy-load ResourcesPanel to avoid bundling when not needed
 const ResourcesPanel = lazy(() =>
@@ -414,7 +419,7 @@ export function AgentPanel({
       if (window.parent !== window) {
         window.parent.postMessage(
           { type: "builder.devModeChange", data: { isDevMode } },
-          "*",
+          parentFrameTargetOrigin(),
         );
       }
     }
@@ -1572,7 +1577,10 @@ export function AgentSidebar({
     const toggleHandler = () => {
       if (frameCodeMode && window.parent !== window) {
         // Forward toggle to frame parent — the frame sidebar handles it
-        window.parent.postMessage({ type: "builder.toggleSidebar" }, "*");
+        window.parent.postMessage(
+          { type: "builder.toggleSidebar" },
+          parentFrameTargetOrigin(),
+        );
       } else {
         setOpenPersisted((prev) => !prev);
       }
@@ -1581,7 +1589,7 @@ export function AgentSidebar({
       if (frameCodeMode && window.parent !== window) {
         window.parent.postMessage(
           { type: "builder.toggleSidebar", data: { open: true } },
-          "*",
+          parentFrameTargetOrigin(),
         );
       } else {
         setOpenPersisted(true);
@@ -1603,6 +1611,8 @@ export function AgentSidebar({
 
     function handleMessage(event: MessageEvent) {
       if (event.data?.type !== "builder.sidebarMode") return;
+      if (event.source !== window.parent || !isTrustedFrameMessage(event))
+        return;
       const {
         mode,
         appMode,

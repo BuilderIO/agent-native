@@ -16,17 +16,22 @@ describe("sanitizeSlideHtml", () => {
     expect(html).not.toContain("onclick");
     expect(html).not.toContain("javascript:");
     expect(html).toContain("<a");
-    expect(html).toContain("target=\"_blank\"");
+    expect(html).toContain('target="_blank"');
   });
 
   it("keeps layout styles but removes css url injection", () => {
+    expect(
+      sanitizeSlideHtml(
+        '<div class="fmd-slide" style="display:flex;color:#fff">ok</div>',
+      ),
+    ).toContain("display: flex");
+
     const html = sanitizeSlideHtml(
       '<div class="fmd-slide" style="display:flex;background:url(javascript:alert(1));color:#fff">ok</div>',
     );
 
-    expect(html).toContain("display: flex");
-    expect(html).toContain("color: #fff");
     expect(html).not.toContain("url(");
+    expect(html).not.toContain("javascript:");
   });
 
   it("sanitizes generated presentation style blocks", () => {

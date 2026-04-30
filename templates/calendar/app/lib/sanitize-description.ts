@@ -82,8 +82,7 @@ function walkNode(node: Node, doc: Document): Node | null {
   for (const attr of Array.from(el.attributes)) {
     const name = attr.name.toLowerCase();
     if (!ALLOWED_ATTRS.has(name)) continue;
-    if ((name === "href" || name === "src") && !isSafeUrl(attr.value))
-      continue;
+    if ((name === "href" || name === "src") && !isSafeUrl(attr.value)) continue;
     out.setAttribute(name, attr.value);
   }
 

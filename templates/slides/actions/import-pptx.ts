@@ -12,7 +12,7 @@ import { notifyClients } from "../server/handlers/decks.js";
 import { parsePptx } from "../server/handlers/import/pptx-parser.js";
 import { convertToSlideHtml } from "../server/handlers/import/html-converter.js";
 import fs from "fs";
-import path from "path";
+import { resolveUserUploadedFile } from "./_uploaded-files.js";
 
 export default defineAction({
   description:
@@ -40,29 +40,7 @@ export default defineAction({
       ),
   }),
   run: async ({ filePath, deckId, title }) => {
-    // Resolve to absolute path
-    const absPath = path.isAbsolute(filePath)
-      ? filePath
-      : path.join(process.cwd(), filePath);
-
-    // Path traversal guard: only allow files under data/uploads or the cwd
-    const cwd = process.cwd();
-    const uploadsDir = path.join(cwd, "data", "uploads");
-    const resolved = path.resolve(absPath);
-    if (
-      !(
-        resolved === uploadsDir || resolved.startsWith(uploadsDir + path.sep)
-      ) &&
-      !(resolved === cwd || resolved.startsWith(cwd + path.sep))
-    ) {
-      throw new Error(
-        `Access denied: file path must be within the project directory`,
-      );
-    }
-
-    if (!fs.existsSync(absPath)) {
-      throw new Error(`File not found: ${filePath}`);
-    }
+    const absPath = resolveUserUploadedFile(filePath);
 
     const fileBuffer = await fs.promises.readFile(absPath);
     const presentation = await parsePptx(fileBuffer);

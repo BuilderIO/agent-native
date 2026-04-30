@@ -189,7 +189,7 @@ function sanitizeStyle(style: string): string {
       if (idx <= 0) return null;
       const property = declaration.slice(0, idx).trim();
       const value = declaration.slice(idx + 1).trim();
-      if (!/^--?[a-zA-Z][\w-]*$/.test(property) || !value) return null;
+      if (!/^(?:--)?[a-zA-Z][\w-]*$/.test(property) || !value) return null;
       const safeValue = sanitizeCssValue(value);
       return safeValue ? `${property}: ${safeValue}` : null;
     })
@@ -305,16 +305,13 @@ function sanitizeHtmlString(html: string): string {
         return safe ? ` ${attr}="${escapeHtml(safe)}"` : "";
       },
     )
-    .replace(/\s+style\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi, (
-      _match,
-      _raw,
-      dq,
-      sq,
-      bare,
-    ) => {
-      const safe = sanitizeStyle(dq ?? sq ?? bare ?? "");
-      return safe ? ` style="${escapeHtml(safe)}"` : "";
-    });
+    .replace(
+      /\s+style\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+      (_match, _raw, dq, sq, bare) => {
+        const safe = sanitizeStyle(dq ?? sq ?? bare ?? "");
+        return safe ? ` style="${escapeHtml(safe)}"` : "";
+      },
+    );
 }
 
 export function sanitizeSlideHtml(html: string): string {
@@ -324,6 +321,10 @@ export function sanitizeSlideHtml(html: string): string {
 
   const doc = new DOMParser().parseFromString(html, "text/html");
   const fragment = doc.createDocumentFragment();
+  for (const style of Array.from(doc.head.querySelectorAll("style"))) {
+    const cleaned = cleanNode(style, doc);
+    if (cleaned) fragment.appendChild(cleaned);
+  }
   for (const child of Array.from(doc.body.childNodes)) {
     const cleaned = cleanNode(child, doc);
     if (cleaned) fragment.appendChild(cleaned);

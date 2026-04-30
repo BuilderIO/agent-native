@@ -14,10 +14,8 @@ describe("sanitizeHtml", () => {
 
   it("removes unsafe link targets", () => {
     expect(sanitizeHtml('<a href="javascript:alert(1)">x</a>')).toBe(
-      '<a target="_blank" rel="noopener noreferrer">x</a>',
+      "<a>x</a>",
     );
-    expect(sanitizeHtml('<a href="//evil.test">x</a>')).toBe(
-      '<a target="_blank" rel="noopener noreferrer">x</a>',
-    );
+    expect(sanitizeHtml('<a href="//evil.test">x</a>')).toBe("<a>x</a>");
   });
 });

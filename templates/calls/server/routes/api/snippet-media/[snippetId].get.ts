@@ -24,6 +24,7 @@ import {
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../../db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 
 interface SnippetRow {
   id: string;
@@ -42,74 +43,80 @@ function appPath(path: string): string {
 }
 
 export default defineEventHandler(async (event: H3Event) => {
-  const snippetId = getRouterParam(event, "snippetId");
-  if (!snippetId) {
-    setResponseStatus(event, 400);
-    return { error: "Missing snippetId" };
-  }
+  const session = await getSession(event).catch(() => null);
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    async () => {
+      const snippetId = getRouterParam(event, "snippetId");
+      if (!snippetId) {
+        setResponseStatus(event, 400);
+        return { error: "Missing snippetId" };
+      }
 
-  const access = await resolveAccess("snippet", snippetId);
-  if (!access) {
-    setResponseStatus(event, 404);
-    return { error: "Not found" };
-  }
-  const snippet = access.resource as SnippetRow;
+      const access = await resolveAccess("snippet", snippetId);
+      if (!access) {
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }
+      const snippet = access.resource as SnippetRow;
 
-  if (snippet.expiresAt) {
-    const expires = new Date(snippet.expiresAt).getTime();
-    if (Number.isFinite(expires) && expires < Date.now()) {
-      setResponseStatus(event, 410);
-      return { error: "Snippet has expired" };
-    }
-  }
+      if (snippet.expiresAt) {
+        const expires = new Date(snippet.expiresAt).getTime();
+        if (Number.isFinite(expires) && expires < Date.now()) {
+          setResponseStatus(event, 410);
+          return { error: "Snippet has expired" };
+        }
+      }
 
-  if (snippet.password && access.role !== "owner") {
-    const headerPassword = getRequestHeader(event, "x-password");
-    const q = getQuery(event) as { p?: string; password?: string };
-    const supplied =
-      (typeof headerPassword === "string" ? headerPassword : "") ||
-      (typeof q.p === "string" ? q.p : "") ||
-      (typeof q.password === "string" ? q.password : "");
-    if (!supplied || supplied !== snippet.password) {
-      setResponseStatus(event, 404);
-      return { error: "Not found" };
-    }
-  }
+      if (snippet.password && access.role !== "owner") {
+        const headerPassword = getRequestHeader(event, "x-password");
+        const q = getQuery(event) as { p?: string; password?: string };
+        const supplied =
+          (typeof headerPassword === "string" ? headerPassword : "") ||
+          (typeof q.p === "string" ? q.p : "") ||
+          (typeof q.password === "string" ? q.password : "");
+        if (!supplied || supplied !== snippet.password) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+      }
 
-  const db = getDb();
-  const [call] = await db
-    .select({
-      id: schema.calls.id,
-      mediaUrl: schema.calls.mediaUrl,
-      password: schema.calls.password,
-    })
-    .from(schema.calls)
-    .where(eq(schema.calls.id, snippet.callId))
-    .limit(1);
+      const db = getDb();
+      const [call] = await db
+        .select({
+          id: schema.calls.id,
+          mediaUrl: schema.calls.mediaUrl,
+          password: schema.calls.password,
+        })
+        .from(schema.calls)
+        .where(eq(schema.calls.id, snippet.callId))
+        .limit(1);
 
-  if (!call) {
-    setResponseStatus(event, 404);
-    return { error: "Parent call not found" };
-  }
+      if (!call) {
+        setResponseStatus(event, 404);
+        return { error: "Parent call not found" };
+      }
 
-  const startSec = Math.max(0, (snippet.startMs ?? 0) / 1000);
-  const endSec = Math.max(startSec, (snippet.endMs ?? 0) / 1000);
-  const fragment = `#t=${startSec.toFixed(3)},${endSec.toFixed(3)}`;
+      const startSec = Math.max(0, (snippet.startMs ?? 0) / 1000);
+      const endSec = Math.max(startSec, (snippet.endMs ?? 0) / 1000);
+      const fragment = `#t=${startSec.toFixed(3)},${endSec.toFixed(3)}`;
 
-  const base =
-    call.mediaUrl && /^https?:\/\//i.test(call.mediaUrl)
-      ? call.mediaUrl
-      : `/api/call-media/${call.id}`;
+      const base =
+        call.mediaUrl && /^https?:\/\//i.test(call.mediaUrl)
+          ? call.mediaUrl
+          : `/api/call-media/${call.id}`;
 
-  let target = base;
-  if (call.password && !/^https?:\/\//i.test(base)) {
-    const sep = target.includes("?") ? "&" : "?";
-    target = `${target}${sep}p=${encodeURIComponent(call.password)}`;
-  }
+      let target = base;
+      if (call.password && !/^https?:\/\//i.test(base)) {
+        const sep = target.includes("?") ? "&" : "?";
+        target = `${target}${sep}p=${encodeURIComponent(call.password)}`;
+      }
 
-  return sendRedirect(
-    event,
-    `${target.startsWith("/") ? appPath(target) : target}${fragment}`,
-    302,
+      return sendRedirect(
+        event,
+        `${target.startsWith("/") ? appPath(target) : target}${fragment}`,
+        302,
+      );
+    },
   );
 });

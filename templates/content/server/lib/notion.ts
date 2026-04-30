@@ -536,20 +536,11 @@ export async function getNotionConnectionForOwner(owner: string) {
 
 export async function disconnectNotionForOwner(owner: string) {
   if (process.env.NOTION_API_KEY) {
-    delete process.env.NOTION_API_KEY;
-    try {
-      const path = await import("path");
-      const { upsertEnvFile } = await import(
-        "@agent-native/core/server" as string
-      );
-      const envPath = path.join(process.cwd(), ".env");
-      await (upsertEnvFile as Function)(envPath, [
-        { key: "NOTION_API_KEY", value: "" },
-      ]);
-    } catch {
-      // Edge runtime — skip file write
-    }
-    return 1;
+    // NOTION_API_KEY is deploy-level process configuration. Do not mutate
+    // process.env or rewrite .env from a request handler; that would affect
+    // every tenant sharing the same warm server process. Per-user OAuth
+    // connections below remain disconnectable.
+    return 0;
   }
 
   const accounts = await listOAuthAccountsByOwner(NOTION_PROVIDER, owner);

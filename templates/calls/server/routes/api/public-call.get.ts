@@ -22,6 +22,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { parseJson, parseSpaceIds } from "../../lib/calls.js";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 
 function notFound(event: H3Event) {
   setResponseStatus(event, 404);
@@ -35,7 +36,15 @@ function appPath(path: string): string {
   return base ? `/${base}${path}` : path;
 }
 
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event).catch(() => null);
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    () => handlePublicCall(event),
+  );
+});
+
+async function handlePublicCall(event: H3Event) {
   const q = getQuery(event) as {
     callId?: string;
     password?: string;
@@ -169,4 +178,4 @@ export default defineEventHandler(async (event) => {
         }
       : null,
   };
-});
+}

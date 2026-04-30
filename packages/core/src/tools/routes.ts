@@ -535,10 +535,19 @@ async function handleProxy(
  * Capture console output from a CLI script that uses console.log for results.
  * Same technique as wrapCliScript in agent-chat-plugin.ts.
  */
+let captureCliOutputQueue: Promise<void> = Promise.resolve();
+
 async function captureCliOutput(
   fn: (args: string[]) => Promise<void>,
   args: string[],
 ): Promise<string> {
+  const previousCapture = captureCliOutputQueue;
+  let releaseCapture!: () => void;
+  captureCliOutputQueue = new Promise<void>((resolve) => {
+    releaseCapture = resolve;
+  });
+  await previousCapture;
+
   const logs: string[] = [];
   const origLog = console.log;
   const origError = console.error;
@@ -562,6 +571,7 @@ async function captureCliOutput(
     console.log = origLog;
     console.error = origError;
     process.stdout.write = origStdoutWrite;
+    releaseCapture();
   }
   return logs.join("\n") || "(no output)";
 }

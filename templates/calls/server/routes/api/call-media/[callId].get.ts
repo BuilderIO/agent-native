@@ -30,6 +30,7 @@ import {
 } from "h3";
 import { readAppState } from "@agent-native/core/application-state";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 
 interface CallRow {
   mediaUrl?: string | null;
@@ -82,6 +83,10 @@ function mimeForFormat(format?: string | null, kind?: string | null): string {
 }
 
 export default defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event).catch(() => null);
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    async () => {
   const callId = getRouterParam(event, "callId");
   if (!callId) {
     setResponseStatus(event, 400);
@@ -166,4 +171,6 @@ export default defineEventHandler(async (event: H3Event) => {
 
   setResponseHeader(event, "Content-Length", String(total));
   return bytes;
+    },
+  );
 });

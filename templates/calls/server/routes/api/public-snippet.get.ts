@@ -17,6 +17,7 @@ import {
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 
 function notFound(event: H3Event) {
   setResponseStatus(event, 404);
@@ -30,7 +31,15 @@ function appPath(path: string): string {
   return base ? `/${base}${path}` : path;
 }
 
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event).catch(() => null);
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    () => handlePublicSnippet(event),
+  );
+});
+
+async function handlePublicSnippet(event: H3Event) {
   const q = getQuery(event) as {
     snippetId?: string;
     password?: string;
@@ -118,4 +127,4 @@ export default defineEventHandler(async (event) => {
       mediaUrl,
     },
   };
-});
+}

@@ -2366,9 +2366,7 @@ function decodeHtmlEntities(value: string): string {
 function isSafeEmailUrl(value: string, kind: "link" | "image"): boolean {
   const decoded = decodeHtmlEntities(value).trim();
   if (!decoded) return false;
-  const lower = decoded
-    .replace(/[\s\u0000-\u001f\u007f]+/g, "")
-    .toLowerCase();
+  const lower = decoded.replace(/[\s\u0000-\u001f\u007f]+/g, "").toLowerCase();
 
   if (
     lower.startsWith("javascript:") ||
