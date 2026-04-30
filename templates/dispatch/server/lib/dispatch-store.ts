@@ -820,6 +820,10 @@ export async function consumeLinkToken(input: {
     })
     .where(eq(schema.dispatchLinkTokens.id, tokenRow.id));
 
+  // Successful claim — reset the rate-limit budget so subsequent
+  // links from this external user start fresh.
+  clearLinkFailures(input.platform, input.externalUserId);
+
   await recordAudit({
     actor: tokenRow.createdBy,
     ownerEmail: tokenRow.ownerEmail,
