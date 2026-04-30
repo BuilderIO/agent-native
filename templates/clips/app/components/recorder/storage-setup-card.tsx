@@ -116,9 +116,7 @@ export function StorageSetupCard({ onConfigured }: StorageSetupCardProps) {
         </p>
       </div>
 
-      {/* Builder.io — primary option. File uploads are GA regardless of
-          the ENABLE_BUILDER beta flag, so this always renders the real
-          Connect flow (no waitlist path here). */}
+      {/* Builder.io — primary option, one-click Connect flow. */}
       <button
         type="button"
         onClick={handleConnect}
