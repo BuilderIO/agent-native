@@ -1,6 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { getDb } from "../server/db/index.js";
+import { readAppSecret } from "@agent-native/core/secrets";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { getRequiredSecret } from "@agent-native/core/secrets";
 
 const namesParam = z.preprocess((value) => {
   if (Array.isArray(value)) return value;
@@ -9,13 +14,21 @@ const namesParam = z.preprocess((value) => {
 }, z.array(z.string()).default([]));
 
 async function hasStoredSecret(name: string): Promise<boolean> {
+  const registration = getRequiredSecret(name);
+  const scope = registration?.scope ?? "user";
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) return false;
+  const scopeId =
+    scope === "workspace"
+      ? (getRequestOrgId() ?? `solo:${userEmail}`)
+      : userEmail;
   try {
-    const db = getDb() as any;
-    const result = await db.execute({
-      sql: "SELECT 1 FROM app_secrets WHERE key = ? LIMIT 1",
-      args: [name],
+    const result = await readAppSecret({
+      key: name,
+      scope,
+      scopeId,
     });
-    return (result.rows?.length ?? 0) > 0;
+    return Boolean(result?.value);
   } catch {
     return false;
   }
@@ -34,7 +47,7 @@ export default defineAction({
 
     for (const name of names) {
       secrets[name] = {
-        configured: Boolean(process.env[name]) || (await hasStoredSecret(name)),
+        configured: await hasStoredSecret(name),
       };
     }
 

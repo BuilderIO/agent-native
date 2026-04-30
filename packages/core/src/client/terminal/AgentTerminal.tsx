@@ -117,7 +117,7 @@ interface TerminalInfo {
   error?: string;
 }
 
-function formatWebSocketHostname(hostname: string) {
+export function formatWebSocketHostname(hostname: string) {
   return hostname.includes(":") && !hostname.startsWith("[")
     ? `[${hostname}]`
     : hostname;

@@ -17,8 +17,9 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
-function getCacheKey(username: string, cursor?: string): string {
-  const input = `tweets:${username.toLowerCase()}:${cursor ?? ""}`;
+function getCacheKey(apiKey: string, username: string, cursor?: string): string {
+  const keyHash = createHash("sha256").update(apiKey).digest("hex");
+  const input = `tweets:${keyHash}:${username.toLowerCase()}:${cursor ?? ""}`;
   return createHash("sha256").update(input).digest("hex");
 }
 
@@ -85,7 +86,7 @@ export async function fetchAllTweetsForUser(
   userName: string,
   maxPages: number,
 ): Promise<unknown[]> {
-  const fullCacheKey = getCacheKey(userName, `full:${maxPages}`);
+  const fullCacheKey = getCacheKey(apiKey, userName, `full:${maxPages}`);
   const cached = getCached(fullCacheKey) as { tweets: unknown[] } | null;
   if (cached) return cached.tweets;
 
@@ -93,7 +94,7 @@ export async function fetchAllTweetsForUser(
   let cursor: string | undefined;
 
   for (let page = 0; page < maxPages; page++) {
-    const pageKey = getCacheKey(userName, cursor ?? `page${page}`);
+    const pageKey = getCacheKey(apiKey, userName, cursor ?? `page${page}`);
     let pageData = getCached(pageKey) as {
       tweets: unknown[];
       next_cursor?: string;
@@ -133,7 +134,7 @@ export const handleTwitterTweets = defineEventHandler(async (event) => {
     }
     const maxPages = Math.min(Number(pagesParam) || 5, 10);
 
-    const apiKey = await resolveCredential("TWITTER_API_KEY", ctx);
+    const apiKey = await resolveCredential("TWITTER_BEARER_TOKEN", ctx);
     console.log(
       "[Twitter] API key present:",
       !!apiKey,
@@ -143,9 +144,9 @@ export const handleTwitterTweets = defineEventHandler(async (event) => {
       maxPages,
     );
     if (!apiKey) {
-      console.error("[Twitter] TWITTER_API_KEY not configured");
+      console.error("[Twitter] TWITTER_BEARER_TOKEN not configured");
       setResponseStatus(event, 500);
-      return { error: "TWITTER_API_KEY not configured" };
+      return { error: "TWITTER_BEARER_TOKEN not configured" };
     }
 
     try {
@@ -209,16 +210,20 @@ export const handleTwitterMulti = defineEventHandler(async (event) => {
     return { error: "Max 10 usernames at a time" };
   }
 
-  const apiKey = await resolveCredential("TWITTER_API_KEY", ctx);
+  const apiKey = await resolveCredential("TWITTER_BEARER_TOKEN", ctx);
   console.log("[Twitter Multi] API key present:", !!apiKey);
   if (!apiKey) {
-    console.error("[Twitter Multi] TWITTER_API_KEY not configured");
+    console.error("[Twitter Multi] TWITTER_BEARER_TOKEN not configured");
     setResponseStatus(event, 500);
-    return { error: "TWITTER_API_KEY not configured" };
+    return { error: "TWITTER_BEARER_TOKEN not configured" };
   }
 
   // Check full multi-user cache
-  const multiKey = getCacheKey(userNames.sort().join(","), `multi:${maxPages}`);
+  const multiKey = getCacheKey(
+    apiKey,
+    userNames.sort().join(","),
+    `multi:${maxPages}`,
+  );
   const cached = getCached(multiKey);
   if (cached) {
     console.log("[Twitter Multi] Returning cached data");

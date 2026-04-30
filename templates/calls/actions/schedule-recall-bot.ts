@@ -6,6 +6,7 @@ import {
   nanoid,
   resolveDefaultWorkspaceId,
 } from "../server/lib/calls.js";
+import { resolveRecallApiKey } from "../server/lib/recall.js";
 import { writeAppState } from "@agent-native/core/application-state";
 
 function getPublicUrl(): string {
@@ -41,13 +42,10 @@ export default defineAction({
   }),
   http: { method: "POST" },
   run: async (args) => {
-    const apiKey =
-      typeof process !== "undefined"
-        ? process.env.RECALL_AI_API_KEY
-        : undefined;
+    const apiKey = await resolveRecallApiKey();
     if (!apiKey) {
       throw new Error(
-        "RECALL_AI_API_KEY is not configured. Add it via the onboarding secrets flow.",
+        "RECALL_AI_API_KEY is not configured for this user or workspace. Add it via the onboarding secrets flow.",
       );
     }
 

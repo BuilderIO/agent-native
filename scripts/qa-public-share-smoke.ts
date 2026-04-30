@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import {
+  spawn,
+  execFileSync,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -50,7 +54,10 @@ async function fetchJson<T = any>(
   url: string,
   init?: RequestInit,
 ): Promise<{ status: number; ok: boolean; data: T }> {
-  const res = await fetch(url, init);
+  const res = await fetch(url, {
+    ...init,
+    signal: AbortSignal.timeout(10_000),
+  });
   const data = (await res.json().catch(() => null)) as T;
   return { status: res.status, ok: res.ok, data };
 }
@@ -58,7 +65,7 @@ async function fetchJson<T = any>(
 async function fetchText(
   url: string,
 ): Promise<{ status: number; ok: boolean; text: string }> {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   const text = await res.text();
   return { status: res.status, ok: res.ok, text };
 }
@@ -68,7 +75,10 @@ async function waitForReady(app: AppName, baseUrl: string, logs: string[]) {
   let lastError = "";
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(baseUrl);
+      const res = await fetch(baseUrl, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(2_000),
+      });
       if (res.status < 500) return;
       lastError = `HTTP ${res.status}`;
     } catch (err) {
@@ -199,7 +209,9 @@ INSERT INTO snippets (
 `,
   );
 
-  const lockedCall = await fetchJson(`${baseUrl}/api/public-call?callId=qa-call-public`);
+  const lockedCall = await fetchJson(
+    `${baseUrl}/api/public-call?callId=qa-call-public`,
+  );
   assert.equal(lockedCall.status, 401);
   assert.equal((lockedCall.data as any).passwordRequired, true);
 
@@ -210,7 +222,10 @@ INSERT INTO snippets (
   assert.equal((call.data as any).call.title, "QA Passworded Call");
   assert.equal((call.data as any).call.hasPassword, true);
   assert.match((call.data as any).call.mediaUrl, /p=call-secret/);
-  assert.equal((call.data as any).summary.recap, "Recap for a locally seeded public call.");
+  assert.equal(
+    (call.data as any).summary.recap,
+    "Recap for a locally seeded public call.",
+  );
   assert.equal((call.data as any).transcript.status, "ready");
   assert.equal((call.data as any).participants.length, 1);
   assert.equal("password" in (call.data as any).call, false);
@@ -231,7 +246,9 @@ INSERT INTO snippets (
   assert.equal((snippet.data as any).snippet.title, "QA Passworded Snippet");
   assert.match((snippet.data as any).call.mediaUrl, /#t=1\.000,4\.000$/);
 
-  const snippetPage = await fetchText(`${baseUrl}/share-snippet/qa-snippet-public`);
+  const snippetPage = await fetchText(
+    `${baseUrl}/share-snippet/qa-snippet-public`,
+  );
   assert.equal(snippetPage.status, 200);
 }
 
@@ -278,7 +295,9 @@ VALUES (
 `,
   );
 
-  const locked = await fetchJson(`${baseUrl}/api/public-recording?id=qa-recording-public`);
+  const locked = await fetchJson(
+    `${baseUrl}/api/public-recording?id=qa-recording-public`,
+  );
   assert.equal(locked.status, 401);
   assert.equal((locked.data as any).passwordRequired, true);
 
@@ -325,7 +344,9 @@ INSERT INTO forms (
 `,
   );
 
-  const publicForm = await fetchJson(`${baseUrl}/api/forms/public/qa%2Fpublic-form`);
+  const publicForm = await fetchJson(
+    `${baseUrl}/api/forms/public/qa%2Fpublic-form`,
+  );
   assert.equal(publicForm.status, 200);
   assert.equal((publicForm.data as any).title, "QA Published Form");
   assert.equal((publicForm.data as any).fields.length, 3);

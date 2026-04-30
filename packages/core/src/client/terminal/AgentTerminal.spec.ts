@@ -2,7 +2,10 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentTerminal } from "./AgentTerminal.js";
+import {
+  AgentTerminal,
+  formatWebSocketHostname,
+} from "./AgentTerminal.js";
 
 const terminals: MockTerminal[] = [];
 
@@ -137,8 +140,13 @@ describe("AgentTerminal", () => {
     expect(container.textContent).toContain("Terminal disabled");
   });
 
-  it("discovers the WebSocket URL, including IPv6 hosts and flags", async () => {
-    vi.stubGlobal("location", { protocol: "http:", hostname: "::1" });
+  it("formats IPv6 hosts for WebSocket URLs", () => {
+    expect(formatWebSocketHostname("::1")).toBe("[::1]");
+    expect(formatWebSocketHostname("localhost")).toBe("localhost");
+    expect(formatWebSocketHostname("[::1]")).toBe("[::1]");
+  });
+
+  it("discovers the WebSocket URL with the server command and flags", async () => {
     vi.mocked(fetch).mockResolvedValue({
       json: async () => ({
         available: true,
@@ -148,10 +156,11 @@ describe("AgentTerminal", () => {
     } as Response);
 
     renderTerminal({ flags: "--plan" });
+    await flushTimers();
     await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(1));
 
     expect(MockWebSocket.instances[0].url).toBe(
-      "ws://[::1]:12345/ws?command=builder&flags=--plan",
+      `ws://${window.location.hostname}:12345/ws?command=builder&flags=--plan`,
     );
   });
 

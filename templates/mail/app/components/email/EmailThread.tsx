@@ -2343,13 +2343,65 @@ type SanitizedEmailHtml = {
   bodyHtml: string;
 };
 
+function decodeHtmlEntities(value: string): string {
+  let decoded = value;
+  for (let i = 0; i < 3; i++) {
+    const next = decoded
+      .replace(/&#x([0-9a-f]+);?/gi, (_, hex: string) =>
+        String.fromCodePoint(Number.parseInt(hex, 16)),
+      )
+      .replace(/&#(\d+);?/g, (_, dec: string) =>
+        String.fromCodePoint(Number.parseInt(dec, 10)),
+      )
+      .replace(/&colon;?/gi, ":")
+      .replace(/&tab;?/gi, "\t")
+      .replace(/&newline;?/gi, "\n")
+      .replace(/&amp;?/gi, "&");
+    if (next === decoded) break;
+    decoded = next;
+  }
+  return decoded;
+}
+
+function isSafeEmailUrl(value: string, kind: "link" | "image"): boolean {
+  const decoded = decodeHtmlEntities(value).trim();
+  if (!decoded) return false;
+  const lower = decoded
+    .replace(/[\s\u0000-\u001f\u007f]+/g, "")
+    .toLowerCase();
+
+  if (
+    lower.startsWith("javascript:") ||
+    lower.startsWith("vbscript:") ||
+    lower.startsWith("file:") ||
+    lower.startsWith("//")
+  ) {
+    return false;
+  }
+
+  if (kind === "image" && lower.startsWith("cid:")) return true;
+  if (kind === "image" && lower.startsWith("data:image/")) {
+    return /^data:image\/(?:gif|png|jpe?g|webp);base64,/i.test(decoded);
+  }
+  if (decoded.startsWith("#")) return true;
+
+  try {
+    const url = new URL(decoded);
+    return kind === "image"
+      ? url.protocol === "http:" || url.protocol === "https:"
+      : ["http:", "https:", "mailto:", "tel:"].includes(url.protocol);
+  } catch {
+    return false;
+  }
+}
+
 function sanitizeEmailHtml(html: string): SanitizedEmailHtml {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
   doc
     .querySelectorAll(
-      "script, noscript, iframe, frame, object, embed, base, meta[http-equiv='refresh']",
+      "script, noscript, iframe, frame, object, embed, form, input, button, base, meta[http-equiv='refresh']",
     )
     .forEach((node) => node.remove());
 
@@ -2362,9 +2414,26 @@ function sanitizeEmailHtml(html: string): SanitizedEmailHtml {
         el.removeAttribute(attr.name);
         continue;
       }
+      if (name === "srcdoc" || name === "srcset") {
+        el.removeAttribute(attr.name);
+        continue;
+      }
       if (
-        (name === "href" || name === "src" || name === "xlink:href") &&
-        value.startsWith("javascript:")
+        (name === "href" || name === "xlink:href") &&
+        !isSafeEmailUrl(attr.value, "link")
+      ) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if (name === "src" && !isSafeEmailUrl(attr.value, "image")) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if (
+        name === "style" &&
+        /(?:expression\s*\(|url\s*\(\s*(?:javascript|vbscript|file)\s*:|@import)/i.test(
+          decodeHtmlEntities(value),
+        )
       ) {
         el.removeAttribute(attr.name);
       }
