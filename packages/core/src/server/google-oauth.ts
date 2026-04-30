@@ -156,23 +156,46 @@ export interface OAuthStatePayload {
 }
 
 /**
- * Derive a signing key for HMAC verification of OAuth state.
- * Uses the first available OAuth client secret — prevents CSRF without
- * requiring a specific provider's credentials.
+ * Ephemeral in-memory state-signing key for development. Generated lazily
+ * on first read so dev sessions don't depend on filesystem writability or
+ * env-var configuration. Sessions reset on each restart, which is fine
+ * for dev — no real users / production data are involved.
+ */
+let _devStateSigningKey: string | undefined;
+
+/**
+ * Derive a server-only signing key for HMAC verification of OAuth state.
+ *
+ * Uses a dedicated secret — never an OAuth client secret. Reusing a
+ * client_secret (which is shared with Google / GitHub / Atlassian) as our
+ * own HMAC key conflates two trust domains: rotating the client secret
+ * silently invalidates every in-flight OAuth state, and any leak of the
+ * client secret also lets an attacker forge our state envelopes.
+ *
+ * Resolution order:
+ *   1. OAUTH_STATE_SECRET (preferred — dedicated to this purpose)
+ *   2. BETTER_AUTH_SECRET (already used by Better Auth as a server secret)
+ *   3. In dev only, an ephemeral random key (per-process)
+ *
+ * In production, throws if neither secret is set.
  */
 function getStateSigningKey(): string {
   const secret =
-    process.env.GOOGLE_CLIENT_SECRET ||
-    process.env.ATLASSIAN_CLIENT_SECRET ||
-    process.env.GITHUB_CLIENT_SECRET ||
-    process.env.OAUTH_STATE_SECRET;
-  if (!secret) {
+    process.env.OAUTH_STATE_SECRET || process.env.BETTER_AUTH_SECRET;
+  if (secret) return secret;
+
+  const isProd = process.env.NODE_ENV === "production";
+  if (isProd) {
     throw new Error(
-      "An OAuth client secret is required for state signing. " +
-        "Set GOOGLE_CLIENT_SECRET, ATLASSIAN_CLIENT_SECRET, GITHUB_CLIENT_SECRET, or OAUTH_STATE_SECRET.",
+      "OAuth state signing requires a server secret. " +
+        "Set OAUTH_STATE_SECRET or BETTER_AUTH_SECRET in production.",
     );
   }
-  return secret;
+
+  if (!_devStateSigningKey) {
+    _devStateSigningKey = crypto.randomBytes(32).toString("hex");
+  }
+  return _devStateSigningKey;
 }
 
 /**

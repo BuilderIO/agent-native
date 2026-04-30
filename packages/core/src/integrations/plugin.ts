@@ -431,21 +431,47 @@ export function createIntegrationsPlugin(
 
         // ─── POST /:platform/enable ────────────────────────────
         if (action === "enable" && method === "POST") {
-          if (!(await requireSession(event))) return { error: "unauthorized" };
-          await saveIntegrationConfig(platform, { enabled: true });
+          if (!(await requireOrgAdmin(event)))
+            return {
+              error: "Only organization owners and admins can enable integrations",
+            };
+          // Stamp the org-admin who toggled this so downstream code can
+          // tell who is responsible — useful for audit logs even though
+          // the row itself remains deployment-wide.
+          const session = await getSession(event).catch(() => null);
+          await saveIntegrationConfig(
+            platform,
+            { enabled: true },
+            "default",
+            session?.email,
+          );
           return { ok: true, platform, enabled: true };
         }
 
         // ─── POST /:platform/disable ───────────────────────────
         if (action === "disable" && method === "POST") {
-          if (!(await requireSession(event))) return { error: "unauthorized" };
-          await saveIntegrationConfig(platform, { enabled: false });
+          if (!(await requireOrgAdmin(event)))
+            return {
+              error:
+                "Only organization owners and admins can disable integrations",
+            };
+          const session = await getSession(event).catch(() => null);
+          await saveIntegrationConfig(
+            platform,
+            { enabled: false },
+            "default",
+            session?.email,
+          );
           return { ok: true, platform, enabled: false };
         }
 
         // ─── POST /:platform/setup ─────────────────────────────
         if (action === "setup" && method === "POST") {
-          if (!(await requireSession(event))) return { error: "unauthorized" };
+          if (!(await requireOrgAdmin(event)))
+            return {
+              error:
+                "Only organization owners and admins can configure integrations",
+            };
           if (platform === "telegram") {
             const baseUrl = getBaseUrl(event);
             const webhookUrl = `${baseUrl}${P}/telegram/webhook`;

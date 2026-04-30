@@ -1,7 +1,14 @@
 import { defineAction } from "@agent-native/core";
+import fs from "fs";
+import path from "path";
 import { z } from "zod";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  safeGeneratedFilename,
+  tenantExportDir,
+} from "../server/lib/tenant-files.js";
 import {
   type AspectRatio,
   getAspectRatioDims,
@@ -236,6 +243,9 @@ export default defineAction({
     deckId: z.string().describe("Deck ID to export"),
   }),
   run: async ({ deckId }) => {
+    const userEmail = getRequestUserEmail();
+    if (!userEmail) throw new Error("no authenticated user");
+
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);
 
@@ -255,12 +265,9 @@ export default defineAction({
 
     const html = buildStandaloneHtml(row.title, slides, aspectRatio);
 
-    // Save to exports directory
-    const fs = await import("fs");
-    const path = await import("path");
-    const exportDir = path.join(process.cwd(), "data", "exports");
+    const exportDir = tenantExportDir(userEmail);
     fs.mkdirSync(exportDir, { recursive: true });
-    const filename = `${row.title.replace(/[^a-zA-Z0-9]/g, "-")}-${Date.now()}.html`;
+    const filename = safeGeneratedFilename(row.title, ".html");
     const filePath = path.join(exportDir, filename);
     fs.writeFileSync(filePath, html);
 
