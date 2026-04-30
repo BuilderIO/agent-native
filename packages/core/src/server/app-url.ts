@@ -93,8 +93,11 @@ export function getAppProductionUrl(event?: H3Event): string {
     const netlifyUrl = process.env.URL || process.env.DEPLOY_URL;
     if (netlifyUrl) return stripTrailingSlash(netlifyUrl);
 
-    // Vercel injects `VERCEL_URL` without a protocol — it's always https.
-    const vercelUrl = process.env.VERCEL_URL;
+    // Vercel injects `VERCEL_PROJECT_PRODUCTION_URL` (custom/primary domain,
+    // no protocol) and `VERCEL_URL` (ephemeral deployment hostname). Prefer
+    // the production URL so emails use the real domain, not *.vercel.app.
+    const vercelUrl =
+      process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
     if (vercelUrl) return `https://${stripTrailingSlash(vercelUrl)}`;
   }
 
