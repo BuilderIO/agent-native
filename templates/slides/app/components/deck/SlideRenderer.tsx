@@ -77,12 +77,7 @@ const markdownComponents = {
     const safeHref = sanitizeSlideUrl(href, "link");
     if (!safeHref) return <>{children}</>;
     return (
-      <a
-        {...props}
-        href={safeHref}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
+      <a {...props} href={safeHref} target="_blank" rel="noopener noreferrer">
         {children}
       </a>
     );
@@ -319,9 +314,7 @@ export function SlideInner({
     >
       {imageLoadingOverlay}
       <div className="slide-content text-white/90 w-full">
-        <ReactMarkdown components={markdownComponents}>
-          {content}
-        </ReactMarkdown>
+        <ReactMarkdown components={markdownComponents}>{content}</ReactMarkdown>
       </div>
     </div>
   );

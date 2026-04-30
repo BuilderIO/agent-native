@@ -11,7 +11,7 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { z } from "zod";
-import { requireActiveOrganizationId } from "../server/lib/recordings.js";
+import { requireOrganizationAccess } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -26,8 +26,10 @@ export default defineAction({
   run: async (args) => {
     const exec = getDbExec();
     const pg = isPostgres();
-    const organizationId =
-      args.organizationId || (await requireActiveOrganizationId());
+    const { organizationId } = await requireOrganizationAccess(
+      args.organizationId,
+      ["admin"],
+    );
 
     // Check the target exists and get their role.
     const targetRes = await exec.execute({
