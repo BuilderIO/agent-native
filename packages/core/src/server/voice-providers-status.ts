@@ -31,6 +31,13 @@ export interface VoiceProvidersStatus {
   groq: boolean;
   /** Always true — the Web Speech API is available in WebKit-based clients. */
   browser: true;
+  /**
+   * Apple's SFSpeechRecognizer + AVAudioEngine, exposed by the Tauri
+   * desktop client. Always reported as `true` from the server — the
+   * desktop client gates this on macOS at the Tauri-command boundary, so
+   * non-macOS hosts return a clear error instead of attempting to use it.
+   */
+  native: true;
 }
 
 export function createVoiceProvidersStatusHandler() {
@@ -81,6 +88,7 @@ export function createVoiceProvidersStatusHandler() {
       openai,
       groq,
       browser: true,
+      native: true,
     };
     return status;
   });

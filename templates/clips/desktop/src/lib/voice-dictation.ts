@@ -701,7 +701,9 @@ export function installDesktopVoiceDictation(
       // it in the WebView layer.
       startSyntheticMeter(next);
       try {
-        await invoke("native_speech_start", { locale: navigator.language || "en-US" });
+        await invoke("native_speech_start", {
+          locale: navigator.language || "en-US",
+        });
         console.log("[voice-dictation] native_speech_start ok");
       } catch (err) {
         console.error("[voice-dictation] native_speech_start failed:", err);
