@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { DEFAULT_APPS } from "@agent-native/shared-app-config";
+import { TEMPLATES, getTemplate } from "@agent-native/shared-app-config";
 
 // Lazy-load heavy components
 const MultiTabAssistantChat = lazy(() =>
@@ -55,7 +55,7 @@ function getAppId(): string {
 }
 
 function getAppDevUrl(appId: string): string {
-  const app = DEFAULT_APPS.find((a) => a.id === appId);
+  const app = getTemplate(appId);
   const host =
     typeof window !== "undefined" ? window.location.hostname : "localhost";
   const port = app?.devPort || 8080;
@@ -93,7 +93,7 @@ export function App() {
   });
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const appUrl = getAppDevUrl(appId);
-  const app = DEFAULT_APPS.find((a) => a.id === appId);
+  const app = getTemplate(appId);
 
   // (The `frame_active_app` cookie is set synchronously by getAppId() on
   // first render, before any child effect can fetch /_agent-native/**.)
@@ -230,7 +230,7 @@ export function App() {
       }
       if (event.data.type === "builder.submitChat") {
         const allowedOrigins = new Set(
-          DEFAULT_APPS.map((a) => `http://localhost:${a.devPort || 8080}`),
+          TEMPLATES.map((a) => `http://localhost:${a.devPort || 8080}`),
         );
         if (allowedOrigins.has(event.origin)) {
           window.postMessage(event.data, window.location.origin);
@@ -301,7 +301,7 @@ export function App() {
           ref={iframeRef}
           src={appUrl}
           className="w-full h-full border-none"
-          title={app?.name || "App"}
+          title={app?.label || "App"}
           allow="fullscreen"
         />
         {/* Overlay during drag to prevent iframe from capturing mouse events */}
@@ -346,7 +346,7 @@ export function App() {
               }
             >
               <AgentPanel
-                emptyStateText={`Ask me anything about ${app?.name || "your app"}`}
+                emptyStateText={`Ask me anything about ${app?.label || "your app"}`}
                 suggestions={[
                   "What does this app do?",
                   "Show me the current screen",
