@@ -595,6 +595,19 @@ function postProcessStandalone(name: string, targetDir: string): void {
           }
         }
       }
+      // Ensure pnpm.onlyBuiltDependencies is set so native packages
+      // (better-sqlite3, esbuild, node-pty) compile their postinstall scripts
+      // under pnpm 10+ without prompting for `pnpm approve-builds`.
+      const requiredBuilt = ["better-sqlite3", "esbuild", "node-pty"];
+      if (!pkg.pnpm || typeof pkg.pnpm !== "object") {
+        pkg.pnpm = {};
+      }
+      const existing = Array.isArray(pkg.pnpm.onlyBuiltDependencies)
+        ? pkg.pnpm.onlyBuiltDependencies
+        : [];
+      pkg.pnpm.onlyBuiltDependencies = Array.from(
+        new Set([...existing, ...requiredBuilt]),
+      );
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {}
   }
