@@ -16,6 +16,7 @@
 import {
   createError,
   defineEventHandler,
+  getHeader,
   getRouterParam,
   getQuery,
   readRawBody,
@@ -71,6 +72,13 @@ export default defineEventHandler(async (event: H3Event) => {
 
   if (!Number.isFinite(index) || index < 0) {
     throw createError({ statusCode: 400, message: "Invalid chunk index" });
+  }
+
+  const MAX_CHUNK_BYTES = 6 * 1024 * 1024; // 6MB cap (5MB client + slack)
+  const contentLength = Number(getHeader(event, "content-length") || 0);
+  if (contentLength > MAX_CHUNK_BYTES) {
+    setResponseStatus(event, 413);
+    return { error: "Chunk too large" };
   }
 
   let ownerEmail: string;
