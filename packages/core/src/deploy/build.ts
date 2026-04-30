@@ -147,6 +147,25 @@ import { H3, defineEventHandler, readBody } from "h3";
 import { createRequestHandler } from "react-router";
 import * as serverBuild from "./server-build.js";
 
+function normalizeAppBasePath(value) {
+  if (!value || value === "/") return "";
+  const trimmed = String(value).trim();
+  if (!trimmed || trimmed === "/") return "";
+  return "/" + trimmed.replace(/^\\/+/, "").replace(/\\/+$/, "");
+}
+
+function stripMountedApiPrefix(event) {
+  const basePath = normalizeAppBasePath(
+    globalThis.process?.env?.VITE_APP_BASE_PATH ||
+      globalThis.process?.env?.APP_BASE_PATH,
+  );
+  if (!basePath) return;
+  const url = new URL(event.req.url);
+  if (!url.pathname.startsWith(basePath + "/api/")) return;
+  url.pathname = url.pathname.slice(basePath.length) || "/";
+  event.req = new Request(url, event.req);
+}
+
 // API route handlers
 ${routeImports.join("\n")}
 
@@ -174,6 +193,7 @@ async function getHandler() {
 
   // CORS — applied as global middleware via .use(handler)
   app.use(defineEventHandler((event) => {
+    stripMountedApiPrefix(event);
     if (event.req.method === "OPTIONS") {
       return new Response(null, {
         status: 204,

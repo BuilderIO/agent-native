@@ -515,7 +515,7 @@ ${marketingStyles}
 <body${hasMarketing ? ' class="has-marketing"' : ""}>
 ${marketingPanelHtml}
 <div class="card">
-  <h1>Welcome</h1>
+  <h1 id="heading">Welcome</h1>
   <p class="subtitle" id="subtitle">Create an account to get started</p>
   <p class="upgrade-note" id="upgrade-note">
     You started this flow from <code>local@localhost</code>. Continue signing in to upgrade this workspace to a real account and migrate your local data. If you want to cancel that and keep using local mode, use the secondary button below.

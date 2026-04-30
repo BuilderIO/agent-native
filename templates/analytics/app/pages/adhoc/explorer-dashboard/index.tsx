@@ -386,7 +386,7 @@ export default function ExplorerDashboardPage() {
                     await fetch(
                       appApiPath(`/api/explorer-dashboards/${dashboardId}`),
                       {
-                      method: "DELETE",
+                        method: "DELETE",
                         headers: token
                           ? { Authorization: `Bearer ${token}` }
                           : {},

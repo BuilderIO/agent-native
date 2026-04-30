@@ -500,6 +500,14 @@ function baseRedirectGuard(): Plugin {
         if (
           base &&
           base !== "/" &&
+          req.url?.startsWith(base) &&
+          req.url.slice(base.length - 1).startsWith("/api/")
+        ) {
+          req.url = req.url.slice(base.length - 1);
+        }
+        if (
+          base &&
+          base !== "/" &&
           (req.url === "/" || req.url === "/index.html")
         ) {
           // Rewrite to the base path so Vite serves the app directly
