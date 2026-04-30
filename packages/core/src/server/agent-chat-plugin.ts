@@ -2447,23 +2447,42 @@ export function createAgentChatPlugin(
         streaming: true,
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
+          // Priority: A2A-JWT verified email (set by the A2A handler in
+          // request-context) > Google OAuth tokeninfo > dev fallbacks.
+          // Without the JWT-verified-email path, cross-app A2A calls landed
+          // owned by `local@localhost` (dev) or `dispatch@shared`, which made
+          // resources invisible to the actual signed-in user.
           const isDev = process.env.NODE_ENV !== "production";
           let userEmail: string | undefined;
 
-          if (isDev) {
+          // 1. JWT-verified email from A2A receiver (auth boundary already
+          //    enforced upstream). Works in dev AND prod.
+          try {
+            const { getRequestUserEmail } =
+              await import("./request-context.js");
+            userEmail = getRequestUserEmail();
+          } catch {}
+
+          // 2. Message-level metadata.userEmail (caller hint, only trusted
+          //    if request-context didn't supply one — A2A receiver already
+          //    runs auth verification before this handler is called).
+          if (!userEmail) {
             userEmail = (context.metadata?.userEmail as string) || undefined;
-            if (!userEmail) {
-              try {
-                const { getDbExec } = await import("../db/client.js");
-                const db = getDbExec();
-                const { rows } = await db.execute({
-                  sql: "SELECT email FROM sessions ORDER BY created_at DESC LIMIT 1",
-                  args: [],
-                });
-                if (rows[0]) userEmail = rows[0].email as string;
-              } catch {}
-            }
-          } else {
+          }
+
+          if (!userEmail && isDev) {
+            try {
+              const { getDbExec } = await import("../db/client.js");
+              const db = getDbExec();
+              const { rows } = await db.execute({
+                sql: "SELECT email FROM sessions ORDER BY created_at DESC LIMIT 1",
+                args: [],
+              });
+              if (rows[0]) userEmail = rows[0].email as string;
+            } catch {}
+          }
+
+          if (!userEmail && !isDev) {
             const googleToken = context.metadata?.googleToken as string;
             if (googleToken) {
               try {
