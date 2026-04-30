@@ -533,6 +533,20 @@ interface AuthGuardConfig {
   publicPaths: string[];
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
+const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
+
+function setGenericGoogleOAuthRoutesEnabled(
+  app: H3App,
+  enabled: boolean,
+): void {
+  if (app && typeof app === "object") {
+    _genericGoogleOAuthRoutesEnabled.set(app, enabled);
+  }
+}
+
+function areGenericGoogleOAuthRoutesEnabled(app: H3App): boolean {
+  return _genericGoogleOAuthRoutesEnabled.get(app as object) !== false;
+}
 
 // Desktop OAuth exchange store — holds session tokens keyed by a unique flow
 // ID so native apps (Tauri, Electron) that open OAuth in the system browser
@@ -1350,6 +1364,7 @@ async function mountBetterAuthRoutes(
     process.env.GOOGLE_CLIENT_SECRET &&
     options.mountGoogleOAuthRoutes !== false
   ) {
+    setGenericGoogleOAuthRoutesEnabled(app, true);
     for (const gp of [
       "/_agent-native/google/callback",
       "/_agent-native/google/auth-url",
@@ -1366,6 +1381,7 @@ async function mountBetterAuthRoutes(
     app.use(
       "/_agent-native/google/auth-url",
       defineEventHandler((event) => {
+        if (!areGenericGoogleOAuthRoutesEnabled(app)) return undefined;
         if (getMethod(event) !== "GET") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
@@ -1421,6 +1437,7 @@ async function mountBetterAuthRoutes(
     app.use(
       "/_agent-native/google/callback",
       defineEventHandler(async (event) => {
+        if (!areGenericGoogleOAuthRoutesEnabled(app)) return undefined;
         if (getMethod(event) !== "GET") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
@@ -2358,6 +2375,9 @@ export async function autoMountAuth(
   // H3 app, empty middleware) would short-circuit here and end up with no
   // auth routes mounted at all.
   if (_authGuardFn && _mountedApp === app) {
+    if (options.mountGoogleOAuthRoutes === false) {
+      setGenericGoogleOAuthRoutesEnabled(app, false);
+    }
     // A custom getSession always wins — even if the default auth plugin
     // mounted first (which happens in production where bootstrapDefaultPlugins
     // can't see the template's server/plugins/ dir and auto-mounts defaults).

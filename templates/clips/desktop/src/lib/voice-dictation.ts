@@ -1095,8 +1095,17 @@ export function installDesktopVoiceDictation(
           // cancelled case; in the new-session case the new `session` owns
           // the flow-bar now and we'd otherwise paste stale text against
           // it.
-          if (lingering.cancelled) return;
-          if (session && session !== lingering) return;
+          if (lingering.cancelled) {
+            if (lingeringSession === lingering) lingeringSession = null;
+            return;
+          }
+          if (session && session !== lingering) {
+            // A new session took over during the wait window. Drop the
+            // lingering ref so it doesn't outlive its 3s safety timer
+            // and accidentally route a late final-transcript here.
+            if (lingeringSession === lingering) lingeringSession = null;
+            return;
+          }
           const text = lingering.browserTranscript.trim();
           lingering.browserTranscript = "";
           if (text) {
@@ -1188,20 +1197,25 @@ export function installDesktopVoiceDictation(
             `[voice-dictation] tail-capture starting (${initialText.length} chars so far): "${initialText.slice(0, 60)}..."`,
           );
           window.setTimeout(() => {
-            if (lingering.cancelled || disposed) return;
-            // A new Fn-tap during tail-capture starts a fresh session that
-            // owns the flow-bar now. Don't paste this lingering session's
-            // text against it, and don't wipe its UI on dismiss. Mirrors
-            // the native finalize guard above.
-            if (session && session !== lingering) return;
-            const finalText = lingering.browserTranscript.trim();
-            lingering.browserTranscript = "";
+            if (disposed) return;
+            // Always release the lingering session's mic + recognizer
+            // — even if cancelled or replaced by a newer session.
+            // Skipping the abort/stopTracks would leave the old
+            // recognizer listening and the mic stream open.
             try {
               lingering.recognition?.abort();
             } catch {
               // ignore
             }
             stopTracks(lingering);
+            if (lingering.cancelled) return;
+            // A new Fn-tap during tail-capture starts a fresh session
+            // that owns the flow-bar now. Don't paste this lingering
+            // session's text against it, and don't wipe its UI on
+            // dismiss. Mirrors the native finalize guard above.
+            if (session && session !== lingering) return;
+            const finalText = lingering.browserTranscript.trim();
+            lingering.browserTranscript = "";
             if (finalText) {
               const tailGain = finalText.length - initialText.length;
               console.log(
@@ -1258,14 +1272,17 @@ export function installDesktopVoiceDictation(
   listen<{ text: string }>("voice:final-transcript", (ev) => {
     // After stop() in the native path, `session` has been cleared so a
     // rapid restart can take it; the lingering session that's waiting
-    // for the final transcript lives on `lingeringSession`. Prefer the
-    // active session when both exist (we'd be receiving partials for a
-    // brand-new session).
+    // for the final transcript lives on `lingeringSession`. Prefer
+    // `lingeringSession` here — the final-transcript event we're
+    // routing was emitted by Rust's `endAudio()` from the lingering
+    // session's stop(); the brand-new `session` is still ramping up
+    // and won't see a final until its own stop() fires. Only if there
+    // is no lingering one do we fall back to the active session.
     const current =
-      session && session.kind === "native"
-        ? session
-        : lingeringSession && lingeringSession.kind === "native"
-          ? lingeringSession
+      lingeringSession && lingeringSession.kind === "native"
+        ? lingeringSession
+        : session && session.kind === "native"
+          ? session
           : null;
     if (!current) return;
     if (current.cancelled) return;

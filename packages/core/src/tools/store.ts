@@ -194,7 +194,12 @@ export async function createTool(data: CreateToolData): Promise<ToolRow> {
     updatedAt: now,
     ownerEmail: userEmail,
     orgId: orgId ?? null,
-    visibility: "private",
+    // Default to org-visibility when the user has an active organization so
+    // teammates see the tool in their sidebar — matching how analytics
+    // dashboards/analyses are scoped (`templates/analytics/server/lib/
+    // dashboards-store.ts:356`). Solo users (no org) get the private
+    // default. Owners can still flip back to private via update-tool.
+    visibility: orgId ? "org" : "private",
   };
   await db.insert(tools).values(row);
   return row;
