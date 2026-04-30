@@ -24,6 +24,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { agentNativePath } from "@agent-native/core/client";
 
 interface EnvStatus {
   key: string;
@@ -226,7 +227,9 @@ export function MessagingSetupPanel() {
   const refreshStatuses = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/_agent-native/integrations/status");
+      const res = await fetch(
+        agentNativePath("/_agent-native/integrations/status"),
+      );
       const rows = res.ok ? await res.json() : [];
       setStatuses(Array.isArray(rows) ? rows : []);
     } finally {
@@ -236,7 +239,7 @@ export function MessagingSetupPanel() {
 
   useEffect(() => {
     let active = true;
-    fetch("/_agent-native/integrations/status")
+    fetch(agentNativePath("/_agent-native/integrations/status"))
       .then((res) => (res.ok ? res.json() : []))
       .then((rows) => {
         if (active) {
@@ -254,7 +257,7 @@ export function MessagingSetupPanel() {
 
   useEffect(() => {
     let active = true;
-    fetch("/_agent-native/env-status")
+    fetch(agentNativePath("/_agent-native/env-status"))
       .then((res) => (res.ok ? res.json() : []))
       .then((rows) => {
         if (active) {
@@ -282,7 +285,7 @@ export function MessagingSetupPanel() {
   const refreshEnvStatus = async () => {
     setEnvLoading(true);
     try {
-      const res = await fetch("/_agent-native/env-status");
+      const res = await fetch(agentNativePath("/_agent-native/env-status"));
       const rows = res.ok ? await res.json() : [];
       setEnvStatuses(Array.isArray(rows) ? rows : []);
     } finally {
@@ -302,7 +305,7 @@ export function MessagingSetupPanel() {
 
     setSavingKeysFor(platform.id);
     try {
-      const res = await fetch("/_agent-native/env-vars", {
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vars }),

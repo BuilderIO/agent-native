@@ -8,6 +8,7 @@ import {
   ReactNode,
 } from "react";
 import { nanoid } from "nanoid";
+import { appBasePath } from "@agent-native/core/client";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 export type SlideLayout =
@@ -121,7 +122,7 @@ function saveDeckToAPI(deck: Deck) {
   const timer = setTimeout(async () => {
     pendingSaves.delete(deck.id);
     try {
-      await fetch(`/api/decks/${deck.id}`, {
+      await fetch(`${appBasePath()}/api/decks/${deck.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(deck),
@@ -135,7 +136,7 @@ function saveDeckToAPI(deck: Deck) {
 
 async function fetchDecksFromAPI(): Promise<Deck[]> {
   try {
-    const res = await fetch("/api/decks");
+    const res = await fetch(`${appBasePath()}/api/decks`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -146,7 +147,7 @@ async function fetchDecksFromAPI(): Promise<Deck[]> {
 
 async function deleteDeckFromAPI(id: string): Promise<void> {
   try {
-    await fetch(`/api/decks/${id}`, { method: "DELETE" });
+    await fetch(`${appBasePath()}/api/decks/${id}`, { method: "DELETE" });
   } catch (err) {
     console.error(`Failed to delete deck ${id}:`, err);
   }
@@ -154,7 +155,7 @@ async function deleteDeckFromAPI(id: string): Promise<void> {
 
 async function createDeckOnAPI(deck: Deck): Promise<void> {
   try {
-    await fetch("/api/decks", {
+    await fetch(`${appBasePath()}/api/decks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(deck),
@@ -290,7 +291,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         const currentOpenId = readOpenDeckId();
         if (currentOpenId && !pending.has(currentOpenId)) {
           try {
-            const res = await fetch(`/api/decks/${currentOpenId}`);
+            const res = await fetch(
+              `${appBasePath()}/api/decks/${currentOpenId}`,
+            );
             if (res.ok) {
               const serverDeck = (await res.json()) as Deck;
               const clientDeck = decks.find((d) => d.id === currentOpenId);
@@ -328,7 +331,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   // Listen for file changes via SSE (so agent edits show up in real-time)
   useEffect(() => {
-    const evtSource = new EventSource("/api/decks/events");
+    const evtSource = new EventSource(`${appBasePath()}/api/decks/events`);
     evtSource.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
@@ -337,7 +340,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           setDecks((prev) => prev.filter((d) => d.id !== data.deckId));
         } else if (data.type === "deck-changed" && data.deckId) {
           // Refetch the changed deck from the API
-          const res = await fetch(`/api/decks/${data.deckId}`);
+          const res = await fetch(`${appBasePath()}/api/decks/${data.deckId}`);
           if (!res.ok) return;
           const updated = await res.json();
           lastExternalUpdateRef.current = Date.now(); // Suppress save-back

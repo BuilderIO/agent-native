@@ -4,7 +4,7 @@ import {
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
-import { useActionQuery } from "@agent-native/core/client";
+import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
 
 function buildEventsParams(
@@ -53,7 +53,9 @@ export function prefetchEvents(
     queryKey: ["action", "list-events", params],
     queryFn: async () => {
       const qs = new URLSearchParams(params).toString();
-      const res = await fetch(`/_agent-native/actions/list-events?${qs}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/actions/list-events?${qs}`),
+      );
       if (!res.ok) throw new Error("prefetch list-events failed");
       return res.json();
     },
@@ -83,11 +85,14 @@ export function useCreateEvent() {
       },
     ) => {
       const { _tempId, ...eventData } = data;
-      const res = await fetch("/_agent-native/actions/create-event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(eventData),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/create-event"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(eventData),
+        },
+      );
       if (!res.ok) throw new Error("Failed to create event");
       const result = await res.json();
       return { ...result, _tempId };

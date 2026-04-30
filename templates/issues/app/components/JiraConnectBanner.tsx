@@ -10,6 +10,7 @@ import {
   IconClipboardList,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
+import { agentNativePath } from "@agent-native/core/client";
 
 export function JiraConnectBanner() {
   const [step, setStep] = useState(1);
@@ -175,19 +176,25 @@ export function JiraConnectBanner() {
                 }
                 setSaving(true);
                 try {
-                  const res = await fetch("/_agent-native/env-vars", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      vars: [
-                        { key: "ATLASSIAN_CLIENT_ID", value: clientId.trim() },
-                        {
-                          key: "ATLASSIAN_CLIENT_SECRET",
-                          value: clientSecret.trim(),
-                        },
-                      ],
-                    }),
-                  });
+                  const res = await fetch(
+                    agentNativePath("/_agent-native/env-vars"),
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        vars: [
+                          {
+                            key: "ATLASSIAN_CLIENT_ID",
+                            value: clientId.trim(),
+                          },
+                          {
+                            key: "ATLASSIAN_CLIENT_SECRET",
+                            value: clientSecret.trim(),
+                          },
+                        ],
+                      }),
+                    },
+                  );
                   if (!res.ok) throw new Error("Failed to save");
                   toast.success("Credentials saved");
                   setStep(5);

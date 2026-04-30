@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { IconExternalLink } from "@tabler/icons-react";
-import { PoweredByBadge, useSession } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+  PoweredByBadge,
+  useSession,
+} from "@agent-native/core/client";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
@@ -59,7 +64,10 @@ export default function ShareRoute() {
   const dataQ = useQuery({
     queryKey: ["public-recording", shareId, password],
     queryFn: async () => {
-      const url = new URL("/api/public-recording", window.location.origin);
+      const url = new URL(
+        `${appBasePath()}/api/public-recording`,
+        window.location.origin,
+      );
       url.searchParams.set("id", shareId ?? "");
       if (password) url.searchParams.set("password", password);
       const res = await fetch(url.toString());
@@ -285,7 +293,7 @@ export default function ShareRoute() {
                     return;
                   }
                   tracking.reportReaction(emoji);
-                  fetch("/_agent-native/actions/react-to-recording", {
+                  fetch(agentNativePath("/_agent-native/actions/react-to-recording"), {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({

@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useActionQuery } from "@agent-native/core/client";
+import { agentNativePath, useActionQuery } from "@agent-native/core/client";
 import type { OverlayPerson } from "@shared/api";
 import { getNextOverlayColor } from "@/lib/overlay-colors";
 
@@ -17,11 +17,14 @@ export function useAddOverlayPerson() {
       if (current.some((p) => p.email === person.email)) return current;
       const color = getNextOverlayColor(current);
       const updated = [...current, { ...person, color }];
-      const res = await fetch("/_agent-native/actions/update-overlay-people", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updated),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/update-overlay-people"),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updated),
+        },
+      );
       if (!res.ok) throw new Error("Failed to save");
       return updated;
     },
@@ -45,11 +48,14 @@ export function useUpdateOverlayPersonColor() {
       const updated = current.map((p) =>
         p.email === email ? { ...p, color } : p,
       );
-      const res = await fetch("/_agent-native/actions/update-overlay-people", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updated),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/update-overlay-people"),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updated),
+        },
+      );
       if (!res.ok) throw new Error("Failed to save");
       return updated;
     },
@@ -71,11 +77,14 @@ export function useRemoveOverlayPerson() {
         queryClient.getQueryData(["action", "get-overlay-people", undefined]) ??
         [];
       const updated = current.filter((p) => p.email !== email);
-      const res = await fetch("/_agent-native/actions/update-overlay-people", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updated),
-      });
+      const res = await fetch(
+        agentNativePath("/_agent-native/actions/update-overlay-people"),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updated),
+        },
+      );
       if (!res.ok) throw new Error("Failed to save");
       return updated;
     },
