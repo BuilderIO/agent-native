@@ -172,7 +172,10 @@ async function handleDelete(
   return `Automation "${args.name}" deleted.`;
 }
 
-async function handleFireTest(args: Record<string, string>): Promise<string> {
+async function handleFireTest(
+  args: Record<string, string>,
+  getCurrentUser: () => string,
+): Promise<string> {
   // Dynamic import to avoid circular dependency at module load time
   const { emit } = await import("../event-bus/index.js");
 
@@ -185,7 +188,10 @@ async function handleFireTest(args: Record<string, string>): Promise<string> {
     }
   }
 
-  emit("test.event.fired", { data });
+  // Scope the test event to the current user so only their automations fire,
+  // not automations owned by other users in the same process.
+  const owner = getCurrentUser();
+  emit("test.event.fired", { data }, { owner });
   return `Test event fired with payload: ${JSON.stringify({ data })}. Any automations subscribed to "test.event.fired" will be evaluated.`;
 }
 
@@ -300,7 +306,7 @@ export function createAutomationToolEntries(
           case "delete":
             return handleDelete(args, getCurrentUser);
           case "fire-test":
-            return handleFireTest(args);
+            return handleFireTest(args, getCurrentUser);
           default:
             return `Error: unknown action "${action}". Valid actions: ${VALID_ACTIONS.join(", ")}.`;
         }

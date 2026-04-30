@@ -227,7 +227,9 @@ function SharePanel(
   const serverVisibility = (data?.visibility as Visibility | null) ?? "private";
   const visibility: Visibility = visibilityOverride ?? serverVisibility;
   const canManage =
-    data?.role === "owner" || data?.role === "admin" || !data?.role;
+    data === undefined ||
+    data?.role === "owner" ||
+    data?.role === "admin";
   const meta = VIS_META[visibility];
 
   const serverShares = data?.shares ?? [];

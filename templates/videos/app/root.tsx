@@ -1,12 +1,13 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import {
   ClientOnly,
   CommandMenu,
   DefaultSpinner,
   useCommandMenuShortcut,
+  useDbSync,
 } from "@agent-native/core/client";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout as AppLayout } from "@/components/layout/Layout";
@@ -59,6 +60,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 function AppContent() {
   useNavigationState();
+  const qc = useQueryClient();
+  useDbSync({ queryClient: qc, queryKeys: ["action"] });
   const { theme, setTheme } = useTheme();
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));

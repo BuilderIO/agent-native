@@ -9,6 +9,7 @@ import {
   resourcePut,
   resourceGetByPath,
   resourceList,
+  resourceDelete,
   SHARED_OWNER,
 } from "../resources/store.js";
 import {
@@ -149,6 +150,23 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
     enabled: meta.enabled,
     nextRun: meta.nextRun,
   });
+}
+
+async function runDelete(args: Record<string, any>): Promise<string> {
+  const { name, scope } = args;
+  const path = `jobs/${name}.md`;
+
+  let resource = await resourceGetByPath(SHARED_OWNER, path);
+  if (!resource && scope !== "shared") {
+    resource = await resourceGetByPath(getOwner(), path);
+  }
+
+  if (!resource) {
+    return JSON.stringify({ error: `Job "${name}" not found` });
+  }
+
+  await resourceDelete(resource.id);
+  return JSON.stringify({ deleted: true, name });
 }
 
 export function createJobTools(): Record<string, ActionEntry> {

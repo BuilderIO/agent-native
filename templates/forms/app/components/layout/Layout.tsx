@@ -1,11 +1,9 @@
-import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 import { AgentSidebar } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
-import { cn } from "@/lib/utils";
 
 const BARE_ROUTES = new Set(["/form-preview"]);
 
@@ -19,12 +17,7 @@ interface LayoutProps {
 }
 
 export function Layout({ children }: LayoutProps) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
-
-  useEffect(() => {
-    setSidebarOpen(false);
-  }, [location.pathname]);
 
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
@@ -40,22 +33,7 @@ export function Layout({ children }: LayoutProps) {
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen overflow-hidden">
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 z-40 bg-black/50 md:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-        <div
-          className={cn(
-            "fixed inset-y-0 left-0 z-50 md:static md:z-auto",
-            sidebarOpen
-              ? "translate-x-0"
-              : "-translate-x-full md:translate-x-0",
-          )}
-        >
-          <Sidebar />
-        </div>
+        <Sidebar />
         <AgentSidebar
           position="right"
           defaultOpen
