@@ -113,7 +113,7 @@ jobs:
           fi
           pnpm install
 
-      - name: Scaffold workspace (starter + calendar) and verify pnpm install
+      - name: Scaffold workspace (starter + calendar) and verify pnpm install + build
         run: |
           cd "$(mktemp -d)"
           node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" create test-workspace --template starter,calendar
@@ -134,6 +134,10 @@ jobs:
             exit 1
           fi
           pnpm install
+          # Build the calendar app — catches missing peer/runtime deps that
+          # `pnpm install` alone won't surface (e.g. core importing a peer
+          # dep that templates don't declare).
+          pnpm --filter ./apps/calendar build
 
   guard-no-drizzle-push:
     name: Guard — no drizzle-kit push in build paths
