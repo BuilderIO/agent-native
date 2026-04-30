@@ -1019,11 +1019,15 @@ export function createCoreRoutesPlugin(
         }
 
         const session = await getSession(event);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "Unauthorized" };
+        }
         const result = await uploadFile({
           data: filePart.data,
           filename: filePart.filename,
           mimeType: filePart.type,
-          ownerEmail: session?.email,
+          ownerEmail: session.email,
         });
 
         if (result) {

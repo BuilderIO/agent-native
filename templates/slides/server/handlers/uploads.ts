@@ -5,6 +5,7 @@ import {
 } from "h3";
 import path from "path";
 import fs from "fs";
+import { getSession } from "@agent-native/core/server";
 
 const UPLOADS_DIR = path.join(process.cwd(), "data", "uploads");
 

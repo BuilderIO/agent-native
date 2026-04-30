@@ -1,7 +1,12 @@
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 import crypto from "crypto";
 import { eq, lt } from "drizzle-orm";
-import { readBody } from "@agent-native/core/server";
+import {
+  getSession,
+  readBody,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { getDb, schema } from "../db";
 import type {
   ShareDeckRequest,
@@ -19,16 +24,49 @@ export const shareDeck = defineEventHandler(async (event) => {
   const body = await readBody<ShareDeckRequest>(event);
   const { deck } = body;
 
-  if (!deck || !deck.slides?.length) {
+  if (!deck?.id) {
+    setResponseStatus(event, 400);
+    return { error: "Deck id is required" };
+  }
+
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    async () => createShareLink(event, deck.id),
+  );
+});
+
+async function createShareLink(event: any, deckId: string) {
+  const db = getDb();
+  let storedDeck: any;
+  let title = "Untitled";
+
+  try {
+    const access = await assertAccess("deck", deckId, "admin");
+    title = access.resource.title ?? "Untitled";
+    storedDeck = JSON.parse(access.resource.data);
+  } catch (err) {
+    if (err instanceof ForbiddenError) {
+      setResponseStatus(event, err.statusCode);
+      return { error: err.message };
+    }
+    throw err;
+  }
+
+  if (!Array.isArray(storedDeck?.slides) || storedDeck.slides.length === 0) {
     setResponseStatus(event, 400);
     return { error: "Deck with slides is required" };
   }
 
-  const db = getDb();
   const token = crypto.randomBytes(12).toString("base64url");
   const now = new Date().toISOString();
 
-  const slides = deck.slides.map((s: any) => ({
+  const slides = storedDeck.slides.map((s: any) => ({
     id: s.id,
     content: s.content,
     notes: "", // never share speaker notes
@@ -38,9 +76,9 @@ export const shareDeck = defineEventHandler(async (event) => {
 
   await db.insert(schema.deckShareLinks).values({
     token,
-    title: deck.title ?? "Untitled",
+    title: title || storedDeck.title || "Untitled",
     slides: JSON.stringify(slides),
-    aspectRatio: (deck as any).aspectRatio ?? null,
+    aspectRatio: storedDeck.aspectRatio ?? null,
     createdAt: now,
   });
 
@@ -56,7 +94,7 @@ export const shareDeck = defineEventHandler(async (event) => {
 
   const response: ShareDeckResponse = { shareToken: token };
   return response;
-});
+}
 
 /**
  * GET /api/share/:token

@@ -7,7 +7,7 @@ import {
   setResponseHeader,
   type H3Event,
 } from "h3";
-import { streamFile } from "@agent-native/core/server";
+import { streamFile, getSession } from "@agent-native/core/server";
 import fs from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
@@ -44,6 +44,12 @@ const MIME_MAP: Record<string, string> = {
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export const uploadMedia = defineEventHandler(async (event: H3Event) => {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
   try {
     const body = await readRawBody(event);
     if (!body || !body.length) {
