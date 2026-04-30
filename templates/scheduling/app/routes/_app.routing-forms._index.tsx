@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLoaderData, useRevalidator, Link } from "react-router";
-import { eq } from "drizzle-orm";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../../server/db";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -41,7 +41,7 @@ export async function loader() {
   const rows = await getDb()
     .select()
     .from(schema.routingForms)
-    .where(eq(schema.routingForms.ownerEmail, email));
+    .where(accessFilter(schema.routingForms, schema.routingFormShares));
   return { forms: rows };
 }
 

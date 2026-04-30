@@ -2688,6 +2688,7 @@ const AssistantChatInner = forwardRef<
                   selectedModel={selectedModel ?? defaultModel}
                   availableModels={availableModels}
                   onModelChange={onModelChange}
+                  draftScope={threadId || tabId}
                   extraActionButton={
                     showRunningInUI ? (
                       <button

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLoaderData, useRevalidator, Link } from "react-router";
-import { eq } from "drizzle-orm";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { accessFilter } from "@agent-native/core/sharing";
 import { getDb, schema } from "../../server/db";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +36,6 @@ import { toast } from "sonner";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import {
   IconBolt,
-  IconCopy,
   IconDotsVertical,
   IconPlus,
   IconTrash,
@@ -48,7 +47,7 @@ export async function loader() {
   const rows = await getDb()
     .select()
     .from(schema.workflows)
-    .where(eq(schema.workflows.ownerEmail, email));
+    .where(accessFilter(schema.workflows, schema.workflowShares));
   return { workflows: rows };
 }
 
@@ -224,10 +223,6 @@ export default function WorkflowsIndex() {
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem asChild>
                         <Link to={`/workflows/${w.id}`}>Edit</Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem disabled>
-                        <IconCopy className="mr-2 h-4 w-4" />
-                        Duplicate
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem

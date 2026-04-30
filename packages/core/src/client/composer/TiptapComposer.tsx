@@ -43,6 +43,7 @@ import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
 import { sendToAgentChat } from "../agent-chat.js";
+import { getComposerDraftKey } from "./draft-key.js";
 
 export interface TiptapComposerHandle {
   focus(): void;
@@ -197,6 +198,8 @@ interface TiptapComposerProps {
   }>;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
+  /** Stable scope for persisted drafts, usually the active thread or tab id. */
+  draftScope?: string;
 }
 
 function ModeSelector({
@@ -476,6 +479,7 @@ export function TiptapComposer({
   selectedModel,
   availableModels,
   onModelChange,
+  draftScope,
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
@@ -545,7 +549,7 @@ export function TiptapComposer({
   }, []);
 
   // Persist draft to localStorage so hot-reloads don't lose the prompt
-  const DRAFT_KEY = "an-composer-draft";
+  const draftKey = getComposerDraftKey(draftScope);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Tiptap reads extension config once at init; ref keeps runtime prop
   // changes visible to Placeholder's function form.
@@ -584,7 +588,7 @@ export function TiptapComposer({
     onCreate: ({ editor: ed }) => {
       // Restore draft on mount
       try {
-        const saved = localStorage.getItem(DRAFT_KEY);
+        const saved = localStorage.getItem(draftKey);
         if (saved) {
           ed.commands.setContent(saved);
           ed.commands.focus("end");
@@ -618,9 +622,9 @@ export function TiptapComposer({
           const html = ed.getHTML();
           const isEmpty = !ed.state.doc.textContent.trim();
           if (isEmpty) {
-            localStorage.removeItem(DRAFT_KEY);
+            localStorage.removeItem(draftKey);
           } else {
-            localStorage.setItem(DRAFT_KEY, html);
+            localStorage.setItem(draftKey, html);
           }
         } catch {}
       }, 300);
@@ -1016,7 +1020,7 @@ export function TiptapComposer({
       if (matched) {
         ed.commands.clearContent();
         try {
-          localStorage.removeItem(DRAFT_KEY);
+          localStorage.removeItem(draftKey);
         } catch {}
         closePopover();
         onSlashCommandRef.current?.(matched.name);
@@ -1038,7 +1042,7 @@ export function TiptapComposer({
       setComposerMode(null);
       composerModeRef.current = null;
       try {
-        localStorage.removeItem(DRAFT_KEY);
+        localStorage.removeItem(draftKey);
       } catch {}
       closePopover();
       return;
@@ -1052,7 +1056,7 @@ export function TiptapComposer({
     ed.commands.clearContent();
     setEditorHasText(false);
     try {
-      localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(draftKey);
     } catch {}
     closePopover();
   }, [
