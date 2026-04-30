@@ -21,6 +21,7 @@ import { getDb, schema } from "../../../../db/index.js";
 import { getEventOwnerEmail } from "../../../../lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
+import { runWithRequestContext } from "@agent-native/core/server";
 
 export default defineEventHandler(async (event: H3Event) => {
   const recordingId = getRouterParam(event, "recordingId");
@@ -95,12 +96,14 @@ export default defineEventHandler(async (event: H3Event) => {
   // back to a base64 `data:` URL inline in the `recordings.thumbnail_url`
   // column. It's not glamorous but it unblocks the library grid
   // immediately and mirrors what `set-thumbnail` does.
-  const uploaded = await uploadFile({
-    data: bytes,
-    mimeType,
-    filename: `thumb-${recordingId}.${ext}`,
-    ownerEmail,
-  });
+  const uploaded = await runWithRequestContext({ userEmail: ownerEmail }, () =>
+    uploadFile({
+      data: bytes,
+      mimeType,
+      filename: `thumb-${recordingId}.${ext}`,
+      ownerEmail,
+    }),
+  );
 
   let url: string;
   if (uploaded?.url) {

@@ -313,11 +313,19 @@ export function createCoreRoutesPlugin(
       `${P}/builder/status`,
       defineEventHandler(async (event) => {
         const envStatus = getBuilderBrowserStatusForEvent(event);
+        // Extract session up front so resolveBuilderCredentials() can be
+        // wrapped in runWithRequestContext — required for per-user OAuth
+        // credentials stored in app_secrets (DB), not just process.env.
+        const session = await getSession(event).catch(() => null);
+        const userEmail = session?.email;
         // Check per-user credentials first (stored in app_secrets).
         try {
           const { resolveBuilderCredentials } =
             await import("./credential-provider.js");
-          const creds = await resolveBuilderCredentials();
+          const resolve = () => resolveBuilderCredentials();
+          const creds = userEmail
+            ? await runWithRequestContext({ userEmail }, resolve)
+            : await resolve();
           if (creds.privateKey) {
             return {
               ...envStatus,
@@ -338,9 +346,8 @@ export function createCoreRoutesPlugin(
         // when `writeBuilderCredentials` throws; this read self-clears so
         // the message only fires once.
         try {
-          const session = await getSession(event).catch(() => null);
-          if (session?.email) {
-            const errKey = `builder-connect-error:${session.email}`;
+          if (userEmail) {
+            const errKey = `builder-connect-error:${userEmail}`;
             const errRow = await getSetting(errKey);
             if (errRow && typeof errRow.message === "string") {
               await deleteSetting(errKey).catch(() => {});
