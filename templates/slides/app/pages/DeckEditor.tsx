@@ -42,6 +42,8 @@ import {
   emailToColor,
   emailToName,
   sendToAgentChat,
+  agentNativePath,
+  appBasePath,
 } from "@agent-native/core/client";
 import type { QuestionFlowQuestion } from "@shared/api";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
@@ -122,7 +124,7 @@ export default function DeckEditor() {
     queryKey: ["show-questions"],
     queryFn: async () => {
       const res = await fetch(
-        "/_agent-native/application-state/show-questions",
+        agentNativePath("/_agent-native/application-state/show-questions"),
       );
       if (!res.ok) return null;
       const text = await res.text();
@@ -170,9 +172,12 @@ export default function DeckEditor() {
 
       // Clear the question flow state — optimistically clear cache so overlay hides immediately
       queryClient.setQueryData(["show-questions"], null);
-      fetch("/_agent-native/application-state/show-questions", {
-        method: "DELETE",
-      }).catch(() => {});
+      fetch(
+        agentNativePath("/_agent-native/application-state/show-questions"),
+        {
+          method: "DELETE",
+        },
+      ).catch(() => {});
     },
     [id, queryClient],
   );
@@ -187,7 +192,7 @@ export default function DeckEditor() {
 
     // Clear the question flow state — optimistically clear cache so overlay hides immediately
     queryClient.setQueryData(["show-questions"], null);
-    fetch("/_agent-native/application-state/show-questions", {
+    fetch(agentNativePath("/_agent-native/application-state/show-questions"), {
       method: "DELETE",
     }).catch(() => {});
   }, [id, queryClient]);
@@ -297,7 +302,7 @@ export default function DeckEditor() {
       const form = new FormData();
       form.append("file", files[0]);
       try {
-        const res = await fetch("/api/assets/upload", {
+        const res = await fetch(`${appBasePath()}/api/assets/upload`, {
           method: "POST",
           body: form,
         });
@@ -510,11 +515,14 @@ export default function DeckEditor() {
         onToggleTweaks={() => setTweaksOpen((o) => !o)}
         onDuplicateDeck={async () => {
           try {
-            const res = await fetch("/_agent-native/actions/duplicate-deck", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ deckId: id }),
-            });
+            const res = await fetch(
+              agentNativePath("/_agent-native/actions/duplicate-deck"),
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ deckId: id }),
+              },
+            );
             const data = await res.json();
             if (data.id) {
               navigate(`/deck/${data.id}`);
@@ -550,11 +558,14 @@ export default function DeckEditor() {
           const previous = deck.aspectRatio;
           // Optimistic UI: update local cache immediately so canvas resizes.
           updateDeck(id, { aspectRatio: ratio });
-          fetch("/_agent-native/actions/update-deck-aspect-ratio", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ deckId: id, aspectRatio: ratio }),
-          }).catch((err) => {
+          fetch(
+            agentNativePath("/_agent-native/actions/update-deck-aspect-ratio"),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ deckId: id, aspectRatio: ratio }),
+            },
+          ).catch((err) => {
             console.error("Failed to set aspect ratio:", err);
             updateDeck(id, { aspectRatio: previous });
           });

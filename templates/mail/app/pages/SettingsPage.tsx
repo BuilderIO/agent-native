@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
 import {
   IconUsers,
   IconPlus,
@@ -680,7 +681,7 @@ function TriggersSubsection() {
   const { data: triggers = [], isLoading } = useQuery<FrameworkTrigger[]>({
     queryKey: ["framework-triggers-mail"],
     queryFn: async () => {
-      const res = await fetch("/_agent-native/automations");
+      const res = await fetch(agentNativePath("/_agent-native/automations"));
       if (!res.ok) return [];
       const all: FrameworkTrigger[] = await res.json();
       // Filter to mail domain triggers only (event-based)

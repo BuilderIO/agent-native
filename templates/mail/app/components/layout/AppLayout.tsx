@@ -1595,7 +1595,9 @@ function AccountPopover({
     window.open(authUrl.data.url, "_blank");
 
     const interval = setInterval(async () => {
-      const res = await fetch("/_agent-native/google/status").catch(() => null);
+      const res = await fetch(
+        agentNativePath("/_agent-native/google/status"),
+      ).catch(() => null);
       if (res?.ok) {
         const data = await res.json();
         if (data.accounts?.length > accounts.length) {

@@ -7,6 +7,7 @@ import { useLoaderData, useNavigate } from "react-router";
 import { useState } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { eq } from "drizzle-orm";
+import { agentNativePath } from "@agent-native/core/client";
 import { getDb, schema } from "../../server/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,15 +50,18 @@ export default function RoutingFormPublic() {
     const matched = evaluateRules(form.rules, values);
     const action = matched ?? form.fallback;
     // Persist the response
-    await fetch("/_agent-native/actions/submit-routing-form-response", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        formId: form.id,
-        response: values,
-        matchedRuleId: matched?.ruleId,
-      }),
-    }).catch(() => {});
+    await fetch(
+      agentNativePath("/_agent-native/actions/submit-routing-form-response"),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          formId: form.id,
+          response: values,
+          matchedRuleId: matched?.ruleId,
+        }),
+      },
+    ).catch(() => {});
     if (!action) return;
     if (action.kind === "event-type") {
       navigate(

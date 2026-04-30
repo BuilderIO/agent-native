@@ -7,6 +7,7 @@ import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import { agentNativePath } from "@agent-native/core/client";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -89,11 +90,14 @@ export default function Index() {
       if (duplicating) return;
       setDuplicating(id);
       try {
-        const res = await fetch(`/_agent-native/actions/duplicate-deck`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deckId: id }),
-        });
+        const res = await fetch(
+          agentNativePath("/_agent-native/actions/duplicate-deck"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deckId: id }),
+          },
+        );
         if (res.ok) {
           const { id: newId } = await res.json();
           navigate(`/deck/${newId}`);

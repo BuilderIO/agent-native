@@ -48,10 +48,8 @@ function requestWithPathname(request: Request, pathname: string): Request {
   return new Request(url, {
     method: request.method,
     headers: request.headers,
-    body: request.body,
     signal: request.signal,
-    duplex: "half",
-  } as RequestInit);
+  });
 }
 
 /**

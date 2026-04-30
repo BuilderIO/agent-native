@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { agentNativePath } from "@agent-native/core/client";
 
 // ─── Generic integration credentials (via application-state) ────────────────
 
@@ -8,7 +9,9 @@ function useIntegrationStatus(provider: Provider) {
   const { data } = useQuery<{ apiKey?: string } | null>({
     queryKey: ["integration-status", provider],
     queryFn: async () => {
-      const res = await fetch(`/_agent-native/application-state/${provider}`);
+      const res = await fetch(
+        agentNativePath(`/_agent-native/application-state/${provider}`),
+      );
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`${res.status}`);
       return res.json();
@@ -22,11 +25,14 @@ function useIntegrationConnect(provider: Provider) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (apiKey: string) => {
-      const res = await fetch(`/_agent-native/application-state/${provider}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey }),
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/application-state/${provider}`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey }),
+        },
+      );
       if (!res.ok) throw new Error(`${res.status}`);
     },
     onSuccess: () => {
@@ -40,9 +46,12 @@ function useIntegrationDisconnect(provider: Provider) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      await fetch(`/_agent-native/application-state/${provider}`, {
-        method: "DELETE",
-      });
+      await fetch(
+        agentNativePath(`/_agent-native/application-state/${provider}`),
+        {
+          method: "DELETE",
+        },
+      );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["integration-status", provider] });

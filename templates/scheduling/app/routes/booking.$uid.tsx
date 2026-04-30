@@ -4,6 +4,7 @@ import { TZDate } from "@date-fns/tz";
 import { format } from "date-fns";
 import { getBookingByUid } from "@agent-native/scheduling/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { agentNativePath } from "@agent-native/core/client";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -155,7 +156,7 @@ export default function BookingDetail() {
               </Button>
               <form
                 method="post"
-                action={`/_agent-native/actions/cancel-booking`}
+                action={agentNativePath("/_agent-native/actions/cancel-booking")}
                 className="inline"
               >
                 <input type="hidden" name="uid" value={booking.uid} />
