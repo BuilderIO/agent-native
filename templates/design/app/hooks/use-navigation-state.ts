@@ -47,9 +47,15 @@ export function useNavigationState() {
         agentNativePath("/_agent-native/application-state/navigate"),
       );
       if (!res.ok) return null;
-      const data = await res.json();
-      if (data) {
-        return { ...data, _ts: Date.now() };
+      const text = await res.text();
+      if (!text) return null;
+      try {
+        const data = JSON.parse(text);
+        if (data) {
+          return { ...data, _ts: Date.now() };
+        }
+      } catch {
+        // Empty or invalid JSON response means there is no pending command.
       }
       return null;
     },

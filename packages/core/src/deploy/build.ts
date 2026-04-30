@@ -1046,6 +1046,7 @@ function createDanglingOptionalDepStubs() {
  */
 async function buildWithNitro() {
   console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
+  const appBasePath = normalizeConfiguredAppBasePath();
 
   // Work around pnpm + nitro:externals (nf3) bug where dangling symlinks for
   // platform-specific optional deps cause realpath ENOENT during file tracing.
@@ -1112,6 +1113,7 @@ export default bundle;
     rootDir: cwd,
     dev: false,
     preset,
+    baseURL: appBasePath || "/",
     minify: true,
     serverDir: "./server",
     alias: {
@@ -1139,7 +1141,7 @@ export default bundle;
   const publicOutputDir = nitro.options.output.publicDir;
   if (fs.existsSync(clientDir) && publicOutputDir) {
     copyDir(clientDir, publicOutputDir);
-    const basePath = normalizeConfiguredAppBasePath();
+    const basePath = appBasePath;
     if (basePath) {
       copyDir(clientDir, path.join(publicOutputDir, basePath.slice(1)));
     }

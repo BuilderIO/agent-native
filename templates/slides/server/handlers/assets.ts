@@ -6,9 +6,13 @@ import {
 } from "h3";
 import path from "path";
 import fs from "fs";
-import { getSession } from "@agent-native/core/server";
+import { getAppBasePath, getSession } from "@agent-native/core/server";
 
 const UPLOADS_DIR = path.join(process.cwd(), "public", "uploads");
+
+export function uploadedAssetUrl(filename: string): string {
+  return `${getAppBasePath()}/uploads/${filename}`;
+}
 
 async function requireSession(event: Parameters<typeof getSession>[0]) {
   const session = await getSession(event).catch(() => null);
@@ -66,7 +70,7 @@ export const uploadAsset = defineEventHandler(async (event) => {
   await fs.promises.writeFile(destPath, filePart.data);
 
   return {
-    url: `/uploads/${filename}`,
+    url: uploadedAssetUrl(filename),
     filename,
     type: filePart.type || "application/octet-stream",
     size: filePart.data.length,
@@ -88,7 +92,7 @@ export const listAssets = defineEventHandler(async (event) => {
         const filePath = path.join(UPLOADS_DIR, filename);
         const stat = fs.statSync(filePath);
         return {
-          url: `/uploads/${filename}`,
+          url: uploadedAssetUrl(filename),
           filename,
           size: stat.size,
           createdAt: stat.birthtime.toISOString(),
