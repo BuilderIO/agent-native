@@ -290,7 +290,7 @@ async function executeJob(
     async () => {
       try {
         const actions = deps.getActions();
-        const systemPrompt = await deps.getSystemPrompt(resource.owner);
+        const systemPrompt = await deps.getSystemPrompt(jobUserEmail);
         const tools = actionsToEngineTools(actions);
 
         // Prefer the job runner's saved Anthropic key so recurring jobs

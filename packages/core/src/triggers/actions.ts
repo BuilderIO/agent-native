@@ -16,6 +16,7 @@ import {
   resourcePut,
   resourceDelete,
   resourceGetByPath,
+  SHARED_OWNER,
 } from "../resources/store.js";
 import { parseTriggerFrontmatter, buildTriggerContent } from "./dispatcher.js";
 import { refreshEventSubscriptions } from "./dispatcher.js";
@@ -49,9 +50,14 @@ async function handleListEvents(): Promise<string> {
   return lines.join("\n");
 }
 
-async function handleList(args: Record<string, string>): Promise<string> {
+async function handleList(
+  args: Record<string, string>,
+  getCurrentUser: () => string,
+): Promise<string> {
+  const owner = getCurrentUser();
   const resources = await resourceListAllOwners("jobs/");
   const triggers = resources
+    .filter((r) => r.owner === owner || r.owner === SHARED_OWNER)
     .filter((r) => r.path.endsWith(".md"))
     .map((r) => {
       const { meta, body } = parseTriggerFrontmatter(r.content);
@@ -298,7 +304,7 @@ export function createAutomationToolEntries(
           case "list-events":
             return handleListEvents();
           case "list":
-            return handleList(args);
+            return handleList(args, getCurrentUser);
           case "define":
             return handleDefine(args, getCurrentUser);
           case "update":

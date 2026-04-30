@@ -63,4 +63,34 @@ Summarize the inbox.`,
       }),
     );
   });
+
+  it("loads prompt resources for the effective run owner", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-1",
+        owner: "__shared__",
+        path: "jobs/shared-daily-report.md",
+        content: `---
+schedule: "* * * * *"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+runAs: creator
+---
+
+Summarize the inbox.`,
+      },
+    ]);
+    const getSystemPrompt = vi.fn(async () => "system");
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt,
+      engine: {} as any,
+      model: "test-model",
+    });
+
+    expect(getSystemPrompt).toHaveBeenCalledWith(
+      "alice+jobs@agent-native.test",
+    );
+  });
 });
