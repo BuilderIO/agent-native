@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { PDFParse } from "pdf-parse";
 import type { GreenhouseCandidate } from "@shared/types";
 import { getApiKey } from "./greenhouse-api.js";
+import { DEFAULT_MODEL } from "@agent-native/core";
 
 export type FilterResult = {
   candidateId: number;
@@ -166,7 +167,7 @@ async function evaluateBatch(
     .join("\n\n");
 
   const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: DEFAULT_MODEL,
     max_tokens: 4096,
     system: `You are an expert recruiting assistant that evaluates candidate profiles against hiring criteria. You return structured JSON assessments.
 

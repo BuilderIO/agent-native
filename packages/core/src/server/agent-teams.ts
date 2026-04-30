@@ -419,7 +419,10 @@ export async function sendToTask(
   // on its next tool call or iteration
   try {
     const { appStatePut } = await import("../application-state/store.js");
-    const sessionId = getRequestUserEmail() || "local@localhost";
+    const sessionId = getRequestUserEmail();
+    if (!sessionId) {
+      return { ok: false, error: "no authenticated user" };
+    }
     await appStatePut(sessionId, `task-message:${taskId}`, {
       from: "orchestrator",
       message,

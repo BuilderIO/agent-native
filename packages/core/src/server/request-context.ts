@@ -88,3 +88,22 @@ export function getRequestTimezone(): string | undefined {
 export function isIntegrationCallerRequest(): boolean {
   return als.getStore()?.isIntegrationCaller === true;
 }
+
+/**
+ * Convenience: returns `{ userEmail, orgId }` from the active request context,
+ * suitable for passing to `resolveCredential(key, ctx)`. Returns `null` when
+ * no user is associated with the call (e.g. an unauthenticated public route).
+ *
+ * For framework actions auto-mounted at `/_agent-native/actions/...` this is
+ * always populated because action-routes wraps every invocation in
+ * `runWithRequestContext`. For hand-written `/api/*` routes the calling code
+ * is responsible for setting up the context (see `runWithRequestContext`).
+ */
+export function getCredentialContext(): {
+  userEmail: string;
+  orgId: string | null;
+} | null {
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) return null;
+  return { userEmail, orgId: getRequestOrgId() ?? null };
+}

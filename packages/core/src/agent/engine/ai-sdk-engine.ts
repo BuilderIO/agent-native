@@ -25,6 +25,7 @@ import {
   aiSdkPartToEngineEvents,
   aiSdkStepToAssistantContent,
 } from "./translate-ai-sdk.js";
+import { DEFAULT_MODEL } from "../default-model.js";
 
 // ---------------------------------------------------------------------------
 // Provider definitions
@@ -100,7 +101,7 @@ const PROVIDER_CAPABILITIES: Record<AISDKProvider, EngineCapabilities> = {
 };
 
 const PROVIDER_DEFAULT_MODELS: Record<AISDKProvider, string> = {
-  anthropic: "claude-sonnet-4-6",
+  anthropic: DEFAULT_MODEL,
   openai: "gpt-5.4",
   openrouter: "anthropic/claude-sonnet-4.6",
   google: "gemini-3-flash-preview",

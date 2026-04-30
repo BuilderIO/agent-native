@@ -92,6 +92,7 @@ pub fn run() {
 
             tray::build_tray(app)?;
             shortcuts::register_shortcuts(app)?;
+            shortcuts::install_popover_dismiss_handler(app);
 
             // Hide the popover on blur so it feels like a real menu-bar popover.
             // The 250ms guard is the important bit — during the tray-click

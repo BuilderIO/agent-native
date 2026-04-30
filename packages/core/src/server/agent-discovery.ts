@@ -159,12 +159,13 @@ export async function discoverAgents(
   try {
     const { resourceList, resourceGet, SHARED_OWNER, resourceListAccessible } =
       await import("../resources/store.js");
+    const { DEV_MODE_USER_EMAIL } = await import("./auth.js");
 
     const isDevMode =
       typeof process !== "undefined" && process.env?.NODE_ENV !== "production";
 
     const resources = isDevMode
-      ? await resourceListAccessible("local@localhost", "remote-agents/")
+      ? await resourceListAccessible(DEV_MODE_USER_EMAIL, "remote-agents/")
       : await resourceList(SHARED_OWNER, "remote-agents/");
     const { parseRemoteAgentManifest } =
       await import("../resources/metadata.js");

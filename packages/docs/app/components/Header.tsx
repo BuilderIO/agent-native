@@ -1,7 +1,7 @@
 import { Link, NavLink, useLocation } from "react-router";
 import ThemeToggle from "./ThemeToggle";
 import { useSearchModal, SearchModal } from "./SearchModal";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { IconMessage } from "@tabler/icons-react";
 
 function SearchTrigger({ onClick }: { onClick: () => void }) {
@@ -73,13 +73,33 @@ export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isHome = useLocation().pathname === "/";
   const [scrolled, setScrolled] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!isHome) return;
-    const onScroll = () => setScrolled(window.scrollY > 10);
+    // AgentSidebar wraps content in a div with overflow-auto, so window
+    // never scrolls. Walk up to find the real scroll container.
+    let scrollEl: HTMLElement | Window = window;
+    let parent = headerRef.current?.parentElement ?? null;
+    while (parent) {
+      const overflowY = getComputedStyle(parent).overflowY;
+      if (overflowY === "auto" || overflowY === "scroll") {
+        scrollEl = parent;
+        break;
+      }
+      parent = parent.parentElement;
+    }
+    const onScroll = () => {
+      const top =
+        scrollEl === window
+          ? window.scrollY
+          : (scrollEl as HTMLElement).scrollTop;
+      setScrolled(top > 10);
+    };
     onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    scrollEl.addEventListener("scroll", onScroll, { passive: true });
+    return () =>
+      scrollEl.removeEventListener("scroll", onScroll as EventListener);
   }, [isHome]);
 
   const showHeaderBg = !isHome || scrolled;
@@ -89,6 +109,7 @@ export default function Header() {
   return (
     <>
       <header
+        ref={headerRef}
         className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
       >
         <nav className="mx-auto flex h-16 max-w-[1440px] items-center gap-6 px-6">

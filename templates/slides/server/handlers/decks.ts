@@ -196,48 +196,57 @@ export const updateDeck = defineEventHandler(async (event) => {
     const db = getDb();
     const now = new Date().toISOString();
 
-    // Does the row already exist?
-    const existing = await db
-      .select()
-      .from(schema.decks)
-      .where(eq(schema.decks.id, id))
-      .limit(1);
-
     deck.id = id;
     deck.updatedAt = now;
     const title = deck.title || "Untitled";
 
-    if (existing.length === 0) {
-      // Create new deck — owner is the caller. Anonymous callers cannot
-      // create decks: requiring an email here keeps the table free of
-      // ownerless rows (the source of the legacy leak).
+    // Resolve access first — this loads the row AND tells us the caller's
+    // effective role in one pass, so we never run an unscoped existence
+    // SELECT that would leak "this id exists" to non-owners.
+    const access = await resolveAccess("deck", id);
+
+    if (!access) {
+      // Either the deck does not exist OR the caller cannot see it. In
+      // both cases we treat this as a create-on-PUT for the caller. If
+      // the row actually exists but is owned by someone else, the INSERT
+      // below will fail on the primary key — we map that to a 404 so we
+      // never reveal that the id is taken.
       if (!email) {
         return handleForbidden(
           event,
           new ForbiddenError("Sign in to create a deck"),
         );
       }
-      await db.insert(schema.decks).values({
-        id,
-        title,
-        data: JSON.stringify(deck),
-        ownerEmail: email,
-        orgId: orgId ?? null,
-        createdAt: now,
-        updatedAt: now,
-      });
-    } else {
       try {
-        await assertAccess("deck", id, "editor");
+        await db.insert(schema.decks).values({
+          id,
+          title,
+          data: JSON.stringify(deck),
+          ownerEmail: email,
+          orgId: orgId ?? null,
+          createdAt: now,
+          updatedAt: now,
+        });
       } catch (err) {
-        if (err instanceof ForbiddenError) {
-          // Return 404 (not 403) so we don't leak the existence of decks
-          // the caller has no access to — same pattern as getDeck/deleteDeck.
+        // Primary-key collision = the id is taken by a deck the caller
+        // cannot see. Return 404 to match the read-side privacy contract.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (
+          /unique|duplicate|primary key|UNIQUE constraint/i.test(msg) ||
+          (err as { code?: string })?.code === "23505"
+        ) {
           setResponseStatus(event, 404);
           return { error: "Deck not found" };
         }
-        return handleForbidden(event, err);
+        throw err;
       }
+    } else if (
+      access.role === "owner" ||
+      access.role === "admin" ||
+      access.role === "editor"
+    ) {
+      // Caller has editor+ access — perform the update. The access check
+      // above already confirmed the row exists and the caller can write.
       await db
         .update(schema.decks)
         .set({
@@ -246,6 +255,11 @@ export const updateDeck = defineEventHandler(async (event) => {
           updatedAt: now,
         })
         .where(eq(schema.decks.id, id));
+    } else {
+      // Viewer-only access — same 404 as no-access to avoid leaking that
+      // the deck exists with restricted permissions.
+      setResponseStatus(event, 404);
+      return { error: "Deck not found" };
     }
 
     notifyClients(id);
@@ -301,7 +315,23 @@ export const deleteDeck = defineEventHandler(async (event) => {
 
   return withAuth(event, async () => {
     try {
+      // assertAccess loads the row and verifies the caller has admin
+      // role on this resource — it must run BEFORE the delete (and in
+      // the same scope) so we don't leak existence to callers who lack
+      // access.
       await assertAccess("deck", id, "admin");
+      const db = getDb();
+      const result = await db
+        .delete(schema.decks)
+        .where(eq(schema.decks.id, id))
+        .returning();
+
+      if (result.length > 0) {
+        notifyClients(id, "deck-deleted");
+        return { success: true };
+      }
+      setResponseStatus(event, 404);
+      return { error: "Deck not found" };
     } catch (err) {
       if (err instanceof ForbiddenError) {
         // 404 to avoid leaking existence
@@ -310,18 +340,5 @@ export const deleteDeck = defineEventHandler(async (event) => {
       }
       throw err;
     }
-
-    const db = getDb();
-    const result = await db
-      .delete(schema.decks)
-      .where(eq(schema.decks.id, id))
-      .returning();
-
-    if (result.length > 0) {
-      notifyClients(id, "deck-deleted");
-      return { success: true };
-    }
-    setResponseStatus(event, 404);
-    return { error: "Deck not found" };
   });
 });

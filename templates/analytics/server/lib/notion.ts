@@ -2,6 +2,7 @@
 // Docs: https://developers.notion.com/reference/post-database-query
 
 import { resolveCredential } from "./credentials";
+import { requireRequestCredentialContext } from "./credentials-context";
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
@@ -16,8 +17,9 @@ const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const pageCache = new Map<string, { data: NotionPageData; ts: number }>();
 
 async function getApiKey(): Promise<string> {
-  const key = await resolveCredential("NOTION_API_KEY");
-  if (!key) throw new Error("NOTION_API_KEY env var required");
+  const ctx = requireRequestCredentialContext("NOTION_API_KEY");
+  const key = await resolveCredential("NOTION_API_KEY", ctx);
+  if (!key) throw new Error("NOTION_API_KEY not configured");
   return key;
 }
 

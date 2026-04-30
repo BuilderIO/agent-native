@@ -51,7 +51,7 @@ interface OrganizationStateResponse {
 
 export default function OrganizationSettingsRoute() {
   const { session } = useSession();
-  const email = session?.email ?? "local@localhost";
+  const email = session?.email ?? "";
 
   const { data, isLoading } = useActionQuery<OrganizationStateResponse>(
     "list-organization-state",

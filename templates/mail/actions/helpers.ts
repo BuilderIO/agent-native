@@ -122,15 +122,13 @@ export async function resolveOwnerEmail(): Promise<string> {
     });
     if (rows[0]) {
       const email = rows[0].email as string;
-      if (email && email !== "local@localhost") {
-        return email;
-      }
+      if (email) return email;
     }
   } catch {
     // sessions table may not exist yet
   }
 
-  return "local@localhost";
+  throw new Error("no authenticated user");
 }
 
 // ---------------------------------------------------------------------------

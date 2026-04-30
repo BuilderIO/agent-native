@@ -19,7 +19,8 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    const email = getRequestUserEmail() || "local@localhost";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const from = args.from;
     const to = args.to;
 

@@ -66,8 +66,11 @@ export function OnboardingPanel({
     : (steps.find((s) => s.required && !s.complete)?.id ??
       steps.find((s) => !s.complete)?.id ??
       null);
-  // Default expanded when setup is incomplete; collapsed once everything's done.
-  const [expanded, setExpanded] = useState(!allComplete);
+  // Default expanded. (Older code used `useState(!allComplete)`, but the first
+  // render fires with `steps === []` — `[].every()` is vacuously true, so
+  // `allComplete` was true and `expanded` got locked to false even after the
+  // real incomplete steps loaded.)
+  const [expanded, setExpanded] = useState(true);
 
   if (loading || totalCount === 0) return null;
   // Preview mode (dev overlay) bypasses the auto-hide so template authors

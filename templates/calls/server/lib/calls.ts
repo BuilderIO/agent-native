@@ -6,12 +6,18 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import type { TranscriptSegment } from "../../shared/api.js";
 
 export function getCurrentOwnerEmail(): string {
-  return getRequestUserEmail() || "local@localhost";
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("no authenticated user");
+  return email;
 }
 
 export async function getEventOwnerEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
-  return session?.email ?? "local@localhost";
+  if (!session?.email) {
+    const { createError } = await import("h3");
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return session.email;
 }
 
 export function nanoid(size = 12): string {
@@ -178,11 +184,18 @@ export function colorForSpeaker(label: string): string {
 
 /**
  * Fetch a single call row, throwing if not found.
+ *
+ * Access control is the caller's responsibility — every caller in this
+ * template (set-thumbnail, tag-call, update-call, request-transcript) runs
+ * `assertAccess("call", id, "editor")` immediately before invoking this
+ * helper. We don't re-assert here so the helper stays usable from contexts
+ * (background jobs, finalize-call) that have already established access.
  */
 export async function getCallOrThrow(
   id: string,
 ): Promise<typeof schema.calls.$inferSelect> {
   const db = getDb();
+  // guard:allow-unscoped — caller must assertAccess("call", id, ...) first; helper for already-authorized lookups
   const [row] = await db
     .select()
     .from(schema.calls)

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
+import { IconX } from "@tabler/icons-react";
 
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
 
@@ -44,13 +45,14 @@ export function FlowBar() {
 
     trackListen(
       listen<{ state: FlowState }>("voice:state-change", (ev) => {
-        const next = ev.payload.state;
-        // "complete" / "idle" are transitional states right before the
-        // window is closed by hide_flow_bar — don't repaint into the
-        // empty "EN" idle pill in the brief gap, just leave the
-        // previous state showing until the window goes away.
-        if (next === "complete" || next === "idle") return;
-        setState(next);
+        // Always reflect what the dictation engine reported. Earlier we
+        // ignored "complete"/"idle" on the assumption that hide_flow_bar
+        // would close the window milliseconds later — but if the hide
+        // got debounced or dropped, the bar would sit on "Polishing..."
+        // forever even after the text had already been pasted. Painting
+        // the actual state means the worst case is a blank bar for a
+        // frame, not a permanently stuck one.
+        setState(ev.payload.state);
       }),
     );
 
@@ -136,6 +138,13 @@ export function FlowBar() {
     };
   }, [state]);
 
+  const handleCancel = () => {
+    // Broadcast to the popover webview where voice-dictation.ts lives —
+    // it will abort any in-flight transcribe, stop recording, and hide
+    // the bar without pasting text.
+    emit("voice:cancel").catch(() => {});
+  };
+
   return (
     <div className="flow-bar-root">
       <div className={`flow-bar flow-bar-${state}`}>
@@ -156,6 +165,18 @@ export function FlowBar() {
             <span className="flow-bar-error">Could not transcribe</span>
           </div>
         ) : null}
+
+        {(state === "recording" || state === "processing") && (
+          <button
+            type="button"
+            className="flow-bar-cancel"
+            onClick={handleCancel}
+            aria-label="Cancel dictation"
+            title="Cancel"
+          >
+            <IconX size={12} stroke={2.5} />
+          </button>
+        )}
       </div>
     </div>
   );

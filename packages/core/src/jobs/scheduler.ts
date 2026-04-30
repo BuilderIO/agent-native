@@ -130,6 +130,27 @@ export interface SchedulerDeps {
 
 let _isRunning = false;
 
+// Skip the DB query on every tick if we recently confirmed no jobs exist.
+// `_hasJobsCache` is invalidated whenever a `jobs/*` resource is written or
+// deleted (subscribed below), and refreshed at most every 5 minutes.
+let _hasJobsCache: boolean | undefined;
+let _lastJobsCheck = 0;
+const JOBS_CHECK_INTERVAL_MS = 5 * 60_000;
+let _emitterSubscribed = false;
+
+function subscribeToJobsResourceEvents(): void {
+  if (_emitterSubscribed) return;
+  _emitterSubscribed = true;
+  // Lazy import to avoid circular deps at module load
+  void import("../resources/emitter.js").then(({ getResourcesEmitter }) => {
+    getResourcesEmitter().on("resources", (event: any) => {
+      if (typeof event?.path === "string" && event.path.startsWith("jobs/")) {
+        _hasJobsCache = undefined;
+      }
+    });
+  });
+}
+
 /**
  * Process all due recurring jobs. Called every 60 seconds.
  * Sequential execution with 5-minute timeout per job.
@@ -137,10 +158,27 @@ let _isRunning = false;
 export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
   // Prevent concurrent runs
   if (_isRunning) return;
+
+  subscribeToJobsResourceEvents();
+
+  // Skip if we recently confirmed there are no job resources to run.
+  const nowMs = Date.now();
+  if (
+    _hasJobsCache === false &&
+    nowMs - _lastJobsCheck < JOBS_CHECK_INTERVAL_MS
+  ) {
+    return;
+  }
+
   _isRunning = true;
 
   try {
     const jobResources = await resourceListAllOwners("jobs/");
+    _hasJobsCache = jobResources.some(
+      (r) => r.path.endsWith(".md") && !r.path.endsWith(".keep"),
+    );
+    _lastJobsCheck = nowMs;
+    if (!_hasJobsCache) return;
     const now = new Date();
 
     for (const resource of jobResources) {
@@ -179,6 +217,15 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       await executeJob(resource, meta, body, deps, now);
     }
   } catch (err) {
+    // Transient WS / connection drops (Neon serverless): silently retry next
+    // tick instead of spamming stderr — `retryOnConnectionError` already did
+    // its retry budget at the driver level.
+    const { isConnectionError } = await import("../db/client.js");
+    if (isConnectionError(err)) {
+      _hasJobsCache = undefined; // force re-check on next successful tick
+      _lastJobsCheck = 0;
+      return;
+    }
     // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause
     const detail =
       err instanceof Error
@@ -215,9 +262,9 @@ async function executeJob(
   const jobOrgId = meta.orgId ?? undefined;
 
   // Also set process.env for backwards compat with CLI scripts
-  process.env.AGENT_USER_EMAIL = jobUserEmail;
+  process.env.AGENT_USER_EMAIL = jobUserEmail; // guard:allow-env-mutation — back-compat for legacy CLI scripts spawned by jobs; per-request truth lives in runWithRequestContext below
   if (jobOrgId) {
-    process.env.AGENT_ORG_ID = jobOrgId;
+    process.env.AGENT_ORG_ID = jobOrgId; // guard:allow-env-mutation — back-compat for legacy CLI scripts spawned by jobs; per-request truth lives in runWithRequestContext below
   } else {
     delete process.env.AGENT_ORG_ID;
   }

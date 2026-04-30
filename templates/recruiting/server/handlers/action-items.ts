@@ -1,7 +1,7 @@
-import { defineEventHandler, getQuery } from "h3";
+import { defineEventHandler, getQuery, createError } from "h3";
 import { getOrgContext } from "@agent-native/core/org";
 import * as gh from "../lib/greenhouse-api.js";
-import { withOrgContext } from "../lib/greenhouse-api.js";
+import { withCredentialContext } from "../lib/greenhouse-api.js";
 import type {
   GreenhouseScheduledInterview,
   GreenhouseScorecard,
@@ -81,6 +81,12 @@ async function batchFetch<T>(
 export const getActionItemsHandler = defineEventHandler(
   async (event): Promise<ActionItemsResponse> => {
     const ctx = await getOrgContext(event);
+    if (!ctx.orgId && !ctx.email) {
+      throw createError({
+        statusCode: 401,
+        message: "Sign in to view action items.",
+      });
+    }
     const run = async (): Promise<ActionItemsResponse> => {
       const query = getQuery(event) as {
         overdue_hours?: string;
@@ -294,6 +300,9 @@ export const getActionItemsHandler = defineEventHandler(
         },
       };
     };
-    return ctx.orgId ? withOrgContext(ctx.orgId, run) : run();
+    return withCredentialContext(
+      { email: ctx.email || null, orgId: ctx.orgId },
+      run,
+    );
   },
 );

@@ -41,7 +41,8 @@ import {
   putUserSetting,
   deleteUserSetting,
 } from "../settings/user-settings.js";
-import { getSession } from "./auth.js";
+import { getSession, isDevEnvironment, DEV_MODE_USER_EMAIL } from "./auth.js";
+import { isLocalDatabase } from "../db/client.js";
 import { getOrigin } from "./google-oauth.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { listOnboardingSteps } from "../onboarding/registry.js";
@@ -63,6 +64,7 @@ import { registerBuiltinNotificationChannels } from "../notifications/channels.j
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
+import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import {
   isAgentEngineSettingConfigured,
@@ -78,6 +80,26 @@ import {
  * collisions with template-specific `/api/*` routes.
  */
 export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
+
+/**
+ * Whether deployment-wide `process.env` writes (and rehydration from the
+ * unscoped `persisted-env-vars` settings row) are safe on this deployment.
+ *
+ * Allowed only when:
+ *   - we're running against a local SQLite-only database in a development
+ *     environment (no shared-tenant exposure), OR
+ *   - the operator has explicitly opted in via
+ *     `AGENT_NATIVE_ALLOW_ENV_VAR_WRITES=1` (single-tenant self-hosted).
+ *
+ * On any hosted multi-tenant deploy this returns false: env vars are
+ * deployment-wide globals and one tenant could otherwise overwrite Stripe /
+ * OpenAI / Sentry keys for every other tenant. Per-org credentials must use
+ * the per-user/org `app_secrets` store via `saveCredential()` instead.
+ */
+function isEnvVarWriteAllowed(): boolean {
+  if (process.env.AGENT_NATIVE_ALLOW_ENV_VAR_WRITES === "1") return true;
+  return isDevEnvironment() && isLocalDatabase();
+}
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -128,13 +150,15 @@ export function createCoreRoutesPlugin(
     // store. Only set keys that are currently empty so explicit env
     // vars (Netlify dashboard, process-level) always win.
     //
-    // BUILDER_* keys are explicitly skipped and scrubbed from the row.
-    // The pre-migration OAuth callback wrote one user's Builder creds
-    // into this unscoped row, which then rehydrated into process.env on
-    // every cold start and leaked across tenants on shared-DB hosted
-    // templates. Per-user Builder creds now live in app_secrets; this
-    // global row must never carry them again. The scrub below is a
-    // one-shot self-heal: idempotent, no-op once the row is clean.
+    // GATED: only rehydrate into `process.env` on local-dev SQLite (or
+    // with the explicit single-tenant opt-in). On a shared-DB hosted
+    // multi-tenant deploy the `persisted-env-vars` row is deployment-wide
+    // global state — pushing user-supplied values into `process.env` from
+    // it would let any one tenant's writes (or a stale dev seed) leak
+    // into every other tenant's process. The opt-out scrub of legacy
+    // BUILDER_* values still runs unconditionally so existing rows on
+    // multi-tenant deploys self-heal, but new env-var writes never land
+    // in `process.env` outside the allowed contexts.
     try {
       const persisted = (await getSetting("persisted-env-vars")) as Record<
         string,
@@ -142,13 +166,14 @@ export function createCoreRoutesPlugin(
       > | null;
       if (persisted) {
         const builderKeys = new Set<string>(BUILDER_ENV_KEYS);
+        const writesAllowed = isEnvVarWriteAllowed();
         let scrubbed = 0;
         for (const [k, v] of Object.entries(persisted)) {
           if (builderKeys.has(k)) {
             scrubbed++;
             continue;
           }
-          if (typeof v === "string" && !process.env[k]) {
+          if (writesAllowed && typeof v === "string" && !process.env[k]) {
             process.env[k] = v;
           }
         }
@@ -433,7 +458,7 @@ export function createCoreRoutesPlugin(
         // on. Allow it only when the environment explicitly opts into
         // local mode (dev, tests, or AUTH_MODE=local).
         if (
-          session.email === "local@localhost" &&
+          session.email === DEV_MODE_USER_EMAIL &&
           process.env.NODE_ENV === "production" &&
           process.env.AUTH_MODE !== "local"
         ) {
@@ -741,6 +766,20 @@ export function createCoreRoutesPlugin(
             return { error: "Method not allowed" };
           }
 
+          // Env vars are deployment-wide globals, not per-tenant. On any
+          // shared-DB multi-tenant deploy, allowing authenticated users to
+          // write here lets one tenant overwrite Stripe / OpenAI / Sentry
+          // keys for every other tenant. Disable the endpoint outside of
+          // local-dev SQLite or an explicit single-tenant opt-in, and
+          // direct callers to the per-org credential store instead.
+          if (!isEnvVarWriteAllowed()) {
+            setResponseStatus(event, 403);
+            return {
+              error:
+                "env-vars endpoint disabled on multi-tenant deployments. Use saveCredential(key, value, { userEmail, orgId, scope: 'org' }) to store per-org credentials.",
+            };
+          }
+
           const body = await readBody(event);
           const { vars } = body as {
             vars?: Array<{ key: string; value: string }>;
@@ -1002,6 +1041,14 @@ export function createCoreRoutesPlugin(
       createTranscribeVoiceHandler(),
     );
 
+    // ─── Voice provider status ───────────────────────────────────────
+    // GET /_agent-native/voice-providers/status — which providers are
+    // configured for the current user (powers the Settings UI pills).
+    getH3App(nitroApp).use(
+      `${P}/voice-providers/status`,
+      createVoiceProvidersStatusHandler(),
+    );
+
     // ─── Ad-hoc secrets (user-created keys) ────────────────────────────
     // Must mount before the generic /secrets handler to avoid shadowing.
     const adHocSecretHandler = createAdHocSecretHandler();
@@ -1109,7 +1156,11 @@ export function createCoreRoutesPlugin(
 
         try {
           const session = await getSession(event).catch(() => null);
-          const owner = session?.email || "local@localhost";
+          if (!session?.email) {
+            setResponseStatus(event, 401);
+            return { error: "Unauthenticated" };
+          }
+          const owner = session.email;
           const { resourceListAllOwners, SHARED_OWNER } =
             await import("../resources/store.js");
           const allResources = await resourceListAllOwners("jobs/");
