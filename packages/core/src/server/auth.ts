@@ -1091,10 +1091,18 @@ const TOKEN_LOGIN_HTML = `<!DOCTYPE html>
   </form>
 </div>
 <script>
+  function __anBasePath() {
+    var marker = '/_agent-native';
+    var idx = window.location.pathname.indexOf(marker);
+    return idx > 0 ? window.location.pathname.slice(0, idx) : '';
+  }
+  function __anPath(path) {
+    return __anBasePath() + path;
+  }
   document.getElementById('form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const token = document.getElementById('token').value;
-    const res = await fetch('/_agent-native/auth/login', {
+    const res = await fetch(__anPath('/_agent-native/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),

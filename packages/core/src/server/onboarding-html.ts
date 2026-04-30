@@ -85,7 +85,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
           localStorage.removeItem('${MIGRATE_FLAG_KEY}');
         }
       } catch (e) {}
-      var res = await fetch('/_agent-native/auth/local-mode', { method: 'POST' });
+      var res = await fetch(__anPath('/_agent-native/auth/local-mode'), { method: 'POST' });
       if (res.ok) {
         window.location.reload();
       } else {
@@ -587,6 +587,14 @@ ${localModeBlock}
   Your account is stored in this app's own DB (<strong>${getConnectionLabel()}</strong>), not a third-party service.
 </p>${marketingCloseHtml}
 <script>
+  function __anBasePath() {
+    var marker = '/_agent-native';
+    var idx = window.location.pathname.indexOf(marker);
+    return idx > 0 ? window.location.pathname.slice(0, idx) : '';
+  }
+  function __anPath(path) {
+    return __anBasePath() + path;
+  }
   (function revealLocalNote() {
     var h = location.hostname;
     if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local')) {
@@ -664,7 +672,7 @@ ${
     btn.textContent = 'Creating account…';
     try {
       var email = document.getElementById('s-email').value;
-      var res = await fetch('/_agent-native/auth/register', {
+      var res = await fetch(__anPath('/_agent-native/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email, password: pass }),
@@ -673,7 +681,7 @@ ${
       if (res.ok) {
         // If email verification is required, the server won't return a session.
         // Try logging in — if it fails (unverified), show a "check your email" message.
-        var loginRes = await fetch('/_agent-native/auth/login', {
+        var loginRes = await fetch(__anPath('/_agent-native/auth/login'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: email, password: pass }),
@@ -742,7 +750,7 @@ ${
     btn.textContent = 'Sending…';
     try {
       var email = document.getElementById('f-email').value;
-      var res = await fetch('/_agent-native/auth/ba/request-password-reset', {
+      var res = await fetch(__anPath('/_agent-native/auth/ba/request-password-reset'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email }),
@@ -776,7 +784,7 @@ ${
     btn.disabled = true;
     btn.textContent = 'Signing in…';
     try {
-      var res = await fetch('/_agent-native/auth/login', {
+      var res = await fetch(__anPath('/_agent-native/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -847,7 +855,7 @@ ${
     err.classList.remove('show');
     try {
       var ret = __anGetReturnPath();
-      var authUrl = '/_agent-native/google/auth-url?return=' + encodeURIComponent(ret);
+      var authUrl = __anPath('/_agent-native/google/auth-url') + '?return=' + encodeURIComponent(ret);
       var res = await fetch(authUrl);
       var data = await res.json();
       if (data.url) {
@@ -856,7 +864,7 @@ ${
         btn.disabled = false;
         btn.textContent = 'Waiting for sign-in…';
         var poll = setInterval(function() {
-          fetch('/_agent-native/auth/session').then(function(r) { return r.json(); }).then(function(s) {
+          fetch(__anPath('/_agent-native/auth/session')).then(function(r) { return r.json(); }).then(function(s) {
             if (s && s.email) { clearInterval(poll); window.location.reload(); }
           }).catch(function() {});
         }, 1500);
