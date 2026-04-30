@@ -179,6 +179,7 @@ Actions:
 - "create": Create a new recurring job. Requires name, schedule, and instructions.
 - "list": List all recurring jobs and their status (schedule, enabled, last run, next run).
 - "update": Update a job's schedule, instructions, or enabled state. Requires name.
+- "delete": Delete a recurring job. Requires name. Always confirm with the user first.
 
 Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patterns: '0 9 * * *' (daily 9am), '0 9 * * 1-5' (weekdays 9am), '0 * * * *' (every hour), '0 9 * * 1' (Mondays 9am), '*/30 * * * *' (every 30 min).`,
         parameters: {
@@ -187,7 +188,7 @@ Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patt
             action: {
               type: "string",
               description: "The action to perform.",
-              enum: ["create", "list", "update"],
+              enum: ["create", "list", "update", "delete"],
             },
             name: {
               type: "string",
@@ -234,6 +235,8 @@ Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patt
             return runList(args);
           case "update":
             return runUpdate(args);
+          case "delete":
+            return runDelete(args);
           default:
             return JSON.stringify({
               error: `Unknown action "${args.action}". Use "create", "list", or "update".`,
