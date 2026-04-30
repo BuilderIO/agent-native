@@ -6,6 +6,7 @@ import { formatLocalDate } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -139,6 +140,11 @@ export function AddExerciseDialog({
           <DialogTitle>
             {isEditing ? "Edit Exercise" : "Log Exercise"}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            {isEditing
+              ? "Update the selected exercise entry."
+              : "Log an exercise with calories burned."}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">

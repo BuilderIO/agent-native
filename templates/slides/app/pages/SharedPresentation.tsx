@@ -5,14 +5,28 @@ import type { SharedDeckResponse } from "@shared/api";
 import type { Slide } from "@/context/DeckContext";
 import PresentationView from "@/components/presentation/PresentationView";
 
-export default function SharedPresentation() {
+interface SharedPresentationProps {
+  initialDeck?: SharedDeckResponse | null;
+  initialError?: string;
+}
+
+export default function SharedPresentation({
+  initialDeck = null,
+  initialError = "",
+}: SharedPresentationProps) {
   const { token } = useParams<{ token: string }>();
-  const [deck, setDeck] = useState<SharedDeckResponse | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [deck, setDeck] = useState<SharedDeckResponse | null>(initialDeck);
+  const [error, setError] = useState(initialError);
+  const [loading, setLoading] = useState(!initialDeck && !initialError);
 
   useEffect(() => {
     if (!token) return;
+    if (initialDeck || initialError) {
+      setDeck(initialDeck);
+      setError(initialError);
+      setLoading(false);
+      return;
+    }
 
     fetch(`/api/share/${token}`)
       .then(async (res) => {
@@ -31,7 +45,7 @@ export default function SharedPresentation() {
       .finally(() => {
         setLoading(false);
       });
-  }, [token]);
+  }, [token, initialDeck, initialError]);
 
   if (loading) {
     return (

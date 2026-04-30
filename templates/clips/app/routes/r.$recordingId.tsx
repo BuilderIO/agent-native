@@ -12,6 +12,7 @@ import {
   useSession,
   sendToAgentChat,
   AgentPanel,
+  agentNativePath,
 } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -166,7 +167,7 @@ export default function RecordingPage() {
   // Sync navigation state
   useEffect(() => {
     if (!recordingId) return;
-    fetch("/_agent-native/application-state/navigation", {
+    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       keepalive: true,
       headers: { "Content-Type": "application/json" },

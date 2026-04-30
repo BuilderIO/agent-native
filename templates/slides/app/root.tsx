@@ -169,6 +169,11 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
+  const location = useLocation();
+
+  if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
+    return <Outlet />;
+  }
 
   return (
     <ClientOnly fallback={<DefaultSpinner />}>

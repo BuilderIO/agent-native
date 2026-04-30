@@ -1,5 +1,34 @@
 import SharedPresentation from "@/pages/SharedPresentation";
 import { Spinner } from "@/components/ui/spinner";
+import type { SharedDeckResponse } from "@shared/api";
+import type { LoaderFunctionArgs } from "react-router";
+import { useLoaderData } from "react-router";
+
+type LoaderData =
+  | { deck: SharedDeckResponse; error?: undefined }
+  | { deck: null; error: string };
+
+export async function loader({
+  params,
+  request,
+}: LoaderFunctionArgs): Promise<LoaderData> {
+  if (!params.token) {
+    return { deck: null, error: "Token is required" };
+  }
+
+  const url = new URL(`/api/share/${params.token}`, request.url);
+  const res = await fetch(url, { headers: { accept: "application/json" } });
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    return {
+      deck: null,
+      error: data?.error || "Failed to load presentation",
+    };
+  }
+
+  return { deck: data as SharedDeckResponse };
+}
 
 export function meta() {
   return [{ title: "Shared Presentation" }];
@@ -14,5 +43,8 @@ export function HydrateFallback() {
 }
 
 export default function SharedPresentationRoute() {
-  return <SharedPresentation />;
+  const data = useLoaderData<typeof loader>();
+  return (
+    <SharedPresentation initialDeck={data.deck} initialError={data.error} />
+  );
 }

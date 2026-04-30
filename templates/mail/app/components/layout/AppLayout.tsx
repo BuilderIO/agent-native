@@ -49,6 +49,7 @@ import {
   AgentToggleButton,
   FeedbackButton,
   NotificationsBell,
+  agentNativePath,
 } from "@agent-native/core/client";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
@@ -415,7 +416,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (threadId) return; // thread view has its own context
     const fetchNav = async () => {
       try {
-        const res = await fetch("/_agent-native/application-state/navigation");
+        const res = await fetch(
+          agentNativePath("/_agent-native/application-state/navigation"),
+        );
         if (res.ok) {
           const nav = await res.json();
           if (nav?.focusedEmailId) setFocusedListId(nav.focusedEmailId);

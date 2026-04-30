@@ -6,6 +6,7 @@ import { formatLocalDate } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -128,6 +129,11 @@ export function AddWeightDialog({
             <IconScale className="h-5 w-5" />
             {isEditing ? "Edit Weight" : "Log Weight"}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            {isEditing
+              ? "Update the selected weight entry."
+              : "Log a weight entry with optional notes."}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
