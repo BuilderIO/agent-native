@@ -235,7 +235,7 @@ export function Sidebar({
     <div
       className={cn(
         "flex-shrink-0 border-r border-border bg-card/40 overflow-hidden h-full",
-        "md:relative md:transition-[width] md:duration-200",
+        "md:relative",
         open
           ? "absolute inset-y-0 left-0 z-30 w-64 lg:w-72 md:relative"
           : "w-0",

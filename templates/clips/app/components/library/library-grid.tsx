@@ -27,6 +27,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { IconChecks } from "@tabler/icons-react";
+import { ShareRecordingPopover } from "@/components/player/share-dialog";
 
 interface LibraryGridProps {
   view: "library" | "space" | "archive" | "trash" | "all";
@@ -69,6 +70,7 @@ export function LibraryGrid({
   const [selectionMode, setSelectionMode] = useState(false);
   const [renamingRec, setRenamingRec] = useState<RecordingSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [sharingRec, setSharingRec] = useState<RecordingSummary | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
 
@@ -256,6 +258,7 @@ export function LibraryGrid({
                   selected={selected.has(r.id)}
                   selectionMode={selectionMode}
                   onToggleSelect={toggleSelect}
+                  onShare={(rec) => setSharingRec(rec)}
                   onRename={openRenameDialog}
                   onMove={(rec) => {
                     moveRecording.mutate(
@@ -303,11 +306,6 @@ export function LibraryGrid({
             <div className="pointer-events-auto">
               <BulkActionToolbar
                 count={selected.size}
-                onMove={() => toast.info("Move: implement via shadcn dialog")}
-                onAddToSpace={() =>
-                  toast.info("Add to space: implement via shadcn dialog")
-                }
-                onTag={() => toast.info("Tag: implement via shadcn dialog")}
                 onArchive={async () => {
                   setIsBulkPending(true);
                   try {

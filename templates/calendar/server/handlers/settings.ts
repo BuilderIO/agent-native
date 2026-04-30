@@ -1,6 +1,7 @@
 import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
 import type { Settings } from "../../shared/api.js";
 import {
+  getSetting,
   getUserSetting,
   putUserSetting,
   putSetting,
@@ -33,6 +34,13 @@ export const getSettings = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 500);
     return { error: error.message };
   }
+});
+
+export const getPublicSettings = defineEventHandler(async (_event: H3Event) => {
+  const settings =
+    ((await getSetting("calendar-settings")) as unknown as Settings | null) ||
+    DEFAULT_SETTINGS;
+  return settings;
 });
 
 export const updateSettings = defineEventHandler(async (event: H3Event) => {

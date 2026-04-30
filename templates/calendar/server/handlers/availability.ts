@@ -1,6 +1,7 @@
 import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
 import type { AvailabilityConfig } from "../../shared/api.js";
 import {
+  getSetting,
   getUserSetting,
   putUserSetting,
   putSetting,
@@ -46,6 +47,16 @@ export const getAvailability = defineEventHandler(async (event: H3Event) => {
     return { error: error.message };
   }
 });
+
+export const getPublicAvailability = defineEventHandler(
+  async (_event: H3Event) => {
+    const config =
+      ((await getSetting(
+        "calendar-availability",
+      )) as unknown as AvailabilityConfig | null) || DEFAULT_AVAILABILITY;
+    return config;
+  },
+);
 
 export const updateAvailability = defineEventHandler(async (event: H3Event) => {
   try {

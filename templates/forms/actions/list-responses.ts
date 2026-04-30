@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { eq, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
@@ -23,6 +24,10 @@ export default defineAction({
   run: async (args) => {
     const formId = args.formId ?? args.form;
     if (!formId) throw new Error("formId is required");
+
+    const access = await resolveAccess("form", formId);
+    if (!access) throw new Error(`Form ${formId} not found`);
+
     const db = getDb();
     const [form] = await db
       .select()

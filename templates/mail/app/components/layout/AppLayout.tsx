@@ -189,6 +189,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const labelAliases = settings?.labelAliases ?? {};
   const { data: rawInboxEmails = [], isLoading: emailsLoading } =
     useEmails("inbox");
+  const hasLocalMailboxData =
+    !hasAccounts &&
+    (rawInboxEmails.length > 0 ||
+      labels.some(
+        (label) => (label.totalCount ?? 0) > 0 || (label.unreadCount ?? 0) > 0,
+      ));
   // Augment emails: self-sent → "important" (or "note-to-self" if pinned)
   const inboxEmails = useMemo(() => {
     if (!isGoogleConnected) return rawInboxEmails;
@@ -1166,6 +1172,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             {!googleStatus.isLoading &&
             !googleStatus.isError &&
             !hasAccounts &&
+            !hasLocalMailboxData &&
             view !== "settings" ? (
               <GoogleConnectBanner variant="hero" />
             ) : (

@@ -460,19 +460,13 @@ export function FormBuilderPage() {
       </div>
 
       {/* Tab row */}
-      <div className="border-b border-border px-2 sm:px-4 shrink-0 overflow-x-auto">
+      <div className="border-b border-border px-2 sm:px-4 py-2 shrink-0 overflow-x-auto">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="h-9 bg-transparent p-0 gap-0 w-max sm:w-auto">
-            <TabsTrigger
-              value="edit"
-              className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-            >
+          <TabsList className="w-max sm:w-auto">
+            <TabsTrigger value="edit" className="text-xs">
               Edit
             </TabsTrigger>
-            <TabsTrigger
-              value="results"
-              className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-            >
+            <TabsTrigger value="results" className="text-xs">
               Results
               {(form.responseCount ?? 0) > 0 && (
                 <Badge
@@ -483,16 +477,10 @@ export function FormBuilderPage() {
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger
-              value="settings"
-              className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-            >
+            <TabsTrigger value="settings" className="text-xs">
               Settings
             </TabsTrigger>
-            <TabsTrigger
-              value="integrations"
-              className="text-xs px-3 h-9 rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-            >
+            <TabsTrigger value="integrations" className="text-xs">
               Integrations
             </TabsTrigger>
           </TabsList>

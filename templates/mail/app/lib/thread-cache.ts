@@ -268,7 +268,7 @@ export function useThreadCache(
   // Kick off the fetch synchronously during render for cold opens so the
   // hook returns isLoading=true on the first paint. ensureThread dedupes.
   if (!inflight.has(threadId)) {
-    void ensureThread(threadId);
+    void ensureThread(threadId).catch(() => {});
   }
   return {
     messages: placeholder,

@@ -81,6 +81,8 @@ export interface ShareRecordingPopoverProps {
   animatedThumbnailUrl?: string | null;
   /** Trigger element rendered as the popover anchor (usually the Share button). */
   children: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -96,6 +98,8 @@ export function ShareRecordingPopover({
   videoUrl,
   animatedThumbnailUrl,
   children,
+  open,
+  onOpenChange,
 }: ShareRecordingPopoverProps) {
   const shareUrl =
     typeof window === "undefined"

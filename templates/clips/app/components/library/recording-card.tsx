@@ -140,7 +140,6 @@ export function RecordingCard({
         "group relative flex flex-col rounded-lg border bg-card overflow-hidden cursor-pointer",
         "border-border/80 hover:border-primary/40",
         "shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md",
-        "transition-transform duration-100 ease-out hover:-translate-y-0.5",
         selected && "ring-2 ring-primary border-primary",
       )}
     >
