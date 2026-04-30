@@ -46,18 +46,25 @@ export function runWithRequestContext<T>(
 
 /**
  * Get the current request's user email.
- * Falls back to `process.env.AGENT_USER_EMAIL` for CLI scripts.
+ * Falls back to `process.env.AGENT_USER_EMAIL` for CLI scripts only.
+ * When inside a request context (ALS store exists), the store value is
+ * authoritative — the env var is a global that can be stale from concurrent
+ * requests and must not bleed across request boundaries.
  */
 export function getRequestUserEmail(): string | undefined {
-  return als.getStore()?.userEmail ?? process.env.AGENT_USER_EMAIL;
+  const store = als.getStore();
+  if (store !== undefined) return store.userEmail;
+  return process.env.AGENT_USER_EMAIL;
 }
 
 /**
  * Get the current request's org ID.
- * Falls back to `process.env.AGENT_ORG_ID` for CLI scripts.
+ * Falls back to `process.env.AGENT_ORG_ID` for CLI scripts only.
  */
 export function getRequestOrgId(): string | undefined {
-  return als.getStore()?.orgId ?? process.env.AGENT_ORG_ID;
+  const store = als.getStore();
+  if (store !== undefined) return store.orgId;
+  return process.env.AGENT_ORG_ID;
 }
 
 /**
