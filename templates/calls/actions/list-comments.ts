@@ -10,6 +10,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { and, asc, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import { assertAccess } from "@agent-native/core/sharing";
 import {
   getCurrentOwnerEmail,
   nanoid,
@@ -32,6 +33,8 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
+    await assertAccess("call", args.callId, "viewer");
+
     const db = getDb();
     const rows = await db
       .select()
@@ -72,4 +75,3 @@ void resolveDefaultWorkspaceId;
 void writeAppState;
 void readAppState;
 void accessFilter;
-void assertAccess;
