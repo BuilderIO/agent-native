@@ -202,7 +202,7 @@ export function createTerminalPlugin(options: TerminalPluginOptions = {}) {
         );
     } catch (err) {
       // Clear the running flag so a retry can spawn a fresh server
-      delete process.env.__AGENT_TERMINAL_RUNNING;
+      delete process.env.__AGENT_TERMINAL_RUNNING; // guard:allow-env-mutation — terminal subprocess boot failed, clearing boot-time sentinel so a later plugin retry can start cleanly
 
       // Distinguish "node-pty not installed" (expected when the user opts
       // out of the terminal feature) from real failures (port conflict,

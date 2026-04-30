@@ -1160,7 +1160,7 @@ async function removeAuthModeLocal(): Promise<boolean> {
     } catch {
       // Marker already absent
     }
-    delete process.env.AUTH_MODE;
+    delete process.env.AUTH_MODE; // guard:allow-env-mutation — escape-hatch removes the local-mode marker; mirrored into env so the in-flight process honors the change without restart
     return true;
   } catch {
     return false;

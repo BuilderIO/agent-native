@@ -705,7 +705,11 @@ export function createProductionAgentHandler(
     if (requestEngine) {
       const provider = engineToProvider(requestEngine);
       userApiKey = await getOwnerApiKey(provider, ownerEmail);
-      if (!userApiKey) {
+      if (!userApiKey && !isMultiTenantDeploy()) {
+        // Single-tenant only: env fallback for the requested provider.
+        // Multi-tenant deploys never silently substitute the deploy-level
+        // key for an authenticated user (see getOwnerActiveApiKey for the
+        // full rationale).
         const envVar = PROVIDER_TO_ENV[provider];
         userApiKey = envVar ? process.env[envVar] || undefined : undefined;
       }
@@ -713,8 +717,14 @@ export function createProductionAgentHandler(
       userApiKey = await getOwnerActiveApiKey(ownerEmail);
     }
 
-    const effectiveApiKey =
-      userApiKey ?? options.apiKey ?? process.env.ANTHROPIC_API_KEY;
+    // `options.apiKey` is the value the template constructed the plugin with
+    // (e.g. wired from a deployment env var). On a multi-tenant deploy this
+    // is the same hazard as `process.env.ANTHROPIC_API_KEY` — accepting it
+    // as the final fallback would silently bill every key-less user to the
+    // deployment's account. Only honour it in single-tenant mode.
+    const effectiveApiKey = isMultiTenantDeploy()
+      ? userApiKey
+      : (userApiKey ?? options.apiKey ?? process.env.ANTHROPIC_API_KEY);
 
     // Resolve engine — per-request engine override takes priority
     let engine: AgentEngine;
