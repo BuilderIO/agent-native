@@ -34,7 +34,7 @@ describe("buildToolHtml", () => {
       /<script[^>]*src="https:\/\/cdn\.jsdelivr\.net\/npm\/alpinejs@\d+\.\d+\.\d+\/dist\/cdn\.min\.js"[^>]*integrity="sha384-[A-Za-z0-9+/=]+"/,
     );
     // Refuse the old unpinned-major form.
-    expect(html).not.toContain("@tailwindcss/browser@4\"");
+    expect(html).not.toContain('@tailwindcss/browser@4"');
     expect(html).not.toContain("alpinejs@3/dist/cdn.min.js");
   });
 });

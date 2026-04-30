@@ -148,9 +148,7 @@ async function dispatch(
     // Resolved access role is plumbed through so future bridge gating can
     // be conditional on owner/editor/viewer (audit H4 — scaffold only).
     const isAuthor = tool.ownerEmail === userEmail;
-    const role: "owner" | "editor" | "viewer" = isAuthor
-      ? "owner"
-      : "viewer";
+    const role: "owner" | "editor" | "viewer" = isAuthor ? "owner" : "viewer";
     const html = buildToolHtml(tool.content, themeVars, isDark, parts[0], {
       authorEmail: tool.ownerEmail,
       viewerEmail: userEmail,
