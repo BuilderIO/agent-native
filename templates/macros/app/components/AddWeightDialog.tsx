@@ -63,6 +63,7 @@ export function AddWeightDialog({
       setOpen(false);
       form.reset();
     },
+    onError: () => toast.error("Failed to log weight"),
   });
 
   const updateMutation = useActionMutation("update-weight", {
@@ -71,6 +72,7 @@ export function AddWeightDialog({
       setOpen(false);
       form.reset();
     },
+    onError: () => toast.error("Failed to update weight"),
   });
 
   const onSubmit = (data: FormData) => {

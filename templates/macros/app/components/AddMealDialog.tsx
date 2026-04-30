@@ -81,6 +81,7 @@ export function AddMealDialog({
       form.reset();
       setShowMacros(false);
     },
+    onError: () => toast.error("Failed to add meal"),
   });
 
   const updateMutation = useActionMutation("update-meal", {
@@ -90,6 +91,7 @@ export function AddMealDialog({
       form.reset();
       setShowMacros(false);
     },
+    onError: () => toast.error("Failed to update meal"),
   });
 
   const onSubmit = (data: FormData) => {

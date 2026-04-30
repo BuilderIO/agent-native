@@ -44,7 +44,7 @@ const PLATFORMS: Record<Platform, PlatformInfo> = {
     icon: <AppleIcon />,
     primary: {
       label: "Download for Mac",
-      href: "https://github.com/BuilderIO/agent-native/releases/download/v0.1.3/Agent-Native.dmg",
+      href: `${DL}/Agent-Native.dmg`,
     },
     note: "Universal binary — works on Apple Silicon and Intel.",
   },
@@ -182,8 +182,7 @@ export default function DownloadPage() {
       {/* Mobile teaser */}
       <div className="mt-16 mx-auto max-w-lg rounded-lg border border-dashed border-[var(--docs-border)] px-6 py-5 text-center">
         <p className="text-sm text-[var(--fg-secondary)]">
-          <span className="mr-1.5">📱</span>A mobile app for iOS and Android is
-          in the works.
+          A mobile app for iOS and Android is in the works.
         </p>
       </div>
 

@@ -850,8 +850,8 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
           return mapBetterAuthSession(baSession);
         }
       }
-    } catch {
-      // Better Auth not ready
+    } catch (e) {
+      console.error("[auth] ba.api.getSession error:", e);
     }
 
     // 5. Legacy cookie fallback (for sessions created before migration)

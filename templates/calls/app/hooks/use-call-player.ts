@@ -5,7 +5,6 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { writeAppState } from "@agent-native/core/application-state";
 
 export interface Bounds {
   startMs: number;
@@ -40,6 +39,15 @@ export interface CallPlayerState {
 }
 
 const FRAME_MS = 1000 / 30;
+
+function writeClientAppState(key: string, value: unknown) {
+  return fetch(`/_agent-native/application-state/${key}`, {
+    method: "PUT",
+    keepalive: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
+}
 
 export function useCallPlayer(options: UseCallPlayerOptions): CallPlayerState {
   const { mediaRef, durationMs, boundsMs, defaultSpeed, callId } = options;
@@ -201,7 +209,7 @@ export function useCallPlayer(options: UseCallPlayerOptions): CallPlayerState {
       now - lastWriteRef.current.ts > 500;
     if (!shouldWrite) return;
     lastWriteRef.current = { ts: now, playing, mode };
-    writeAppState("player-state", {
+    writeClientAppState("player-state", {
       callId: callId ?? null,
       currentMs,
       durationMs,

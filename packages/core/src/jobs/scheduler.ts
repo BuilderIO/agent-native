@@ -192,8 +192,24 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       if (!meta.enabled || !meta.schedule) continue;
       if (!isValidCron(meta.schedule)) continue;
 
-      // Skip if currently running
-      if (meta.lastStatus === "running") continue;
+      // Skip if currently running, unless it has been stuck for more than 10 minutes
+      // (server crash mid-job leaves lastStatus=running forever without this guard)
+      if (meta.lastStatus === "running") {
+        const stuckCutoff = 10 * 60 * 1000;
+        if (
+          meta.lastRun &&
+          now.getTime() - new Date(meta.lastRun).getTime() < stuckCutoff
+        ) {
+          continue;
+        }
+        // Stuck — reset so the next check can re-run it
+        meta.lastStatus = "error";
+        meta.lastError = "Job timed out or server crashed mid-run";
+        const next = nextOccurrence(meta.schedule, now);
+        meta.nextRun = next.toISOString();
+        await updateResource(resource, meta, body);
+        continue;
+      }
 
       // Check if due
       if (meta.nextRun) {
