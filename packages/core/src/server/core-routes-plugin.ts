@@ -1,4 +1,5 @@
 import { getH3App, awaitBootstrap } from "./framework-request-handler.js";
+import { runWithRequestContext } from "./request-context.js";
 import {
   defineEventHandler,
   setResponseStatus,
@@ -313,64 +314,89 @@ export function createCoreRoutesPlugin(
       `${P}/builder/status`,
       defineEventHandler(async (event) => {
         const envStatus = getBuilderBrowserStatusForEvent(event);
-        // Extract session up front so resolveBuilderCredentials() can be
-        // wrapped in runWithRequestContext — required for per-user OAuth
-        // credentials stored in app_secrets (DB), not just process.env.
+        // Read session once so we can establish per-user request context for
+        // credential resolution. Without this, resolveBuilderCredentials()
+        // calls getRequestUserEmail() on an empty AsyncLocalStorage store and
+        // falls through to process.env — causing the connection state to
+        // flicker between requests depending on stale env values.
         const session = await getSession(event).catch(() => null);
         const userEmail = session?.email;
-        // Check per-user credentials first (stored in app_secrets).
-        try {
-          const { resolveBuilderCredentials } =
-            await import("./credential-provider.js");
-          const resolve = () => resolveBuilderCredentials();
-          const creds = userEmail
-            ? await runWithRequestContext({ userEmail }, resolve)
-            : await resolve();
-          if (creds.privateKey) {
-            return {
-              ...envStatus,
-              configured: true,
-              privateKeyConfigured: true,
-              publicKeyConfigured: !!creds.publicKey,
-              userId: creds.userId || envStatus.userId,
-              orgName: creds.orgName || envStatus.orgName,
-              orgKind: creds.orgKind || envStatus.orgKind,
-            };
+
+        return runWithRequestContext({ userEmail }, async () => {
+          // Check per-user credentials first (stored in app_secrets).
+          try {
+            const { resolveBuilderCredentials } =
+              await import("./credential-provider.js");
+            const creds = await resolveBuilderCredentials();
+            if (creds.privateKey) {
+              return {
+                ...envStatus,
+                configured: true,
+                privateKeyConfigured: true,
+                publicKeyConfigured: !!creds.publicKey,
+                userId: creds.userId || envStatus.userId,
+                orgName: creds.orgName || envStatus.orgName,
+                orgKind: creds.orgKind || envStatus.orgKind,
+              };
+            }
+          } catch {
+            // Secrets table not ready — fall through to env status
           }
-        } catch {
-          // Secrets table not ready — fall through to env status
-        }
-        // Surface a recent OAuth callback failure so the parent's polling
-        // stops with a clear message instead of timing out at 5min. The
-        // callback handler writes a `builder-connect-error:<email>` row
-        // when `writeBuilderCredentials` throws; this read self-clears so
-        // the message only fires once.
-        try {
-          if (userEmail) {
-            const errKey = `builder-connect-error:${userEmail}`;
-            const errRow = await getSetting(errKey);
-            if (errRow && typeof errRow.message === "string") {
-              await deleteSetting(errKey).catch(() => {});
+          // Surface a recent OAuth callback failure so the parent's polling
+          // stops with a clear message instead of timing out at 5min. The
+          // callback handler writes a `builder-connect-error:<email>` row
+          // when `writeBuilderCredentials` throws; this read self-clears so
+          // the message only fires once.
+          try {
+            if (userEmail) {
+              const errKey = `builder-connect-error:${userEmail}`;
+              const errRow = await getSetting(errKey);
+              if (errRow && typeof errRow.message === "string") {
+                await deleteSetting(errKey).catch(() => {});
+                return {
+                  ...envStatus,
+                  configured: false,
+                  privateKeyConfigured: false,
+                  publicKeyConfigured: false,
+                  userId: undefined,
+                  orgName: undefined,
+                  orgKind: undefined,
+                  connectError: {
+                    message: errRow.message as string,
+                    at:
+                      typeof errRow.at === "number"
+                        ? (errRow.at as number)
+                        : Date.now(),
+                  },
+                };
+              }
+            }
+          } catch {
+            // settings store unavailable — fall through to legacy/env status
+          }
+          // Honor legacy disconnect flag for existing deployments.
+          try {
+            const disconnected = await getSetting("builder-disconnected");
+            if (disconnected) {
               return {
                 ...envStatus,
                 configured: false,
-                connectError: {
-                  message: errRow.message as string,
-                  at:
-                    typeof errRow.at === "number"
-                      ? (errRow.at as number)
-                      : Date.now(),
-                },
+                privateKeyConfigured: false,
+                publicKeyConfigured: false,
+                userId: undefined,
+                orgName: undefined,
+                orgKind: undefined,
               };
             }
+          } catch {
+            // DB not reachable — fall back to env-only status.
           }
-        } catch {
-          // settings store unavailable — fall through to legacy/env status
-        }
-        // Honor legacy disconnect flag for existing deployments.
-        try {
-          const disconnected = await getSetting("builder-disconnected");
-          if (disconnected) {
+          // For authenticated non-local users who have no per-user credentials,
+          // explicitly return not-configured rather than deploy-level env keys.
+          // This is consistent with resolveBuilderCredential()'s design which
+          // refuses the env fallback for authenticated users to prevent
+          // cross-tenant credential leakage in shared-DB deployments.
+          if (userEmail && userEmail !== "local@localhost") {
             return {
               ...envStatus,
               configured: false,
@@ -381,26 +407,8 @@ export function createCoreRoutesPlugin(
               orgKind: undefined,
             };
           }
-        } catch {
-          // DB not reachable — fall back to env-only status.
-        }
-        // Authenticated non-local users who have no personal Builder creds
-        // should not see deploy-level env credentials (configured, orgName,
-        // userId). Exposing those would leak one tenant's credentials to
-        // another — consistent with the multi-tenant safeguard in
-        // credential-provider.ts that refuses env fallback for such users.
-        if (userEmail && userEmail !== DEV_MODE_USER_EMAIL) {
-          return {
-            ...envStatus,
-            configured: false,
-            privateKeyConfigured: false,
-            publicKeyConfigured: false,
-            userId: undefined,
-            orgName: undefined,
-            orgKind: undefined,
-          };
-        }
-        return envStatus;
+          return envStatus;
+        });
       }),
     );
 

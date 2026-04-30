@@ -1,7 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  resolveAccess,
+  ForbiddenError,
+} from "@agent-native/core/sharing";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -31,15 +35,16 @@ export default defineAction({
     const db = getDb();
     const dataStr = args.data || "{}";
 
-    // Check if this composition already exists to decide insert vs update
-    const existing = await db
-      .select()
-      .from(schema.compositions)
-      .where(eq(schema.compositions.id, args.id))
-      .limit(1);
+    // Resolve the caller's access to this composition id (if any). This is
+    // scoped — it returns null when the row doesn't exist OR when it exists
+    // but the caller has no access. Treating "no access" the same as
+    // "doesn't exist" prevents cross-tenant existence probing AND prevents
+    // a malicious caller from forcing a write path against someone else's
+    // composition by passing their id.
+    const access = await resolveAccess("composition", args.id);
 
-    if (existing.length > 0) {
-      // Updating — require editor access
+    if (access) {
+      // Updating — require editor access (assertAccess re-checks role)
       await assertAccess("composition", args.id, "editor");
 
       await db
@@ -55,16 +60,24 @@ export default defineAction({
       // Creating — set owner/org from request context
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) throw new Error("no authenticated user");
-      await db.insert(schema.compositions).values({
-        id: args.id,
-        title: args.title,
-        type: args.type,
-        data: dataStr,
-        createdAt: now,
-        updatedAt: now,
-        ownerEmail,
-        orgId: getRequestOrgId(),
-      });
+      try {
+        await db.insert(schema.compositions).values({
+          id: args.id,
+          title: args.title,
+          type: args.type,
+          data: dataStr,
+          createdAt: now,
+          updatedAt: now,
+          ownerEmail,
+          orgId: getRequestOrgId(),
+        });
+      } catch (err) {
+        // PK conflict means the id is taken by another tenant we couldn't
+        // see via resolveAccess. Reject rather than overwrite their row.
+        throw new ForbiddenError(
+          `Composition ${args.id} already exists and is not accessible to you`,
+        );
+      }
     }
 
     // Sync to collab layer for live editing
