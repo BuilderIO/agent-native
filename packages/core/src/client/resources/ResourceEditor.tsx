@@ -11,6 +11,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { Markdown } from "tiptap-markdown";
 import { cn } from "../utils.js";
+import { agentNativePath } from "../api-path.js";
 import type { Resource } from "./use-resources.js";
 import {
   type ParsedFrontmatter,

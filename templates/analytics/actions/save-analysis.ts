@@ -52,10 +52,7 @@ export default defineAction({
           "These instructions are sent verbatim to the agent on re-run.",
       ),
     dataSources: z
-      .preprocess(
-        (v) => parseJsonArg(v, "dataSources"),
-        z.array(z.string()),
-      )
+      .preprocess((v) => parseJsonArg(v, "dataSources"), z.array(z.string()))
       .describe(
         "List of data sources used (e.g. ['bigquery', 'hubspot', 'gong', 'slack'])",
       ),

@@ -16,7 +16,10 @@ export async function loader({ params }: LoaderFunctionArgs) {
     })
     .from(schema.documents)
     .where(
-      and(eq(schema.documents.id, id), eq(schema.documents.visibility, "public")),
+      and(
+        eq(schema.documents.id, id),
+        eq(schema.documents.visibility, "public"),
+      ),
     )
     .limit(1);
 
@@ -69,7 +72,10 @@ function renderMarkdownBlocks(content: string) {
       );
     }
     return (
-      <p key={index} className="mt-4 whitespace-pre-wrap text-base leading-7 text-zinc-700">
+      <p
+        key={index}
+        className="mt-4 whitespace-pre-wrap text-base leading-7 text-zinc-700"
+      >
         {trimmed}
       </p>
     );
