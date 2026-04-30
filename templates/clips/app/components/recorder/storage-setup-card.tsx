@@ -6,6 +6,7 @@ import {
   IconLoader2,
   IconServer,
 } from "@tabler/icons-react";
+import { agentNativePath } from "@agent-native/core/client";
 
 function BuilderBMark({ className }: { className?: string }) {
   return (
@@ -55,7 +56,10 @@ export function StorageSetupCard({ onConfigured }: StorageSetupCardProps) {
     setErr(null);
 
     window.open(
-      `${window.location.origin}/_agent-native/builder/connect`,
+      new URL(
+        agentNativePath("/_agent-native/builder/connect"),
+        window.location.origin,
+      ).toString(),
       "_blank",
       "noopener,noreferrer",
     );
@@ -71,7 +75,10 @@ export function StorageSetupCard({ onConfigured }: StorageSetupCardProps) {
     pollRef.current = setInterval(async () => {
       try {
         const r = await fetch(
-          `${window.location.origin}/_agent-native/builder/status`,
+          new URL(
+            agentNativePath("/_agent-native/builder/status"),
+            window.location.origin,
+          ).toString(),
         );
         if (!r.ok) return;
         const s = (await r.json()) as { configured: boolean };
