@@ -786,9 +786,7 @@ export function useDecks() {
  * there was no save signal).
  */
 export function useSaveState(): { saving: boolean } {
-  return useSyncExternalStore(
-    subscribeSaveState,
-    getSaveSnapshot,
-    () => ({ saving: false }),
-  );
+  return useSyncExternalStore(subscribeSaveState, getSaveSnapshot, () => ({
+    saving: false,
+  }));
 }

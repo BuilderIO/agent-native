@@ -112,8 +112,8 @@ describe("redactSecrets", () => {
   it("redacts URL-encoded forms of the secret too", () => {
     const secret = "abc def";
     const secrets = collectSecretValues([secret]);
-    expect(redactString(`https://x/?q=${encodeURIComponent(secret)}`, secrets)).toContain(
-      "[redacted]",
-    );
+    expect(
+      redactString(`https://x/?q=${encodeURIComponent(secret)}`, secrets),
+    ).toContain("[redacted]");
   });
 });

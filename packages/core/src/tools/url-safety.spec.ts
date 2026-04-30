@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  isBlockedToolUrl,
-  isBlockedToolUrlWithDns,
-} from "./url-safety.js";
+import { isBlockedToolUrl, isBlockedToolUrlWithDns } from "./url-safety.js";
 
 describe("isBlockedToolUrl", () => {
   it.each([
@@ -57,9 +54,9 @@ describe("isBlockedToolUrlWithDns (DNS rebinding guard)", () => {
     }));
     vi.resetModules();
     const mod = await import("./url-safety.js");
-    expect(
-      await mod.isBlockedToolUrlWithDns("https://example.com/"),
-    ).toBe(true);
+    expect(await mod.isBlockedToolUrlWithDns("https://example.com/")).toBe(
+      true,
+    );
     vi.doUnmock("node:dns/promises");
     vi.resetModules();
   });
@@ -70,9 +67,9 @@ describe("isBlockedToolUrlWithDns (DNS rebinding guard)", () => {
     }));
     vi.resetModules();
     const mod = await import("./url-safety.js");
-    expect(
-      await mod.isBlockedToolUrlWithDns("https://example.com/"),
-    ).toBe(false);
+    expect(await mod.isBlockedToolUrlWithDns("https://example.com/")).toBe(
+      false,
+    );
     vi.doUnmock("node:dns/promises");
     vi.resetModules();
   });

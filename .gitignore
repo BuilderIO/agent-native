@@ -57,6 +57,9 @@ templates/*/.vercel
 test-starter/
 test-*-workspace/
 
+# Slides export artifacts (generated PDFs/HTML/PPTX exports)
+templates/slides/data/exports/
+
 # Wrangler local state
 .wrangler
 
