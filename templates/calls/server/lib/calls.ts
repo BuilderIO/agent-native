@@ -184,11 +184,18 @@ export function colorForSpeaker(label: string): string {
 
 /**
  * Fetch a single call row, throwing if not found.
+ *
+ * Access control is the caller's responsibility — every caller in this
+ * template (set-thumbnail, tag-call, update-call, request-transcript) runs
+ * `assertAccess("call", id, "editor")` immediately before invoking this
+ * helper. We don't re-assert here so the helper stays usable from contexts
+ * (background jobs, finalize-call) that have already established access.
  */
 export async function getCallOrThrow(
   id: string,
 ): Promise<typeof schema.calls.$inferSelect> {
   const db = getDb();
+  // guard:allow-unscoped — caller must assertAccess("call", id, ...) first; helper for already-authorized lookups
   const [row] = await db
     .select()
     .from(schema.calls)

@@ -127,6 +127,95 @@ function pickMimeType(): string {
   return "audio/webm";
 }
 
+// Pick the built-in MacBook microphone over any Bluetooth / external input.
+// Bluetooth headsets force macOS into a tighter audio-session mode that
+// pauses + glitches whatever's playing the moment we open getUserMedia,
+// and we don't get the dictation experience right unless we sidestep that
+// by always pinning to the built-in mic.
+async function pickBuiltInMicId(): Promise<string | null> {
+  try {
+    if (!navigator.mediaDevices?.enumerateDevices) return null;
+    // Device labels are only populated AFTER permission has been granted
+    // at least once. Caller falls back to default when label is empty.
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devices.filter((d) => d.kind === "audioinput");
+    const isBuiltIn = (label: string) => {
+      const l = label.toLowerCase();
+      return (
+        l.includes("macbook") ||
+        l.includes("built-in") ||
+        l.includes("built in") ||
+        l.includes("internal microphone")
+      );
+    };
+    const builtIn = inputs.find((d) => isBuiltIn(d.label));
+    if (builtIn) return builtIn.deviceId;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Warm-up audio stream — opened once at install time and kept alive for the
+// life of the popover webview so subsequent dictation presses don't pay
+// the getUserMedia/audio-session-switch cost (which is what was cutting
+// off the first ~300ms of speech and pausing/glitching playing audio).
+let warmStream: MediaStream | null = null;
+let warmStreamDeviceId: string | null = null;
+let warmStreamPromise: Promise<MediaStream | null> | null = null;
+
+async function prewarmMicStream(): Promise<MediaStream | null> {
+  if (
+    warmStream &&
+    warmStream.getAudioTracks().some((t) => t.readyState === "live")
+  ) {
+    return warmStream;
+  }
+  if (warmStreamPromise) return warmStreamPromise;
+  warmStreamPromise = (async () => {
+    if (!navigator.mediaDevices?.getUserMedia) return null;
+    try {
+      const builtInId = await pickBuiltInMicId();
+      const constraints: MediaStreamConstraints = builtInId
+        ? { audio: { deviceId: { exact: builtInId } } }
+        : { audio: true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      // If we couldn't get the built-in mic by label (no permission yet),
+      // re-enumerate now that the OS prompt has resolved and switch the
+      // track to built-in if a different device leaked through.
+      if (!builtInId) {
+        const id = await pickBuiltInMicId();
+        if (id) {
+          const track = stream.getAudioTracks()[0];
+          if (track && track.getSettings().deviceId !== id) {
+            try {
+              await track.applyConstraints({ deviceId: { exact: id } });
+            } catch {
+              // applyConstraints may not switch hardware; keep current track.
+            }
+          }
+          warmStreamDeviceId = id;
+        }
+      } else {
+        warmStreamDeviceId = builtInId;
+      }
+      // Disable the track until a session actually wants it. With the
+      // track disabled the mic indicator goes off, no audio is captured,
+      // but the audio session stays open — flipping `enabled = true`
+      // resumes capture instantly with no system audio glitch.
+      stream.getAudioTracks().forEach((t) => (t.enabled = false));
+      warmStream = stream;
+      return stream;
+    } catch (err) {
+      console.warn("[voice-dictation] prewarm getUserMedia failed:", err);
+      return null;
+    } finally {
+      warmStreamPromise = null;
+    }
+  })();
+  return warmStreamPromise;
+}
+
 function setFlowState(state: FlowState): void {
   emit("voice:state-change", { state }).catch(() => {});
 }
@@ -144,6 +233,13 @@ function stopMeter(session: VoiceSession): void {
 
 function stopTracks(session: VoiceSession): void {
   if (!session.stream) return;
+  // If this session is using the warm pre-opened stream, don't actually
+  // stop the tracks — just disable them so the audio session stays open
+  // and the next press is instant.
+  if (session.stream === warmStream) {
+    session.stream.getAudioTracks().forEach((t) => (t.enabled = false));
+    return;
+  }
   session.stream.getTracks().forEach((track) => {
     try {
       track.stop();
@@ -222,7 +318,11 @@ async function transcribe(
   // server default (Gemini → Builder → Groq → OpenAI fallback chain),
   // anything else pins to that one provider with no fallback.
   form.append("provider", providerPref);
-  const timeout = window.setTimeout(() => controller.abort(), 45_000);
+  // Aggressive timeout — short clips should transcribe in well under
+  // 2 seconds with Gemini Flash Lite or Whisper. If the server hasn't
+  // come back in 8s it's hanging; abort and let the bar dismiss with an
+  // error rather than leaving "Polishing..." up for 45 seconds.
+  const timeout = window.setTimeout(() => controller.abort(), 8_000);
   try {
     const res = await fetch(
       `${serverUrl.replace(/\/+$/, "")}/_agent-native/transcribe-voice`,
@@ -339,8 +439,14 @@ export function installDesktopVoiceDictation(
       return { kind: "server", providerPref: provider };
     }
     const status = await refreshProviderStatus();
+    // Auto: prefer the BYOK transcription providers (user explicitly
+    // pasted these keys for transcription). NOTE: we deliberately DO NOT
+    // auto-route to Builder here even though BUILDER_PRIVATE_KEY may be
+    // set — that key is framework-wide (CMS / agent runtime) and isn't
+    // a user opt-in for voice. Pick browser when no transcription-
+    // specific key is configured; users who want Builder for voice can
+    // pick it explicitly in Settings → Voice transcription.
     if (status.gemini) return { kind: "server", providerPref: "gemini" };
-    if (status.builder) return { kind: "server", providerPref: "builder" };
     if (status.groq) return { kind: "server", providerPref: "groq" };
     if (status.openai) return { kind: "server", providerPref: "openai" };
     return { kind: "browser" };
@@ -414,17 +520,34 @@ export function installDesktopVoiceDictation(
     try {
       startInFlight = true;
       stopRequestedBeforeReady = false;
-      await invoke("show_flow_bar");
-      setFlowState("recording");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Reuse the pre-warmed mic stream so we skip the getUserMedia +
+      // audio-session-switch latency that was eating the first ~300ms of
+      // every press (and pausing whatever music was playing). Fall back
+      // to a fresh stream if the warm one isn't ready yet.
+      let stream = await prewarmMicStream();
+      let usingWarmStream = !!stream;
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } else {
+        // Flip the muted track back on so MediaRecorder actually captures.
+        stream.getAudioTracks().forEach((t) => (t.enabled = true));
+      }
       if (disposed || stopRequestedBeforeReady) {
-        stream.getTracks().forEach((track) => track.stop());
+        if (usingWarmStream) {
+          stream.getAudioTracks().forEach((t) => (t.enabled = false));
+        } else {
+          stream.getTracks().forEach((track) => track.stop());
+        }
         startInFlight = false;
         stopRequestedBeforeReady = false;
         setFlowState("idle");
         invoke("hide_flow_bar").catch(() => {});
         return;
       }
+      // Show the bar AFTER the recorder is actually capturing so the user
+      // never sees the bar before the mic is live.
+      await invoke("show_flow_bar");
+      setFlowState("recording");
       const mimeType = pickMimeType();
       const recorder = new MediaRecorder(stream, { mimeType });
       const next: VoiceSession = {
@@ -482,10 +605,9 @@ export function installDesktopVoiceDictation(
               "[voice-dictation] transcribe returned empty text — nothing to paste",
             );
           }
-          setFlowState("complete");
-          window.setTimeout(() => {
-            if (!disposed) cleanup(next);
-          }, 550);
+          // Dismiss the bar immediately — no "Polishing..." lag after the
+          // text already landed in the focused field.
+          if (!disposed) cleanup(next);
         } catch (err) {
           if (
             next.cancelled ||
@@ -738,6 +860,14 @@ export function installDesktopVoiceDictation(
     .then((u) => unlistens.push(u))
     .catch(() => {});
 
+  // Pre-warm the built-in mic stream so the first dictation press is
+  // instant. Fires once per webview lifetime — safe to ignore if the user
+  // hasn't granted permission yet (we'll fall back to a fresh getUserMedia
+  // on the first press, which prompts as before).
+  if (enabled) {
+    void prewarmMicStream();
+  }
+
   return () => {
     disposed = true;
     enabled = false;
@@ -754,5 +884,18 @@ export function installDesktopVoiceDictation(
     });
     unlistens.length = 0;
     cleanup(session);
+    // Tear down the warm stream when the dictation feature is disposed
+    // (settings off, app quitting). The next install() will rewarm.
+    if (warmStream) {
+      warmStream.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch {
+          // ignore
+        }
+      });
+      warmStream = null;
+      warmStreamDeviceId = null;
+    }
   };
 }
