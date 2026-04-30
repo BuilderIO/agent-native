@@ -315,7 +315,11 @@ async function transcribe(
   // server default (Gemini → Builder → Groq → OpenAI fallback chain),
   // anything else pins to that one provider with no fallback.
   form.append("provider", providerPref);
-  const timeout = window.setTimeout(() => controller.abort(), 45_000);
+  // Aggressive timeout — short clips should transcribe in well under
+  // 2 seconds with Gemini Flash Lite or Whisper. If the server hasn't
+  // come back in 8s it's hanging; abort and let the bar dismiss with an
+  // error rather than leaving "Polishing..." up for 45 seconds.
+  const timeout = window.setTimeout(() => controller.abort(), 8_000);
   try {
     const res = await fetch(
       `${serverUrl.replace(/\/+$/, "")}/_agent-native/transcribe-voice`,
