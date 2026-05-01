@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import type { Booking } from "@shared/api";
+import { cn } from "@/lib/utils";
 
 type Step = "duration" | "date" | "time" | "info" | "confirmed";
 
@@ -136,6 +137,28 @@ export default function BookingPage() {
     setConfirmedBooking(null);
   }
 
+  function handleStepNavigation(target: Step) {
+    if (target === step) return;
+
+    if (target === "duration") {
+      setSelectedDate(null);
+      setSelectedSlot(null);
+      setStep("duration");
+      return;
+    }
+
+    if (target === "date") {
+      setSelectedSlot(null);
+      setStep("date");
+      return;
+    }
+
+    if (target === "time" && selectedDate) {
+      setSelectedSlot(null);
+      setStep("time");
+    }
+  }
+
   const title = settings?.bookingPageTitle || "Book a Meeting";
   const description =
     settings?.bookingPageDescription || "Pick a time that works for you.";
@@ -196,26 +219,58 @@ export default function BookingPage() {
               const steps = hasDurationChoice
                 ? (["duration", "date", "time", "info"] as const)
                 : (["date", "time", "info"] as const);
+              const currentStepIndex = (steps as readonly string[]).indexOf(
+                step,
+              );
+              const stepLabels: Record<Step, string> = {
+                duration: "duration selection",
+                date: "date selection",
+                time: "time selection",
+                info: "your information",
+                confirmed: "confirmation",
+              };
               return (
                 <div className="mb-6 flex items-center justify-center gap-2">
-                  {steps.map((s, i) => (
-                    <div key={s} className="flex items-center gap-2">
-                      <div
-                        className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium ${
-                          step === s
-                            ? "bg-primary text-primary-foreground"
-                            : (steps as readonly string[]).indexOf(step) > i
-                              ? "bg-primary/20 text-primary"
-                              : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {i + 1}
+                  {steps.map((s, i) => {
+                    const isCurrent = step === s;
+                    const isPrevious = currentStepIndex > i;
+                    const isReachable =
+                      !isCurrent &&
+                      (isPrevious ||
+                        (s === "date" && !!selectedDuration) ||
+                        (s === "time" && !!selectedDate) ||
+                        (s === "info" && !!selectedSlot));
+                    const circleClass = cn(
+                      "flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors",
+                      isCurrent
+                        ? "bg-primary text-primary-foreground"
+                        : isPrevious
+                          ? "bg-primary/20 text-primary"
+                          : "bg-muted text-muted-foreground",
+                      isReachable &&
+                        "cursor-pointer hover:bg-primary/30 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                    );
+
+                    return (
+                      <div key={s} className="flex items-center gap-2">
+                        {isReachable ? (
+                          <button
+                            type="button"
+                            onClick={() => handleStepNavigation(s)}
+                            className={circleClass}
+                            aria-label={`Go to ${stepLabels[s]}`}
+                          >
+                            {i + 1}
+                          </button>
+                        ) : (
+                          <div className={circleClass}>{i + 1}</div>
+                        )}
+                        {i < steps.length - 1 && (
+                          <div className="h-px w-8 bg-border" />
+                        )}
                       </div>
-                      {i < steps.length - 1 && (
-                        <div className="h-px w-8 bg-border" />
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               );
             })()}
