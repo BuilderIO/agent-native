@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/server";
 import { readAppState } from "@agent-native/core/application-state";
 import { getDashboard } from "../server/lib/dashboards-store";
+import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
 
 export default defineAction({
   description:
@@ -64,6 +65,23 @@ export default defineAction({
       screen.page = "query";
     } else if (nav?.view === "data-sources") {
       screen.page = "data-sources";
+      const email = getRequestUserEmail();
+      if (email) {
+        const keys = await listAnalyticsPublicKeys({
+          userEmail: email,
+          orgId: getRequestOrgId() || null,
+        });
+        screen.firstPartyAnalytics = {
+          activeKeys: keys.filter((key: any) => !key.revokedAt).length,
+          keys: keys.map((key: any) => ({
+            id: key.id,
+            name: key.name,
+            publicKeyPrefix: key.publicKeyPrefix,
+            revokedAt: key.revokedAt,
+            lastUsedAt: key.lastUsedAt,
+          })),
+        };
+      }
     } else if (nav?.view === "settings") {
       screen.page = "settings";
     }

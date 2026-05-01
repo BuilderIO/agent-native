@@ -82,3 +82,46 @@ export const bigqueryCache = table("bigquery_cache", {
   createdAt: text("created_at").notNull(),
   expiresAt: text("expires_at").notNull(),
 });
+
+/**
+ * Public write keys for the first-party analytics ingestion endpoint.
+ * The key is intentionally public/write-only: it can create events for the
+ * owning user/org but grants no read or admin access.
+ */
+export const analyticsPublicKeys = table("analytics_public_keys", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  publicKey: text("public_key").notNull(),
+  publicKeyPrefix: text("public_key_prefix").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  lastUsedAt: text("last_used_at"),
+  revokedAt: text("revoked_at"),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+});
+
+/**
+ * First-party product analytics events recorded via /track.
+ * Common dimensions are mirrored as columns so dashboards can group/filter
+ * without dialect-specific JSON operators.
+ */
+export const analyticsEvents = table("analytics_events", {
+  id: text("id").primaryKey(),
+  publicKeyId: text("public_key_id").notNull(),
+  eventName: text("event_name").notNull(),
+  userId: text("user_id"),
+  anonymousId: text("anonymous_id"),
+  sessionId: text("session_id"),
+  timestamp: text("timestamp").notNull(),
+  receivedAt: text("received_at").notNull().default(now()),
+  url: text("url"),
+  path: text("path"),
+  hostname: text("hostname"),
+  referrer: text("referrer"),
+  app: text("app"),
+  template: text("template"),
+  properties: text("properties").notNull().default("{}"),
+  context: text("context").notNull().default("{}"),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+});

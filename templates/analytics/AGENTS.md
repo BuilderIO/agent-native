@@ -144,6 +144,15 @@ Dashboard configs, explorer configs, and theme settings are stored in SQL via th
 
 Solo-mode dashboards/configs are user-scoped. Org dashboards/views are org-scoped. Legacy global rows still load as a fallback, and the Team-page upgrade flow can move those legacy rows onto the signed-in user during migration from local mode.
 
+First-party analytics events live in SQL tables managed by this template:
+
+| Table                   | Contents                                                            |
+| ----------------------- | ------------------------------------------------------------------- |
+| `analytics_public_keys` | Public write keys used by hosted apps to send events to `/track`    |
+| `analytics_events`      | Event rows recorded by `/track`, scoped to the key owner's user/org |
+
+Use the `first-party` dashboard source or `query-agent-native-analytics` action for these events. Do **not** use `db-query` for user analytics questions unless the user explicitly asks to inspect the app's internal tables.
+
 ### Sharing
 
 Dashboards and analyses are **private by default**. The framework's sharing primitive is wired up:
@@ -235,7 +244,9 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 5. Obey `knownGotchas` from any entry you use — note them to the user if the data has limitations.
 6. The dashboard save endpoint now dry-runs every panel's SQL through BigQuery before persisting. If a panel fails validation you'll get a 400 with the BigQuery error text (e.g. `Unrecognized name: is_closed; Did you mean hs_is_closed?`) — fix the SQL and retry; never try to persist broken SQL.
 
-**Panel `source` is a backend, not a table.** The `source` field on every panel must be exactly `"bigquery"`, `"app-db"`, `"ga4"`, or `"amplitude"` — it selects _which backend_ the query runs against. For `bigquery` / `app-db` the `sql` is literal SQL; for `ga4` the `sql` is a JSON descriptor of a GA4 Data API call (e.g. `{"metrics":["activeUsers"],"dimensions":["date"],"days":30}`); for `amplitude` the `sql` is a JSON descriptor of an Amplitude query. Table/dataset references (e.g. `dbt_intermediate.uf_pageviews`) go inside the `sql` string. Writing the table name into `source` produces `Invalid source` errors on every render.
+**Panel `source` is a backend, not a table.** The `source` field on every panel must be exactly `"bigquery"`, `"ga4"`, `"amplitude"`, or `"first-party"` — it selects _which backend_ the query runs against. For `bigquery` the `sql` is literal warehouse SQL; for `ga4` the `sql` is a JSON descriptor of a GA4 Data API call (e.g. `{"metrics":["activeUsers"],"dimensions":["date"],"days":30}`); for `amplitude` the `sql` is a JSON descriptor of an Amplitude query; for `first-party` the `sql` is read-only SQL over `analytics_events` only. Table/dataset references (e.g. `dbt_intermediate.uf_pageviews`) go inside the `sql` string. Writing the table name into `source` produces `Invalid source` errors on every render.
+
+**First-party analytics is a data source, not raw app DB access.** When the user asks about events collected by `analytics.agent-native.com/track`, use `query-agent-native-analytics` or a dashboard panel with `source: "first-party"`. Do not use `db-query`; that tool is for internal app tables and caused past confusion.
 
 **Populating the dictionary:** When the user has existing metric definitions elsewhere (team docs, Confluence, Notion, dbt descriptions, a Google Sheet, a wiki), fetch them with whatever tools you have — generic `WebFetch`, an MCP server the user has configured, a CSV import, or asking the user to paste — then upsert each via `save-data-dictionary-entry`. The dictionary itself is source-agnostic.
 
@@ -252,36 +263,40 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 
 ### Data Source Scripts
 
-| Action                    | Args / Flags                | Use For                                                                                                                     |
-| ------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `github-prs`              | `--org`, `--query`          | PR & issue search                                                                                                           |
-| `hubspot-deals`           |                             | CRM deals, pipelines                                                                                                        |
-| `hubspot-metrics`         |                             | CRM metrics summary                                                                                                         |
-| `hubspot-pipelines`       |                             | Pipeline stages                                                                                                             |
-| `jira-search`             | `--jql`, `--fields`         | Ticket search                                                                                                               |
-| `jira-analytics`          |                             | Sprint tracking, velocity                                                                                                   |
-| `pylon-issues`            | `--account`, `--state`      | Support tickets                                                                                                             |
-| `gong-calls`              | `--company`, `--days`       | Sales call recordings                                                                                                       |
-| `apollo-search`           | `--query`                   | Contact/company enrichment                                                                                                  |
-| `seo-top-keywords`        | `--limit`                   | Keyword rankings                                                                                                            |
-| `seo-page-keywords`       | `--url`                     | Keywords for a specific page                                                                                                |
-| `seo-blog-pages`          |                             | Blog page SEO metrics                                                                                                       |
-| `ga4-report`              | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                    |
-| `bigquery`                | `--sql`                     | Ad-hoc BigQuery queries (**also available as a native callable agent tool** — call it directly; don't use HTTP workarounds) |
-| `mixpanel-events`         |                             | Mixpanel event data                                                                                                         |
-| `posthog-events`          |                             | PostHog event data                                                                                                          |
-| `amplitude-events`        |                             | Amplitude event data                                                                                                        |
-| `commonroom-members`      | `--query`, `--email`        | Community member lookup                                                                                                     |
-| `twitter-tweets`          |                             | Tweet engagement                                                                                                            |
-| `generate-chart`          | `--type`, `--data`          | Generate inline charts for chat                                                                                             |
-| `top-amplitude-events`    | `[--days N]`                | Top 20 Amplitude events by count from BigQuery (default 90 days)                                                            |
-| `bigquery-table-info`     |                             | Return embedded BigQuery table schema reference (no network call)                                                           |
-| `content-calendar`        |                             | Get all entries from the Notion content calendar                                                                            |
-| `content-calendar-schema` |                             | Return content calendar field schema                                                                                        |
-| `check-form-schema`       |                             | Show the inbound forms table schema in the app database                                                                     |
-| `query-inbound-forms`     | `[--limit N]`               | Query inbound form submissions from the app database                                                                        |
-| `check-contact-signup`    |                             | Check contacts with signup timestamps from BigQuery dim_hs_contacts                                                         |
-| `onboarding-events`       | `[--days N]`                | Onboarding funnel events from BigQuery                                                                                      |
+| Action                         | Args / Flags                | Use For                                                                                                                     |
+| ------------------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `github-prs`                   | `--org`, `--query`          | PR & issue search                                                                                                           |
+| `hubspot-deals`                |                             | CRM deals, pipelines                                                                                                        |
+| `hubspot-metrics`              |                             | CRM metrics summary                                                                                                         |
+| `hubspot-pipelines`            |                             | Pipeline stages                                                                                                             |
+| `jira-search`                  | `--jql`, `--fields`         | Ticket search                                                                                                               |
+| `jira-analytics`               |                             | Sprint tracking, velocity                                                                                                   |
+| `pylon-issues`                 | `--account`, `--state`      | Support tickets                                                                                                             |
+| `gong-calls`                   | `--company`, `--days`       | Sales call recordings                                                                                                       |
+| `apollo-search`                | `--query`                   | Contact/company enrichment                                                                                                  |
+| `seo-top-keywords`             | `--limit`                   | Keyword rankings                                                                                                            |
+| `seo-page-keywords`            | `--url`                     | Keywords for a specific page                                                                                                |
+| `seo-blog-pages`               |                             | Blog page SEO metrics                                                                                                       |
+| `ga4-report`                   | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                    |
+| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery queries (**also available as a native callable agent tool** — call it directly; don't use HTTP workarounds) |
+| `query-agent-native-analytics` | `--sql`                     | Query first-party `analytics_events` recorded via `/track` (use instead of `db-query` for this datasource)                  |
+| `create-analytics-public-key`  | `[--name <label>]`          | Generate a public write key for hosted apps to send events to `analytics.agent-native.com/track`                            |
+| `list-analytics-public-keys`   |                             | List active/revoked first-party analytics write keys                                                                        |
+| `revoke-analytics-public-key`  | `--id <keyId>`              | Revoke a first-party analytics write key                                                                                    |
+| `mixpanel-events`              |                             | Mixpanel event data                                                                                                         |
+| `posthog-events`               |                             | PostHog event data                                                                                                          |
+| `amplitude-events`             |                             | Amplitude event data                                                                                                        |
+| `commonroom-members`           | `--query`, `--email`        | Community member lookup                                                                                                     |
+| `twitter-tweets`               |                             | Tweet engagement                                                                                                            |
+| `generate-chart`               | `--type`, `--data`          | Generate inline charts for chat                                                                                             |
+| `top-amplitude-events`         | `[--days N]`                | Top 20 Amplitude events by count from BigQuery (default 90 days)                                                            |
+| `bigquery-table-info`          |                             | Return embedded BigQuery table schema reference (no network call)                                                           |
+| `content-calendar`             |                             | Get all entries from the Notion content calendar                                                                            |
+| `content-calendar-schema`      |                             | Return content calendar field schema                                                                                        |
+| `check-form-schema`            |                             | Show the inbound forms table schema in the app database                                                                     |
+| `query-inbound-forms`          | `[--limit N]`               | Query inbound form submissions from the app database                                                                        |
+| `check-contact-signup`         |                             | Check contacts with signup timestamps from BigQuery dim_hs_contacts                                                         |
+| `onboarding-events`            | `[--days N]`                | Onboarding funnel events from BigQuery                                                                                      |
 
 ### Action-Specific Filtering
 
@@ -330,7 +345,7 @@ Two ways to show charts inline in chat:
    ```
    ````
 
-   The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "app-db" | "ga4" | "amplitude"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (`1` or `2`). Optional `config` for axis keys, formatting, pivots.
+   The `SqlPanel` shape is the same one used by `update-dashboard` (see `app/pages/adhoc/sql-dashboard/types.ts`). Required fields: `id`, `title`, `sql`, `source` (`"bigquery" | "ga4" | "amplitude" | "first-party"`), `chartType` (`"line" | "area" | "bar" | "metric" | "table" | "pie"`), `width` (`1` or `2`). Optional `config` for axis keys, formatting, pivots.
 
    Keep the JSON compact — URLs are capped around 4KB. If the SQL is long, consider persisting it as a saved dashboard panel instead and linking to that dashboard.
 

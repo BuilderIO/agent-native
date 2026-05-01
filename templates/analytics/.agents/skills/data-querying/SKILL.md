@@ -16,6 +16,8 @@ The analytics app connects to multiple data sources. This skill covers general p
 3. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 4. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it
 
+For events recorded by the analytics template itself via `analytics.agent-native.com/track`, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. Do not use `db-query` for first-party analytics questions; `db-query` is only for internal app tables and will confuse data-source analysis.
+
 ## Built-in Filtering
 
 All scripts that use `output()` support universal flags:
@@ -78,6 +80,7 @@ export default async function main(args: string[]) {
 For complete answers, combine data from multiple sources:
 
 - **BigQuery** for analytics events, signups, pageviews
+- **First-party Analytics** (`query-agent-native-analytics`) for events collected through `/track`
 - **HubSpot** for CRM data — deals, contacts, revenue
 - **Jira** for engineering metrics — tickets, sprints
 - **GitHub** for code metrics — PRs, reviews

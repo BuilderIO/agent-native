@@ -103,6 +103,63 @@ export default runMigrations(
       version: 10,
       sql: `CREATE INDEX IF NOT EXISTS dashboard_views_dashboard_idx ON dashboard_views (dashboard_id)`,
     },
+    {
+      version: 11,
+      sql: `CREATE TABLE IF NOT EXISTS analytics_public_keys (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      public_key TEXT NOT NULL,
+      public_key_prefix TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_used_at TEXT,
+      revoked_at TEXT,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT
+    )`,
+    },
+    {
+      version: 12,
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_public_keys_key_idx ON analytics_public_keys (public_key)`,
+    },
+    {
+      version: 13,
+      sql: `CREATE INDEX IF NOT EXISTS analytics_public_keys_owner_idx ON analytics_public_keys (owner_email, org_id)`,
+    },
+    {
+      version: 14,
+      sql: `CREATE TABLE IF NOT EXISTS analytics_events (
+      id TEXT PRIMARY KEY,
+      public_key_id TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      user_id TEXT,
+      anonymous_id TEXT,
+      session_id TEXT,
+      timestamp TEXT NOT NULL,
+      received_at TEXT NOT NULL DEFAULT (datetime('now')),
+      url TEXT,
+      path TEXT,
+      hostname TEXT,
+      referrer TEXT,
+      app TEXT,
+      template TEXT,
+      properties TEXT NOT NULL DEFAULT '{}',
+      context TEXT NOT NULL DEFAULT '{}',
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT
+    )`,
+    },
+    {
+      version: 15,
+      sql: `CREATE INDEX IF NOT EXISTS analytics_events_scope_time_idx ON analytics_events (org_id, owner_email, timestamp)`,
+    },
+    {
+      version: 16,
+      sql: `CREATE INDEX IF NOT EXISTS analytics_events_event_time_idx ON analytics_events (event_name, timestamp)`,
+    },
+    {
+      version: 17,
+      sql: `CREATE INDEX IF NOT EXISTS analytics_events_key_idx ON analytics_events (public_key_id)`,
+    },
   ],
   { table: "analytics_migrations" },
 );

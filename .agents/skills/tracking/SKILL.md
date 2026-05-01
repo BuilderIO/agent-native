@@ -75,9 +75,12 @@ Set the env var and the provider auto-registers at startup. No SDK dependencies 
 | PostHog    | `POSTHOG_API_KEY` (required), `POSTHOG_HOST` (optional, defaults to `https://us.i.posthog.com`) |
 | Mixpanel   | `MIXPANEL_TOKEN`                                          |
 | Amplitude  | `AMPLITUDE_API_KEY`                                       |
+| Agent Native Analytics | `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` (server), `AGENT_NATIVE_ANALYTICS_ENDPOINT` (optional, defaults to `https://analytics.agent-native.com/track`) |
 | Webhook    | `TRACKING_WEBHOOK_URL` (required), `TRACKING_WEBHOOK_AUTH` (optional, sent as `Authorization` header) |
 
 Multiple providers can be active simultaneously. All receive every event.
+
+Browser-side `trackEvent()` also forwards to Agent Native Analytics when `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` is present. Use `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` to override the default browser endpoint.
 
 ## Provider Interface
 
@@ -109,7 +112,7 @@ interface TrackingEvent {
 | File                                           | Purpose                                     |
 | ---------------------------------------------- | ------------------------------------------- |
 | `packages/core/src/tracking/registry.ts`       | `track()`, `identify()`, `registerTrackingProvider()`, `flushTracking()` |
-| `packages/core/src/tracking/providers.ts`      | Built-in providers (PostHog, Mixpanel, Amplitude, Webhook) and `registerBuiltinProviders()` |
+| `packages/core/src/tracking/providers.ts`      | Built-in providers (PostHog, Mixpanel, Amplitude, Agent Native Analytics, Webhook) and `registerBuiltinProviders()` |
 | `packages/core/src/tracking/types.ts`          | `TrackingEvent` and `TrackingProvider` interfaces |
 
 ## Related Skills

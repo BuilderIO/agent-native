@@ -1,6 +1,6 @@
 {
   "name": "Agent Native Templates",
-  "description": "Template engagement from the docs site — clicks, demo tries, and CLI copies tracked via Amplitude",
+  "description": "Template engagement and per-app activity. Source: Amplitude.",
   "filters": [
     {
       "id": "days",
@@ -82,7 +82,7 @@
     },
     {
       "id": "demo-clicks-by-template",
-      "title": "Demo Clicks by Template",
+      "title": "Try-Demo Clicks by Template",
       "chartType": "bar",
       "source": "amplitude",
       "width": 1,
@@ -117,6 +117,47 @@
         "xKey": "date",
         "yKey": "count",
         "color": "#06b6d4"
+      }
+    },
+    {
+      "id": "sessions-by-app",
+      "title": "Sessions by Agent-Native App",
+      "chartType": "bar",
+      "source": "amplitude",
+      "width": 2,
+      "sql": "{\"event\":\"session status\",\"groupBy\":\"app\",\"days\":{{days}}}",
+      "config": {
+        "xKey": "app",
+        "yKey": "count",
+        "color": "#10b981",
+        "description": "Per-template-site session activity (mail, calendar, slides, ...). Each tab fires session status once."
+      }
+    },
+    {
+      "id": "signed-in-vs-anon",
+      "title": "Signed-In vs Anonymous Sessions",
+      "chartType": "bar",
+      "source": "amplitude",
+      "width": 1,
+      "sql": "{\"event\":\"session status\",\"groupBy\":\"signed_in\",\"days\":{{days}}}",
+      "config": {
+        "xKey": "signed_in",
+        "yKey": "count",
+        "color": "#f59e0b",
+        "description": "true = signed in, false = anonymous. Best proxy for total signups per period (still includes returning users)."
+      }
+    },
+    {
+      "id": "sessions-over-time",
+      "title": "Sessions Over Time",
+      "chartType": "area",
+      "source": "amplitude",
+      "width": 1,
+      "sql": "{\"event\":\"session status\",\"days\":{{days}}}",
+      "config": {
+        "xKey": "date",
+        "yKey": "count",
+        "color": "#10b981"
       }
     }
   ]

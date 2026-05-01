@@ -7,6 +7,7 @@
  * POSTHOG_API_KEY + POSTHOG_HOST  → PostHog
  * MIXPANEL_TOKEN                  → Mixpanel
  * AMPLITUDE_API_KEY               → Amplitude
+ * AGENT_NATIVE_ANALYTICS_PUBLIC_KEY → Agent Native Analytics
  *
  * Call `registerBuiltinProviders()` at server startup (done
  * automatically by the core-routes plugin).
@@ -16,6 +17,8 @@ import { registerTrackingProvider } from "./registry.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
 const POSTHOG_DEFAULT_HOST = "https://us.i.posthog.com";
+const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
+  "https://analytics.agent-native.com/track";
 const BATCH_INTERVAL_MS = 10_000;
 const MAX_BATCH_SIZE = 50;
 
@@ -235,6 +238,45 @@ function createWebhookProvider(
   };
 }
 
+// ─── Agent Native Analytics ───────────────────────────────────────────────
+
+function createAgentNativeAnalyticsProvider(
+  publicKey: string,
+  endpoint: string,
+): TrackingProvider {
+  return {
+    name: "agent-native-analytics",
+    track(event: TrackingEvent) {
+      enqueue(
+        endpoint,
+        JSON.stringify({
+          publicKey,
+          event: event.name,
+          properties: event.properties ?? {},
+          userId: event.userId,
+          timestamp: event.timestamp,
+        }),
+      );
+    },
+    identify(userId, traits) {
+      enqueue(
+        endpoint,
+        JSON.stringify({
+          publicKey,
+          event: "$identify",
+          userId,
+          properties: traits ?? {},
+          timestamp: new Date().toISOString(),
+        }),
+      );
+    },
+    flush: () => {
+      drainQueue();
+      return Promise.resolve();
+    },
+  };
+}
+
 // ─── Auto-registration ────────────────────────────────────────────────────
 
 let _registered = false;
@@ -260,6 +302,19 @@ export function registerBuiltinProviders(): void {
   const amplitudeKey = process.env.AMPLITUDE_API_KEY;
   if (amplitudeKey) {
     registerTrackingProvider(createAmplitudeProvider(amplitudeKey));
+  }
+
+  const agentNativeAnalyticsKey = process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+  if (agentNativeAnalyticsKey) {
+    registerTrackingProvider(
+      createAgentNativeAnalyticsProvider(
+        agentNativeAnalyticsKey,
+        (
+          process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT ||
+          AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
+        ).replace(/\/+$/, ""),
+      ),
+    );
   }
 
   const webhookUrl = process.env.TRACKING_WEBHOOK_URL;

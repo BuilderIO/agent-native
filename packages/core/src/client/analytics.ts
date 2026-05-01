@@ -16,6 +16,9 @@ let _getDefaultProps: GetDefaultProps | null = null;
 let _amplitudeInitialized = false;
 let _sentryInitialized = false;
 
+const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
+  "https://analytics.agent-native.com/track";
+
 function ensureAmplitude(): boolean {
   if (_amplitudeInitialized) return true;
   const key = (import.meta.env as Record<string, string | undefined>)
@@ -128,6 +131,44 @@ function resolveProps(
   return _getDefaultProps ? _getDefaultProps(name, base) : base;
 }
 
+function sendAgentNativeAnalytics(
+  name: string,
+  properties: Record<string, unknown>,
+): void {
+  const publicKey = (import.meta.env as Record<string, string | undefined>)
+    ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+  if (!publicKey) return;
+
+  const endpoint =
+    (import.meta.env as Record<string, string | undefined>)
+      ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
+    AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT;
+  const userId =
+    typeof properties.userId === "string" ? properties.userId : undefined;
+  const body = JSON.stringify({
+    publicKey,
+    event: name,
+    properties,
+    userId,
+    timestamp: new Date().toISOString(),
+  });
+
+  try {
+    if (navigator.sendBeacon) {
+      const sent = navigator.sendBeacon(endpoint, body);
+      if (sent) return;
+    }
+    fetch(endpoint, {
+      method: "POST",
+      body,
+      keepalive: true,
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+    }).catch(() => {});
+  } catch {
+    // best-effort
+  }
+}
+
 export function trackEvent(
   name: string,
   params?: Record<string, string | number | boolean>,
@@ -139,6 +180,7 @@ export function trackEvent(
   if (ensureAmplitude()) {
     amplitude.track(name, props);
   }
+  sendAgentNativeAnalytics(name, props);
 }
 
 export function trackSessionStatus(signedIn: boolean): void {
