@@ -7,6 +7,7 @@
  * POSTHOG_API_KEY + POSTHOG_HOST  → PostHog
  * MIXPANEL_TOKEN                  → Mixpanel
  * AMPLITUDE_API_KEY               → Amplitude
+ * AGENT_NATIVE_ANALYTICS_PUBLIC_KEY → Agent Native Analytics
  *
  * Call `registerBuiltinProviders()` at server startup (done
  * automatically by the core-routes plugin).
@@ -16,6 +17,8 @@ import { registerTrackingProvider } from "./registry.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
 const POSTHOG_DEFAULT_HOST = "https://us.i.posthog.com";
+const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
+  "https://analytics.agent-native.com/track";
 const BATCH_INTERVAL_MS = 10_000;
 const MAX_BATCH_SIZE = 50;
 
@@ -81,6 +84,43 @@ function drainQueue(): void {
       body: item.body,
     }).catch(() => {});
   }
+}
+
+function isLocalhostUrl(value: string | undefined): boolean {
+  if (!value || !value.trim()) return false;
+  const raw = value.trim();
+  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+    ? raw
+    : `https://${raw}`;
+  try {
+    const { hostname } = new URL(withProtocol);
+    const h = hostname.toLowerCase();
+    return (
+      h === "localhost" ||
+      h === "127.0.0.1" ||
+      h === "::1" ||
+      h === "[::1]" ||
+      h.endsWith(".localhost") ||
+      h.endsWith(".local")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function shouldSkipAgentNativeAnalyticsForLocalhost(): boolean {
+  if (process.env.AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST === "true") {
+    return false;
+  }
+  if (process.env.NODE_ENV === "development") return true;
+  return [
+    process.env.APP_URL,
+    process.env.BETTER_AUTH_URL,
+    process.env.URL,
+    process.env.DEPLOY_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    process.env.VERCEL_URL,
+  ].some(isLocalhostUrl);
 }
 
 // ─── PostHog ───────────────────────────────────────────────────────────────
@@ -235,6 +275,45 @@ function createWebhookProvider(
   };
 }
 
+// ─── Agent Native Analytics ───────────────────────────────────────────────
+
+function createAgentNativeAnalyticsProvider(
+  publicKey: string,
+  endpoint: string,
+): TrackingProvider {
+  return {
+    name: "agent-native-analytics",
+    track(event: TrackingEvent) {
+      enqueue(
+        endpoint,
+        JSON.stringify({
+          publicKey,
+          event: event.name,
+          properties: event.properties ?? {},
+          userId: event.userId,
+          timestamp: event.timestamp,
+        }),
+      );
+    },
+    identify(userId, traits) {
+      enqueue(
+        endpoint,
+        JSON.stringify({
+          publicKey,
+          event: "$identify",
+          userId,
+          properties: traits ?? {},
+          timestamp: new Date().toISOString(),
+        }),
+      );
+    },
+    flush: () => {
+      drainQueue();
+      return Promise.resolve();
+    },
+  };
+}
+
 // ─── Auto-registration ────────────────────────────────────────────────────
 
 let _registered = false;
@@ -260,6 +339,22 @@ export function registerBuiltinProviders(): void {
   const amplitudeKey = process.env.AMPLITUDE_API_KEY;
   if (amplitudeKey) {
     registerTrackingProvider(createAmplitudeProvider(amplitudeKey));
+  }
+
+  const agentNativeAnalyticsKey = process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+  if (
+    agentNativeAnalyticsKey &&
+    !shouldSkipAgentNativeAnalyticsForLocalhost()
+  ) {
+    registerTrackingProvider(
+      createAgentNativeAnalyticsProvider(
+        agentNativeAnalyticsKey,
+        (
+          process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT ||
+          AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
+        ).replace(/\/+$/, ""),
+      ),
+    );
   }
 
   const webhookUrl = process.env.TRACKING_WEBHOOK_URL;

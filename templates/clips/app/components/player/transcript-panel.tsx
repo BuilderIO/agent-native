@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { msToClock } from "./scrubber";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, getCallbackOrigin } from "@agent-native/core/client";
 
 export interface TranscriptSegment {
   startMs: number;
@@ -303,6 +303,7 @@ function TranscriptSetupCard({
     kind: "ok" | "err";
     text: string;
   } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -319,6 +320,7 @@ function TranscriptSetupCard({
     return () => {
       mountedRef.current = false;
       if (pollRef.current) clearInterval(pollRef.current);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
 
@@ -327,10 +329,11 @@ function TranscriptSetupCard({
     setConnecting(true);
     setConnectError(null);
 
+    const origin = getCallbackOrigin() || window.location.origin;
     window.open(
       new URL(
         agentNativePath("/_agent-native/builder/connect"),
-        window.location.origin,
+        origin,
       ).toString(),
       "_blank",
       "noopener,noreferrer",
@@ -380,11 +383,13 @@ function TranscriptSetupCard({
           body: JSON.stringify({ value: apiKey.trim() }),
         },
       );
+      if (!mountedRef.current) return;
       if (!res.ok) {
         const err = await res
           .json()
           .then((j: { error?: string }) => j.error)
           .catch(() => null);
+        if (!mountedRef.current) return;
         setSaveToast({
           kind: "err",
           text: err ?? `Save failed (${res.status})`,
@@ -394,9 +399,13 @@ function TranscriptSetupCard({
       setApiKey("");
       setSaveToast({ kind: "ok", text: "Saved. Retrying transcription…" });
       onRetry?.();
-      setTimeout(() => setSaveToast(null), 2500);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) setSaveToast(null);
+        toastTimerRef.current = null;
+      }, 2500);
     } finally {
-      setSaving(false);
+      if (mountedRef.current) setSaving(false);
     }
   }
 
@@ -484,91 +493,95 @@ function TranscriptSetupCard({
           )}
         </div>
 
-        {/* BYOK — secondary option, collapsed by default */}
-        {!builderConfigured && (
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowByok((v) => !v)}
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <IconKey className="h-3.5 w-3.5" />
-              {isProviderError
-                ? "Update your API key"
+        {/* BYOK — secondary option, collapsed by default. Shown even when
+            Builder is connected so users can fall back if Builder
+            transcription itself fails (quota / outage / unsupported audio
+            format) — the failure message tells them to add a key, so the
+            input must be reachable. */}
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowByok((v) => !v)}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <IconKey className="h-3.5 w-3.5" />
+            {isProviderError
+              ? "Update your API key"
+              : builderConfigured
+                ? "Add a fallback API key (Groq / OpenAI)"
                 : "Or use your own API key (Groq / OpenAI)"}
-              {showByok ? (
-                <IconChevronUp className="h-3 w-3" />
-              ) : (
-                <IconChevronDown className="h-3 w-3" />
-              )}
-            </button>
-
-            {showByok && (
-              <div className="mt-2 space-y-2 pl-1">
-                <p className="text-[11px] text-muted-foreground">
-                  Groq key starts with <code className="font-mono">gsk_</code>{" "}
-                  (fast, recommended) or OpenAI starts with{" "}
-                  <code className="font-mono">sk-</code>.
-                </p>
-                <div className="flex gap-1.5">
-                  <Input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") saveApiKey();
-                    }}
-                    placeholder="gsk_… or sk-…"
-                    className="h-8 text-xs"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={saveApiKey}
-                    disabled={!apiKey.trim() || saving}
-                  >
-                    {saving ? (
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      "Save"
-                    )}
-                  </Button>
-                </div>
-                <div className="flex items-center gap-3">
-                  <a
-                    href="https://console.groq.com/keys"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-                  >
-                    Get Groq key
-                    <IconExternalLink className="h-3 w-3" />
-                  </a>
-                  <a
-                    href="https://platform.openai.com/api-keys"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-                  >
-                    Get OpenAI key
-                    <IconExternalLink className="h-3 w-3" />
-                  </a>
-                </div>
-                {saveToast && (
-                  <p
-                    className={cn(
-                      "text-[11px]",
-                      saveToast.kind === "ok"
-                        ? "text-green-600"
-                        : "text-destructive",
-                    )}
-                  >
-                    {saveToast.text}
-                  </p>
-                )}
-              </div>
+            {showByok ? (
+              <IconChevronUp className="h-3 w-3" />
+            ) : (
+              <IconChevronDown className="h-3 w-3" />
             )}
-          </div>
-        )}
+          </button>
+
+          {showByok && (
+            <div className="mt-2 space-y-2 pl-1">
+              <p className="text-[11px] text-muted-foreground">
+                Groq key starts with <code className="font-mono">gsk_</code>{" "}
+                (fast, recommended) or OpenAI starts with{" "}
+                <code className="font-mono">sk-</code>.
+              </p>
+              <div className="flex gap-1.5">
+                <Input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveApiKey();
+                  }}
+                  placeholder="gsk_… or sk-…"
+                  className="h-8 text-xs"
+                />
+                <Button
+                  size="sm"
+                  onClick={saveApiKey}
+                  disabled={!apiKey.trim() || saving}
+                >
+                  {saving ? (
+                    <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    "Save"
+                  )}
+                </Button>
+              </div>
+              <div className="flex items-center gap-3">
+                <a
+                  href="https://console.groq.com/keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  Get Groq key
+                  <IconExternalLink className="h-3 w-3" />
+                </a>
+                <a
+                  href="https://platform.openai.com/api-keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  Get OpenAI key
+                  <IconExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+              {saveToast && (
+                <p
+                  className={cn(
+                    "text-[11px]",
+                    saveToast.kind === "ok"
+                      ? "text-green-600"
+                      : "text-destructive",
+                  )}
+                >
+                  {saveToast.text}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

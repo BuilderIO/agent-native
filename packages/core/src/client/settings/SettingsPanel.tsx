@@ -964,7 +964,9 @@ function EmailSectionInner({
   const [fromAddr, setFromAddr] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [showSendgrid, setShowSendgrid] = useState(false);
+  const [emailProvider, setEmailProvider] = useState<"resend" | "sendgrid">(
+    "resend",
+  );
   const [envLoaded, setEnvLoaded] = useState(false);
 
   useEffect(() => {
@@ -982,6 +984,12 @@ function EmailSectionInner({
   const fromConfigured =
     envKeys.find((k) => k.key === "EMAIL_FROM")?.configured ?? false;
   const anyConfigured = resendConfigured || sendgridConfigured;
+
+  useEffect(() => {
+    if (sendgridConfigured && !resendConfigured) {
+      setEmailProvider("sendgrid");
+    }
+  }, [resendConfigured, sendgridConfigured]);
 
   const save = async (vars: Array<{ key: string; value: string }>) => {
     setSaving(true);
@@ -1034,64 +1042,48 @@ function EmailSectionInner({
         <SettingsSkeleton lines={2} />
       ) : (
         <div className="space-y-2">
-          <ManualSetupCard
-            hint="Paste a Resend API key to start sending real emails."
-            docsUrl="https://resend.com/api-keys"
-            docsLabel="Get a Resend key"
-          >
-            {resendConfigured ? (
-              <div className="flex items-center gap-1.5 text-[10px] text-green-500 mb-1">
-                <IconCheck size={10} />
-                RESEND_API_KEY configured
-              </div>
-            ) : (
-              <div className="flex gap-1.5 mb-1">
-                <input
-                  type="password"
-                  value={resendKey}
-                  onChange={(e) => setResendKey(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveResend();
-                  }}
-                  placeholder="re_..."
-                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                />
-                <button
-                  onClick={saveResend}
-                  disabled={!resendKey.trim() || saving}
-                  className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
-                >
-                  {saving ? (
-                    <IconLoader2 size={10} className="animate-spin" />
-                  ) : saved ? (
-                    <IconCheck size={10} />
-                  ) : (
-                    "Save"
-                  )}
-                </button>
-              </div>
-            )}
-            {fromConfigured ? (
-              <div className="flex items-center gap-1.5 text-[10px] text-green-500">
-                <IconCheck size={10} />
-                EMAIL_FROM configured
-              </div>
-            ) : (
-              <div className="flex gap-1.5">
-                <input
-                  type="text"
-                  value={fromAddr}
-                  onChange={(e) => setFromAddr(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveResend();
-                  }}
-                  placeholder="From address — e.g. Acme <hi@acme.com>"
-                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                />
-                {!resendConfigured ? null : (
+          <label className="block space-y-1">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Provider
+            </span>
+            <select
+              value={emailProvider}
+              onChange={(e) =>
+                setEmailProvider(e.target.value as "resend" | "sendgrid")
+              }
+              className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none focus:ring-1 focus:ring-accent"
+            >
+              <option value="resend">Resend</option>
+              <option value="sendgrid">SendGrid</option>
+            </select>
+          </label>
+
+          {emailProvider === "resend" ? (
+            <ManualSetupCard
+              hint="Use Resend for transactional email."
+              docsUrl="https://resend.com/api-keys"
+              docsLabel="Get a Resend key"
+            >
+              {resendConfigured ? (
+                <div className="mb-1 flex items-center gap-1.5 text-[10px] text-green-500">
+                  <IconCheck size={10} />
+                  RESEND_API_KEY configured
+                </div>
+              ) : (
+                <div className="mb-1 flex gap-1.5">
+                  <input
+                    type="password"
+                    value={resendKey}
+                    onChange={(e) => setResendKey(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveResend();
+                    }}
+                    placeholder="re_..."
+                    className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  />
                   <button
                     onClick={saveResend}
-                    disabled={!fromAddr.trim() || saving}
+                    disabled={!resendKey.trim() || saving}
                     className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
                   >
                     {saving ? (
@@ -1102,32 +1094,56 @@ function EmailSectionInner({
                       "Save"
                     )}
                   </button>
-                )}
-              </div>
-            )}
-          </ManualSetupCard>
-
-          {!sendgridConfigured && !showSendgrid ? (
-            <button
-              type="button"
-              onClick={() => setShowSendgrid(true)}
-              className="text-[10px] text-muted-foreground hover:text-foreground"
-            >
-              Use SendGrid instead
-            </button>
+                </div>
+              )}
+              {fromConfigured ? (
+                <div className="flex items-center gap-1.5 text-[10px] text-green-500">
+                  <IconCheck size={10} />
+                  EMAIL_FROM configured
+                </div>
+              ) : (
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={fromAddr}
+                    onChange={(e) => setFromAddr(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveResend();
+                    }}
+                    placeholder="From address - e.g. Acme <hi@acme.com>"
+                    className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  />
+                  {!resendConfigured ? null : (
+                    <button
+                      onClick={saveResend}
+                      disabled={!fromAddr.trim() || saving}
+                      className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                    >
+                      {saving ? (
+                        <IconLoader2 size={10} className="animate-spin" />
+                      ) : saved ? (
+                        <IconCheck size={10} />
+                      ) : (
+                        "Save"
+                      )}
+                    </button>
+                  )}
+                </div>
+              )}
+            </ManualSetupCard>
           ) : (
             <ManualSetupCard
-              hint="SendGrid alternative — requires a verified sender address (set EMAIL_FROM above)."
+              hint="Use SendGrid for transactional email. SendGrid requires a verified from address."
               docsUrl="https://app.sendgrid.com/settings/api_keys"
               docsLabel="Get a SendGrid key"
             >
               {sendgridConfigured ? (
-                <div className="flex items-center gap-1.5 text-[10px] text-green-500">
+                <div className="mb-1 flex items-center gap-1.5 text-[10px] text-green-500">
                   <IconCheck size={10} />
                   SENDGRID_API_KEY configured
                 </div>
               ) : (
-                <div className="flex gap-1.5">
+                <div className="mb-1 flex gap-1.5">
                   <input
                     type="password"
                     value={sendgridKey}
@@ -1151,6 +1167,40 @@ function EmailSectionInner({
                       "Save"
                     )}
                   </button>
+                </div>
+              )}
+              {fromConfigured ? (
+                <div className="flex items-center gap-1.5 text-[10px] text-green-500">
+                  <IconCheck size={10} />
+                  EMAIL_FROM configured
+                </div>
+              ) : (
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={fromAddr}
+                    onChange={(e) => setFromAddr(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveSendgrid();
+                    }}
+                    placeholder="From address - e.g. Acme <hi@acme.com>"
+                    className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  />
+                  {!sendgridConfigured ? null : (
+                    <button
+                      onClick={saveSendgrid}
+                      disabled={!fromAddr.trim() || saving}
+                      className="rounded bg-accent px-2 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                    >
+                      {saving ? (
+                        <IconLoader2 size={10} className="animate-spin" />
+                      ) : saved ? (
+                        <IconCheck size={10} />
+                      ) : (
+                        "Save"
+                      )}
+                    </button>
+                  )}
                 </div>
               )}
             </ManualSetupCard>

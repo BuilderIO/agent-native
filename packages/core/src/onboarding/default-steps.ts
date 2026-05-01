@@ -27,27 +27,44 @@ const LLM_KEY_METHODS: LlmKeyMethod[] = [
   {
     provider: "anthropic",
     id: "anthropic-key",
-    label: "Use your Anthropic API key",
-    description: "Paste a key — stored locally in your .env file.",
+    label: "Anthropic",
+    description: "Claude models with your own Anthropic key.",
   },
   {
     provider: "openai",
     id: "openai-key",
-    label: "Use your OpenAI API key",
-    description: "GPT models via the ai-sdk:openai engine.",
+    label: "OpenAI",
+    description: "GPT models with your own OpenAI key.",
   },
   {
     provider: "google",
     id: "google-key",
-    label: "Use your Google Gemini API key",
-    description: "Gemini models via the ai-sdk:google engine.",
+    label: "Google Gemini",
+    description: "Gemini models with your own Google AI key.",
   },
   {
     provider: "openrouter",
     id: "openrouter-key",
-    label: "Use your OpenRouter API key",
-    description:
-      "One key, 300+ models via openrouter.ai — the ai-sdk:openrouter engine.",
+    label: "OpenRouter",
+    description: "OpenRouter models with your own OpenRouter key.",
+  },
+  {
+    provider: "groq",
+    id: "groq-key",
+    label: "Groq",
+    description: "Groq-hosted models with your own Groq key.",
+  },
+  {
+    provider: "mistral",
+    id: "mistral-key",
+    label: "Mistral",
+    description: "Mistral models with your own Mistral key.",
+  },
+  {
+    provider: "cohere",
+    id: "cohere-key",
+    label: "Cohere",
+    description: "Cohere models with your own Cohere key.",
   },
 ];
 
@@ -56,8 +73,19 @@ const llmStep: OnboardingStep = {
   order: 10,
   required: true,
   title: "Connect an AI engine",
-  description: "Agent-native needs an LLM to power the agent chat.",
+  description: "Use Builder's managed gateway, or bring your own provider key.",
   methods: [
+    {
+      id: "builder",
+      kind: "builder-cli-auth",
+      label: "Connect Builder",
+      description:
+        "One click, no API key needed. Builder routes Claude, GPT, Gemini, and more.",
+      primary: true,
+      payload: {
+        scope: "llm",
+      },
+    },
     ...LLM_KEY_METHODS.map(({ provider, id, label, description, primary }) => {
       const meta = PROVIDER_ENV_META[provider];
       return {
@@ -79,17 +107,6 @@ const llmStep: OnboardingStep = {
         },
       };
     }),
-    {
-      id: "builder",
-      kind: "builder-cli-auth",
-      label: "Connect Builder",
-      description:
-        "One click, no API key needed. Claude, GPT, Gemini, and more via Builder's managed gateway.",
-      primary: true,
-      payload: {
-        scope: "llm",
-      },
-    },
   ],
   isComplete: async () => {
     try {
@@ -108,64 +125,56 @@ const llmStep: OnboardingStep = {
   },
 };
 
-/** Step 2 — where application data lives. SQLite default means non-blocking. */
+/** Step 2 — where application data lives. The default DB is non-blocking. */
 const databaseStep: OnboardingStep = {
   id: "database",
   order: 20,
   required: false,
   title: "Database",
-  description: "Where your app data lives.",
+  description:
+    "Agent-native stores app data in SQL. Set DATABASE_URL when you want to point this app at a specific database.",
   methods: [
     {
-      id: "sqlite-default",
-      kind: "link",
-      label: "Use SQLite (default)",
-      description: "Zero setup, local dev only.",
-      primary: true,
-      payload: { url: "#" },
-    },
-    {
-      id: "postgres-url",
+      id: "database-url",
       kind: "form",
-      label: "Use Postgres / Neon",
-      description: "Paste a DATABASE_URL for any SQL-compatible provider.",
+      label: "Set DATABASE_URL",
+      description: "Paste the SQL connection string this app should use.",
       payload: {
         writeScope: "workspace",
         fields: [
           {
             key: "DATABASE_URL",
             label: "DATABASE_URL",
-            placeholder: "postgres://user:pass@host/db",
+            placeholder: "postgres://..., libsql://..., file:./data/app.db",
+          },
+          {
+            key: "DATABASE_AUTH_TOKEN",
+            label: "DATABASE_AUTH_TOKEN (if needed)",
+            placeholder: "Token for providers such as Turso/libSQL",
+            secret: true,
           },
         ],
       },
     },
   ],
-  // SQLite default means this step is always satisfied — never blocks setup.
+  // The default local database means this step is always satisfied.
   isComplete: () => true,
 };
 
-/** Step 3 — how users sign in. Dev-mode keeps solo local workflows easy. */
+/** Step 3 — how users sign in. Built-in account auth is non-blocking. */
 const authStep: OnboardingStep = {
   id: "auth",
   order: 30,
   required: false,
   title: "Authentication",
-  description: "How users sign in. Dev mode is fine for local work.",
+  description:
+    "Built-in email/password accounts work by default. Add OAuth or access tokens only if you want another sign-in path.",
   methods: [
     {
-      id: "local-dev",
-      kind: "link",
-      label: "Use local mode (dev)",
-      description: "Solo dev with no login step.",
-      primary: true,
-      payload: { url: "#" },
-    },
-    {
-      id: "better-auth-google",
+      id: "google-oauth",
       kind: "form",
-      label: "Sign in with Google",
-      description: "Paste Google OAuth credentials (client ID + secret).",
+      label: "Google OAuth",
+      description: "Add Google as an optional sign-in provider.",
       payload: {
         writeScope: "workspace",
         fields: [
@@ -178,12 +187,42 @@ const authStep: OnboardingStep = {
         ],
       },
     },
+    {
+      id: "github-oauth",
+      kind: "form",
+      label: "GitHub OAuth",
+      description: "Add GitHub as an optional sign-in provider.",
+      payload: {
+        writeScope: "workspace",
+        fields: [
+          { key: "GITHUB_CLIENT_ID", label: "GITHUB_CLIENT_ID" },
+          {
+            key: "GITHUB_CLIENT_SECRET",
+            label: "GITHUB_CLIENT_SECRET",
+            secret: true,
+          },
+        ],
+      },
+    },
+    {
+      id: "access-token",
+      kind: "form",
+      label: "Shared access token",
+      description: "Use a simple token gate for private deployments.",
+      payload: {
+        writeScope: "workspace",
+        fields: [
+          {
+            key: "ACCESS_TOKEN",
+            label: "ACCESS_TOKEN",
+            placeholder: "Paste a strong shared token",
+            secret: true,
+          },
+        ],
+      },
+    },
   ],
-  isComplete: () => {
-    if (process.env.AUTH_MODE === "local") return true;
-    if (process.env.ACCESS_TOKEN || process.env.ACCESS_TOKENS) return true;
-    return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
-  },
+  isComplete: () => true,
 };
 
 /** Step 4 — transactional email (password resets, invitations). Optional. */
@@ -193,15 +232,13 @@ const emailStep: OnboardingStep = {
   required: false,
   title: "Email delivery",
   description:
-    "Needed to send password reset links and future invitation emails. Without a provider, reset emails are logged to the server console.",
+    "Optional provider for password resets and invitations. Without one, local/dev emails are logged to the server console.",
   methods: [
     {
       id: "resend",
       kind: "form",
-      label: "Use Resend",
-      description: "Paste an API key from resend.com.",
-      primary: true,
-      badge: "recommended",
+      label: "Resend",
+      description: "Use Resend for transactional email.",
       payload: {
         writeScope: "workspace",
         fields: [
@@ -227,8 +264,8 @@ const emailStep: OnboardingStep = {
     {
       id: "sendgrid",
       kind: "form",
-      label: "Use SendGrid",
-      description: "Paste an API key from sendgrid.com.",
+      label: "SendGrid",
+      description: "Use SendGrid for transactional email.",
       payload: {
         writeScope: "workspace",
         fields: [

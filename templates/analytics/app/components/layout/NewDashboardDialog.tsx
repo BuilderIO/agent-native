@@ -23,9 +23,10 @@ export function NewDashboardDialog() {
         "The user wants to create a new analytics dashboard. " +
         "Create a SQL-driven dashboard by saving a JSON config via PUT /api/sql-dashboards/{id}. " +
         "The config shape is: { name: string, panels: [{ id, title, sql, source, chartType, width, config? }] }. " +
-        "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'app-db' | 'ga4'), " +
+        "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party'), " +
         "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie'), width (1 or 2). " +
         "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description }. " +
+        "For first-party analytics, source is 'first-party' and sql may read analytics_events only; do not use db-query for datasource panels. " +
         "First check /_agent-native/env-status to see which data sources are connected. " +
         "Refer to .builder/skills/<provider>/SKILL.md for SQL patterns and table names. " +
         "NO code files need to be created — only the dashboard config JSON via the API. " +
