@@ -668,6 +668,7 @@ export async function runAgentLoop(opts: {
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
   providerOptions?: any;
+  executionMode?: AgentExecutionMode;
 }): Promise<AgentLoopUsage> {
   const {
     engine,
@@ -804,6 +805,21 @@ export async function runAgentLoop(opts: {
           input: toolCall.input as Record<string, string>,
         });
 
+        if (
+          opts.executionMode === "plan" &&
+          !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
+        ) {
+          const result = planModeBlockedMessage(toolCall.name);
+          send({ type: "tool_done", tool: toolCall.name, result });
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            content: result,
+            isError: true,
+          };
+        }
+
         const MAX_TOOL_RESULT_CHARS = 50_000;
         const TOOL_TIMEOUT_MS = 60_000;
         let result: string;
@@ -881,9 +897,11 @@ export function createProductionAgentHandler(
   // the settings UI) show up to the LLM without a process restart. MCP tools
   // are also scope-filtered per request — a user-scope server added by Alice
   // must not appear in Bob's tool list in a shared-process deployment.
-  const getEngineTools = () => {
+  const getEngineTools = (
+    actions: Record<string, ActionEntry> = resolvedActions,
+  ) => {
     const filtered: Record<string, ActionEntry> = {};
-    for (const [name, entry] of Object.entries(resolvedActions)) {
+    for (const [name, entry] of Object.entries(actions)) {
       if (name.startsWith("mcp__") && !isMcpToolAllowedForRequest(name)) {
         continue;
       }
@@ -915,6 +933,8 @@ export function createProductionAgentHandler(
       model: requestModel,
       engine: requestEngine,
     } = body;
+    const requestMode: AgentExecutionMode =
+      body.mode === "plan" ? "plan" : "act";
     if (!message) {
       setResponseStatus(event, 400);
       return { error: "message is required" };
@@ -1225,13 +1245,26 @@ export function createProductionAgentHandler(
       });
     }
     const screenContext = screenBlock + urlBlock + selectionBlock;
+    const requestActions =
+      requestMode === "plan"
+        ? createPlanModeActionRegistry(resolvedActions)
+        : resolvedActions;
+    const requestTools = getEngineTools(requestActions);
+    const requestSystemPrompt =
+      requestMode === "plan"
+        ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
+        : systemPrompt;
 
     // Pre-compute agent references for A2A resolution inside the run
     const agentRefs = references.filter((r) => r.type === "agent");
     const customAgentRefs = references.filter((r) => r.type === "custom-agent");
+    const planModeAgentNote =
+      requestMode === "plan" && agentRefs.length > 0
+        ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
+        : "";
 
     const userContent = buildUserContentWithAttachments({
-      text: enrichedMessage + screenContext + filesContext,
+      text: enrichedMessage + screenContext + filesContext + planModeAgentNote,
       attachments,
     });
 
@@ -1292,7 +1325,7 @@ export function createProductionAgentHandler(
                 }
 
                 const profilePrompt =
-                  `${systemPrompt}\n\n<custom-agent-profile name="${profile.name}" path="${profile.path}">\n` +
+                  `${requestSystemPrompt}\n\n<custom-agent-profile name="${profile.name}" path="${profile.path}">\n` +
                   (profile.description ? `${profile.description}\n\n` : "") +
                   `${profile.instructions}\n</custom-agent-profile>`;
 
@@ -1301,7 +1334,7 @@ export function createProductionAgentHandler(
                   engine,
                   model: profile.model ?? model,
                   systemPrompt: profilePrompt,
-                  tools: getEngineTools(),
+                  tools: requestTools,
                   messages: [
                     {
                       role: "user",
@@ -1310,7 +1343,7 @@ export function createProductionAgentHandler(
                       ],
                     },
                   ],
-                  actions: resolvedActions,
+                  actions: requestActions,
                   send: (event) => {
                     if (event.type === "text") {
                       responseText += event.text;
@@ -1323,6 +1356,7 @@ export function createProductionAgentHandler(
                   },
                   signal,
                   providerOptions: options.providerOptions,
+                  executionMode: requestMode,
                 });
 
                 // Attribute custom-agent sub-calls under their own label
@@ -1389,7 +1423,7 @@ export function createProductionAgentHandler(
         }
 
         // Resolve connected agent @-mentions via A2A calls.
-        if (agentRefs.length > 0) {
+        if (agentRefs.length > 0 && requestMode !== "plan") {
           const { A2AClient, callAgent } = await import("../a2a/client.js");
           const results = await Promise.allSettled(
             agentRefs.map(async (ref) => {
@@ -1528,13 +1562,14 @@ export function createProductionAgentHandler(
         const agentLoopOpts = {
           engine,
           model: effectiveModel,
-          systemPrompt,
-          tools: getEngineTools(),
+          systemPrompt: requestSystemPrompt,
+          tools: requestTools,
           messages,
-          actions: resolvedActions,
+          actions: requestActions,
           send,
           signal,
           providerOptions: options.providerOptions,
+          executionMode: requestMode,
         };
 
         let loopUsage: AgentLoopUsage;
