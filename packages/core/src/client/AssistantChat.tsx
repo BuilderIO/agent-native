@@ -113,6 +113,7 @@ const markdownStyles = `
 @media (prefers-color-scheme: dark) { :root:not(.light) .agent-markdown-shiki pre { background: var(--shiki-dark-bg); color: var(--shiki-dark); } :root:not(.light) .agent-markdown-shiki pre span { color: var(--shiki-dark); background: var(--shiki-dark-bg); } }
 .agent-markdown hr { border: none; border-top: 1px solid hsl(var(--border, 0 0% 20%)); margin: 0.75em 0; }
 .agent-markdown a { text-decoration: underline; text-underline-offset: 2px; }
+.agent-markdown a.agent-markdown-cta { text-decoration: none; }
 .agent-markdown blockquote { border-left: 2px solid hsl(var(--border, 0 0% 20%)); padding-left: 0.75em; margin: 0.5em 0; opacity: 0.8; }
 .agent-markdown table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.875em; }
 .agent-markdown th, .agent-markdown td { border: 1px solid hsl(var(--border, 0 0% 20%)); padding: 0.35em 0.65em; text-align: left; }
@@ -345,7 +346,14 @@ function HighlightedCodeBlock({ code, lang }: { code: string; lang: string }) {
 
 const markdownComponents = {
   a(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
-    const { href, children, className, ...rest } = props;
+    const {
+      href,
+      children,
+      className,
+      rel: _rel,
+      target: _target,
+      ...rest
+    } = props;
     const isBuilderCta = isBuilderErrorCtaHref(href);
     if (!isBuilderCta) {
       return (
@@ -360,7 +368,7 @@ const markdownComponents = {
         target="_blank"
         rel="noreferrer"
         className={cn(
-          "mt-1 inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background no-underline shadow-sm transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          "agent-markdown-cta mt-1 inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background no-underline shadow-sm transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
           className,
         )}
         {...rest}
@@ -1586,6 +1594,19 @@ function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
   };
 }
 
+function getMessageText(message: unknown): string {
+  const msg = (message as { message?: unknown })?.message ?? message;
+  const content = (msg as { content?: unknown })?.content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((p: any) => p?.type === "text" && typeof p.text === "string")
+      .map((p: any) => p.text)
+      .join("\n")
+      .trim();
+  }
+  return typeof content === "string" ? content.trim() : "";
+}
+
 function RunErrorRecoveryCard({
   info,
   onContinue,
@@ -1618,7 +1639,7 @@ function RunErrorRecoveryCard({
   return (
     <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
       <div className="flex items-start gap-2">
-        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/12 text-amber-700 dark:text-amber-300">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300">
           <IconAlertTriangle size={14} />
         </span>
         <div className="min-w-0 flex-1">
@@ -2046,6 +2067,10 @@ const AssistantChatInner = forwardRef<
   const [loopLimitInfo, setLoopLimitInfo] = useState<LoopLimitInfo | null>(
     null,
   );
+  const [runErrorInfo, setRunErrorInfo] = useState<RunErrorInfo | null>(null);
+  const [dismissedRunErrorKey, setDismissedRunErrorKey] = useState<
+    string | null
+  >(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
@@ -2536,6 +2561,26 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:loop-limit", handler);
   }, [tabId]);
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as RunErrorInfo & {
+        tabId?: string;
+      };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      if (!detail?.message) return;
+      setRunErrorInfo({
+        message: detail.message,
+        ...(detail.details ? { details: detail.details } : {}),
+        ...(detail.errorCode ? { errorCode: detail.errorCode } : {}),
+        ...(detail.runId ? { runId: detail.runId } : {}),
+        ...(detail.recoverable ? { recoverable: detail.recoverable } : {}),
+      });
+      setDismissedRunErrorKey(null);
+    };
+    window.addEventListener("agent-chat:run-error", handler);
+    return () => window.removeEventListener("agent-chat:run-error", handler);
+  }, [tabId]);
+
   // Auto-dequeue: when agent finishes running, send the next queued message
   useEffect(() => {
     if (wasRunningRef.current && !isRunning && queuedMessages.length > 0) {
@@ -2598,6 +2643,8 @@ const AssistantChatInner = forwardRef<
     (text: string, images?: string[], references?: Reference[]) => {
       setShowContinue(false);
       setLoopLimitInfo(null);
+      setRunErrorInfo(null);
+      setDismissedRunErrorKey(null);
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
@@ -2719,9 +2766,28 @@ const AssistantChatInner = forwardRef<
     if (!last || last.role !== "assistant") return null;
     return getLoopLimitMetadata(last);
   }, [messages]);
+  const lastMessageRunError = useMemo(() => {
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant") return null;
+    return getRunErrorMetadata(last);
+  }, [messages]);
+  const lastUserText = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === "user") return getMessageText(messages[i]);
+    }
+    return "";
+  }, [messages]);
   const visibleLoopLimit = showContinue
     ? (loopLimitInfo ?? lastMessageLoopLimit ?? {})
     : lastMessageLoopLimit;
+  const visibleRunError = runErrorInfo ?? lastMessageRunError;
+  const visibleRunErrorKey = visibleRunError
+    ? `${visibleRunError.runId ?? ""}:${visibleRunError.errorCode ?? ""}:${visibleRunError.message}`
+    : null;
+  const shouldShowRunError =
+    !!visibleRunError &&
+    !showRunningInUI &&
+    visibleRunErrorKey !== dismissedRunErrorKey;
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
@@ -2875,6 +2941,32 @@ const AssistantChatInner = forwardRef<
                         setShowContinue(false);
                         setLoopLimitInfo(null);
                         addToQueue("Continue from where you left off.");
+                      }}
+                    />
+                  )}
+                  {shouldShowRunError && visibleRunError && (
+                    <RunErrorRecoveryCard
+                      info={visibleRunError}
+                      onContinue={() => {
+                        setRunErrorInfo(null);
+                        addToQueue(
+                          "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. Prefer dedicated app actions over raw database edits when they exist.",
+                        );
+                      }}
+                      onRetry={() => {
+                        setRunErrorInfo(null);
+                        addToQueue(
+                          lastUserText
+                            ? `Retry the previous request from a clean approach. Original request:\n\n${lastUserText}`
+                            : "Retry the previous request from a clean approach.",
+                        );
+                      }}
+                      onFork={onForkChat}
+                      onDismiss={() => {
+                        if (visibleRunErrorKey) {
+                          setDismissedRunErrorKey(visibleRunErrorKey);
+                        }
+                        setRunErrorInfo(null);
                       }}
                     />
                   )}
