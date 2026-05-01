@@ -198,23 +198,27 @@ export function NewWorkspaceAppFlow({
         sendToAgentChat({ message, submit: true, type: "code", newTab: true });
         setStatusMessage("Sent to the local agent.");
       } else {
-        const builderStatus = await fetchJson(
-          agentNativePath("/_agent-native/builder/status"),
-        ).catch(() => null);
-        if (builderStatus?.builderEnabled && builderStatus?.configured) {
-          const result = await fetchJson(
-            agentNativePath("/_agent-native/builder/run"),
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ prompt: message }),
-            },
-          );
+        const result = await fetchJson(
+          actionUrl(effectiveDispatchBasePath, "start-workspace-app-creation"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prompt: prompt.trim(),
+              appId: safeAppName,
+              template,
+              secretIds: selectedSecretIds,
+              preparedPrompt: message,
+            }),
+          },
+        );
+        if (result?.mode === "builder") {
           setBranchUrl(result?.url || null);
           setStatusMessage("Builder branch created.");
         } else {
           setStatusMessage(
-            "Builder app creation is coming soon here. Open this workspace in Builder to create an app from this prompt.",
+            result?.message ||
+              "Builder app creation is coming soon here. Open this workspace in Builder to create an app from this prompt.",
           );
         }
       }

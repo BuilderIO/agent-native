@@ -27,6 +27,16 @@ export function buildAssistantMessage(
 } | null {
   const content: ContentPart[] = [];
   let toolCallCounter = 0;
+  let loopLimit: { maxIterations?: number } | null = null;
+
+  const appendText = (text: string) => {
+    const last = content[content.length - 1];
+    if (last && last.type === "text") {
+      last.text = (last.text ?? "") + text;
+    } else {
+      content.push({ type: "text", text });
+    }
+  };
 
   for (const { event } of events) {
     if (event.type === "clear") {
@@ -36,12 +46,7 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "text") {
-      const last = content[content.length - 1];
-      if (last && last.type === "text") {
-        last.text = (last.text ?? "") + (event.text ?? "");
-      } else {
-        content.push({ type: "text", text: event.text ?? "" });
-      }
+      appendText(event.text ?? "");
       continue;
     }
 
@@ -73,17 +78,35 @@ export function buildAssistantMessage(
       continue;
     }
 
-    // done, error, missing_api_key, loop_limit — terminal signals, not content
+    if (event.type === "loop_limit") {
+      loopLimit = {
+        ...(event.maxIterations ? { maxIterations: event.maxIterations } : {}),
+      };
+      appendText(
+        `${content.length > 0 ? "\n\n" : ""}${
+          event.maxIterations
+            ? `I reached the ${event.maxIterations}-step limit before finishing.`
+            : "I reached the step limit before finishing."
+        }`,
+      );
+      continue;
+    }
+
+    // done, error, missing_api_key — terminal signals, not content
   }
 
   if (content.length === 0) return null;
+
+  const metadata: Record<string, unknown> = {};
+  if (runId) metadata.runId = runId;
+  if (loopLimit) metadata.custom = { loopLimit };
 
   return {
     id: `server-${runId ?? Date.now()}`,
     role: "assistant",
     content,
     status: { type: "complete" as const, reason: "stop" as const },
-    metadata: runId ? { runId } : {},
+    metadata,
   };
 }
 

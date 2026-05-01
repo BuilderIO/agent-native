@@ -68,12 +68,20 @@ import { runWithRequestContext } from "./request-context.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import {
+  canUpdateAgentLoopSettings,
+  readAgentLoopSettings,
+  resetAgentLoopSettings,
+  validateMaxIterationsInput,
+  writeAgentLoopSettings,
+} from "../agent/loop-settings.js";
+import {
   isAgentEngineSettingConfigured,
   getAgentEngineEntry,
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
   isStoredEngineUsable,
 } from "../agent/engine/registry.js";
+import { getOrgContext } from "../org/context.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -1320,6 +1328,93 @@ export function createCoreRoutesPlugin(
             error: err instanceof Error ? err.message : String(err),
           };
         }
+      }),
+    );
+
+    // GET/PUT/DELETE /_agent-native/agent-loop-settings — org/user-scoped
+    // ceiling for tool-calling loop iterations before the agent asks whether
+    // it should keep going.
+    getH3App(nitroApp).use(
+      `${P}/agent-loop-settings`,
+      defineEventHandler(async (event: H3Event) => {
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "unauthorized" };
+        }
+
+        const orgCtx = await getOrgContext(event).catch(() => null);
+        const orgId = orgCtx?.orgId ?? session.orgId ?? null;
+        const ctx = { userEmail: session.email, orgId };
+        const canUpdate = await canUpdateAgentLoopSettings(
+          session.email,
+          orgId,
+        );
+
+        const withContext = async () => ({
+          ...(await readAgentLoopSettings(ctx)),
+          canUpdate,
+          orgId,
+          orgName: orgCtx?.orgName ?? null,
+          role: orgCtx?.role ?? null,
+        });
+
+        const method = getMethod(event);
+        if (method === "GET") {
+          return withContext();
+        }
+
+        if (method === "PUT") {
+          if (!canUpdate) {
+            setResponseStatus(event, 403);
+            return {
+              error: orgId
+                ? "Only organization owners and admins can change the agent step limit."
+                : "You cannot change the agent step limit.",
+            };
+          }
+          const body = await readBody(event).catch(() => ({}));
+          const validation = validateMaxIterationsInput(
+            (body as any)?.maxIterations,
+          );
+          if (!validation.ok) {
+            setResponseStatus(event, 400);
+            return { error: validation.error };
+          }
+          const updated = await writeAgentLoopSettings(
+            ctx,
+            validation.value,
+          );
+          return {
+            ...updated,
+            canUpdate,
+            orgId,
+            orgName: orgCtx?.orgName ?? null,
+            role: orgCtx?.role ?? null,
+          };
+        }
+
+        if (method === "DELETE") {
+          if (!canUpdate) {
+            setResponseStatus(event, 403);
+            return {
+              error: orgId
+                ? "Only organization owners and admins can reset the agent step limit."
+                : "You cannot reset the agent step limit.",
+            };
+          }
+          const updated = await resetAgentLoopSettings(ctx);
+          return {
+            ...updated,
+            canUpdate,
+            orgId,
+            orgName: orgCtx?.orgName ?? null,
+            role: orgCtx?.role ?? null,
+          };
+        }
+
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
       }),
     );
 
