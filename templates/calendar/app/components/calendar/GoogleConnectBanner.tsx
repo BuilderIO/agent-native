@@ -8,6 +8,8 @@ import {
   IconLoader2,
   IconChevronUp,
   IconUpload,
+  IconAlertTriangle,
+  IconLogout,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { agentNativePath, getCallbackOrigin } from "@agent-native/core/client";
@@ -60,6 +62,15 @@ interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
 }
 
+interface DesktopAuthIssue {
+  error?: string;
+  message?: string;
+  code?: string;
+  accountId?: string;
+  existingOwner?: string;
+  attemptedOwner?: string;
+}
+
 export function GoogleConnectBanner({
   variant = "banner",
 }: GoogleConnectBannerProps) {
@@ -67,6 +78,8 @@ export function GoogleConnectBanner({
   const [wantAddAccount, setWantAddAccount] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [desktopAuthIssue, setDesktopAuthIssue] =
+    useState<DesktopAuthIssue | null>(null);
   const googleStatus = useGoogleAuthStatus();
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
   const addAccountUrl = useGoogleAddAccountUrl(wantAddAccount);
@@ -88,6 +101,7 @@ export function GoogleConnectBanner({
   }, []);
 
   function signInViaDesktopBrowser(addAccount = false) {
+    setDesktopAuthIssue(null);
     const flowId =
       crypto.randomUUID?.() ||
       Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -112,7 +126,11 @@ export function GoogleConnectBanner({
           ),
         );
         const data = await res.json();
-        if (data?.token) {
+        if (data?.error) {
+          clearInterval(desktopPollRef.current!);
+          desktopPollRef.current = null;
+          setDesktopAuthIssue(data);
+        } else if (data?.token) {
           clearInterval(desktopPollRef.current!);
           desktopPollRef.current = null;
           await fetch(
@@ -212,6 +230,18 @@ export function GoogleConnectBanner({
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
 
+  const handleSignOutForGoogle = useCallback(async () => {
+    try {
+      await fetch(agentNativePath("/_agent-native/auth/logout"), {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {
+      // Reload below still lands on the auth screen if the local cookie changed.
+    }
+    window.location.reload();
+  }, []);
+
   // When add-account URL is ready, open it and poll for new account.
   // Same retry-intent rationale as the connect effect — `wantAddAccount`
   // is in the deps so a second click rerun the effect; the polling
@@ -245,6 +275,7 @@ export function GoogleConnectBanner({
   }, [wantAddAccount, addAccountUrl.data]);
 
   function handleConnect() {
+    setDesktopAuthIssue(null);
     if (isElectron) {
       signInViaDesktopBrowser();
       return;
@@ -340,6 +371,13 @@ export function GoogleConnectBanner({
                 ? "Connect Google"
                 : "Set up Google"}
         </Button>
+
+        <GoogleAuthIssuePanel
+          issue={desktopAuthIssue}
+          onSignOut={handleSignOutForGoogle}
+          onDismiss={() => setDesktopAuthIssue(null)}
+          className="mt-5 w-full max-w-md"
+        />
 
         {hasAccounts && (
           <div className="mt-4 flex items-center gap-2 flex-wrap justify-center">
@@ -480,6 +518,13 @@ export function GoogleConnectBanner({
           </Button>
         </div>
       </div>
+
+      <GoogleAuthIssuePanel
+        issue={desktopAuthIssue}
+        onSignOut={handleSignOutForGoogle}
+        onDismiss={() => setDesktopAuthIssue(null)}
+        className="mx-4 mb-3"
+      />
 
       {/* Inline setup wizard */}
       {showWizard && !allConfigured && (
