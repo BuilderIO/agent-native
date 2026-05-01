@@ -170,21 +170,21 @@ export function OpenSourceBadge({
           height: 15px;
           flex: none;
         }
+        .an-open-source-badge {
+          background: transparent !important;
+          border-color: transparent !important;
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+        }
         .dark .an-open-source-badge {
-          background: rgba(255, 255, 255, 0.06) !important;
-          border-color: rgba(255, 255, 255, 0.08) !important;
           color: rgba(215, 215, 215, 0.94) !important;
         }
         @media ${darkQuery} {
           .an-open-source-badge {
-            background: rgba(255, 255, 255, 0.06) !important;
-            border-color: rgba(255, 255, 255, 0.08) !important;
             color: rgba(215, 215, 215, 0.94) !important;
           }
         }
         .light .an-open-source-badge {
-          background: rgba(0, 0, 0, 0.05) !important;
-          border-color: rgba(0, 0, 0, 0.06) !important;
           color: rgba(95, 95, 95, 0.95) !important;
         }
         .an-open-source-badge:hover {

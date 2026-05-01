@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { endOfMonth, format, startOfMonth } from "date-fns";
 import { IconCalendar } from "@tabler/icons-react";
-import { PoweredByBadge } from "@agent-native/core/client";
+import { OpenSourceBadge, PoweredByBadge } from "@agent-native/core/client";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { DatePicker } from "@/components/booking/DatePicker";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
@@ -372,6 +372,7 @@ export default function BookingPage() {
           )}
         </div>
       </div>
+      <OpenSourceBadge />
       <PoweredByBadge />
     </div>
   );
