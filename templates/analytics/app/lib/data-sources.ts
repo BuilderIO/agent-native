@@ -40,6 +40,7 @@ export interface WalkthroughStep {
   inputLabel?: string;
   inputPlaceholder?: string;
   inputType?: "text" | "password" | "textarea";
+  optional?: boolean;
   /** Allow file upload for this input (e.g. ".json") */
   inputAcceptFile?: string;
 }
@@ -391,7 +392,7 @@ export const dataSources: DataSource[] = [
     description: "Sales call recordings, transcripts, and analytics",
     category: "crm",
     icon: IconPhone,
-    envKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
+    envKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
     docsUrl: "https://gong.app.gong.io/settings/api/documentation",
     walkthroughSteps: [
       {
@@ -416,6 +417,16 @@ export const dataSources: DataSource[] = [
         inputLabel: "Access Key Secret",
         inputPlaceholder: "your-gong-access-key-secret",
         inputType: "password",
+      },
+      {
+        title: "Confirm your API Base URL",
+        description:
+          "Use your region-specific Gong API base URL if your account does not use the global endpoint.",
+        inputKey: "GONG_API_BASE",
+        inputLabel: "API Base URL",
+        inputPlaceholder: "https://api.gong.io/v2",
+        inputType: "text",
+        optional: true,
       },
     ],
   },

@@ -11,7 +11,7 @@ description: >
 
 - **Base URL**: `$GRAFANA_URL` (e.g. `https://your-org.grafana.net`)
 - **Auth**: `Authorization: Bearer $GRAFANA_API_TOKEN` (service account token)
-- **Env vars**: `GRAFANA_API_TOKEN`
+- **Credentials**: `GRAFANA_URL`, `GRAFANA_API_TOKEN` from Settings → Data sources
 - **Caching**: 10-minute cache for metadata; query results are NOT cached (time-sensitive)
 - **Key datasource**: Prometheus UID `grafanacloud-prom`
 
@@ -39,6 +39,19 @@ description: >
 | `GET /api/grafana/datasources`       | List datasources                          |
 | `GET /api/grafana/alerts`            | Alert rules and firing instances          |
 | `POST /api/grafana/query`            | Query datasource (Prometheus, Loki, etc.) |
+
+### Agent Action
+
+Use `grafana` for agent-facing Grafana work. Do not call `/api/grafana/*`
+directly from the agent.
+
+| Mode | Args | Description |
+| --- | --- | --- |
+| `dashboards` | `search` | Search dashboards |
+| `dashboard` | `uid` | Full dashboard JSON |
+| `datasources` | | List datasources |
+| `alerts` | | Alert rules and firing instances |
+| `query` | `datasourceUid`, `queries`, `from`, `to` | Query a datasource |
 
 ### Dashboard
 

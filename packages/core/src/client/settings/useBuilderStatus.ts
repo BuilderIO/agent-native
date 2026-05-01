@@ -5,6 +5,13 @@ import { getCallbackOrigin } from "../frame.js";
 export interface BuilderStatus {
   configured: boolean;
   builderEnabled: boolean;
+  /**
+   * True when `BUILDER_PRIVATE_KEY` is set at the deploy level. Every user
+   * of this deploy shares the operator's Builder identity and per-user
+   * connect/disconnect is disabled. UIs must hide connect prompts and
+   * disconnect buttons when this is true.
+   */
+  envManaged?: boolean;
   connectUrl: string;
   appHost: string;
   apiHost: string;
@@ -96,6 +103,12 @@ export interface BuilderConnectFlowOptions {
 
 export interface BuilderConnectFlow {
   configured: boolean;
+  /**
+   * True when the deploy has BUILDER_PRIVATE_KEY set. UIs should treat
+   * Builder as connected for everyone in this mode and hide all connect /
+   * disconnect controls — `start()` will be a no-op.
+   */
+  envManaged: boolean;
   orgName: string | null;
   connecting: boolean;
   error: string | null;
@@ -120,6 +133,7 @@ export function useBuilderConnectFlow(
 ): BuilderConnectFlow {
   const { popupUrl, onConnected } = opts;
   const [configured, setConfigured] = useState(false);
+  const [envManaged, setEnvManaged] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,6 +161,7 @@ export function useBuilderConnectFlow(
       if (!r.ok) return null;
       return (await r.json()) as {
         configured: boolean;
+        envManaged?: boolean;
         orgName?: string | null;
         connectError?: { message: string; at: number };
       };
@@ -172,6 +187,7 @@ export function useBuilderConnectFlow(
       setHasFetchedStatus(true);
       if (!s) return;
       setConfigured(!!s.configured);
+      setEnvManaged(!!s.envManaged);
       setOrgName(s.orgName ?? null);
     };
     refresh();
@@ -192,6 +208,10 @@ export function useBuilderConnectFlow(
   }, [fetchStatus, stopPoll]);
 
   const start = useCallback(() => {
+    // In env-managed mode, per-user OAuth is disabled — `/builder/connect`
+    // returns 409. Skip the popup and just refresh state so the UI flips
+    // to its "connected via deployment" rendering.
+    if (envManaged) return;
     stopPoll();
     setConnecting(true);
     setError(null);
@@ -245,7 +265,7 @@ export function useBuilderConnectFlow(
         );
       }
     }, POLL_INTERVAL_MS);
-  }, [fetchStatus, popupUrl, stopPoll]);
+  }, [envManaged, fetchStatus, popupUrl, stopPoll]);
 
   // Popup-side fast path: the error page broadcasts a message so we stop
   // polling immediately rather than waiting for the next 2s tick.
@@ -290,5 +310,13 @@ export function useBuilderConnectFlow(
     };
   }, [stopPoll]);
 
-  return { configured, orgName, connecting, error, hasFetchedStatus, start };
+  return {
+    configured,
+    envManaged,
+    orgName,
+    connecting,
+    error,
+    hasFetchedStatus,
+    start,
+  };
 }

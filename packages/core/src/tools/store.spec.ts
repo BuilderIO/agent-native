@@ -21,6 +21,7 @@ describe("tools/store", () => {
       getDbExec: () => client,
       getDialect: () => "sqlite",
       isPostgres: () => false,
+      retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
     }));
     vi.doMock("../db/create-get-db.js", () => ({
       createGetDb: () => () => ({}),

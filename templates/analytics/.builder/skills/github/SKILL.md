@@ -1,7 +1,7 @@
 ---
 name: github
 description: >
-  Search and read GitHub PRs, issues, and code across the YourOrg org.
+  Search and read GitHub PRs, issues, and code across a configured GitHub org or repo.
   Use this skill when the user asks about pull requests, code reviews, or GitHub issues.
 ---
 
@@ -28,7 +28,7 @@ description: >
 | `getPR(owner, repo, number)`    | Full PR detail — commits, reviews, files (4 parallel API calls) |
 | `getIssue(owner, repo, number)` | Issue detail with labels, assignees                             |
 | `listPRs(owner, repo, opts)`    | List repo PRs by state (open/closed/all)                        |
-| `searchOrgPRs(opts)`            | Convenience wrapper — prepends `org:YourOrg is:pr`            |
+| `searchOrgPRs(opts)`            | Convenience wrapper — prepends the `org:<org> is:pr` qualifiers |
 | `runGraphQL(query, variables?)` | Raw GraphQL query                                               |
 
 ### API Routes
@@ -39,24 +39,23 @@ description: >
 | `GET /api/github/pr?owner=...&repo=...&number=...`                       | PR detail with commits, reviews, files |
 | `GET /api/github/issue?owner=...&repo=...&number=...`                    | Issue detail                           |
 | `GET /api/github/prs?owner=...&repo=...&state=open\|closed\|all`         | List repo PRs                          |
-| `GET /api/github/org-prs?org=YourOrg&q=...&state=OPEN\|CLOSED\|MERGED` | Org-wide PR search                     |
+| `GET /api/github/org-prs?org=<org>&q=...&state=OPEN\|CLOSED\|MERGED` | Org-wide PR search                     |
 | `POST /api/github/graphql` body: `{ query, variables? }`                 | Raw GraphQL                            |
 
 ## Script Usage
 
 ```bash
-# Search open PRs in YourOrg org
-pnpm action github-prs
-pnpm action github-prs --org=YourOrg --query="is:open label:bug"
+# Search open PRs in an org
+pnpm action github-prs --org=<org> --query="is:open label:bug"
 
 # List PRs for a specific repo
-pnpm action github-prs --repo=YourOrg/qwik --state=open
+pnpm action github-prs --repo=<org>/<repo> --state=open
 
 # Get full PR detail (commits, reviews, files)
-pnpm action github-prs --pr=YourOrg/qwik/1234
+pnpm action github-prs --pr=<org>/<repo>/1234
 
 # Get issue detail
-pnpm action github-prs --issue=YourOrg/qwik/567
+pnpm action github-prs --issue=<org>/<repo>/567
 
 # Full GitHub search syntax (works across all orgs/repos)
 pnpm action github-prs --search="fix authentication is:pr is:merged"
@@ -66,15 +65,15 @@ pnpm action github-prs --search="memory leak" --type=issue
 pnpm action github-prs --graphql='{ viewer { login } }'
 
 # Filtering with built-in helpers
-pnpm action github-prs --org=YourOrg --grep="auth" --fields=number,title,state,url
+pnpm action github-prs --org=<org> --grep="auth" --fields=number,title,state,url
 ```
 
 ## Key Patterns & Gotchas
 
 ### GitHub search qualifiers (useful for --search and --query)
 
-- `org:YourOrg` — all repos in org
-- `repo:YourOrg/qwik` — specific repo
+- `org:<org>` — all repos in org
+- `repo:<org>/<repo>` — specific repo
 - `is:pr is:open` / `is:pr is:merged` / `is:pr is:closed`
 - `is:issue is:open` / `is:issue is:closed`
 - `author:username` — PRs/issues by author
@@ -87,7 +86,7 @@ pnpm action github-prs --org=YourOrg --grep="auth" --fields=number,title,state,u
 
 ### Implementation Notes
 
-- `searchOrgPRs()` is a convenience wrapper that prepends `org:YourOrg is:pr` — use `searchPRs()` / `searchIssues()` directly for full control
+- `searchOrgPRs()` is a convenience wrapper that prepends `org:<org> is:pr` — use `searchPRs()` / `searchIssues()` directly for full control
 - The REST search API returns up to 100 results per call; paginated list endpoints use `restGetPaginated()` with Link header traversal
 - `getPR()` makes 4 parallel API calls: PR data, commits, reviews, files — provides a complete picture in one shot
 - 5-minute in-memory cache on all requests

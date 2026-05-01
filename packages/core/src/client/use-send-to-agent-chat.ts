@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, createElement } from "react";
 import { sendToAgentChat, type AgentChatMessage } from "./agent-chat.js";
 import { useAgentChatGenerating } from "./use-agent-chat.js";
 import { isInFrame, isTrustedFrameMessage } from "./frame.js";
+import { isInBuilderFrame, isTrustedBuilderMessage } from "./builder-frame.js";
 import { CodeRequiredDialog } from "./components/CodeRequiredDialog.js";
 
 /**
@@ -31,11 +32,18 @@ export function useSendToAgentChat(): {
   useEffect(() => {
     if (!codeAgentWorking) return;
     function handler(event: MessageEvent) {
-      if (!isTrustedFrameMessage(event)) return;
+      const fromAgentFrame = isTrustedFrameMessage(event);
+      const fromBuilderFrame = isTrustedBuilderMessage(event);
+      if (!fromAgentFrame && !fromBuilderFrame) return;
+      const runningDetail = event.data?.detail ?? event.data?.data;
       if (
         event.data?.type === "agentNative.codeComplete" ||
+        (fromBuilderFrame && event.data?.type === "builder.codeComplete") ||
         (event.data?.type === "agentNative.chatRunning" &&
-          !event.data?.detail?.isRunning)
+          !runningDetail?.isRunning) ||
+        (fromBuilderFrame &&
+          event.data?.type === "builder.chatRunning" &&
+          !runningDetail?.isRunning)
       ) {
         setCodeAgentWorking(false);
       }
@@ -47,7 +55,7 @@ export function useSendToAgentChat(): {
   const send = useCallback((opts: AgentChatMessage): string | null => {
     const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
 
-    if (isCodeRequest && !isInFrame()) {
+    if (isCodeRequest && !isInFrame() && !isInBuilderFrame()) {
       setFeatureLabel(opts.message?.slice(0, 80));
       setDialogOpen(true);
       return null;

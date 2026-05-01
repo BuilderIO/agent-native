@@ -29,6 +29,13 @@ const threadToRun = new Map<string, string>();
 
 /** How long to keep completed runs in memory before cleanup (5 min) */
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
+const DEFAULT_RUN_SOFT_TIMEOUT_MS = 75_000;
+
+function getRunSoftTimeoutMs(): number {
+  const raw = Number(process.env.AGENT_RUN_SOFT_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw >= 0) return raw;
+  return DEFAULT_RUN_SOFT_TIMEOUT_MS;
+}
 
 /**
  * Start a new agent run in the background.
@@ -53,6 +60,7 @@ export function startRun(
   }
 
   const abort = new AbortController();
+  let softTimedOut = false;
   const run: ActiveRun = {
     runId,
     threadId,
@@ -76,6 +84,25 @@ export function startRun(
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     updateRunHeartbeat(runId).catch(() => {});
   }, 1500);
+  const softTimeoutMs = getRunSoftTimeoutMs();
+  const softTimeoutTimer =
+    softTimeoutMs > 0
+      ? setTimeout(() => {
+          if (run.status !== "running" || abort.signal.aborted) return;
+          softTimedOut = true;
+          send({
+            type: "error",
+            error:
+              "The agent reached the run time limit before it could finish.",
+            errorCode: "run_timeout",
+            recoverable: true,
+            details: `The run exceeded ${Math.round(
+              softTimeoutMs / 1000,
+            )} seconds. Partial output and tool calls were preserved so you can continue or retry.`,
+          });
+          abort.abort();
+        }, softTimeoutMs)
+      : null;
 
   // Periodic SQL abort check interval (for cross-isolate abort on Workers)
   let lastAbortCheck = Date.now();
@@ -111,12 +138,12 @@ export function startRun(
   // Run in background — intentionally detached from any HTTP connection
   const runPromise = runFn(send, abort.signal)
     .then(() => {
-      run.status = "completed";
+      run.status = softTimedOut ? "errored" : "completed";
     })
     .catch((err) => {
       // Don't surface abort errors — the run was intentionally stopped
       if (abort.signal.aborted) {
-        run.status = "completed";
+        run.status = softTimedOut ? "errored" : "aborted";
         return;
       }
       run.status = "errored";
@@ -195,12 +222,17 @@ export function startRun(
 
       // 3. Stop the heartbeat — all liveness writes are done.
       clearInterval(heartbeatTimer);
+      if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
 
       // 4. Persist final status to SQL. If the completion callback threw,
       //    we'd rather mark the run errored than claim success with
       //    incomplete thread_data.
       const finalStatus =
-        run.status === "errored" || completionError ? "errored" : "completed";
+        run.status === "aborted"
+          ? "aborted"
+          : run.status === "errored" || completionError
+            ? "errored"
+            : "completed";
       try {
         await updateRunStatus(runId, finalStatus);
       } catch {
@@ -258,9 +290,21 @@ function subscribeInMemory(
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   let subscriberRef: ((event: RunEvent) => void) | null = null;
+  let pingTimer: ReturnType<typeof setInterval> | null = null;
 
   return new ReadableStream({
     start(controller) {
+      const ping = () => {
+        try {
+          controller.enqueue(encoder.encode(`: ping ${Date.now()}\n\n`));
+        } catch {
+          if (subscriberRef) run.subscribers.delete(subscriberRef);
+          if (pingTimer) clearInterval(pingTimer);
+        }
+      };
+      ping();
+      pingTimer = setInterval(ping, 10_000);
+
       // Replay buffered events from fromSeq
       for (let i = fromSeq; i < run.events.length; i++) {
         try {
@@ -276,6 +320,7 @@ function subscribeInMemory(
 
       // If run is already done, close immediately
       if (run.status !== "running") {
+        if (pingTimer) clearInterval(pingTimer);
         controller.close();
         return;
       }
@@ -296,6 +341,7 @@ function subscribeInMemory(
             event.event.type === "loop_limit"
           ) {
             run.subscribers.delete(subscriberRef!);
+            if (pingTimer) clearInterval(pingTimer);
             controller.close();
           }
         } catch {
@@ -308,6 +354,7 @@ function subscribeInMemory(
     cancel() {
       // Only unsubscribe — do NOT abort the agent run
       if (subscriberRef) run.subscribers.delete(subscriberRef);
+      if (pingTimer) clearInterval(pingTimer);
     },
   });
 }
@@ -320,10 +367,21 @@ function subscribeFromSQL(
   const encoder = new TextEncoder();
   let cancelled = false;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  let pingTimer: ReturnType<typeof setInterval> | null = null;
 
   return new ReadableStream({
     async start(controller) {
       let lastSeq = fromSeq;
+      const ping = () => {
+        try {
+          controller.enqueue(encoder.encode(`: ping ${Date.now()}\n\n`));
+        } catch {
+          cancelled = true;
+          if (pingTimer) clearInterval(pingTimer);
+        }
+      };
+      ping();
+      pingTimer = setInterval(ping, 10_000);
 
       const poll = async () => {
         if (cancelled) return;
@@ -356,6 +414,7 @@ function subscribeFromSQL(
               parsed.type === "missing_api_key" ||
               parsed.type === "loop_limit"
             ) {
+              if (pingTimer) clearInterval(pingTimer);
               controller.close();
               return;
             }
@@ -389,6 +448,7 @@ function subscribeFromSQL(
                   return;
                 }
               }
+              if (pingTimer) clearInterval(pingTimer);
               controller.close();
               return;
             }
@@ -401,6 +461,7 @@ function subscribeFromSQL(
         } catch {
           // SQL error — close stream
           try {
+            if (pingTimer) clearInterval(pingTimer);
             controller.close();
           } catch {}
         }
@@ -410,6 +471,7 @@ function subscribeFromSQL(
       try {
         const run = await getRunById(runId);
         if (!run) {
+          if (pingTimer) clearInterval(pingTimer);
           controller.close();
           return;
         }
@@ -423,6 +485,7 @@ function subscribeFromSQL(
     cancel() {
       cancelled = true;
       if (pollTimer) clearTimeout(pollTimer);
+      if (pingTimer) clearInterval(pingTimer);
     },
   });
 }

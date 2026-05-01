@@ -5,6 +5,10 @@ import { formatLocalDate } from "@/lib/utils";
 import { AddWeightDialog } from "./AddWeightDialog";
 import { WeightCard } from "./WeightCard";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  isOptimisticLogRow,
+  useOptimisticLogRows,
+} from "@/hooks/use-optimistic-log-rows";
 import { toast } from "sonner";
 import type { Weight } from "@shared/types";
 
@@ -28,7 +32,12 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
   const { data: rawWeights, isLoading } = useActionQuery("list-weights", {
     date: dateStr,
   });
-  const weights = Array.isArray(rawWeights) ? rawWeights : [];
+  const serverWeights = Array.isArray(rawWeights) ? rawWeights : [];
+  const { rows: weights, hasOptimisticRows } = useOptimisticLogRows(
+    "weight",
+    serverWeights,
+    dateStr,
+  );
 
   const todayWeight = weights[0];
 
@@ -54,7 +63,7 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
         )}
       </div>
       <div className="space-y-2">
-        {isLoading ? (
+        {isLoading && !hasOptimisticRows ? (
           <Skeleton className="h-16 w-full rounded-xl" />
         ) : !todayWeight ? (
           <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-white/[0.02] border border-dashed border-white/[0.06]">
@@ -77,6 +86,7 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
               if (w.id) deleteWeightMutation.mutate({ id: String(w.id) });
             }}
             isDeleting={deleteWeightMutation.isPending}
+            isPending={isOptimisticLogRow(todayWeight)}
           />
         )}
       </div>

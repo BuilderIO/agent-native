@@ -105,7 +105,15 @@ function isSourceConnected(
   envStatus: EnvKeyStatus[],
 ): boolean {
   const statusMap = new Map(envStatus.map((s) => [s.key, s.configured]));
-  return source.envKeys.every((key) => statusMap.get(key) === true);
+  const optionalKeys = new Set(
+    source.walkthroughSteps
+      .filter((step) => step.optional)
+      .map((step) => step.inputKey)
+      .filter(Boolean),
+  );
+  return source.envKeys
+    .filter((key) => !optionalKeys.has(key))
+    .every((key) => statusMap.get(key) === true);
 }
 
 function StepItem({

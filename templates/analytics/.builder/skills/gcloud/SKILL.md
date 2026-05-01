@@ -9,9 +9,9 @@ description: >
 
 ## Connection
 
-- **Project**: `your-project-id` (hard-coded)
-- **Service account**: `analytics@your-project-id.iam.gserviceaccount.com`
-- **Auth**: `GOOGLE_APPLICATION_CREDENTIALS_JSON` env var (JSON credentials string) — no ADC fallback
+- **Project**: `BIGQUERY_PROJECT_ID` from Settings → Data sources
+- **Service account**: from `GOOGLE_APPLICATION_CREDENTIALS_JSON`
+- **Auth**: `GOOGLE_APPLICATION_CREDENTIALS_JSON` credential (JSON credentials string) — no ADC fallback
 - **IAM roles**: `monitoring.viewer`, `run.viewer`, `cloudfunctions.viewer`, `logging.viewer`
 - **Caching**: 5-minute in-memory cache, max 120 entries
 
@@ -37,6 +37,17 @@ description: >
 | `GET /api/gcloud/metrics`  | Query metrics           |
 | `GET /api/gcloud/logs`     | Read log entries        |
 
+### Agent Action
+
+Use `gcloud` for agent-facing Google Cloud work. Do not call
+`/api/gcloud/*` directly from the agent.
+
+| Mode | Args | Description |
+| --- | --- | --- |
+| `services` | | List Cloud Run services and Cloud Functions |
+| `metrics` | `service`, `serviceType`, `metric`, `period`, `extraFilter` | Query Cloud Monitoring |
+| `logs` | `service`, `serviceType`, `severity`, `limit` | Read Cloud Logging |
+
 ### Dashboard
 
 - `/adhoc/gcloud` — Google Cloud Health dashboard
@@ -60,4 +71,4 @@ description: >
 - `getServiceMetrics` auto-selects aligner/reducer based on metric name (latency→percentile, request_count→ALIGN_DELTA, memory→ALIGN_MEAN)
 - `queryMetrics` maps point values from `doubleValue`, `int64Value`, or distribution mean
 - `listLogEntries` uses POST payload; returns entries reversed
-- PROJECT_ID is hard-coded — different projects require code changes
+- Project ID comes from the user's configured `BIGQUERY_PROJECT_ID`.

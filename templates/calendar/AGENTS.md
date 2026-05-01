@@ -126,9 +126,14 @@ cd templates/calendar && pnpm action <name> [args]
 
 ### Availability & Booking
 
-| Action               | Args                   | Purpose                   |
-| -------------------- | ---------------------- | ------------------------- |
-| `check-availability` | `--date`, `--duration` | Show available time slots |
+| Action                   | Args                                                      | Purpose                                              |
+| ------------------------ | --------------------------------------------------------- | ---------------------------------------------------- |
+| `check-availability`     | `--date`, `--duration`                                    | Show available time slots                            |
+| `list-booking-links`     |                                                           | List booking links                                   |
+| `create-booking-link`    | `--title`, `--slug`, `--duration`, optional `--durations` | Create a booking link                                |
+| `duplicate-booking-link` | `--sourceId` or `--sourceSlug`, `--copies`                | Duplicate one booking link into one or more variants |
+
+For booking-link creation or duplication, use the dedicated actions above. Do **not** use `db-exec` to insert `booking_links`; the actions handle IDs, ownership, slug collisions, JSON fields, and timestamps.
 
 ### Sharing
 

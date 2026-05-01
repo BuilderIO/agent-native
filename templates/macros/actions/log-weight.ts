@@ -7,7 +7,8 @@ import { db, schema } from "../server/db/index.js";
 import { z } from "zod";
 
 export default defineAction({
-  description: "Log a weight entry",
+  description:
+    "Log a weight entry. This action writes the weight row to the database and returns the saved row; after it succeeds, do not call db-schema, db-query, db-exec, docs-search, web-request/fetch, raw HTTP, or action HTTP endpoints to verify or insert the same weight.",
   schema: z.object({
     weight: z.coerce.number().describe("Weight in pounds"),
     date: z

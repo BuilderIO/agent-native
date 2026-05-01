@@ -24,9 +24,11 @@ import { tool as shellTool, run as shellRun } from "./shell.js";
 function wrapCliScript(
   tool: ActionTool,
   cliDefault: (args: string[]) => Promise<void>,
+  opts?: { readOnly?: boolean },
 ): ActionEntry {
   return {
     tool,
+    ...(opts?.readOnly ? { readOnly: true as const } : {}),
     run: async (args: Record<string, string>): Promise<string> => {
       const cliArgs: string[] = [];
       for (const [k, v] of Object.entries(args)) {
@@ -91,6 +93,7 @@ export async function createDevScriptRegistry(): Promise<
           },
         },
         dbSchema.default,
+        { readOnly: true },
       ),
       "db-query": wrapCliScript(
         {
@@ -114,6 +117,7 @@ export async function createDevScriptRegistry(): Promise<
           },
         },
         dbQuery.default,
+        { readOnly: true },
       ),
       "db-exec": wrapCliScript(
         {
@@ -207,6 +211,7 @@ export async function createDevScriptRegistry(): Promise<
           },
         },
         dbCheckScoping.default,
+        { readOnly: true },
       ),
     };
   } catch {
@@ -214,10 +219,14 @@ export async function createDevScriptRegistry(): Promise<
   }
 
   return {
-    "read-file": { tool: readFileTool, run: readFileRun },
+    "read-file": { tool: readFileTool, run: readFileRun, readOnly: true },
     "write-file": { tool: writeFileTool, run: writeFileRun },
-    "list-files": { tool: listFilesTool, run: listFilesRun },
-    "search-files": { tool: searchFilesTool, run: searchFilesRun },
+    "list-files": { tool: listFilesTool, run: listFilesRun, readOnly: true },
+    "search-files": {
+      tool: searchFilesTool,
+      run: searchFilesRun,
+      readOnly: true,
+    },
     shell: { tool: shellTool, run: shellRun },
     ...dbEntries,
   };

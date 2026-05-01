@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "dev": "pnpm --filter example dev",
+    "dev": "tsx scripts/workspace-dev.ts",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck"
   },
@@ -11,7 +11,9 @@
     "workspaceCore": "@{{APP_NAME}}/core-module"
   },
   "devDependencies": {
+    "@types/node": "^24.2.1",
     "prettier": "^3.6.2",
+    "tsx": "catalog:",
     "typescript": "^6.0.3"
   },
   "packageManager": "pnpm@10.14.0"

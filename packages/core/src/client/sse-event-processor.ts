@@ -1,5 +1,5 @@
 import type { ChatModelRunResult } from "@assistant-ui/react";
-import { formatChatErrorText } from "./error-format.js";
+import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 
 export type ContentPart =
   | { type: "text"; text: string }
@@ -29,10 +29,13 @@ export interface SSEEvent {
   preview?: string;
   currentStep?: string;
   summary?: string;
-  // Structured error metadata — Builder gateway sets these on 402/403 so the
-  // UI can render an upgrade CTA alongside the error text.
+  // Structured error metadata — Builder gateway sets these on quota/auth/setup
+  // failures so the UI can render a CTA alongside the error text.
   errorCode?: string;
   upgradeUrl?: string;
+  details?: string;
+  recoverable?: boolean;
+  maxIterations?: number;
 }
 
 /**
@@ -195,23 +198,39 @@ export function processEvent(
   }
 
   if (ev.type === "loop_limit") {
+    const maxIterations =
+      typeof ev.maxIterations === "number" ? ev.maxIterations : undefined;
     content.push({
       type: "text",
-      text: "I've reached the maximum number of steps for this response.",
+      text: maxIterations
+        ? `I reached the ${maxIterations}-step limit before finishing.`
+        : "I reached the step limit before finishing.",
     });
     if (typeof window !== "undefined") {
       window.dispatchEvent(
-        new CustomEvent("agent-chat:loop-limit", { detail: { tabId } }),
+        new CustomEvent("agent-chat:loop-limit", {
+          detail: { tabId, maxIterations },
+        }),
       );
     }
     return {
       action: "done",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: {
+        content: [...content],
+        metadata: {
+          custom: {
+            loopLimit: {
+              ...(maxIterations ? { maxIterations } : {}),
+            },
+          },
+        },
+      } as ChatModelRunResult,
     };
   }
 
   if (ev.type === "error") {
     const errMsg = ev.error ?? "Unknown error";
+    const normalized = normalizeChatError(errMsg);
     if (
       errMsg.includes("apiKey") ||
       errMsg.includes("authToken") ||
@@ -230,15 +249,31 @@ export function processEvent(
         } as ChatModelRunResult,
       };
     }
+    const runError = {
+      message: normalized.message,
+      ...(normalized.details || ev.details
+        ? { details: ev.details ?? normalized.details }
+        : {}),
+      ...(ev.errorCode ? { errorCode: ev.errorCode } : {}),
+      ...(ev.recoverable ? { recoverable: ev.recoverable } : {}),
+    };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: { ...runError, tabId },
+        }),
+      );
+    }
     content.push({
       type: "text",
-      text: formatChatErrorText(errMsg, ev.upgradeUrl),
+      text: formatChatErrorText(errMsg, ev.upgradeUrl, ev.errorCode),
     });
     return {
       action: "error",
       result: {
         content: [...content],
         status: { type: "incomplete" as const, reason: "error" as const },
+        metadata: { custom: { runError } },
       } as ChatModelRunResult,
     };
   }
@@ -274,8 +309,28 @@ export async function* readSSEStream(
   const decoder = new TextDecoder();
   let buf = "";
 
-  const withRunId = (r: ChatModelRunResult): ChatModelRunResult =>
-    runId ? { ...r, metadata: { ...r.metadata, custom: { runId } } } : r;
+  const withRunId = (r: ChatModelRunResult): ChatModelRunResult => {
+    if (!runId) return r;
+    const metadata = (r.metadata ?? {}) as Record<string, unknown>;
+    const custom =
+      metadata.custom && typeof metadata.custom === "object"
+        ? (metadata.custom as Record<string, unknown>)
+        : {};
+    const runError =
+      custom.runError && typeof custom.runError === "object"
+        ? {
+            ...(custom.runError as Record<string, unknown>),
+            runId,
+          }
+        : custom.runError;
+    return {
+      ...r,
+      metadata: {
+        ...metadata,
+        custom: { ...custom, runId, ...(runError ? { runError } : {}) },
+      },
+    };
+  };
 
   try {
     while (true) {
@@ -326,7 +381,28 @@ export async function* readSSEStream(
 
   // Stream ended without explicit done event
   if (content.length > 0) {
-    yield withRunId({ content: [...content] } as ChatModelRunResult);
+    const runError = {
+      message:
+        "The response stream ended before the agent sent a completion signal. You can continue from the partial work or retry.",
+      errorCode: "stream_ended",
+      recoverable: true,
+    };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: { ...runError, tabId },
+        }),
+      );
+    }
+    content.push({
+      type: "text",
+      text: `Error: ${runError.message}`,
+    });
+    yield withRunId({
+      content: [...content],
+      status: { type: "incomplete" as const, reason: "error" as const },
+      metadata: { custom: { runError } },
+    } as ChatModelRunResult);
   }
 }
 
@@ -395,5 +471,22 @@ export async function readSSEStreamRaw(
     }
   } finally {
     reader.releaseLock();
+  }
+  if (content.length > 0) {
+    const runError = {
+      message:
+        "The response stream ended before the agent sent a completion signal. You can continue from the partial work or retry.",
+      errorCode: "stream_ended",
+      recoverable: true,
+    };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: { ...runError, tabId },
+        }),
+      );
+    }
+    content.push({ type: "text", text: `Error: ${runError.message}` });
+    onUpdate([...content]);
   }
 }

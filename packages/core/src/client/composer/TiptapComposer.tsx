@@ -30,6 +30,8 @@ import {
   IconBolt,
   IconTool,
   IconX,
+  IconClipboardList,
+  IconPencil,
 } from "@tabler/icons-react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import type {
@@ -53,6 +55,8 @@ const BUILT_IN_COMMANDS: SlashCommand[] = [
   { name: "clear", description: "Start a new chat", icon: "clear" },
   { name: "new", description: "Start a new chat", icon: "new" },
   { name: "history", description: "Browse chat history", icon: "history" },
+  { name: "plan", description: "Switch to read-only planning", icon: "plan" },
+  { name: "act", description: "Switch back to acting", icon: "act" },
   { name: "help", description: "Show available commands", icon: "help" },
 ];
 
@@ -133,7 +137,7 @@ Use manage-automations with action=define to create it. Ask clarifying questions
     getContext: (prompt) =>
       `The user wants to create an interactive tool (mini app). Their description: "${prompt}"
 
-Use the create-tool action with Alpine.js HTML content. The tool runs as a sandboxed iframe with Tailwind CSS.
+Use the create-tool action with Alpine.js HTML content. The tool runs as a sandboxed iframe with Tailwind CSS and modest default canvas padding. For edge-to-edge layouts, put data-tool-layout="full-bleed" on the outermost element.
 
 After creating the tool, navigate the user to it with set-url-path using pathname "/tools/<id>".
 
@@ -210,14 +214,22 @@ function ModeSelector({
   onChange: (mode: ExecMode) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const ActiveIcon = mode === "build" ? IconPencil : IconClipboardList;
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <PopoverPrimitive.Trigger asChild>
         <button
           type="button"
-          className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50"
+          aria-label={mode === "build" ? "Act mode" : "Plan mode"}
+          title="Shift+Tab toggles Act and Plan"
+          className={`shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium hover:bg-accent/50 ${
+            mode === "plan"
+              ? "text-amber-700 dark:text-amber-300"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
         >
+          <ActiveIcon className="h-3.5 w-3.5" />
           {mode === "build" ? "Act" : "Plan"}
           <IconChevronDown className="h-3 w-3 opacity-60" />
         </button>
@@ -238,12 +250,13 @@ function ModeSelector({
             }}
             className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left"
           >
+            <IconPencil className="h-4 w-4 shrink-0 text-muted-foreground" />
             <div className="flex-1 min-w-0">
               <span className="font-medium text-foreground text-[13px]">
                 Act
               </span>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Generate and make edits directly
+                Use tools and make approved changes
               </p>
             </div>
             {mode === "build" && (
@@ -258,12 +271,13 @@ function ModeSelector({
             }}
             className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left"
           >
+            <IconClipboardList className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" />
             <div className="flex-1 min-w-0">
               <span className="font-medium text-foreground text-[13px]">
                 Plan
               </span>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Collaborate on an approach before taking action
+                Read-only research and approval first
               </p>
             </div>
             {mode === "plan" && (
@@ -720,7 +734,7 @@ export function TiptapComposer({
           }
         }
 
-        // Shift+Tab toggles build/plan mode
+        // Shift+Tab toggles Act/Plan mode
         if (event.key === "Tab" && event.shiftKey) {
           event.preventDefault();
           const current = execModeRef.current;

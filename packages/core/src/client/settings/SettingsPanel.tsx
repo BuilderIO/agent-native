@@ -27,6 +27,7 @@ import {
   IconKey,
   IconMicrophone,
   IconBolt,
+  IconGauge,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
@@ -160,9 +161,15 @@ function SettingsSelect({
 // refresh inline (no hard reload — that was racing with nitro's env-runner
 // restart and hitting React Router's error boundary).
 function DisconnectBuilderButton() {
+  const { status } = useBuilderStatus();
   const [phase, setPhase] = useState<"idle" | "armed" | "busy">("idle");
   const [err, setErr] = useState<string | null>(null);
   const armedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Env-managed: Builder identity comes from the deploy-level
+  // BUILDER_PRIVATE_KEY. Disconnection is operator-controlled (rotate / unset
+  // the env var); the per-user disconnect endpoint refuses with 409.
+  if (status?.envManaged) return null;
 
   const clearArmedTimer = useCallback(() => {
     if (armedTimerRef.current) {
@@ -311,6 +318,8 @@ function UseBuilderCard({
   subtitle?: string;
   dim?: boolean;
 }) {
+  const { status } = useBuilderStatus();
+  const envManaged = !!status?.envManaged;
   const bgClass = dim ? "" : "bg-accent/30";
 
   if (connected) {
@@ -328,20 +337,26 @@ function UseBuilderCard({
         {orgName && (
           <p className="text-[10px] text-muted-foreground mt-0.5">{orgName}</p>
         )}
-        <div className="flex items-center gap-2 mt-2.5">
-          {connectUrl && (
-            <a
-              href={connectUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
-            >
-              Reconnect
-              <IconExternalLink size={10} />
-            </a>
-          )}
-          <DisconnectBuilderButton />
-        </div>
+        {envManaged ? (
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Managed by deployment — applied to all users of this app.
+          </p>
+        ) : (
+          <div className="flex items-center gap-2 mt-2.5">
+            {connectUrl && (
+              <a
+                href={connectUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
+              >
+                Reconnect
+                <IconExternalLink size={10} />
+              </a>
+            )}
+            <DisconnectBuilderButton />
+          </div>
+        )}
       </div>
     );
   }
@@ -1033,7 +1048,7 @@ function EmailSectionInner({
     <SettingsSection
       icon={<IconMail size={14} />}
       title="Email"
-      subtitle="Send password resets and team invitations. Without a provider, emails are logged to the server console."
+      subtitle="Needed before deploy for password resets, team invitations, and share notifications. Local development can run without it."
       connected={!envLoaded ? undefined : anyConfigured}
       open={open}
       onToggle={onToggle}
@@ -1211,6 +1226,238 @@ function EmailSectionInner({
   );
 }
 
+// ─── Agent Limits Section ──────────────────────────────────────────────────
+
+interface AgentLoopSettingsResponse {
+  maxIterations: number;
+  defaultMaxIterations: number;
+  minMaxIterations: number;
+  maxMaxIterations: number;
+  scope: "org" | "user" | "default";
+  source: "org" | "user" | "env" | "default";
+  canUpdate: boolean;
+  orgName?: string | null;
+  role?: string | null;
+}
+
+function AgentLimitsSectionInner({
+  open,
+  onToggle,
+}: {
+  open?: boolean;
+  onToggle?: () => void;
+}) {
+  const [settings, setSettings] = useState<AgentLoopSettingsResponse | null>(
+    null,
+  );
+  const [value, setValue] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(agentNativePath("/_agent-native/agent-loop-settings"))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: AgentLoopSettingsResponse | null) => {
+        if (cancelled || !data) return;
+        setSettings(data);
+        setValue(String(data.maxIterations));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => load(), [load]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | AgentLoopSettingsResponse
+        | undefined;
+      if (!detail?.maxIterations) return;
+      setSettings(detail);
+      setValue(String(detail.maxIterations));
+    };
+    window.addEventListener("agent-loop-settings:changed", handler);
+    return () =>
+      window.removeEventListener("agent-loop-settings:changed", handler);
+  }, []);
+
+  const numericValue = Number(value);
+  const hasPendingChange =
+    !!settings &&
+    settings.canUpdate &&
+    Number.isInteger(numericValue) &&
+    numericValue !== settings.maxIterations;
+  const scopeLabel =
+    settings?.scope === "org"
+      ? settings.orgName
+        ? `${settings.orgName} organization`
+        : "organization"
+      : "your account";
+
+  const save = async () => {
+    if (!settings?.canUpdate) return;
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      const res = await fetch(
+        agentNativePath("/_agent-native/agent-loop-settings"),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ maxIterations: numericValue }),
+        },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body?.error ?? `Save failed (${res.status})`);
+      }
+      setSettings(body as AgentLoopSettingsResponse);
+      setValue(String((body as AgentLoopSettingsResponse).maxIterations));
+      setSaved(true);
+      window.dispatchEvent(
+        new CustomEvent("agent-loop-settings:changed", { detail: body }),
+      );
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reset = async () => {
+    if (!settings?.canUpdate) return;
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      const res = await fetch(
+        agentNativePath("/_agent-native/agent-loop-settings"),
+        { method: "DELETE" },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body?.error ?? `Reset failed (${res.status})`);
+      }
+      setSettings(body as AgentLoopSettingsResponse);
+      setValue(String((body as AgentLoopSettingsResponse).maxIterations));
+      window.dispatchEvent(
+        new CustomEvent("agent-loop-settings:changed", { detail: body }),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reset failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SettingsSection
+      icon={<IconGauge size={14} />}
+      title="Agent Limits"
+      subtitle="Control how long a single agent response can work before pausing."
+      connected={
+        loading
+          ? undefined
+          : settings
+            ? settings.maxIterations !== settings.defaultMaxIterations
+            : false
+      }
+      open={open}
+      onToggle={onToggle}
+    >
+      {loading ? (
+        <SettingsSkeleton lines={2} />
+      ) : settings ? (
+        <div className="space-y-2">
+          <div className="rounded-md border border-border px-2.5 py-2 bg-accent/20">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-[11px] font-medium text-foreground">
+                  Max iterations
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  Applies to {scopeLabel}. Default is{" "}
+                  {settings.defaultMaxIterations.toLocaleString()}.
+                </p>
+              </div>
+              <span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {settings.source}
+              </span>
+            </div>
+            <div className="mt-2 flex items-center gap-1.5">
+              <input
+                type="number"
+                min={settings.minMaxIterations}
+                max={settings.maxMaxIterations}
+                value={value}
+                disabled={!settings.canUpdate || saving}
+                onChange={(e) => {
+                  setValue(e.target.value);
+                  setError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && hasPendingChange) void save();
+                }}
+                className="h-8 min-w-0 flex-1 rounded border border-border bg-background px-2 text-[11px] text-foreground outline-none focus:ring-1 focus:ring-accent disabled:opacity-60"
+              />
+              <button
+                type="button"
+                onClick={save}
+                disabled={!hasPendingChange || saving}
+                className="inline-flex h-8 items-center gap-1 rounded bg-accent px-2.5 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+              >
+                {saving ? (
+                  <IconLoader2 size={10} className="animate-spin" />
+                ) : saved ? (
+                  <IconCheck size={10} />
+                ) : (
+                  "Save"
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={reset}
+                disabled={
+                  !settings.canUpdate ||
+                  saving ||
+                  settings.maxIterations === settings.defaultMaxIterations
+                }
+                className="h-8 rounded border border-border px-2.5 text-[10px] font-medium text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:opacity-40"
+              >
+                Reset
+              </button>
+            </div>
+            {!settings.canUpdate && (
+              <p className="mt-2 text-[10px] text-muted-foreground">
+                Only organization owners and admins can change this limit.
+              </p>
+            )}
+            {error && (
+              <p className="mt-2 text-[10px] text-destructive">{error}</p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <p className="text-[10px] text-muted-foreground">
+          Agent limit settings are unavailable.
+        </p>
+      )}
+    </SettingsSection>
+  );
+}
+
 // ─── Main SettingsPanel ─────────────────────────────────────────────────────
 
 export interface SettingsPanelProps {
@@ -1265,6 +1512,12 @@ export function SettingsPanel({
         setOpenSection("secrets");
         const key = hash.slice("secrets:".length);
         setFocusSecretKey(key || undefined);
+      } else if (
+        hash === "agent-limits" ||
+        hash === "limits" ||
+        hash === "loop-settings"
+      ) {
+        setOpenSection("limits");
       }
     };
     handleHash();
@@ -1316,6 +1569,12 @@ export function SettingsPanel({
         orgName={orgName}
         open={openSection === "llm"}
         onToggle={() => toggle("llm")}
+      />
+
+      {/* Agent limits */}
+      <AgentLimitsSectionInner
+        open={openSection === "limits"}
+        onToggle={() => toggle("limits")}
       />
 
       {/* Voice transcription */}

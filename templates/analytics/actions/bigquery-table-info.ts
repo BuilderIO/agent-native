@@ -22,7 +22,7 @@ const TABLE_INFO = `## BigQuery Tables
 - Signup → Subscription: signups.root_organization_id = dim_subscriptions.root_id
 - Contact → Deal: use dbt_intermediate.deal_first_contact, or lifecycle stage dates on dim_hs_contacts
 
-## Use @app_events as placeholder for the main events table (your-gcp-project-id.analytics.events_partitioned).
+## Use @app_events as placeholder for the main events table. Use @project for other fully-qualified tables, for example \`@project.analytics.events_partitioned\`.
 
 ## SQL Tips
 

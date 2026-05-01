@@ -7,7 +7,8 @@ import { db, schema } from "../server/db/index.js";
 import { z } from "zod";
 
 export default defineAction({
-  description: "Log an exercise with calories burned",
+  description:
+    "Log an exercise with calories burned. This action writes the exercise row to the database and returns the saved row; after it succeeds, do not call db-schema, db-query, db-exec, docs-search, web-request/fetch, raw HTTP, or action HTTP endpoints to verify or insert the same exercise.",
   schema: z.object({
     name: z.string().min(1).describe("Exercise name"),
     calories_burned: z.coerce.number().optional().describe("Calories burned"),

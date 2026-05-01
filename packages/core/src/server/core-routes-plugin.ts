@@ -18,7 +18,9 @@ import {
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
+  getBuilderBranchProjectId,
   getBuilderBrowserStatusForEvent,
+  isBuilderBranchingEnabled,
   resolveSafePreviewUrl,
   runBuilderAgent,
 } from "./builder-browser.js";
@@ -66,12 +68,20 @@ import { runWithRequestContext } from "./request-context.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import {
+  canUpdateAgentLoopSettings,
+  readAgentLoopSettings,
+  resetAgentLoopSettings,
+  validateMaxIterationsInput,
+  writeAgentLoopSettings,
+} from "../agent/loop-settings.js";
+import {
   isAgentEngineSettingConfigured,
   getAgentEngineEntry,
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
   isStoredEngineUsable,
 } from "../agent/engine/registry.js";
+import { getOrgContext } from "../org/context.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -428,16 +438,19 @@ export function createCoreRoutesPlugin(
       `${P}/builder/status`,
       defineEventHandler(async (event) => {
         const envStatus = getBuilderBrowserStatusForEvent(event);
-        // Read session once so we can establish per-user request context for
-        // credential resolution. Without this, resolveBuilderCredentials()
-        // calls getRequestUserEmail() on an empty AsyncLocalStorage store and
-        // falls through to process.env — causing the connection state to
-        // flicker between requests depending on stale env values.
         const session = await getSession(event).catch(() => null);
         const userEmail = session?.email;
 
+        // Env-managed mode: BUILDER_PRIVATE_KEY is set at the deployment
+        // level, so every user shares the operator's Builder identity.
+        // Skip per-user lookups entirely — the env key is authoritative
+        // and the UI must hide the connect/disconnect controls.
+        if (envStatus.envManaged) {
+          return envStatus;
+        }
+
         return runWithRequestContext({ userEmail }, async () => {
-          // Check per-user credentials first (stored in app_secrets).
+          // Per-user OAuth mode: read the user's app_secrets-stored creds.
           try {
             const { resolveBuilderCredentials } =
               await import("./credential-provider.js");
@@ -486,7 +499,7 @@ export function createCoreRoutesPlugin(
               }
             }
           } catch {
-            // settings store unavailable — fall through to legacy/env status
+            // settings store unavailable — fall through
           }
           // Honor legacy disconnect flag for existing deployments.
           try {
@@ -503,25 +516,20 @@ export function createCoreRoutesPlugin(
               };
             }
           } catch {
-            // DB not reachable — fall back to env-only status.
+            // DB not reachable
           }
-          // For authenticated non-local users who have no per-user credentials,
-          // explicitly return not-configured rather than deploy-level env keys.
-          // This is consistent with resolveBuilderCredential()'s design which
-          // refuses the env fallback for authenticated users to prevent
-          // cross-tenant credential leakage in shared-DB deployments.
-          if (userEmail && userEmail !== DEV_MODE_USER_EMAIL) {
-            return {
-              ...envStatus,
-              configured: false,
-              privateKeyConfigured: false,
-              publicKeyConfigured: false,
-              userId: undefined,
-              orgName: undefined,
-              orgKind: undefined,
-            };
-          }
-          return envStatus;
+          // No env, no per-user creds → not configured. Both authenticated
+          // and unauthenticated callers see "not connected" so they can
+          // run through the OAuth flow.
+          return {
+            ...envStatus,
+            configured: false,
+            privateKeyConfigured: false,
+            publicKeyConfigured: false,
+            userId: undefined,
+            orgName: undefined,
+            orgKind: undefined,
+          };
         });
       }),
     );
@@ -593,6 +601,22 @@ export function createCoreRoutesPlugin(
           return { error: "Authentication required" };
         }
 
+        // Env-managed mode: per-user OAuth is disabled because the operator
+        // already provided a deploy-level Builder identity. Reject the
+        // connect attempt — any per-user keys we wrote would be ignored
+        // by the resolver, so completing the OAuth flow would be a no-op
+        // that misleads the user about the resulting connection state.
+        const { isBuilderEnvManaged } =
+          await import("./credential-provider.js");
+        if (isBuilderEnvManaged()) {
+          setResponseStatus(event, 409);
+          return {
+            error:
+              "Builder is managed by the deployment (BUILDER_PRIVATE_KEY is set). Per-user connect is disabled.",
+            envManaged: true,
+          };
+        }
+
         // Same-origin gate. Sec-Fetch-Site is the primary signal; fall
         // back to Origin/Referer for older browsers. Reject any context
         // that isn't this exact app's origin — including same-site
@@ -658,10 +682,6 @@ export function createCoreRoutesPlugin(
       }),
     );
 
-    // Hardcoded for the early preview — later this will come from workspace/org
-    // config so each team can point at its own Builder project.
-    const DEFAULT_BUILDER_PROJECT_ID = "274d28fec94b48f2b2d68f2274d390eb";
-
     getH3App(nitroApp).use(
       `${P}/builder/run`,
       defineEventHandler(async (event: H3Event) => {
@@ -695,6 +715,13 @@ export function createCoreRoutesPlugin(
           return { error: "A signed-in user is required to run Builder" };
         }
         const userEmail = session.email;
+        if (!isBuilderBranchingEnabled()) {
+          setResponseStatus(event, 403);
+          return {
+            error:
+              "Builder branch creation is not enabled for this deployment. Set ENABLE_BUILDER=true or BUILDER_BRANCH_PROJECT_ID.",
+          };
+        }
         // Wrap in runWithRequestContext so resolveBuilderCredential() inside
         // runBuilderAgent() resolves per-user app_secrets rather than falling
         // through to process.env — the same pattern the /builder/status endpoint
@@ -713,7 +740,7 @@ export function createCoreRoutesPlugin(
           try {
             const result = await runBuilderAgent({
               prompt,
-              projectId: DEFAULT_BUILDER_PROJECT_ID,
+              projectId: getBuilderBranchProjectId(),
               branchName:
                 typeof body?.branchName === "string"
                   ? body.branchName
@@ -941,12 +968,11 @@ export function createCoreRoutesPlugin(
       }),
     );
 
-    // POST /_agent-native/builder/disconnect — revoke the stored Builder
-    // credentials so the next turn falls back to BYO / env detection. Mirrors
-    // the callback handler's three write locations: the template `.env` file,
-    // the in-process `process.env`, and the `persisted-env-vars` settings row
-    // (rehydrated on serverless cold starts). All three must be cleared to
-    // avoid a "still connected after disconnect" state on restart.
+    // POST /_agent-native/builder/disconnect — revoke the user's per-user
+    // Builder credentials in app_secrets. In env-managed mode (deploy-level
+    // BUILDER_PRIVATE_KEY set) disconnection is operator-controlled — this
+    // endpoint refuses with 409 so a stale UI button can't pretend to
+    // disconnect a deploy-level identity it doesn't own.
     getH3App(nitroApp).use(
       `${P}/builder/disconnect`,
       defineEventHandler(async (event: H3Event) => {
@@ -960,10 +986,20 @@ export function createCoreRoutesPlugin(
           return { error: "unauthorized" };
         }
 
+        const { isBuilderEnvManaged, deleteBuilderCredentials } =
+          await import("./credential-provider.js");
+        if (isBuilderEnvManaged()) {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            error:
+              "Builder is managed by deploy-level BUILDER_PRIVATE_KEY. To disconnect, the operator must remove the env var.",
+            envManaged: true,
+          };
+        }
+
         // Delete per-user Builder credentials from app_secrets.
         try {
-          const { deleteBuilderCredentials } =
-            await import("./credential-provider.js");
           await deleteBuilderCredentials(session.email);
         } catch (err) {
           trackBuilderLifecycle("builder disconnect failed", session.email, {
@@ -1292,6 +1328,90 @@ export function createCoreRoutesPlugin(
             error: err instanceof Error ? err.message : String(err),
           };
         }
+      }),
+    );
+
+    // GET/PUT/DELETE /_agent-native/agent-loop-settings — org/user-scoped
+    // ceiling for tool-calling loop iterations before the agent asks whether
+    // it should keep going.
+    getH3App(nitroApp).use(
+      `${P}/agent-loop-settings`,
+      defineEventHandler(async (event: H3Event) => {
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "unauthorized" };
+        }
+
+        const orgCtx = await getOrgContext(event).catch(() => null);
+        const orgId = orgCtx?.orgId ?? session.orgId ?? null;
+        const ctx = { userEmail: session.email, orgId };
+        const canUpdate = await canUpdateAgentLoopSettings(
+          session.email,
+          orgId,
+        );
+
+        const withContext = async () => ({
+          ...(await readAgentLoopSettings(ctx)),
+          canUpdate,
+          orgId,
+          orgName: orgCtx?.orgName ?? null,
+          role: orgCtx?.role ?? null,
+        });
+
+        const method = getMethod(event);
+        if (method === "GET") {
+          return withContext();
+        }
+
+        if (method === "PUT") {
+          if (!canUpdate) {
+            setResponseStatus(event, 403);
+            return {
+              error: orgId
+                ? "Only organization owners and admins can change the agent step limit."
+                : "You cannot change the agent step limit.",
+            };
+          }
+          const body = await readBody(event).catch(() => ({}));
+          const validation = validateMaxIterationsInput(
+            (body as any)?.maxIterations,
+          );
+          if (validation.ok === false) {
+            setResponseStatus(event, 400);
+            return { error: validation.error };
+          }
+          const updated = await writeAgentLoopSettings(ctx, validation.value);
+          return {
+            ...updated,
+            canUpdate,
+            orgId,
+            orgName: orgCtx?.orgName ?? null,
+            role: orgCtx?.role ?? null,
+          };
+        }
+
+        if (method === "DELETE") {
+          if (!canUpdate) {
+            setResponseStatus(event, 403);
+            return {
+              error: orgId
+                ? "Only organization owners and admins can reset the agent step limit."
+                : "You cannot reset the agent step limit.",
+            };
+          }
+          const updated = await resetAgentLoopSettings(ctx);
+          return {
+            ...updated,
+            canUpdate,
+            orgId,
+            orgName: orgCtx?.orgName ?? null,
+            role: orgCtx?.role ?? null,
+          };
+        }
+
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
       }),
     );
 

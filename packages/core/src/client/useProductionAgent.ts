@@ -191,6 +191,7 @@ export function useProductionAgent(
                 const fallbackContent = formatChatErrorText(
                   ev.error ?? "Unknown error",
                   ev.upgradeUrl,
+                  ev.errorCode,
                 );
                 setMessages((prev) =>
                   prev.map((m) =>

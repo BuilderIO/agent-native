@@ -17,6 +17,7 @@ import {
   listGrants,
   listRequests,
 } from "../server/lib/vault-store.js";
+import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
 
 export default defineAction({
   description:
@@ -42,7 +43,10 @@ export default defineAction({
     if (navigation?.view === "destinations") {
       screen.recentDestinations = overview.recentDestinations;
     }
-    if (navigation?.view === "vault") {
+    if (navigation?.view === "apps" || navigation?.view === "new-app") {
+      screen.workspaceApps = await listWorkspaceApps();
+    }
+    if (navigation?.view === "vault" || navigation?.view === "new-app") {
       const [secrets, grants, requests] = await Promise.all([
         listSecrets(),
         listGrants(),

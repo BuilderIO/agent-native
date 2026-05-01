@@ -181,6 +181,18 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("text/html")) {
+      const rawText = await response.text().catch(() => "");
+      yield {
+        type: "stop",
+        reason: "error",
+        error: normalizeGatewayErrorText(rawText, response.status || 502),
+        errorCode: `http_${response.status || 502}`,
+      };
+      return;
+    }
+
     const reader = response.body?.getReader();
     if (!reader) {
       yield {
@@ -207,7 +219,7 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     try {
       errBody = JSON.parse(rawText) as GatewayErrorBody;
     } catch {
-      errBody.message = rawText;
+      errBody.message = normalizeGatewayErrorText(rawText, status);
     }
   }
   const code = errBody.code ?? `http_${status}`;
@@ -329,10 +341,15 @@ async function* parseJsonlStream(
       try {
         event = JSON.parse(line);
       } catch {
+        const normalized = normalizeGatewayErrorText(line, 502);
         yield {
           type: "stop",
           reason: "error",
-          error: `Builder gateway emitted invalid JSONL: ${line}`,
+          error: `Builder gateway returned invalid JSONL: ${normalized.slice(
+            0,
+            240,
+          )}`,
+          errorCode: "http_502",
         };
         return;
       }
@@ -477,6 +494,38 @@ async function* parseJsonlStream(
       // Already cancelled or closed
     }
   }
+}
+
+function normalizeGatewayErrorText(raw: string, status: number): string {
+  const text = raw.trim();
+  const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(text);
+  const readable = looksHtml ? htmlToText(text) : text;
+  if (/inactivity timeout/i.test(readable)) {
+    return `Builder gateway returned ${status}: Inactivity Timeout. The upstream connection was idle too long before sending data.`;
+  }
+  if (looksHtml) {
+    return `Builder gateway returned ${status}: ${readable.slice(0, 240)}`;
+  }
+  return readable;
+}
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h1|h2|h3|li|tr)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function createBuilderEngine(

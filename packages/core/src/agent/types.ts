@@ -65,6 +65,8 @@ export interface AgentChatRequest {
   references?: AgentChatReference[];
   threadId?: string;
   attachments?: AgentChatAttachment[];
+  /** Execution mode for this turn. Plan mode is read-only and proposes before acting. */
+  mode?: "act" | "plan";
   /** Per-request model override (ephemeral, from the composer model picker). */
   model?: string;
   /** Per-request engine override (sent alongside model for cross-provider switches). */
@@ -113,9 +115,13 @@ export type AgentChatEvent =
       errorCode?: string;
       /** Optional link paired with errorCode — e.g. Builder billing page. */
       upgradeUrl?: string;
+      /** Optional details for expandable UI/debugging. */
+      details?: string;
+      /** True when the user can reasonably continue/retry from partial work. */
+      recoverable?: boolean;
     }
   | { type: "missing_api_key" }
-  | { type: "loop_limit" }
+  | { type: "loop_limit"; maxIterations?: number }
   | { type: "clear" };
 
 export interface RunEvent {
@@ -123,4 +129,4 @@ export interface RunEvent {
   event: AgentChatEvent;
 }
 
-export type RunStatus = "running" | "completed" | "errored";
+export type RunStatus = "running" | "completed" | "errored" | "aborted";

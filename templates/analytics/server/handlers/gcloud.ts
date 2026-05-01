@@ -1,5 +1,5 @@
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
-import { requireCredential, resolveCredential } from "../lib/credentials";
+import { requireCredential } from "../lib/credentials";
 import { withRequestContextFromEvent } from "../lib/credentials";
 import {
   listCloudRunServices,
@@ -7,10 +7,6 @@ import {
   getServiceMetrics,
   listLogEntries,
 } from "../lib/gcloud";
-
-// Known Cloud Run services to show as fallback when service listing is denied.
-// Replace these with your own Cloud Run service names.
-const KNOWN_CLOUD_RUN_SERVICES = ["api-service", "web-app", "worker"];
 
 export const handleGCloudServices = defineEventHandler(async (event) => {
   const missing = await requireCredential(
@@ -20,7 +16,7 @@ export const handleGCloudServices = defineEventHandler(async (event) => {
   );
   if (missing) return missing;
 
-  const result = await withRequestContextFromEvent(event, async (ctx) => {
+  const result = await withRequestContextFromEvent(event, async () => {
     try {
       const [cloudRun, cloudFunctions] = await Promise.all([
         listCloudRunServices(),
@@ -39,27 +35,13 @@ export const handleGCloudServices = defineEventHandler(async (event) => {
         err.message?.includes("denied");
 
       if (isPermissionDenied) {
-        // Return known services as fallback
-        const projectId =
-          (await resolveCredential("BIGQUERY_PROJECT_ID", ctx)) ||
-          "your-gcp-project-id";
-        const knownCloudRun = KNOWN_CLOUD_RUN_SERVICES.map((name) => ({
-          name: `projects/${projectId}/locations/us-central1/services/${name}`,
-          uid: "",
-          displayName: name,
-          uri: "",
-          region: "us-central1",
-          createTime: "",
-          updateTime: "",
-        }));
         return {
-          cloudRun: knownCloudRun,
+          cloudRun: [],
           cloudFunctions: [],
-          totalCloudRun: knownCloudRun.length,
+          totalCloudRun: 0,
           totalCloudFunctions: 0,
           permissionWarning:
-            "Service listing permission denied. Showing known services. " +
-            "Grant the service account 'run.viewer' and 'cloudfunctions.viewer' roles for full discovery.",
+            "Service listing permission denied. Grant the service account 'run.viewer' and 'cloudfunctions.viewer' roles for discovery.",
         };
       }
 

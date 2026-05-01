@@ -138,8 +138,11 @@ export const handleGitHubOrgPRs = defineEventHandler(async (event) => {
         state: stateParam,
         limit: limitParam,
       } = getQuery(event);
-      const org =
-        (orgParam as string) ?? (process.env.GITHUB_ORG || "your-org");
+      const org = orgParam as string | undefined;
+      if (!org) {
+        setResponseStatus(event, 400);
+        return { error: "org query parameter is required" };
+      }
       const query = queryParam as string | undefined;
       const state = stateParam as "OPEN" | "CLOSED" | "MERGED" | undefined;
       const limit = limitParam ? parseInt(limitParam as string) : 30;

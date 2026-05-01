@@ -116,7 +116,9 @@ async function createWorkspaceInteractive(
   const templates =
     preselected.length > 0
       ? preselected
-      : await promptTemplatePicker(preselected, clack);
+      : await promptTemplatePicker(preselected, clack, {
+          defaultTemplates: ["starter", "dispatch"],
+        });
   if (templates.length === 0) {
     clack.cancel("No apps selected. Cancelled.");
     process.exit(0);
@@ -136,7 +138,7 @@ async function createWorkspaceInteractive(
   try {
     await scaffoldWorkspaceRoot(targetDir, name);
     const workspaceCoreName = `@${name}/core-module`;
-    updateWorkspaceDevScript(targetDir, firstApp);
+    ensureWorkspaceGatewayDevScript(targetDir);
 
     for (const t of templates) {
       const appDir = path.join(targetDir, "apps", t);
@@ -145,11 +147,13 @@ async function createWorkspaceInteractive(
       workspacifyApp({
         appDir,
         appName: t,
+        templateName: t,
         workspaceRoot: targetDir,
         workspaceCoreName,
         coreDependencyVersion: getCoreDependencyVersion(),
       });
       fixPackageJsonName(appDir, t);
+      rewriteNetlifyToml(appDir, t, "workspace");
       renameGitignore(appDir);
       // Each app owns its own .claude / .agents symlinks.
       setupAgentSymlinks(appDir);
@@ -172,7 +176,7 @@ async function createWorkspaceInteractive(
       ``,
       `  cd ${name}`,
       `  pnpm install`,
-      `  pnpm --filter ${firstApp} dev`,
+      `  pnpm dev`,
       ``,
       `Add another app later:  agent-native add-app`,
       `Deploy the whole workspace:  agent-native deploy`,
@@ -301,11 +305,13 @@ async function scaffoldOneAppIntoWorkspace(
     workspacifyApp({
       appDir,
       appName,
+      templateName,
       workspaceRoot: workspace.workspaceRoot,
       workspaceCoreName: workspace.workspaceCoreName,
       coreDependencyVersion: getCoreDependencyVersion(),
     });
     fixPackageJsonName(appDir, appName);
+    rewriteNetlifyToml(appDir, appName, "workspace");
     renameGitignore(appDir);
     setupAgentSymlinks(appDir);
     await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
@@ -316,7 +322,16 @@ async function scaffoldOneAppIntoWorkspace(
     process.exit(1);
   }
 
-  clack.outro(`Done!\n\n  pnpm install\n  pnpm --filter ${appName} dev`);
+  clack.outro(
+    [
+      `Done!`,
+      ``,
+      `  pnpm install`,
+      `  pnpm dev`,
+      ``,
+      `The workspace gateway will detect apps/${appName} and serve it at /${appName}.`,
+    ].join("\n"),
+  );
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -564,6 +579,7 @@ function postProcessStandalone(name: string, targetDir: string): void {
   const appTitle = titleCase(name);
   replacePlaceholders(targetDir, name, appTitle);
   fixPackageJsonName(targetDir, name);
+  rewriteNetlifyToml(targetDir, name, "standalone");
 
   for (const base of ["learnings"]) {
     const defaultsFile = path.join(targetDir, `${base}.defaults.md`);
@@ -669,7 +685,11 @@ async function promptNameIfMissing(
 async function promptTemplatePicker(
   preselected: string[],
   clack: typeof import("@clack/prompts"),
-  opts?: { excludeNames?: string[]; message?: string },
+  opts?: {
+    defaultTemplates?: string[];
+    excludeNames?: string[];
+    message?: string;
+  },
 ): Promise<string[]> {
   const excluded = new Set(opts?.excludeNames ?? []);
   const options = starterFirst(coreTemplates())
@@ -689,9 +709,13 @@ async function promptTemplatePicker(
   const defaults =
     preselected.length > 0
       ? preselected.filter((p) => options.some((o) => o.value === p))
-      : options.some((o) => o.value === "starter")
-        ? ["starter"]
-        : [];
+      : opts?.defaultTemplates
+        ? opts.defaultTemplates.filter((p) =>
+            options.some((o) => o.value === p),
+          )
+        : options.some((o) => o.value === "starter")
+          ? ["starter"]
+          : [];
 
   const baseMessage = opts?.message ?? "Which apps would you like to include?";
   const result = await clack.multiselect({
@@ -945,17 +969,47 @@ function rewriteCoreDependencyVersions(projectDir: string): void {
   } catch {}
 }
 
-function updateWorkspaceDevScript(
-  workspaceRoot: string,
-  appName: string,
-): void {
+function ensureWorkspaceGatewayDevScript(workspaceRoot: string): void {
   const pkgPath = path.join(workspaceRoot, "package.json");
   if (!fs.existsSync(pkgPath)) return;
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     pkg.scripts = pkg.scripts ?? {};
-    pkg.scripts.dev = `pnpm --filter ${appName} dev`;
+    pkg.scripts.dev = "tsx scripts/workspace-dev.ts";
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  } catch {}
+}
+
+function rewriteNetlifyToml(
+  appDir: string,
+  appName: string,
+  mode: "standalone" | "workspace",
+): void {
+  const netlifyPath = path.join(appDir, "netlify.toml");
+  if (!fs.existsSync(netlifyPath)) return;
+
+  try {
+    let content = fs.readFileSync(netlifyPath, "utf-8");
+    const buildCommand =
+      mode === "workspace" ? `pnpm --filter ${appName} build` : "pnpm build";
+    const publishPath = mode === "workspace" ? `apps/${appName}/dist` : "dist";
+    const functionsPath =
+      mode === "workspace"
+        ? `apps/${appName}/.netlify/functions-internal`
+        : ".netlify/functions-internal";
+
+    content = content
+      .replace(/pnpm --filter [^ ]+ build/g, buildCommand)
+      .replace(
+        /publish = "templates\/[^"]+\/dist"/g,
+        `publish = "${publishPath}"`,
+      )
+      .replace(
+        /functions = "templates\/[^"]+\/\.netlify\/functions-internal"/g,
+        `functions = "${functionsPath}"`,
+      );
+
+    fs.writeFileSync(netlifyPath, content);
   } catch {}
 }
 
