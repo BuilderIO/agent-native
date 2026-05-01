@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
-import { putUserSetting, putSetting } from "@agent-native/core/settings";
+import { putUserSetting } from "@agent-native/core/settings";
 import type { AvailabilityConfig } from "../shared/api.js";
 import {
   ensureBookingUsername,
@@ -53,7 +53,6 @@ export default defineAction({
     };
     const configRecord = config as unknown as Record<string, unknown>;
     await putUserSetting(email, "calendar-availability", configRecord);
-    await putSetting("calendar-availability", configRecord);
     return config;
   },
 });

@@ -74,7 +74,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
+import { VisibilityBadge } from "@agent-native/core/client";
 import {
   useBookingLinks,
   useCreateBookingLink,
@@ -222,6 +222,7 @@ export default function BookingLinksPage({
     slugManuallyEdited: false,
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [customDurationInput, setCustomDurationInput] = useState("");
 
   // Availability state
   const { data: availability } = useAvailability();
@@ -361,6 +362,7 @@ export default function BookingLinksPage({
     });
     // Show advanced section if link has a description or custom slug
     setShowAdvanced(!!selectedLink.description);
+    setCustomDurationInput("");
   }, [selectedLink]);
 
   const bookingUsername = availability?.bookingUsername;
@@ -452,6 +454,21 @@ export default function BookingLinksPage({
     }
   }
 
+  function addCustomDuration() {
+    const minutes = Number.parseInt(customDurationInput, 10);
+    if (!Number.isFinite(minutes) || minutes < 5 || minutes > 480) {
+      toast.error("Enter a duration between 5 and 480 minutes");
+      return;
+    }
+    setDraft((prev) => {
+      const next = Array.from(new Set([...prev.durations, minutes])).sort(
+        (a, b) => a - b,
+      );
+      return { ...prev, durations: next, duration: next[0] };
+    });
+    setCustomDurationInput("");
+  }
+
   async function copyPreviewUrl(slug: string) {
     await navigator.clipboard.writeText(getBookingUrl(slug));
     toast.success("Booking link copied");
@@ -470,9 +487,9 @@ export default function BookingLinksPage({
   // If a link is selected, show the detail/edit view
   if (selectedId) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:p-6">
+      <div className="mx-auto max-w-6xl space-y-6 px-4 py-4 sm:p-5">
         {/* Top bar: back + save */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between border-b border-border/60 pb-4">
           <button
             type="button"
             onClick={() => navigate("/booking-links")}
@@ -483,11 +500,6 @@ export default function BookingLinksPage({
           </button>
           {selectedLink && (
             <div className="flex items-center gap-2">
-              <ShareButton
-                resourceType="booking-link"
-                resourceId={selectedLink.id}
-                resourceTitle={selectedLink.title}
-              />
               <Button
                 type="button"
                 onClick={handleSave}
@@ -612,6 +624,67 @@ export default function BookingLinksPage({
                         </button>
                       );
                     })}
+                    {draft.durations
+                      .filter((minutes) => !DURATION_PRESETS.includes(minutes))
+                      .map((minutes) => {
+                        const isSelected = draft.durations.includes(minutes);
+                        return (
+                          <button
+                            key={minutes}
+                            type="button"
+                            onClick={() =>
+                              setDraft((prev) => {
+                                if (prev.durations.length === 1) return prev;
+                                const next = prev.durations.filter(
+                                  (d) => d !== minutes,
+                                );
+                                return {
+                                  ...prev,
+                                  durations: next,
+                                  duration: next[0],
+                                };
+                              })
+                            }
+                            className={cn(
+                              "rounded-full border px-3 py-1.5 text-sm",
+                              isSelected
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                            )}
+                          >
+                            {minutes} min
+                          </button>
+                        );
+                      })}
+                  </div>
+                  <div className="flex max-w-xs items-center gap-2">
+                    <Input
+                      type="number"
+                      min={5}
+                      max={480}
+                      step={5}
+                      value={customDurationInput}
+                      onChange={(e) => setCustomDurationInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addCustomDuration();
+                        }
+                      }}
+                      placeholder="Custom minutes"
+                      className="h-9"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={addCustomDuration}
+                      disabled={!customDurationInput.trim()}
+                      className="shrink-0 gap-1.5"
+                    >
+                      <IconPlus className="h-3.5 w-3.5" />
+                      Add
+                    </Button>
                   </div>
                   {draft.durations.length > 1 && (
                     <p className="text-xs text-muted-foreground">
