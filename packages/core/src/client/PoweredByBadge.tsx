@@ -92,6 +92,17 @@ export function PoweredByBadge({
             display: block;
           }
         }
+        .light .an-powered-badge {
+          background: rgba(0, 0, 0, 0.05) !important;
+          border-color: rgba(0, 0, 0, 0.06) !important;
+          color: rgba(150, 150, 150, 0.9) !important;
+        }
+        .light .an-powered-logo-light {
+          display: block;
+        }
+        .light .an-powered-logo-dark {
+          display: none;
+        }
         .an-powered-badge:hover {
           opacity: 1 !important;
           color: rgba(100, 100, 100, 1) !important;
@@ -100,6 +111,12 @@ export function PoweredByBadge({
           .an-powered-badge:hover {
             color: rgba(220, 220, 220, 1) !important;
           }
+        }
+        .dark .an-powered-badge:hover {
+          color: rgba(220, 220, 220, 1) !important;
+        }
+        .light .an-powered-badge:hover {
+          color: rgba(100, 100, 100, 1) !important;
         }
       `}</style>
       <a
