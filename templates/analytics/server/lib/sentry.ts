@@ -8,7 +8,7 @@ import {
 } from "./credentials-context";
 
 const API_BASE = "https://sentry.io/api/0";
-const ORG_SLUG = "bridge-tm";
+const DEFAULT_ORG_SLUG = "bridge-tm";
 
 // In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
@@ -16,12 +16,21 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE = 100;
 
 async function getToken(): Promise<string> {
-  const ctx = requireRequestCredentialContext("SENTRY_SERVER_TOKEN");
+  const ctx = requireRequestCredentialContext("SENTRY_AUTH_TOKEN");
   const token =
     (await resolveCredential("SENTRY_SERVER_TOKEN", ctx)) ??
     (await resolveCredential("SENTRY_AUTH_TOKEN", ctx));
-  if (!token) throw new Error("SENTRY_SERVER_TOKEN not configured");
+  if (!token) throw new Error("SENTRY_AUTH_TOKEN not configured");
   return token;
+}
+
+async function getOrgSlug(orgSlug?: string): Promise<string> {
+  const trimmed = orgSlug?.trim();
+  if (trimmed) return trimmed;
+  const ctx = requireRequestCredentialContext("SENTRY_AUTH_TOKEN");
+  return (
+    (await resolveCredential("SENTRY_ORG_SLUG", ctx)) ?? DEFAULT_ORG_SLUG
+  );
 }
 
 function cacheSet(key: string, data: unknown) {
@@ -116,15 +125,20 @@ export interface SentryOrgStats {
 
 // -- API functions --
 
-export async function listProjects(): Promise<SentryProject[]> {
-  return apiGet<SentryProject[]>(`/organizations/${ORG_SLUG}/projects/`);
+export async function listProjects(
+  orgSlug?: string,
+): Promise<SentryProject[]> {
+  const org = await getOrgSlug(orgSlug);
+  return apiGet<SentryProject[]>(`/organizations/${org}/projects/`);
 }
 
 export async function listIssues(
   projectSlug?: string,
   query?: string,
   statsPeriod?: string,
+  orgSlug?: string,
 ): Promise<SentryIssue[]> {
+  const org = await getOrgSlug(orgSlug);
   const params = new URLSearchParams();
   if (query) params.set("query", query);
   if (statsPeriod) params.set("statsPeriod", statsPeriod);
@@ -132,24 +146,30 @@ export async function listIssues(
 
   if (projectSlug) {
     return apiGet<SentryIssue[]>(
-      `/projects/${ORG_SLUG}/${projectSlug}/issues/?${params.toString()}`,
+      `/projects/${org}/${projectSlug}/issues/?${params.toString()}`,
     );
   }
   return apiGet<SentryIssue[]>(
-    `/organizations/${ORG_SLUG}/issues/?${params.toString()}`,
+    `/organizations/${org}/issues/?${params.toString()}`,
   );
 }
 
-export async function getIssueEvents(issueId: string): Promise<SentryEvent[]> {
+export async function getIssueEvents(
+  issueId: string,
+  orgSlug?: string,
+): Promise<SentryEvent[]> {
+  const org = await getOrgSlug(orgSlug);
   return apiGet<SentryEvent[]>(
-    `/organizations/${ORG_SLUG}/issues/${issueId}/events/`,
+    `/organizations/${org}/issues/${issueId}/events/`,
   );
 }
 
 export async function getOrganizationStats(
   statsPeriod?: string,
   category?: string,
+  orgSlug?: string,
 ): Promise<SentryOrgStats> {
+  const org = await getOrgSlug(orgSlug);
   const params = new URLSearchParams();
   params.set("field", "sum(quantity)");
   if (statsPeriod) params.set("statsPeriod", statsPeriod);
@@ -160,6 +180,6 @@ export async function getOrganizationStats(
   }
   params.set("groupBy", "outcome");
   return apiGet<SentryOrgStats>(
-    `/organizations/${ORG_SLUG}/stats_v2/?${params.toString()}`,
+    `/organizations/${org}/stats_v2/?${params.toString()}`,
   );
 }

@@ -20,6 +20,7 @@ const requestedPort = Number(
   process.env.WORKSPACE_PORT || process.env.PORT || 8080,
 );
 const appPortStart = Number(process.env.WORKSPACE_APP_PORT_START || 8100);
+let gatewayUrl = `http://${gatewayHost}:${requestedPort}`;
 
 function readJson(file: string): any {
   try {
@@ -131,7 +132,7 @@ function startApp(app: WorkspaceApp): void {
         APP_BASE_PATH: basePath,
         VITE_APP_BASE_PATH: basePath,
         PORT: String(app.port),
-        WORKSPACE_GATEWAY_URL: `http://${gatewayHost}:${requestedPort}`,
+        WORKSPACE_GATEWAY_URL: gatewayUrl,
       },
     },
   );
@@ -230,7 +231,10 @@ function proxyUpgrade(
   head: Buffer,
 ): void {
   const target = net.connect(app.port, "127.0.0.1", () => {
-    const headers = Object.entries(req.headers)
+    const headers = Object.entries({
+      ...req.headers,
+      host: `127.0.0.1:${app.port}`,
+    })
       .flatMap(([key, value]) =>
         Array.isArray(value)
           ? value.map((item) => `${key}: ${item}`)
@@ -248,13 +252,19 @@ function proxyUpgrade(
 }
 
 let shuttingDown = false;
-for (const app of apps) startApp(app);
-try {
-  fs.watch(appsDir, { recursive: true }, scheduleSync);
-} catch {
-  // Some platforms do not support recursive directory watches.
+let workspaceStarted = false;
+
+function startWorkspaceProcesses(): void {
+  if (workspaceStarted) return;
+  workspaceStarted = true;
+  for (const app of apps) startApp(app);
+  try {
+    fs.watch(appsDir, { recursive: true }, scheduleSync);
+  } catch {
+    // Some platforms do not support recursive directory watches.
+  }
+  setInterval(syncApps, 2_000).unref();
 }
-setInterval(syncApps, 2_000).unref();
 
 function openBrowser(url: string): void {
   if (process.env.WORKSPACE_NO_OPEN === "1") return;
@@ -325,6 +335,7 @@ function listen(port: number, attempts = 20): void {
     const address = server.address();
     const actualPort =
       typeof address === "object" && address ? address.port : port;
+    gatewayUrl = `http://${gatewayHost}:${actualPort}`;
     console.log(`[workspace] Gateway: http://${gatewayHost}:${actualPort}`);
     console.log(
       `[workspace] Default: http://${gatewayHost}:${actualPort}/${defaultApp}`,
@@ -332,6 +343,7 @@ function listen(port: number, attempts = 20): void {
     for (const app of apps) {
       console.log(`[workspace] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
     }
+    startWorkspaceProcesses();
     openBrowser(`http://${gatewayHost}:${actualPort}/${defaultApp}`);
   });
 }
