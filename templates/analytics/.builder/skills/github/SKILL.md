@@ -39,7 +39,7 @@ description: >
 | `GET /api/github/pr?owner=...&repo=...&number=...`                       | PR detail with commits, reviews, files |
 | `GET /api/github/issue?owner=...&repo=...&number=...`                    | Issue detail                           |
 | `GET /api/github/prs?owner=...&repo=...&state=open\|closed\|all`         | List repo PRs                          |
-| `GET /api/github/org-prs?org=YourOrg&q=...&state=OPEN\|CLOSED\|MERGED` | Org-wide PR search                     |
+| `GET /api/github/org-prs?org=<org>&q=...&state=OPEN\|CLOSED\|MERGED` | Org-wide PR search                     |
 | `POST /api/github/graphql` body: `{ query, variables? }`                 | Raw GraphQL                            |
 
 ## Script Usage
@@ -65,7 +65,7 @@ pnpm action github-prs --search="memory leak" --type=issue
 pnpm action github-prs --graphql='{ viewer { login } }'
 
 # Filtering with built-in helpers
-pnpm action github-prs --org=YourOrg --grep="auth" --fields=number,title,state,url
+pnpm action github-prs --org=<org> --grep="auth" --fields=number,title,state,url
 ```
 
 ## Key Patterns & Gotchas

@@ -43,7 +43,7 @@ Use the `generate-chart` script to create inline charts for chat responses. See 
 
 ```bash
 # GitHub PRs
-pnpm action github-prs --org=YourOrg --query="is:open label:bug"
+pnpm action github-prs --org=<org> --query="is:open label:bug"
 
 # Jira tickets
 pnpm action jira-search --jql="summary ~ SSO" --fields=key,summary,status

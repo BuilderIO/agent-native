@@ -10,7 +10,7 @@ description: >
 ## Connection
 
 - **Base URL**: `https://sentry.io/api/0`
-- **Org slug**: defaults to `bridge-tm` for existing dashboards; pass `orgSlug` to the `sentry` action when a user needs a different Sentry organization
+- **Org slug**: discovered from the token's accessible organizations by default. Configure `SENTRY_ORG_SLUG` or pass `orgSlug` to the `sentry` action when a user needs a specific Sentry organization.
 - **Auth**: `Authorization: Bearer $SENTRY_SERVER_TOKEN` (internal integration token, NOT user auth token or DSN)
 - **Env vars**: `SENTRY_SERVER_TOKEN` (falls back to `SENTRY_AUTH_TOKEN`)
 - **Caching**: 5-minute in-memory cache, max 100 entries
