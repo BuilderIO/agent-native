@@ -986,7 +986,16 @@ export default function BookingLinksPage({
                   googleStatus={
                     googleStatus.data?.connected ? "connected" : "disconnected"
                   }
-                  onConnectZoom={() => connectZoom.mutate()}
+                  onConnectZoom={() =>
+                    connectZoom.mutate(undefined, {
+                      onError: (error) =>
+                        toast.error(
+                          error instanceof Error
+                            ? error.message
+                            : "Could not start Zoom connection",
+                        ),
+                    })
+                  }
                   zoomPending={connectZoom.isPending}
                 />
 
@@ -998,8 +1007,22 @@ export default function BookingLinksPage({
                   }
                 />
 
-                {/* Actions */}
-                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+                {/* Lower-risk settings */}
+                <div className="space-y-4 border-t border-border pt-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium">Link visibility</p>
+                      <p className="text-xs text-muted-foreground">
+                        Turn this off to disable the public page.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={draft.isActive}
+                      onCheckedChange={(checked) =>
+                        setDraft((prev) => ({ ...prev, isActive: checked }))
+                      }
+                    />
+                  </div>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <button
