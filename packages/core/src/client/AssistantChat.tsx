@@ -1136,11 +1136,12 @@ function AssistantMessage() {
   >("idle");
   const messageRuntime = useMessageRuntime();
   const thread = useThread();
+  const chatRunning = React.useContext(ChatRunningContext);
   const msg = messageRuntime.getState();
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
-  const isComplete = !isLast || !thread.isRunning;
+  const isComplete = !isLast || !chatRunning;
   const cpCtx = React.useContext(CheckpointContext);
 
   const handleRestore = useCallback(async () => {
@@ -1209,17 +1210,13 @@ function AssistantMessage() {
           }}
         />
       </div>
-      {/* Always render the actions menu so users can grab the trace ID even
-          mid-stream — including when a run hangs or ends prematurely without
-          flipping isRunning false. Thumbs feedback still gates on isComplete
-          since rating an in-flight response makes no sense. */}
-      <div className="mt-1 flex items-center justify-between">
-        <MessageActionsMenu
-          showRevert={showRestore && restoreState === "idle"}
-          onRevert={handleRestore}
-        />
-        {isComplete &&
-          (showRestore && restoreState === "confirming" ? (
+      {isComplete && (
+        <div className="mt-1 flex items-center justify-between">
+          <MessageActionsMenu
+            showRevert={showRestore && restoreState === "idle"}
+            onRevert={handleRestore}
+          />
+          {showRestore && restoreState === "confirming" ? (
             <div className="flex items-center gap-1 text-xs">
               <button
                 onClick={handleRestore}
@@ -1257,8 +1254,9 @@ function AssistantMessage() {
                 messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
               />
             </React.Suspense>
-          ))}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

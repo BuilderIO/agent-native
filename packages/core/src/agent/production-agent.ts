@@ -653,14 +653,38 @@ export interface AgentLoopUsage {
 export function actionsToEngineTools(
   actions: Record<string, ActionEntry>,
 ): EngineTool[] {
-  return Object.entries(actions).map(([name, entry]) => ({
-    name,
-    description: entry.tool.description,
-    inputSchema: (entry.tool.parameters ?? {
-      type: "object",
-      properties: {},
-    }) as EngineTool["inputSchema"],
-  }));
+  const tools: EngineTool[] = [];
+  for (const [name, entry] of Object.entries(actions)) {
+    const inputSchema = normalizeToolInputSchema(entry.tool.parameters);
+    if (!inputSchema) {
+      console.warn(
+        `[agent] Skipping tool "${name}" because its input schema is not an object.`,
+      );
+      continue;
+    }
+    tools.push({
+      name,
+      description: entry.tool.description,
+      inputSchema,
+    });
+  }
+  return tools;
+}
+
+function normalizeToolInputSchema(
+  schema: ActionTool["parameters"] | undefined,
+): EngineTool["inputSchema"] | null {
+  if (!schema) return { type: "object", properties: {} };
+  if (schema.type !== "object") return null;
+  return {
+    ...schema,
+    type: "object",
+    properties:
+      schema.properties && typeof schema.properties === "object"
+        ? schema.properties
+        : {},
+    required: Array.isArray(schema.required) ? schema.required : [],
+  };
 }
 
 /**
