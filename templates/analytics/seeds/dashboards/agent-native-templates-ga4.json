@@ -121,30 +121,30 @@
     },
     {
       "id": "sessions-by-app",
-      "title": "Sessions by Agent-Native App",
+      "title": "Sessions by Agent-Native Template",
       "chartType": "bar",
       "source": "ga4",
       "width": 2,
-      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"customEvent:app\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"session_status\",\"matchType\":\"EXACT\"}}}}",
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"customEvent:template\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"session_status\",\"matchType\":\"EXACT\"}}}}",
       "config": {
-        "xKey": "customEvent:app",
+        "xKey": "customEvent:template",
         "yKey": "eventCount",
         "color": "#10b981",
-        "description": "Per-template-site session activity (mail, calendar, slides, ...). Each tab fires session_status once."
+        "description": "Per-template session activity. GA4 exposes template as a registered event dimension."
       }
     },
     {
       "id": "signed-in-vs-anon",
-      "title": "Signed-In vs Anonymous Sessions",
-      "chartType": "bar",
+      "title": "Session Status Events",
+      "chartType": "metric",
       "source": "ga4",
       "width": 1,
-      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"customEvent:signed_in\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"session_status\",\"matchType\":\"EXACT\"}}}}",
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"session_status\",\"matchType\":\"EXACT\"}}}}",
       "config": {
-        "xKey": "customEvent:signed_in",
         "yKey": "eventCount",
+        "yFormatter": "number",
         "color": "#f59e0b",
-        "description": "true = signed in, false = anonymous. Best proxy for total signups per period (still includes returning users)."
+        "description": "Signed-in split is available in first-party analytics; GA4 needs signed_in registered as a custom dimension before it can segment this panel."
       }
     },
     {

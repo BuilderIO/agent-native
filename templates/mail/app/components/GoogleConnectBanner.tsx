@@ -9,6 +9,8 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconUpload,
+  IconAlertTriangle,
+  IconLogout,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { agentNativePath, getCallbackOrigin } from "@agent-native/core/client";
@@ -68,6 +70,15 @@ interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
 }
 
+interface DesktopAuthIssue {
+  error?: string;
+  message?: string;
+  code?: string;
+  accountId?: string;
+  existingOwner?: string;
+  attemptedOwner?: string;
+}
+
 export function GoogleConnectBanner({
   variant = "banner",
 }: GoogleConnectBannerProps) {
@@ -75,6 +86,8 @@ export function GoogleConnectBanner({
   const [wantAddAccount, setWantAddAccount] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [desktopAuthIssue, setDesktopAuthIssue] =
+    useState<DesktopAuthIssue | null>(null);
   const googleStatus = useGoogleAuthStatus();
   const authUrl = useGoogleAuthUrl(wantAuthUrl);
   const addAccountUrl = useGoogleAddAccountUrl(wantAddAccount);
@@ -96,6 +109,7 @@ export function GoogleConnectBanner({
   }, []);
 
   function signInViaDesktopBrowser(addAccount = false) {
+    setDesktopAuthIssue(null);
     const flowId =
       crypto.randomUUID?.() ||
       Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -120,7 +134,11 @@ export function GoogleConnectBanner({
           ),
         );
         const data = await res.json();
-        if (data?.token) {
+        if (data?.error) {
+          clearInterval(desktopPollRef.current!);
+          desktopPollRef.current = null;
+          setDesktopAuthIssue(data);
+        } else if (data?.token) {
           clearInterval(desktopPollRef.current!);
           desktopPollRef.current = null;
           await fetch(
@@ -235,6 +253,18 @@ export function GoogleConnectBanner({
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
 
+  const handleSignOutForGoogle = useCallback(async () => {
+    try {
+      await fetch(agentNativePath("/_agent-native/auth/logout"), {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {
+      // Reload below still lands on the auth screen if the local cookie changed.
+    }
+    window.location.reload();
+  }, []);
+
   // When add-account URL is ready, open it and poll for new account.
   // Same retry-intent rationale as the connect effect — `wantAddAccount`
   // is in the deps so a second click rerun the effect; the polling
@@ -276,6 +306,7 @@ export function GoogleConnectBanner({
   }, [wantAddAccount, addAccountUrl.data]);
 
   function handleConnect() {
+    setDesktopAuthIssue(null);
     if (isElectron) {
       signInViaDesktopBrowser();
       return;
@@ -377,6 +408,13 @@ export function GoogleConnectBanner({
               ? "Sign in with Google"
               : "Set up Google"}
         </Button>
+
+        <GoogleAuthIssuePanel
+          issue={desktopAuthIssue}
+          onSignOut={handleSignOutForGoogle}
+          onDismiss={() => setDesktopAuthIssue(null)}
+          className="mt-5 w-full max-w-md"
+        />
 
         {authError && allConfigured && (
           <p className="mt-3 text-xs text-red-400">{authError}</p>
@@ -585,6 +623,12 @@ export function GoogleConnectBanner({
             <IconX className="h-3 w-3" />
           </Button>
         </div>
+        <GoogleAuthIssuePanel
+          issue={desktopAuthIssue}
+          onSignOut={handleSignOutForGoogle}
+          onDismiss={() => setDesktopAuthIssue(null)}
+          className="mx-4 mb-3"
+        />
       </div>
     );
   }
@@ -649,6 +693,13 @@ export function GoogleConnectBanner({
           </Button>
         </div>
       </div>
+
+      <GoogleAuthIssuePanel
+        issue={desktopAuthIssue}
+        onSignOut={handleSignOutForGoogle}
+        onDismiss={() => setDesktopAuthIssue(null)}
+        className="mx-4 mb-3"
+      />
 
       {/* Inline setup wizard */}
       {showWizard && !allConfigured && (
@@ -813,6 +864,75 @@ export function GoogleConnectBanner({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function GoogleAuthIssuePanel({
+  issue,
+  onSignOut,
+  onDismiss,
+  className = "",
+}: {
+  issue: DesktopAuthIssue | null;
+  onSignOut: () => void;
+  onDismiss: () => void;
+  className?: string;
+}) {
+  if (!issue) return null;
+  const account = issue.accountId || "that Google account";
+  const detail =
+    issue.message ||
+    issue.error ||
+    `Sign out, then sign back in with ${account}.`;
+  const shouldOfferSignOut =
+    issue.code === "account_owner_mismatch" ||
+    Boolean(issue.existingOwner || issue.attemptedOwner || issue.accountId);
+
+  return (
+    <div
+      className={`rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-3 text-left ${className}`}
+    >
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
+          <IconAlertTriangle className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-foreground">
+            Use the matching Agent Native login
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {detail}
+          </p>
+          {shouldOfferSignOut && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 bg-white px-3 text-xs font-medium text-black hover:bg-white/90"
+                onClick={onSignOut}
+              >
+                <IconLogout className="h-3.5 w-3.5" />
+                Sign out
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                onClick={onDismiss}
+              >
+                Dismiss
+              </Button>
+            </div>
+          )}
+        </div>
+        <button
+          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-white/5 hover:text-foreground"
+          onClick={onDismiss}
+          aria-label="Dismiss Google sign-in notice"
+        >
+          <IconX className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }

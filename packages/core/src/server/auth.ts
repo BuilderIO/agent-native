@@ -212,6 +212,15 @@ const APP_NAME_SLUG = (process.env.APP_NAME || "")
 export const COOKIE_NAME = APP_NAME_SLUG
   ? `an_session_${APP_NAME_SLUG}`
   : "an_session";
+function getOAuthStateAppId(): string | undefined {
+  const raw = process.env.APP_NAME || process.env.npm_package_name;
+  if (!raw) return undefined;
+  const slug = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || undefined;
+}
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 const LOCAL_MODE_MARKER_PATH = path.resolve(
   process.cwd(),
@@ -557,10 +566,23 @@ function areGenericGoogleOAuthRoutesEnabled(app: H3App): boolean {
 // durability (Cloudflare Workers, multi-region deployments). The value stored
 // in the `email` column is "{realToken}::{userEmail}" so both can be recovered
 // from a single DB lookup.
-const _desktopExchanges = new Map<
-  string,
-  { token: string; email: string; expiresAt: number }
->();
+export interface DesktopExchangeErrorPayload {
+  message: string;
+  code?: string;
+  accountId?: string;
+  existingOwner?: string;
+  attemptedOwner?: string;
+}
+
+type DesktopExchangeEntry =
+  | { token: string; email: string; expiresAt: number }
+  | { error: DesktopExchangeErrorPayload; expiresAt: number };
+type DesktopExchangeStoredEntry =
+  | { token: string; email: string }
+  | { error: DesktopExchangeErrorPayload };
+
+const _desktopExchanges = new Map<string, DesktopExchangeEntry>();
+const DESKTOP_EXCHANGE_ERROR_PREFIX = "__error__::";
 
 // 5-minute TTL for exchange entries (short — single-use tokens).
 const DESKTOP_EXCHANGE_TTL_MS = 5 * 60 * 1000;
@@ -579,6 +601,17 @@ export function setDesktopExchange(
   // templates call this helper directly instead of going through the OAuth
   // callback path).
   void persistDesktopExchangeToDB(flowId, token, email);
+}
+
+export function setDesktopExchangeError(
+  flowId: string,
+  error: DesktopExchangeErrorPayload,
+) {
+  _desktopExchanges.set(flowId, {
+    error,
+    expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
+  });
+  void persistDesktopExchangeErrorToDB(flowId, error);
 }
 
 /**
@@ -601,13 +634,28 @@ async function persistDesktopExchangeToDB(
   }
 }
 
+async function persistDesktopExchangeErrorToDB(
+  flowId: string,
+  error: DesktopExchangeErrorPayload,
+): Promise<void> {
+  try {
+    const payload = Buffer.from(JSON.stringify(error)).toString("base64url");
+    await addSession(
+      `dex:${flowId}`,
+      `${DESKTOP_EXCHANGE_ERROR_PREFIX}${payload}`,
+    );
+  } catch {
+    // non-fatal — in-memory Map is the primary path
+  }
+}
+
 /**
  * Retrieve and consume a desktop exchange entry from the DB fallback.
  * Returns null if not found or already consumed.
  */
 async function consumeDesktopExchangeFromDB(
   flowId: string,
-): Promise<{ token: string; email: string } | null> {
+): Promise<DesktopExchangeStoredEntry | null> {
   try {
     // Atomic DELETE...RETURNING prevents token replay: two concurrent polls
     // cannot both retrieve the token because only one DELETE will match the row.
@@ -623,6 +671,12 @@ async function consumeDesktopExchangeFromDB(
     if (rows.length === 0) return null;
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
     if (!packed) return null;
+    if (packed.startsWith(DESKTOP_EXCHANGE_ERROR_PREFIX)) {
+      const raw = packed.slice(DESKTOP_EXCHANGE_ERROR_PREFIX.length);
+      return {
+        error: JSON.parse(Buffer.from(raw, "base64url").toString()),
+      };
+    }
     const sepIdx = packed.indexOf("::");
     if (sepIdx === -1) return null;
     return { token: packed.slice(0, sepIdx), email: packed.slice(sepIdx + 2) };
@@ -945,6 +999,9 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
       // Better Auth not initialized yet
     }
 
+    const querySession = await promoteQuerySession(event);
+    if (querySession) return querySession;
+
     return LOCAL_SESSION;
   }
 
@@ -1016,20 +1073,8 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   }
 
   // 6. Mobile WebView bridge — _session query param
-  const qToken = getQuery(event)?._session as string | undefined;
-  if (qToken) {
-    const email = await getSessionEmail(qToken);
-    if (email) {
-      setCookie(event, COOKIE_NAME, qToken, {
-        httpOnly: true,
-        ...crossSiteCookieAttrs(event),
-        path: "/",
-        maxAge: sessionMaxAge,
-      });
-      setResponseHeader(event, "Referrer-Policy", "no-referrer");
-      return { email, token: qToken };
-    }
-  }
+  const querySession = await promoteQuerySession(event);
+  if (querySession) return querySession;
 
   // 7. Dev-mode safety net — in development on a local SQLite database, fall
   // back to local@localhost so the app is usable without any auth configuration.
@@ -1061,6 +1106,18 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   }
 
   return null;
+}
+
+async function promoteQuerySession(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  const qToken = getQuery(event)?._session as string | undefined;
+  if (!qToken) return null;
+  const email = await getSessionEmail(qToken);
+  if (!email) return null;
+  setFrameworkSessionCookie(event, qToken);
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  return { email, token: qToken };
 }
 
 /**
@@ -1121,6 +1178,15 @@ function crossSiteCookieAttrs(event: H3Event): {
   return isHttpsRequest(event)
     ? { sameSite: "none", secure: true }
     : { sameSite: "lax", secure: false };
+}
+
+function setFrameworkSessionCookie(event: H3Event, token: string): void {
+  setCookie(event, COOKIE_NAME, token, {
+    httpOnly: true,
+    ...crossSiteCookieAttrs(event),
+    path: "/",
+    maxAge: sessionMaxAge,
+  });
 }
 
 function isHttpsRequest(event: H3Event): boolean {
@@ -1408,15 +1474,14 @@ async function mountBetterAuthRoutes(
         const validated =
           typeof returnQuery === "string" ? safeReturnPath(returnQuery) : "/";
         const returnUrl = validated !== "/" ? validated : undefined;
-        const state = encodeOAuthState(
+        const state = encodeOAuthState({
           redirectUri,
-          undefined,
           desktop,
-          false,
-          undefined,
+          addAccount: false,
+          app: getOAuthStateAppId(),
           returnUrl,
           flowId,
-        );
+        });
         const params = new URLSearchParams({
           client_id: process.env.GOOGLE_CLIENT_ID!,
           redirect_uri: redirectUri,
@@ -1562,16 +1627,27 @@ async function mountBetterAuthRoutes(
         if (!fromDb) {
           return { pending: true };
         }
-        entry = {
-          token: fromDb.token,
-          email: fromDb.email,
-          expiresAt: Date.now() + 1, // already consumed from DB
-        };
+        entry =
+          "error" in fromDb
+            ? { error: fromDb.error, expiresAt: Date.now() + 1 }
+            : {
+                token: fromDb.token,
+                email: fromDb.email,
+                expiresAt: Date.now() + 1,
+              };
       }
       _desktopExchanges.delete(flowId);
       // Also wipe the DB-persisted entry so it cannot be replayed via the
       // DB fallback path after in-memory consumption.
       void removeSession(`dex:${flowId}`);
+      if ("error" in entry) {
+        return { error: entry.error.message, ...entry.error };
+      }
+      // Make the exchange itself establish the app session. Older clients
+      // still make a follow-up /auth/session?_session=... request, but the
+      // OAuth handoff should not depend on that second request succeeding.
+      setFrameworkSessionCookie(event, entry.token);
+      setResponseHeader(event, "Referrer-Policy", "no-referrer");
       return { token: entry.token, email: entry.email };
     }),
   );

@@ -26,6 +26,7 @@ import type {
   MentionProvider,
   MentionProviderItem,
 } from "../agent/types.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import type { ActionHttpConfig } from "../action.js";
 import {
   McpClientManager,
@@ -1284,6 +1285,7 @@ const FRAMEWORK_CORE_COMPACT = `
 8. **\`db-*\` tools are internal only** — \`db-query\`, \`db-exec\`, \`db-patch\` ONLY access the app's own SQL database (settings, application_state, template tables). They CANNOT reach BigQuery, HubSpot, GA4, Jira, or any external data source. If the user asks about a table that is NOT in the app schema (e.g. \`dbt_analytics.*\`, \`dbt_mart.*\`, or any fully-qualified \`project.dataset.table\`), use the appropriate template action instead — \`bigquery\` for warehouse tables, \`ga4-report\` for Google Analytics, \`hubspot-deals\` for HubSpot, etc. **Never use \`db-query\` for external data — it will fail.**
 9. **Never fabricate data** — Do NOT invent numbers, metrics, records, or query results. Do NOT present estimated or example data as if it were real. If a data source is unavailable (missing credentials, connection error, tool failure), say so clearly, note the gap, and work with whatever data you do have. If no data can be retrieved at all, say "I can't retrieve this data right now" and explain why. Presenting made-up data as real is a critical failure — it is worse than admitting the limitation.
 10. **Never fabricate success from tool errors** — When any tool call returns an error (marked \`isError: true\`, contains "Command failed", "Error:", or non-zero exit output), the operation FAILED. Do NOT synthesize a success narrative or describe what the action "would have" produced. Report the failure verbatim from the tool output. This applies especially to \`shell(command="pnpm action ...")\` calls: if the action threw, it did NOT succeed.
+11. **Find tools when unsure** — Use \`tool-search\` to find the exact action/tool for a capability. It searches the live registry, including connected MCP server tools.
 
 ### Resources
 
@@ -1460,6 +1462,7 @@ const FRAMEWORK_CORE = `
 8. **\`db-*\` tools are internal only** — \`db-query\`, \`db-exec\`, \`db-patch\` ONLY access the app's own SQL database (settings, application_state, template tables). They CANNOT reach BigQuery, HubSpot, GA4, Jira, or any external data source. If the user asks about a table that is NOT in the app schema (e.g. \`dbt_analytics.*\`, \`dbt_mart.*\`, or any fully-qualified \`project.dataset.table\`), use the appropriate template action instead — \`bigquery\` for warehouse tables, \`ga4-report\` for Google Analytics, \`hubspot-deals\` for HubSpot, etc. **Never use \`db-query\` for external data — it will fail.**
 9. **Never fabricate data** — Do NOT invent numbers, metrics, records, or query results. Do NOT present estimated or example data as if it were real. If a data source is unavailable (missing credentials, connection error, tool failure), say so clearly, note the gap, and work with whatever data you do have. If no data can be retrieved at all, say "I can't retrieve this data right now" and explain why. Presenting made-up data as real is a critical failure — it is worse than admitting the limitation.
 10. **Never fabricate success from tool errors** — When any tool call returns an error (marked \`isError: true\`, contains "Command failed", "Error:", or non-zero exit output), the operation FAILED. Do NOT synthesize a success narrative, format a result table, or describe what the action "would have" produced. Report the failure verbatim from the tool output. This applies especially to \`shell(command="pnpm action ...")\` calls: if the underlying action threw (visible in the error text), the action did NOT succeed — report the error, do not describe a successful outcome.
+11. **Find tools when unsure** — Use \`tool-search\` to find the exact action/tool for a capability. It searches the live registry, including connected MCP server tools added through config, settings, or the MCP hub.
 
 ### Resources
 
@@ -2427,41 +2430,43 @@ export function createAgentChatPlugin(
       // This avoids degenerate empty-object tool calls that Anthropic models
       // sometimes emit for actions with complex schemas. Production keeps the
       // native registration since it has no shell access.
-      const allScripts = canToggle
-        ? {
-            ...resourceScripts,
-            ...docsScripts,
-            ...(lazyContext ? frameworkContextTool : {}),
-            ...urlTools,
-            ...chatScripts,
-            ...callAgentScript,
-            ...automationTools,
-            ...notificationTools,
-            ...progressTools,
-            ...fetchTool,
-            ...toolActions,
-            ...browserTools,
-            ...devScriptsForA2A,
-          }
-        : {
-            ...discoveredActions,
-            ...templateScripts,
-            ...resourceScripts,
-            ...docsScripts,
-            ...dbScripts,
-            ...refreshScreenTool,
-            ...(lazyContext ? frameworkContextTool : {}),
-            ...urlTools,
-            ...chatScripts,
-            ...callAgentScript,
-            ...automationTools,
-            ...notificationTools,
-            ...progressTools,
-            ...fetchTool,
-            ...toolActions,
-            ...browserTools,
-            ...devScriptsForA2A,
-          };
+      const allScripts = attachToolSearch(
+        canToggle
+          ? {
+              ...resourceScripts,
+              ...docsScripts,
+              ...(lazyContext ? frameworkContextTool : {}),
+              ...urlTools,
+              ...chatScripts,
+              ...callAgentScript,
+              ...automationTools,
+              ...notificationTools,
+              ...progressTools,
+              ...fetchTool,
+              ...toolActions,
+              ...browserTools,
+              ...devScriptsForA2A,
+            }
+          : {
+              ...discoveredActions,
+              ...templateScripts,
+              ...resourceScripts,
+              ...docsScripts,
+              ...dbScripts,
+              ...refreshScreenTool,
+              ...(lazyContext ? frameworkContextTool : {}),
+              ...urlTools,
+              ...chatScripts,
+              ...callAgentScript,
+              ...automationTools,
+              ...notificationTools,
+              ...progressTools,
+              ...fetchTool,
+              ...toolActions,
+              ...browserTools,
+              ...devScriptsForA2A,
+            },
+      );
 
       const { mountA2A } = await import("../a2a/server.js");
       mountA2A(nitroApp, {
@@ -2630,29 +2635,31 @@ export function createAgentChatPlugin(
           // to prevent infinite recursive A2A loops (agent calling itself).
           // In dev mode, template actions are invoked via shell (not native tools),
           // so they're omitted from the tool registry — see allScripts comment.
-          const a2aActions = devActive
-            ? {
-                ...resourceScripts,
-                ...docsScripts,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...urlTools,
-                ...chatScripts,
-                ...toolActions,
-                ...browserTools,
-                ...devScriptsForA2A,
-              }
-            : {
-                ...templateScripts,
-                ...resourceScripts,
-                ...docsScripts,
-                ...dbScripts,
-                ...refreshScreenTool,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...urlTools,
-                ...chatScripts,
-                ...toolActions,
-                ...browserTools,
-              };
+          const a2aActions = attachToolSearch(
+            devActive
+              ? {
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...urlTools,
+                  ...chatScripts,
+                  ...toolActions,
+                  ...browserTools,
+                  ...devScriptsForA2A,
+                }
+              : {
+                  ...templateScripts,
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...dbScripts,
+                  ...refreshScreenTool,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...urlTools,
+                  ...chatScripts,
+                  ...toolActions,
+                  ...browserTools,
+                },
+          );
 
           const a2aTools = actionsToEngineTools(a2aActions);
 
@@ -2767,27 +2774,29 @@ export function createAgentChatPlugin(
           // Same actions as A2A — without call-agent to prevent loops.
           // In dev mode, template actions go through shell, not native tools.
           const devActiveMcp = isDevMode();
-          const mcpActions = devActiveMcp
-            ? {
-                ...resourceScripts,
-                ...docsScripts,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...urlTools,
-                ...chatScripts,
-                ...toolActions,
-                ...devScriptsForA2A,
-              }
-            : {
-                ...templateScripts,
-                ...resourceScripts,
-                ...docsScripts,
-                ...dbScripts,
-                ...refreshScreenTool,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...urlTools,
-                ...chatScripts,
-                ...toolActions,
-              };
+          const mcpActions = attachToolSearch(
+            devActiveMcp
+              ? {
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...urlTools,
+                  ...chatScripts,
+                  ...toolActions,
+                  ...devScriptsForA2A,
+                }
+              : {
+                  ...templateScripts,
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...dbScripts,
+                  ...refreshScreenTool,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...urlTools,
+                  ...chatScripts,
+                  ...toolActions,
+                },
+          );
 
           const mcpTools = actionsToEngineTools(mcpActions);
 
@@ -3144,16 +3153,16 @@ export function createAgentChatPlugin(
       // progress, call-agent, and MCP entries to keep the tool list tight and
       // prevent the LLM from reaching for web-request instead of the
       // template's native actions (e.g. log-meal).
-      const leanActions = {
+      const leanActions = attachToolSearch({
         ...templateScripts,
         ...resourceScripts,
         ...refreshScreenTool,
         ...urlTools,
         ...chatScripts,
         ...toolActions,
-      };
+      });
 
-      const prodActions = {
+      const prodActions = attachToolSearch({
         ...templateScripts,
         ...resourceScripts,
         ...docsScripts,
@@ -3172,7 +3181,7 @@ export function createAgentChatPlugin(
         ...toolActions,
         ...browserTools,
         ...mcpActionEntries,
-      };
+      });
 
       // Keep the prod action dict's MCP entries in sync when the manager's
       // server set changes at runtime (e.g. a user adds a remote MCP server
@@ -3294,27 +3303,29 @@ export function createAgentChatPlugin(
         // template's actions as native tools instead of routing through shell.
         // Templates with structured-arg actions (objects/arrays) need this to
         // avoid round-tripping JSON through the CLI parser.
-        const devActions = leanPrompt
-          ? leanActions
-          : devNative
-            ? prodActions
-            : {
-                ...resourceScripts,
-                ...docsScripts,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...chatScripts,
-                ...callAgentScript,
-                ...teamTools,
-                ...jobTools,
-                ...automationTools,
-                ...notificationTools,
-                ...progressTools,
-                ...fetchTool,
-                ...toolActions,
-                ...browserTools,
-                ...mcpActionEntries,
-                ...(await createDevScriptRegistry()),
-              };
+        const devActions = attachToolSearch(
+          leanPrompt
+            ? leanActions
+            : devNative
+              ? prodActions
+              : {
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...chatScripts,
+                  ...callAgentScript,
+                  ...teamTools,
+                  ...jobTools,
+                  ...automationTools,
+                  ...notificationTools,
+                  ...progressTools,
+                  ...fetchTool,
+                  ...toolActions,
+                  ...browserTools,
+                  ...mcpActionEntries,
+                  ...(await createDevScriptRegistry()),
+                },
+        );
         // Keep dev action dict in sync with runtime MCP additions. When
         // native-actions mode is on (lean or `nativeActionsInDev`), devActions
         // === prodActions so the prod listener already covers it.

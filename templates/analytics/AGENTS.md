@@ -153,6 +153,15 @@ First-party analytics events live in SQL tables managed by this template:
 
 Use the `first-party` dashboard source or `query-agent-native-analytics` action for these events. Do **not** use `db-query` for user analytics questions unless the user explicitly asks to inspect the app's internal tables.
 
+Collector endpoints:
+
+- Hosted collector: `POST https://analytics.agent-native.com/track`
+- Self-hosted collector: `POST https://<your-analytics-domain>/api/analytics/track`
+- Body: `{ "publicKey": "anpk_...", "event": "click template", "properties": { "app": "docs", "template": "mail", "signed_in": true } }`
+- Batch body: `{ "publicKey": "anpk_...", "events": [{ "event": "click template", "properties": { "template": "mail" } }] }`
+- Header alternative: `x-agent-native-analytics-key: anpk_...`
+- Max batch size: 100 events.
+
 ### Sharing
 
 Dashboards and analyses are **private by default**. The framework's sharing primitive is wired up:

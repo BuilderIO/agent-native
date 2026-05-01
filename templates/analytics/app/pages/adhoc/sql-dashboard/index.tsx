@@ -39,7 +39,7 @@ import {
   resolveFilterVars,
 } from "./DashboardFilterBar";
 import { interpolate } from "./interpolate";
-import { PanelEditorDialog } from "./PanelEditorDialog";
+import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { ViewsMenu } from "./ViewsMenu";
 import type { SqlDashboardConfig, SqlPanel } from "./types";
 import { useUserPref } from "@/hooks/use-user-pref";
@@ -128,7 +128,7 @@ export default function SqlDashboardPage() {
   const [descriptionInput, setDescriptionInput] = useState("");
   const [loaded, setLoaded] = useState(false);
 
-  // Panel editor dialog state
+  // Panel edit dialog state
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingPanel, setEditingPanel] = useState<SqlPanel | null>(null);
 
@@ -404,12 +404,6 @@ export default function SqlDashboardPage() {
     [dashboard, persistThrow],
   );
 
-  const openAddPanel = useCallback(() => {
-    setEditingPanel(null);
-    setEditorOpen(true);
-    awareness?.setLocalStateField("editingPanelId", null);
-  }, [awareness]);
-
   const openEditPanel = useCallback(
     (panel: SqlPanel) => {
       setEditingPanel(panel);
@@ -548,10 +542,17 @@ export default function SqlDashboardPage() {
             variant="compact"
           />
         ) : null}
-        <Button size="sm" variant="outline" onClick={openAddPanel}>
-          <IconPlus className="h-4 w-4 mr-1" />
-          Add panel
-        </Button>
+        <AddPanelPopover
+          onSave={handleSavePanel}
+          dashboardId={dashboardId ?? ""}
+          existingPanelTitles={dashboard.panels.map((p) => p.title)}
+          align="end"
+        >
+          <Button size="sm" variant="outline">
+            <IconPlus className="h-4 w-4 mr-1" />
+            Add panel
+          </Button>
+        </AddPanelPopover>
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button
@@ -661,10 +662,17 @@ export default function SqlDashboardPage() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center h-64 text-muted-foreground text-sm gap-3">
             <p>This dashboard has no panels yet.</p>
-            <Button size="sm" variant="outline" onClick={openAddPanel}>
-              <IconPlus className="h-4 w-4 mr-1" />
-              Add your first panel
-            </Button>
+            <AddPanelPopover
+              onSave={handleSavePanel}
+              dashboardId={dashboardId ?? ""}
+              existingPanelTitles={dashboard.panels.map((p) => p.title)}
+              align="center"
+            >
+              <Button size="sm" variant="outline">
+                <IconPlus className="h-4 w-4 mr-1" />
+                Add your first panel
+              </Button>
+            </AddPanelPopover>
           </CardContent>
         </Card>
       ) : (

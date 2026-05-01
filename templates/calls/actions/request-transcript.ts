@@ -51,7 +51,7 @@ import {
   getRequestUserEmail,
   getCredentialContext,
 } from "@agent-native/core/server/request-context";
-import { hasBuilderPrivateKey } from "@agent-native/core/server";
+import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { transcribeWithDeepgram } from "../server/lib/transcription/deepgram.js";
 import { labelSpeakers } from "../server/lib/transcription/diarize-speakers.js";
@@ -72,10 +72,11 @@ export default defineAction({
     const userEmail = getRequestUserEmail() ?? ownerEmail;
 
     // ── Builder transcription (highest priority) ──────────────────────
-    // Builder proxy is available when BUILDER_PRIVATE_KEY is set. It
-    // provides high-quality diarized transcription without requiring a
-    // separate Deepgram key.
-    if (hasBuilderPrivateKey()) {
+    // Builder proxy is available when the current user has connected
+    // Builder via OAuth (per-user app_secrets) OR when BUILDER_PRIVATE_KEY
+    // is set at the deployment level. Use the per-user-aware resolver so
+    // a sidebar OAuth connection actually wires through to transcription.
+    if (await resolveHasBuilderPrivateKey()) {
       await upsertTranscriptRow(db, {
         callId: args.callId,
         ownerEmail,

@@ -9,6 +9,7 @@ import { isTrustedFrameMessage } from "./frame.js";
 import { cn } from "./utils.js";
 import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
 import { agentNativePath } from "./api-path.js";
+import { DEFAULT_MODEL } from "../agent/default-model.js";
 
 interface EngineModelGroup {
   engine: string;
@@ -331,7 +332,7 @@ export function MultiTabAssistantChat({
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
     [],
   );
-  const [defaultModel, setDefaultModel] = useState("claude-sonnet-4-6");
+  const [defaultModel, setDefaultModel] = useState(DEFAULT_MODEL);
   const threadModelRef = useRef<Map<string, { model: string; engine: string }>>(
     new Map(),
   );
@@ -480,7 +481,7 @@ export function MultiTabAssistantChat({
             });
         }
         setAvailableModels(groups);
-        setDefaultModel(currentModel ?? "claude-sonnet-4-6");
+        setDefaultModel(currentModel ?? DEFAULT_MODEL);
       })
       .catch(() => {});
   }, []);

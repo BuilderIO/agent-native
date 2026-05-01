@@ -22,6 +22,7 @@ import { getAppProductionUrl } from "./app-url.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
+import { identify, track } from "../tracking/index.js";
 import {
   getDialect,
   getDatabaseUrl,
@@ -688,13 +689,30 @@ async function createBetterAuthInstance(
     databaseHooks: {
       user: {
         create: {
-          after: async (user: { email?: string }) => {
+          after: async (user: {
+            id?: string;
+            email?: string;
+            name?: string | null;
+          }) => {
             // When a newly-created user's email has pending org invitations
             // (common when someone is invited *before* they've signed up),
             // auto-accept them so the user lands in the org on their very
             // first page load instead of a blank-slate workspace.
             const email = user?.email;
             if (!email) return;
+            identify(email, {
+              email,
+              name: user.name ?? undefined,
+              authUserId: user.id,
+            });
+            track(
+              "signup",
+              {
+                auth_provider: "better-auth",
+                auth_user_id: user.id,
+              },
+              { userId: email },
+            );
             try {
               await acceptPendingInvitationsForEmail(email);
             } catch (err) {
