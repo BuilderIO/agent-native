@@ -1,6 +1,13 @@
 import { IconFlask } from "@tabler/icons-react";
+import { useSetPageTitle } from "@/components/layout/HeaderActions";
 
 export default function BlankDashboard() {
+  useSetPageTitle(
+    <h1 className="text-lg font-semibold tracking-tight truncate">
+      Empty Dashboard
+    </h1>,
+  );
+
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 mb-6">

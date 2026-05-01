@@ -11,7 +11,7 @@ description: >
 
 - **Base URL**: `https://slack.com/api/`
 - **Auth**: `Authorization: Bearer $SLACK_BOT_TOKEN` (or `$SLACK_BOT_TOKEN_2` for secondary workspace)
-- **Env vars**: `SLACK_BOT_TOKEN` (primary), `SLACK_BOT_TOKEN_2` (secondary workspace)
+- **Credentials**: `SLACK_BOT_TOKEN` (primary), `SLACK_BOT_TOKEN_2` (secondary workspace)
 - **Caching**: 2-minute in-memory cache, max 200 entries; separate user/bot caches
 
 ## Server Lib
@@ -29,6 +29,19 @@ description: >
 | `getUserInfo(workspace, userId)`                           | Get user info (cached per user)              |
 | `getBotInfo(workspace, botId)`                             | Get bot info (cached)                        |
 | `resolveUsers(workspace, userIds, messages?)`              | Batch resolve user names                     |
+
+## Agent Action
+
+Use `slack-messages` for agent-facing Slack reads. Do not call
+`/api/slack/*` directly from the agent.
+
+| Mode | Args | Description |
+| --- | --- | --- |
+| `team` | `workspace` | Get workspace info |
+| `channels` | `workspace` | List channels |
+| `history` | `workspace`, `channel`, `limit`, `cursor` | Read channel history |
+| `multi-history` | `workspace`, `channels`, `names`, `limit`, `cursors` | Read multiple channels |
+| `search` | `workspace`, `query` | Search messages |
 
 ## Key Patterns & Gotchas
 

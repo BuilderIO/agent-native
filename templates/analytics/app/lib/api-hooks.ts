@@ -1,20 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { appApiPath, useActionQuery } from "@agent-native/core/client";
-import { getIdToken } from "./auth";
-
-async function apiFetch<T>(path: string): Promise<T> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath(path), {
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed (${res.status})`);
-  }
-  return res.json();
-}
+import { useActionQuery } from "@agent-native/core/client";
 
 // SEO data: map of blog handle -> { etv, ranked_keywords, ... }
 export interface BlogPageSeo {
@@ -297,34 +281,29 @@ interface StripeSubscriptionsResponse {
   total: number;
 }
 
-// Helper to build search params for Stripe API (auto-detects search type)
-function buildStripeSearchParams(
+// Helper to build action params for Stripe queries (auto-detects search type)
+function buildStripeActionParams(
   searchInput: string,
-  additionalParams?: Record<string, string>,
-): string {
+  additionalParams?: Record<string, string | number>,
+) {
   const trimmed = searchInput.trim();
-  const params = new URLSearchParams();
+  const params: Record<string, string | number> = {
+    ...(additionalParams ?? {}),
+  };
 
   // Auto-detect search type
   if (trimmed.startsWith("cus_")) {
     // Customer ID lookup
-    params.set("customerId", trimmed);
+    params.customerId = trimmed;
   } else if (trimmed.includes("@")) {
     // Email search
-    params.set("email", trimmed);
+    params.email = trimmed;
   } else {
     // Name or root_id search (backend tries name first, then root_id)
-    params.set("query", trimmed);
+    params.query = trimmed;
   }
 
-  // Add any additional params (like months)
-  if (additionalParams) {
-    Object.entries(additionalParams).forEach(([key, value]) => {
-      params.set(key, value);
-    });
-  }
-
-  return params.toString();
+  return params;
 }
 
 export function useStripeBilling(
@@ -332,14 +311,12 @@ export function useStripeBilling(
   months: number,
   enabled: boolean,
 ) {
-  const params = buildStripeSearchParams(searchInput, {
-    months: String(months),
+  const params = buildStripeActionParams(searchInput, {
+    mode: "billing",
+    months,
   });
 
-  return useQuery<StripeBillingResponse>({
-    queryKey: ["stripe-billing", searchInput, months],
-    queryFn: () =>
-      apiFetch<StripeBillingResponse>(`/api/stripe/billing?${params}`),
+  return useActionQuery<StripeBillingResponse>("stripe", params, {
     enabled,
     staleTime: 5 * 60 * 1000,
     retry: 1,
@@ -351,16 +328,12 @@ export function useStripeBillingByProduct(
   months: number,
   enabled: boolean,
 ) {
-  const params = buildStripeSearchParams(searchInput, {
-    months: String(months),
+  const params = buildStripeActionParams(searchInput, {
+    mode: "billing-by-product",
+    months,
   });
 
-  return useQuery<StripeBillingByProductResponse>({
-    queryKey: ["stripe-billing-by-product", searchInput, months],
-    queryFn: () =>
-      apiFetch<StripeBillingByProductResponse>(
-        `/api/stripe/billing-by-product?${params}`,
-      ),
+  return useActionQuery<StripeBillingByProductResponse>("stripe", params, {
     enabled,
     staleTime: 5 * 60 * 1000,
     retry: 1,
@@ -368,14 +341,11 @@ export function useStripeBillingByProduct(
 }
 
 export function useStripePaymentStatus(searchInput: string, enabled: boolean) {
-  const params = buildStripeSearchParams(searchInput);
+  const params = buildStripeActionParams(searchInput, {
+    mode: "payment-status",
+  });
 
-  return useQuery<StripePaymentStatusResponse>({
-    queryKey: ["stripe-payment-status", searchInput],
-    queryFn: () =>
-      apiFetch<StripePaymentStatusResponse>(
-        `/api/stripe/payment-status?${params}`,
-      ),
+  return useActionQuery<StripePaymentStatusResponse>("stripe", params, {
     enabled,
     staleTime: 5 * 60 * 1000,
     retry: 1,
@@ -383,12 +353,11 @@ export function useStripePaymentStatus(searchInput: string, enabled: boolean) {
 }
 
 export function useStripeRefunds(searchInput: string, enabled: boolean) {
-  const params = buildStripeSearchParams(searchInput);
+  const params = buildStripeActionParams(searchInput, {
+    mode: "refunds",
+  });
 
-  return useQuery<StripeRefundsResponse>({
-    queryKey: ["stripe-refunds", searchInput],
-    queryFn: () =>
-      apiFetch<StripeRefundsResponse>(`/api/stripe/refunds?${params}`),
+  return useActionQuery<StripeRefundsResponse>("stripe", params, {
     enabled,
     staleTime: 5 * 60 * 1000,
     retry: 1,
@@ -396,14 +365,11 @@ export function useStripeRefunds(searchInput: string, enabled: boolean) {
 }
 
 export function useStripeSubscriptions(searchInput: string, enabled: boolean) {
-  const params = buildStripeSearchParams(searchInput);
+  const params = buildStripeActionParams(searchInput, {
+    mode: "subscriptions",
+  });
 
-  return useQuery<StripeSubscriptionsResponse>({
-    queryKey: ["stripe-subscriptions", searchInput],
-    queryFn: () =>
-      apiFetch<StripeSubscriptionsResponse>(
-        `/api/stripe/subscriptions?${params}`,
-      ),
+  return useActionQuery<StripeSubscriptionsResponse>("stripe", params, {
     enabled,
     staleTime: 5 * 60 * 1000,
     retry: 1,

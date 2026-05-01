@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  PLAN_MODE_INSTRUCTION,
-  createAgentChatAdapter,
-} from "./agent-chat-adapter.js";
+import { createAgentChatAdapter } from "./agent-chat-adapter.js";
 
 function sseResponse(events: unknown[]): Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`);
@@ -180,7 +177,7 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
-  it("prepends the plan-mode instruction to the request body when execMode is plan", async () => {
+  it("sends plan mode as request metadata without polluting the message", async () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
       "CustomEvent",
@@ -217,9 +214,12 @@ describe("createAgentChatAdapter", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.message).toBe(`${PLAN_MODE_INSTRUCTION}\n\nmake a button blue`);
+    expect(body).toMatchObject({
+      message: "make a button blue",
+      mode: "plan",
+    });
 
-    // Switching back to build mode skips the prefix
+    // Switching back to build mode sends act metadata
     execModeRef.current = "build";
     fetchSpy.mockClear();
     fetchSpy.mockResolvedValueOnce(sseResponse([{ type: "done" }]));
@@ -237,6 +237,60 @@ describe("createAgentChatAdapter", () => {
     );
 
     const body2 = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body2.message).toBe("make a button blue");
+    expect(body2).toMatchObject({
+      message: "make a button blue",
+      mode: "act",
+    });
+  });
+
+  it("surfaces loop limit metadata from the SSE stream", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([{ type: "loop_limit", maxIterations: 7 }]),
+        ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-limit",
+    });
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "keep using tools" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain("7-step limit");
+    expect(last.metadata.custom.loopLimit).toEqual({ maxIterations: 7 });
+    expect(last.metadata.custom.runId).toBe("run-qa");
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:loop-limit",
+        detail: { tabId: "chat-limit", maxIterations: 7 },
+      }),
+    );
   });
 });

@@ -5,6 +5,7 @@ import { InvitationBanner } from "@agent-native/core/client/org";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import {
   IconArrowUpRight,
+  IconApps,
   IconBrandTelegram,
   IconKey,
   IconLayersSubtract,
@@ -23,6 +24,7 @@ import { HeaderActionsProvider } from "./HeaderActions";
 
 const NAV_ITEMS = [
   { to: "/overview", label: "Overview", icon: IconBroadcast },
+  { to: "/apps", label: "Apps", icon: IconApps },
   { to: "/vault", label: "Vault", icon: IconKey },
   { to: "/integrations", label: "Integrations", icon: IconPuzzle },
   { to: "/workspace", label: "Resources", icon: IconLayersSubtract },

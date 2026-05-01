@@ -39,6 +39,17 @@ function isPostgresUrl(url: string): boolean {
   return url.startsWith("postgres://") || url.startsWith("postgresql://");
 }
 
+function databaseLabel(url: string): string {
+  if (url.startsWith("file:")) return url.slice(5);
+  try {
+    const parsed = new URL(url);
+    const auth = parsed.username ? `${parsed.username}:***@` : "";
+    return `${parsed.protocol}//${auth}${parsed.host}${parsed.pathname}`;
+  } catch {
+    return url.replace(/:\/\/([^:@\s]+):([^@\s]+)@/, "://$1:***@");
+  }
+}
+
 /**
  * Execute a PRAGMA query and return the rows as plain objects.
  */
@@ -154,13 +165,17 @@ async function introspectPostgres(
 
     if (parsed.format === "json") {
       console.log(
-        JSON.stringify({ database: url, tables: tableInfos }, null, 2),
+        JSON.stringify(
+          { database: databaseLabel(url), tables: tableInfos },
+          null,
+          2,
+        ),
       );
       return;
     }
 
     // Human-readable output
-    console.log(`Database: ${url}`);
+    console.log(`Database: ${databaseLabel(url)}`);
     console.log(`Tables: ${tableInfos.length}\n`);
 
     for (const table of tableInfos) {
@@ -293,7 +308,7 @@ Options:
     }
 
     if (parsed.format === "json") {
-      const dbLabel = url.startsWith("file:") ? url.slice(5) : url;
+      const dbLabel = databaseLabel(url);
       console.log(
         JSON.stringify({ database: dbLabel, tables: tableInfos }, null, 2),
       );
@@ -301,7 +316,7 @@ Options:
     }
 
     // Human-readable output
-    const dbLabel = url.startsWith("file:") ? url.slice(5) : url;
+    const dbLabel = databaseLabel(url);
     console.log(`Database: ${dbLabel}`);
     console.log(`Tables: ${tableInfos.length}\n`);
 

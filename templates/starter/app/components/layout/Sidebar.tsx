@@ -1,11 +1,12 @@
 import { Link, useLocation } from "react-router";
-import { IconActivity, IconHome } from "@tabler/icons-react";
+import { IconActivity, IconHome, IconPlus } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { FeedbackButton } from "@agent-native/core/client";
 
 const navItems = [
   { icon: IconHome, label: "Home", href: "/" },
+  { icon: IconPlus, label: "New App", href: "/new-app" },
   { icon: IconActivity, label: "Observability", href: "/observability" },
 ];
 

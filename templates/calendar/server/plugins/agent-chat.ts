@@ -78,6 +78,9 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 - \`pnpm action navigate --view=availability\` — Show availability settings
 - \`pnpm action navigate --view=booking-links\` — Show booking links
 - \`pnpm action check-availability --date YYYY-MM-DD --duration 60\` — Check free slots
+- \`pnpm action list-booking-links\` — List existing booking links
+- \`pnpm action create-booking-link --title "Meeting" --slug meeting --duration 30\` — Create a booking link
+- \`pnpm action duplicate-booking-link --sourceSlug meeting --copies '[...]'\` — Duplicate one booking link into one or more variants
 
 ## Google Connection Check
 Before running calendar scripts, run view-screen first. If it indicates Google is not connected, tell the user to go to Settings to configure credentials and connect.

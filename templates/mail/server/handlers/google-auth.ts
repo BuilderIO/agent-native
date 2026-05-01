@@ -54,14 +54,7 @@ function googleOAuthErrorPayload(
     const account = error.accountId || "This Google account";
     const existingOwner = error.existingOwner || undefined;
     const attemptedOwner = error.attemptedOwner || undefined;
-    const owner =
-      error.existingOwner === DEV_MODE_USER_EMAIL
-        ? "a previous local session"
-        : error.existingOwner || "another user";
-    const message =
-      attemptedOwner && attemptedOwner !== existingOwner
-        ? `You selected ${account}, but Mail is currently signed in as ${attemptedOwner}. Sign out, then sign back in with ${account}.`
-        : `${account} is already connected to ${owner}. Sign in as that user or disconnect the Google account there first.`;
+    const message = `${account} is connected to another login. Sign out, then sign in with ${account}.`;
     return {
       message,
       code: "account_owner_mismatch",

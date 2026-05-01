@@ -68,6 +68,16 @@ describe("buildToolHtml", () => {
     expect(html).not.toContain('@tailwindcss/browser@4"');
     expect(html).not.toContain("alpinejs@3/dist/cdn.min.js");
   });
+
+  it("adds default canvas padding with a full-bleed escape hatch", () => {
+    const html = buildToolHtml("<div/>", ":root{}", false, "tool-1");
+
+    expect(html).toContain("--agent-native-tool-padding");
+    expect(html).toContain("padding: var(--agent-native-tool-padding)");
+    expect(html).toContain('body:has(> [data-tool-layout="full-bleed"])');
+    expect(html).toContain('body:has(> [data-tool-padding="none"])');
+    expect(html).toContain("body:has(> .agent-native-tool-bleed)");
+  });
 });
 
 describe("tool iframe sandbox attribute (CI guard)", () => {

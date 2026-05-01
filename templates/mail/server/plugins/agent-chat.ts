@@ -64,7 +64,7 @@ BEFORE doing anything else, run view-screen to check if Google is connected.
 If view-screen shows 0 emails or indicates Google is not connected:
 - Do NOT run list-emails, search-emails, send-email, or any email operation scripts
 - Do NOT pretend to have access to emails
-- Tell the user: "You need to connect your Google account first. Click the 'Set up Google' button on the main screen to get started."
+- Tell the user: "You need to connect your Google account first. Click the 'Connect Google' button on the main screen to get started."
 - You can still answer general questions, but you cannot perform any email operations
 
 Only proceed with email operations if view-screen confirms real emails are available.

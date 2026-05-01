@@ -52,6 +52,10 @@ Tools are fully capable despite being lightweight. They can:
 
 All of this works out of the box. No configuration, no new files, no schema changes.
 
+## Layout defaults {#layout}
+
+Tools render with modest canvas padding by default so simple widgets and dashboards do not hug the iframe edge. For full-bleed experiences such as maps, canvases, or custom editors, set `data-tool-layout="full-bleed"` or `data-tool-padding="none"` on the outermost element.
+
 ## Persistent storage {#persistent-storage}
 
 Every tool has access to a built-in key-value store. Data is automatically scoped per tool and per user — your data stays yours.

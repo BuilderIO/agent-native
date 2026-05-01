@@ -123,7 +123,13 @@ export function ConnectBuilderCard({
     );
   } else if (configured) {
     title = "Builder.io connected";
-    subtitle = orgName ? (
+    subtitle = flow.envManaged ? (
+      <>
+        Managed by this deployment — every user of this app uses the same
+        Builder identity. LLM access, browser automation, and more are ready to
+        use.
+      </>
+    ) : orgName ? (
       <>
         Connected to{" "}
         <span className="font-medium text-foreground">{orgName}</span>. LLM

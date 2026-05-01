@@ -4,7 +4,7 @@ import { ENRICHED_PROPERTY_MAP } from "./types";
 const DYNAMIC_EVENTS_SQL = `SELECT
   event,
   COUNT(*) as cnt
-FROM \`your-gcp-project-id.analytics.events_partitioned\`
+FROM \`@project.analytics.events_partitioned\`
 WHERE createdDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
   AND createdDate <= CURRENT_TIMESTAMP()
   AND event IS NOT NULL AND event != ''
@@ -15,7 +15,7 @@ LIMIT 300`;
 const DYNAMIC_EVENT_NAMES_SQL = `SELECT
   name,
   COUNT(*) as cnt
-FROM \`your-gcp-project-id.analytics.events_partitioned\`
+FROM \`@project.analytics.events_partitioned\`
 WHERE createdDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
   AND createdDate <= CURRENT_TIMESTAMP()
   AND name IS NOT NULL AND name != ''
@@ -30,7 +30,7 @@ LIMIT 200`;
 const DYNAMIC_PROPERTIES_SQL = `
 WITH sampled AS (
   SELECT SAFE.PARSE_JSON(data) AS js
-  FROM \`your-gcp-project-id.analytics.events_partitioned\`
+  FROM \`@project.analytics.events_partitioned\`
   WHERE createdDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
     AND createdDate <= CURRENT_TIMESTAMP()
     AND data IS NOT NULL AND SAFE.PARSE_JSON(data) IS NOT NULL
@@ -144,7 +144,7 @@ function buildPropertyValuesSql(property: string): string {
   const interval = isTopLevel ? "30 DAY" : "14 DAY";
 
   return `SELECT ${col} AS val, COUNT(*) AS cnt
-FROM \`your-gcp-project-id.analytics.events_partitioned\`
+FROM \`@project.analytics.events_partitioned\`
 WHERE createdDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${interval})
   AND createdDate <= CURRENT_TIMESTAMP()
   AND ${col} IS NOT NULL AND ${col} != ''

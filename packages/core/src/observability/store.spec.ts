@@ -31,6 +31,7 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
   isPostgres: () => false,
   intType: () => "INTEGER",
+  retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));
 
 // Pull the store after the mock is wired so it picks up the capturing db.

@@ -9,10 +9,9 @@ import {
 
 async function getApiBase(): Promise<string> {
   const ctx = requireRequestCredentialContext("GRAFANA_URL");
-  return (
-    (await resolveCredential("GRAFANA_URL", ctx)) ||
-    "https://your-org.grafana.net"
-  );
+  const apiBase = await resolveCredential("GRAFANA_URL", ctx);
+  if (!apiBase) throw new Error("GRAFANA_URL not configured");
+  return apiBase;
 }
 
 // In-memory cache

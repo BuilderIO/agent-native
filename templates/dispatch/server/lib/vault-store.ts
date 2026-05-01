@@ -335,6 +335,36 @@ export async function createGrant(
   return getGrant(grantId);
 }
 
+export async function grantSecretsToApp(
+  secretIds: string[],
+  appId: string,
+  ctx: VaultCtx = requireVaultCtx(),
+) {
+  const uniqueSecretIds = Array.from(new Set(secretIds));
+  const existingActive = (await listGrants({ appId })).filter(
+    (grant) => grant.status === "active",
+  );
+  const existingSecretIds = new Set(
+    existingActive.map((grant) => grant.secretId),
+  );
+  const created = [];
+  const skipped: string[] = [];
+
+  for (const secretId of uniqueSecretIds) {
+    if (existingSecretIds.has(secretId)) {
+      skipped.push(secretId);
+      continue;
+    }
+    const grant = await createGrant(secretId, appId, ctx);
+    if (grant) {
+      created.push(grant);
+      existingSecretIds.add(secretId);
+    }
+  }
+
+  return { appId, created, skipped };
+}
+
 export async function revokeGrant(
   grantId: string,
   ctx: VaultCtx = requireVaultCtx(),

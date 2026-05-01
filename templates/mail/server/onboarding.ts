@@ -26,7 +26,7 @@ registerOnboardingStep({
       id: "manual-wizard",
       kind: "link",
       primary: true,
-      label: "Set up Google OAuth (guided)",
+      label: "Connect Google OAuth (guided)",
       description: "3-minute guided setup in Google Cloud Console.",
       payload: { url: "/" },
     },

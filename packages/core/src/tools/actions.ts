@@ -260,6 +260,7 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
         if (!slotId) return "Error: slotId is required.";
         return { tools: await listToolsForSlot(slotId) };
       },
+      readOnly: true,
     },
 
     "list-tool-slots": {
@@ -279,6 +280,7 @@ export function createToolActionEntries(): Record<string, ActionEntry> {
         if (!toolId) return "Error: toolId is required.";
         return { slots: await listSlotsForTool(toolId) };
       },
+      readOnly: true,
     },
   };
 }

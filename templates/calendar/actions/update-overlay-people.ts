@@ -12,13 +12,16 @@ const overlayPersonSchema = z.object({
 
 export default defineAction({
   description: "Update overlay people for calendar view",
-  schema: z.array(overlayPersonSchema),
+  schema: z.object({
+    people: z
+      .array(overlayPersonSchema)
+      .describe("Full replacement list of overlay people"),
+  }),
   http: { method: "PUT" },
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
-    // The frontend sends the array directly as the body
-    const people = args as unknown as OverlayPerson[];
+    const people = args.people as OverlayPerson[];
     await putUserSetting(email, "calendar-overlay-people", {
       people,
     } as unknown as Record<string, unknown>);

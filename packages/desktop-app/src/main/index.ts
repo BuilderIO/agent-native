@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   ipcMain,
   Menu,
   session,
@@ -444,6 +445,187 @@ function resetActiveWebviewZoom() {
   target.setZoomLevel(0);
 }
 
+// ---------- Native context menus ----------
+// Electron does not provide Chromium's standard right-click menu by default,
+// so add the useful browser/editing actions for both the shell and app webviews.
+
+const contextMenuContents = new WeakSet<Electron.WebContents>();
+
+function canOpenExternalUrl(url: string): boolean {
+  try {
+    const protocol = new URL(url).protocol;
+    return (
+      protocol === "http:" ||
+      protocol === "https:" ||
+      protocol === "mailto:" ||
+      protocol === "tel:"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function openExternalUrl(url: string) {
+  if (!canOpenExternalUrl(url)) return;
+  shell.openExternal(url).catch(() => {});
+}
+
+function cleanContextMenuTemplate(
+  template: Electron.MenuItemConstructorOptions[],
+): Electron.MenuItemConstructorOptions[] {
+  while (template[0]?.type === "separator") template.shift();
+  while (template.at(-1)?.type === "separator") template.pop();
+  return template.filter((item, index, items) => {
+    if (item.type !== "separator") return true;
+    return items[index - 1]?.type !== "separator";
+  });
+}
+
+function addContextMenuSeparator(
+  template: Electron.MenuItemConstructorOptions[],
+) {
+  if (template.length === 0 || template.at(-1)?.type === "separator") return;
+  template.push({ type: "separator" });
+}
+
+function buildContextMenuTemplate(
+  contents: Electron.WebContents,
+  params: Electron.ContextMenuParams,
+): Electron.MenuItemConstructorOptions[] {
+  const template: Electron.MenuItemConstructorOptions[] = [];
+  const editFlags = params.editFlags;
+  const hasLink = params.linkURL.trim().length > 0;
+  const hasSelection = params.selectionText.trim().length > 0;
+  const hasMediaSource = params.srcURL.trim().length > 0;
+  const hasImage = params.mediaType === "image" && params.hasImageContents;
+
+  if (hasLink) {
+    template.push(
+      {
+        label: "Open Link in Browser",
+        enabled: canOpenExternalUrl(params.linkURL),
+        click: () => openExternalUrl(params.linkURL),
+      },
+      {
+        label: "Copy Link",
+        click: () => clipboard.writeText(params.linkURL),
+      },
+    );
+  }
+
+  if (hasImage || hasMediaSource) {
+    addContextMenuSeparator(template);
+    if (hasImage) {
+      template.push({
+        label: "Copy Image",
+        click: () => contents.copyImageAt(params.x, params.y),
+      });
+    }
+    if (hasMediaSource) {
+      template.push({
+        label: hasImage ? "Copy Image Address" : "Copy Media Address",
+        click: () => clipboard.writeText(params.srcURL),
+      });
+    }
+  }
+
+  if (params.isEditable) {
+    if (
+      params.misspelledWord &&
+      params.dictionarySuggestions &&
+      params.dictionarySuggestions.length > 0
+    ) {
+      addContextMenuSeparator(template);
+      for (const suggestion of params.dictionarySuggestions.slice(0, 5)) {
+        template.push({
+          label: suggestion,
+          click: () => contents.replaceMisspelling(suggestion),
+        });
+      }
+    }
+
+    addContextMenuSeparator(template);
+    template.push(
+      {
+        label: "Undo",
+        enabled: editFlags.canUndo,
+        click: () => contents.undo(),
+      },
+      {
+        label: "Redo",
+        enabled: editFlags.canRedo,
+        click: () => contents.redo(),
+      },
+      { type: "separator" },
+      {
+        label: "Cut",
+        enabled: editFlags.canCut,
+        click: () => contents.cut(),
+      },
+      {
+        label: "Copy",
+        enabled: editFlags.canCopy || hasSelection,
+        click: () => contents.copy(),
+      },
+      {
+        label: "Paste",
+        enabled: editFlags.canPaste,
+        click: () => contents.paste(),
+      },
+      {
+        label: "Paste and Match Style",
+        enabled: editFlags.canPaste && editFlags.canEditRichly,
+        click: () => contents.pasteAndMatchStyle(),
+      },
+      {
+        label: "Delete",
+        enabled: editFlags.canDelete,
+        click: () => contents.delete(),
+      },
+      { type: "separator" },
+      {
+        label: "Select All",
+        enabled: editFlags.canSelectAll,
+        click: () => contents.selectAll(),
+      },
+    );
+  } else if (hasSelection) {
+    addContextMenuSeparator(template);
+    template.push({
+      label: "Copy",
+      click: () => contents.copy(),
+    });
+  }
+
+  if (IS_DEV) {
+    addContextMenuSeparator(template);
+    template.push({
+      label: "Inspect Element",
+      click: () => contents.inspectElement(params.x, params.y),
+    });
+  }
+
+  return cleanContextMenuTemplate(template);
+}
+
+function installContextMenu(contents: Electron.WebContents) {
+  if (contextMenuContents.has(contents)) return;
+  contextMenuContents.add(contents);
+
+  contents.on("context-menu", (event, params) => {
+    const template = buildContextMenuTemplate(contents, params);
+    if (template.length === 0) return;
+
+    event.preventDefault();
+    const menu = Menu.buildFromTemplate(template);
+    const window =
+      BrowserWindow.fromWebContents(contents) ||
+      BrowserWindow.getFocusedWindow() ||
+      BrowserWindow.getAllWindows()[0];
+    menu.popup({ window, x: params.x, y: params.y });
+  });
+}
+
 // ---------- IPC: Window controls ----------
 
 ipcMain.on(IPC.WINDOW_MINIMIZE, (event: IpcMainEvent) => {
@@ -744,9 +926,14 @@ function openOAuthWindow(
     scheduleClose();
   });
 
-  // Reload webviews when the OAuth window closes (whether auto or manual)
+  // Builder's callback writes credentials server-side, so reload after it
+  // closes. Google success already reloads through the agentnative:// handoff;
+  // Google failures are delivered to the app through desktop-exchange, so an
+  // unconditional reload here would erase the in-app recovery panel.
   oauthWin.on("closed", () => {
-    reloadAllWebviews();
+    if (provider.name !== "google") {
+      reloadAllWebviews();
+    }
   });
 }
 
@@ -759,8 +946,12 @@ function openOAuthWindow(
 // doesn't reliably catch webviews created this way).
 
 app.on("web-contents-created", (_event, contents) => {
+  installContextMenu(contents);
+
   if (contents.getType() !== "webview") {
     contents.on("did-attach-webview" as any, (_e: any, wc: any) => {
+      installContextMenu(wc);
+
       wc.setWindowOpenHandler(({ url }: any) => {
         try {
           const parsed = new URL(url);

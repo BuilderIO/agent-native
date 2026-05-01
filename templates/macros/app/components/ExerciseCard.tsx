@@ -12,6 +12,7 @@ interface ExerciseCardProps {
   onDelete: (id: number) => void;
   onEdit: (exercise: Exercise) => void;
   isDeleting?: boolean;
+  isPending?: boolean;
 }
 
 export function ExerciseCard({
@@ -19,6 +20,7 @@ export function ExerciseCard({
   onDelete,
   onEdit,
   isDeleting,
+  isPending,
 }: ExerciseCardProps) {
   return (
     <div className="group relative flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl bg-white/[0.02] border border-white/[0.08] hover:bg-white/[0.04] overflow-hidden">
@@ -41,29 +43,40 @@ export function ExerciseCard({
         </div>
       </div>
       <div className="flex gap-0.5 md:opacity-0 md:group-hover:opacity-100">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={`Edit ${exercise.name}`}
-          className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-foreground hover:bg-white/5"
-          onClick={() => onEdit(exercise)}
-        >
-          <IconPencil className="h-4 w-4 md:h-3.5 md:w-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={`Delete ${exercise.name}`}
-          className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-red-400 hover:bg-red-500/10"
-          onClick={() => onDelete(exercise.id!)}
-          disabled={isDeleting}
-        >
-          {isDeleting ? (
-            <IconLoader2 className="h-4 w-4 md:h-3.5 md:w-3.5 animate-spin" />
-          ) : (
-            <IconTrash className="h-4 w-4 md:h-3.5 md:w-3.5" />
-          )}
-        </Button>
+        {isPending ? (
+          <div
+            className="flex h-9 w-9 items-center justify-center text-muted-foreground/60 md:h-7 md:w-7"
+            aria-label="Saving exercise"
+          >
+            <IconLoader2 className="h-4 w-4 animate-spin md:h-3.5 md:w-3.5" />
+          </div>
+        ) : (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`Edit ${exercise.name}`}
+              className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-foreground hover:bg-white/5"
+              onClick={() => onEdit(exercise)}
+            >
+              <IconPencil className="h-4 w-4 md:h-3.5 md:w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`Delete ${exercise.name}`}
+              className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-red-400 hover:bg-red-500/10"
+              onClick={() => onDelete(exercise.id!)}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <IconLoader2 className="h-4 w-4 md:h-3.5 md:w-3.5 animate-spin" />
+              ) : (
+                <IconTrash className="h-4 w-4 md:h-3.5 md:w-3.5" />
+              )}
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );

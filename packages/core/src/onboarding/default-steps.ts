@@ -232,7 +232,7 @@ const emailStep: OnboardingStep = {
   required: false,
   title: "Email delivery",
   description:
-    "Optional provider for password resets and invitations. Without one, local/dev emails are logged to the server console.",
+    "Optional for local work. Before deploying with password resets, invitations, or share notifications, connect an email provider.",
   methods: [
     {
       id: "resend",

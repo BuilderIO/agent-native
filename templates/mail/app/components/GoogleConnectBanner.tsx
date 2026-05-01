@@ -406,7 +406,7 @@ export function GoogleConnectBanner({
             ? "Connecting..."
             : allConfigured
               ? "Sign in with Google"
-              : "Set up Google"}
+              : "Connect Google"}
         </Button>
 
         <GoogleAuthIssuePanel
@@ -680,7 +680,7 @@ export function GoogleConnectBanner({
               onClick={handleConnect}
               disabled={authUrl.isLoading || authUrl.isFetching}
             >
-              {authUrl.isFetching ? "..." : "Set up Google"}
+              {authUrl.isFetching ? "..." : "Connect Google"}
             </Button>
           )}
           <Button
@@ -881,12 +881,12 @@ function GoogleAuthIssuePanel({
 }) {
   if (!issue) return null;
   const account = issue.accountId || "that Google account";
-  const detail =
-    issue.message ||
-    issue.error ||
-    `Sign out, then sign back in with ${account}.`;
+  const isOwnerMismatch = issue.code === "account_owner_mismatch";
+  const detail = isOwnerMismatch
+    ? `Sign out, then sign in with ${account}.`
+    : issue.message || issue.error || `Sign out, then sign in with ${account}.`;
   const shouldOfferSignOut =
-    issue.code === "account_owner_mismatch" ||
+    isOwnerMismatch ||
     Boolean(issue.existingOwner || issue.attemptedOwner || issue.accountId);
 
   return (
@@ -899,7 +899,9 @@ function GoogleAuthIssuePanel({
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-foreground">
-            Use the matching Agent Native login
+            {isOwnerMismatch
+              ? "This account is connected to another login"
+              : "Google connection failed"}
           </p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {detail}

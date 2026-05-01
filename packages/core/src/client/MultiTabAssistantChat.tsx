@@ -206,6 +206,8 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
     },
     { name: "/new", description: "Same as /clear" },
     { name: "/history", description: "Browse and search past chats" },
+    { name: "/plan", description: "Switch to read-only planning" },
+    { name: "/act", description: "Switch back to acting" },
     { name: "/help", description: "Show this list of commands" },
     { name: "@", description: "Mention files, agents, or resources" },
   ];
@@ -711,9 +713,8 @@ export function MultiTabAssistantChat({
         window.dispatchEvent(new CustomEvent("agent-panel:open"));
       }
 
-      // Plan-mode instruction prefix is injected by the chat adapter at
-      // request time (see agent-chat-adapter.ts). The user-visible message
-      // text stays clean here so it doesn't appear in the chat history.
+      // Plan mode is sent as request metadata by the chat adapter. Keep the
+      // user-visible message clean so mode instructions never enter history.
       const fullMessage = context
         ? `${message}\n\n<context>\n${context}\n</context>`
         : message;
@@ -1064,12 +1065,18 @@ export function MultiTabAssistantChat({
         case "history":
           setShowHistory(true);
           break;
+        case "plan":
+          props.onExecModeChange?.("plan");
+          break;
+        case "act":
+          props.onExecModeChange?.("build");
+          break;
         case "help":
           setHelpVisible(true);
           break;
       }
     },
-    [addTab],
+    [addTab, props.onExecModeChange],
   );
 
   const handleForkChat = useCallback(

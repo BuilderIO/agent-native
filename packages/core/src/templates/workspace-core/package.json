@@ -40,7 +40,8 @@
     "prepare": "tsc"
   },
   "dependencies": {
-    "@agent-native/core": "latest"
+    "@agent-native/core": "latest",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^24.2.1",

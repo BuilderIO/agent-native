@@ -792,6 +792,24 @@ async function createAgentEngineScriptEntries(): Promise<
 }
 
 /**
+ * Creates the manage-agent-loop-settings tool. Lets the agent inspect and
+ * configure the loop step limit it may hit on long-running work.
+ */
+async function createAgentLoopSettingsScriptEntries(): Promise<
+  Record<string, ActionEntry>
+> {
+  try {
+    const mod = await import("../scripts/manage-agent-loop-settings.js");
+
+    return {
+      "manage-agent-loop-settings": { tool: mod.tool, run: mod.run },
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Creates the call-agent ActionEntry for cross-agent A2A communication.
  * Binds selfAppId so the agent cannot call itself via call-agent.
  */
@@ -2167,7 +2185,7 @@ export function createAgentChatPlugin(
       if (!rawActions && Object.keys(templateScripts).length === 0) {
         try {
           const { autoDiscoverActions } = await import("./action-discovery.js");
-          templateScripts = await autoDiscoverActions(process.cwd());
+          templateScripts = await autoDiscoverActions("auto");
         } catch {
           // Filesystem discovery unavailable (serverless bundle) — skip.
         }
@@ -2183,9 +2201,11 @@ export function createAgentChatPlugin(
       const lazyContext = options?.lazyContext !== false && !leanPrompt;
       const urlTools = createUrlTools();
       const engineScripts = await createAgentEngineScriptEntries();
+      const loopSettingsScripts = await createAgentLoopSettingsScriptEntries();
       const chatScripts = {
         ...(await createChatScriptEntries()),
         ...engineScripts,
+        ...loopSettingsScripts,
       };
       const callAgentScript = await createCallAgentScriptEntry(options?.appId);
       const browserTools = createBuilderBrowserTool({
@@ -2865,6 +2885,7 @@ export function createAgentChatPlugin(
         ...discoveredActions,
         ...templateScripts,
         ...engineScripts,
+        ...loopSettingsScripts,
       };
       // Framework-level sharing actions — merged with skipExisting semantics so
       // any template that provides a same-named action wins. When templates use

@@ -492,7 +492,7 @@ Persistent notes using localStorage -- no API key needed:
 
 ## Guidelines
 
-- **Add padding to your root element.** The iframe body has no padding — add `p-4` or `p-6` to the outermost `<div>` in your tool HTML. This gives tools full-bleed control when needed.
+- **Rely on the default canvas padding.** The iframe shell adds modest body padding so simple tools do not hug the edge. Do not add outer `p-4` / `p-6` unless the design needs extra breathing room. For full-bleed tools such as maps, canvases, or custom editors, put `data-tool-layout="full-bleed"` or `data-tool-padding="none"` on the outermost element.
 - **Use semantic Tailwind colors for native theming.** Always use `bg-background`, `text-foreground`, `bg-primary`, `text-primary-foreground`, `border-border`, `bg-muted`, `text-muted-foreground`, etc. The tool inherits the parent app's exact theme variables, so it will look fully native in both light and dark modes.
 - **Keep tools focused.** One tool, one job. A "GitHub PR Dashboard" should show PRs, not also manage issues.
 - **Handle loading and error states.** Always show a loading indicator during fetch and handle failures gracefully.

@@ -15,10 +15,10 @@ export function useNavigationState() {
 
   // Sync current route to application state
   useEffect(() => {
-    const state: NavigationState = { view: "home" };
-
-    // As you add routes, extend this mapping:
-    // if (location.pathname.startsWith("/settings")) state.view = "settings";
+    const state: NavigationState = {
+      view: location.pathname.startsWith("/new-app") ? "new-app" : "home",
+      path: location.pathname,
+    };
 
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
@@ -58,7 +58,7 @@ export function useNavigationState() {
     const cmd = navCommand as NavigationState;
 
     // Navigate to a specific path or resolve view name to path
-    const path = cmd.path || "/";
+    const path = cmd.path || (cmd.view === "new-app" ? "/new-app" : "/");
     navigate(path);
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);

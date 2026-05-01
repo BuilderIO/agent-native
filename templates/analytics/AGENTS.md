@@ -31,7 +31,7 @@ Every raw number, record, sequence ID, or underlying value you present MUST orig
 
 ## TOOL AVAILABILITY — DO NOT GASLIGHT YOURSELF
 
-Your warehouse query tool is named `bigquery` and is **always registered** in this app's agent runtime — it is a first-class native tool, not an MCP add-on, and ships with every analytics deploy. The same is true for `ga4-report`, `hubspot-deals`, `amplitude-events`, `posthog-events`, `mixpanel-events`, `jira-search`, `jira-analytics`, `pylon-issues`, `gong-calls`, `apollo-search`, `commonroom-members`, `github-prs`, `seo-top-keywords`, `seo-page-keywords`, `seo-blog-pages`, and the dashboard / data-dictionary / analysis actions listed below.
+Your warehouse query tool is named `bigquery` and is **always registered** in this app's agent runtime — it is a first-class native tool, not an MCP add-on, and ships with every analytics deploy. The same is true for `ga4-report`, `hubspot-deals`, `amplitude-events`, `posthog-events`, `mixpanel-events`, `jira`, `jira-search`, `jira-analytics`, `pylon-issues`, `gong-calls`, `apollo-search`, `commonroom-members`, `github-prs`, `sentry`, `grafana`, `gcloud`, `stripe`, `slack-messages`, `notion-page`, `seo-top-keywords`, `seo-page-keywords`, `seo-blog-pages`, and the dashboard / data-dictionary / analysis actions listed below.
 
 **Never tell the user "the bigquery tool is not registered" or "I can't see the BigQuery execution tool" or "it may be a configuration issue with this agent session".** Those statements are false. If you reached for `bigquery` and got back a tool-result that looks like an error, the failure is one of:
 
@@ -274,15 +274,22 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 
 | Action                         | Args / Flags                | Use For                                                                                                                     |
 | ------------------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `data-source-status`           | `[--key <name>]`            | Show configured data-source credentials without revealing values                                                            |
 | `github-prs`                   | `--org`, `--query`          | PR & issue search                                                                                                           |
 | `hubspot-deals`                |                             | CRM deals, pipelines                                                                                                        |
 | `hubspot-metrics`              |                             | CRM metrics summary                                                                                                         |
 | `hubspot-pipelines`            |                             | Pipeline stages                                                                                                             |
 | `jira-search`                  | `--jql`, `--fields`         | Ticket search                                                                                                               |
 | `jira-analytics`               |                             | Sprint tracking, velocity                                                                                                   |
+| `jira`                         | `--mode`, `--jql`, `--key`  | Jira issues, issue details, projects, statuses, boards, sprints, and analytics                                              |
 | `pylon-issues`                 | `--account`, `--state`      | Support tickets                                                                                                             |
 | `gong-calls`                   | `--company`, `--days`       | Sales call recordings                                                                                                       |
 | `apollo-search`                | `--query`                   | Contact/company enrichment                                                                                                  |
+| `sentry`                       | `--mode`, `--statsPeriod`   | Sentry projects, frequent issues, issue events, and error stats                                                             |
+| `grafana`                      | `--mode`, `--search`        | Grafana dashboards, datasources, alert rules, and datasource queries                                                        |
+| `gcloud`                       | `--mode`, `--service`       | Google Cloud services, Cloud Monitoring metrics, and Cloud Logging entries                                                  |
+| `stripe`                       | `--mode`, `--email`         | Stripe billing, subscriptions, refunds, and payment status                                                                  |
+| `slack-messages`               | `--mode`, `--channel`       | Slack team info, channels, channel history, multi-channel history, and message search                                       |
 | `seo-top-keywords`             | `--limit`                   | Keyword rankings                                                                                                            |
 | `seo-page-keywords`            | `--url`                     | Keywords for a specific page                                                                                                |
 | `seo-blog-pages`               |                             | Blog page SEO metrics                                                                                                       |
@@ -302,6 +309,7 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `bigquery-table-info`          |                             | Return embedded BigQuery table schema reference (no network call)                                                           |
 | `content-calendar`             |                             | Get all entries from the Notion content calendar                                                                            |
 | `content-calendar-schema`      |                             | Return content calendar field schema                                                                                        |
+| `notion-page`                  | `--pageId`                  | Read a Notion page's title and blocks                                                                                       |
 | `check-form-schema`            |                             | Show the inbound forms table schema in the app database                                                                     |
 | `query-inbound-forms`          | `[--limit N]`               | Query inbound form submissions from the app database                                                                        |
 | `check-contact-signup`         |                             | Check contacts with signup timestamps from BigQuery dim_hs_contacts                                                         |
@@ -324,8 +332,8 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 | "Create a dashboard for X"          | Write config to `dashboard-{id}`, navigate to it                               |
 | "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`              |
 | "Find deals over $50k"              | `hubspot-deals --grep="50000" --fields=dealname,amount,stageLabel`             |
-| "Check error rates"                 | Query Sentry via server lib                                                    |
-| "Show me PRs from this week"        | `github-prs --org=YourOrg --query="is:open created:>2026-03-27"`               |
+| "Check error rates"                 | `sentry --mode=issues --statsPeriod=7d`                                        |
+| "Show me PRs from this week"        | `github-prs --org=<github-org> --query="is:open created:>2026-03-27"`          |
 | "Top keywords for our blog"         | `seo-top-keywords --fields=keyword,rank_absolute,etv`                          |
 | "Go to the overview"                | `navigate --view=overview`                                                     |
 | "Open the weekly metrics dashboard" | `navigate --view=adhoc --dashboardId=weekly-metrics`                           |

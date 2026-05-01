@@ -112,6 +112,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       workspacifyApp({
         appDir,
         appName: t,
+        templateName: t,
         workspaceRoot: targetDir,
         workspaceCoreName,
         coreDependencyVersion: _getCoreDependencyVersion(),
@@ -194,6 +195,27 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
     const appPkg = readPkg(path.join(wsDir, "apps", "starter"));
     expect(appPkg.dependencies["@my-ws/core-module"]).toBe("workspace:*");
+  });
+
+  it("removes starter auth/chat wrappers so workspace-core plugins mount", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
+    expect(
+      fs.existsSync(
+        path.join(wsDir, "apps", "starter", "server", "plugins", "auth.ts"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          wsDir,
+          "apps",
+          "starter",
+          "server",
+          "plugins",
+          "agent-chat.ts",
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("resolves @agent-native/core in the scaffolded workspace core module", async () => {

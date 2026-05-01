@@ -67,7 +67,7 @@ export default createAgentChatPlugin({
     // returns a BigQuery API error. None of those are "tool not registered".
     const toolAssertion =
       "<warehouse-tools>\n" +
-      "Your native tool registry ALWAYS includes `bigquery(sql)` for warehouse queries (dbt_analytics.*, dbt_mart.*, builder-3b0a2.*, etc.) plus `ga4-report`, `hubspot-deals`, `hubspot-metrics`, `hubspot-pipelines`, `amplitude-events`, `posthog-events`, `mixpanel-events`, `jira-search`, `jira-analytics`, `pylon-issues`, `gong-calls`, `apollo-search`, `commonroom-members`, `github-prs`, and `seo-*`. Do NOT tell the user that any of these are unregistered or unavailable in your session — they are part of every analytics deploy. " +
+      "Your native tool registry ALWAYS includes `bigquery(sql)` for warehouse queries (dbt_analytics.*, dbt_mart.*, builder-3b0a2.*, etc.) plus `ga4-report`, `hubspot-deals`, `hubspot-metrics`, `hubspot-pipelines`, `amplitude-events`, `posthog-events`, `mixpanel-events`, `jira`, `jira-search`, `jira-analytics`, `pylon-issues`, `gong-calls`, `apollo-search`, `commonroom-members`, `github-prs`, `sentry`, `grafana`, `gcloud`, `stripe`, `slack-messages`, `notion-page`, `data-source-status`, and `seo-*`. Do NOT tell the user that any of these are unregistered or unavailable in your session — they are part of every analytics deploy. " +
       'If `bigquery` returns `{ error: "bigquery_not_configured", message, settingsPath }`, surface that message and the settings path to the user. ' +
       "If it returns a BigQuery API error (unknown column, permission, syntax), show that error and offer to fix the SQL. " +
       "Never substitute fabricated numbers for a failed query.\n" +

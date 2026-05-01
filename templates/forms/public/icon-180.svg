@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 1024 1024" fill="none">
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="#000000"/>
-  <g transform="translate(198.5 330.5) scale(5.5)">
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 600 600" fill="none">
+  <rect width="600" height="600" fill="#000000"/>
+  <g transform="translate(92 179) scale(3.6491228070175437)">
     <path d="M24.5537 65.7695H0L15.0859 39.4619L37.708 0L60.4912 39.4619H39.6396L24.5537 65.7695Z" fill="white"/>
     <path d="M89.446 0H114L76.2921 65.7704H51.7383L89.446 0Z" fill="url(#favicon_grad)"/>
     <defs>

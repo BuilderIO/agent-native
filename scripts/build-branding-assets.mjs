@@ -23,7 +23,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const BRANDING = join(ROOT, "packages/core/src/assets/branding");
 
-const FAVICON_SVG = readFileSync(join(BRANDING, "favicon.svg"), "utf8");
+// Browser, template, mobile, and Slack icons use the edge-to-edge mark.
+// macOS desktop apps keep a padded source so dock icons match platform sizing.
+const WEB_ICON_SVG = readFileSync(join(BRANDING, "favicon.svg"), "utf8");
+const MAC_APP_ICON_SVG = readFileSync(
+  join(BRANDING, "mac-app-icon.svg"),
+  "utf8",
+);
 
 function sized(svg, size) {
   return svg.replace(
@@ -32,9 +38,9 @@ function sized(svg, size) {
   );
 }
 
-function writeSizedSvg(path, size) {
+function writeSizedSvg(path, size, svg = WEB_ICON_SVG) {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, sized(FAVICON_SVG, size));
+  writeFileSync(path, sized(svg, size));
 }
 
 function rasterize(svgPath, pngPath, size) {
@@ -95,13 +101,17 @@ for (const t of TEMPLATE_DIRS) {
   writeSizedSvg(join(pub, "icon-180.svg"), 180);
   writeSizedSvg(join(pub, "icon-192.svg"), 192);
   writeSizedSvg(join(pub, "icon-512.svg"), 512);
+  const icoPath = join(pub, "favicon.ico");
+  if (existsSync(icoPath)) {
+    rasterize(join(pub, "favicon.svg"), icoPath, 64);
+  }
   console.log(`✔ ${t}/public/{favicon,icon-180,icon-192,icon-512}.svg`);
 }
 
 // 2) Calls template historically uses logo.svg as its favicon — overwrite too
 const CALLS_LOGO = join(ROOT, "templates/calls/public/logo.svg");
 if (existsSync(CALLS_LOGO)) {
-  writeFileSync(CALLS_LOGO, sized(FAVICON_SVG, 1024));
+  writeFileSync(CALLS_LOGO, sized(WEB_ICON_SVG, 1024));
   console.log("✔ templates/calls/public/logo.svg");
 }
 
@@ -141,7 +151,7 @@ const ICTOOL =
   "/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool";
 const HAS_ICTOOL = existsSync(ICTOOL) && existsSync(ICON_BUNDLE);
 if (existsSync(DESKTOP_BUILD)) {
-  writeFileSync(join(DESKTOP_BUILD, "icon.svg"), sized(FAVICON_SVG, 1024));
+  writeFileSync(join(DESKTOP_BUILD, "icon.svg"), sized(MAC_APP_ICON_SVG, 1024));
   rasterize(
     join(DESKTOP_BUILD, "icon.svg"),
     join(DESKTOP_BUILD, "icon.png"),
@@ -200,7 +210,7 @@ const CLIPS_TAURI_DIR = join(ROOT, "templates/clips/desktop/src-tauri");
 const CLIPS_TAURI_ICONS = join(CLIPS_TAURI_DIR, "icons");
 if (existsSync(CLIPS_TAURI_ICONS)) {
   const tmpFav = join(CLIPS_TAURI_ICONS, "_branding-source.svg");
-  writeFileSync(tmpFav, sized(FAVICON_SVG, 1024));
+  writeFileSync(tmpFav, sized(MAC_APP_ICON_SVG, 1024));
   // Render the standalone PNGs Tauri references in tauri.conf.json with
   // the same `ictool` pipeline Electron uses, so the dock icon gets the
   // proper macOS template (correct safe-area + Liquid Glass shine) and
@@ -322,7 +332,7 @@ console.log(
 const MOBILE_ASSETS = join(ROOT, "packages/mobile-app/assets");
 if (existsSync(MOBILE_ASSETS)) {
   const tmp = join(MOBILE_ASSETS, "_branding-source.svg");
-  writeFileSync(tmp, sized(FAVICON_SVG, 1024));
+  writeFileSync(tmp, sized(WEB_ICON_SVG, 1024));
   rasterize(tmp, join(MOBILE_ASSETS, "icon.png"), 1024);
   rasterize(tmp, join(MOBILE_ASSETS, "adaptive-icon.png"), 1024);
   rasterize(tmp, join(MOBILE_ASSETS, "favicon.png"), 64);

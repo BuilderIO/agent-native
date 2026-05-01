@@ -7,7 +7,7 @@ import {
   scopedCredentialCacheKey,
 } from "./credentials-context";
 
-const API_BASE = "https://us-65885.api.gong.io/v2";
+const DEFAULT_API_BASE = "https://api.gong.io/v2";
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -22,6 +22,12 @@ async function getAuthHeader(): Promise<string> {
   return `Basic ${Buffer.from(`${accessKey}:${secret}`).toString("base64")}`;
 }
 
+async function getApiBase(): Promise<string> {
+  const ctx = requireRequestCredentialContext("GONG_ACCESS_KEY");
+  const configured = await resolveCredential("GONG_API_BASE", ctx);
+  return (configured || DEFAULT_API_BASE).replace(/\/+$/, "");
+}
+
 async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
   const key = scopedCredentialCacheKey(cacheKey ?? path, "GONG_ACCESS_KEY");
   const cached = cache.get(key);
@@ -29,7 +35,7 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
     return cached.data as T;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${await getApiBase()}${path}`, {
     headers: {
       Authorization: await getAuthHeader(),
       "Content-Type": "application/json",
@@ -66,7 +72,7 @@ async function apiPost<T>(
     return cached.data as T;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${await getApiBase()}${path}`, {
     method: "POST",
     headers: {
       Authorization: await getAuthHeader(),

@@ -27,6 +27,14 @@ description: >
 | `getNotionPage(pageId)`      | Fetch a page with its block content (recursive)      |
 | `getContentCalendarSchema()` | Get the database schema/properties                   |
 
+## Agent Actions
+
+- `content-calendar` — fetch content calendar entries
+- `content-calendar-schema` — fetch the database schema/properties
+- `notion-page --pageId <id>` — fetch a page with block content
+
+Do not call `/api/notion/*` directly from the agent.
+
 ## Key Patterns & Gotchas
 
 - Content calendar paginates via POST `/databases/:id/query` with `page_size: 100` and `start_cursor`

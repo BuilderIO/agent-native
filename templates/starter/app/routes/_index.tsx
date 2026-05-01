@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from "react";
+import { Link } from "react-router";
 import {
   IconArrowRight,
   IconArrowUpRight,
   IconDatabase,
   IconBolt,
+  IconPlus,
   IconRefresh,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
@@ -104,7 +106,7 @@ export default function IndexPage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
-      <div className="flex flex-1 flex-col items-center justify-center px-6">
+      <div className="flex flex-1 flex-col items-center justify-start px-6 pt-12 pb-10 md:pt-16">
         <div className="w-full max-w-xl space-y-6">
           <h1 className="text-center text-3xl font-semibold tracking-tight text-foreground">
             {isFirstVisit
@@ -169,7 +171,19 @@ export default function IndexPage() {
 
           <div className="h-px bg-border" />
 
-          <div className="grid grid-cols-2 gap-3 text-left">
+          <div className="grid gap-3 text-left sm:grid-cols-3">
+            <Link
+              to="/new-app"
+              className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50"
+            >
+              <p className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+                <IconPlus className="h-3.5 w-3.5" />
+                New app
+              </p>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                Prompt with Dispatch keys
+              </p>
+            </Link>
             <a
               href="https://agent-native.com/docs"
               target="_blank"

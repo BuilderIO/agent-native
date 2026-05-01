@@ -89,7 +89,7 @@
     "build": "tsc && node scripts/finalize-build.mjs",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run",
+    "test": "vitest --run src",
     "prepack": "cp ../../README.md ./README.md",
     "prepublishOnly": "npm run build",
     "release": "npm version patch && npm publish --access public"

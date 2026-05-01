@@ -12,17 +12,18 @@
  * DATABASE_URL by default, so storing a credential once makes it
  * available everywhere.
  *
- * Once @agent-native/core publishes the upcoming 2-arg signature you can
- * extend this to take a `{ userEmail, orgId }` context and pass it through
- * for per-user / per-org scoping. The current shape works against both
- * versions — the published 1-arg signature ignores the second argument.
+ * A request/action context is required so credentials stay scoped to the
+ * correct user and organization. This helper can read that context
+ * automatically inside agent-native actions; otherwise pass it explicitly.
  */
 import { resolveCredential } from "@agent-native/core/credentials";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 
 /**
- * Optional context for scoping a credential lookup to a specific user or
- * org. Forward-compatible with the upcoming 2-arg @agent-native/core
- * signature; ignored by the current 1-arg published one.
+ * Optional context for scoping a credential lookup to a specific user or org.
  */
 export interface CompanyCredentialContext {
   userEmail?: string;
@@ -31,7 +32,7 @@ export interface CompanyCredentialContext {
 
 type ResolveCredentialFn = (
   key: string,
-  ctx?: CompanyCredentialContext,
+  ctx: CompanyCredentialContext,
 ) => Promise<string | undefined>;
 
 /**
@@ -39,10 +40,10 @@ type ResolveCredentialFn = (
  * directly — it keeps your keys organized under a workspace namespace and
  * makes "where does this secret come from" greppable.
  *
- * Example:
+ * Inside an agent-native action:
  *   const slackToken = await resolveCompanyCredential("SLACK_BOT_TOKEN");
  *
- * With per-user scoping (after upgrading @agent-native/core):
+ * Outside request context:
  *   const slackToken = await resolveCompanyCredential("SLACK_BOT_TOKEN", {
  *     userEmail: session.email,
  *     orgId: session.orgId ?? null,
@@ -52,5 +53,15 @@ export async function resolveCompanyCredential(
   key: string,
   ctx?: CompanyCredentialContext,
 ): Promise<string | undefined> {
-  return await (resolveCredential as ResolveCredentialFn)(key, ctx);
+  const effectiveCtx: CompanyCredentialContext = ctx?.userEmail
+    ? ctx
+    : {
+        userEmail: getRequestUserEmail() ?? undefined,
+        orgId: getRequestOrgId(),
+      };
+  if (!effectiveCtx.userEmail) return undefined;
+  return await (resolveCredential as ResolveCredentialFn)(key, {
+    userEmail: effectiveCtx.userEmail,
+    orgId: effectiveCtx.orgId ?? null,
+  });
 }

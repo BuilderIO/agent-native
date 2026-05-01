@@ -39,8 +39,20 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import {
+  createToolSearchEntry,
+  TOOL_SEARCH_ACTION_NAME,
+} from "./tool-search.js";
+import {
+  getDefaultMaxIterations,
+  normalizeMaxIterations,
+  readAgentLoopSettings,
+} from "./loop-settings.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -200,6 +212,198 @@ export interface ActionEntry {
 /** @deprecated Use `ActionEntry` instead */
 export type ScriptEntry = ActionEntry;
 
+export type AgentExecutionMode = "act" | "plan";
+
+export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
+
+You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
+
+Hard rules:
+- Use only read-only tools. Do not edit files, write resources, run shell commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
+- If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
+- When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
+- Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector, Shift+Tab, or /act before implementation.`;
+
+const PLAN_MODE_BLOCKED_READONLY_TOOLS = new Set([
+  "refresh-screen",
+  "set-search-params",
+  "set-url-path",
+]);
+
+const PLAN_MODE_ALLOWED_ACTIONS: Record<string, readonly string[]> = {
+  resources: ["list", "read"],
+  "chat-history": ["search"],
+  "agent-teams": ["status", "read-result", "list"],
+  "manage-jobs": ["list"],
+  "manage-automations": ["list-events", "list"],
+  "manage-notifications": ["list"],
+  "manage-progress": ["list"],
+  "manage-agent-engine": ["list"],
+};
+
+const PLAN_MODE_WEB_REQUEST_METHODS = new Set(["GET", "HEAD"]);
+
+function getToolAction(name: string, args: unknown): string {
+  const raw =
+    args && typeof args === "object" && "action" in args
+      ? (args as Record<string, unknown>).action
+      : undefined;
+  if (raw == null && name === "chat-history") return "search";
+  return String(raw ?? "").toLowerCase();
+}
+
+function getWebRequestMethod(args: unknown): string {
+  const raw =
+    args && typeof args === "object" && "method" in args
+      ? (args as Record<string, unknown>).method
+      : undefined;
+  return String(raw ?? "GET").toUpperCase();
+}
+
+function restrictActionEnum(
+  parameters: ActionTool["parameters"] | undefined,
+  allowedActions: readonly string[],
+): ActionTool["parameters"] | undefined {
+  if (!parameters) return parameters;
+  const actionParam = parameters.properties.action;
+  if (!actionParam) return parameters;
+  return {
+    ...parameters,
+    properties: {
+      ...parameters.properties,
+      action: {
+        ...actionParam,
+        enum: [...allowedActions],
+      },
+    },
+  };
+}
+
+function restrictWebRequestMethods(
+  parameters: ActionTool["parameters"] | undefined,
+): ActionTool["parameters"] | undefined {
+  if (!parameters) return parameters;
+  const methodParam = parameters.properties.method;
+  if (!methodParam) return parameters;
+  return {
+    ...parameters,
+    properties: {
+      ...parameters.properties,
+      method: {
+        ...methodParam,
+        enum: [...PLAN_MODE_WEB_REQUEST_METHODS],
+      },
+    },
+  };
+}
+
+function planModeBlockedMessage(toolName: string, reason?: string): string {
+  return (
+    `Plan mode blocked \`${toolName}\`` +
+    (reason ? ` (${reason})` : "") +
+    ". Switch to Act mode after the user approves the plan, then retry the action."
+  );
+}
+
+export function isPlanModeToolCallAllowed(
+  name: string,
+  input: unknown,
+  entry: ActionEntry,
+): boolean {
+  if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) return false;
+
+  if (name === "web-request") {
+    return PLAN_MODE_WEB_REQUEST_METHODS.has(getWebRequestMethod(input));
+  }
+
+  const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
+  if (allowedActions) {
+    return allowedActions.includes(getToolAction(name, input));
+  }
+
+  return entry.readOnly === true;
+}
+
+function createPlanModeGuardedAction(
+  name: string,
+  entry: ActionEntry,
+  allowedActions: readonly string[],
+): ActionEntry {
+  return {
+    ...entry,
+    readOnly: true,
+    tool: {
+      ...entry.tool,
+      description:
+        `${entry.tool.description}\n\nPlan mode: only these read-only actions are available: ` +
+        allowedActions.map((action) => `"${action}"`).join(", ") +
+        ".",
+      parameters: restrictActionEnum(entry.tool.parameters, allowedActions),
+    },
+    run: async (args, context) => {
+      const action = getToolAction(name, args);
+      if (!allowedActions.includes(action)) {
+        return planModeBlockedMessage(
+          name,
+          `action="${action || "(missing)"}"`,
+        );
+      }
+      return entry.run(args, context);
+    },
+  };
+}
+
+function createPlanModeWebRequestAction(entry: ActionEntry): ActionEntry {
+  return {
+    ...entry,
+    readOnly: true,
+    tool: {
+      ...entry.tool,
+      description: `${entry.tool.description}\n\nPlan mode: only GET and HEAD requests are allowed.`,
+      parameters: restrictWebRequestMethods(entry.tool.parameters),
+    },
+    run: async (args, context) => {
+      const method = getWebRequestMethod(args);
+      if (!PLAN_MODE_WEB_REQUEST_METHODS.has(method)) {
+        return planModeBlockedMessage("web-request", `method="${method}"`);
+      }
+      return entry.run(args, context);
+    },
+  };
+}
+
+export function createPlanModeActionRegistry(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  const filtered: Record<string, ActionEntry> = {};
+
+  for (const [name, entry] of Object.entries(actions)) {
+    if (name === TOOL_SEARCH_ACTION_NAME) continue;
+    if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) continue;
+
+    const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
+    if (allowedActions) {
+      filtered[name] = createPlanModeGuardedAction(name, entry, allowedActions);
+      continue;
+    }
+
+    if (name === "web-request") {
+      filtered[name] = createPlanModeWebRequestAction(entry);
+      continue;
+    }
+
+    if (entry.readOnly === true) {
+      filtered[name] = entry;
+    }
+  }
+
+  if (actions[TOOL_SEARCH_ACTION_NAME]) {
+    filtered[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => filtered);
+  }
+
+  return filtered;
+}
+
 export interface ProductionAgentOptions {
   /** Action entries for the agent. Use `actions` (preferred) or `scripts` (deprecated alias). */
   actions?: Record<string, ActionEntry>;
@@ -242,7 +446,6 @@ export interface ProductionAgentOptions {
   skipFilesContext?: boolean;
 }
 
-const MAX_ITERATIONS = 100;
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 2000;
 
@@ -273,12 +476,24 @@ function isContextTooLongError(err: unknown): boolean {
 function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
+  const code =
+    err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   return (
+    code === "http_502" ||
+    code === "http_503" ||
+    code === "http_504" ||
+    code === "timeout" ||
     msg.includes("overloaded") ||
     msg.includes("rate_limit") ||
     msg.includes("529") ||
+    msg.includes("502") ||
     msg.includes("503") ||
-    msg.includes("too many requests")
+    msg.includes("504") ||
+    msg.includes("too many requests") ||
+    msg.includes("timeout") ||
+    msg.includes("gateway timeout") ||
+    msg.includes("inactivity timeout") ||
+    msg.includes("too much time has passed without sending any data")
   );
 }
 
@@ -450,14 +665,38 @@ export interface AgentLoopUsage {
 export function actionsToEngineTools(
   actions: Record<string, ActionEntry>,
 ): EngineTool[] {
-  return Object.entries(actions).map(([name, entry]) => ({
-    name,
-    description: entry.tool.description,
-    inputSchema: (entry.tool.parameters ?? {
-      type: "object",
-      properties: {},
-    }) as EngineTool["inputSchema"],
-  }));
+  const tools: EngineTool[] = [];
+  for (const [name, entry] of Object.entries(actions)) {
+    const inputSchema = normalizeToolInputSchema(entry.tool.parameters);
+    if (!inputSchema) {
+      console.warn(
+        `[agent] Skipping tool "${name}" because its input schema is not an object.`,
+      );
+      continue;
+    }
+    tools.push({
+      name,
+      description: entry.tool.description,
+      inputSchema,
+    });
+  }
+  return tools;
+}
+
+function normalizeToolInputSchema(
+  schema: ActionTool["parameters"] | undefined,
+): EngineTool["inputSchema"] | null {
+  if (!schema) return { type: "object", properties: {} };
+  if (schema.type !== "object") return null;
+  return {
+    ...schema,
+    type: "object",
+    properties:
+      schema.properties && typeof schema.properties === "object"
+        ? schema.properties
+        : {},
+    required: Array.isArray(schema.required) ? schema.required : [],
+  };
 }
 
 /**
@@ -475,6 +714,8 @@ export async function runAgentLoop(opts: {
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
   providerOptions?: any;
+  executionMode?: AgentExecutionMode;
+  maxIterations?: number;
 }): Promise<AgentLoopUsage> {
   const {
     engine,
@@ -495,11 +736,15 @@ export async function runAgentLoop(opts: {
     model,
   };
 
+  const maxIterations = normalizeMaxIterations(
+    opts.maxIterations,
+    getDefaultMaxIterations(),
+  );
   let iterations = 0;
   while (true) {
     if (signal.aborted) break;
-    if (++iterations > MAX_ITERATIONS) {
-      send({ type: "loop_limit" });
+    if (++iterations > maxIterations) {
+      send({ type: "loop_limit", maxIterations });
       break;
     }
 
@@ -611,6 +856,21 @@ export async function runAgentLoop(opts: {
           input: toolCall.input as Record<string, string>,
         });
 
+        if (
+          opts.executionMode === "plan" &&
+          !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
+        ) {
+          const result = planModeBlockedMessage(toolCall.name);
+          send({ type: "tool_done", tool: toolCall.name, result });
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            content: result,
+            isError: true,
+          };
+        }
+
         const MAX_TOOL_RESULT_CHARS = 50_000;
         const TOOL_TIMEOUT_MS = 60_000;
         let result: string;
@@ -688,9 +948,11 @@ export function createProductionAgentHandler(
   // the settings UI) show up to the LLM without a process restart. MCP tools
   // are also scope-filtered per request — a user-scope server added by Alice
   // must not appear in Bob's tool list in a shared-process deployment.
-  const getEngineTools = () => {
+  const getEngineTools = (
+    actions: Record<string, ActionEntry> = resolvedActions,
+  ) => {
     const filtered: Record<string, ActionEntry> = {};
-    for (const [name, entry] of Object.entries(resolvedActions)) {
+    for (const [name, entry] of Object.entries(actions)) {
       if (name.startsWith("mcp__") && !isMcpToolAllowedForRequest(name)) {
         continue;
       }
@@ -722,6 +984,8 @@ export function createProductionAgentHandler(
       model: requestModel,
       engine: requestEngine,
     } = body;
+    const requestMode: AgentExecutionMode =
+      body.mode === "plan" ? "plan" : "act";
     if (!message) {
       setResponseStatus(event, 400);
       return { error: "message is required" };
@@ -826,6 +1090,10 @@ export function createProductionAgentHandler(
     // the DB or invokes an action; running them sequentially was the
     // single biggest contributor to pre-LLM latency.
     const enrichedMessage = enrichMessage(message, references);
+    const loopSettingsPromise = readAgentLoopSettings({
+      userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
+      orgId: getRequestOrgId() ?? null,
+    }).catch(() => readAgentLoopSettings({}));
 
     let systemPromptError: any = null;
     const systemPromptPromise = (async (): Promise<string> => {
@@ -1006,14 +1274,21 @@ export function createProductionAgentHandler(
       return filesContext;
     })();
 
-    const [systemPrompt, screenBlock, urlBlock, selectionBlock, filesContext] =
-      await Promise.all([
-        systemPromptPromise,
-        screenContextPromise,
-        urlContextPromise,
-        selectionContextPromise,
-        filesContextPromise,
-      ]);
+    const [
+      systemPrompt,
+      screenBlock,
+      urlBlock,
+      selectionBlock,
+      filesContext,
+      loopSettings,
+    ] = await Promise.all([
+      systemPromptPromise,
+      screenContextPromise,
+      urlContextPromise,
+      selectionContextPromise,
+      filesContextPromise,
+      loopSettingsPromise,
+    ]);
 
     if (systemPromptError) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -1032,13 +1307,26 @@ export function createProductionAgentHandler(
       });
     }
     const screenContext = screenBlock + urlBlock + selectionBlock;
+    const requestActions =
+      requestMode === "plan"
+        ? createPlanModeActionRegistry(resolvedActions)
+        : resolvedActions;
+    const requestTools = getEngineTools(requestActions);
+    const requestSystemPrompt =
+      requestMode === "plan"
+        ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
+        : systemPrompt;
 
     // Pre-compute agent references for A2A resolution inside the run
     const agentRefs = references.filter((r) => r.type === "agent");
     const customAgentRefs = references.filter((r) => r.type === "custom-agent");
+    const planModeAgentNote =
+      requestMode === "plan" && agentRefs.length > 0
+        ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
+        : "";
 
     const userContent = buildUserContentWithAttachments({
-      text: enrichedMessage + screenContext + filesContext,
+      text: enrichedMessage + screenContext + filesContext + planModeAgentNote,
       attachments,
     });
 
@@ -1099,7 +1387,7 @@ export function createProductionAgentHandler(
                 }
 
                 const profilePrompt =
-                  `${systemPrompt}\n\n<custom-agent-profile name="${profile.name}" path="${profile.path}">\n` +
+                  `${requestSystemPrompt}\n\n<custom-agent-profile name="${profile.name}" path="${profile.path}">\n` +
                   (profile.description ? `${profile.description}\n\n` : "") +
                   `${profile.instructions}\n</custom-agent-profile>`;
 
@@ -1108,7 +1396,7 @@ export function createProductionAgentHandler(
                   engine,
                   model: profile.model ?? model,
                   systemPrompt: profilePrompt,
-                  tools: getEngineTools(),
+                  tools: requestTools,
                   messages: [
                     {
                       role: "user",
@@ -1117,7 +1405,7 @@ export function createProductionAgentHandler(
                       ],
                     },
                   ],
-                  actions: resolvedActions,
+                  actions: requestActions,
                   send: (event) => {
                     if (event.type === "text") {
                       responseText += event.text;
@@ -1130,6 +1418,8 @@ export function createProductionAgentHandler(
                   },
                   signal,
                   providerOptions: options.providerOptions,
+                  executionMode: requestMode,
+                  maxIterations: loopSettings.maxIterations,
                 });
 
                 // Attribute custom-agent sub-calls under their own label
@@ -1196,7 +1486,7 @@ export function createProductionAgentHandler(
         }
 
         // Resolve connected agent @-mentions via A2A calls.
-        if (agentRefs.length > 0) {
+        if (agentRefs.length > 0 && requestMode !== "plan") {
           const { A2AClient, callAgent } = await import("../a2a/client.js");
           const results = await Promise.allSettled(
             agentRefs.map(async (ref) => {
@@ -1335,13 +1625,15 @@ export function createProductionAgentHandler(
         const agentLoopOpts = {
           engine,
           model: effectiveModel,
-          systemPrompt,
-          tools: getEngineTools(),
+          systemPrompt: requestSystemPrompt,
+          tools: requestTools,
           messages,
-          actions: resolvedActions,
+          actions: requestActions,
           send,
           signal,
           providerOptions: options.providerOptions,
+          executionMode: requestMode,
+          maxIterations: loopSettings.maxIterations,
         };
 
         let loopUsage: AgentLoopUsage;

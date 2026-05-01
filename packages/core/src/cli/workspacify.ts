@@ -10,7 +10,9 @@
  *        inherits shared plugins/skills/AGENTS.md via the three-layer model.
  *   2. Removes files that only make sense in standalone apps
  *      (`learnings.defaults.md`, etc.).
- *   3. Leaves app source code untouched. The three-layer framework
+ *   3. Removes starter's stock auth/chat wrappers so the workspace core can
+ *      own those inherited plugin slots.
+ *   4. Leaves app source code untouched. The three-layer framework
  *      auto-discovers workspace-core via `agent-native.workspaceCore` in the
  *      workspace root package.json — no per-app wiring needed.
  *
@@ -25,6 +27,8 @@ export interface WorkspacifyOptions {
   appDir: string;
   /** App name (e.g. "mail") */
   appName: string;
+  /** Source template name (e.g. "starter" when appName is "crm") */
+  templateName?: string;
   /** Workspace root directory */
   workspaceRoot: string;
   /** Core module package name (e.g. "@my-company/core-module") */
@@ -66,6 +70,14 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       // Ensure the dependency on the workspace core module is present.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies[workspaceCoreName] = "workspace:*";
+      // pnpm build-script approvals belong at the workspace root. Leaving the
+      // template's per-app setting in place makes pnpm warn on every install.
+      if (pkg.pnpm && typeof pkg.pnpm === "object") {
+        delete pkg.pnpm.onlyBuiltDependencies;
+        if (Object.keys(pkg.pnpm).length === 0) {
+          delete pkg.pnpm;
+        }
+      }
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {
       // Non-fatal: leave package.json unchanged.
@@ -80,6 +92,35 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
   ]) {
     const p = path.join(appDir, f);
     if (fs.existsSync(p)) fs.unlinkSync(p);
+  }
+
+  // 3) Templates document action commands from the framework repo layout.
+  //    Workspace apps live under apps/<name>, so point every agent at the
+  //    generated app directory instead.
+  const agentsPath = path.join(appDir, "AGENTS.md");
+  if (fs.existsSync(agentsPath)) {
+    try {
+      let content = fs.readFileSync(agentsPath, "utf-8");
+      content = content
+        .replace(
+          "The terminal cwd is the framework root. Always `cd` to this template's root before running any action:",
+          `The terminal cwd is the workspace root. Always \`cd\` to this app's root before running any action:`,
+        )
+        .replace(
+          /cd templates\/[^ \n]+ && pnpm action/g,
+          `cd apps/${opts.appName} && pnpm action`,
+        );
+      fs.writeFileSync(agentsPath, content);
+    } catch {
+      // Non-fatal: leave AGENTS.md unchanged.
+    }
+  }
+
+  if ((opts.templateName ?? opts.appName) === "starter") {
+    for (const plugin of ["auth.ts", "agent-chat.ts"]) {
+      const pluginPath = path.join(appDir, "server", "plugins", plugin);
+      if (fs.existsSync(pluginPath)) fs.unlinkSync(pluginPath);
+    }
   }
 }
 

@@ -91,7 +91,7 @@ export function DailyProgress({
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 sm:p-5 backdrop-blur-sm">
-      <div className="grid xl:grid-cols-[1fr_340px] gap-6 xl:gap-8">
+      <div className="macros-summary-grid">
         {/* Left Side */}
         <div className="space-y-8 flex flex-col justify-center">
           <div className="flex items-center justify-between">
@@ -194,7 +194,7 @@ export function DailyProgress({
         </div>
 
         {/* Right Side: Charts */}
-        <div className="hidden xl:flex border-l border-white/[0.08] pl-8 flex-col justify-center transition-all duration-300">
+        <div className="macros-summary-chart border-l border-white/[0.08] pl-8 flex-col justify-center transition-all duration-300">
           <Tabs
             value={activeChart}
             onValueChange={setActiveChart}

@@ -21,6 +21,8 @@ import {
   IconHelp,
   IconHistory,
   IconTerminal2,
+  IconClipboardList,
+  IconPencil,
 } from "@tabler/icons-react";
 import type { MentionItem, SkillResult, SlashCommand } from "./types.js";
 
@@ -82,6 +84,10 @@ function CommandIcon({ icon }: { icon?: string }) {
       return <IconHelp {...iconProps} />;
     case "history":
       return <IconHistory {...iconProps} />;
+    case "plan":
+      return <IconClipboardList {...iconProps} />;
+    case "act":
+      return <IconPencil {...iconProps} />;
     default:
       return <IconTerminal2 {...iconProps} />;
   }

@@ -66,9 +66,9 @@ cd templates/macros && pnpm action <name> [args]
 | ---------------- | ------------------------------------------------------ | ---------------------------- |
 | `view-screen`    |                                                        | See current navigation state |
 | `navigate`       | `--view entry\|analytics`                              | Navigate UI                  |
-| `log-meal`       | `--name --calories [--protein --carbs --fat --date]`   | Log a meal                   |
-| `log-exercise`   | `--name --calories_burned [--duration_minutes --date]` | Log exercise                 |
-| `log-weight`     | `--weight [--date --notes]`                            | Log weight entry             |
+| `log-meal`       | `--name --calories [--protein --carbs --fat --date]`   | Write and return a meal row  |
+| `log-exercise`   | `--name --calories_burned [--duration_minutes --date]` | Write and return exercise    |
+| `log-weight`     | `--weight [--date --notes]`                            | Write and return weight row  |
 | `list-meals`     | `[--date]`                                             | List meals for a date        |
 | `list-exercises` | `[--date]`                                             | List exercises for a date    |
 | `delete-item`    | `--type meal\|exercise\|weight --id`                   | Delete an item               |
@@ -76,6 +76,8 @@ cd templates/macros && pnpm action <name> [args]
 | `get-analytics`  | `[--days]`                                             | Get calorie/weight analytics |
 
 Meal logging rule: for any request to add, log, record, or track a meal, use `log-meal` directly. Never use `web-request`, `fetch`, raw HTTP, or `/_agent-native/actions/log-meal` manually to create a meal entry. If nutrition numbers are not exact, make a reasonable estimate and still call `log-meal`.
+
+The logging actions (`log-meal`, `log-exercise`, `log-weight`) are complete database writes. Their return value is the saved row. After one succeeds, do not call `docs-search`, `db-schema`, `db-query`, `db-exec`, `db-patch`, `refresh-screen`, or any HTTP/action endpoint to verify, inspect, or insert the same item.
 
 ## Common Tasks
 

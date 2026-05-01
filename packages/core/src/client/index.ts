@@ -42,6 +42,17 @@ export {
   type UserInfo,
 } from "./frame.js";
 export {
+  getBuilderParentOrigin,
+  isInBuilderFrame,
+  sendToBuilderChat,
+  type BuilderChatMessage,
+} from "./builder-frame.js";
+export {
+  NewWorkspaceAppFlow,
+  type NewWorkspaceAppFlowProps,
+  type VaultSecretOption,
+} from "./NewWorkspaceAppFlow.js";
+export {
   AssistantChat,
   clearChatStorage,
   type AssistantChatProps,

@@ -8,7 +8,8 @@ export default defineAction({
   schema: z.object({
     sql: z.string().describe("SQL query to execute"),
   }),
-  http: false,
+  readOnly: true,
+  toolCallable: true,
   run: async (args) => {
     try {
       return await runQuery(args.sql);

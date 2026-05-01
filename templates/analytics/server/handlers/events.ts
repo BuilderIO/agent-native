@@ -61,7 +61,7 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
       const { token, projectId } = ctxResult;
       // Fire and forget — don't block the response on the BigQuery insert.
       fetch(
-        `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId || "your-gcp-project-id"}/datasets/analytics/tables/events_partitioned/insertAll`,
+        `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/datasets/analytics/tables/events_partitioned/insertAll`,
         {
           method: "POST",
           headers: {

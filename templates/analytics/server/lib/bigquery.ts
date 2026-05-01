@@ -12,9 +12,8 @@ async function getProjectInfo(): Promise<{
   cacheScope: string;
 }> {
   const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
-  const projectId =
-    (await resolveCredential("BIGQUERY_PROJECT_ID", ctx)) ||
-    "your-gcp-project-id";
+  const projectId = await resolveCredential("BIGQUERY_PROJECT_ID", ctx);
+  if (!projectId) throw new Error("BIGQUERY_PROJECT_ID not configured");
   return { projectId, cacheScope: cacheScopeForContext(ctx) };
 }
 
@@ -35,7 +34,12 @@ async function resolveTablePlaceholder(
 ): Promise<string> {
   projectId ??= await getProjectId();
   const appEventsTable = `${projectId}.analytics.events_partitioned`;
-  return sql.replace(/@app_events/gi, `\`${appEventsTable}\``);
+  return sql
+    .replace(/@app_events/gi, `\`${appEventsTable}\``)
+    .replace(/`@project\./g, `\`${projectId}.`)
+    .replace(/\b@project\./g, `${projectId}.`)
+    .replace(/`your-gcp-project-id\./g, `\`${projectId}.`)
+    .replace(/\byour-gcp-project-id\./g, `${projectId}.`);
 }
 
 /**

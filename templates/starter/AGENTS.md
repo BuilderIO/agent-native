@@ -30,8 +30,14 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 
 | State Key    | Purpose                                   | Direction                  |
 | ------------ | ----------------------------------------- | -------------------------- |
-| `navigation` | Current view                              | UI -> Agent (read-only)    |
+| `navigation` | Current view (`home` or `new-app`)        | UI -> Agent (read-only)    |
 | `navigate`   | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
+
+## Workspace App Creation
+
+The `/new-app` route lets the user prompt a new workspace app and choose which Dispatch vault keys it should receive. When loaded inside Builder, code prompts are delegated to Builder chat; in local dev, they go to the agent-native code agent. In production, app creation is only enabled when Builder branching is explicitly configured.
+
+When creating a new app from this flow, keep apps under `apps/<app-id>`, mount them at `/<app-id>`, use the shared workspace database/hosting model, and namespace any new domain tables so apps do not collide.
 
 ## Agent Operations
 

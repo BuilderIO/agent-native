@@ -127,14 +127,17 @@ export async function retryOnDdlRace<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 function isPgCatalogRace(e: any): boolean {
+  if (e?.code === "42P07") return true;
   if (e?.code !== "23505") return false;
   const constraint = String(e?.constraint_name ?? e?.constraint ?? "");
   const detail = String(e?.detail ?? "");
+  const msg = String(e?.message ?? "");
   return (
     constraint.startsWith("pg_type") ||
     constraint.startsWith("pg_class") ||
     detail.includes("pg_type") ||
-    detail.includes("pg_class")
+    detail.includes("pg_class") ||
+    /relation .* already exists/i.test(msg)
   );
 }
 

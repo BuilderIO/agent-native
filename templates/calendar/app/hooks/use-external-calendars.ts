@@ -46,7 +46,7 @@ export function useUpdateExternalCalendarColor() {
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updated),
+          body: JSON.stringify({ calendars: updated }),
         },
       );
       if (!res.ok) throw new Error("Failed to save");

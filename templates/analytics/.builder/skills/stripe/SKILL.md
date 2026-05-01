@@ -8,14 +8,27 @@ description: How to connect to and query the Stripe API for analytics data.
 ## Connection
 
 - **Base URL**: `https://api.stripe.com`
-- **Auth**: Bearer token via `STRIPE_SECRET_KEY` env var
+- **Auth**: Bearer token via the per-user/org `STRIPE_SECRET_KEY` credential
 - **Server lib**: `server/lib/stripe.ts`
 - **Routes**: `server/routes/stripe.ts`
 - **Dashboard**: `app/pages/adhoc/stripe/` (tool page, not metrics dashboard)
 
-## Environment Variable
+## Credential
 
-- `STRIPE_SECRET_KEY` — set via DevServerControl `set_env_variable`, never in `.env`
+- `STRIPE_SECRET_KEY` — configure in Settings → Data sources
+
+## Agent Action
+
+Use `stripe` for agent-facing Stripe work. Do not call `/api/stripe/*`
+directly from the agent.
+
+| Mode | Args | Description |
+| --- | --- | --- |
+| `billing` | `email`, `customerId`, `query`, `months` | Invoices for a customer in timeframe |
+| `payment-status` | `email`, `customerId`, `query` | Recent charges + payment intents |
+| `refunds` | `email`, `customerId`, `query` | Refunds associated with customer |
+| `subscriptions` | `email`, `customerId`, `query` | Active subscriptions |
+| `billing-by-product` | `email`, `customerId`, `query`, `months` | Billing aggregated by product |
 
 ## API Routes
 

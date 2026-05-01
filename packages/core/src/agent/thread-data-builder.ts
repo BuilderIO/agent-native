@@ -22,11 +22,29 @@ export function buildAssistantMessage(
   id: string;
   role: "assistant";
   content: ContentPart[];
-  status: { type: "complete"; reason: "stop" };
+  status:
+    | { type: "complete"; reason: "stop" }
+    | { type: "incomplete"; reason: "error" };
   metadata: Record<string, unknown>;
 } | null {
   const content: ContentPart[] = [];
   let toolCallCounter = 0;
+  let loopLimit: { maxIterations?: number } | null = null;
+  let runError: {
+    message: string;
+    errorCode?: string;
+    details?: string;
+    recoverable?: boolean;
+  } | null = null;
+
+  const appendText = (text: string) => {
+    const last = content[content.length - 1];
+    if (last && last.type === "text") {
+      last.text = (last.text ?? "") + text;
+    } else {
+      content.push({ type: "text", text });
+    }
+  };
 
   for (const { event } of events) {
     if (event.type === "clear") {
@@ -36,12 +54,7 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "text") {
-      const last = content[content.length - 1];
-      if (last && last.type === "text") {
-        last.text = (last.text ?? "") + (event.text ?? "");
-      } else {
-        content.push({ type: "text", text: event.text ?? "" });
-      }
+      appendText(event.text ?? "");
       continue;
     }
 
@@ -73,17 +86,60 @@ export function buildAssistantMessage(
       continue;
     }
 
-    // done, error, missing_api_key, loop_limit — terminal signals, not content
+    if (event.type === "loop_limit") {
+      loopLimit = {
+        ...(event.maxIterations ? { maxIterations: event.maxIterations } : {}),
+      };
+      appendText(
+        `${content.length > 0 ? "\n\n" : ""}${
+          event.maxIterations
+            ? `I reached the ${event.maxIterations}-step limit before finishing.`
+            : "I reached the step limit before finishing."
+        }`,
+      );
+      continue;
+    }
+
+    if (event.type === "error") {
+      runError = {
+        message: event.error,
+        ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+        ...(event.details ? { details: event.details } : {}),
+        ...(event.recoverable ? { recoverable: event.recoverable } : {}),
+      };
+      appendText(`${content.length > 0 ? "\n\n" : ""}Error: ${event.error}`);
+      continue;
+    }
+
+    // done, missing_api_key — terminal signals, not content
   }
 
   if (content.length === 0) return null;
+
+  const metadata: Record<string, unknown> = {};
+  if (runId) metadata.runId = runId;
+  if (loopLimit || runError) {
+    metadata.custom = {
+      ...(loopLimit ? { loopLimit } : {}),
+      ...(runError
+        ? {
+            runError: {
+              ...runError,
+              ...(runId ? { runId } : {}),
+            },
+          }
+        : {}),
+    };
+  }
 
   return {
     id: `server-${runId ?? Date.now()}`,
     role: "assistant",
     content,
-    status: { type: "complete" as const, reason: "stop" as const },
-    metadata: runId ? { runId } : {},
+    status: runError
+      ? { type: "incomplete" as const, reason: "error" as const }
+      : { type: "complete" as const, reason: "stop" as const },
+    metadata,
   };
 }
 

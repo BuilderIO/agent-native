@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec, isPostgres, retryOnDdlRace } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
   accessFilter,
@@ -42,31 +42,43 @@ export async function ensureToolsTables(): Promise<void> {
     _initPromise = (async () => {
       const client = getDbExec();
       const pg = isPostgres();
-      await client.execute(pg ? TOOLS_CREATE_SQL_PG : TOOLS_CREATE_SQL);
-      await client.execute(
-        pg ? TOOL_SHARES_CREATE_SQL_PG : TOOL_SHARES_CREATE_SQL,
+      await retryOnDdlRace(() =>
+        client.execute(pg ? TOOLS_CREATE_SQL_PG : TOOLS_CREATE_SQL),
       );
-      await client.execute(pg ? TOOL_DATA_CREATE_SQL_PG : TOOL_DATA_CREATE_SQL);
+      await retryOnDdlRace(() =>
+        client.execute(pg ? TOOL_SHARES_CREATE_SQL_PG : TOOL_SHARES_CREATE_SQL),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(pg ? TOOL_DATA_CREATE_SQL_PG : TOOL_DATA_CREATE_SQL),
+      );
       await ensureToolDataItemId(client, pg);
       await ensureToolDataScope(client, pg);
       await client.execute(
         pg ? TOOL_DATA_DROP_OLD_INDEX_SQL_PG : TOOL_DATA_DROP_OLD_INDEX_SQL,
       );
-      await client.execute(
-        pg ? TOOL_DATA_ITEM_INDEX_SQL_PG : TOOL_DATA_ITEM_INDEX_SQL,
+      await retryOnDdlRace(() =>
+        client.execute(
+          pg ? TOOL_DATA_ITEM_INDEX_SQL_PG : TOOL_DATA_ITEM_INDEX_SQL,
+        ),
       );
-      await client.execute(TOOLS_OWNER_INDEX_SQL);
-      await client.execute(TOOLS_ORG_INDEX_SQL);
-      await client.execute(TOOL_SHARES_RESOURCE_INDEX_SQL);
+      await retryOnDdlRace(() => client.execute(TOOLS_OWNER_INDEX_SQL));
+      await retryOnDdlRace(() => client.execute(TOOLS_ORG_INDEX_SQL));
+      await retryOnDdlRace(() =>
+        client.execute(TOOL_SHARES_RESOURCE_INDEX_SQL),
+      );
       // tool_consents was introduced for an audit-C1 per-viewer consent
       // gate that we removed once we settled on intra-org trust as the
       // baseline. The table is kept (additive — never drop) so deploys
       // that already created it stay healthy; the runtime consent code
       // is gone. Idempotent CREATE IF NOT EXISTS for fresh schemas.
-      await client.execute(
-        pg ? TOOL_CONSENTS_CREATE_SQL_PG : TOOL_CONSENTS_CREATE_SQL,
+      await retryOnDdlRace(() =>
+        client.execute(
+          pg ? TOOL_CONSENTS_CREATE_SQL_PG : TOOL_CONSENTS_CREATE_SQL,
+        ),
       );
-      await client.execute(TOOL_CONSENTS_VIEWER_INDEX_SQL);
+      await retryOnDdlRace(() =>
+        client.execute(TOOL_CONSENTS_VIEWER_INDEX_SQL),
+      );
     })();
   }
   return _initPromise;
