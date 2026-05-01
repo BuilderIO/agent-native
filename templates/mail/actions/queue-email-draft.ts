@@ -4,7 +4,7 @@ import { createQueuedDraft } from "../server/lib/queued-drafts.js";
 
 export default defineAction({
   description:
-    "Queue an email draft for an organization member to review, edit, and send. Use this for Slack or teammate requests instead of sending directly.",
+    "Queue an email draft for an organization member to review, edit, and send. Returns reviewUrl for a direct link to the queued draft. Use this for Slack or teammate requests instead of sending directly.",
   schema: z.object({
     ownerEmail: z
       .string()

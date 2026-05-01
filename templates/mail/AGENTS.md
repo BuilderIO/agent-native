@@ -159,6 +159,7 @@ When the user asks you to **draft**, **compose**, or **write** an email, use `wr
 Queued drafts are durable SQL rows in `queued_email_drafts`. Use them when someone else asks the agent to prepare an email for an organization member to review and send, especially from Slack.
 
 - Use `queue-email-draft` to queue a draft for an org member. The requester and owner must both be in the active organization.
+- `queue-email-draft` returns `reviewUrl`; include it in Slack replies so the owner can open `/draft-queue/<id>` directly in the deployed mail app.
 - Use `list-queued-drafts --scope=review --status=active` to see drafts assigned to the current user.
 - Use `update-queued-draft` to revise queued drafts before sending.
 - Use `open-queued-draft` to open a queued draft in the compose panel for manual edits.
@@ -385,7 +386,7 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 | Action                | Args                                                                                      | Purpose                                  |
 | --------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------- |
 | `manage-draft`        | `--action=create\|update\|delete\|delete-all [--id] [--to] [--subject] [--body] [--mode]` | Create, update, or delete compose drafts |
-| `queue-email-draft`   | `--ownerEmail <member> --to <emails> --subject <s> --body <b> [--context]`                | Queue a draft for an org member          |
+| `queue-email-draft`   | `--ownerEmail <member> --to <emails> --subject <s> --body <b> [--context]`                | Queue a draft and return `reviewUrl`     |
 | `list-queued-drafts`  | `[--scope=review\|requested\|all] [--status=active\|queued\|in_review\|sent\|dismissed]`  | List queued drafts                       |
 | `update-queued-draft` | `--id <id> [--to] [--subject] [--body] [--context] [--status]`                            | Edit or dismiss a queued draft           |
 | `open-queued-draft`   | `--id <id>`                                                                               | Open queued draft in compose             |
