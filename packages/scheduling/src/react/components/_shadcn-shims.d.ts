@@ -137,6 +137,7 @@ declare module "@/components/ui/select" {
   export const SelectItem: ComponentType<{
     value: string;
     disabled?: boolean;
+    className?: string;
     children?: ReactNode;
   }>;
 }
