@@ -30,7 +30,7 @@ const GOAL_CALORIES = 2000;
 
 export function meta() {
   return [
-    { title: "Analytics — Macros" },
+    { title: "Analytics — Agent-Native Macros" },
     {
       name: "description",
       content:

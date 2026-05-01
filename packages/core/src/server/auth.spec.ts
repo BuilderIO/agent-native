@@ -15,6 +15,25 @@ describe("server/auth", () => {
   });
 
   describe("shouldSkipEmailVerification", () => {
+    it("is enabled by default in development and test", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      const { shouldSkipEmailVerification } =
+        await import("./better-auth-instance.js");
+
+      expect(shouldSkipEmailVerification()).toBe(true);
+
+      vi.stubEnv("NODE_ENV", "test");
+      expect(shouldSkipEmailVerification()).toBe(true);
+    });
+
+    it("is disabled by default in production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const { shouldSkipEmailVerification } =
+        await import("./better-auth-instance.js");
+
+      expect(shouldSkipEmailVerification()).toBe(false);
+    });
+
     it("is enabled by AUTH_SKIP_EMAIL_VERIFICATION=1", async () => {
       vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "1");
       const { shouldSkipEmailVerification } =

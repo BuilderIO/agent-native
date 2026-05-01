@@ -20,6 +20,17 @@ import { loadEnv } from "./utils.js";
 // Load .env from cwd so DATABASE_URL and other vars are available to all actions.
 loadEnv();
 
+async function runAppDbPluginIfPresent(): Promise<void> {
+  const dbPluginPath = path.resolve(process.cwd(), "server/plugins/db.ts");
+  if (!fs.existsSync(dbPluginPath)) return;
+
+  const mod = await import(/* @vite-ignore */ pathToFileURL(dbPluginPath).href);
+  const plugin = mod.default;
+  if (typeof plugin === "function") {
+    await plugin({});
+  }
+}
+
 /**
  * Run the action dispatcher. Call this from your app's actions/run.ts (or scripts/run.ts):
  *
@@ -85,6 +96,7 @@ export async function runScript(): Promise<void> {
 
   if (fs.existsSync(localPath)) {
     try {
+      await runAppDbPluginIfPresent();
       const mod = await import(
         /* @vite-ignore */ pathToFileURL(localPath).href
       );

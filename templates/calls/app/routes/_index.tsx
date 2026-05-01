@@ -3,11 +3,11 @@ import { DefaultSpinner } from "@agent-native/core/client";
 
 export function meta() {
   return [
-    { title: "Calls" },
+    { title: "Agent-Native Calls" },
     {
       name: "description",
       content:
-        "Agent-native sales call recording — transcribe, analyze, and review conversations with AI insights.",
+        "Your AI agent transcribes, summarizes, and surfaces key moments from every conversation.",
     },
   ];
 }

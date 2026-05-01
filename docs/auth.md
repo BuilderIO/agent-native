@@ -49,6 +49,10 @@ Without either `ACCESS_TOKEN` or `AUTH_DISABLED`, the server **refuses to start 
 
 ### QA Accounts
 
+Local development and tests skip signup email verification by default, so local
+QA accounts can be created without checking an inbox. Set
+`AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing the verification flow itself.
+
 For QA or preview environments where testers need real accounts but should not
 wait for email verification links, set:
 
@@ -144,12 +148,12 @@ The framework doesn't ship Auth.js, Clerk, or any specific auth library. Instead
 
 ### Environment Variables
 
-| Variable                       | Description                                                                                |
-| ------------------------------ | ------------------------------------------------------------------------------------------ |
-| `ACCESS_TOKEN`                 | Single access token for production auth                                                    |
-| `ACCESS_TOKENS`                | Comma-separated tokens for team access                                                     |
-| `AUTH_DISABLED`                | Set to `"true"` to skip auth in production                                                 |
-| `AUTH_SKIP_EMAIL_VERIFICATION` | Set to `1` in QA/preview environments to skip email verification for email/password signup |
+| Variable                       | Description                                                                                                                 |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `ACCESS_TOKEN`                 | Single access token for production auth                                                                                     |
+| `ACCESS_TOKENS`                | Comma-separated tokens for team access                                                                                      |
+| `AUTH_DISABLED`                | Set to `"true"` to skip auth in production                                                                                  |
+| `AUTH_SKIP_EMAIL_VERIFICATION` | Set to `1` in QA/preview environments to skip email verification for email/password signup; local dev/test skips by default |
 
 ### `AuthOptions`
 

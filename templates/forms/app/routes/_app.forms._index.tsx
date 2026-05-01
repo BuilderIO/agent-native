@@ -2,11 +2,11 @@ import { FormsListPage } from "@/pages/FormsListPage";
 
 export function meta() {
   return [
-    { title: "Forms" },
+    { title: "Agent-Native Forms" },
     {
       name: "description",
       content:
-        "Agent-native form builder — describe what you want and the agent assembles fields, branding, and a public URL ready to share.",
+        "Your AI agent builds, publishes, and analyzes forms alongside you.",
     },
   ];
 }

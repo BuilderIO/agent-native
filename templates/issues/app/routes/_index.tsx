@@ -3,11 +3,11 @@ import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [
-    { title: "Issues" },
+    { title: "Agent-Native Issues" },
     {
       name: "description",
       content:
-        "Agent-native issue tracking — manage projects, issues, and sprints with an agent that triages and updates tickets for you.",
+        "Manage projects, issues, and sprints with an agent that triages and updates tickets for you.",
     },
   ];
 }

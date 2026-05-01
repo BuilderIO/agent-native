@@ -2,11 +2,11 @@ export { default } from "../pages/Index";
 
 export function meta() {
   return [
-    { title: "Design" },
+    { title: "Agent-Native Design" },
     {
       name: "description",
       content:
-        "Agent-native design tool — generate and edit visual designs collaboratively with an agent that knows your brand and design system.",
+        "Design and prototype by describing what you want. The AI agent turns your ideas into interactive, fully responsive designs in seconds.",
     },
   ];
 }
