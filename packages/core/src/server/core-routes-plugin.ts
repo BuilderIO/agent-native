@@ -593,6 +593,21 @@ export function createCoreRoutesPlugin(
           return { error: "Authentication required" };
         }
 
+        // Env-managed mode: per-user OAuth is disabled because the operator
+        // already provided a deploy-level Builder identity. Reject the
+        // connect attempt — any per-user keys we wrote would be ignored
+        // by the resolver, so completing the OAuth flow would be a no-op
+        // that misleads the user about the resulting connection state.
+        const { isBuilderEnvManaged } = await import("./credential-provider.js");
+        if (isBuilderEnvManaged()) {
+          setResponseStatus(event, 409);
+          return {
+            error:
+              "Builder is managed by the deployment (BUILDER_PRIVATE_KEY is set). Per-user connect is disabled.",
+            envManaged: true,
+          };
+        }
+
         // Same-origin gate. Sec-Fetch-Site is the primary signal; fall
         // back to Origin/Referer for older browsers. Reject any context
         // that isn't this exact app's origin — including same-site
@@ -944,12 +959,11 @@ export function createCoreRoutesPlugin(
       }),
     );
 
-    // POST /_agent-native/builder/disconnect — revoke the stored Builder
-    // credentials so the next turn falls back to BYO / env detection. Mirrors
-    // the callback handler's three write locations: the template `.env` file,
-    // the in-process `process.env`, and the `persisted-env-vars` settings row
-    // (rehydrated on serverless cold starts). All three must be cleared to
-    // avoid a "still connected after disconnect" state on restart.
+    // POST /_agent-native/builder/disconnect — revoke the user's per-user
+    // Builder credentials in app_secrets. In env-managed mode (deploy-level
+    // BUILDER_PRIVATE_KEY set) disconnection is operator-controlled — this
+    // endpoint refuses with 409 so a stale UI button can't pretend to
+    // disconnect a deploy-level identity it doesn't own.
     getH3App(nitroApp).use(
       `${P}/builder/disconnect`,
       defineEventHandler(async (event: H3Event) => {
@@ -963,10 +977,21 @@ export function createCoreRoutesPlugin(
           return { error: "unauthorized" };
         }
 
+        const { isBuilderEnvManaged, deleteBuilderCredentials } = await import(
+          "./credential-provider.js"
+        );
+        if (isBuilderEnvManaged()) {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            error:
+              "Builder is managed by deploy-level BUILDER_PRIVATE_KEY. To disconnect, the operator must remove the env var.",
+            envManaged: true,
+          };
+        }
+
         // Delete per-user Builder credentials from app_secrets.
         try {
-          const { deleteBuilderCredentials } =
-            await import("./credential-provider.js");
           await deleteBuilderCredentials(session.email);
         } catch (err) {
           trackBuilderLifecycle("builder disconnect failed", session.email, {

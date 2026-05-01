@@ -5,6 +5,13 @@ import { getCallbackOrigin } from "../frame.js";
 export interface BuilderStatus {
   configured: boolean;
   builderEnabled: boolean;
+  /**
+   * True when `BUILDER_PRIVATE_KEY` is set at the deploy level. Every user
+   * of this deploy shares the operator's Builder identity and per-user
+   * connect/disconnect is disabled. UIs must hide connect prompts and
+   * disconnect buttons when this is true.
+   */
+  envManaged?: boolean;
   connectUrl: string;
   appHost: string;
   apiHost: string;
