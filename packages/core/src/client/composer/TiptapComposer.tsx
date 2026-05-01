@@ -734,7 +734,7 @@ export function TiptapComposer({
           }
         }
 
-        // Shift+Tab toggles build/plan mode
+        // Shift+Tab toggles Act/Plan mode
         if (event.key === "Tab" && event.shiftKey) {
           event.preventDefault();
           const current = execModeRef.current;

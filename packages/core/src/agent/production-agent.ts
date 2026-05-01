@@ -335,7 +335,10 @@ function createPlanModeGuardedAction(
     run: async (args, context) => {
       const action = getToolAction(name, args);
       if (!allowedActions.includes(action)) {
-        return planModeBlockedMessage(name, `action="${action || "(missing)"}"`);
+        return planModeBlockedMessage(
+          name,
+          `action="${action || "(missing)"}"`,
+        );
       }
       return entry.run(args, context);
     },
