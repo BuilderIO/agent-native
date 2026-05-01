@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  type ReactNode,
+} from "react";
 import { useLocation } from "react-router";
 import { IconMenu } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -75,6 +81,23 @@ export function useCalendarContext() {
   return useContext(CalendarContext);
 }
 
+type HeaderControls = {
+  left?: ReactNode;
+  right?: ReactNode;
+};
+
+const HeaderControlsContext = createContext<
+  (controls: HeaderControls | null) => void
+>(() => {});
+
+export function useAppHeaderControls(controls: HeaderControls | null) {
+  const setHeaderControls = useContext(HeaderControlsContext);
+  useEffect(() => {
+    setHeaderControls(controls);
+    return () => setHeaderControls(null);
+  }, [controls, setHeaderControls]);
+}
+
 function NavigationSync() {
   useNavigationState();
   return null;
@@ -107,6 +130,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [eventDetailSidebar, setEventDetailSidebarState] = useState(false);
   const [sidebarEvent, setSidebarEvent] = useState<CalendarEvent | null>(null);
   const [focusedEvent, setFocusedEvent] = useState<CalendarEvent | null>(null);
+  const [headerControls, setHeaderControls] = useState<HeaderControls | null>(
+    null,
+  );
 
   // Load preference from localStorage
   useEffect(() => {
@@ -174,36 +200,48 @@ export function AppLayout({ children }: AppLayoutProps) {
           ]}
         >
           <div className="flex flex-1 flex-col overflow-hidden">
-            <header className="flex h-12 items-center justify-between border-b border-border px-3 shrink-0">
-              <div className="flex items-center lg:hidden">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-10 w-10"
-                  onClick={() => setSidebarOpen(true)}
-                >
-                  <IconMenu className="h-5 w-5" />
-                </Button>
-                <span className="ml-2 text-sm font-semibold">Calendar</span>
+            <header className="flex h-12 items-center justify-between gap-3 border-b border-border px-3 shrink-0">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                {headerControls?.left ?? (
+                  <div className="flex items-center lg:hidden">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-10 w-10"
+                      onClick={() => setSidebarOpen(true)}
+                    >
+                      <IconMenu className="h-5 w-5" />
+                    </Button>
+                    <span className="ml-2 text-sm font-semibold">Calendar</span>
+                  </div>
+                )}
               </div>
-              <NotificationsBell />
-              <AgentToggleButton className="ml-auto h-8 w-8 rounded-md hover:bg-accent" />
+              <div className="flex shrink-0 items-center gap-2">
+                {headerControls?.right ?? (
+                  <>
+                    <NotificationsBell />
+                    <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+                  </>
+                )}
+              </div>
             </header>
 
-            <InvitationBanner />
+            <HeaderControlsContext.Provider value={setHeaderControls}>
+              <InvitationBanner />
 
-            {/* Show the full-page Google prompt only on the calendar view. */}
-            {!googleStatus.isLoading &&
-            !googleStatus.isError &&
-            !hasAccounts &&
-            isCalendarPage &&
-            !isSettingsPage ? (
-              <main className="flex-1 overflow-y-auto">
-                <GoogleConnectBanner variant="hero" />
-              </main>
-            ) : (
-              <main className="flex-1 overflow-y-auto">{children}</main>
-            )}
+              {/* Show the full-page Google prompt only on the calendar view. */}
+              {!googleStatus.isLoading &&
+              !googleStatus.isError &&
+              !hasAccounts &&
+              isCalendarPage &&
+              !isSettingsPage ? (
+                <main className="flex-1 overflow-y-auto">
+                  <GoogleConnectBanner variant="hero" />
+                </main>
+              ) : (
+                <main className="flex-1 overflow-y-auto">{children}</main>
+              )}
+            </HeaderControlsContext.Provider>
           </div>
         </AgentSidebar>
       </div>
