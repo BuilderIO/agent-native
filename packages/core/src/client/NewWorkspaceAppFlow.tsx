@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   IconArrowUpRight,
-  IconBrandBuilder,
   IconCheck,
   IconCode,
   IconKey,
@@ -69,8 +68,7 @@ function defaultDispatchBasePath(sourceApp?: string): string | null {
   if (sourceApp === "dispatch") return null;
   const base = appBasePath();
   if (base === "/dispatch") return null;
-  if (base && base !== "/dispatch") return "/dispatch";
-  return null;
+  return "/dispatch";
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
@@ -288,8 +286,6 @@ export function NewWorkspaceAppFlow({
             >
               {isSubmitting ? (
                 <IconLoader2 className="h-4 w-4 animate-spin" />
-              ) : isInBuilderFrame() ? (
-                <IconBrandBuilder className="h-4 w-4" />
               ) : (
                 <IconCode className="h-4 w-4" />
               )}

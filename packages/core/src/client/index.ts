@@ -48,6 +48,11 @@ export {
   type BuilderChatMessage,
 } from "./builder-frame.js";
 export {
+  NewWorkspaceAppFlow,
+  type NewWorkspaceAppFlowProps,
+  type VaultSecretOption,
+} from "./NewWorkspaceAppFlow.js";
+export {
   AssistantChat,
   clearChatStorage,
   type AssistantChatProps,
