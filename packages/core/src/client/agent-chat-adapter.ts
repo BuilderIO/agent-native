@@ -93,7 +93,9 @@ export function createAgentChatAdapter(options?: {
                   (typeof part.mimeType === "string"
                     ? part.mimeType
                     : undefined),
-                text: part.data,
+                ...(part.data.startsWith("data:")
+                  ? { data: part.data }
+                  : { text: part.data }),
               });
             } else if (part.type === "text" && typeof part.text === "string") {
               attachments.push({

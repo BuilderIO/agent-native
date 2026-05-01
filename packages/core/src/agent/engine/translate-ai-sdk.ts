@@ -72,6 +72,13 @@ export function engineMessageToAISDK(msg: EngineMessage): any[] {
           image: `data:${part.mediaType};base64,${part.data}`,
           mediaType: part.mediaType,
         });
+      } else if (part.type === "file") {
+        userParts.push({
+          type: "file",
+          data: part.data,
+          mediaType: part.mediaType,
+          filename: part.filename,
+        });
       } else if (part.type === "tool-result") {
         toolResultParts.push({
           type: "tool-result",

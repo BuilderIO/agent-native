@@ -130,6 +130,8 @@ export interface Booking {
   fieldResponses?: Record<string, string | boolean>;
   /** Meeting link (Zoom, Google Meet, or custom) */
   meetingLink?: string;
+  /** Google Calendar event created for this booking, if any */
+  googleEventId?: string;
   /** Token for cancel/reschedule link (only returned to the booker) */
   cancelToken?: string;
   status: "confirmed" | "cancelled";

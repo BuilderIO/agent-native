@@ -20,7 +20,13 @@ import {
   ComposerPrimitive,
   MessagePrimitive,
 } from "@assistant-ui/react";
-import type { ToolCallMessagePartProps, Attachment } from "@assistant-ui/react";
+import type {
+  AttachmentAdapter,
+  CompleteAttachment,
+  PendingAttachment,
+  ToolCallMessagePartProps,
+  Attachment,
+} from "@assistant-ui/react";
 import {
   SimpleImageAttachmentAdapter,
   SimpleTextAttachmentAdapter,
@@ -86,6 +92,61 @@ const ThumbsFeedbackLazy = React.lazy(() =>
     default: m.ThumbsFeedback,
   })),
 );
+
+class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
+  public accept =
+    "application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pdf,.pptx";
+
+  public async add(state: { file: File }): Promise<PendingAttachment> {
+    return {
+      id: state.file.name,
+      type: "document",
+      name: state.file.name,
+      contentType: inferDocumentContentType(state.file),
+      file: state.file,
+      status: { type: "requires-action", reason: "composer-send" },
+    };
+  }
+
+  public async send(
+    attachment: PendingAttachment,
+  ): Promise<CompleteAttachment> {
+    return {
+      ...attachment,
+      status: { type: "complete" },
+      content: [
+        {
+          type: "file",
+          filename: attachment.name,
+          data: await getFileDataURL(attachment.file),
+          mimeType: inferDocumentContentType(attachment.file),
+        },
+      ],
+    };
+  }
+
+  public async remove() {
+    // noop
+  }
+}
+
+function inferDocumentContentType(file: File): string {
+  if (file.type) return file.type;
+  if (file.name.toLowerCase().endsWith(".pdf")) return "application/pdf";
+  if (file.name.toLowerCase().endsWith(".pptx")) {
+    return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  }
+  return "application/octet-stream";
+}
+
+function getFileDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (error) => reject(error);
+    reader.readAsDataURL(file);
+  });
+}
 
 // ─── Markdown Text ──────────────────────────────────────────────────────────
 
@@ -3174,6 +3235,7 @@ export const AssistantChat = forwardRef<
     () =>
       new CompositeAttachmentAdapter([
         new SimpleImageAttachmentAdapter(),
+        new BinaryDocumentAttachmentAdapter(),
         new SimpleTextAttachmentAdapter(),
       ]),
     [],

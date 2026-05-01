@@ -553,6 +553,20 @@ function formatTextAttachment(att: AgentChatAttachment): string | null {
   return `<attachment ${attrs.join(" ")}>\n${att.text}\n</attachment>`;
 }
 
+function dataUrlToFilePart(
+  att: AgentChatAttachment,
+): { type: "file"; data: string; mediaType: string; filename?: string } | null {
+  if (att.type !== "file" || typeof att.data !== "string") return null;
+  const match = att.data.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  return {
+    type: "file",
+    data: match[2],
+    mediaType: att.contentType || match[1],
+    filename: att.name || undefined,
+  };
+}
+
 export function buildUserContentWithAttachments(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
@@ -570,6 +584,12 @@ export function buildUserContentWithAttachments(opts: {
           mediaType: match[1],
         });
       }
+      continue;
+    }
+
+    const filePart = dataUrlToFilePart(att);
+    if (filePart) {
+      userContent.push(filePart);
       continue;
     }
 

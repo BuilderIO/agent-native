@@ -71,6 +71,34 @@ describe("engineMessagesToAnthropic", () => {
     expect(tc.input).toEqual({ msg: "hi" });
   });
 
+  it("converts PDF file parts to Anthropic document blocks", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "file",
+            filename: "reference.pdf",
+            mediaType: "application/pdf",
+            data: "JVBERi0x",
+          },
+        ],
+      },
+    ];
+
+    const result = engineMessagesToAnthropic(messages);
+    const content = result[0].content as any[];
+    expect(content[0]).toEqual({
+      type: "document",
+      source: {
+        type: "base64",
+        media_type: "application/pdf",
+        data: "JVBERi0x",
+      },
+      title: "reference.pdf",
+    });
+  });
+
   it("converts user message with tool-result", () => {
     const messages: EngineMessage[] = [
       {

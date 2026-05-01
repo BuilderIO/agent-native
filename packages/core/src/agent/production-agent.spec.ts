@@ -93,6 +93,30 @@ describe("buildUserContentWithAttachments", () => {
     );
   });
 
+  it("adds binary file attachments before the prompt text", () => {
+    expect(
+      buildUserContentWithAttachments({
+        text: "Use this reference",
+        attachments: [
+          {
+            type: "file",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            data: "data:application/pdf;base64,JVBERi0x",
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        type: "file",
+        mediaType: "application/pdf",
+        filename: "reference.pdf",
+        data: "JVBERi0x",
+      },
+      { type: "text", text: "Use this reference" },
+    ]);
+  });
+
   it("skips unsupported image media types instead of sending invalid engine content", () => {
     expect(
       buildUserContentWithAttachments({
