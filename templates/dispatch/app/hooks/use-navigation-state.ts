@@ -65,6 +65,7 @@ export function useNavigationState() {
 }
 
 function resolveView(pathname: string): string {
+  if (pathname.startsWith("/apps")) return "apps";
   if (pathname.startsWith("/new-app")) return "new-app";
   if (pathname.startsWith("/vault")) return "vault";
   if (pathname.startsWith("/integrations")) return "integrations";
@@ -82,6 +83,8 @@ function resolvePath(view?: string): string | undefined {
   switch (view) {
     case "overview":
       return "/overview";
+    case "apps":
+      return "/apps";
     case "new-app":
     case "create-app":
       return "/new-app";

@@ -2507,6 +2507,14 @@ const AssistantChatInner = forwardRef<
     [apiUrl, cpDevMode, threadId],
   );
   const messageActionsCtx = useMemo(() => ({ onForkChat }), [onForkChat]);
+  const lastMessageLoopLimit = useMemo(() => {
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant") return null;
+    return getLoopLimitMetadata(last);
+  }, [messages]);
+  const visibleLoopLimit = showContinue
+    ? (loopLimitInfo ?? lastMessageLoopLimit ?? {})
+    : lastMessageLoopLimit;
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
@@ -2653,19 +2661,15 @@ const AssistantChatInner = forwardRef<
                       AssistantMessage,
                     }}
                   />
-                  {showContinue && !showRunningInUI && (
-                    <div className="flex justify-center py-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowContinue(false);
-                          addToQueue("Continue from where you left off.");
-                        }}
-                        className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
-                      >
-                        Continue
-                      </button>
-                    </div>
+                  {visibleLoopLimit && !showRunningInUI && (
+                    <LoopLimitContinueCard
+                      info={visibleLoopLimit}
+                      onContinue={() => {
+                        setShowContinue(false);
+                        setLoopLimitInfo(null);
+                        addToQueue("Continue from where you left off.");
+                      }}
+                    />
                   )}
                   {(isReconnecting || reconnectFrozen) &&
                     reconnectContent.length > 0 && (

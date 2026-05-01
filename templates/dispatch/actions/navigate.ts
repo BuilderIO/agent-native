@@ -23,6 +23,7 @@ export default defineAction({
     view: z
       .enum([
         "overview",
+        "apps",
         "new-app",
         "vault",
         "integrations",

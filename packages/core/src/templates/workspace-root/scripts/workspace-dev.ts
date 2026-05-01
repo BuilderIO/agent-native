@@ -66,6 +66,32 @@ const defaultApp =
       ? "dispatch"
       : apps[0].id;
 
+function syncApps(): void {
+  const discovered = discoverApps();
+  for (const app of discovered) {
+    if (appById.has(app.id)) continue;
+    const usedPorts = new Set(apps.map((existing) => existing.port));
+    let port = appPortStart;
+    while (usedPorts.has(port)) port++;
+    const next = { ...app, port };
+    apps.push(next);
+    apps.sort((a, b) => {
+      if (a.id === "dispatch") return -1;
+      if (b.id === "dispatch") return 1;
+      return a.id.localeCompare(b.id);
+    });
+    appById.set(next.id, next);
+    console.log(`[workspace] Detected new app: /${next.id}`);
+    startApp(next);
+  }
+}
+
+let syncTimer: NodeJS.Timeout | undefined;
+function scheduleSync(): void {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncApps, 400);
+}
+
 function firstPathSegment(url: string | undefined): string | null {
   if (!url) return null;
   try {
@@ -217,6 +243,12 @@ function proxyUpgrade(
 
 let shuttingDown = false;
 for (const app of apps) startApp(app);
+try {
+  fs.watch(appsDir, { recursive: true }, scheduleSync);
+} catch {
+  // Some platforms do not support recursive directory watches.
+}
+setInterval(syncApps, 2_000).unref();
 
 const server = http.createServer((req, res) => {
   if (req.url === "/" || req.url === "/index.html") {

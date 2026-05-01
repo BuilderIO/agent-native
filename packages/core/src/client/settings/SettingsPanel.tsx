@@ -27,6 +27,7 @@ import {
   IconKey,
   IconMicrophone,
   IconBolt,
+  IconGauge,
 } from "@tabler/icons-react";
 import { SettingsSection } from "./SettingsSection.js";
 import { useBuilderStatus } from "./useBuilderStatus.js";
