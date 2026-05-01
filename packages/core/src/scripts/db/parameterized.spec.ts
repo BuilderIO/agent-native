@@ -22,15 +22,18 @@ describe("db scripts parameterized SQL", () => {
 
   function mockPostgresClient(unsafe: ReturnType<typeof vi.fn>) {
     const end = vi.fn();
-    const pgSql = Object.assign(
-      vi.fn(async () => [
-        { table_name: "notes", column_name: "id" },
-        { table_name: "notes", column_name: "owner_email" },
-        { table_name: "notes", column_name: "org_id" },
-        { table_name: "notes", column_name: "title" },
-      ]),
-      { unsafe, end, begin: async (fn: any) => fn({ unsafe }) },
-    );
+    const introspect = vi.fn(async () => [
+      { table_name: "notes", column_name: "id" },
+      { table_name: "notes", column_name: "owner_email" },
+      { table_name: "notes", column_name: "org_id" },
+      { table_name: "notes", column_name: "title" },
+    ]);
+    const tx = Object.assign(introspect, { unsafe });
+    const pgSql = Object.assign(introspect, {
+      unsafe,
+      end,
+      begin: async (fn: any) => fn(tx),
+    });
     vi.doMock("postgres", () => ({
       default: () => pgSql,
     }));
@@ -192,7 +195,7 @@ describe("db scripts parameterized SQL", () => {
   it("converts db-query question-mark binds to Postgres numbered binds outside string literals", async () => {
     vi.stubEnv("AGENT_USER_EMAIL", "script+qa-reader@example.com");
     const unsafe = vi.fn(async (sql: string) => {
-      if (sql.startsWith("CREATE TEMPORARY VIEW")) return [];
+      if (sql.includes("TEMPORARY VIEW")) return [];
       if (sql.startsWith("DROP VIEW")) return [];
       return [{ id: "note-qa-1" }];
     });
@@ -220,7 +223,7 @@ describe("db scripts parameterized SQL", () => {
     vi.stubEnv("AGENT_USER_EMAIL", "script+qa-writer@example.com");
     vi.stubEnv("AGENT_ORG_ID", "org-qa-2");
     const unsafe = vi.fn(async (sql: string) => {
-      if (sql.startsWith("CREATE TEMPORARY VIEW")) return [];
+      if (sql.includes("TEMPORARY VIEW")) return [];
       if (sql.startsWith("DROP VIEW")) return [];
       return Object.assign([], { count: 1 });
     });

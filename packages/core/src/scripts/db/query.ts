@@ -229,18 +229,28 @@ Options:
     const { default: pg } = await import("postgres");
     const pgSql = pg(url);
     try {
-      // Set up user-scoped temp views in production
-      const scoping = await buildScopingPostgres(pgSql);
-      for (const stmt of scoping.setup) {
-        await pgSql.unsafe(stmt);
-      }
-
       const pgSqlText = normalizePostgresSql(finalSql, sqlArgs);
-      const result =
-        sqlArgs.length > 0
-          ? await pgSql.unsafe(pgSqlText, sqlArgs as any[])
-          : await pgSql.unsafe(pgSqlText);
-      const rows: Record<string, unknown>[] = Array.from(result);
+      let rows: Record<string, unknown>[] = [];
+      await pgSql.begin(async (tx: any) => {
+        // Temp views are session state. Keep setup/query/teardown on one
+        // transaction-bound backend so pooled Postgres never retains them.
+        const scoping = await buildScopingPostgres(tx);
+        try {
+          for (const stmt of scoping.setup) {
+            await tx.unsafe(stmt);
+          }
+
+          const result =
+            sqlArgs.length > 0
+              ? await tx.unsafe(pgSqlText, sqlArgs as any[])
+              : await tx.unsafe(pgSqlText);
+          rows = Array.from(result);
+        } finally {
+          for (const stmt of scoping.teardown) {
+            await tx.unsafe(stmt).catch(() => {});
+          }
+        }
+      });
       const keys = rows.length > 0 ? Object.keys(rows[0]) : [];
 
       printTable(
@@ -248,11 +258,6 @@ Options:
         pgSqlText,
         parsed.format,
       );
-
-      // Tear down temp views
-      for (const stmt of scoping.teardown) {
-        await pgSql.unsafe(stmt).catch(() => {});
-      }
     } finally {
       await pgSql.end();
     }
