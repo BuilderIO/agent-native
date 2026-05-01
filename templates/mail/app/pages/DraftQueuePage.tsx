@@ -452,21 +452,21 @@ function DraftDetail({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={save}
-            disabled={!hasChanges || updateDraft.isPending}
-          >
-            {updateDraft.isPending ? (
-              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <IconCheck className="h-3.5 w-3.5" />
-            )}
-            Save
-          </Button>
           {canReview && (
             <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={save}
+                disabled={!hasChanges || updateDraft.isPending}
+              >
+                {updateDraft.isPending ? (
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <IconCheck className="h-3.5 w-3.5" />
+                )}
+                Save
+              </Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -492,16 +492,16 @@ function DraftDetail({
                 )}
                 Send
               </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={dismiss}
+                disabled={updateDraft.isPending}
+              >
+                <IconTrash className="h-3.5 w-3.5" />
+              </Button>
             </>
           )}
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={dismiss}
-            disabled={updateDraft.isPending}
-          >
-            <IconTrash className="h-3.5 w-3.5" />
-          </Button>
         </div>
       </div>
 
@@ -515,6 +515,7 @@ function DraftDetail({
               <Input
                 value={form.to}
                 onChange={(event) => onFormChange({ to: event.target.value })}
+                disabled={!canReview}
               />
             </div>
             <div>
@@ -524,6 +525,7 @@ function DraftDetail({
               <Input
                 value={form.cc}
                 onChange={(event) => onFormChange({ cc: event.target.value })}
+                disabled={!canReview}
               />
             </div>
             <div>
@@ -533,6 +535,7 @@ function DraftDetail({
               <Input
                 value={form.bcc}
                 onChange={(event) => onFormChange({ bcc: event.target.value })}
+                disabled={!canReview}
               />
             </div>
             <div>
@@ -552,6 +555,7 @@ function DraftDetail({
               onChange={(event) =>
                 onFormChange({ subject: event.target.value })
               }
+              disabled={!canReview}
             />
           </div>
 
@@ -564,6 +568,7 @@ function DraftDetail({
               onChange={(event) => onFormChange({ body: event.target.value })}
               rows={16}
               className="resize-none leading-relaxed"
+              disabled={!canReview}
             />
           </div>
 
@@ -578,6 +583,7 @@ function DraftDetail({
               }
               rows={4}
               className="resize-none"
+              disabled={!canReview}
             />
           </div>
         </div>
