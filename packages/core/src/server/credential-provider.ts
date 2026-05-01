@@ -20,7 +20,6 @@
 
 import { getRequestUserEmail } from "./request-context.js";
 import { DEV_MODE_USER_EMAIL } from "./auth.js";
-import { isBuilderBranchingEnabled } from "./builder-browser.js";
 
 export class FeatureNotConfiguredError extends Error {
   readonly requiredCredential: string;
@@ -53,17 +52,38 @@ export function readDeployCredentialEnv(key: string): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// Per-user Builder credential resolution
+// Builder credential resolution — two mutually-exclusive deployment modes:
 //
-// Builder keys are stored per-user in `app_secrets` (scope=user,
-// scopeId=email). The OAuth callback writes them there; the status/disconnect
-// endpoints read/delete them. `process.env` is the deployment-level fallback
-// (e.g. a single BUILDER_PRIVATE_KEY set in Netlify).
+//   1. **Single-tenant / env-managed.** When BUILDER_PRIVATE_KEY is set at
+//      the deployment level, it is THE Builder identity for every user of
+//      this deploy. The operator setting the env explicitly opts in to
+//      "everyone shares one Builder space" — same shape as DATABASE_URL or
+//      BETTER_AUTH_SECRET. The UI hides the per-user connect/disconnect
+//      flow when env-managed (see `isBuilderEnvManaged`).
+//
+//   2. **Multi-tenant / per-user OAuth.** When the env is unset, each user
+//      OAuth-connects their own Builder via the cli-auth flow. Their keys
+//      land in `app_secrets` (scope=user, scopeId=email) via the callback
+//      handler. They can disconnect via the settings panel.
+//
+// To run multi-tenant SaaS: leave the env unset. Setting BUILDER_PRIVATE_KEY
+// on a multi-tenant deploy will silently route every authenticated user
+// through the env-key owner's Builder identity — that was the KVesta Space
+// cross-tenant attribution leak (2026-04). The mode is binary: env-set
+// means single-tenant intent.
 // ---------------------------------------------------------------------------
 
 export async function resolveBuilderCredential(
   key: string,
 ): Promise<string | null> {
+  // Env-managed mode wins when set: deploy-level Builder identity for
+  // every user. Per-user app_secrets (left over from a previous OAuth
+  // connection or a mode switch) are intentionally ignored — the
+  // operator's deploy-level config is authoritative.
+  const envValue = readDeployCredentialEnv(key);
+  if (envValue) return envValue;
+
+  // No env value: per-user OAuth fallback.
   const email = getRequestUserEmail();
   if (email) {
     try {
@@ -75,21 +95,21 @@ export async function resolveBuilderCredential(
       });
       if (secret) return secret.value;
     } catch {
-      // Secrets table not ready — fall through to the env-fallback decision below
-    }
-    // Refuse the deploy-level env fallback for authenticated users in a
-    // multi-tenant context. In a hosted shared-DB deploy `process.env.BUILDER_*`
-    // would silently identify every user as whoever set the deploy-level keys —
-    // exactly the cross-tenant leak we hit on the analytics demo (KVesta Space,
-    // 2026-04). Per-user creds live in `app_secrets`; users without their own
-    // connection get null here and see the "Connect Builder" prompt. The
-    // local-dev session (`local@localhost`) is the only authenticated context
-    // where the env fallback is safe — it identifies a single-user dev box.
-    if (email !== DEV_MODE_USER_EMAIL && !isBuilderBranchingEnabled()) {
-      return null;
+      // Secrets table not ready — treat as missing.
     }
   }
-  return readDeployCredentialEnv(key) || null;
+  return null;
+}
+
+/**
+ * True when `BUILDER_PRIVATE_KEY` is set at the deployment level — every
+ * user of this deploy shares the operator's Builder identity, and per-user
+ * connect/disconnect is disabled. UIs read this via `/builder/status` to
+ * swap the "Connect Builder" prompts for a read-only "managed by deployment"
+ * chip and to suppress the disconnect button.
+ */
+export function isBuilderEnvManaged(): boolean {
+  return !!process.env.BUILDER_PRIVATE_KEY;
 }
 
 /**
