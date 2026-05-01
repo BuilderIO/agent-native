@@ -16,7 +16,9 @@ interface WorkspaceApp {
 const root = process.cwd();
 const appsDir = path.join(root, "apps");
 const gatewayHost = process.env.WORKSPACE_HOST || "127.0.0.1";
-const requestedPort = Number(process.env.WORKSPACE_PORT || process.env.PORT || 8080);
+const requestedPort = Number(
+  process.env.WORKSPACE_PORT || process.env.PORT || 8080,
+);
 const appPortStart = Number(process.env.WORKSPACE_APP_PORT_START || 8100);
 
 function readJson(file: string): any {
@@ -60,7 +62,8 @@ if (apps.length === 0) {
 
 const appById = new Map(apps.map((app) => [app.id, app]));
 const defaultApp =
-  process.env.WORKSPACE_DEFAULT_APP && appById.has(process.env.WORKSPACE_DEFAULT_APP)
+  process.env.WORKSPACE_DEFAULT_APP &&
+  appById.has(process.env.WORKSPACE_DEFAULT_APP)
     ? process.env.WORKSPACE_DEFAULT_APP
     : appById.has("dispatch")
       ? "dispatch"
@@ -107,9 +110,10 @@ function appForRequest(req: http.IncomingMessage): WorkspaceApp | null {
   const direct = firstPathSegment(req.url);
   if (direct && appById.has(direct)) return appById.get(direct) ?? null;
   const referer = req.headers.referer;
-  const fromReferer = typeof referer === "string" ? firstPathSegment(referer) : null;
+  const fromReferer =
+    typeof referer === "string" ? firstPathSegment(referer) : null;
   return fromReferer && appById.has(fromReferer)
-    ? appById.get(fromReferer) ?? null
+    ? (appById.get(fromReferer) ?? null)
     : null;
 }
 
@@ -233,7 +237,9 @@ function proxyUpgrade(
           : [`${key}: ${value ?? ""}`],
       )
       .join("\r\n");
-    target.write(`${req.method} ${req.url} HTTP/${req.httpVersion}\r\n${headers}\r\n\r\n`);
+    target.write(
+      `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n${headers}\r\n\r\n`,
+    );
     if (head.length) target.write(head);
     socket.pipe(target).pipe(socket);
   });
@@ -320,7 +326,9 @@ function listen(port: number, attempts = 20): void {
     const actualPort =
       typeof address === "object" && address ? address.port : port;
     console.log(`[workspace] Gateway: http://${gatewayHost}:${actualPort}`);
-    console.log(`[workspace] Default: http://${gatewayHost}:${actualPort}/${defaultApp}`);
+    console.log(
+      `[workspace] Default: http://${gatewayHost}:${actualPort}/${defaultApp}`,
+    );
     for (const app of apps) {
       console.log(`[workspace] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
     }

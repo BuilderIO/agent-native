@@ -97,9 +97,13 @@ function BuilderProjectSettings({
 }
 
 export default function AppsRoute() {
-  const { data: apps = [] } = useActionQuery("list-workspace-apps", {}, {
-    refetchInterval: 2_000,
-  });
+  const { data: apps = [] } = useActionQuery(
+    "list-workspace-apps",
+    {},
+    {
+      refetchInterval: 2_000,
+    },
+  );
   const { data: settings } = useActionQuery("get-app-creation-settings", {});
   const typedApps = apps as WorkspaceAppSummary[];
 

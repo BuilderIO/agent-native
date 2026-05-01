@@ -13,7 +13,11 @@ export default defineAction({
       .optional()
       .nullable()
       .describe("Desired workspace app id/path"),
-    template: z.string().optional().nullable().describe("Template to start from"),
+    template: z
+      .string()
+      .optional()
+      .nullable()
+      .describe("Template to start from"),
     secretIds: z
       .array(z.string())
       .max(100)

@@ -170,7 +170,9 @@ function buildWorkspaceAppPrompt(input: {
 }): { appId: string; prompt: string } {
   const appId =
     slugify(input.appId || "") ||
-    slugify(input.prompt.replace(/\b(build|create|make|an?|the|app|tool)\b/gi, " ")) ||
+    slugify(
+      input.prompt.replace(/\b(build|create|make|an?|the|app|tool)\b/gi, " "),
+    ) ||
     "new-app";
   const selectedKeys = input.selectedKeys || [];
   return {
