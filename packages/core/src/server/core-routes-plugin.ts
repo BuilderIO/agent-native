@@ -57,6 +57,7 @@ import {
 } from "../secrets/routes.js";
 import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
+import { track } from "../tracking/index.js";
 import { registerBuiltinNotificationChannels } from "../notifications/channels.js";
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { createProgressHandler } from "../progress/routes.js";
@@ -97,6 +98,22 @@ export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 function isEnvVarWriteAllowed(): boolean {
   if (process.env.AGENT_NATIVE_ALLOW_ENV_VAR_WRITES === "1") return true;
   return isDevEnvironment() && isLocalDatabase();
+}
+
+function trackBuilderLifecycle(
+  name: string,
+  userEmail: string | undefined | null,
+  properties: Record<string, unknown> = {},
+): void {
+  if (!userEmail) return;
+  track(
+    name,
+    {
+      feature: "builder",
+      ...properties,
+    },
+    { userId: userEmail },
+  );
 }
 
 function normalizeAppBasePath(value: string | undefined): string {
@@ -582,6 +599,10 @@ export function createCoreRoutesPlugin(
         // subdomains, since a compromised subdomain shouldn't be able
         // to mint Builder credential writes for users of the main app.
         if (!isSameOriginConnect(event)) {
+          trackBuilderLifecycle("builder connect failed", session.email, {
+            reason: "cross_origin",
+            stage: "connect",
+          });
           setResponseStatus(event, 403);
           return { error: "Cross-origin connect requests are not allowed" };
         }
@@ -604,6 +625,10 @@ export function createCoreRoutesPlugin(
             expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
           });
         } catch (err) {
+          trackBuilderLifecycle("builder connect failed", session.email, {
+            reason: "pending_storage_unavailable",
+            stage: "connect",
+          });
           const msg =
             "Could not initiate Builder connect — storage unavailable. Try again.";
           console.error(
@@ -620,6 +645,9 @@ export function createCoreRoutesPlugin(
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackErrorPage(msg);
         }
+        trackBuilderLifecycle("builder connect started", session.email, {
+          stage: "connect",
+        });
         // Build the cli-auth URL without embedding state in redirect_url:
         // Builder's /cli-auth appends params directly to redirect_url and
         // does not preserve any pre-existing query string we put there.
@@ -768,6 +796,10 @@ export function createCoreRoutesPlugin(
         }
 
         if (pendingError) {
+          trackBuilderLifecycle("builder connect failed", session.email, {
+            reason: "pending_consume_storage_error",
+            stage: "callback",
+          });
           // Best-effort signal to the parent's poll loop, then render the
           // popup-friendly error page so the BroadcastChannel notify fires.
           await putSetting(`builder-connect-error:${session.email}`, {
@@ -780,6 +812,10 @@ export function createCoreRoutesPlugin(
         }
 
         if (!pendingValid) {
+          trackBuilderLifecycle("builder connect failed", session.email, {
+            reason: "missing_pending_connect",
+            stage: "callback",
+          });
           const msg =
             "No active connect flow found. Restart the Builder connect flow from Settings.";
           // Write an error signal so the polling loop in the parent tab
@@ -801,6 +837,10 @@ export function createCoreRoutesPlugin(
         const publicKey = requestUrl.searchParams.get("api-key");
 
         if (!privateKey || !publicKey) {
+          trackBuilderLifecycle("builder connect failed", session.email, {
+            reason: "missing_credentials",
+            stage: "callback",
+          });
           // Render the popup-friendly error page (and write a status row)
           // instead of bare JSON, so the parent tab's poll loop terminates
           // immediately via BroadcastChannel rather than hanging until the
@@ -851,6 +891,10 @@ export function createCoreRoutesPlugin(
         }
 
         if (writeError) {
+          trackBuilderLifecycle("builder connect failed", session.email, {
+            reason: "credential_write_failed",
+            stage: "callback",
+          });
           // Best-effort signal to /builder/status. If putSetting also fails
           // (entire DB unreachable) the popup's postMessage still notifies
           // the parent. If both fail the parent times out at 5min as today.
@@ -887,6 +931,11 @@ export function createCoreRoutesPlugin(
           requestUrl.searchParams.get("preview-url"),
           event,
         );
+        trackBuilderLifecycle("builder connect succeeded", session.email, {
+          stage: "callback",
+          has_preview_url: Boolean(previewUrl),
+          org_kind: orgKind || undefined,
+        });
         setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
         return createBuilderBrowserCallbackPage(previewUrl);
       }),
@@ -917,6 +966,9 @@ export function createCoreRoutesPlugin(
             await import("./credential-provider.js");
           await deleteBuilderCredentials(session.email);
         } catch (err) {
+          trackBuilderLifecycle("builder disconnect failed", session.email, {
+            reason: "credential_delete_failed",
+          });
           setResponseStatus(event, 500);
           return {
             ok: false,
@@ -926,6 +978,7 @@ export function createCoreRoutesPlugin(
           };
         }
 
+        trackBuilderLifecycle("builder disconnect succeeded", session.email);
         return { ok: true };
       }),
     );

@@ -1,5 +1,6 @@
 export {
   getOAuthTokens,
+  OAuthAccountOwnedByOtherUserError,
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccounts,

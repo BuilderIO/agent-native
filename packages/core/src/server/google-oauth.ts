@@ -23,6 +23,7 @@ import {
   getSessionMaxAge,
   safeReturnPath,
 } from "./auth.js";
+import { getAppName } from "./app-name.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
@@ -222,6 +223,7 @@ export interface OAuthStatePayload {
   owner?: string;
   desktop?: boolean;
   addAccount?: boolean;
+  app?: string;
   /**
    * Same-origin path to redirect to after a successful web-flow sign-in.
    * Threaded through the (HMAC-signed) state so it survives the round trip
@@ -391,6 +393,7 @@ export function decodeOAuthState(
         owner: parsed.o || undefined,
         desktop: !!parsed.d,
         addAccount: !!parsed.a,
+        app: typeof parsed.app === "string" ? parsed.app : undefined,
         // Pass returnUrl through as-is — same-origin validation runs at the
         // consumer (oauthCallbackResponse → safeReturnPath). The state is
         // HMAC-signed, but we still validate at consumption as defence in
@@ -509,6 +512,7 @@ export function oauthCallbackResponse(
      */
     returnUrl?: string;
     flowId?: string;
+    appName?: string;
   },
 ): Response | string | unknown | Promise<Response | string | unknown> {
   const mobile = isMobile(event);
@@ -533,19 +537,28 @@ export function oauthCallbackResponse(
   // to ensure no deep link fires and the existing session is never switched).
   if (opts.desktop && opts.addAccount) {
     const safeEmail = email ? escapeHtml(email) : "";
+    const safeAppName = escapeHtml(resolveOAuthAppName(opts.appName));
     const msg = safeEmail ? `Connected ${safeEmail}!` : "Connected!";
     return htmlResponse(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Agent Native.</p></body></html>`,
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to ${safeAppName}.</p></body></html>`,
     );
   }
 
-  // Desktop exchange flow (Tauri tray app): the tray app polls the
+  // Electron desktop exchange flow: mail/calendar still pass a flow id so the
+  // renderer can poll as a fallback, but the main handoff should use the
+  // protocol deep link so the popup returns focus to the desktop app.
+  if (opts.desktop && opts.flowId && isElectron(event) && opts.sessionToken) {
+    return desktopSuccessPage(event, email, opts.sessionToken, callbackState);
+  }
+
+  // Desktop exchange flow (non-Electron tray app): the tray app polls the
   // desktop-exchange endpoint for the token — no deep link needed.
   if (opts.desktop && opts.flowId) {
     const safeEmail = email ? escapeHtml(email) : "";
+    const safeAppName = escapeHtml(resolveOAuthAppName(opts.appName));
     const msg = safeEmail ? `Signed in as ${safeEmail}!` : "Signed in!";
     return htmlResponse(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to Clips.</p></body></html>`,
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:8px"><p style="font-size:16px">${msg}</p><p style="font-size:13px;color:#888">You can close this tab and return to ${safeAppName}.</p></body></html>`,
     );
   }
 
@@ -597,7 +610,26 @@ export function oauthErrorPage(message: string): Response {
   );
 }
 
+export function oauthDesktopExchangePage(
+  message = "Returning to the app...",
+): Response {
+  const safe = escapeHtml(message);
+  return htmlResponse(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Returning</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p style="font-size:14px">${safe}</p><script>window.close()</script></body></html>`,
+  );
+}
+
 // ─── Internal ────────────────────────────────────────────────────────────────
+
+function resolveOAuthAppName(explicit?: string): string {
+  const raw = explicit || getAppName() || "Agent Native";
+  if (!/^[a-z0-9_-]+$/.test(raw)) return raw;
+  return raw
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+}
 
 function buildOAuthCompleteDeepLink(
   sessionToken?: string,

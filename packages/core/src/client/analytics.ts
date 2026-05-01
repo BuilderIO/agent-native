@@ -12,12 +12,20 @@ type GetDefaultProps = (
   properties: Record<string, unknown>,
 ) => Record<string, unknown>;
 
+type PageviewTrackingState = {
+  installed: boolean;
+  lastPageviewKey: string | null;
+};
+
 let _getDefaultProps: GetDefaultProps | null = null;
 let _amplitudeInitialized = false;
 let _sentryInitialized = false;
 
 const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
   "https://analytics.agent-native.com/track";
+const PAGEVIEW_TRACKING_STATE_KEY = Symbol.for(
+  "agent-native.client.pageviewTracking",
+);
 
 function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
   const h = (hostname || "").toLowerCase();
@@ -118,6 +126,19 @@ function ensureSentry(): void {
   _sentryInitialized = true;
 }
 
+function getPageviewTrackingState(): PageviewTrackingState {
+  const g = globalThis as typeof globalThis & {
+    [PAGEVIEW_TRACKING_STATE_KEY]?: PageviewTrackingState;
+  };
+  if (!g[PAGEVIEW_TRACKING_STATE_KEY]) {
+    g[PAGEVIEW_TRACKING_STATE_KEY] = {
+      installed: false,
+      lastPageviewKey: null,
+    };
+  }
+  return g[PAGEVIEW_TRACKING_STATE_KEY];
+}
+
 export function configureTracking(options: {
   getDefaultProps?: GetDefaultProps;
 }): void {
@@ -127,12 +148,28 @@ export function configureTracking(options: {
   if (typeof window !== "undefined") {
     ensureSentry();
     ensureAmplitude();
+    installPageviewTracking();
   }
+}
+
+function inferTemplateName(properties: Record<string, unknown>): string | null {
+  const envTemplate =
+    (import.meta.env as Record<string, string | undefined>)
+      ?.VITE_AGENT_NATIVE_TEMPLATE ||
+    (import.meta.env as Record<string, string | undefined>)?.VITE_APP_TEMPLATE;
+  if (envTemplate) return envTemplate;
+
+  const app = typeof properties.app === "string" ? properties.app.trim() : "";
+  if (!app || app === "localhost") return null;
+  if (app.startsWith("agent-native-")) {
+    return app.slice("agent-native-".length);
+  }
+  return app;
 }
 
 function resolveProps(
   name: string,
-  params?: Record<string, string | number | boolean>,
+  params?: Record<string, unknown>,
 ): Record<string, unknown> {
   if (typeof window === "undefined") return { ...params };
   const base: Record<string, unknown> = {
@@ -140,7 +177,82 @@ function resolveProps(
     app: window.location.hostname.split(".")[0] || "localhost",
     ...params,
   };
-  return _getDefaultProps ? _getDefaultProps(name, base) : base;
+  const props = _getDefaultProps ? _getDefaultProps(name, base) : base;
+  if (props.template === undefined) {
+    const template = inferTemplateName(props);
+    if (template) {
+      return { ...props, template };
+    }
+  }
+  return props;
+}
+
+function pageviewKey(): string {
+  return window.location.href;
+}
+
+function pageviewProperties(reason: string): Record<string, unknown> {
+  const properties: Record<string, unknown> = {
+    url: scrubUrl(window.location.href),
+    path: window.location.pathname,
+    hostname: window.location.hostname,
+    navigation_type: reason,
+  };
+  if (window.location.search) {
+    properties.search = scrubUrl(window.location.search);
+  }
+  if (typeof document !== "undefined") {
+    if (document.referrer) {
+      properties.referrer = scrubUrl(document.referrer);
+    }
+    if (document.title) {
+      properties.title = document.title;
+    }
+  }
+  return properties;
+}
+
+function emitPageview(reason: string): void {
+  if (isLocalAnalyticsHostname(window.location.hostname)) return;
+  const state = getPageviewTrackingState();
+  const key = pageviewKey();
+  if (state.lastPageviewKey === key) return;
+  state.lastPageviewKey = key;
+  trackEvent("pageview", pageviewProperties(reason));
+}
+
+function schedulePageview(reason: string): void {
+  const run = () => emitPageview(reason);
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(run);
+    return;
+  }
+  window.setTimeout(run, 0);
+}
+
+function installPageviewTracking(): void {
+  const state = getPageviewTrackingState();
+  if (state.installed) return;
+  state.installed = true;
+
+  schedulePageview("load");
+
+  const originalPushState = window.history.pushState;
+  const originalReplaceState = window.history.replaceState;
+
+  window.history.pushState = function pushState(...args) {
+    const result = originalPushState.apply(this, args);
+    schedulePageview("pushState");
+    return result;
+  };
+
+  window.history.replaceState = function replaceState(...args) {
+    const result = originalReplaceState.apply(this, args);
+    schedulePageview("replaceState");
+    return result;
+  };
+
+  window.addEventListener("popstate", () => schedulePageview("popstate"));
 }
 
 function sendAgentNativeAnalytics(
@@ -185,7 +297,7 @@ function sendAgentNativeAnalytics(
 
 export function trackEvent(
   name: string,
-  params?: Record<string, string | number | boolean>,
+  params?: Record<string, unknown>,
 ): void {
   if (typeof window === "undefined") return;
   ensureSentry();

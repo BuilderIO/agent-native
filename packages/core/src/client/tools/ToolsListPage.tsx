@@ -11,6 +11,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import {
+  TOOLS_ORDER_CHANGE_EVENT,
+  applyToolsOrder,
+  getToolsOrder,
+} from "./tool-order.js";
 
 interface Tool {
   id: string;
@@ -81,6 +86,9 @@ function CreateToolInput({
 export function ToolsListPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [createPrompt, setCreatePrompt] = useState("");
+  const [toolOrderState, setToolOrderState] = useState<string[]>(() =>
+    typeof window !== "undefined" ? getToolsOrder() : [],
+  );
 
   useEffect(() => {
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -88,6 +96,17 @@ export function ToolsListPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: { view: "tools" } }),
     }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const syncOrder = () => setToolOrderState(getToolsOrder());
+    window.addEventListener(TOOLS_ORDER_CHANGE_EVENT, syncOrder);
+    window.addEventListener("storage", syncOrder);
+    return () => {
+      window.removeEventListener(TOOLS_ORDER_CHANGE_EVENT, syncOrder);
+      window.removeEventListener("storage", syncOrder);
+    };
   }, []);
 
   const { data: tools, isLoading } = useQuery<Tool[]>({
@@ -99,7 +118,10 @@ export function ToolsListPage() {
     },
   });
 
-  const toolList = tools ?? [];
+  const toolList =
+    toolOrderState.length > 0
+      ? applyToolsOrder(tools ?? [], toolOrderState)
+      : (tools ?? []);
 
   const handleCreate = () => {
     if (!createPrompt.trim()) return;

@@ -16,8 +16,10 @@ import {
   resolveOAuthOwner,
   createOAuthSession,
   oauthCallbackResponse,
+  oauthDesktopExchangePage,
   oauthErrorPage,
   setDesktopExchange,
+  setDesktopExchangeError,
   DEV_MODE_USER_EMAIL,
 } from "@agent-native/core/server";
 import {
@@ -30,7 +32,69 @@ import {
 } from "../lib/google-auth.js";
 import { googleFetch } from "../lib/google-api.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
+import {
+  OAuthAccountOwnedByOtherUserError,
+  setOAuthDisplayName,
+} from "@agent-native/core/oauth-tokens";
+
+function googleOAuthErrorPayload(
+  error: any,
+  prefix = "Connection failed",
+): {
+  message: string;
+  code?: string;
+  accountId?: string;
+  existingOwner?: string;
+  attemptedOwner?: string;
+} {
+  if (
+    error instanceof OAuthAccountOwnedByOtherUserError ||
+    error?.name === "OAuthAccountOwnedByOtherUserError"
+  ) {
+    const account = error.accountId || "This Google account";
+    const existingOwner = error.existingOwner || undefined;
+    const attemptedOwner = error.attemptedOwner || undefined;
+    const owner =
+      error.existingOwner === DEV_MODE_USER_EMAIL
+        ? "a previous local session"
+        : error.existingOwner || "another user";
+    const message =
+      attemptedOwner && attemptedOwner !== existingOwner
+        ? `You selected ${account}, but Mail is currently signed in as ${attemptedOwner}. Sign out, then sign back in with ${account}.`
+        : `${account} is already connected to ${owner}. Sign in as that user or disconnect the Google account there first.`;
+    return {
+      message,
+      code: "account_owner_mismatch",
+      accountId: error.accountId,
+      existingOwner,
+      attemptedOwner,
+    };
+  }
+
+  const msg = error?.message || "Unknown error";
+  const isPermission =
+    msg.includes("Insufficient Permission") ||
+    msg.includes("insufficient_scope");
+  return {
+    message: isPermission
+      ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+      : `${prefix}: ${msg}`,
+    code: isPermission ? "missing_google_permissions" : "google_oauth_failed",
+  };
+}
+
+function googleOAuthErrorResponse(
+  event: H3Event,
+  error: any,
+  opts: { desktop?: boolean; flowId?: string; prefix?: string } = {},
+) {
+  const payload = googleOAuthErrorPayload(error, opts.prefix);
+  if (opts.desktop && opts.flowId) {
+    setDesktopExchangeError(opts.flowId, payload);
+    return oauthDesktopExchangePage("Returning to Mail...");
+  }
+  return oauthErrorPage(payload.message);
+}
 
 export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -62,6 +126,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       owner,
       desktop,
       addAccount: false,
+      app: "mail",
       flowId,
     });
     const url = getAuthUrl(undefined, redirectUri, state);
@@ -77,8 +142,16 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
 
 export const handleGoogleCallback = defineEventHandler(
   async (event: H3Event) => {
+    let desktop = false;
+    let flowId: string | undefined;
     try {
       const query = getQuery(event);
+      const state = decodeOAuthState(
+        query.state as string | undefined,
+        getAppUrl(event, "/_agent-native/google/callback"),
+      );
+      desktop = state.desktop;
+      flowId = state.flowId;
 
       // Handle Google authorization errors (e.g. user denied access, invalid client)
       const googleError = query.error as string | undefined;
@@ -91,7 +164,10 @@ export const handleGoogleCallback = defineEventHandler(
         const userMessage = isPermission
           ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
           : `Connection failed: ${errorDesc}`;
-        return oauthErrorPage(userMessage);
+        return googleOAuthErrorResponse(event, new Error(userMessage), {
+          desktop,
+          flowId,
+        });
       }
 
       const code = query.code as string;
@@ -100,16 +176,7 @@ export const handleGoogleCallback = defineEventHandler(
         return { error: "Missing authorization code" };
       }
 
-      const {
-        redirectUri,
-        owner: stateOwner,
-        desktop,
-        addAccount,
-        flowId,
-      } = decodeOAuthState(
-        query.state as string | undefined,
-        getAppUrl(event, "/_agent-native/google/callback"),
-      );
+      const { redirectUri, owner: stateOwner, addAccount } = state;
 
       // 1. Resolve owner (needs session context, before exchangeCode)
       const { owner, hasProductionSession } = await resolveOAuthOwner(
@@ -176,16 +243,10 @@ export const handleGoogleCallback = defineEventHandler(
         desktop,
         addAccount: isAddAccount,
         flowId,
+        appName: "Mail",
       });
     } catch (error: any) {
-      const msg = error.message || "Unknown error";
-      const isPermission =
-        msg.includes("Insufficient Permission") ||
-        msg.includes("insufficient_scope");
-      const userMessage = isPermission
-        ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
-        : `Connection failed: ${msg}`;
-      return oauthErrorPage(userMessage);
+      return googleOAuthErrorResponse(event, error, { desktop, flowId });
     }
   },
 );
@@ -218,6 +279,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         owner: session.email,
         desktop,
         addAccount: true,
+        app: "mail",
         flowId,
       });
       const url = getAuthUrl(undefined, redirectUri, state);
@@ -234,9 +296,17 @@ export const getGoogleAddAccountUrl = defineEventHandler(
 
 export const handleGoogleAddAccountCallback = defineEventHandler(
   async (event: H3Event) => {
+    let desktop = false;
+    let flowId: string | undefined;
     try {
       const session = await getSession(event);
       const query = getQuery(event);
+      const state = decodeOAuthState(
+        query.state as string | undefined,
+        getAppUrl(event, "/_agent-native/google/add-account/callback"),
+      );
+      desktop = state.desktop;
+      flowId = state.flowId;
 
       // Handle Google authorization errors (e.g. user denied access, invalid client)
       const googleError = query.error as string | undefined;
@@ -249,17 +319,13 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         const userMessage = isPermission
           ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
           : `Connection failed: ${errorDesc}`;
-        return oauthErrorPage(userMessage);
+        return googleOAuthErrorResponse(event, new Error(userMessage), {
+          desktop,
+          flowId,
+        });
       }
 
-      const {
-        redirectUri,
-        owner: stateOwner,
-        desktop,
-      } = decodeOAuthState(
-        query.state as string | undefined,
-        getAppUrl(event, "/_agent-native/google/add-account/callback"),
-      );
+      const { redirectUri, owner: stateOwner } = state;
 
       const ownerEmail = session?.email || stateOwner;
       if (!ownerEmail) {
@@ -282,16 +348,14 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       return oauthCallbackResponse(event, addedEmail, {
         desktop,
         addAccount: true,
+        appName: "Mail",
       });
     } catch (error: any) {
-      const msg = error.message || "Unknown error";
-      const isPermission =
-        msg.includes("Insufficient Permission") ||
-        msg.includes("insufficient_scope");
-      const userMessage = isPermission
-        ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen."
-        : `Failed to add account: ${msg}`;
-      return oauthErrorPage(userMessage);
+      return googleOAuthErrorResponse(event, error, {
+        desktop,
+        flowId,
+        prefix: "Failed to add account",
+      });
     }
   },
 );

@@ -1,6 +1,7 @@
 import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
+  publicPaths: ["/track", "/api/analytics/track"],
   marketing: {
     appName: "Agent-Native Analytics",
     tagline:
