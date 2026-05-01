@@ -577,6 +577,9 @@ export interface DesktopExchangeErrorPayload {
 type DesktopExchangeEntry =
   | { token: string; email: string; expiresAt: number }
   | { error: DesktopExchangeErrorPayload; expiresAt: number };
+type DesktopExchangeStoredEntry =
+  | { token: string; email: string }
+  | { error: DesktopExchangeErrorPayload };
 
 const _desktopExchanges = new Map<string, DesktopExchangeEntry>();
 const DESKTOP_EXCHANGE_ERROR_PREFIX = "__error__::";
@@ -652,7 +655,7 @@ async function persistDesktopExchangeErrorToDB(
  */
 async function consumeDesktopExchangeFromDB(
   flowId: string,
-): Promise<Omit<DesktopExchangeEntry, "expiresAt"> | null> {
+): Promise<DesktopExchangeStoredEntry | null> {
   try {
     // Atomic DELETE...RETURNING prevents token replay: two concurrent polls
     // cannot both retrieve the token because only one DELETE will match the row.
@@ -1624,10 +1627,14 @@ async function mountBetterAuthRoutes(
         if (!fromDb) {
           return { pending: true };
         }
-        entry = {
-          ...fromDb,
-          expiresAt: Date.now() + 1, // already consumed from DB
-        };
+        entry =
+          "error" in fromDb
+            ? { error: fromDb.error, expiresAt: Date.now() + 1 }
+            : {
+                token: fromDb.token,
+                email: fromDb.email,
+                expiresAt: Date.now() + 1,
+              };
       }
       _desktopExchanges.delete(flowId);
       // Also wipe the DB-persisted entry so it cannot be replayed via the
