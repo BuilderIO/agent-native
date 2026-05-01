@@ -20,6 +20,7 @@
 
 import { getRequestUserEmail } from "./request-context.js";
 import { DEV_MODE_USER_EMAIL } from "./auth.js";
+import { isBuilderBranchingEnabled } from "./builder-browser.js";
 
 export class FeatureNotConfiguredError extends Error {
   readonly requiredCredential: string;
@@ -84,7 +85,7 @@ export async function resolveBuilderCredential(
     // connection get null here and see the "Connect Builder" prompt. The
     // local-dev session (`local@localhost`) is the only authenticated context
     // where the env fallback is safe — it identifies a single-user dev box.
-    if (email !== DEV_MODE_USER_EMAIL) {
+    if (email !== DEV_MODE_USER_EMAIL && !isBuilderBranchingEnabled()) {
       return null;
     }
   }

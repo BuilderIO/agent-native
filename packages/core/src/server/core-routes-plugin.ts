@@ -18,7 +18,9 @@ import {
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
+  getBuilderBranchProjectId,
   getBuilderBrowserStatusForEvent,
+  isBuilderBranchingEnabled,
   resolveSafePreviewUrl,
   runBuilderAgent,
 } from "./builder-browser.js";
@@ -510,7 +512,11 @@ export function createCoreRoutesPlugin(
           // This is consistent with resolveBuilderCredential()'s design which
           // refuses the env fallback for authenticated users to prevent
           // cross-tenant credential leakage in shared-DB deployments.
-          if (userEmail && userEmail !== DEV_MODE_USER_EMAIL) {
+          if (
+            userEmail &&
+            userEmail !== DEV_MODE_USER_EMAIL &&
+            !(envStatus.configured && isBuilderBranchingEnabled())
+          ) {
             return {
               ...envStatus,
               configured: false,
@@ -658,10 +664,6 @@ export function createCoreRoutesPlugin(
       }),
     );
 
-    // Hardcoded for the early preview — later this will come from workspace/org
-    // config so each team can point at its own Builder project.
-    const DEFAULT_BUILDER_PROJECT_ID = "274d28fec94b48f2b2d68f2274d390eb";
-
     getH3App(nitroApp).use(
       `${P}/builder/run`,
       defineEventHandler(async (event: H3Event) => {
@@ -695,6 +697,13 @@ export function createCoreRoutesPlugin(
           return { error: "A signed-in user is required to run Builder" };
         }
         const userEmail = session.email;
+        if (!isBuilderBranchingEnabled()) {
+          setResponseStatus(event, 403);
+          return {
+            error:
+              "Builder branch creation is not enabled for this deployment. Set ENABLE_BUILDER=true or BUILDER_BRANCH_PROJECT_ID.",
+          };
+        }
         // Wrap in runWithRequestContext so resolveBuilderCredential() inside
         // runBuilderAgent() resolves per-user app_secrets rather than falling
         // through to process.env — the same pattern the /builder/status endpoint
@@ -713,7 +722,7 @@ export function createCoreRoutesPlugin(
           try {
             const result = await runBuilderAgent({
               prompt,
-              projectId: DEFAULT_BUILDER_PROJECT_ID,
+              projectId: getBuilderBranchProjectId(),
               branchName:
                 typeof body?.branchName === "string"
                   ? body.branchName
