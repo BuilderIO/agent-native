@@ -1,4 +1,5 @@
 import {
+  emailLink,
   emailStrong,
   isEmailConfigured,
   renderEmail,
@@ -70,7 +71,7 @@ export async function sendBookingConfirmationEmails({
   ];
   if (booking.meetingLink) {
     attendeeParagraphs.push(
-      `Meeting link: ${emailStrong(booking.meetingLink)}.`,
+      `Meeting link: ${emailLink("Join meeting", booking.meetingLink)}.`,
     );
   }
 
@@ -99,7 +100,7 @@ export async function sendBookingConfirmationEmails({
       `Time: ${emailStrong(when)}.`,
       `Guest: ${emailStrong(attendee)}.`,
       ...(booking.meetingLink
-        ? [`Meeting link: ${emailStrong(booking.meetingLink)}.`]
+        ? [`Meeting link: ${emailLink("Join meeting", booking.meetingLink)}.`]
         : []),
     ],
     cta: { label: "View booking", url: manageUrl },

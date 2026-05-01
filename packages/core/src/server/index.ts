@@ -213,6 +213,7 @@ export {
 export {
   renderEmail,
   emailStrong,
+  emailLink,
   type RenderEmailArgs,
   type RenderedEmail,
   type EmailCta,
