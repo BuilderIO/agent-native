@@ -160,9 +160,15 @@ function SettingsSelect({
 // refresh inline (no hard reload — that was racing with nitro's env-runner
 // restart and hitting React Router's error boundary).
 function DisconnectBuilderButton() {
+  const { status } = useBuilderStatus();
   const [phase, setPhase] = useState<"idle" | "armed" | "busy">("idle");
   const [err, setErr] = useState<string | null>(null);
   const armedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Env-managed: Builder identity comes from the deploy-level
+  // BUILDER_PRIVATE_KEY. Disconnection is operator-controlled (rotate / unset
+  // the env var); the per-user disconnect endpoint refuses with 409.
+  if (status?.envManaged) return null;
 
   const clearArmedTimer = useCallback(() => {
     if (armedTimerRef.current) {
@@ -311,6 +317,8 @@ function UseBuilderCard({
   subtitle?: string;
   dim?: boolean;
 }) {
+  const { status } = useBuilderStatus();
+  const envManaged = !!status?.envManaged;
   const bgClass = dim ? "" : "bg-accent/30";
 
   if (connected) {
@@ -328,20 +336,26 @@ function UseBuilderCard({
         {orgName && (
           <p className="text-[10px] text-muted-foreground mt-0.5">{orgName}</p>
         )}
-        <div className="flex items-center gap-2 mt-2.5">
-          {connectUrl && (
-            <a
-              href={connectUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
-            >
-              Reconnect
-              <IconExternalLink size={10} />
-            </a>
-          )}
-          <DisconnectBuilderButton />
-        </div>
+        {envManaged ? (
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Managed by deployment — applied to all users of this app.
+          </p>
+        ) : (
+          <div className="flex items-center gap-2 mt-2.5">
+            {connectUrl && (
+              <a
+                href={connectUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] no-underline text-muted-foreground hover:text-foreground hover:bg-accent/40"
+              >
+                Reconnect
+                <IconExternalLink size={10} />
+              </a>
+            )}
+            <DisconnectBuilderButton />
+          </div>
+        )}
       </div>
     );
   }

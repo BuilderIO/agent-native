@@ -66,6 +66,14 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       // Ensure the dependency on the workspace core module is present.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies[workspaceCoreName] = "workspace:*";
+      // pnpm build-script approvals belong at the workspace root. Leaving the
+      // template's per-app setting in place makes pnpm warn on every install.
+      if (pkg.pnpm && typeof pkg.pnpm === "object") {
+        delete pkg.pnpm.onlyBuiltDependencies;
+        if (Object.keys(pkg.pnpm).length === 0) {
+          delete pkg.pnpm;
+        }
+      }
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {
       // Non-fatal: leave package.json unchanged.

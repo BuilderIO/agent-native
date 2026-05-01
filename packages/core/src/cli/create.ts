@@ -150,6 +150,7 @@ async function createWorkspaceInteractive(
         coreDependencyVersion: getCoreDependencyVersion(),
       });
       fixPackageJsonName(appDir, t);
+      rewriteNetlifyToml(appDir, t, "workspace");
       renameGitignore(appDir);
       // Each app owns its own .claude / .agents symlinks.
       setupAgentSymlinks(appDir);
@@ -306,6 +307,7 @@ async function scaffoldOneAppIntoWorkspace(
       coreDependencyVersion: getCoreDependencyVersion(),
     });
     fixPackageJsonName(appDir, appName);
+    rewriteNetlifyToml(appDir, appName, "workspace");
     renameGitignore(appDir);
     setupAgentSymlinks(appDir);
     await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
@@ -564,6 +566,7 @@ function postProcessStandalone(name: string, targetDir: string): void {
   const appTitle = titleCase(name);
   replacePlaceholders(targetDir, name, appTitle);
   fixPackageJsonName(targetDir, name);
+  rewriteNetlifyToml(targetDir, name, "standalone");
 
   for (const base of ["learnings"]) {
     const defaultsFile = path.join(targetDir, `${base}.defaults.md`);
@@ -956,6 +959,39 @@ function updateWorkspaceDevScript(
     pkg.scripts = pkg.scripts ?? {};
     pkg.scripts.dev = `pnpm --filter ${appName} dev`;
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  } catch {}
+}
+
+function rewriteNetlifyToml(
+  appDir: string,
+  appName: string,
+  mode: "standalone" | "workspace",
+): void {
+  const netlifyPath = path.join(appDir, "netlify.toml");
+  if (!fs.existsSync(netlifyPath)) return;
+
+  try {
+    let content = fs.readFileSync(netlifyPath, "utf-8");
+    const buildCommand =
+      mode === "workspace" ? `pnpm --filter ${appName} build` : "pnpm build";
+    const publishPath = mode === "workspace" ? `apps/${appName}/dist` : "dist";
+    const functionsPath =
+      mode === "workspace"
+        ? `apps/${appName}/.netlify/functions-internal`
+        : ".netlify/functions-internal";
+
+    content = content
+      .replace(/pnpm --filter [^ ]+ build/g, buildCommand)
+      .replace(
+        /publish = "templates\/[^"]+\/dist"/g,
+        `publish = "${publishPath}"`,
+      )
+      .replace(
+        /functions = "templates\/[^"]+\/\.netlify\/functions-internal"/g,
+        `functions = "${functionsPath}"`,
+      );
+
+    fs.writeFileSync(netlifyPath, content);
   } catch {}
 }
 
