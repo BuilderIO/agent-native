@@ -182,6 +182,7 @@ export {
 export {
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
+  isBuilderEnvManaged,
   getBuilderProxyOrigin,
   getBuilderAuthHeader,
   resolveBuilderPrivateKey,

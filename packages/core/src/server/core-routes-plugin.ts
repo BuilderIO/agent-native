@@ -430,16 +430,19 @@ export function createCoreRoutesPlugin(
       `${P}/builder/status`,
       defineEventHandler(async (event) => {
         const envStatus = getBuilderBrowserStatusForEvent(event);
-        // Read session once so we can establish per-user request context for
-        // credential resolution. Without this, resolveBuilderCredentials()
-        // calls getRequestUserEmail() on an empty AsyncLocalStorage store and
-        // falls through to process.env — causing the connection state to
-        // flicker between requests depending on stale env values.
         const session = await getSession(event).catch(() => null);
         const userEmail = session?.email;
 
+        // Env-managed mode: BUILDER_PRIVATE_KEY is set at the deployment
+        // level, so every user shares the operator's Builder identity.
+        // Skip per-user lookups entirely — the env key is authoritative
+        // and the UI must hide the connect/disconnect controls.
+        if (envStatus.envManaged) {
+          return envStatus;
+        }
+
         return runWithRequestContext({ userEmail }, async () => {
-          // Check per-user credentials first (stored in app_secrets).
+          // Per-user OAuth mode: read the user's app_secrets-stored creds.
           try {
             const { resolveBuilderCredentials } =
               await import("./credential-provider.js");
@@ -488,7 +491,7 @@ export function createCoreRoutesPlugin(
               }
             }
           } catch {
-            // settings store unavailable — fall through to legacy/env status
+            // settings store unavailable — fall through
           }
           // Honor legacy disconnect flag for existing deployments.
           try {
@@ -505,29 +508,20 @@ export function createCoreRoutesPlugin(
               };
             }
           } catch {
-            // DB not reachable — fall back to env-only status.
+            // DB not reachable
           }
-          // For authenticated non-local users who have no per-user credentials,
-          // explicitly return not-configured rather than deploy-level env keys.
-          // This is consistent with resolveBuilderCredential()'s design which
-          // refuses the env fallback for authenticated users to prevent
-          // cross-tenant credential leakage in shared-DB deployments.
-          if (
-            userEmail &&
-            userEmail !== DEV_MODE_USER_EMAIL &&
-            !(envStatus.configured && isBuilderBranchingEnabled())
-          ) {
-            return {
-              ...envStatus,
-              configured: false,
-              privateKeyConfigured: false,
-              publicKeyConfigured: false,
-              userId: undefined,
-              orgName: undefined,
-              orgKind: undefined,
-            };
-          }
-          return envStatus;
+          // No env, no per-user creds → not configured. Both authenticated
+          // and unauthenticated callers see "not connected" so they can
+          // run through the OAuth flow.
+          return {
+            ...envStatus,
+            configured: false,
+            privateKeyConfigured: false,
+            publicKeyConfigured: false,
+            userId: undefined,
+            orgName: undefined,
+            orgKind: undefined,
+          };
         });
       }),
     );

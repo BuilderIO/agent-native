@@ -27,6 +27,13 @@ export interface BuilderBrowserStatus {
   builderEnabled: boolean;
   branchProjectIdConfigured: boolean;
   branchProjectId?: string;
+  /**
+   * True when `BUILDER_PRIVATE_KEY` is set at the deployment level. Every
+   * user of this deploy shares the operator's Builder identity; the UI
+   * must hide the per-user connect/disconnect flow and show a read-only
+   * "managed by deployment" state instead.
+   */
+  envManaged: boolean;
   appHost: string;
   apiHost: string;
   connectUrl: string;
@@ -221,6 +228,7 @@ export function getBuilderBrowserConnectUrl(origin: string): string {
 export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
   const branchProjectId =
     process.env.BUILDER_BRANCH_PROJECT_ID || process.env.BUILDER_PROJECT_ID;
+  const envManaged = !!process.env.BUILDER_PRIVATE_KEY;
   return {
     configured: !!(
       process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY
@@ -228,6 +236,7 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
     builderEnabled: isBuilderBranchingEnabled(),
     branchProjectIdConfigured: !!branchProjectId,
     branchProjectId: branchProjectId || undefined,
+    envManaged,
     appHost: getBuilderAppHost(),
     apiHost: getBuilderApiHost(),
     connectUrl: getBuilderBrowserConnectUrl(origin),

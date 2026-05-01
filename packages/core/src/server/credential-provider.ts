@@ -257,7 +257,15 @@ export async function resolveSecret(key: string): Promise<string | null> {
 // lookup isn't possible (sync isConfigured checks, CLI scripts).
 // ---------------------------------------------------------------------------
 
-/** True when a Builder private key is configured at the deployment level. */
+/**
+ * True when a Builder private key is configured at the deployment level.
+ *
+ * This is the same check as `isBuilderEnvManaged()` (env-managed mode is
+ * defined as "deploy-level BUILDER_PRIVATE_KEY is set"). Prefer
+ * `isBuilderEnvManaged()` for new call sites — its name reflects what the
+ * boolean means semantically. For "does this user have access to Builder
+ * (env or per-user)?" use the async `resolveHasBuilderPrivateKey()`.
+ */
 export function hasBuilderPrivateKey(): boolean {
   return !!process.env.BUILDER_PRIVATE_KEY;
 }
