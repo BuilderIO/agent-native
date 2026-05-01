@@ -549,13 +549,28 @@ interface OAuthProvider {
   callbackPathFragment: string;
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
+function isGoogleOAuthStarterPath(pathname: string): boolean {
+  return (
+    pathname.endsWith("/_agent-native/google/auth-url") ||
+    pathname.endsWith("/_agent-native/google/add-account/auth-url")
+  );
+}
+
 const OAUTH_PROVIDERS: OAuthProvider[] = [
   {
     name: "google",
     matches: (u) =>
       u.hostname === "accounts.google.com" ||
-      u.pathname.endsWith("/_agent-native/google/auth-url") ||
-      u.pathname.endsWith("/_agent-native/google/add-account/auth-url"),
+      (isLoopbackHost(u.hostname) && isGoogleOAuthStarterPath(u.pathname)),
     callbackPathFragment: "google/callback",
   },
   {
@@ -591,6 +606,17 @@ function matchOAuthProvider(urlString: string): OAuthProvider | null {
   } catch {
     return null;
   }
+}
+
+function shouldRememberOAuthStateFromNavigation(
+  provider: OAuthProvider,
+  url: URL,
+): boolean {
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  if (provider.name === "google") {
+    return url.hostname === "accounts.google.com";
+  }
+  return provider.matches(url);
 }
 
 function openOAuthWindow(
@@ -643,10 +669,7 @@ function openOAuthWindow(
   const onNavigate = (_event: Electron.Event, navUrl: string) => {
     try {
       const parsed = new URL(navUrl);
-      if (
-        (parsed.protocol === "https:" || parsed.protocol === "http:") &&
-        provider.matches(parsed)
-      ) {
+      if (shouldRememberOAuthStateFromNavigation(provider, parsed)) {
         rememberOAuthState(navUrl);
       }
       // Detect the OAuth callback (works for both /api/google/callback and
