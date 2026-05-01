@@ -28,7 +28,12 @@ async function getOrgSlug(orgSlug?: string): Promise<string> {
   const trimmed = orgSlug?.trim();
   if (trimmed) return trimmed;
   const ctx = requireRequestCredentialContext("SENTRY_AUTH_TOKEN");
-  return (await resolveCredential("SENTRY_ORG_SLUG", ctx)) ?? DEFAULT_ORG_SLUG;
+  const configured = await resolveCredential("SENTRY_ORG_SLUG", ctx);
+  if (configured) return configured;
+
+  const organizations = await listOrganizations();
+  const defaultOrg = organizations.find((org) => org.slug === DEFAULT_ORG_SLUG);
+  return defaultOrg?.slug ?? organizations[0]?.slug ?? DEFAULT_ORG_SLUG;
 }
 
 function cacheSet(key: string, data: unknown) {
@@ -74,6 +79,14 @@ export interface SentryProject {
   isMember: boolean;
   hasAccess: boolean;
   status: string;
+}
+
+export interface SentryOrganization {
+  id: string;
+  slug: string;
+  name: string;
+  status?: { id?: string; name?: string };
+  dateCreated?: string;
 }
 
 export interface SentryIssue {
@@ -122,6 +135,10 @@ export interface SentryOrgStats {
 }
 
 // -- API functions --
+
+export async function listOrganizations(): Promise<SentryOrganization[]> {
+  return apiGet<SentryOrganization[]>("/organizations/");
+}
 
 export async function listProjects(orgSlug?: string): Promise<SentryProject[]> {
   const org = await getOrgSlug(orgSlug);
