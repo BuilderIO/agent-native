@@ -883,9 +883,13 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
 
   // APP_BASE_PATH lets this app be mounted under a prefix (e.g. "/mail") as
   // part of a unified workspace deploy. Defaults to "/" for standalone apps.
+  // Workspace dev keeps Vite's asset base at "/" and lets the gateway route
+  // root dev assets by referer, while the React Router basename still uses
+  // APP_BASE_PATH. Production builds keep assets under the mounted app path.
   const appBasePath =
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "/";
-  const base = appBasePath.endsWith("/") ? appBasePath : `${appBasePath}/`;
+  const viteBasePath = process.env.AGENT_NATIVE_VITE_BASE_PATH || appBasePath;
+  const base = viteBasePath.endsWith("/") ? viteBasePath : `${viteBasePath}/`;
   const monorepoCoreAllow = [
     path.resolve(cwd, "../../packages/core"),
     path.resolve(cwd, "../core"),
