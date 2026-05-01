@@ -98,12 +98,10 @@ export function GoogleConnectBanner({
 
   const isElectron = useMemo(() => /Electron/i.test(navigator.userAgent), []);
   const desktopPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const authPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const addAccountPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     return () => {
       if (desktopPollRef.current) clearInterval(desktopPollRef.current);
-      if (authPollRef.current) clearInterval(authPollRef.current);
       if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
     };
   }, []);
@@ -198,13 +196,13 @@ export function GoogleConnectBanner({
     fetchStatus();
   }, [fetchStatus]);
 
-  // When auth URL is ready, open it and poll for connection.
+  // When auth URL is ready, leave this tab for Google and let the callback
+  // return here. Opening a popup leaves users with duplicate Mail tabs after
+  // OAuth completes.
   //
   // `wantAuthUrl` is the user's retry intent and must be in the deps so a
-  // second click after closing the popup re-runs this effect (the cached
-  // authUrl.data won't change on its own). The interval lives in a ref so
-  // flipping wantAuthUrl false below doesn't tear down an already-running
-  // poll. Cleanup happens on unmount via the dedicated effect above.
+  // second click re-runs this effect (the cached authUrl.data won't change on
+  // its own).
   useEffect(() => {
     if (!wantAuthUrl || !authUrl.data?.url) return;
     const url = authUrl.data.url;
@@ -218,24 +216,7 @@ export function GoogleConnectBanner({
       rnWebView.postMessage(JSON.stringify({ type: "openUrl", url }));
       return;
     }
-    window.open(url, "_blank");
-
-    if (authPollRef.current) clearInterval(authPollRef.current);
-    authPollRef.current = setInterval(async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/google/status"),
-      ).catch(() => null);
-      if (res?.ok) {
-        const data = await res.json();
-        if (data.connected) {
-          if (authPollRef.current) {
-            clearInterval(authPollRef.current);
-            authPollRef.current = null;
-          }
-          window.location.reload();
-        }
-      }
-    }, 2000);
+    window.location.href = url;
   }, [wantAuthUrl, authUrl.data]);
 
   // When auth URL fails, show wizard (for missing credentials) or an error message

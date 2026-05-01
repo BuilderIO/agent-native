@@ -974,6 +974,20 @@ describe("server/auth", () => {
     });
   });
 
+  describe("onboarding Google sign-in", () => {
+    it("navigates in the current tab instead of leaving a duplicate app tab", async () => {
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
+
+      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const html = getOnboardingHtml({ googleOnly: true });
+
+      expect(html).toContain("window.location.href = data.url");
+      expect(html).not.toContain("window.open(data.url");
+      expect(html).not.toContain("Waiting for sign-in");
+    });
+  });
+
   describe("OAuth callback copy", () => {
     it("uses the requested app name for desktop exchange completion", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");

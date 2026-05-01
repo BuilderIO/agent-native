@@ -23,6 +23,8 @@ import { readAppSecret } from "../secrets/storage.js";
 import { resolveCredential } from "../credentials/index.js";
 import { getSession } from "./auth.js";
 import { resolveHasBuilderPrivateKey } from "./credential-provider.js";
+import { getOrgContext } from "../org/context.js";
+import { runWithRequestContext } from "./request-context.js";
 
 export interface VoiceProvidersStatus {
   builder: boolean;
@@ -71,7 +73,20 @@ export function createVoiceProvidersStatusHandler() {
 
     let builder = false;
     try {
-      builder = (await resolveHasBuilderPrivateKey()) === true;
+      const orgCtx = session?.email
+        ? await getOrgContext(event).catch(() => null)
+        : null;
+      const resolve = () => resolveHasBuilderPrivateKey();
+      builder =
+        (session?.email
+          ? await runWithRequestContext(
+              {
+                userEmail: session.email,
+                orgId: orgCtx?.orgId ?? undefined,
+              },
+              resolve,
+            )
+          : await resolve()) === true;
     } catch {
       builder = false;
     }

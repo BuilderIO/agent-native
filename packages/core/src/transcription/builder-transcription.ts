@@ -6,6 +6,7 @@ import {
 export interface BuilderTranscribeOptions {
   audioBytes: Uint8Array;
   mimeType: string;
+  model?: string;
   diarize?: boolean;
   minSpeakers?: number;
   maxSpeakers?: number;
@@ -42,6 +43,7 @@ export async function transcribeWithBuilder(
 
   const params = new URLSearchParams();
   params.set("mimeType", opts.mimeType);
+  if (opts.model) params.set("model", opts.model);
   if (opts.diarize != null) params.set("diarize", String(opts.diarize));
   if (opts.minSpeakers != null)
     params.set("minSpeakers", String(opts.minSpeakers));

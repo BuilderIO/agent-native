@@ -64,9 +64,9 @@ async function clearRequest(recordingId: string): Promise<void> {
 
 /**
  * Mount this once in the app shell. It polls the recording list and fires
- * `sendToAgentChat` for every pending auto-title request queued by the
- * server. Idempotent — a given (recordingId, requestedAt) is only dispatched
- * once per tab session.
+ * `sendToAgentChat` for every pending auto-title request queued by the server.
+ * Idempotent — a given (recordingId, requestedAt) is only dispatched once per
+ * tab session.
  */
 export function useAutoTitleBridge(): void {
   // Use the "all" view so we catch recordings regardless of where the user

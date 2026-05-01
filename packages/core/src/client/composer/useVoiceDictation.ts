@@ -1,13 +1,13 @@
 /**
  * Voice dictation hook for the agent composer.
  *
- * Wires three providers behind a single state machine:
- *   - "openai"  — MediaRecorder → POST /_agent-native/transcribe-voice (Whisper)
+ * Wires voice providers behind a single state machine:
+ *   - "openai" / "builder" / "builder-gemini" / "gemini" / "groq"
+ *     — MediaRecorder → POST /_agent-native/transcribe-voice
  *   - "browser" — Web Speech API (low quality, offline capable)
- *   - "builder" — reserved (coming soon — same as "browser" today)
  *
  * Provider preference lives in application_state under
- * `voice-transcription-prefs` (`{ provider: "openai" | "browser" }`).
+ * `voice-transcription-prefs` (`{ provider: VoiceProvider }`).
  * The composer reads it on every start so settings changes take effect
  * immediately without unmounting the composer.
  *
@@ -21,6 +21,7 @@ import { agentNativePath } from "../api-path.js";
 export type VoiceProvider =
   | "openai"
   | "browser"
+  | "builder-gemini"
   | "builder"
   | "gemini"
   | "groq";
@@ -34,6 +35,36 @@ const PREFS_URL = agentNativePath(
   `/_agent-native/application-state/${PREFS_KEY}`,
 );
 const TRANSCRIBE_URL = agentNativePath("/_agent-native/transcribe-voice");
+const PROVIDER_STATUS_URL = agentNativePath(
+  "/_agent-native/voice-providers/status",
+);
+
+interface ProviderStatus {
+  builder?: boolean;
+}
+
+function isVoiceProvider(value: unknown): value is VoiceProvider {
+  return (
+    value === "openai" ||
+    value === "browser" ||
+    value === "builder-gemini" ||
+    value === "builder" ||
+    value === "gemini" ||
+    value === "groq"
+  );
+}
+
+async function defaultProvider(): Promise<VoiceProvider> {
+  try {
+    const res = await fetch(PROVIDER_STATUS_URL);
+    if (!res.ok) return "browser";
+    const status = (await res.json()) as ProviderStatus | null;
+    if (status?.builder) return "builder-gemini";
+  } catch {
+    /* fall through */
+  }
+  return "browser";
+}
 
 export type VoiceState =
   | "idle"
@@ -64,7 +95,7 @@ export interface VoiceDictationApi {
 async function readProviderPrefs(): Promise<VoiceProvider> {
   try {
     const res = await fetch(PREFS_URL);
-    if (!res.ok) return "browser";
+    if (!res.ok) return defaultProvider();
     const body = (await res.json()) as
       | VoicePrefs
       | { value?: VoicePrefs }
@@ -72,18 +103,11 @@ async function readProviderPrefs(): Promise<VoiceProvider> {
     const p =
       (body as VoicePrefs | null)?.provider ??
       (body as { value?: VoicePrefs } | null)?.value?.provider;
-    if (
-      p === "openai" ||
-      p === "browser" ||
-      p === "builder" ||
-      p === "gemini" ||
-      p === "groq"
-    )
-      return p;
+    if (isVoiceProvider(p)) return p;
   } catch {
     /* fall through */
   }
-  return "browser";
+  return defaultProvider();
 }
 
 function getSpeechRecognitionCtor(): any {
@@ -256,131 +280,137 @@ export function useVoiceDictation(
     }, 100);
   }, []);
 
-  const startOpenAi = useCallback(async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    // User may have pressed Escape (cancel) while the permission prompt was
-    // open. If so, stop the stream and bail before we start recording.
-    if (cancelledRef.current) {
-      for (const track of stream.getTracks()) track.stop();
-      cancelledRef.current = false;
-      setState("idle");
-      return;
-    }
-    mediaStreamRef.current = stream;
-    const mimeType = pickMimeType();
-    const recorder = new MediaRecorder(stream, { mimeType });
-    mediaRecorderRef.current = recorder;
-    chunksRef.current = [];
-
-    recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
-    };
-    recorder.onstop = async () => {
-      const localChunks = chunksRef.current.slice();
-      const localMime = recorder.mimeType || mimeType;
-      const liveSnapshot = liveTextRef.current;
-      teardown();
+  const startOpenAi = useCallback(
+    async (providerPref: VoiceProvider) => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // User may have pressed Escape (cancel) while the permission prompt was
+      // open. If so, stop the stream and bail before we start recording.
       if (cancelledRef.current) {
+        for (const track of stream.getTracks()) track.stop();
         cancelledRef.current = false;
         setState("idle");
         return;
       }
-      if (localChunks.length === 0) {
-        if (liveSnapshot) onTranscriptRef.current?.(liveSnapshot.trim());
-        setState("idle");
-        return;
-      }
-      setState("transcribing");
-      try {
-        const audioBlob = new Blob(localChunks, { type: localMime });
-        const form = new FormData();
-        form.append(
-          "audio",
-          audioBlob,
-          `voice.${localMime.split("/")[1] ?? "webm"}`,
-        );
-        const res = await fetch(TRANSCRIBE_URL, {
-          method: "POST",
-          body: form,
-        });
-        if (!res.ok) {
-          const body = await res
-            .json()
-            .catch(() => ({ error: `HTTP ${res.status}` }));
-          throw new Error(body.error || `Transcription failed (${res.status})`);
-        }
-        const data = (await res.json()) as { text?: string };
-        const text = (data.text ?? "").trim();
-        if (text) {
-          onTranscriptRef.current?.(text);
-        } else if (liveSnapshot) {
-          onTranscriptRef.current?.(liveSnapshot.trim());
-        }
-        setState("idle");
-      } catch (err) {
-        if (liveSnapshot) {
-          onTranscriptRef.current?.(liveSnapshot.trim());
+      mediaStreamRef.current = stream;
+      const mimeType = pickMimeType();
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+      chunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        const localChunks = chunksRef.current.slice();
+        const localMime = recorder.mimeType || mimeType;
+        const liveSnapshot = liveTextRef.current;
+        teardown();
+        if (cancelledRef.current) {
+          cancelledRef.current = false;
           setState("idle");
-        } else {
-          failWith(
-            (err as Error)?.message ??
-              "Transcription failed. Check your OpenAI key in settings.",
+          return;
+        }
+        if (localChunks.length === 0) {
+          if (liveSnapshot) onTranscriptRef.current?.(liveSnapshot.trim());
+          setState("idle");
+          return;
+        }
+        setState("transcribing");
+        try {
+          const audioBlob = new Blob(localChunks, { type: localMime });
+          const form = new FormData();
+          form.append(
+            "audio",
+            audioBlob,
+            `voice.${localMime.split("/")[1] ?? "webm"}`,
           );
-        }
-      }
-    };
-
-    startMeter(stream);
-    startTimer();
-    setState("recording");
-    recorder.start();
-
-    // Start parallel Web Speech recognition for live preview text.
-    // This runs alongside MediaRecorder so the user sees words appear
-    // immediately while Whisper processes the full recording later.
-    const SpeechCtor = getSpeechRecognitionCtor();
-    if (SpeechCtor) {
-      const liveSpeech = new SpeechCtor();
-      liveSpeech.continuous = true;
-      liveSpeech.interimResults = true;
-      liveSpeech.lang =
-        (typeof navigator !== "undefined" && navigator.language) || "en-US";
-      liveSpeechRef.current = liveSpeech;
-      liveTextRef.current = "";
-
-      liveSpeech.onresult = (event: any) => {
-        let interim = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i];
-          const text = result[0]?.transcript ?? "";
-          if (result.isFinal) {
-            liveTextRef.current += text;
+          form.append("provider", providerPref);
+          const res = await fetch(TRANSCRIBE_URL, {
+            method: "POST",
+            body: form,
+          });
+          if (!res.ok) {
+            const body = await res
+              .json()
+              .catch(() => ({ error: `HTTP ${res.status}` }));
+            throw new Error(
+              body.error || `Transcription failed (${res.status})`,
+            );
+          }
+          const data = (await res.json()) as { text?: string };
+          const text = (data.text ?? "").trim();
+          if (text) {
+            onTranscriptRef.current?.(text);
+          } else if (liveSnapshot) {
+            onTranscriptRef.current?.(liveSnapshot.trim());
+          }
+          setState("idle");
+        } catch (err) {
+          if (liveSnapshot) {
+            onTranscriptRef.current?.(liveSnapshot.trim());
+            setState("idle");
           } else {
-            interim += text;
-          }
-        }
-        onLiveUpdateRef.current?.(liveTextRef.current, interim);
-      };
-
-      liveSpeech.onend = () => {
-        if (liveSpeechRef.current === liveSpeech) {
-          try {
-            liveSpeech.start();
-          } catch {
-            /* ignore */
+            failWith(
+              (err as Error)?.message ??
+                "Transcription failed. Check your voice transcription provider in settings.",
+            );
           }
         }
       };
 
-      liveSpeech.onerror = () => {};
+      startMeter(stream);
+      startTimer();
+      setState("recording");
+      recorder.start();
 
-      try {
-        liveSpeech.start();
-      } catch {
-        /* best effort — live preview just won't appear */
+      // Start parallel Web Speech recognition for live preview text.
+      // This runs alongside MediaRecorder so the user sees words appear
+      // immediately while the server provider processes the full recording later.
+      const SpeechCtor = getSpeechRecognitionCtor();
+      if (SpeechCtor) {
+        const liveSpeech = new SpeechCtor();
+        liveSpeech.continuous = true;
+        liveSpeech.interimResults = true;
+        liveSpeech.lang =
+          (typeof navigator !== "undefined" && navigator.language) || "en-US";
+        liveSpeechRef.current = liveSpeech;
+        liveTextRef.current = "";
+
+        liveSpeech.onresult = (event: any) => {
+          let interim = "";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const result = event.results[i];
+            const text = result[0]?.transcript ?? "";
+            if (result.isFinal) {
+              liveTextRef.current += text;
+            } else {
+              interim += text;
+            }
+          }
+          onLiveUpdateRef.current?.(liveTextRef.current, interim);
+        };
+
+        liveSpeech.onend = () => {
+          if (liveSpeechRef.current === liveSpeech) {
+            try {
+              liveSpeech.start();
+            } catch {
+              /* ignore */
+            }
+          }
+        };
+
+        liveSpeech.onerror = () => {};
+
+        try {
+          liveSpeech.start();
+        } catch {
+          /* best effort — live preview just won't appear */
+        }
       }
-    }
-  }, [startMeter, startTimer, teardown, failWith]);
+    },
+    [startMeter, startTimer, teardown, failWith],
+  );
 
   const startBrowser = useCallback(async () => {
     const Ctor = getSpeechRecognitionCtor();
@@ -461,11 +491,14 @@ export function useVoiceDictation(
     const pref = await readProviderPrefs();
     setProvider(pref);
 
-    // "builder", "gemini", and "groq" all use the same client-side flow as
-    // "openai" (MediaRecorder -> POST to /_agent-native/transcribe-voice).
+    // Server providers all use the same client-side flow as "openai"
+    // (MediaRecorder -> POST to /_agent-native/transcribe-voice).
     // The server route handles routing to the right backend.
     const resolvedProvider: VoiceProvider =
-      pref === "builder" || pref === "gemini" || pref === "groq"
+      pref === "builder" ||
+      pref === "builder-gemini" ||
+      pref === "gemini" ||
+      pref === "groq"
         ? "openai"
         : pref;
     activeProviderRef.current = resolvedProvider;
@@ -477,7 +510,7 @@ export function useVoiceDictation(
             "Your browser doesn't support audio recording. Use the browser provider in Settings → Voice Transcription.",
           );
         }
-        await startOpenAi();
+        await startOpenAi(pref);
       } else {
         await startBrowser();
       }

@@ -110,9 +110,9 @@ export default defineAction({
       `[clips] Native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${args.fullText.trim().length} chars)`,
     );
 
-    // Trigger title generation if the clip still has the default title. This
+    // Queue title generation if the clip still has the default title. This
     // fires even when no cloud transcript provider is configured so native-only
-    // recordings always get a real title once Builder is connected.
+    // recordings can still get a real title through the agent.
     const [rec] = await db
       .select({ title: schema.recordings.title })
       .from(schema.recordings)

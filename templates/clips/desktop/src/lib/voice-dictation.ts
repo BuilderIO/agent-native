@@ -11,15 +11,22 @@ export type VoiceMode = "push-to-talk" | "toggle";
 /**
  * Which transcription backend to use. The desktop app surfaces this in
  * Settings → Voice transcription. "auto" picks the best server-side
- * provider that's actually configured (Gemini → Builder → Groq → OpenAI),
- * falling through to the browser's Web Speech API if nothing is set up —
- * which is free, real-time, and routes through Apple's on-device
- * dictation engine inside WKWebView.
+ * provider that's actually configured (Builder Gemini 3.1 Flash-Lite →
+ * Gemini BYOK → Groq → OpenAI), falling through to macOS native dictation
+ * or the browser's Web Speech API if nothing is set up.
  */
 export type VoiceProvider =
   | "auto"
   | "browser"
   | "macos-native"
+  | "builder-gemini"
+  | "builder"
+  | "gemini"
+  | "openai"
+  | "groq";
+type ServerVoiceProvider =
+  | "auto"
+  | "builder-gemini"
   | "builder"
   | "gemini"
   | "openai"
@@ -322,7 +329,7 @@ async function transcribe(
   serverUrl: string,
   chunks: Blob[],
   mimeType: string,
-  providerPref: "auto" | "builder" | "gemini" | "openai" | "groq",
+  providerPref: ServerVoiceProvider,
   controller: AbortController,
 ): Promise<string> {
   const audioBlob = new Blob(chunks, { type: mimeType });
@@ -334,7 +341,7 @@ async function transcribe(
       : "webm";
   form.append("audio", audioBlob, `voice.${ext}`);
   // Tells the server which provider to use. "auto" matches the existing
-  // server default (Gemini → Builder → Groq → OpenAI fallback chain),
+  // server default (Builder Gemini → Gemini → Groq → OpenAI fallback chain),
   // anything else pins to that one provider with no fallback.
   form.append("provider", providerPref);
   // Aggressive timeout — short clips should transcribe in well under
@@ -465,7 +472,7 @@ export function installDesktopVoiceDictation(
     | { kind: "native" }
     | {
         kind: "server";
-        providerPref: "auto" | "builder" | "gemini" | "openai" | "groq";
+        providerPref: ServerVoiceProvider;
       }
   > => {
     if (provider === "browser") return { kind: "browser" };
@@ -477,10 +484,18 @@ export function installDesktopVoiceDictation(
       return { kind: "server", providerPref: provider };
     }
     const status = await refreshProviderStatus();
+    if (status.builder)
+      return { kind: "server", providerPref: "builder-gemini" };
     if (status.gemini) return { kind: "server", providerPref: "gemini" };
-    if (status.builder) return { kind: "server", providerPref: "builder" };
     if (status.groq) return { kind: "server", providerPref: "groq" };
     if (status.openai) return { kind: "server", providerPref: "openai" };
+    if (
+      status.native &&
+      typeof navigator !== "undefined" &&
+      /Mac/i.test(navigator.platform)
+    ) {
+      return { kind: "native" };
+    }
     return { kind: "browser" };
   };
 
@@ -541,9 +556,7 @@ export function installDesktopVoiceDictation(
    * "Polishing..." processing state is shown while we wait for the
    * remote transcription.
    */
-  const startServer = async (
-    providerPref: "auto" | "builder" | "gemini" | "openai" | "groq",
-  ) => {
+  const startServer = async (providerPref: ServerVoiceProvider) => {
     if (
       !navigator.mediaDevices?.getUserMedia ||
       typeof MediaRecorder === "undefined"

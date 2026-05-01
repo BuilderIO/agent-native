@@ -2,16 +2,16 @@
 name: ai-video-tools
 description: >-
   All AI features in Clips — titles, summaries, chapters, tags, filler-word
-  removal — delegate to the agent chat via sendToAgentChat. Transcription is
-  the one exception: it calls the transcription API directly (Builder preferred,
-  Groq/OpenAI Whisper fallback). Use when adding any AI-powered feature.
+  removal — delegate to the agent chat via sendToAgentChat except the narrow
+  media pipeline path: transcription. Use when adding any
+  AI-powered feature.
 ---
 
 # AI Video Tools
 
 ## Rule
 
-Every AI feature in Clips goes through the agent chat. The UI and server never call an LLM directly. **One exception:** transcription. It takes audio, not prompts — the `request-transcript` action calls the transcription API directly. Provider priority: **Builder** (via `BUILDER_PRIVATE_KEY`, no extra key needed) → **Groq** `whisper-large-v3-turbo` via `GROQ_API_KEY` (fast, ~$0.04/hr) → **OpenAI** `whisper-1` via `OPENAI_API_KEY`. Additionally, `save-browser-transcript` captures a Web Speech API transcript instantly during recording with no key required — higher-quality backends refine it afterward.
+Every AI feature in Clips goes through the agent chat unless it is the narrow media-pipeline exception below. The UI and server should not add broad shadow agents or inline chat workflows. **Exception:** transcription. Transcription takes audio, not prompts — the `request-transcript` action calls the transcription API directly. Provider priority for transcription: **Builder** (via `BUILDER_PRIVATE_KEY`, no extra key needed) → **Groq** `whisper-large-v3-turbo` via `GROQ_API_KEY` (fast, ~$0.04/hr) → **OpenAI** `whisper-1` via `OPENAI_API_KEY`. Additionally, `save-browser-transcript` captures a Web Speech API transcript instantly during recording with no key required — higher-quality backends refine it afterward.
 
 ## Why
 
@@ -21,7 +21,8 @@ The agent is already the user's primary interface — it has full project contex
 
 | Feature                   | Trigger                                                                               | What the action does                                                                                  |
 | ------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Title suggestion          | User clicks ✨ next to the title field, or asks the agent "rename this"               | `generate-ai-metadata --id=<id> --kind=title` → `sendToAgentChat({ background: true, context })`      |
+| Default title             | Native transcript is saved and the recording still has the default title              | `regenerate-title --recordingId=<id>` → writes `clips-ai-request-:id`; the UI bridge sends it to the agent chat |
+| Manual title suggestion   | User asks the agent "rename this"                                                     | Agent reads transcript and calls `update-recording --id=<id> --title=...`                             |
 | Summary / description     | Upload completes, or user clicks "Summarize"                                          | `generate-ai-metadata --id=<id> --kind=summary` → agent writes `update-recording --description=...`   |
 | Chapters                  | User clicks "Add chapters" or transcript > 3 minutes                                  | `generate-chapters --id=<id>` → agent writes `chapters_json`                                          |
 | Tags                      | On upload complete                                                                    | `generate-ai-metadata --id=<id> --kind=tags` → agent inserts `recording_tags` rows                    |
@@ -86,7 +87,7 @@ const generate = useActionMutation("generate-ai-metadata");
 </Button>
 ```
 
-## Transcription — the one exception
+## Media-pipeline exception
 
 Transcription takes an audio file and returns text + segments. That's not a prompt/response LLM interaction, so it doesn't belong in the agent chat. `actions/request-transcript.ts` calls the transcription API directly.
 
@@ -96,9 +97,9 @@ Transcription takes an audio file and returns text + segments. That's not a prom
 2. `GROQ_API_KEY` → `https://api.groq.com/openai/v1/audio/transcriptions`, model `whisper-large-v3-turbo`. Typically 10-30x faster than OpenAI's hosted Whisper, ~$0.04/hour of audio.
 3. `OPENAI_API_KEY` → `https://api.openai.com/v1/audio/transcriptions`, model `whisper-1`. Fallback. Fine, just slower.
 
-**Hybrid browser transcription:** The browser's Web Speech API runs during recording via `useLiveTranscription` hook and saves results via `save-browser-transcript`. This gives an instant transcript with no API key. When `request-transcript` runs afterward, higher-quality backends refine it — but won't overwrite if no key is configured, preserving the browser result.
+**Native transcription:** The browser's Web Speech API and desktop macOS Speech capture run during recording and save results via `save-browser-transcript`. This gives an instant transcript with no API key. When `request-transcript` runs afterward, it preserves the ready native transcript and only uses cloud providers if native text is missing.
 
-If no provider is available (no Builder connection, no Groq key, no OpenAI key) and no browser transcript exists, the action writes `status="failed"` so the UI can show a friendly prompt.
+If no provider is available (no Builder connection, no Groq key, no OpenAI key) and no native transcript exists, the action writes `status="failed"` so the UI can show a friendly prompt.
 
 ### Secret registration
 
@@ -127,11 +128,11 @@ registerRequiredSecret({
 });
 ```
 
-Neither is marked `required: true` — videos still upload and play without transcription, they just won't have captions or AI-generated titles/summaries. The onboarding checklist surfaces both so the user can pick one.
+Neither is marked `required: true` — videos still upload and play without cloud transcription; they just won't have cloud-generated captions/summaries when native transcription is unavailable. The onboarding checklist surfaces both so the user can pick one.
 
 ## Live transcription during recording
 
-The `useLiveTranscription` hook (from `@agent-native/core/client/transcription`) runs the browser's Web Speech API alongside any recording. It accumulates final transcript text in real time with no API key required. When the user stops, the client calls `save-browser-transcript` to persist the result. `request-transcript` can then refine it with a higher-quality backend — or leave the browser result as-is if no key is configured.
+The `useLiveTranscription` hook (from `@agent-native/core/client/transcription`) runs the browser's Web Speech API alongside any recording. It accumulates final transcript text in real time with no API key required. When the user stops, the client calls `save-browser-transcript` to persist the result. `request-transcript` preserves that native result and only falls back to cloud transcription when native text is missing.
 
 A future pass could add server-side streaming transcription (Deepgram Nova-3 / AssemblyAI) via WebSocket for even higher quality real-time output — but the browser path already gives useful text from second zero.
 

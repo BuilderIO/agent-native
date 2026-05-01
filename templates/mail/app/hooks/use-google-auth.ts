@@ -95,9 +95,10 @@ export function useGoogleAuthUrl(enabled = false) {
     queryFn: async () => {
       const { getCallbackOrigin } = await import("@agent-native/core/client");
       const redirectUri = `${getCallbackOrigin()}${agentNativePath("/_agent-native/google/callback")}`;
+      const returnPath = `${window.location.pathname}${window.location.search}`;
       return fetchJson<{ url: string }>(
         agentNativePath(
-          `/_agent-native/google/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`,
+          `/_agent-native/google/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&return=${encodeURIComponent(returnPath)}`,
         ),
       );
     },
