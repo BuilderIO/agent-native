@@ -78,6 +78,12 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { VisibilityBadge } from "@agent-native/core/client";
 import { useAppHeaderControls } from "@/components/layout/AppLayout";
@@ -114,6 +120,7 @@ function slugify(value: string) {
 }
 
 const PRODUCTION_DOMAIN = "calendar.agent-native.com";
+const PREVIEW_COLLAPSED_STORAGE_KEY = "calendar.bookingLinks.previewCollapsed";
 
 type DraftLink = {
   id?: string;
@@ -335,13 +342,6 @@ function BookingConferencingSelect({
     CONFERENCING_OPTIONS.find((option) => option.type === value.type) ??
     CONFERENCING_OPTIONS[0];
   const SelectedIcon = selected.Icon;
-  const selectedStatus =
-    value.type === "zoom"
-      ? zoomStatus
-      : value.type === "google_meet"
-        ? googleStatus
-        : "connected";
-
   return (
     <div className="space-y-3">
       <Label className="flex items-center gap-1.5">
@@ -357,28 +357,10 @@ function BookingConferencingSelect({
           })
         }
       >
-        <SelectTrigger className="h-auto min-h-11 py-2">
+        <SelectTrigger className="h-11 py-2">
           <div className="flex min-w-0 items-center gap-2 text-left">
             <SelectedIcon className="h-4 w-4 shrink-0" />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="truncate font-medium">{selected.label}</span>
-                {selectedStatus === "connected" &&
-                  value.type !== "none" &&
-                  value.type !== "custom" && (
-                    <Badge
-                      variant="secondary"
-                      className="h-5 gap-1 text-[10px] font-normal"
-                    >
-                      <IconCheck className="h-3 w-3" />
-                      Connected
-                    </Badge>
-                  )}
-              </div>
-              <p className="truncate text-xs text-muted-foreground">
-                {selected.description}
-              </p>
-            </div>
+            <span className="truncate font-medium">{selected.label}</span>
           </div>
         </SelectTrigger>
         <SelectContent>
@@ -482,7 +464,12 @@ export default function BookingLinksPage({
   const [savedDraftSignature, setSavedDraftSignature] = useState<string | null>(
     null,
   );
-  const [isPreviewCollapsed, setIsPreviewCollapsed] = useState(false);
+  const [isPreviewCollapsed, setIsPreviewCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return (
+      window.localStorage.getItem(PREVIEW_COLLAPSED_STORAGE_KEY) === "true"
+    );
+  });
   const [customDurationInput, setCustomDurationInput] = useState("");
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false);
 
@@ -534,6 +521,14 @@ export default function BookingLinksPage({
       setUsernameInput(availability.bookingUsername ?? "");
     }
   }, [availability]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      PREVIEW_COLLAPSED_STORAGE_KEY,
+      String(isPreviewCollapsed),
+    );
+  }, [isPreviewCollapsed]);
 
   function updateDay(day: DayName, updates: Partial<DaySchedule>) {
     setSchedule((prev) => ({
@@ -790,7 +785,12 @@ export default function BookingLinksPage({
           )}
         >
           {/* Left — Edit form */}
-          <div className="space-y-8">
+          <div
+            className={cn(
+              "space-y-8",
+              isPreviewCollapsed && "mx-auto w-full max-w-4xl",
+            )}
+          >
             {isLoading ? (
               <div className="space-y-5">
                 <div className="space-y-2">
@@ -1148,15 +1148,21 @@ export default function BookingLinksPage({
           {selectedLink && (
             <div className="lg:sticky lg:top-8 lg:self-start">
               {isPreviewCollapsed ? (
-                <button
-                  type="button"
-                  onClick={() => setIsPreviewCollapsed(false)}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground lg:w-auto lg:flex-col lg:px-3"
-                  title="Show preview"
-                >
-                  <IconChevronLeft className="h-4 w-4" />
-                  Preview
-                </button>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setIsPreviewCollapsed(false)}
+                        className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                        aria-label="Open preview"
+                      >
+                        <IconChevronLeft className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">Open preview</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               ) : (
                 <BookingPreview
                   title={draft.title}

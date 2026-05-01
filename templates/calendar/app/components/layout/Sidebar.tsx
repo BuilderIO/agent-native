@@ -335,18 +335,7 @@ function GoogleAccountsSection({
   return (
     <div className="border-t border-border px-2.5 py-1.5">
       <div className="mb-1 flex min-h-8 items-center justify-between px-3">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          My Calendars
-        </span>
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            onClick={() => setWantAddAccount(true)}
-            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-            title="Add Google account"
-          >
-            <IconPlus className="h-3.5 w-3.5" />
-          </button>
+        <div className="flex items-center gap-1.5">
           <Link
             to="/settings"
             className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
@@ -354,7 +343,18 @@ function GoogleAccountsSection({
           >
             <IconSettings className="h-3.5 w-3.5" />
           </Link>
+          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            My Calendars
+          </span>
         </div>
+        <button
+          type="button"
+          onClick={() => setWantAddAccount(true)}
+          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+          title="Add Google account"
+        >
+          <IconPlus className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       {accounts.map((account) => (
