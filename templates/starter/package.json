@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "agent-native dev",
+    "dev": "agent-native dev --open",
     "build": "agent-native build",
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",
