@@ -333,8 +333,8 @@ function GoogleAccountsSection({
   }
 
   return (
-    <div className="border-t border-border px-3 py-3">
-      <div className="mb-2 flex items-center justify-between">
+    <div className="border-t border-border px-3 py-2">
+      <div className="mb-1 flex min-h-8 items-center justify-between">
         <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           My Calendars
         </span>
@@ -360,7 +360,7 @@ function GoogleAccountsSection({
       {accounts.map((account) => (
         <div
           key={account.email}
-          className="group flex items-center gap-2 py-0.5"
+          className="group flex min-h-7 items-center gap-2"
         >
           <Popover>
             <PopoverTrigger asChild>
@@ -520,11 +520,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           onDateSelect={setSelectedDate}
         />
 
-        {/* Org switcher */}
-        <div className="border-t border-border px-3 py-2">
-          <OrgSwitcher />
-        </div>
-
         {/* Nav */}
         <nav className="flex-1 space-y-0.5 border-t border-border p-2.5">
           {navItems.map((item) => {
@@ -552,7 +547,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           })}
         </nav>
 
-        <div className="border-t border-border px-2.5 py-1">
+        {/* Org switcher */}
+        <div className="border-t border-border px-3 py-2">
+          <OrgSwitcher reserveSpace />
+        </div>
+
+        <div className="border-t border-border px-2.5 py-1.5">
           <ToolsSidebarSection />
         </div>
 
@@ -567,7 +567,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         {/* Other Calendars — people overlays + external ICS feeds combined */}
         <div className="border-t border-border px-3 py-2">
-          <div className="flex items-center justify-between">
+          <div className="flex min-h-8 items-center justify-between">
             <div className="flex items-center gap-1">
               <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                 Other Calendars
@@ -601,7 +601,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               {overlayPeople.map((person) => (
                 <div
                   key={person.email}
-                  className="group flex items-center gap-2 text-xs"
+                  className="group flex min-h-7 items-center gap-2 text-xs"
                 >
                   <ColorPickerPopover
                     color={person.color}
@@ -660,7 +660,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               {externalCalendars.map((cal) => (
                 <div
                   key={cal.id}
-                  className="group flex items-center gap-2 text-xs"
+                  className="group flex min-h-7 items-center gap-2 text-xs"
                 >
                   <ColorPickerPopover
                     color={cal.color}
@@ -739,8 +739,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           </div>
         )}
 
-        <div className="px-2 pt-2">
-          <FeedbackButton />
+        <div className="px-3 py-1">
+          <FeedbackButton className="px-3 py-2" />
         </div>
 
         {/* Theme toggle */}

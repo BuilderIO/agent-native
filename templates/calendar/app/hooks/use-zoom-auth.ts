@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
 
@@ -23,6 +24,32 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 export function useZoomStatus() {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const refresh = () =>
+      queryClient.invalidateQueries({ queryKey: ["zoom-status"] });
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === "agent-native:zoom-connected") refresh();
+    };
+
+    window.addEventListener("message", onMessage);
+
+    let channel: BroadcastChannel | null = null;
+    if ("BroadcastChannel" in window) {
+      channel = new BroadcastChannel("agent-native-zoom-oauth");
+      channel.onmessage = (event) => {
+        if (event.data?.type === "agent-native:zoom-connected") refresh();
+      };
+    }
+
+    return () => {
+      window.removeEventListener("message", onMessage);
+      channel?.close();
+    };
+  }, [queryClient]);
+
   return useQuery<ZoomAuthStatus>({
     queryKey: ["zoom-status"],
     queryFn: () =>
@@ -37,6 +64,7 @@ export function useZoomStatus() {
  * Connect, not on mount.
  */
 export function useConnectZoom() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
       const { getCallbackOrigin } = await import("@agent-native/core/client");
@@ -48,7 +76,21 @@ export function useConnectZoom() {
           `/_agent-native/zoom/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`,
         ),
       );
-      location.href = url;
+      const popup = window.open(url, "_blank");
+      if (!popup) {
+        throw new Error("Your browser blocked the Zoom connection popup.");
+      }
+      try {
+        popup.opener = null;
+      } catch {
+        // best-effort hardening; BroadcastChannel still updates this tab
+      }
+      popup.focus();
+    },
+    onSuccess: () => {
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["zoom-status"] });
+      }, 1000);
     },
   });
 }

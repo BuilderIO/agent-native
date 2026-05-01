@@ -203,6 +203,35 @@ function formatAvailabilitySummary(config: AvailabilityConfig) {
   return `${dayLabel}, ${formatTime12(slot.start)} - ${formatTime12(slot.end)}`;
 }
 
+function BookingLinksListSkeleton() {
+  return (
+    <div className="space-y-3" aria-label="Loading meeting types">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div
+          key={index}
+          className="rounded-lg border border-border bg-card px-4 py-4 sm:px-5"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-16 rounded-full" />
+              </div>
+              <Skeleton className="h-3 w-44" />
+              <Skeleton className="h-3 w-36" />
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Skeleton className="h-9 w-28 rounded-full" />
+              <Skeleton className="h-9 w-9 rounded-full" />
+              <Skeleton className="h-9 w-9 rounded-full" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 type ProviderStatus = "connected" | "disconnected" | "not-configured";
 
 const CONFERENCING_OPTIONS = [
@@ -628,7 +657,6 @@ export default function BookingLinksPage({
           draft.conferencing.type !== "none" ? draft.conferencing : undefined,
         isActive: draft.isActive,
       });
-      navigate("/booking-links");
       toast.success("Booking link updated");
     } catch {
       toast.error("Failed to update booking link");
@@ -1099,7 +1127,9 @@ export default function BookingLinksPage({
 
         <TabsContent value="links">
           <div className="space-y-6">
-            {!hasLinks && !isLoading ? (
+            {isLoading ? (
+              <BookingLinksListSkeleton />
+            ) : !hasLinks ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 px-6 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-4">
                   <IconLink className="h-6 w-6 text-muted-foreground" />
