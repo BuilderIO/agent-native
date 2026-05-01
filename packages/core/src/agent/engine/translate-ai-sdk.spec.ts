@@ -67,6 +67,33 @@ describe("engineMessagesToAISDK", () => {
     expect(text).toBe("Hi");
   });
 
+  it("converts user file parts", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "file",
+            filename: "slides.pptx",
+            mediaType:
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            data: "UEsDBA==",
+          },
+          { type: "text", text: "Use this deck" },
+        ],
+      },
+    ];
+    const result = engineMessagesToAISDK(messages);
+    const content = result[0].content as any[];
+    expect(content[0]).toEqual({
+      type: "file",
+      filename: "slides.pptx",
+      mediaType:
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      data: "UEsDBA==",
+    });
+  });
+
   it("converts assistant message with tool-call (v6 input field)", () => {
     const messages: EngineMessage[] = [
       {

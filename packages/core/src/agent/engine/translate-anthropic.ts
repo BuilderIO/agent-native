@@ -68,6 +68,23 @@ function enginePartToAnthropic(
         },
       };
 
+    case "file":
+      if (part.mediaType === "application/pdf") {
+        return {
+          type: "document",
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: part.data,
+          },
+          ...(part.filename ? { title: part.filename } : {}),
+        } as any;
+      }
+      return {
+        type: "text",
+        text: `[Attached file: ${part.filename ?? "attachment"} (${part.mediaType})]`,
+      };
+
     case "tool-call":
       return {
         type: "tool_use",

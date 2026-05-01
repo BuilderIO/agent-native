@@ -74,6 +74,14 @@ export interface EngineImagePart {
   mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 }
 
+export interface EngineFilePart {
+  type: "file";
+  /** Base64-encoded file data */
+  data: string;
+  mediaType: string;
+  filename?: string;
+}
+
 export interface EngineToolCallPart {
   type: "tool-call";
   id: string;
@@ -100,6 +108,7 @@ export interface EngineThinkingPart {
 export type EngineContentPart =
   | EngineTextPart
   | EngineImagePart
+  | EngineFilePart
   | EngineToolCallPart
   | EngineToolResultPart
   | EngineThinkingPart;

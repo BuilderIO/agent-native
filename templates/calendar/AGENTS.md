@@ -135,6 +135,8 @@ cd templates/calendar && pnpm action <name> [args]
 
 For booking-link creation or duplication, use the dedicated actions above. Do **not** use `db-exec` to insert `booking_links`; the actions handle IDs, ownership, slug collisions, JSON fields, and timestamps.
 
+Booking creation and cancellation send transactional emails to the attendee and host when `RESEND_API_KEY` or `SENDGRID_API_KEY` is configured. Rescheduling is implemented as canceling the old booking and creating a new one, so recipients get a cancellation email for the old time and a confirmation email for the new time.
+
 ### Sharing
 
 Booking links are **private by default** — only the creator can manage them. To let teammates manage a link, change the visibility or add explicit share grants. These actions are auto-mounted framework-wide:

@@ -22,7 +22,12 @@ import {
 import { createZoomProvider } from "@agent-native/scheduling/server/providers";
 
 const PROVIDER = "zoom_video";
-const SCOPES = ["meeting:write", "meeting:read", "user:read"];
+const SCOPES = [
+  "meeting:write:meeting",
+  "meeting:read:meeting",
+  "user:read:user",
+  "user:read:email",
+];
 
 function getZoomCreds() {
   const clientId = process.env.ZOOM_CLIENT_ID;

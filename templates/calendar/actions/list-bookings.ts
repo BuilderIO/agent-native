@@ -23,6 +23,7 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     notes: row.notes ?? undefined,
     fieldResponses,
     meetingLink: row.meetingLink ?? undefined,
+    googleEventId: row.googleEventId ?? undefined,
     status: row.status,
     createdAt: row.createdAt,
   };

@@ -29,6 +29,10 @@ import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { getDb, schema } from "../db/index.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 import { createZoomMeeting } from "../lib/zoom.js";
+import {
+  sendBookingCancellationEmails,
+  sendBookingConfirmationEmails,
+} from "../lib/booking-emails.js";
 
 async function requireRequestContext<T>(
   event: H3Event,
@@ -52,6 +56,84 @@ async function getBookingLinkSlugsForOwner(
     .from(schema.bookingLinks)
     .where(eq(schema.bookingLinks.ownerEmail, ownerEmail));
   return rows.map((row) => row.slug);
+}
+
+async function getBookingLinkOwnerEmail(
+  slug: string,
+): Promise<string | undefined> {
+  if (!slug) return undefined;
+  const row = await getDb()
+    .select({ ownerEmail: schema.bookingLinks.ownerEmail })
+    .from(schema.bookingLinks)
+    .where(eq(schema.bookingLinks.slug, slug))
+    .then((rows) => rows[0]);
+  return row?.ownerEmail;
+}
+
+function stripCrlf(value: unknown): string {
+  return String(value ?? "")
+    .replace(/[\r\n]+/g, " ")
+    .trim();
+}
+
+function titleCaseToken(value: string): string {
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+}
+
+function displayNameFromEmail(email: string): string {
+  const localPart = email.split("@")[0]?.split("+")[0] ?? "";
+  const parts = localPart
+    .split(/[._-]+/)
+    .map((part) => part.replace(/[^a-zA-Z0-9]/g, ""))
+    .filter(Boolean);
+
+  if (parts.length === 0) return email;
+  return parts.map(titleCaseToken).join(" ");
+}
+
+function buildBookingEventTitle({
+  explicitTitle,
+  hostEmail,
+  attendeeName,
+}: {
+  explicitTitle?: unknown;
+  hostEmail: string;
+  attendeeName: unknown;
+}) {
+  const explicit = stripCrlf(explicitTitle);
+  if (explicit) return explicit;
+
+  const hostName = displayNameFromEmail(hostEmail);
+  const guestName = stripCrlf(attendeeName) || "Guest";
+  return `${hostName} + ${guestName}`;
+}
+
+async function deleteGoogleEventForBooking({
+  booking,
+  hostEmail,
+}: {
+  booking: Pick<
+    typeof schema.bookings.$inferSelect,
+    "id" | "slug" | "googleEventId"
+  >;
+  hostEmail?: string;
+}) {
+  if (!booking.googleEventId) return;
+  const ownerEmail =
+    hostEmail ?? (await getBookingLinkOwnerEmail(booking.slug));
+  if (!ownerEmail) return;
+
+  try {
+    await googleCalendar.deleteEvent(booking.googleEventId, ownerEmail, {
+      sendUpdates: "none",
+    });
+  } catch (error) {
+    console.warn(
+      `[bookings] Failed to delete Google Calendar event for booking ${booking.id}:`,
+      error,
+    );
+  }
 }
 
 type AvailabilityContext = {
@@ -353,6 +435,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { error: "Booking link not found" };
     }
 
+    const hostEmail =
+      (bookingLink as any)?.ownerEmail || (bookingLink as any)?.owner_email;
+    if (!hostEmail) {
+      setResponseStatus(event, 500);
+      return { error: "Booking link has no host email" };
+    }
+
+    const eventTitle = buildBookingEventTitle({
+      explicitTitle: body.eventTitle,
+      hostEmail,
+      attendeeName: body.name,
+    });
+
     // Validate custom field responses
     let customFields: CustomField[] = [];
     if (bookingLink?.customFields) {
@@ -458,7 +553,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         start: body.start,
         end: body.end,
         slug: body.slug || "",
-        eventTitle: body.eventTitle || bookingLink?.title || null,
+        eventTitle,
         notes: body.notes || null,
         fieldResponses:
           Object.keys(fieldResponses).length > 0
@@ -485,6 +580,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       } catch {}
     }
     let meetingLink: string | undefined;
+    let googleEventId: string | undefined;
 
     // For custom-URL conferencing, use the static URL — only http(s).
     if (conferencing?.type === "custom" && conferencing.url) {
@@ -498,23 +594,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    const hostEmail =
-      (bookingLink as any)?.ownerEmail || (bookingLink as any)?.owner_email;
-    if (!hostEmail) {
-      setResponseStatus(event, 500);
-      return { error: "Booking link has no host email" };
-    }
-
     // For Zoom, create a real meeting via the host's connected OAuth
     // account. The booking link's owner_email is the host.
     if (conferencing?.type === "zoom") {
       try {
         const zoomResult = await createZoomMeeting({
           hostEmail,
-          title:
-            body.eventTitle ||
-            bookingLink?.title ||
-            `Booking with ${body.name}`,
+          title: eventTitle,
           startTime: body.start,
           endTime: body.end,
           timezone:
@@ -535,10 +621,16 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     const origin = reqUrl.origin;
     const manageUrl = `${origin}/booking/manage/${cancelToken}`;
 
-    // Create a corresponding Google Calendar event if connected
-    if (await googleCalendar.isConnected()) {
+    // Create a corresponding Google Calendar event on the booking link owner's
+    // connected Google account. Public booking requests do not have an
+    // authenticated request context, so this must be explicitly scoped to the
+    // host rather than relying on ambient user state.
+    if (await googleCalendar.isConnected(hostEmail)) {
       try {
         const descParts: string[] = [`Booking by ${body.name} (${body.email})`];
+        if (bookingLink?.title) {
+          descParts.push(`Meeting type: ${bookingLink.title}`);
+        }
         if (body.notes) descParts.push(`Notes: ${body.notes}`);
         if (customFields.length > 0 && Object.keys(fieldResponses).length > 0) {
           const fieldLines = customFields
@@ -557,16 +649,14 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
         const calEvent: CalendarEvent = {
           id: nanoid(),
-          title:
-            body.eventTitle ||
-            bookingLink?.title ||
-            `Booking with ${body.name}`,
+          title: eventTitle,
           description: descParts.join("\n\n"),
           start: body.start,
           end: body.end,
           location: meetingLink || "",
           allDay: false,
           source: "google",
+          accountEmail: hostEmail,
           createdAt: now,
           updatedAt: now,
         };
@@ -574,19 +664,30 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           addGoogleMeet: conferencing?.type === "google_meet",
         });
         // Google Meet link is returned by the API when created
+        googleEventId = result.id;
         if (result.meetLink) {
           meetingLink = result.meetLink;
         }
-      } catch {
+      } catch (error) {
+        console.warn(
+          `[bookings] Failed to create Google Calendar event for ${hostEmail}:`,
+          error,
+        );
         // Continue even if Google Calendar creation fails
       }
     }
 
-    // Persist the meeting link to the booking row
-    if (meetingLink) {
+    // Persist provider details created after the initial booking insert.
+    if (meetingLink || googleEventId) {
+      const providerUpdates: {
+        meetingLink?: string;
+        googleEventId?: string;
+      } = {};
+      if (meetingLink) providerUpdates.meetingLink = meetingLink;
+      if (googleEventId) providerUpdates.googleEventId = googleEventId;
       await getDb()
         .update(schema.bookings)
-        .set({ meetingLink })
+        .set(providerUpdates)
         .where(eq(schema.bookings.id, id));
     }
 
@@ -597,15 +698,26 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       start: body.start,
       end: body.end,
       slug: body.slug || "",
-      eventTitle: body.eventTitle || bookingLink?.title,
+      eventTitle,
       notes: body.notes,
       fieldResponses:
         Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
       meetingLink,
+      googleEventId,
       cancelToken,
       status: "confirmed",
       createdAt: now,
     };
+
+    await sendBookingConfirmationEmails({
+      booking,
+      hostEmail,
+      manageUrl,
+      timeZone:
+        (body.timezone as string | undefined) ??
+        Intl.DateTimeFormat().resolvedOptions().timeZone ??
+        "UTC",
+    });
 
     try {
       emit(
@@ -759,6 +871,19 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
         return { error: "Access denied" };
       }
 
+      const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
+      const reqUrl = getRequestURL(event);
+      const bookAgainUrl = existing.slug
+        ? `${reqUrl.origin}/book/${existing.slug}`
+        : undefined;
+
+      await sendBookingCancellationEmails({
+        booking: rowToBooking(existing),
+        hostEmail,
+        bookAgainUrl,
+      });
+      await deleteGoogleEventForBooking({ booking: existing, hostEmail });
+
       await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
       return { success: true };
     } catch (error: any) {
@@ -836,6 +961,18 @@ export const cancelBookingByToken = defineEventHandler(
         .set({ status: "cancelled" })
         .where(eq(schema.bookings.id, row.id));
 
+      const hostEmail = await getBookingLinkOwnerEmail(row.slug);
+      const reqUrl = getRequestURL(event);
+      const bookAgainUrl = row.slug
+        ? `${reqUrl.origin}/book/${row.slug}`
+        : undefined;
+      await sendBookingCancellationEmails({
+        booking: rowToBooking(row),
+        hostEmail,
+        bookAgainUrl,
+      });
+      await deleteGoogleEventForBooking({ booking: row, hostEmail });
+
       return { success: true, slug: row.slug };
     } catch (error: any) {
       setResponseStatus(event, 500);
@@ -863,6 +1000,7 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     notes: row.notes ?? undefined,
     fieldResponses,
     meetingLink: row.meetingLink ?? undefined,
+    googleEventId: row.googleEventId ?? undefined,
     status: row.status,
     createdAt: row.createdAt,
   };

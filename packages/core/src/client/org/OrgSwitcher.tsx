@@ -20,6 +20,8 @@ export interface OrgSwitcherProps {
   className?: string;
   /** Hide entirely when the user only belongs to one org. Default: false. */
   hideWhenSingle?: boolean;
+  /** Keep the switcher's button height reserved while org state is loading. */
+  reserveSpace?: boolean;
 }
 
 function personalLabelFromEmail(email: string | null | undefined): string {
@@ -44,8 +46,12 @@ type Mode = "list" | "create" | "invite";
  *
  * Headless DOM (no shadcn deps) so it works in any template.
  */
-export function OrgSwitcher({ className, hideWhenSingle }: OrgSwitcherProps) {
-  const { data: org } = useOrg();
+export function OrgSwitcher({
+  className,
+  hideWhenSingle,
+  reserveSpace,
+}: OrgSwitcherProps) {
+  const { data: org, isLoading } = useOrg();
   const switchOrg = useSwitchOrg();
   const createOrg = useCreateOrg();
   const inviteMember = useInviteMember();
@@ -75,15 +81,30 @@ export function OrgSwitcher({ className, hideWhenSingle }: OrgSwitcherProps) {
     }
   }, [open]);
 
-  if (!org || org.email === DEV_MODE_USER_EMAIL) return null;
+  if (!org) {
+    return reserveSpace && isLoading ? (
+      <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />
+    ) : null;
+  }
+  if (org.email === DEV_MODE_USER_EMAIL) {
+    return reserveSpace ? (
+      <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />
+    ) : null;
+  }
 
   const orgs = org.orgs ?? [];
   const pendingInvitations = org.pendingInvitations ?? [];
   const orgCount = orgs.length;
   const hasAny = orgCount > 0 || pendingInvitations.length > 0;
-  if (!hasAny && !org.email) return null;
+  if (!hasAny && !org.email) {
+    return reserveSpace ? (
+      <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />
+    ) : null;
+  }
   if (hideWhenSingle && orgCount < 2 && pendingInvitations.length === 0) {
-    return null;
+    return reserveSpace ? (
+      <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />
+    ) : null;
   }
 
   const canInvite =

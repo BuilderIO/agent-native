@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import {
+  IconCheck,
+  IconChevronDown,
   IconExternalLink,
   IconUnlink,
   IconCircleCheck,
@@ -10,6 +12,19 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -19,12 +34,132 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { GoogleSetupWizard } from "@/components/calendar/GoogleSetupWizard";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
+import { cn } from "@/lib/utils";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
 import { toast } from "sonner";
+
+const FALLBACK_TIMEZONES = [
+  "UTC",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Sao_Paulo",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Europe/Moscow",
+  "Africa/Cairo",
+  "Asia/Jerusalem",
+  "Asia/Dubai",
+  "Asia/Kolkata",
+  "Asia/Singapore",
+  "Asia/Tokyo",
+  "Asia/Shanghai",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+];
+
+function getSupportedTimezones(currentTimezone: string) {
+  const supported =
+    typeof Intl !== "undefined" && (Intl as any).supportedValuesOf
+      ? ((Intl as any).supportedValuesOf("timeZone") as string[])
+      : FALLBACK_TIMEZONES;
+  return Array.from(new Set([currentTimezone, ...supported].filter(Boolean)));
+}
+
+function getTimezoneCity(timezone: string) {
+  const city = timezone.split("/").pop() || timezone;
+  return city.replace(/_/g, " ");
+}
+
+function getTimezoneRegion(timezone: string) {
+  const region = timezone.split("/")[0] || "";
+  return region.replace(/_/g, " ");
+}
+
+function TimezoneCombobox({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (timezone: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const options = getSupportedTimezones(value).map((timezone) => {
+    const city = getTimezoneCity(timezone);
+    const region = getTimezoneRegion(timezone);
+    return {
+      timezone,
+      city,
+      region,
+      searchValue: `${city} ${region} ${timezone}`.trim(),
+    };
+  });
+  const selected = options.find((option) => option.timezone === value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          id="timezone"
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="h-10 w-full justify-between px-3 font-normal"
+        >
+          <span className="min-w-0 truncate text-left">
+            {selected
+              ? `${selected.city} (${selected.timezone})`
+              : "Select timezone"}
+          </span>
+          <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[--radix-popover-trigger-width] p-0"
+      >
+        <Command>
+          <CommandInput placeholder="Search timezone or city..." />
+          <CommandList className="max-h-[320px]">
+            <CommandEmpty>No timezone found.</CommandEmpty>
+            <CommandGroup>
+              {options.map((option) => (
+                <CommandItem
+                  key={option.timezone}
+                  value={option.searchValue}
+                  onSelect={() => {
+                    onChange(option.timezone);
+                    setOpen(false);
+                  }}
+                >
+                  <IconCheck
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      value === option.timezone ? "opacity-100" : "opacity-0",
+                    )}
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{option.city}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {option.timezone}
+                    </p>
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function Settings() {
   const { data: settings } = useSettings();
@@ -181,12 +316,7 @@ export default function Settings() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="timezone">Timezone</Label>
-            <Input
-              id="timezone"
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              placeholder="America/New_York"
-            />
+            <TimezoneCombobox value={timezone} onChange={setTimezone} />
           </div>
 
           <div className="space-y-2">
