@@ -9,6 +9,10 @@ import {
   listPRs,
   runGraphQL,
 } from "../server/lib/github";
+import {
+  providerError,
+  requireActionCredentials,
+} from "./_provider-action-utils";
 
 export default defineAction({
   description:
@@ -33,57 +37,72 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
-    if (args.pr) {
-      const parts = args.pr.split("/");
-      if (parts.length < 3)
-        return { error: "--pr must be in format owner/repo/number" };
-      const [owner, repo, num] = parts;
-      return await getPR(owner, repo, parseInt(num));
-    }
+    const credentials = await requireActionCredentials(
+      ["GITHUB_TOKEN"],
+      "GitHub",
+    );
+    if (credentials.ok === false) return credentials.response;
 
-    if (args.issue) {
-      const parts = args.issue.split("/");
-      if (parts.length < 3)
-        return { error: "--issue must be in format owner/repo/number" };
-      const [owner, repo, num] = parts;
-      return await getIssue(owner, repo, parseInt(num));
-    }
-
-    if (args.search) {
-      const type = args.type === "issue" ? "issue" : "pr";
-      const limit = args.limit ?? 30;
-      if (type === "issue") {
-        const issues = await searchIssues({ query: args.search, limit });
-        return { issues, total: issues.length, query: args.search };
-      } else {
-        const prs = await searchPRs({ query: args.search, limit });
-        return { prs, total: prs.length, query: args.search };
+    try {
+      if (args.pr) {
+        const parts = args.pr.split("/");
+        if (parts.length < 3)
+          return { error: "--pr must be in format owner/repo/number" };
+        const [owner, repo, num] = parts;
+        return await getPR(owner, repo, parseInt(num));
       }
-    }
 
-    if (args.repo) {
-      const parts = args.repo.split("/");
-      if (parts.length < 2)
-        return { error: "--repo must be in format owner/repo" };
-      const [owner, repo] = parts;
-      const state = (args.state as "open" | "closed" | "all") ?? "open";
+      if (args.issue) {
+        const parts = args.issue.split("/");
+        if (parts.length < 3)
+          return { error: "--issue must be in format owner/repo/number" };
+        const [owner, repo, num] = parts;
+        return await getIssue(owner, repo, parseInt(num));
+      }
+
+      if (args.search) {
+        const type = args.type === "issue" ? "issue" : "pr";
+        const limit = args.limit ?? 30;
+        if (type === "issue") {
+          const issues = await searchIssues({ query: args.search, limit });
+          return { issues, total: issues.length, query: args.search };
+        } else {
+          const prs = await searchPRs({ query: args.search, limit });
+          return { prs, total: prs.length, query: args.search };
+        }
+      }
+
+      if (args.repo) {
+        const parts = args.repo.split("/");
+        if (parts.length < 2)
+          return { error: "--repo must be in format owner/repo" };
+        const [owner, repo] = parts;
+        const state = (args.state as "open" | "closed" | "all") ?? "open";
+        const limit = args.limit ?? 30;
+        const prs = await listPRs(owner, repo, { state, limit });
+        return { prs, total: prs.length, repo: args.repo, state };
+      }
+
+      if (args.graphql) {
+        const data = await runGraphQL(args.graphql);
+        return { data };
+      }
+
+      if (!args.org) {
+        return {
+          error:
+            "org is required when searching organization PRs. Pass --org <github-org> or use --repo owner/repo.",
+        };
+      }
+
+      const query = args.query ?? "";
+      const state = args.state as "OPEN" | "CLOSED" | "MERGED" | undefined;
       const limit = args.limit ?? 30;
-      const prs = await listPRs(owner, repo, { state, limit });
-      return { prs, total: prs.length, repo: args.repo, state };
+
+      const prs = await searchOrgPRs({ org: args.org, query, state, limit });
+      return { prs, total: prs.length, org: args.org, query };
+    } catch (err) {
+      return providerError(err);
     }
-
-    if (args.graphql) {
-      const data = await runGraphQL(args.graphql);
-      return { data };
-    }
-
-    // Default: search across configured org
-    const org = args.org ?? (process.env.GITHUB_ORG || "your-org");
-    const query = args.query ?? "";
-    const state = args.state as "OPEN" | "CLOSED" | "MERGED" | undefined;
-    const limit = args.limit ?? 30;
-
-    const prs = await searchOrgPRs({ org, query, state, limit });
-    return { prs, total: prs.length, org, query };
   },
 });
