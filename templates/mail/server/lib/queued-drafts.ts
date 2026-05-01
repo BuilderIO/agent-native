@@ -325,13 +325,21 @@ export async function updateQueuedDraft(
       input.ownerEmail,
     );
   }
-  if (input.to !== undefined) updates.toRecipients = input.to.trim();
+  if (input.to !== undefined) {
+    const to = input.to.trim();
+    if (!to) throw new Error("At least one recipient is required");
+    updates.toRecipients = to;
+  }
   if (input.cc !== undefined) updates.ccRecipients = input.cc.trim() || null;
   if (input.bcc !== undefined) updates.bccRecipients = input.bcc.trim() || null;
   if (input.subject !== undefined) {
     updates.subject = input.subject.trim() || "(no subject)";
   }
-  if (input.body !== undefined) updates.body = input.body.trim();
+  if (input.body !== undefined) {
+    const body = input.body.trim();
+    if (!body) throw new Error("Draft body is required");
+    updates.body = body;
+  }
   if (input.context !== undefined)
     updates.context = input.context.trim() || null;
   if (input.accountEmail !== undefined) {
