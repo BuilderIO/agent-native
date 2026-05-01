@@ -109,8 +109,11 @@ function wrapCliScript(
     run: async (args: Record<string, string>): Promise<string> => {
       const cliArgs: string[] = [];
       for (const [k, v] of Object.entries(args)) {
+        const raw = v as unknown;
         const value =
-          v != null && typeof v === "object" ? JSON.stringify(v) : String(v);
+          raw != null && typeof raw === "object"
+            ? JSON.stringify(raw)
+            : String(raw);
         cliArgs.push(`--${k}`, value);
       }
       return captureCliOutput(() => cliDefault(cliArgs));

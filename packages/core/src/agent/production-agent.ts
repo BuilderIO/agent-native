@@ -713,6 +713,8 @@ export async function runAgentLoop(opts: {
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
+  ownerEmail?: string | null;
+  orgId?: string | null;
   providerOptions?: any;
   executionMode?: AgentExecutionMode;
   maxIterations?: number;
@@ -828,10 +830,9 @@ export async function runAgentLoop(opts: {
 
     if (toolCallParts.length === 0) break;
 
-    // Run all tool calls in parallel — engines often return multiple tool-call
-    // blocks in one turn. Running them concurrently saves wall-clock time.
-    const toolResultParts: EngineContentPart[] = await Promise.all(
-      toolCallParts.map(async (toolCall) => {
+    const runToolCall = async (
+      toolCall: import("./engine/types.js").EngineToolCallPart,
+    ): Promise<EngineContentPart> => {
         const actionEntry = actions[toolCall.name];
         if (!actionEntry) {
           const result = `Error: Unknown tool "${toolCall.name}"`;
@@ -906,10 +907,15 @@ export async function runAgentLoop(opts: {
         if (!isError && actionEntry.readOnly !== true) {
           try {
             const { recordChange } = await import("../server/poll.js");
+            const owner =
+              opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
+            const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
             recordChange({
               source: "action",
               type: "change",
               key: toolCall.name,
+              ...(owner ? { owner } : {}),
+              ...(orgId ? { orgId } : {}),
             });
           } catch {
             // poll module may be unavailable in non-server contexts — ignore
@@ -924,8 +930,25 @@ export async function runAgentLoop(opts: {
           content: result,
           ...(isError ? { isError } : {}),
         };
-      }),
-    );
+    };
+
+    const hasMutatingToolCall = toolCallParts.some((toolCall) => {
+      const entry = actions[toolCall.name];
+      return entry && entry.readOnly !== true;
+    });
+
+    // Engines can emit several tool-call blocks in one turn. Keep read-only
+    // calls parallel for latency, but serialize any batch containing a mutating
+    // call so DB writes and UI refresh events preserve model order and do not
+    // interleave or partially race.
+    const toolResultParts: EngineContentPart[] = [];
+    if (hasMutatingToolCall) {
+      for (const toolCall of toolCallParts) {
+        toolResultParts.push(await runToolCall(toolCall));
+      }
+    } else {
+      toolResultParts.push(...(await Promise.all(toolCallParts.map(runToolCall))));
+    }
 
     messages.push({ role: "user", content: toolResultParts });
   }
@@ -1631,6 +1654,8 @@ export function createProductionAgentHandler(
           actions: requestActions,
           send,
           signal,
+          ownerEmail,
+          orgId: getRequestOrgId() ?? null,
           providerOptions: options.providerOptions,
           executionMode: requestMode,
           maxIterations: loopSettings.maxIterations,

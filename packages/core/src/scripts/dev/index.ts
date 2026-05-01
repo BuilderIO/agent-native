@@ -32,7 +32,12 @@ function wrapCliScript(
     run: async (args: Record<string, string>): Promise<string> => {
       const cliArgs: string[] = [];
       for (const [k, v] of Object.entries(args)) {
-        cliArgs.push(`--${k}`, v);
+        const raw = v as unknown;
+        const value =
+          raw != null && typeof raw === "object"
+            ? JSON.stringify(raw)
+            : String(raw);
+        cliArgs.push(`--${k}`, value);
       }
 
       // Capture console.log output
@@ -106,6 +111,11 @@ export async function createDevScriptRegistry(): Promise<
                 type: "string",
                 description: "The SQL SELECT query to execute",
               },
+              args: {
+                type: "string",
+                description:
+                  'Optional JSON array of positional bind args for parameterized placeholders. Example: \'["draft","form-123"]\'',
+              },
               format: {
                 type: "string",
                 description:
@@ -122,16 +132,31 @@ export async function createDevScriptRegistry(): Promise<
       "db-exec": wrapCliScript(
         {
           description:
-            "Execute a write SQL statement (INSERT, UPDATE, DELETE) against the app database",
+            "Execute app-database write SQL (INSERT, UPDATE, DELETE, REPLACE). For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Schema changes (CREATE/ALTER/DROP) are blocked.",
           parameters: {
             type: "object",
             properties: {
               sql: {
                 type: "string",
-                description: "The SQL statement to execute",
+                description:
+                  "Single INSERT / UPDATE / DELETE / REPLACE statement. Use parameterized placeholders (?) where possible.",
+              },
+              args: {
+                type: "string",
+                description:
+                  'Optional JSON array of positional bind args for `sql`. Example: \'["published","form-123"]\'',
+              },
+              statements: {
+                type: "string",
+                description:
+                  'Optional JSON array of write statements to execute in one transaction. Prefer this over multiple db-exec calls. Example: \'[{"sql":"INSERT INTO notes (id,title) VALUES (?,?)","args":["n1","One"]},{"sql":"UPDATE counters SET value = value + 1 WHERE key = ?","args":["notes"]}]\'',
+              },
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
               },
             },
-            required: ["sql"],
           },
         },
         dbExec.default,

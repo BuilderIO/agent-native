@@ -38,8 +38,9 @@ export function Header({ onOpenMobile }: { onOpenMobile?: () => void }) {
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 md:hidden cursor-pointer"
+          className="h-8 w-8 2xl:hidden cursor-pointer"
           onClick={onOpenMobile}
+          aria-label="Open navigation"
         >
           <IconLayoutSidebar />
         </Button>
