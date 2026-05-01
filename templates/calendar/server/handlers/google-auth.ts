@@ -76,10 +76,6 @@ function googleOAuthErrorPayload(
   };
 }
 
-function googleOAuthErrorMessage(error: any, prefix = "Connection failed") {
-  return googleOAuthErrorPayload(error, prefix).message;
-}
-
 function googleOAuthErrorResponse(
   event: H3Event,
   error: any,
@@ -260,17 +256,35 @@ export const getGoogleAddAccountUrl = defineEventHandler(
 
 export const handleGoogleAddAccountCallback = defineEventHandler(
   async (event: H3Event) => {
+    let desktop = false;
+    let flowId: string | undefined;
     try {
       const session = await getSession(event);
       const query = getQuery(event);
-      const {
-        redirectUri,
-        owner: stateOwner,
-        desktop,
-      } = decodeOAuthState(
+      const state = decodeOAuthState(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
+      desktop = state.desktop;
+      flowId = state.flowId;
+
+      const googleError = query.error as string | undefined;
+      if (googleError) {
+        const errorDesc =
+          (query.error_description as string | undefined) || googleError;
+        const isPermission =
+          googleError === "access_denied" ||
+          errorDesc.includes("Insufficient Permission");
+        const userMessage = isPermission
+          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+          : `Connection failed: ${errorDesc}`;
+        return googleOAuthErrorResponse(event, new Error(userMessage), {
+          desktop,
+          flowId,
+        });
+      }
+
+      const { redirectUri, owner: stateOwner } = state;
 
       const ownerEmail = session?.email || stateOwner;
       if (!ownerEmail) {
@@ -296,9 +310,11 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         appName: "Calendar",
       });
     } catch (error: any) {
-      return oauthErrorPage(
-        googleOAuthErrorMessage(error, "Failed to add account"),
-      );
+      return googleOAuthErrorResponse(event, error, {
+        desktop,
+        flowId,
+        prefix: "Failed to add account",
+      });
     }
   },
 );
