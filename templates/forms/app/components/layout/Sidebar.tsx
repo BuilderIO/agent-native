@@ -137,7 +137,7 @@ export function Sidebar() {
       )}
     >
       {/* Header */}
-      <div className="flex h-12 items-center justify-between border-b border-border px-4">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         <Link
           to="/forms"
           className="flex items-center gap-2 text-base font-semibold tracking-tight text-foreground hover:text-foreground/80"

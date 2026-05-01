@@ -567,7 +567,7 @@ export default function DesignEditor() {
             designs. "Use this one" persists the chosen content as index.html. */}
         {pendingVariants && (
           <div className="absolute inset-0 z-40 flex flex-col bg-background">
-            <div className="flex h-12 items-center justify-between border-b border-border px-4">
+            <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
               <div>
                 <span className="text-sm font-medium text-foreground/90">
                   {pendingVariants.prompt ?? "Pick a direction"}

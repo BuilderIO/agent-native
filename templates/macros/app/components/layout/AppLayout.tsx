@@ -176,7 +176,7 @@ function SidebarContent({
     <div className="flex h-full flex-col">
       <div
         className={cn(
-          "flex h-12 items-center border-b border-border",
+          "flex h-12 shrink-0 items-center border-b border-border",
           collapsed ? "justify-center px-2" : "gap-2 px-4",
         )}
       >
