@@ -16,7 +16,7 @@ The analytics app connects to multiple data sources. This skill covers general p
 3. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 4. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it
 
-For events recorded by the analytics template itself via `analytics.agent-native.com/track`, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. Do not use `db-query` for first-party analytics questions; `db-query` is only for internal app tables and will confuse data-source analysis.
+For events recorded by the analytics template itself via `analytics.agent-native.com/track`, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. Do not use `db-query` for first-party analytics questions; `db-query` is only for internal app tables and will confuse data-source analysis. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for this source.
 
 ## Built-in Filtering
 

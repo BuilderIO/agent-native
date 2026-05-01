@@ -142,6 +142,7 @@ export default runMigrations(
       referrer TEXT,
       app TEXT,
       template TEXT,
+      signed_in TEXT,
       properties TEXT NOT NULL DEFAULT '{}',
       context TEXT NOT NULL DEFAULT '{}',
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -159,6 +160,10 @@ export default runMigrations(
     {
       version: 17,
       sql: `CREATE INDEX IF NOT EXISTS analytics_events_key_idx ON analytics_events (public_key_id)`,
+    },
+    {
+      version: 18,
+      sql: `ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS signed_in TEXT`,
     },
   ],
   { table: "analytics_migrations" },

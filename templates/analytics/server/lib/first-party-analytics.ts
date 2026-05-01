@@ -287,6 +287,11 @@ export async function recordAnalyticsEvents(
       asString(properties.template) ||
       asString((properties as any).templateId) ||
       app;
+    const signedIn =
+      asString((properties as any).signed_in) ||
+      asString((properties as any).signedIn) ||
+      asString((context as any).signed_in) ||
+      asString((context as any).signedIn);
 
     return {
       id: id("evt"),
@@ -307,6 +312,7 @@ export async function recordAnalyticsEvents(
         asString(properties.referrer) || asString((context as any).referrer),
       app,
       template,
+      signedIn,
       properties: JSON.stringify(properties),
       context: JSON.stringify(context),
       ownerEmail: key.ownerEmail,

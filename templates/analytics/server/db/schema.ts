@@ -120,6 +120,7 @@ export const analyticsEvents = table("analytics_events", {
   referrer: text("referrer"),
   app: text("app"),
   template: text("template"),
+  signedIn: text("signed_in"),
   properties: text("properties").notNull().default("{}"),
   context: text("context").notNull().default("{}"),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),

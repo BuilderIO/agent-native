@@ -1,0 +1,151 @@
+{
+  "name": "Agent Native Templates (First-party)",
+  "description": "Template engagement and per-app activity recorded through analytics.agent-native.com/track. Source: first-party analytics_events.",
+  "panels": [
+    {
+      "id": "total-template-clicks",
+      "title": "Template Clicks",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'click template'",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "First-party events"
+      }
+    },
+    {
+      "id": "total-demo-clicks",
+      "title": "Demo Clicks",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'click try demo'",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "First-party events"
+      }
+    },
+    {
+      "id": "total-cli-copies",
+      "title": "CLI Copies",
+      "chartType": "metric",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COUNT(*) AS count FROM analytics_events WHERE event_name = 'copy cli command'",
+      "config": {
+        "yKey": "count",
+        "yFormatter": "number",
+        "description": "First-party events"
+      }
+    },
+    {
+      "id": "template-interest-over-time",
+      "title": "Template Interest Over Time",
+      "chartType": "area",
+      "source": "first-party",
+      "width": 2,
+      "sql": "SELECT substr(timestamp, 1, 10) AS date, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click template' GROUP BY substr(timestamp, 1, 10) ORDER BY date",
+      "config": {
+        "xKey": "date",
+        "yKey": "count",
+        "color": "#6366f1"
+      }
+    },
+    {
+      "id": "clicks-by-template",
+      "title": "Clicks by Template",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click template' GROUP BY COALESCE(NULLIF(template, ''), 'unknown') ORDER BY count DESC LIMIT 20",
+      "config": {
+        "xKey": "template",
+        "yKey": "count",
+        "color": "#6366f1"
+      }
+    },
+    {
+      "id": "demo-clicks-by-template",
+      "title": "Try-Demo Clicks by Template",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'click try demo' GROUP BY COALESCE(NULLIF(template, ''), 'unknown') ORDER BY count DESC LIMIT 20",
+      "config": {
+        "xKey": "template",
+        "yKey": "count",
+        "color": "#8b5cf6"
+      }
+    },
+    {
+      "id": "cli-copies-by-template",
+      "title": "CLI Copies by Template",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(NULLIF(template, ''), 'unknown') AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'copy cli command' GROUP BY COALESCE(NULLIF(template, ''), 'unknown') ORDER BY count DESC LIMIT 20",
+      "config": {
+        "xKey": "template",
+        "yKey": "count",
+        "color": "#06b6d4"
+      }
+    },
+    {
+      "id": "cli-copies-over-time",
+      "title": "CLI Copies Over Time",
+      "chartType": "area",
+      "source": "first-party",
+      "width": 2,
+      "sql": "SELECT substr(timestamp, 1, 10) AS date, COUNT(*) AS count FROM analytics_events WHERE event_name = 'copy cli command' GROUP BY substr(timestamp, 1, 10) ORDER BY date",
+      "config": {
+        "xKey": "date",
+        "yKey": "count",
+        "color": "#06b6d4"
+      }
+    },
+    {
+      "id": "sessions-by-app",
+      "title": "Sessions by Agent-Native App",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 2,
+      "sql": "SELECT COALESCE(NULLIF(app, ''), 'unknown') AS app, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' GROUP BY COALESCE(NULLIF(app, ''), 'unknown') ORDER BY count DESC LIMIT 20",
+      "config": {
+        "xKey": "app",
+        "yKey": "count",
+        "color": "#10b981",
+        "description": "Per-template-site session activity (mail, calendar, slides, ...). Each tab fires session status once."
+      }
+    },
+    {
+      "id": "signed-in-vs-anon",
+      "title": "Signed-In vs Anonymous Sessions",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT COALESCE(NULLIF(signed_in, ''), 'unknown') AS signed_in, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' GROUP BY COALESCE(NULLIF(signed_in, ''), 'unknown') ORDER BY signed_in",
+      "config": {
+        "xKey": "signed_in",
+        "yKey": "count",
+        "color": "#f59e0b",
+        "description": "true = signed in, false = anonymous. Best proxy for total signups per period (still includes returning users)."
+      }
+    },
+    {
+      "id": "sessions-over-time",
+      "title": "Sessions Over Time",
+      "chartType": "area",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT substr(timestamp, 1, 10) AS date, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' GROUP BY substr(timestamp, 1, 10) ORDER BY date",
+      "config": {
+        "xKey": "date",
+        "yKey": "count",
+        "color": "#10b981"
+      }
+    }
+  ]
+}

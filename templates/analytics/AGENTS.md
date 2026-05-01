@@ -146,10 +146,10 @@ Solo-mode dashboards/configs are user-scoped. Org dashboards/views are org-scope
 
 First-party analytics events live in SQL tables managed by this template:
 
-| Table                   | Contents                                                            |
-| ----------------------- | ------------------------------------------------------------------- |
-| `analytics_public_keys` | Public write keys used by hosted apps to send events to `/track`    |
-| `analytics_events`      | Event rows recorded by `/track`, scoped to the key owner's user/org |
+| Table                   | Contents                                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `analytics_public_keys` | Public write keys used by hosted apps to send events to `/track`                                                                                              |
+| `analytics_events`      | Event rows recorded by `/track`, scoped to the key owner's user/org. Common dimensions include `event_name`, `timestamp`, `app`, `template`, and `signed_in`. |
 
 Use the `first-party` dashboard source or `query-agent-native-analytics` action for these events. Do **not** use `db-query` for user analytics questions unless the user explicitly asks to inspect the app's internal tables.
 

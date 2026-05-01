@@ -86,6 +86,43 @@ function drainQueue(): void {
   }
 }
 
+function isLocalhostUrl(value: string | undefined): boolean {
+  if (!value || !value.trim()) return false;
+  const raw = value.trim();
+  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+    ? raw
+    : `https://${raw}`;
+  try {
+    const { hostname } = new URL(withProtocol);
+    const h = hostname.toLowerCase();
+    return (
+      h === "localhost" ||
+      h === "127.0.0.1" ||
+      h === "::1" ||
+      h === "[::1]" ||
+      h.endsWith(".localhost") ||
+      h.endsWith(".local")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function shouldSkipAgentNativeAnalyticsForLocalhost(): boolean {
+  if (process.env.AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST === "true") {
+    return false;
+  }
+  if (process.env.NODE_ENV === "development") return true;
+  return [
+    process.env.APP_URL,
+    process.env.BETTER_AUTH_URL,
+    process.env.URL,
+    process.env.DEPLOY_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    process.env.VERCEL_URL,
+  ].some(isLocalhostUrl);
+}
+
 // ─── PostHog ───────────────────────────────────────────────────────────────
 
 function createPostHogProvider(apiKey: string, host: string): TrackingProvider {
@@ -305,7 +342,10 @@ export function registerBuiltinProviders(): void {
   }
 
   const agentNativeAnalyticsKey = process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
-  if (agentNativeAnalyticsKey) {
+  if (
+    agentNativeAnalyticsKey &&
+    !shouldSkipAgentNativeAnalyticsForLocalhost()
+  ) {
     registerTrackingProvider(
       createAgentNativeAnalyticsProvider(
         agentNativeAnalyticsKey,

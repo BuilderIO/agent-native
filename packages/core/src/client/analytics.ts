@@ -19,6 +19,18 @@ let _sentryInitialized = false;
 const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
   "https://analytics.agent-native.com/track";
 
+function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
+  const h = (hostname || "").toLowerCase();
+  return (
+    h === "localhost" ||
+    h === "127.0.0.1" ||
+    h === "::1" ||
+    h === "[::1]" ||
+    h.endsWith(".localhost") ||
+    h.endsWith(".local")
+  );
+}
+
 function ensureAmplitude(): boolean {
   if (_amplitudeInitialized) return true;
   const key = (import.meta.env as Record<string, string | undefined>)
@@ -135,6 +147,8 @@ function sendAgentNativeAnalytics(
   name: string,
   properties: Record<string, unknown>,
 ): void {
+  if (isLocalAnalyticsHostname(window.location.hostname)) return;
+
   const publicKey = (import.meta.env as Record<string, string | undefined>)
     ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (!publicKey) return;

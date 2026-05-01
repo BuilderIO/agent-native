@@ -55,4 +55,27 @@ describe("tracking providers", () => {
       userId: "u1",
     });
   });
+
+  it("does not register Agent Native Analytics for localhost app URLs", async () => {
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv("APP_URL", "http://localhost:3000");
+    const { listTrackingProviders, registerBuiltinProviders } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+
+    expect(listTrackingProviders()).not.toContain("agent-native-analytics");
+  });
+
+  it("allows an explicit localhost override for Agent Native Analytics", async () => {
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv("APP_URL", "http://localhost:3000");
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST", "true");
+    const { listTrackingProviders, registerBuiltinProviders } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+
+    expect(listTrackingProviders()).toContain("agent-native-analytics");
+  });
 });
