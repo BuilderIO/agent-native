@@ -73,6 +73,14 @@ export function PoweredByBadge({
         .an-powered-logo-dark {
           display: none;
         }
+        @media (max-width: 640px) {
+          .an-powered-badge {
+            position: static !important;
+            margin: 0.75rem auto 0 !important;
+            width: max-content;
+            max-width: calc(100vw - 2rem);
+          }
+        }
         .dark .an-powered-badge {
           background: rgba(255, 255, 255, 0.06) !important;
           border-color: rgba(255, 255, 255, 0.08) !important;
@@ -175,6 +183,14 @@ export function OpenSourceBadge({
           border-color: transparent !important;
           backdrop-filter: none !important;
           -webkit-backdrop-filter: none !important;
+        }
+        @media (max-width: 640px) {
+          .an-open-source-badge {
+            position: static !important;
+            margin: 1rem auto 0 !important;
+            width: max-content;
+            max-width: calc(100vw - 2rem);
+          }
         }
         .dark .an-open-source-badge {
           color: rgba(215, 215, 215, 0.94) !important;
