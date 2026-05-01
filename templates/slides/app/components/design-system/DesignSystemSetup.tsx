@@ -168,7 +168,7 @@ export function DesignSystemSetup({
         if (
           f.size < 200 * 1024 &&
           (f.name.match(
-            /\.(css|scss|sass|less|ts|tsx|js|jsx|json|html|svg|xml)$/i,
+            /\.(css|scss|sass|less|ts|tsx|js|jsx|json|html|svg|xml|md|markdown|mdx|txt)$/i,
           ) ||
             f.type.startsWith("text/"))
         ) {
@@ -258,9 +258,23 @@ export function DesignSystemSetup({
     }
 
     if (docFiles.length > 0) {
-      parts.push(
-        `\n## Documents\nExtract brand cues. Call \`import-document\` with metadata:\n${docFiles.map((f) => `- ${f.name} (${f.type}, ${formatSize(f.size)})`).join("\n")}`,
-      );
+      const inlined = docFiles.filter((f) => f.textContent);
+      const binary = docFiles.filter((f) => !f.textContent);
+      if (inlined.length > 0) {
+        parts.push(
+          `\n## Documents (${inlined.length} text files — content inlined)\nExtract brand cues from the content below.`,
+        );
+        for (const f of inlined) {
+          parts.push(
+            `\n### ${f.name}\n\`\`\`\n${f.textContent!.slice(0, 5000)}\n\`\`\``,
+          );
+        }
+      }
+      if (binary.length > 0) {
+        parts.push(
+          `\n## Documents\nExtract brand cues. Call \`import-document\` with metadata:\n${binary.map((f) => `- ${f.name} (${f.type}, ${formatSize(f.size)})`).join("\n")}`,
+        );
+      }
     }
 
     if (imageFiles.length > 0) {
@@ -447,26 +461,26 @@ export function DesignSystemSetup({
                   </Label>
                   <button
                     onClick={() => docInputRef.current?.click()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (e.dataTransfer.files)
+                        readTextFiles(e.dataTransfer.files, setDocFiles);
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
                     className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
                   >
                     <p className="text-xs text-muted-foreground">
-                      PPTX, DOCX, PDF — brand guides, pitch decks
+                      PPTX, DOCX, PDF, Markdown, TXT — brand guides, design docs
                     </p>
                   </button>
                   <input
                     ref={docInputRef}
                     type="file"
-                    accept=".pptx,.ppt,.docx,.doc,.pdf,.xlsx,.xls"
+                    accept=".pptx,.ppt,.docx,.doc,.pdf,.xlsx,.xls,.md,.markdown,.mdx,.txt"
                     multiple
                     onChange={(e) => {
-                      if (!e.target.files) return;
-                      const newFiles = Array.from(e.target.files).map((f) => ({
-                        id: crypto.randomUUID(),
-                        name: f.name,
-                        type: f.type || f.name.split(".").pop() || "",
-                        size: f.size,
-                      }));
-                      setDocFiles((p) => [...p, ...newFiles]);
+                      if (e.target.files)
+                        readTextFiles(e.target.files, setDocFiles);
                       e.target.value = "";
                     }}
                     className="hidden"
