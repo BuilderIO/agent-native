@@ -304,7 +304,12 @@ export default function BookingLinksPage({
       },
       {
         onSuccess: () => toast.success("Availability saved"),
-        onError: () => toast.error("Failed to save availability"),
+        onError: (error) =>
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to save availability",
+          ),
       },
     );
   }
@@ -726,16 +731,26 @@ export default function BookingLinksPage({
                   onUsernameChange={(val) => {
                     setUsernameInput(val);
                     if (val) {
-                      updateAvailability.mutate({
-                        timezone,
-                        weeklySchedule: schedule,
-                        bufferMinutes,
-                        minNoticeHours,
-                        maxAdvanceDays,
-                        slotDurationMinutes: slotDuration,
-                        bookingPageSlug: bookingSlug,
-                        bookingUsername: val,
-                      });
+                      updateAvailability.mutate(
+                        {
+                          timezone,
+                          weeklySchedule: schedule,
+                          bufferMinutes,
+                          minNoticeHours,
+                          maxAdvanceDays,
+                          slotDurationMinutes: slotDuration,
+                          bookingPageSlug: bookingSlug,
+                          bookingUsername: val,
+                        },
+                        {
+                          onError: (error) =>
+                            toast.error(
+                              error instanceof Error
+                                ? error.message
+                                : "Failed to update booking username",
+                            ),
+                        },
+                      );
                     }
                   }}
                   onSlugChange={(val) => {
