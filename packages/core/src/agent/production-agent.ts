@@ -39,12 +39,20 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 import {
   createToolSearchEntry,
   TOOL_SEARCH_ACTION_NAME,
 } from "./tool-search.js";
+import {
+  getDefaultMaxIterations,
+  normalizeMaxIterations,
+  readAgentLoopSettings,
+} from "./loop-settings.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -438,7 +446,6 @@ export interface ProductionAgentOptions {
   skipFilesContext?: boolean;
 }
 
-const MAX_ITERATIONS = 100;
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 2000;
 
@@ -672,6 +679,7 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   providerOptions?: any;
   executionMode?: AgentExecutionMode;
+  maxIterations?: number;
 }): Promise<AgentLoopUsage> {
   const {
     engine,
@@ -692,11 +700,15 @@ export async function runAgentLoop(opts: {
     model,
   };
 
+  const maxIterations = normalizeMaxIterations(
+    opts.maxIterations,
+    getDefaultMaxIterations(),
+  );
   let iterations = 0;
   while (true) {
     if (signal.aborted) break;
-    if (++iterations > MAX_ITERATIONS) {
-      send({ type: "loop_limit" });
+    if (++iterations > maxIterations) {
+      send({ type: "loop_limit", maxIterations });
       break;
     }
 
@@ -1042,6 +1054,10 @@ export function createProductionAgentHandler(
     // the DB or invokes an action; running them sequentially was the
     // single biggest contributor to pre-LLM latency.
     const enrichedMessage = enrichMessage(message, references);
+    const loopSettingsPromise = readAgentLoopSettings({
+      userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
+      orgId: getRequestOrgId() ?? null,
+    }).catch(() => readAgentLoopSettings({}));
 
     let systemPromptError: any = null;
     const systemPromptPromise = (async (): Promise<string> => {
@@ -1222,14 +1238,21 @@ export function createProductionAgentHandler(
       return filesContext;
     })();
 
-    const [systemPrompt, screenBlock, urlBlock, selectionBlock, filesContext] =
-      await Promise.all([
-        systemPromptPromise,
-        screenContextPromise,
-        urlContextPromise,
-        selectionContextPromise,
-        filesContextPromise,
-      ]);
+    const [
+      systemPrompt,
+      screenBlock,
+      urlBlock,
+      selectionBlock,
+      filesContext,
+      loopSettings,
+    ] = await Promise.all([
+      systemPromptPromise,
+      screenContextPromise,
+      urlContextPromise,
+      selectionContextPromise,
+      filesContextPromise,
+      loopSettingsPromise,
+    ]);
 
     if (systemPromptError) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -1360,6 +1383,7 @@ export function createProductionAgentHandler(
                   signal,
                   providerOptions: options.providerOptions,
                   executionMode: requestMode,
+                  maxIterations: loopSettings.maxIterations,
                 });
 
                 // Attribute custom-agent sub-calls under their own label
@@ -1573,6 +1597,7 @@ export function createProductionAgentHandler(
           signal,
           providerOptions: options.providerOptions,
           executionMode: requestMode,
+          maxIterations: loopSettings.maxIterations,
         };
 
         let loopUsage: AgentLoopUsage;

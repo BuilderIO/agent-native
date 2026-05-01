@@ -33,6 +33,7 @@ export interface SSEEvent {
   // UI can render an upgrade CTA alongside the error text.
   errorCode?: string;
   upgradeUrl?: string;
+  maxIterations?: number;
 }
 
 /**
@@ -195,18 +196,33 @@ export function processEvent(
   }
 
   if (ev.type === "loop_limit") {
+    const maxIterations =
+      typeof ev.maxIterations === "number" ? ev.maxIterations : undefined;
     content.push({
       type: "text",
-      text: "I've reached the maximum number of steps for this response.",
+      text: maxIterations
+        ? `I reached the ${maxIterations}-step limit before finishing.`
+        : "I reached the step limit before finishing.",
     });
     if (typeof window !== "undefined") {
       window.dispatchEvent(
-        new CustomEvent("agent-chat:loop-limit", { detail: { tabId } }),
+        new CustomEvent("agent-chat:loop-limit", {
+          detail: { tabId, maxIterations },
+        }),
       );
     }
     return {
       action: "done",
-      result: { content: [...content] } as ChatModelRunResult,
+      result: {
+        content: [...content],
+        metadata: {
+          custom: {
+            loopLimit: {
+              ...(maxIterations ? { maxIterations } : {}),
+            },
+          },
+        },
+      } as ChatModelRunResult,
     };
   }
 
@@ -274,8 +290,21 @@ export async function* readSSEStream(
   const decoder = new TextDecoder();
   let buf = "";
 
-  const withRunId = (r: ChatModelRunResult): ChatModelRunResult =>
-    runId ? { ...r, metadata: { ...r.metadata, custom: { runId } } } : r;
+  const withRunId = (r: ChatModelRunResult): ChatModelRunResult => {
+    if (!runId) return r;
+    const metadata = (r.metadata ?? {}) as Record<string, unknown>;
+    const custom =
+      metadata.custom && typeof metadata.custom === "object"
+        ? (metadata.custom as Record<string, unknown>)
+        : {};
+    return {
+      ...r,
+      metadata: {
+        ...metadata,
+        custom: { ...custom, runId },
+      },
+    };
+  };
 
   try {
     while (true) {
