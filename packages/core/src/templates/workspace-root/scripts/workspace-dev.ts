@@ -250,6 +250,22 @@ try {
 }
 setInterval(syncApps, 2_000).unref();
 
+function openBrowser(url: string): void {
+  if (process.env.WORKSPACE_NO_OPEN === "1") return;
+  const command =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "cmd"
+        : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  const child = spawn(command, args, {
+    stdio: "ignore",
+    detached: true,
+  });
+  child.unref();
+}
+
 const server = http.createServer((req, res) => {
   if (req.url === "/" || req.url === "/index.html") {
     res.writeHead(302, { location: `/${defaultApp}` });
@@ -308,6 +324,7 @@ function listen(port: number, attempts = 20): void {
     for (const app of apps) {
       console.log(`[workspace] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
     }
+    openBrowser(`http://${gatewayHost}:${actualPort}/${defaultApp}`);
   });
 }
 

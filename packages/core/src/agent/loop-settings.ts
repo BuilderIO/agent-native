@@ -127,7 +127,9 @@ export async function writeAgentLoopSettings(
   maxIterations: number,
 ): Promise<AgentLoopSettings> {
   const validation = validateMaxIterationsInput(maxIterations);
-  if (!validation.ok) throw new Error(validation.error);
+  if (validation.ok === false) {
+    throw new Error(validation.error);
+  }
 
   if (ctx.orgId) {
     await putOrgSetting(ctx.orgId, AGENT_LOOP_SETTINGS_KEY, {

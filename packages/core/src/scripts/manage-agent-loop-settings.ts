@@ -66,7 +66,7 @@ export async function run(args: Record<string, string>): Promise<string> {
 
   if (action === "set") {
     const validation = validateMaxIterationsInput(args.maxIterations);
-    if (!validation.ok) {
+    if (validation.ok !== true) {
       return JSON.stringify({ error: validation.error });
     }
     const settings = await writeAgentLoopSettings(ctx, validation.value);

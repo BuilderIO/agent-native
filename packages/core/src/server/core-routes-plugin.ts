@@ -1377,7 +1377,7 @@ export function createCoreRoutesPlugin(
           const validation = validateMaxIterationsInput(
             (body as any)?.maxIterations,
           );
-          if (!validation.ok) {
+          if (validation.ok === false) {
             setResponseStatus(event, 400);
             return { error: validation.error };
           }
