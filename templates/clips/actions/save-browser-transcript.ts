@@ -5,8 +5,8 @@
  * immediately when recording stops. Native transcripts are available
  * instantly with no API-key requirement and are the primary transcript source.
  *
- * After saving, if the recording still has the default title we trigger
- * Builder Gemini Flash-Lite title generation so the clip gets a useful title.
+ * After saving, if the recording still has the default title we queue an
+ * agent title-generation request so the clip gets a useful title.
  *
  * Usage:
  *   pnpm action save-browser-transcript --recordingId=<id> --fullText="..."

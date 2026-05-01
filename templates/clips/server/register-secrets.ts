@@ -7,9 +7,8 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 // run in a separate Vite SSR module graph and write to a different Map.
 
 // ── Transcription secrets (optional) ──────────────────────────────────
-// Transcription is the one AI operation Clips calls directly — everything
-// else (titles, summaries, chapters, filler-word removal) is delegated to
-// the agent chat. See the `ai-video-tools` skill.
+// Native web/macOS speech is the primary transcript source. These cloud
+// providers are optional fallbacks when native transcription is unavailable.
 //
 // We support two providers (either one unlocks transcription):
 //   1. Groq `whisper-large-v3-turbo` — preferred. Same Whisper model family,
@@ -18,7 +17,7 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 //   2. OpenAI `whisper-1` — fallback. Fine, just slower.
 //
 // Neither is strictly required — videos still upload and play back without
-// transcription, they just won't have captions or AI-generated titles.
+// cloud transcription.
 //
 // This file lives OUTSIDE `server/plugins/` on purpose: Nitro's plugin
 // auto-discovery expects a defineNitroPlugin-shaped default export and

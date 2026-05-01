@@ -159,6 +159,7 @@ export default defineAction({
       .select({
         status: schema.recordingTranscripts.status,
         fullText: schema.recordingTranscripts.fullText,
+        segmentsJson: schema.recordingTranscripts.segmentsJson,
       })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
@@ -188,7 +189,11 @@ export default defineAction({
       return {
         recordingId: args.recordingId,
         status: "ready" as const,
-        provider: "native",
+        provider:
+          existingNativeTranscript.segmentsJson &&
+          existingNativeTranscript.segmentsJson !== "[]"
+            ? "existing"
+            : "native",
       };
     }
 

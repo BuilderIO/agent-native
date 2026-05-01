@@ -2,9 +2,8 @@
  * Auto-title bridge
  *
  * Watches the `clips-ai-request-:id` application_state queue for default-title
- * follow-up. The normal path is server-side Builder title generation; this
- * bridge handles setup prompts (connect Builder) and the legacy agent-chat
- * fallback exactly once per (recordingId, requestedAt).
+ * follow-up. The bridge sends queued title work to the agent chat exactly
+ * once per (recordingId, requestedAt).
  *
  * Once handled we DELETE the request entry so the next page load / tab switch
  * doesn't re-fire. The polling layer flips the skeleton in `recording-card` /
@@ -14,7 +13,6 @@
 import { useEffect, useRef } from "react";
 import { agentNativePath, sendToAgentChat } from "@agent-native/core/client";
 import { useRecordings, type RecordingSummary } from "./use-library";
-import { toast } from "sonner";
 
 const DEFAULT_TITLE = "Untitled recording";
 const POLL_INTERVAL_MS = 3000;
@@ -33,7 +31,6 @@ interface AiRequest {
   currentTitle?: string;
   transcriptStatus?: string;
   transcriptText?: string;
-  requiresBuilderConnection?: boolean;
   message?: string;
 }
 
@@ -105,25 +102,6 @@ export function useAutoTitleBridge(): void {
             const dispatchKey = `${rec.id}:${request.requestedAt ?? "0"}`;
             if (dispatched.current.has(dispatchKey)) continue;
             dispatched.current.add(dispatchKey);
-
-            if (request.requiresBuilderConnection) {
-              toast("Connect Builder.io to generate Clip titles", {
-                description:
-                  "Clips uses Builder's Gemini Flash-Lite model for transcript-based default titles.",
-                action: {
-                  label: "Connect",
-                  onClick: () => {
-                    window.open(
-                      agentNativePath("/_agent-native/builder/connect"),
-                      "_blank",
-                      "noopener,noreferrer",
-                    );
-                  },
-                },
-              });
-              void clearRequest(rec.id);
-              continue;
-            }
 
             sendToAgentChat({
               message:

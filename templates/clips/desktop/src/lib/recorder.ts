@@ -185,6 +185,14 @@ async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture |
 
   return {
     async stop() {
+      const finalTextPromise = new Promise<string>((resolve) => {
+        const timeout = window.setTimeout(() => resolve(latestText), 1800);
+        settleFinal = (text) => {
+          window.clearTimeout(timeout);
+          resolve(text);
+        };
+      });
+
       try {
         await invoke("native_speech_stop");
       } catch (err) {
@@ -193,13 +201,7 @@ async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture |
         return latestText;
       }
 
-      const finalText = await new Promise<string>((resolve) => {
-        const timeout = window.setTimeout(() => resolve(latestText), 1800);
-        settleFinal = (text) => {
-          window.clearTimeout(timeout);
-          resolve(text);
-        };
-      });
+      const finalText = await finalTextPromise;
       cleanup();
       return finalText.trim();
     },
