@@ -36,15 +36,19 @@ export default function BookingPage() {
     data: bookingLink,
     isLoading: bookingLinkLoading,
     isError: bookingLinkError,
-  } = usePublicBookingLink(slug);
+  } = usePublicBookingLink(slug, username);
 
   // Handle slug redirects (old URL → new URL)
   useEffect(() => {
+    if (bookingLink?.redirectPath) {
+      navigate(bookingLink.redirectPath, { replace: true });
+      return;
+    }
     if (!bookingLink?.redirect) return;
     const newSlug = bookingLink.redirect;
-    const path = username ? `/meet/${username}/${newSlug}` : `/book/${newSlug}`;
+    const path = username ? `/book/${username}/${newSlug}` : `/book/${newSlug}`;
     navigate(path, { replace: true });
-  }, [bookingLink?.redirect, username, navigate]);
+  }, [bookingLink?.redirect, bookingLink?.redirectPath, username, navigate]);
 
   const [step, setStep] = useState<Step>("date");
   const hasDurationChoice =

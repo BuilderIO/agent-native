@@ -1,6 +1,7 @@
 import {
   createError,
   defineEventHandler,
+  getQuery,
   getRouterParam,
   setResponseStatus,
   type H3Event,
@@ -19,6 +20,7 @@ import {
   readBody,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { ensureBookingUsername } from "./booking-usernames.js";
 
 async function requireRequestContext<T>(
   event: H3Event,
@@ -313,6 +315,9 @@ export const getPublicBookingLink = defineEventHandler(
   async (event: H3Event) => {
     try {
       const slug = getRouterParam(event, "slug");
+      const query = getQuery(event);
+      const routeUsername =
+        typeof query.username === "string" ? query.username : "";
       if (!slug) {
         setResponseStatus(event, 400);
         return { error: "slug is required" };
@@ -332,11 +337,32 @@ export const getPublicBookingLink = defineEventHandler(
           .where(eq(schema.bookingSlugRedirects.oldSlug, slug));
 
         if (redirect.length > 0) {
-          return { redirect: redirect[0].newSlug };
+          const newSlug = redirect[0].newSlug;
+          const redirectedRows = await getDb()
+            .select()
+            .from(schema.bookingLinks)
+            .where(eq(schema.bookingLinks.slug, newSlug));
+          const ownerEmail = redirectedRows[0]?.ownerEmail;
+          const username = ownerEmail
+            ? await ensureBookingUsername(ownerEmail)
+            : "";
+          return {
+            redirect: newSlug,
+            redirectPath: username
+              ? `/book/${username}/${newSlug}`
+              : `/book/${newSlug}`,
+          };
         }
 
         setResponseStatus(event, 404);
         return { error: "Booking link not found" };
+      }
+
+      const canonicalUsername = await ensureBookingUsername(rows[0].ownerEmail);
+      if (canonicalUsername && routeUsername !== canonicalUsername) {
+        return {
+          redirectPath: `/book/${canonicalUsername}/${rows[0].slug}`,
+        };
       }
 
       return rowToBookingLink(rows[0]);

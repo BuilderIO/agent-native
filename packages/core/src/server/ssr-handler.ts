@@ -79,11 +79,16 @@ function requestWithPathname(
     changed = true;
   }
   if (!changed) return request;
-  return new Request(url, {
+  const init: RequestInit & { duplex?: "half" } = {
     method: request.method,
     headers: request.headers,
     signal: request.signal,
-  });
+  };
+  if (request.body && !["GET", "HEAD"].includes(request.method.toUpperCase())) {
+    init.body = request.body;
+    init.duplex = "half";
+  }
+  return new Request(url, init);
 }
 
 function prefixMountedPath(path: string, basePath: string): string {

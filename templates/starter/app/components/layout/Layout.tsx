@@ -5,7 +5,12 @@ import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 import { AgentSidebar } from "@agent-native/core/client";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -39,6 +44,9 @@ export function Layout({ children }: LayoutProps) {
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetContent side="left" className="p-0 w-[260px]">
             <SheetTitle className="sr-only">Navigation</SheetTitle>
+            <SheetDescription className="sr-only">
+              App navigation links
+            </SheetDescription>
             <Sidebar />
           </SheetContent>
         </Sheet>

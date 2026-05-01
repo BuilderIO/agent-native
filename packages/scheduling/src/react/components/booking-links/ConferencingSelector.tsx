@@ -35,6 +35,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
 
 export type ConferencingType = "none" | "google_meet" | "zoom" | "custom";
 
@@ -89,10 +95,6 @@ const OPTIONS: {
   },
 ];
 
-function cls(...parts: (string | false | null | undefined)[]) {
-  return parts.filter(Boolean).join(" ");
-}
-
 export function ConferencingSelector(props: ConferencingSelectorProps) {
   const id = useId();
   const {
@@ -110,6 +112,10 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
     if (type === "google_meet") return googleStatus;
     return "connected";
   };
+  const selectedOption =
+    OPTIONS.find((opt) => opt.type === value.type) ?? OPTIONS[0];
+  const selectedStatus = statusFor(selectedOption.type);
+  const SelectedIcon = selectedOption.Icon;
 
   return (
     <div className="space-y-3">
@@ -120,60 +126,79 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
         </Label>
       )}
 
-      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-        {OPTIONS.map((opt) => {
-          const isSelected = value.type === opt.type;
-          const status = statusFor(opt.type);
-          const isUnavailable = status === "not-configured";
-          return (
-            <button
-              key={opt.type}
-              type="button"
-              onClick={() =>
-                onChange({
-                  type: opt.type,
-                  url: opt.type === "custom" ? value.url : undefined,
-                })
-              }
-              disabled={isUnavailable}
-              title={
-                isUnavailable
-                  ? `${opt.label} is not configured on this server.`
-                  : undefined
-              }
-              className={cls(
-                "flex flex-col gap-1 rounded-lg border px-3 py-2.5 text-left text-xs transition-colors",
-                isSelected
-                  ? "border-primary bg-primary/10"
-                  : "border-border/60 hover:border-primary/30 hover:bg-accent/60",
-                isUnavailable && "opacity-50 cursor-not-allowed",
-              )}
-            >
+      <Select
+        value={value.type}
+        onValueChange={(type) =>
+          onChange({
+            type: type as ConferencingType,
+            url: type === "custom" ? value.url : undefined,
+          })
+        }
+      >
+        <SelectTrigger className="h-auto min-h-11 py-2">
+          <div className="flex min-w-0 items-center gap-2 text-left">
+            <SelectedIcon className="h-4 w-4 shrink-0" />
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <opt.Icon className="h-4 w-4 shrink-0" />
-                <span
-                  className={cls("font-medium", isSelected && "text-primary")}
-                >
-                  {opt.label}
+                <span className="truncate font-medium">
+                  {selectedOption.label}
                 </span>
-                {isSelected && status === "connected" && (
-                  <Badge
-                    variant="secondary"
-                    className="ml-auto h-5 gap-1 text-[10px] font-normal"
-                  >
-                    <IconCheck className="h-3 w-3" />
-                    Connected
-                  </Badge>
-                )}
-                {isSelected && status !== "connected" && (
-                  <IconCheck className="ml-auto h-3.5 w-3.5 text-primary" />
-                )}
+                {selectedStatus === "connected" &&
+                  selectedOption.type !== "none" &&
+                  selectedOption.type !== "custom" && (
+                    <Badge
+                      variant="secondary"
+                      className="h-5 gap-1 text-[10px] font-normal"
+                    >
+                      <IconCheck className="h-3 w-3" />
+                      Connected
+                    </Badge>
+                  )}
               </div>
-              <p className="text-muted-foreground">{opt.description}</p>
-            </button>
-          );
-        })}
-      </div>
+              <p className="truncate text-xs text-muted-foreground">
+                {selectedStatus === "not-configured"
+                  ? `${selectedOption.label} is not configured on this server.`
+                  : selectedOption.description}
+              </p>
+            </div>
+          </div>
+        </SelectTrigger>
+        <SelectContent>
+          {OPTIONS.map((opt) => {
+            const status = statusFor(opt.type);
+            const isUnavailable = status === "not-configured";
+            return (
+              <SelectItem
+                key={opt.type}
+                value={opt.type}
+                disabled={isUnavailable}
+                className="py-2"
+              >
+                <div className="flex min-w-0 items-start gap-2">
+                  <opt.Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{opt.label}</span>
+                      {status === "connected" &&
+                        opt.type !== "none" &&
+                        opt.type !== "custom" && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Connected
+                          </span>
+                        )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {isUnavailable
+                        ? `${opt.label} needs server OAuth credentials before it can be used.`
+                        : opt.description}
+                    </p>
+                  </div>
+                </div>
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
 
       {/* Zoom: OAuth connect button */}
       {value.type === "zoom" && zoomStatus !== "connected" && onConnectZoom && (

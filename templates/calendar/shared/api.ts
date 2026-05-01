@@ -93,7 +93,7 @@ export interface AvailabilityConfig {
   maxAdvanceDays: number;
   slotDurationMinutes: number;
   bookingPageSlug: string;
-  /** Unique username for booking URLs, e.g. calendar.agent-native.com/meet/{username}/{slug} */
+  /** Unique username for booking URLs, e.g. calendar.agent-native.com/book/{username}/{slug} */
   bookingUsername?: string;
 }
 

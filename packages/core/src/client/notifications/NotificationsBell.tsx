@@ -45,6 +45,10 @@ export function NotificationsBell({
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationDto[] | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
   // Init to "default" unconditionally so server and client render the same
   // HTML — reading Notification.permission at init would diverge between SSR
   // ("denied", no API) and hydration ("default"/"granted"), causing a mismatch
@@ -57,6 +61,7 @@ export function NotificationsBell({
     if (SUPPORTS_NOTIFICATION) setPermission(Notification.permission);
   }, []);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   // Ids already popped as browser notifications. Seeded on first run so
   // existing unread don't pop retroactively on page load.
   const seenIdsRef = useRef<Set<string> | null>(null);
@@ -138,6 +143,30 @@ export function NotificationsBell({
 
   useEffect(() => {
     if (!open) return;
+    const updatePosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = 320;
+      const margin = 12;
+      setMenuPosition({
+        top: rect.bottom + 8,
+        left: Math.min(
+          Math.max(rect.right - width, margin),
+          window.innerWidth - width - margin,
+        ),
+      });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     const onDocClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setOpen(false);
@@ -207,6 +236,7 @@ export function NotificationsBell({
       }
     >
       <button
+        ref={triggerRef}
         type="button"
         aria-label={
           hasUnread ? `${unreadCount} unread notifications` : "Notifications"
@@ -227,7 +257,11 @@ export function NotificationsBell({
       {open ? (
         <div
           role="menu"
-          className="an-notifications-bell__menu absolute right-0 top-full z-50 mt-2 w-80 rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+          className="an-notifications-bell__menu fixed z-[2100] w-80 rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+          style={{
+            top: menuPosition?.top ?? 48,
+            left: menuPosition?.left ?? 12,
+          }}
         >
           <div className="flex items-center justify-between border-b border-border px-3 py-2 text-sm font-medium">
             <span>Notifications</span>

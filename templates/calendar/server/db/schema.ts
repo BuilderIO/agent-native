@@ -52,4 +52,19 @@ export const bookingSlugRedirects = table("booking_slug_redirects", {
   createdAt: text("created_at").notNull(),
 });
 
+export const bookingUsernames = table("booking_usernames", {
+  username: text("username").primaryKey(),
+  ownerEmail: text("owner_email").notNull().unique(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const bookingUsernameChanges = table("booking_username_changes", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  oldUsername: text("old_username"),
+  newUsername: text("new_username").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
 export const bookingLinkShares = createSharesTable("booking_link_shares");

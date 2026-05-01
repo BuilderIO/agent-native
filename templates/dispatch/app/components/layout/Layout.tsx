@@ -18,7 +18,12 @@ import {
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 
@@ -131,6 +136,10 @@ export function Layout({ children }: { children: ReactNode }) {
             side="left"
             className="w-72 p-0 bg-sidebar text-sidebar-foreground [&>button]:hidden"
           >
+            <SheetTitle className="sr-only">Navigation</SheetTitle>
+            <SheetDescription className="sr-only">
+              Workspace navigation links
+            </SheetDescription>
             <div className="flex h-full w-full flex-col">
               <NavContent onNavigate={() => setMobileOpen(false)} />
             </div>

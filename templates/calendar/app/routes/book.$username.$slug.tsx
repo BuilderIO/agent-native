@@ -13,7 +13,7 @@ export function HydrateFallback() {
   );
 }
 
-// Legacy public booking page. BookingPage canonicalizes this to /book/:username/:slug.
-export default function MeetBookingRoute() {
+// Public booking page at /book/:username/:slug — no AppLayout wrapper.
+export default function UserBookingRoute() {
   return <BookingPage />;
 }

@@ -104,6 +104,25 @@ export default runMigrations(
       `,
       },
     },
+    {
+      version: 15,
+      sql: `CREATE TABLE IF NOT EXISTS booking_usernames (
+    username TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+    },
+    {
+      version: 16,
+      sql: `CREATE TABLE IF NOT EXISTS booking_username_changes (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    old_username TEXT,
+    new_username TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+    },
   ],
   { table: "calendar_migrations" },
 );

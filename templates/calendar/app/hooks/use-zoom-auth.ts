@@ -9,7 +9,16 @@ export interface ZoomAuthStatus {
 
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   const res = await fetch(input, init);
-  if (!res.ok) throw new Error(`${input} → ${res.status}`);
+  if (!res.ok) {
+    let message = `${input} -> ${res.status}`;
+    try {
+      const body = (await res.json()) as { message?: string; error?: string };
+      message = body.message || body.error || message;
+    } catch {
+      // fall through with status text
+    }
+    throw new Error(message);
+  }
   return (await res.json()) as T;
 }
 

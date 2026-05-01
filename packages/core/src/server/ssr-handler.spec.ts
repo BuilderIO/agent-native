@@ -15,10 +15,11 @@ vi.mock("react-router", () => ({
   createRequestHandler: vi.fn(() => mocks.requestHandler),
 }));
 
-function createEvent(pathname: string, method = "GET") {
+function createEvent(pathname: string, method = "GET", init: RequestInit = {}) {
+  const url = `http://example.test${pathname}`;
   return {
-    url: new URL(`http://example.test${pathname}`),
-    req: new Request(`http://example.test${pathname}`, { method }),
+    url: new URL(url),
+    req: new Request(url, { method, ...init }),
   };
 }
 
@@ -36,6 +37,39 @@ describe("createH3SSRHandler", () => {
     const response = await handler(createEvent("/mail/inbox?view=unread"));
 
     await expect(response.text()).resolves.toBe("GET /inbox?view=unread");
+    expect(mocks.requestHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("strips APP_BASE_PATH from React Router lazy route manifest paths", async () => {
+    process.env.APP_BASE_PATH = "/dispatch";
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    await handler(
+      createEvent(
+        "/dispatch/__manifest?paths=/dispatch/apps,/dispatch/overview,/starter/home",
+      ),
+    );
+
+    const request = mocks.requestHandler.mock.calls[0]?.[0] as Request;
+    const url = new URL(request.url);
+    expect(url.pathname).toBe("/__manifest");
+    expect(url.searchParams.get("paths")).toBe("/apps,/overview,/starter/home");
+  });
+
+  it("preserves request bodies when rewriting mounted non-GET requests", async () => {
+    process.env.APP_BASE_PATH = "/dispatch";
+    mocks.requestHandler.mockImplementationOnce(async (request: Request) => {
+      const url = new URL(request.url);
+      const body = await request.text();
+      return new Response(`${request.method} ${url.pathname} ${body}`);
+    });
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent("/dispatch/apps", "POST", { body: "create=1" }),
+    );
+
+    await expect(response.text()).resolves.toBe("POST /apps create=1");
     expect(mocks.requestHandler).toHaveBeenCalledTimes(1);
   });
 
