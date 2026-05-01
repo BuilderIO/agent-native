@@ -15,6 +15,7 @@ interface WorkspaceApp {
 
 const root = process.cwd();
 const appsDir = path.join(root, "apps");
+fs.mkdirSync(path.join(root, "data"), { recursive: true });
 const gatewayHost = process.env.WORKSPACE_HOST || "127.0.0.1";
 const requestedPort = Number(
   process.env.WORKSPACE_PORT || process.env.PORT || 8080,
