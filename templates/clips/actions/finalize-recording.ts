@@ -299,10 +299,9 @@ export default defineAction({
         message: [
           `A new recording (${id}) just finished uploading.`,
           "Please do the following in the background:",
-          "1. Generate a concise, descriptive title and update it via update-recording.",
-          "2. Generate a 1-2 sentence summary and store it in the description.",
-          "3. Produce a transcript (segmented, with startMs/endMs/text) and save it to the recording_transcripts table for this recording id, setting status='ready'.",
-          "4. Produce a short chapters list (chaptersJson: [{startMs, title}]) and save it on the recording row.",
+          "1. If a transcript is already ready, generate a 1-2 sentence summary and store it in the description.",
+          "2. If a transcript is already ready, produce a short chapters list (chaptersJson: [{startMs, title}]) and save it on the recording row.",
+          "3. Do not transcribe or invent transcript text. Transcripts come from the web/macOS native transcription capture and may be cleaned up asynchronously.",
           "Do NOT prompt the user — this is a silent background task.",
         ].join("\n"),
         context: {

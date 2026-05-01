@@ -154,7 +154,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     letter-spacing: -0.02em;
   }
   .app-name img.brand-mark {
-    height: 2.0125rem;
+    height: 2.21375rem;
     width: auto;
     display: block;
     flex-shrink: 0;
@@ -220,7 +220,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .split { flex-direction: column; min-height: auto; }
     .marketing-panel { padding: 2rem 1.5rem 1.5rem; }
     .app-name { font-size: 1.375rem; }
-    .app-name img.brand-mark { height: 1.4375rem; }
+    .app-name img.brand-mark { height: 1.58125rem; }
     .app-tagline { font-size: 1rem; margin-bottom: 1rem; }
     .app-desc { margin-bottom: 1rem; }
     .feature-list { gap: 0.5rem; }

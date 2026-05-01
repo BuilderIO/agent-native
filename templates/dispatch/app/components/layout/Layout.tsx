@@ -8,6 +8,7 @@ import {
   IconApps,
   IconBrandTelegram,
   IconKey,
+  IconChevronDown,
   IconLayersSubtract,
   IconPlugConnected,
   IconBroadcast,
@@ -27,14 +28,17 @@ import {
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 
-const NAV_ITEMS = [
+const PRIMARY_NAV_ITEMS = [
   { to: "/overview", label: "Overview", icon: IconBroadcast },
   { to: "/apps", label: "Apps", icon: IconApps },
   { to: "/vault", label: "Vault", icon: IconKey },
   { to: "/integrations", label: "Integrations", icon: IconPuzzle },
+  { to: "/agents", label: "Agents", icon: IconPlugConnected },
+] as const;
+
+const OPERATIONS_NAV_ITEMS = [
   { to: "/workspace", label: "Resources", icon: IconLayersSubtract },
   { to: "/messaging", label: "Messaging", icon: IconBrandTelegram },
-  { to: "/agents", label: "Agents", icon: IconPlugConnected },
   { to: "/destinations", label: "Destinations", icon: IconArrowUpRight },
   { to: "/identities", label: "Identities", icon: IconFingerprint },
   { to: "/approvals", label: "Approvals", icon: IconShieldCheck },
@@ -42,16 +46,49 @@ const NAV_ITEMS = [
   { to: "/team", label: "Team", icon: IconUsersGroup },
 ] as const;
 
+type NavItem =
+  | (typeof PRIMARY_NAV_ITEMS)[number]
+  | (typeof OPERATIONS_NAV_ITEMS)[number];
+
 const SIDEBAR_SUGGESTIONS = [
-  "Add a Google OAuth secret to the vault",
-  "What integrations does the analytics app need?",
-  "Grant ANTHROPIC_API_KEY to the mail app",
-  "List the connected A2A agents in this workspace",
+  "Create a new app",
+  "Grant a key to an app",
+  "Check integration health",
 ];
 
 const CHROMELESS_PATHS = ["/approval"];
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
+  const location = useLocation();
+  const operationsOpen = OPERATIONS_NAV_ITEMS.some(
+    (item) =>
+      location.pathname === item.to ||
+      location.pathname.startsWith(`${item.to}/`),
+  );
+
+  const renderNavItem = (item: NavItem) => {
+    const Icon = item.icon;
+    return (
+      <li key={item.to}>
+        <NavLink
+          to={item.to}
+          onClick={onNavigate}
+          className={({ isActive }) =>
+            cn(
+              "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+              isActive
+                ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            )
+          }
+        >
+          <Icon size={16} className="shrink-0" />
+          <span className="truncate">{item.label}</span>
+        </NavLink>
+      </li>
+    );
+  };
+
   return (
     <>
       <div className="border-b px-4 py-3">
@@ -82,30 +119,19 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
-        <ul className="space-y-0.5">
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <li key={item.to}>
-                <NavLink
-                  to={item.to}
-                  onClick={onNavigate}
-                  className={({ isActive }) =>
-                    cn(
-                      "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
-                      isActive
-                        ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                    )
-                  }
-                >
-                  <Icon size={16} className="shrink-0" />
-                  <span className="truncate">{item.label}</span>
-                </NavLink>
-              </li>
-            );
-          })}
-        </ul>
+        <ul className="space-y-0.5">{PRIMARY_NAV_ITEMS.map(renderNavItem)}</ul>
+        <details className="group mt-4" open={operationsOpen}>
+          <summary className="flex h-8 cursor-pointer list-none items-center justify-between rounded-md px-2 text-xs font-medium uppercase text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&::-webkit-details-marker]:hidden">
+            <span>Operations</span>
+            <IconChevronDown
+              size={14}
+              className="transition-transform group-open:rotate-180"
+            />
+          </summary>
+          <ul className="mt-1 space-y-0.5">
+            {OPERATIONS_NAV_ITEMS.map(renderNavItem)}
+          </ul>
+        </details>
       </nav>
 
       <div className="border-t px-2 py-2">
@@ -148,8 +174,8 @@ export function Layout({ children }: { children: ReactNode }) {
 
         <AgentSidebar
           position="right"
-          defaultOpen
-          emptyStateText="Manage routes, identities, approvals, and jobs."
+          defaultOpen={false}
+          emptyStateText="Create apps, grant keys, and route work across the workspace."
           suggestions={SIDEBAR_SUGGESTIONS}
         >
           <div className="flex h-full flex-1 flex-col overflow-hidden">

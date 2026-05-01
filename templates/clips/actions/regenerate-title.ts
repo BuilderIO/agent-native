@@ -1,16 +1,9 @@
 /**
- * Delegate: regenerate the recording's title using its transcript.
+ * Regenerate the recording's title using its transcript.
  *
- * DELEGATION PATTERN:
- * This is a server-side action, so it cannot call `sendToAgentChat` (which is
- * a browser-only postMessage API). Instead, we write a structured delegation
- * request to application_state. The app's UI listens for these requests via
- * polling and dispatches them to the agent chat. Alternatively the agent may
- * call this action as a tool — in which case it already has the context and
- * will regenerate the title directly.
- *
- * The delegation includes the full transcript so the agent can reason over it
- * without needing to load it again.
+ * Title generation is delegated to the agent chat. Server actions do not call
+ * LLMs directly; instead, this action writes a structured request to
+ * application_state and the app's UI bridge dispatches it to the agent.
  *
  * Usage:
  *   pnpm action regenerate-title --recordingId=<id>
@@ -37,7 +30,6 @@ export default defineAction({
       .select({
         id: schema.recordings.id,
         title: schema.recordings.title,
-        description: schema.recordings.description,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
@@ -50,24 +42,28 @@ export default defineAction({
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
 
+    const transcriptText = transcript?.fullText?.trim() ?? "";
     const request = {
       kind: "regenerate-title" as const,
       recordingId: args.recordingId,
       requestedAt: new Date().toISOString(),
       currentTitle: rec.title,
       transcriptStatus: transcript?.status ?? "pending",
-      transcriptText: transcript?.fullText ?? "",
+      transcriptText,
       message:
         `Regenerate the title for recording ${args.recordingId}. ` +
         `Read the transcript in this request's context and call ` +
         `\`update-recording --id=${args.recordingId} --title="..."\` with a concise ` +
-        `(6–10 word) descriptive title. Current title: "${rec.title}".`,
+        `4-9 word descriptive title. Current title: "${rec.title}".`,
     };
 
     await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(`Delegation queued: regenerate-title for ${args.recordingId}`);
-    return { queued: true, recordingId: args.recordingId };
+    return {
+      queued: true,
+      recordingId: args.recordingId,
+    };
   },
 });

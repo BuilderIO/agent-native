@@ -20,6 +20,22 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
+const toasterClassName =
+  "toaster group [--width:min(36rem,calc(100vw_-_2rem))]";
+
+const toastOptions = {
+  classNames: {
+    toast:
+      "group toast !w-[var(--width)] !min-w-[min(20rem,calc(100vw_-_2rem))] !max-w-[var(--width)] !gap-3 !break-normal",
+    title: "break-words",
+    description: "break-words",
+    content:
+      "!min-w-[min(16rem,calc(100vw_-_14rem))] !flex-1 !basis-auto break-words",
+    actionButton: "!shrink-0 !whitespace-nowrap",
+    cancelButton: "!shrink-0 !whitespace-nowrap",
+  },
+};
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -68,7 +84,12 @@ function AppShell() {
       <AppLayout>
         <Outlet />
       </AppLayout>
-      <Toaster richColors position="bottom-left" />
+      <Toaster
+        richColors
+        position="bottom-left"
+        className={toasterClassName}
+        toastOptions={toastOptions}
+      />
     </TooltipProvider>
   );
 }
