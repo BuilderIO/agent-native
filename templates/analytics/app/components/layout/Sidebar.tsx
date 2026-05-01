@@ -308,20 +308,18 @@ function SortableDashboardItem({
   isActive,
   location,
   favoriteIds,
-  deletingId,
   onToggleFavorite,
-  setDeletingId,
   onDelete,
+  onRename,
   views,
 }: {
   d: SidebarDashboard;
   isActive: boolean;
   location: ReturnType<typeof useLocation>;
   favoriteIds: Set<string>;
-  deletingId: string | null;
   onToggleFavorite: (id: string) => void;
-  setDeletingId: (id: string | null) => void;
   onDelete: (d: SidebarDashboard) => Promise<void>;
+  onRename: (d: SidebarDashboard, name: string) => Promise<void>;
   views?: DashboardView[];
 }) {
   const href = `/adhoc/${d.id}`;
@@ -365,15 +363,13 @@ function SortableDashboardItem({
     <SortableRow
       id={d.id}
       favoriteKey={d.id}
-      deleteKey={d.id}
       name={d.name}
       href={href}
       isActive={isActive}
       favoriteIds={favoriteIds}
       onToggleFavorite={onToggleFavorite}
-      deletingId={deletingId}
-      setDeletingId={setDeletingId}
       onDelete={() => onDelete(d)}
+      onRename={(name) => onRename(d, name)}
     >
       {isActive && allSubviews.length > 0 && (
         <div className="ml-6 mt-0.5 space-y-0.5">
@@ -529,6 +525,42 @@ function setAnalysisOrder(order: string[]): void {
   }
 }
 
+const STATIC_DASHBOARD_RENAMES_KEY = "dashboard-name-overrides";
+
+function getStaticDashboardRenames(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(STATIC_DASHBOARD_RENAMES_KEY) || "{}",
+    );
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] =>
+          typeof entry[0] === "string" &&
+          typeof entry[1] === "string" &&
+          entry[1].trim().length > 0,
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function setStaticDashboardRenames(renames: Record<string, string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      STATIC_DASHBOARD_RENAMES_KEY,
+      JSON.stringify(renames),
+    );
+  } catch {
+    // localStorage unavailable / quota — ignore, rename is best-effort
+  }
+}
+
 async function fetchSqlDashboards(): Promise<{ id: string; name: string }[]> {
   const token = await getIdToken();
   const res = await fetch(appApiPath("/api/sql-dashboards"), {
@@ -596,16 +628,22 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       .catch(() => {});
   }, []);
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const { mutateAsync: renameDashboard } = useActionMutation(
+    "rename-dashboard",
+  );
+  const { mutateAsync: renameAnalysis } = useActionMutation("rename-analysis");
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") return 256;
     const saved = localStorage.getItem("sidebar-width");
     return saved ? Math.max(180, Math.min(480, Number(saved))) : 256;
   });
   const isResizing = useRef(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [hiddenIds, setHiddenIds] = useState(() =>
     typeof window === "undefined" ? new Set<string>() : getHiddenDashboards(),
   );
+  const [staticDashboardRenames, setStaticDashboardRenamesState] = useState<
+    Record<string, string>
+  >(() => (typeof window === "undefined" ? {} : getStaticDashboardRenames()));
   const [dashboardOrderState, setDashboardOrderState] = useState(() =>
     typeof window === "undefined" ? [] : getDashboardOrder(),
   );
@@ -686,7 +724,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       .filter((d) => !hiddenIds.has(d.id))
       .map((d) => ({
         id: d.id,
-        name: d.name,
+        name: staticDashboardRenames[d.id] ?? d.name,
         subviews: d.subviews,
         source: "static",
       }));
@@ -709,7 +747,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       });
     }
     return applyOrder(all, dashboardOrderState);
-  }, [hiddenIds, favoriteIds, dashboardOrderState, sqlDashboards, popularity]);
+  }, [
+    hiddenIds,
+    staticDashboardRenames,
+    favoriteIds,
+    dashboardOrderState,
+    sqlDashboards,
+    popularity,
+  ]);
 
   const displayedDashboards = useMemo(
     () =>
