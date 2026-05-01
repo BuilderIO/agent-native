@@ -40,7 +40,7 @@ export default defineAction({
       ["GRAFANA_URL", "GRAFANA_API_TOKEN"],
       "Grafana",
     );
-    if (!credentials.ok) return credentials.response;
+    if (credentials.ok === false) return credentials.response;
 
     try {
       if (args.mode === "dashboard") {

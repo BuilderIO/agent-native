@@ -122,7 +122,17 @@ function startApp(app: WorkspaceApp): void {
   const basePath = `/${app.id}`;
   const child = spawn(
     "pnpm",
-    ["--dir", app.dir, "exec", "vite", "--host", "127.0.0.1", "--strictPort"],
+    [
+      "--dir",
+      app.dir,
+      "exec",
+      "vite",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(app.port),
+      "--strictPort",
+    ],
     {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],

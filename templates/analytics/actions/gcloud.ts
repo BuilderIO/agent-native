@@ -57,7 +57,7 @@ export default defineAction({
       ["BIGQUERY_PROJECT_ID", "GOOGLE_APPLICATION_CREDENTIALS_JSON"],
       "Google Cloud",
     );
-    if (!credentials.ok) return credentials.response;
+    if (credentials.ok === false) return credentials.response;
 
     try {
       if (args.mode === "metrics") {

@@ -79,7 +79,7 @@ export default defineAction({
     const key =
       workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN";
     const credentials = await requireActionCredentials([key], "Slack");
-    if (!credentials.ok) return credentials.response;
+    if (credentials.ok === false) return credentials.response;
 
     try {
       if (args.mode === "team") {

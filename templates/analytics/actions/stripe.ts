@@ -75,7 +75,7 @@ export default defineAction({
       ["STRIPE_SECRET_KEY"],
       "Stripe",
     );
-    if (!credentials.ok) return credentials.response;
+    if (credentials.ok === false) return credentials.response;
 
     try {
       const customers = await resolveCustomers(args);

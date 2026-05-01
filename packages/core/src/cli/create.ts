@@ -136,7 +136,7 @@ async function createWorkspaceInteractive(
   try {
     await scaffoldWorkspaceRoot(targetDir, name);
     const workspaceCoreName = `@${name}/core-module`;
-    updateWorkspaceDevScript(targetDir, firstApp);
+    ensureWorkspaceGatewayDevScript(targetDir);
 
     for (const t of templates) {
       const appDir = path.join(targetDir, "apps", t);
@@ -173,7 +173,7 @@ async function createWorkspaceInteractive(
       ``,
       `  cd ${name}`,
       `  pnpm install`,
-      `  pnpm --filter ${firstApp} dev`,
+      `  pnpm dev`,
       ``,
       `Add another app later:  agent-native add-app`,
       `Deploy the whole workspace:  agent-native deploy`,
@@ -318,7 +318,16 @@ async function scaffoldOneAppIntoWorkspace(
     process.exit(1);
   }
 
-  clack.outro(`Done!\n\n  pnpm install\n  pnpm --filter ${appName} dev`);
+  clack.outro(
+    [
+      `Done!`,
+      ``,
+      `  pnpm install`,
+      `  pnpm dev`,
+      ``,
+      `The workspace gateway will detect apps/${appName} and serve it at /${appName}.`,
+    ].join("\n"),
+  );
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -948,16 +957,13 @@ function rewriteCoreDependencyVersions(projectDir: string): void {
   } catch {}
 }
 
-function updateWorkspaceDevScript(
-  workspaceRoot: string,
-  appName: string,
-): void {
+function ensureWorkspaceGatewayDevScript(workspaceRoot: string): void {
   const pkgPath = path.join(workspaceRoot, "package.json");
   if (!fs.existsSync(pkgPath)) return;
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     pkg.scripts = pkg.scripts ?? {};
-    pkg.scripts.dev = `pnpm --filter ${appName} dev`;
+    pkg.scripts.dev = "tsx scripts/workspace-dev.ts";
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   } catch {}
 }

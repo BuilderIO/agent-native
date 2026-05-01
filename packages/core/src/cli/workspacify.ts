@@ -89,6 +89,25 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     const p = path.join(appDir, f);
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
+
+  // 3) Templates document action commands from the framework repo layout.
+  //    Workspace apps live under apps/<name>, so point every agent at the
+  //    generated app directory instead.
+  const agentsPath = path.join(appDir, "AGENTS.md");
+  if (fs.existsSync(agentsPath)) {
+    try {
+      let content = fs.readFileSync(agentsPath, "utf-8");
+      content = content
+        .replace(
+          "The terminal cwd is the framework root. Always `cd` to this template's root before running any action:",
+          `The terminal cwd is the workspace root. Always \`cd\` to this app's root before running any action:`,
+        )
+        .replace(/cd templates\/[^ \n]+ && pnpm action/g, `cd apps/${opts.appName} && pnpm action`);
+      fs.writeFileSync(agentsPath, content);
+    } catch {
+      // Non-fatal: leave AGENTS.md unchanged.
+    }
+  }
 }
 
 /**

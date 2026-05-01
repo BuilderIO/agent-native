@@ -11,6 +11,7 @@
     "workspaceCore": "@{{APP_NAME}}/core-module"
   },
   "devDependencies": {
+    "@types/node": "^24.2.1",
     "prettier": "^3.6.2",
     "tsx": "catalog:",
     "typescript": "^6.0.3"

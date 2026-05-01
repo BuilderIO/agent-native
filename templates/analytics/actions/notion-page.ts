@@ -18,7 +18,7 @@ export default defineAction({
       ["NOTION_API_KEY"],
       "Notion",
     );
-    if (!credentials.ok) return credentials.response;
+    if (credentials.ok === false) return credentials.response;
 
     try {
       return await getNotionPage(args.pageId);

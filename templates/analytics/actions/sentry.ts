@@ -49,7 +49,7 @@ export default defineAction({
           "Sentry is not connected for this workspace yet. Add SENTRY_AUTH_TOKEN in Settings -> Data sources, then retry.",
       },
     );
-    if (!credentials.ok) return credentials.response;
+    if (credentials.ok === false) return credentials.response;
 
     try {
       if (args.mode === "projects") {
