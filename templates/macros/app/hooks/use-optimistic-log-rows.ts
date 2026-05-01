@@ -35,7 +35,7 @@ const TOOL_BY_KIND: Record<LogKind, string> = {
 const ACTIVE_TTL_MS = 120_000;
 const RECONCILED_TTL_MS = 45_000;
 const ERROR_TTL_MS = 1_500;
-const SERVER_MATCH_WINDOW_MS = 10_000;
+const SERVER_MATCH_WINDOW_MS = 2_000;
 
 let optimisticSequence = 0;
 

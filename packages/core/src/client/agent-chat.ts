@@ -6,6 +6,11 @@
  */
 
 import { getFrameOrigin, isTrustedFrameMessage } from "./frame.js";
+import {
+  isInBuilderFrame,
+  isTrustedBuilderMessage,
+  sendToBuilderChat,
+} from "./builder-frame.js";
 
 export interface AgentChatMessage {
   /** The visible prompt message sent to the chat */
@@ -66,11 +71,19 @@ const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
  */
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
-    if (!isTrustedFrameMessage(event)) return;
-    if (event.data?.type === "agentNative.chatRunning") {
+    if (
+      !isTrustedFrameMessage(event) &&
+      !isTrustedBuilderMessage(event)
+    ) {
+      return;
+    }
+    if (
+      event.data?.type === "agentNative.chatRunning" ||
+      event.data?.type === "builder.chatRunning"
+    ) {
       window.dispatchEvent(
         new CustomEvent("agentNative.chatRunning", {
-          detail: event.data.detail,
+          detail: event.data.detail ?? event.data.data,
         }),
       );
     }
@@ -91,6 +104,16 @@ export function generateTabId(): string {
  */
 export function sendToAgentChat(opts: AgentChatMessage): string {
   const tabId = opts.tabId ?? generateTabId();
+  const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
+  if (isCodeRequest && isInBuilderFrame()) {
+    sendToBuilderChat({
+      message: opts.message,
+      context: opts.context,
+      submit: opts.submit,
+    });
+    return tabId;
+  }
+
   const payload = {
     type: AGENT_CHAT_MESSAGE_TYPE,
     data: { ...opts, tabId },
