@@ -17,11 +17,10 @@
  * Both providers accept the same multipart form-data shape, so the only
  * differences are the endpoint URL and the `model` field.
  *
- * Hybrid transcription: the browser's Web Speech API runs during recording
- * and saves an instant transcript via `save-browser-transcript`. If this
- * action finds a browser transcript and no API key is configured, it
- * preserves the browser result instead of failing. When a key IS available,
- * Whisper refines the browser draft with higher-quality output.
+ * Native transcription: the browser's Web Speech API and desktop macOS Speech
+ * run during recording and save an instant transcript via
+ * `save-browser-transcript`. If this action finds a ready native transcript,
+ * it preserves that result and only kicks off title generation.
  *
  * Fetches the recording's videoUrl, POSTs to the provider with
  * response_format=verbose_json and timestamp_granularities[]=segment, and
@@ -88,6 +87,7 @@ const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/audio/transcriptions";
 const OPENAI_MODEL = "whisper-1";
+const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 
 /**
  * Resolve a secret from (in order):
@@ -143,7 +143,7 @@ async function pickProvider(
 
 export default defineAction({
   description:
-    "Generate a Whisper transcription for a recording. Prefers Groq whisper-large-v3-turbo (fast), falls back to OpenAI whisper-1. Fetches videoUrl, posts audio, writes segments + fullText to recording_transcripts.",
+    "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then falls back to Builder transcription, Groq whisper-large-v3-turbo, or OpenAI whisper-1 when needed.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -180,7 +180,7 @@ export default defineAction({
           await regenerateTitle.run({ recordingId: args.recordingId });
         } catch (delegateErr) {
           console.warn(
-            `[clips] native-transcript title generation failed for ${args.recordingId}:`,
+            `[clips] native-transcript title delegation failed for ${args.recordingId}:`,
             (delegateErr as Error).message,
           );
         }
@@ -287,6 +287,7 @@ export default defineAction({
         const builderResult = await transcribeWithBuilder({
           audioBytes,
           mimeType,
+          model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
           diarize: false,
         });
 
@@ -359,8 +360,8 @@ export default defineAction({
 
     // ── Groq / OpenAI fallback ────────────────────────────────────────
     // Resolve the provider BEFORE overwriting the transcript row — if no
-    // key is configured but a browser-generated transcript already exists
-    // (from Web Speech API during recording), preserve it instead of
+    // key is configured but a native transcript already exists
+    // (from Web Speech API or macOS Speech during recording), preserve it instead of
     // clobbering it with "pending" then "failed".
     const provider = await pickProvider(userEmail);
     if (!provider) {
@@ -375,11 +376,12 @@ export default defineAction({
 
       if (existingRow?.status === "ready" && existingRow.fullText?.trim()) {
         console.log(
-          `[clips] No API key configured but browser transcript exists for ${args.recordingId} — keeping it`,
+          `[clips] No cloud provider configured but native transcript exists for ${args.recordingId} — keeping it`,
         );
-        // Still queue a title-generation delegation — the browser transcript
-        // is good enough for the agent to produce a real title even without
-        // Whisper. This covers recordings where no API key is configured.
+        // Still queue a title-generation delegation — the native transcript is
+        // good enough for the agent to produce a real title even without
+        // Whisper. This covers recordings where no cloud transcript API key is
+        // configured.
         const [recForTitle] = await db
           .select({ title: schema.recordings.title })
           .from(schema.recordings)
@@ -559,11 +561,11 @@ export default defineAction({
 
       // Auto-title. The clip was just born with the default title and we now
       // have a transcript to reason over — queue a delegation for the agent
-      // chat to pick a concise 3-8 word title. `regenerate-title` writes a
+      // chat to pick a concise title. `regenerate-title` writes a
       // `clips-ai-request-:id` application_state entry; the frontend bridge
-      // in `_app.tsx` picks that up and fires `sendToAgentChat` once. We
-      // intentionally skip this when the user (or agent) has already renamed
-      // the clip so we never clobber a human-authored title.
+      // picks that up and fires `sendToAgentChat` once. We intentionally skip
+      // this when the user (or agent) has already renamed the clip so we never
+      // clobber a human-authored title.
       if (isDefaultTitle(rec.title)) {
         try {
           await regenerateTitle.run({ recordingId: args.recordingId });

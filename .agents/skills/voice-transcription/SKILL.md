@@ -32,14 +32,19 @@ feature is available in every template that renders `TiptapComposer`.
 
 ## Providers
 
-| Provider  | Backend                                              | Quality | Needs key                   |
-| --------- | ---------------------------------------------------- | ------- | --------------------------- |
-| `builder` | `POST /_agent-native/transcribe-voice` → Builder proxy | High    | Builder.io account connected |
-| `openai`  | `POST /_agent-native/transcribe-voice` → Whisper     | High    | `OPENAI_API_KEY`            |
-| `browser` | Web Speech API (`webkitSpeechRecognition`)           | Low     | No                          |
+| Provider         | Backend                                                         | Quality | Needs key                    |
+| ---------------- | --------------------------------------------------------------- | ------- | ---------------------------- |
+| `builder-gemini` | `POST /_agent-native/transcribe-voice` → Builder Gemini Flash-Lite | High    | Builder.io account connected |
+| `builder`        | `POST /_agent-native/transcribe-voice` → Builder proxy          | High    | Builder.io account connected |
+| `gemini`         | `POST /_agent-native/transcribe-voice` → Google Gemini BYOK     | High    | `GEMINI_API_KEY`             |
+| `groq`           | `POST /_agent-native/transcribe-voice` → Groq Whisper           | High    | `GROQ_API_KEY`               |
+| `openai`         | `POST /_agent-native/transcribe-voice` → OpenAI Whisper         | High    | `OPENAI_API_KEY`             |
+| `browser`        | Web Speech API (`webkitSpeechRecognition`)                      | Low     | No                           |
 
 Selection is persisted in `application_state["voice-transcription-prefs"]`
-as `{ provider: "openai" | "browser" | "builder" }`. Default is `"browser"`.
+as `{ provider: "builder-gemini" | "builder" | "gemini" | "groq" | "openai" | "browser" }`.
+When no preference is saved, Builder-connected users default to
+`builder-gemini`; everyone else defaults to `browser` in the web composer.
 
 ## Where the pieces live
 
@@ -51,18 +56,24 @@ as `{ provider: "openai" | "browser" | "builder" }`. Default is `"browser"`.
 | `packages/core/src/client/settings/VoiceTranscriptionSection.tsx`     | Provider radio in sidebar settings                  |
 | `packages/core/src/client/transcription/BuilderTranscriptionCta.tsx`  | CTA shown when Builder account isn't connected      |
 | `packages/core/src/client/transcription/use-live-transcription.ts`    | Web Speech live-transcription hook for recordings   |
-| `packages/core/src/server/transcribe-voice.ts`                        | Route handler (routes to Builder or Whisper)        |
+| `packages/core/src/server/transcribe-voice.ts`                        | Route handler (routes to Builder/Gemini/Groq/Whisper) |
 | `packages/core/src/transcription/builder-transcription.ts`            | Builder proxy transcription client                  |
-| `packages/core/src/secrets/register-framework-secrets.ts`             | Framework-level `OPENAI_API_KEY` registration       |
+| `packages/core/src/secrets/register-framework-secrets.ts`             | Framework-level provider key registration           |
 
 ## Key resolution (server)
 
 `transcribe-voice.ts` routes based on the user's provider preference:
 
-1. If `builder` and `hasBuilderPrivateKey()` → calls `transcribeWithBuilder()` via Builder proxy. Falls through to OpenAI path if the key isn't configured.
-2. If `openai` (or `builder` fallthrough) → resolves `OPENAI_API_KEY`:
+1. If `builder-gemini` and `resolveHasBuilderPrivateKey()` → calls `transcribeWithBuilder({ model: "gemini-3-1-flash-lite" })` via Builder proxy.
+2. If `builder` and `resolveHasBuilderPrivateKey()` → calls `transcribeWithBuilder()` via Builder proxy.
+3. If `gemini` → resolves `GEMINI_API_KEY` and calls the direct Google Gemini path.
+4. If `groq` → resolves `GROQ_API_KEY` and calls Groq's Whisper-compatible endpoint.
+5. If `openai` → resolves `OPENAI_API_KEY`:
    - `readAppSecret({ key: "OPENAI_API_KEY", scope: "user", scopeId: session.email })` — user's encrypted secret.
    - `resolveCredential("OPENAI_API_KEY")` — env var + SQL settings fallback.
+
+In auto mode / no preference, the route tries Builder Gemini Flash-Lite first
+when Builder is connected, then Gemini BYOK, Groq, and OpenAI.
 
 Never hardcode a shared key. Never log the value. Never echo it back to the
 client.
@@ -72,11 +83,11 @@ client.
 Templates can:
 - **Disable the mic**: pass `voiceEnabled={false}` to `TiptapComposer`.
 - **Replace the button**: wrap `TiptapComposer` and render your own `extraActionButton` (the framework mic sits between `extraActionButton` and the send button).
-- **Pre-register `OPENAI_API_KEY` as `required: true`**: call `registerRequiredSecret(...)` from your own server plugin. Clips does this so the onboarding checklist prompts for it.
+- **Pre-register provider keys as `required: true`**: call `registerRequiredSecret(...)` from your own server plugin when a template needs a specific BYOK provider in onboarding.
 
 ## Don'ts
 
-- Don't call OpenAI from the client — go through `/_agent-native/transcribe-voice` so the user's secret stays server-side.
+- Don't call transcription providers from the client — go through `/_agent-native/transcribe-voice` so the user's secret stays server-side.
 - Don't remove the cancel affordance — mic permission abuse paranoia is real.
 - Don't auto-submit the transcript — users always edit before sending.
 - Don't copy Cursor's "hide send when empty" pattern — it confuses users.
