@@ -375,34 +375,16 @@ export default function SlideEditor({
     });
   }, []);
 
-  /** Save the current slide content without exiting edit mode (called from bubble menu). */
-  const saveBlockContent = useCallback(() => {
-    const slideContent = containerRef.current?.querySelector(
-      ".slide-content",
-    ) as HTMLElement | null;
-    if (!slideContent) return;
-    const html = stripBuilderIds(slideContent.innerHTML);
-    onUpdateSlideRef.current({ content: html });
-  }, []);
-
   /** Enter edit mode on a smart block (text leaf or smart group) */
   const enterInlineEdit = useCallback((el: HTMLElement) => {
     el.contentEditable = "true";
     el.setAttribute("data-editing-block", "true");
-    el.focus();
-    // If the block is a simple text leaf, pre-select its content so typing
-    // replaces it. For smart groups (bullet lists, etc.) don't select all —
-    // the user usually wants to edit just one part, so we place the caret
-    // at the click location instead (which contentEditable does by default).
-    const isSimpleLeaf =
-      isTextLeaf(el) && el.children.length === 0 && !!el.textContent?.trim();
-    if (isSimpleLeaf) {
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-    }
+    // Don't override the selection. The browser's native double-click
+    // word-select (or single-click caret) is already on the element from the
+    // user's gesture; re-selecting from JS clobbers it. focus() on an
+    // element that already contains the selection preserves it in modern
+    // browsers, so it's safe to keep for keyboard delivery.
+    el.focus({ preventScroll: true });
     setEditingEl(el);
   }, []);
 
@@ -997,7 +979,7 @@ export default function SlideEditor({
         onSendToAgent={sendSelectionToAgent}
       />
 
-      <BlockBubbleMenu editingEl={editingEl} onChange={saveBlockContent} />
+      <BlockBubbleMenu editingEl={editingEl} />
 
       {pendingUpdateCount > 0 && (
         <div className="absolute top-4 right-4 z-50">
