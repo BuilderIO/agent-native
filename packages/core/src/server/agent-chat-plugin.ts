@@ -2201,8 +2201,7 @@ export function createAgentChatPlugin(
       const lazyContext = options?.lazyContext !== false && !leanPrompt;
       const urlTools = createUrlTools();
       const engineScripts = await createAgentEngineScriptEntries();
-      const loopSettingsScripts =
-        await createAgentLoopSettingsScriptEntries();
+      const loopSettingsScripts = await createAgentLoopSettingsScriptEntries();
       const chatScripts = {
         ...(await createChatScriptEntries()),
         ...engineScripts,

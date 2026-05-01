@@ -1609,7 +1609,9 @@ function LoopLimitContinueCard({
           </p>
           <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
             The agent used{" "}
-            {currentLimit ? `${currentLimit.toLocaleString()} steps` : "all available steps"}
+            {currentLimit
+              ? `${currentLimit.toLocaleString()} steps`
+              : "all available steps"}
             . Keep going in a fresh turn, or raise the {scopeLabel} limit first.
           </p>
         </div>

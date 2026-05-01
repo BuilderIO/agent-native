@@ -115,10 +115,7 @@ export async function readAgentLoopSettings(ctx: {
   }
 
   if (ctx.userEmail) {
-    const stored = await getUserSetting(
-      ctx.userEmail,
-      AGENT_LOOP_SETTINGS_KEY,
-    );
+    const stored = await getUserSetting(ctx.userEmail, AGENT_LOOP_SETTINGS_KEY);
     return fromStored(stored, "user", "user");
   }
 

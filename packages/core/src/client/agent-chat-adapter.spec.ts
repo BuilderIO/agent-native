@@ -242,4 +242,55 @@ describe("createAgentChatAdapter", () => {
       mode: "act",
     });
   });
+
+  it("surfaces loop limit metadata from the SSE stream", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([{ type: "loop_limit", maxIterations: 7 }]),
+        ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-limit",
+    });
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "keep using tools" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain("7-step limit");
+    expect(last.metadata.custom.loopLimit).toEqual({ maxIterations: 7 });
+    expect(last.metadata.custom.runId).toBe("run-qa");
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:loop-limit",
+        detail: { tabId: "chat-limit", maxIterations: 7 },
+      }),
+    );
+  });
 });

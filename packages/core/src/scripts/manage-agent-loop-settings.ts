@@ -30,7 +30,7 @@ export const tool: ActionTool = {
       maxIterations: {
         type: "string",
         description:
-          '(set) Integer step limit. Applies to the active organization when one is selected; otherwise applies to the current user.',
+          "(set) Integer step limit. Applies to the active organization when one is selected; otherwise applies to the current user.",
       },
     },
     required: ["action"],

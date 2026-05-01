@@ -46,9 +46,24 @@ Example rules:
 ## How to add a new app
 
 ```bash
-cd apps
-pnpm exec agent-native create <app-name>
+pnpm exec agent-native create <app-name> --template=starter
 ```
+
+Run this from the workspace root. The CLI detects the workspace and creates
+`apps/<app-name>` with the workspace core module already connected. Use a
+different template when useful, for example `--template=analytics` or
+`--template=forms`.
+
+The workspace dev command is a gateway:
+
+```bash
+pnpm dev
+```
+
+It opens Dispatch at `/dispatch`, serves every app at `/<app-name>`, and
+auto-detects newly-created app directories. After creating an app, do not
+restart the dev server unless the gateway reports an error; wait for it to
+start the new app process, then open `/<app-name>`.
 
 The new app will automatically inherit:
 

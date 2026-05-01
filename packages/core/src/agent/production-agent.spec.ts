@@ -4,8 +4,10 @@ import {
   buildUserContentWithAttachments,
   createPlanModeActionRegistry,
   isPlanModeToolCallAllowed,
+  runAgentLoop,
   type ActionEntry,
 } from "./production-agent.js";
+import type { AgentEngine, EngineEvent } from "./engine/types.js";
 
 function actionEntry(opts: {
   description?: string;
@@ -153,5 +155,60 @@ describe("buildUserContentWithAttachments", () => {
 
     const urlTool = actionEntry({ readOnly: true });
     expect(isPlanModeToolCallAllowed("set-url-path", {}, urlTool)).toBe(false);
+  });
+});
+
+describe("runAgentLoop", () => {
+  it("emits loop_limit with the configured max iteration count", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const parts = [
+          {
+            type: "tool-call" as const,
+            id: `tool-${streamCalls}`,
+            name: "noop",
+            input: {},
+          },
+        ];
+        yield {
+          type: "tool-call",
+          id: `tool-${streamCalls}`,
+          name: "noop",
+          input: {},
+        };
+        yield { type: "assistant-content", parts };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { noop: actionEntry({ readOnly: true }) },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxIterations: 2,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(events).toContainEqual({ type: "loop_limit", maxIterations: 2 });
+    expect(events.at(-1)).toEqual({ type: "done" });
   });
 });

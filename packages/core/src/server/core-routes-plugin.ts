@@ -1381,10 +1381,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 400);
             return { error: validation.error };
           }
-          const updated = await writeAgentLoopSettings(
-            ctx,
-            validation.value,
-          );
+          const updated = await writeAgentLoopSettings(ctx, validation.value);
           return {
             ...updated,
             canUpdate,

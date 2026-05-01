@@ -40,14 +40,17 @@ the workspace core package (`@{{APP_NAME}}/core-module`).
 ```bash
 pnpm install
 cp .env.example .env   # fill in DATABASE_URL, BETTER_AUTH_SECRET, ANTHROPIC_API_KEY
-pnpm dev               # starts the example app
+pnpm dev               # starts the workspace gateway and opens Dispatch
 ```
+
+The dev gateway serves Dispatch at `/dispatch` and every app at its own path
+such as `/starter`. It watches `apps/`, so newly-created apps are detected and
+started without restarting `pnpm dev`.
 
 ## Adding a new app
 
 ```bash
-cd apps
-pnpm exec agent-native create crm
+pnpm exec agent-native create crm --template=starter
 ```
 
 The CLI detects the workspace root and scaffolds a minimal app that already
