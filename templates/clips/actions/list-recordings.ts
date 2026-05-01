@@ -124,19 +124,25 @@ export default defineAction({
     }
 
     // Sort
+    const viewCountOrder = sql<number>`(
+      SELECT COUNT(1)
+      FROM ${schema.recordingViewers}
+      WHERE ${schema.recordingViewers.recordingId} = ${schema.recordings.id}
+        AND ${eq(schema.recordingViewers.countedView, true)}
+    )`;
     const orderBy =
       args.sort === "oldest"
-        ? asc(schema.recordings.createdAt)
+        ? [asc(schema.recordings.createdAt)]
         : args.sort === "views"
           ? // views are not on recordings row — use subquery count
-            sql`(SELECT COUNT(1) FROM ${schema.recordingViewers} rv WHERE rv.recording_id = ${schema.recordings.id} AND rv.counted_view = 1) DESC, ${schema.recordings.createdAt} DESC`
-          : desc(schema.recordings.createdAt);
+            [desc(viewCountOrder), desc(schema.recordings.createdAt)]
+          : [desc(schema.recordings.createdAt)];
 
     const rows = await db
       .select()
       .from(schema.recordings)
       .where(and(...whereClauses))
-      .orderBy(orderBy)
+      .orderBy(...orderBy)
       .limit(args.limit)
       .offset(args.offset);
 

@@ -207,22 +207,29 @@ export default defineAction({
       );
     }
 
+    const viewCountOrder = sql<number>`(
+      SELECT COUNT(1)
+      FROM ${schema.callViewers}
+      WHERE ${schema.callViewers.callId} = ${schema.calls.id}
+        AND ${eq(schema.callViewers.countedView, true)}
+    )`;
+
     const orderBy =
       args.sort === "oldest"
-        ? asc(schema.calls.createdAt)
+        ? [asc(schema.calls.createdAt)]
         : args.sort === "longest"
-          ? desc(schema.calls.durationMs)
+          ? [desc(schema.calls.durationMs)]
           : args.sort === "title"
-            ? asc(schema.calls.title)
+            ? [asc(schema.calls.title)]
             : args.sort === "most-viewed"
-              ? sql`(SELECT COUNT(1) FROM ${schema.callViewers} cv WHERE cv.call_id = ${schema.calls.id} AND cv.counted_view = 1) DESC, ${schema.calls.createdAt} DESC`
-              : desc(schema.calls.createdAt);
+              ? [desc(viewCountOrder), desc(schema.calls.createdAt)]
+              : [desc(schema.calls.createdAt)];
 
     const rows = await db
       .select()
       .from(schema.calls)
       .where(and(...whereClauses))
-      .orderBy(orderBy)
+      .orderBy(...orderBy)
       .limit(args.limit)
       .offset(args.offset);
 
