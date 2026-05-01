@@ -22,12 +22,22 @@ export function buildAssistantMessage(
   id: string;
   role: "assistant";
   content: ContentPart[];
-  status: { type: "complete"; reason: "stop" };
+  status:
+    | { type: "complete"; reason: "stop" }
+    | { type: "incomplete"; reason: "error" };
   metadata: Record<string, unknown>;
 } | null {
   const content: ContentPart[] = [];
   let toolCallCounter = 0;
   let loopLimit: { maxIterations?: number } | null = null;
+  let runError:
+    | {
+        message: string;
+        errorCode?: string;
+        details?: string;
+        recoverable?: boolean;
+      }
+    | null = null;
 
   const appendText = (text: string) => {
     const last = content[content.length - 1];
@@ -92,20 +102,45 @@ export function buildAssistantMessage(
       continue;
     }
 
-    // done, error, missing_api_key — terminal signals, not content
+    if (event.type === "error") {
+      runError = {
+        message: event.error,
+        ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+        ...(event.details ? { details: event.details } : {}),
+        ...(event.recoverable ? { recoverable: event.recoverable } : {}),
+      };
+      appendText(`${content.length > 0 ? "\n\n" : ""}Error: ${event.error}`);
+      continue;
+    }
+
+    // done, missing_api_key — terminal signals, not content
   }
 
   if (content.length === 0) return null;
 
   const metadata: Record<string, unknown> = {};
   if (runId) metadata.runId = runId;
-  if (loopLimit) metadata.custom = { loopLimit };
+  if (loopLimit || runError) {
+    metadata.custom = {
+      ...(loopLimit ? { loopLimit } : {}),
+      ...(runError
+        ? {
+            runError: {
+              ...runError,
+              ...(runId ? { runId } : {}),
+            },
+          }
+        : {}),
+    };
+  }
 
   return {
     id: `server-${runId ?? Date.now()}`,
     role: "assistant",
     content,
-    status: { type: "complete" as const, reason: "stop" as const },
+    status: runError
+      ? { type: "incomplete" as const, reason: "error" as const }
+      : { type: "complete" as const, reason: "stop" as const },
     metadata,
   };
 }

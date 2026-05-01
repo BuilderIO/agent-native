@@ -25,8 +25,64 @@ export function formatChatErrorText(
   errorMessage: string,
   upgradeUrl?: string,
 ): string {
+  const normalized = normalizeChatError(errorMessage);
   if (!upgradeUrl || !isSafeUpgradeUrl(upgradeUrl)) {
-    return `Error: ${errorMessage}`;
+    return `Error: ${normalized.message}`;
   }
-  return `Error: ${errorMessage}\n\n[Upgrade at builder.io](${upgradeUrl})`;
+  return `Error: ${normalized.message}\n\n[Upgrade at builder.io](${upgradeUrl})`;
+}
+
+export interface NormalizedChatError {
+  message: string;
+  details?: string;
+}
+
+export function normalizeChatError(errorMessage: string): NormalizedChatError {
+  const raw = String(errorMessage || "Unknown error");
+  const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
+  const text = looksHtml ? htmlToText(raw) : raw.trim();
+
+  if (/inactivity timeout/i.test(text)) {
+    return {
+      message:
+        "The agent connection timed out before it could finish. You can continue from the partial work or retry.",
+      details: text,
+    };
+  }
+
+  if (/Invalid request body:\s*tools\.\d+\.input_schema\.type/i.test(text)) {
+    return {
+      message:
+        "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
+      details: text,
+    };
+  }
+
+  if (looksHtml) {
+    return {
+      message: text.slice(0, 240) || "The provider returned an HTML error page.",
+      details: text,
+    };
+  }
+
+  return { message: text };
+}
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h1|h2|h3|li|tr)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

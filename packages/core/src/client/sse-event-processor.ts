@@ -1,5 +1,5 @@
 import type { ChatModelRunResult } from "@assistant-ui/react";
-import { formatChatErrorText } from "./error-format.js";
+import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 
 export type ContentPart =
   | { type: "text"; text: string }
@@ -33,6 +33,8 @@ export interface SSEEvent {
   // UI can render an upgrade CTA alongside the error text.
   errorCode?: string;
   upgradeUrl?: string;
+  details?: string;
+  recoverable?: boolean;
   maxIterations?: number;
 }
 
@@ -228,6 +230,7 @@ export function processEvent(
 
   if (ev.type === "error") {
     const errMsg = ev.error ?? "Unknown error";
+    const normalized = normalizeChatError(errMsg);
     if (
       errMsg.includes("apiKey") ||
       errMsg.includes("authToken") ||
@@ -246,6 +249,21 @@ export function processEvent(
         } as ChatModelRunResult,
       };
     }
+    const runError = {
+      message: normalized.message,
+      ...(normalized.details || ev.details
+        ? { details: ev.details ?? normalized.details }
+        : {}),
+      ...(ev.errorCode ? { errorCode: ev.errorCode } : {}),
+      ...(ev.recoverable ? { recoverable: ev.recoverable } : {}),
+    };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: { ...runError, tabId },
+        }),
+      );
+    }
     content.push({
       type: "text",
       text: formatChatErrorText(errMsg, ev.upgradeUrl),
@@ -255,6 +273,7 @@ export function processEvent(
       result: {
         content: [...content],
         status: { type: "incomplete" as const, reason: "error" as const },
+        metadata: { custom: { runError } },
       } as ChatModelRunResult,
     };
   }
@@ -297,11 +316,18 @@ export async function* readSSEStream(
       metadata.custom && typeof metadata.custom === "object"
         ? (metadata.custom as Record<string, unknown>)
         : {};
+    const runError =
+      custom.runError && typeof custom.runError === "object"
+        ? {
+            ...(custom.runError as Record<string, unknown>),
+            runId,
+          }
+        : custom.runError;
     return {
       ...r,
       metadata: {
         ...metadata,
-        custom: { ...custom, runId },
+        custom: { ...custom, runId, ...(runError ? { runError } : {}) },
       },
     };
   };
@@ -355,7 +381,28 @@ export async function* readSSEStream(
 
   // Stream ended without explicit done event
   if (content.length > 0) {
-    yield withRunId({ content: [...content] } as ChatModelRunResult);
+    const runError = {
+      message:
+        "The response stream ended before the agent sent a completion signal. You can continue from the partial work or retry.",
+      errorCode: "stream_ended",
+      recoverable: true,
+    };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: { ...runError, tabId },
+        }),
+      );
+    }
+    content.push({
+      type: "text",
+      text: `Error: ${runError.message}`,
+    });
+    yield withRunId({
+      content: [...content],
+      status: { type: "incomplete" as const, reason: "error" as const },
+      metadata: { custom: { runError } },
+    } as ChatModelRunResult);
   }
 }
 

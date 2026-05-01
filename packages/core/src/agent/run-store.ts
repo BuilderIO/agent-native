@@ -115,7 +115,7 @@ export async function reapIfStale(
 
 export async function updateRunStatus(
   runId: string,
-  status: "completed" | "errored",
+  status: "completed" | "errored" | "aborted",
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();

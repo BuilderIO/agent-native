@@ -228,7 +228,11 @@ export function startRun(
       //    we'd rather mark the run errored than claim success with
       //    incomplete thread_data.
       const finalStatus =
-        run.status === "errored" || completionError ? "errored" : "completed";
+        run.status === "aborted"
+          ? "aborted"
+          : run.status === "errored" || completionError
+            ? "errored"
+            : "completed";
       try {
         await updateRunStatus(runId, finalStatus);
       } catch {
