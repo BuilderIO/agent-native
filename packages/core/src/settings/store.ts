@@ -9,12 +9,17 @@ export function getSettingsEmitter(): EventEmitter {
   return _emitter;
 }
 
+function settingsTable(): string {
+  return isPostgres() ? "public.settings" : "settings";
+}
+
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
+      const table = settingsTable();
       await client.execute(`
-        CREATE TABLE IF NOT EXISTS settings (
+        CREATE TABLE IF NOT EXISTS ${table} (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL,
           updated_at ${intType()} NOT NULL
@@ -30,8 +35,9 @@ export async function getSetting(
 ): Promise<Record<string, unknown> | null> {
   await ensureTable();
   const client = getDbExec();
+  const table = settingsTable();
   const { rows } = await client.execute({
-    sql: `SELECT value FROM settings WHERE key = ?`,
+    sql: `SELECT value FROM ${table} WHERE key = ?`,
     args: [key],
   });
   if (rows.length === 0) return null;
@@ -50,10 +56,11 @@ export async function putSetting(
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
+  const table = settingsTable();
   await client.execute({
     sql: isPostgres()
-      ? `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
+      ? `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`
+      : `INSERT OR REPLACE INTO ${table} (key, value, updated_at) VALUES (?, ?, ?)`,
     args: [key, JSON.stringify(value), Date.now()],
   });
   _emitter.emit("settings", {
@@ -70,8 +77,9 @@ export async function deleteSetting(
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
+  const table = settingsTable();
   const result = await client.execute({
-    sql: `DELETE FROM settings WHERE key = ?`,
+    sql: `DELETE FROM ${table} WHERE key = ?`,
     args: [key],
   });
   if (result.rowsAffected > 0) {
@@ -91,7 +99,8 @@ export async function getAllSettings(): Promise<
 > {
   await ensureTable();
   const client = getDbExec();
-  const { rows } = await client.execute(`SELECT key, value FROM settings`);
+  const table = settingsTable();
+  const { rows } = await client.execute(`SELECT key, value FROM ${table}`);
   const result: Record<string, Record<string, unknown>> = {};
   for (const row of rows) {
     result[row.key as string] = JSON.parse(row.value as string);

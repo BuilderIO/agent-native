@@ -2078,8 +2078,8 @@ button {
 
 /* Live partial-transcript chip floating above the pill. Same dark glass
    look as the pill, smaller, only there when transcript is non-empty.
-   Caps width and clips long lines so a long sentence doesn't shove the
-   layout outside the transparent window. */
+   Caps width and clips from the left so the newest words stay visible
+   when a long sentence reaches the edge of the transparent window. */
 .flow-bar-transcript {
   max-width: 360px;
   padding: 4px 10px;
@@ -2091,10 +2091,11 @@ button {
   color: rgba(255, 255, 255, 0.92);
   font-size: 12px;
   line-height: 1.35;
-  text-align: center;
+  text-align: right;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  direction: rtl;
   pointer-events: none;
   animation: flow-bar-in 100ms ease-out;
 }

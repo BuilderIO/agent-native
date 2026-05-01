@@ -166,7 +166,15 @@ function DbSyncSetup() {
           qc.invalidateQueries({ queryKey: ["emails"] });
           qc.invalidateQueries({ queryKey: ["email"] });
         }
+      } else if (data.source === "action") {
+        if (!isOwnEvent) {
+          qc.invalidateQueries({ queryKey: ["action"] });
+          qc.invalidateQueries({ queryKey: ["emails"] });
+          qc.invalidateQueries({ queryKey: ["email"] });
+          qc.invalidateQueries({ queryKey: ["labels"] });
+        }
       } else if (!isOwnEvent) {
+        qc.invalidateQueries({ queryKey: ["action"] });
         qc.invalidateQueries({ queryKey: ["emails"] });
         qc.invalidateQueries({ queryKey: ["email"] });
         qc.invalidateQueries({ queryKey: ["labels"] });

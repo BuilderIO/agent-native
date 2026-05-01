@@ -167,6 +167,8 @@ export {
   getOrigin,
   getAppBasePath,
   getAppUrl,
+  resolveOAuthRedirectUri,
+  isAllowedOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
   resolveOAuthOwner,

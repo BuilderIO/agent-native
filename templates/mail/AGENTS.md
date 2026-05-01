@@ -134,6 +134,7 @@ All data is stored in SQL via Drizzle ORM (SQLite, Postgres, Turso, etc. via `DA
 | `getSetting("labels")`        | System and user labels with unread counts                      |
 | `getSetting("mail-settings")` | User profile and app settings                                  |
 | `getSetting("aliases")`       | Email aliases                                                  |
+| `queued_email_drafts`         | Org-scoped drafts requested by teammates for review/send       |
 
 Google OAuth tokens are stored via `@agent-native/core/oauth-tokens` (provider: "google").
 
@@ -152,6 +153,17 @@ Sent emails get open + link-click tracking injected automatically. Stats appear 
 Each draft is stored as a separate application state entry: `writeAppState("compose-{id}", draft)`. Multiple drafts can exist simultaneously — they appear as tabs in the compose panel. Write an entry to open a new draft tab; update it to edit a draft in progress; delete it to close that tab.
 
 When the user asks you to **draft**, **compose**, or **write** an email, use `writeAppState("compose-{id}", draft)` (pick any unique id) — the UI will open the compose panel automatically with your content as a new tab.
+
+### Queued Drafts (Org Review Queue)
+
+Queued drafts are durable SQL rows in `queued_email_drafts`. Use them when someone else asks the agent to prepare an email for an organization member to review and send, especially from Slack.
+
+- Use `queue-email-draft` to queue a draft for an org member. The requester and owner must both be in the active organization.
+- Use `list-queued-drafts --scope=review --status=active` to see drafts assigned to the current user.
+- Use `update-queued-draft` to revise queued drafts before sending.
+- Use `open-queued-draft` to open a queued draft in the compose panel for manual edits.
+- Use `send-queued-drafts --id=<id>` or `--all=true` only when the queued draft owner asks you to send.
+- Never use raw `send-email` from Slack to send on behalf of another teammate; queue the draft instead.
 
 ### Email object shape
 
@@ -218,6 +230,16 @@ Ephemeral UI state is stored in the SQL `application_state` table, accessed via 
 | `navigation`   | Current view, thread, search, label, focused email | UI -> Agent (read-only for agent)            |
 | `navigate`     | Navigate the user to a view/thread                 | Agent -> UI (one-shot command, auto-deleted) |
 | `compose-{id}` | Email draft (one entry per draft tab)              | Bidirectional                                |
+
+When the user is on the draft queue, navigation state is:
+
+```json
+{
+  "view": "draft-queue",
+  "queuedDraftId": "qd_abc123",
+  "queueScope": "review"
+}
+```
 
 SSE streams DB change events (source: `"app-state"`, `"settings"`) so the UI updates in real time when any state changes.
 
@@ -360,10 +382,16 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ### Drafts & Navigation
 
-| Action         | Args                                                                                      | Purpose                                  |
-| -------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `manage-draft` | `--action=create\|update\|delete\|delete-all [--id] [--to] [--subject] [--body] [--mode]` | Create, update, or delete compose drafts |
-| `navigate`     | `--view <name> [--threadId <id>]`                                                         | Navigate the UI to a view or thread      |
+| Action                | Args                                                                                      | Purpose                                  |
+| --------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `manage-draft`        | `--action=create\|update\|delete\|delete-all [--id] [--to] [--subject] [--body] [--mode]` | Create, update, or delete compose drafts |
+| `queue-email-draft`   | `--ownerEmail <member> --to <emails> --subject <s> --body <b> [--context]`                | Queue a draft for an org member          |
+| `list-queued-drafts`  | `[--scope=review\|requested\|all] [--status=active\|queued\|in_review\|sent\|dismissed]`  | List queued drafts                       |
+| `update-queued-draft` | `--id <id> [--to] [--subject] [--body] [--context] [--status]`                            | Edit or dismiss a queued draft           |
+| `open-queued-draft`   | `--id <id>`                                                                               | Open queued draft in compose             |
+| `send-queued-drafts`  | `--id <id>` or `--all=true`                                                               | Send queued draft(s) assigned to you     |
+| `list-org-members`    | none                                                                                      | List valid queued-draft owners           |
+| `navigate`            | `--view <name> [--threadId <id>] [--queuedDraftId <id>]`                                  | Navigate the UI to a view/thread/queue   |
 
 ### Utilities
 
@@ -376,25 +404,28 @@ Scripts use `readAppState()` / `writeAppState()` from `@agent-native/core/applic
 
 ### Action tasks
 
-| User request                        | Action to run                                                                                       |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------- |
-| "What's on my screen?"              | `pnpm action view-screen`                                                                           |
-| "Summarize my inbox"                | `pnpm action view-screen` (emails are already in the response)                                      |
-| "Summarize my unread emails"        | `pnpm action list-emails --view=unread --compact`                                                   |
-| "What emails do I have from Alice?" | `pnpm action search-emails --q=alice --compact`                                                     |
-| "Archive this email"                | `pnpm action view-screen` to get ID, then `pnpm action archive-email --id=<id>`                     |
-| "Archive emails from netlify[bot]"  | `pnpm action view-screen`, find matching IDs, then `pnpm action archive-email --id=id1,id2,id3`     |
-| "Mark this as unread"               | `pnpm action mark-read --id=<id> --unread`                                                          |
-| "Star this email"                   | `pnpm action star-email --id=<id>`                                                                  |
-| "Trash this email"                  | `pnpm action trash-email --id=<id>`                                                                 |
-| "Find the email about X"            | `pnpm action search-emails --q=X`, then `pnpm action navigate --threadId=<id>`                      |
-| "Open my starred emails"            | `pnpm action navigate --view=starred`                                                               |
-| "Draft an email to Alice about X"   | `pnpm action manage-draft --action=create --to=alice@example.com --subject="X" --body="..."`        |
-| "Make this draft more formal"       | `pnpm action view-composer`, then `pnpm action manage-draft --action=update --id=<id> --body="..."` |
-| "Send this email"                   | `pnpm action send-email --to=<email> --subject="..." --body="..."`                                  |
-| "Did they open my email?"           | `pnpm action get-tracking --id=<message-id>`                                                        |
-| "What thread am I looking at?"      | `pnpm action view-screen --full`                                                                    |
-| "Archive old emails"                | `pnpm action bulk-archive --older-than=30`                                                          |
+| User request                        | Action to run                                                                                                                                   |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| "What's on my screen?"              | `pnpm action view-screen`                                                                                                                       |
+| "Summarize my inbox"                | `pnpm action view-screen` (emails are already in the response)                                                                                  |
+| "Summarize my unread emails"        | `pnpm action list-emails --view=unread --compact`                                                                                               |
+| "What emails do I have from Alice?" | `pnpm action search-emails --q=alice --compact`                                                                                                 |
+| "Archive this email"                | `pnpm action view-screen` to get ID, then `pnpm action archive-email --id=<id>`                                                                 |
+| "Archive emails from netlify[bot]"  | `pnpm action view-screen`, find matching IDs, then `pnpm action archive-email --id=id1,id2,id3`                                                 |
+| "Mark this as unread"               | `pnpm action mark-read --id=<id> --unread`                                                                                                      |
+| "Star this email"                   | `pnpm action star-email --id=<id>`                                                                                                              |
+| "Trash this email"                  | `pnpm action trash-email --id=<id>`                                                                                                             |
+| "Find the email about X"            | `pnpm action search-emails --q=X`, then `pnpm action navigate --threadId=<id>`                                                                  |
+| "Open my starred emails"            | `pnpm action navigate --view=starred`                                                                                                           |
+| "Draft an email to Alice about X"   | `pnpm action manage-draft --action=create --to=alice@example.com --subject="X" --body="..."`                                                    |
+| "Queue Steve a draft to Alice"      | `pnpm action list-org-members`, then `pnpm action queue-email-draft --ownerEmail=steve@... --to=alice@example.com --subject="..." --body="..."` |
+| "Make this draft more formal"       | `pnpm action view-composer`, then `pnpm action manage-draft --action=update --id=<id> --body="..."`                                             |
+| "Make queued drafts sound like me"  | `pnpm action list-queued-drafts --scope=review`, then `pnpm action update-queued-draft --id=<id> --body="..."`                                  |
+| "Send all queued drafts"            | `pnpm action send-queued-drafts --all=true`                                                                                                     |
+| "Send this email"                   | `pnpm action send-email --to=<email> --subject="..." --body="..."`                                                                              |
+| "Did they open my email?"           | `pnpm action get-tracking --id=<message-id>`                                                                                                    |
+| "What thread am I looking at?"      | `pnpm action view-screen --full`                                                                                                                |
+| "Archive old emails"                | `pnpm action bulk-archive --older-than=30`                                                                                                      |
 
 ## API Routes
 

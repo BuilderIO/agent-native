@@ -41,6 +41,23 @@ function toCompact(emails: any[]): any[] {
   }));
 }
 
+function latestPerThread(emails: any[]): any[] {
+  const byThread = new Map<string, any>();
+  for (const email of emails) {
+    const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
+    const existing = byThread.get(key);
+    if (
+      !existing ||
+      new Date(email.date).getTime() > new Date(existing.date).getTime()
+    ) {
+      byThread.set(key, email);
+    }
+  }
+  return Array.from(byThread.values()).sort(
+    (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
+}
+
 async function readLocalEmails(ownerEmail: string): Promise<any[]> {
   const data = await getUserSetting(ownerEmail, "local-emails");
   if (data && Array.isArray((data as any).emails)) {
@@ -103,10 +120,14 @@ export default defineAction({
 
       const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
       const gmailQuery = [viewPrefix, query].filter(Boolean).join(" ");
+      const effectiveQuery =
+        view === "all" && !query ? "" : gmailQuery || "in:inbox";
       const { messages, errors } = await listGmailMessages(
-        gmailQuery || "in:inbox",
+        effectiveQuery,
         limit,
         ownerEmail,
+        undefined,
+        { mode: "threads" },
       );
 
       if (errors.length > 0 && messages.length === 0) {
@@ -126,7 +147,7 @@ export default defineAction({
         );
       }
 
-      emails = emails.slice(0, limit);
+      emails = latestPerThread(emails).slice(0, limit);
 
       return JSON.stringify(compact ? toCompact(emails) : emails, null, 2);
     }

@@ -363,6 +363,13 @@ export function gmailListMessages(
   return googleFetch(`${GMAIL_BASE}/messages${qs(params)}`, accessToken);
 }
 
+export function gmailListThreads(
+  accessToken: string,
+  params: { q?: string; maxResults?: number; pageToken?: string } = {},
+) {
+  return googleFetch(`${GMAIL_BASE}/threads${qs(params)}`, accessToken);
+}
+
 export function gmailGetMessage(
   accessToken: string,
   id: string,
@@ -529,17 +536,17 @@ export function gmailStopWatch(accessToken: string): Promise<null> {
 // ---------------------------------------------------------------------------
 // Gmail batch endpoint
 // ---------------------------------------------------------------------------
-// One HTTP round-trip for up to 100 messages.get calls. Huge win vs N serial
-// requests but still counts as N*cost against per-user quota — so we pre-pay
-// the bucket before firing, and caller can pre-pay further upstream using
-// `acquireQuota(token, ids.length * 5)` if they want to pace batch calls.
+// One HTTP round-trip for up to 100 Gmail get calls. Huge win vs N serial
+// requests but still counts as N*cost against per-user quota, so we pre-pay
+// the bucket before firing.
 
 const GMAIL_BATCH_URL = "https://gmail.googleapis.com/batch/gmail/v1";
 
-export async function gmailBatchGetMessages(
+async function gmailBatchGet(
   accessToken: string,
   ids: string[],
-  format?: "full" | "metadata" | "minimal",
+  costPerItem: number,
+  buildPath: (id: string) => string,
 ): Promise<Array<{ id: string; data: any | null; error?: string }>> {
   if (ids.length === 0) return [];
 
@@ -551,7 +558,12 @@ export async function gmailBatchGetMessages(
     }
     const results: Array<{ id: string; data: any | null; error?: string }> = [];
     for (const chunk of chunks) {
-      const part = await gmailBatchGetMessages(accessToken, chunk, format);
+      const part = await gmailBatchGet(
+        accessToken,
+        chunk,
+        costPerItem,
+        buildPath,
+      );
       results.push(...part);
     }
     return results;
@@ -565,13 +577,12 @@ export async function gmailBatchGetMessages(
     );
   }
 
-  // Each messages.get is 5 units — pre-pay the whole batch so the bucket
-  // sees real cost instead of a single cheap-looking request.
-  await acquireQuota(accessToken, ids.length * 5);
+  // Pre-pay the whole batch so the token bucket sees real cost instead of a
+  // single cheap-looking request.
+  await acquireQuota(accessToken, ids.length * costPerItem);
 
   const boundary = `batch_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
   const CRLF = "\r\n";
-  const formatQs = format ? `?format=${format}` : "";
 
   const parts: string[] = [];
   ids.forEach((id, i) => {
@@ -579,7 +590,7 @@ export async function gmailBatchGetMessages(
       `--${boundary}${CRLF}` +
         `Content-Type: application/http${CRLF}` +
         `Content-ID: <part-${i}>${CRLF}${CRLF}` +
-        `GET /gmail/v1/users/me/messages/${encodeURIComponent(id)}${formatQs}${CRLF}${CRLF}`,
+        `GET ${buildPath(id)}${CRLF}${CRLF}`,
     );
   });
   parts.push(`--${boundary}--${CRLF}`);
@@ -621,6 +632,34 @@ export async function gmailBatchGetMessages(
   }
 
   return parseBatchResponse(respText, respBoundary, ids);
+}
+
+export async function gmailBatchGetMessages(
+  accessToken: string,
+  ids: string[],
+  format?: "full" | "metadata" | "minimal",
+): Promise<Array<{ id: string; data: any | null; error?: string }>> {
+  const formatQs = format ? `?format=${format}` : "";
+  return gmailBatchGet(
+    accessToken,
+    ids,
+    5,
+    (id) => `/gmail/v1/users/me/messages/${encodeURIComponent(id)}${formatQs}`,
+  );
+}
+
+export async function gmailBatchGetThreads(
+  accessToken: string,
+  ids: string[],
+  format?: "full" | "metadata" | "minimal",
+): Promise<Array<{ id: string; data: any | null; error?: string }>> {
+  const formatQs = format ? `?format=${format}` : "";
+  return gmailBatchGet(
+    accessToken,
+    ids,
+    10,
+    (id) => `/gmail/v1/users/me/threads/${encodeURIComponent(id)}${formatQs}`,
+  );
 }
 
 function parseBatchResponse(

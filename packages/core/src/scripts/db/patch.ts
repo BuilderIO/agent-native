@@ -51,6 +51,7 @@ import path from "path";
 import { createClient } from "@libsql/client";
 import { getDatabaseUrl, getDatabaseAuthToken } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
+import { assertNoSensitiveFrameworkTables } from "./safety.js";
 import { buildScopingPostgres, buildScopingSqlite } from "./scoping.js";
 
 interface TextEdit {
@@ -542,60 +543,80 @@ async function runPostgres(opts: RunOpts): Promise<void> {
   const { default: pg } = await import("postgres");
   const pgSql = pg(opts.url);
   try {
-    // Same temp-view scoping db-exec uses — SELECT and UPDATE both go through
-    // the scoped view, so cross-user access is impossible even if --where is
-    // permissive.
-    const scoping = await buildScopingPostgres(pgSql);
-    for (const stmt of scoping.setup) {
-      await pgSql.unsafe(stmt);
-    }
+    let result:
+      | {
+          table: string;
+          column: string;
+          applied: number;
+          total: number;
+          bytesBefore: number;
+          bytesAfter: number;
+          results: EditResult[];
+        }
+      | undefined;
 
-    const selectSql = `SELECT "${opts.column}" AS __val FROM "${opts.table}" WHERE ${opts.where}`;
-    const selected: any[] = Array.from(await pgSql.unsafe(selectSql));
+    await pgSql.begin(async (tx: any) => {
+      // Same temp-view scoping db-exec uses — SELECT and UPDATE both go
+      // through the scoped view. Keep setup and teardown transaction-local
+      // so pooled Postgres backends never retain the temp views.
+      const scoping = await buildScopingPostgres(tx);
+      try {
+        for (const stmt of scoping.setup) {
+          await tx.unsafe(stmt);
+        }
 
-    if (selected.length === 0) {
-      fail(
-        `No rows matched: ${opts.table} WHERE ${opts.where}. ` +
-          `(In production, data scoping filters results to the current user — the row may exist but be owned by someone else.)`,
-      );
-    }
-    if (selected.length > 1) {
-      fail(
-        `WHERE matched ${selected.length} rows in ${opts.table}. db-patch expects exactly one row — narrow the WHERE clause (usually by primary key).`,
-      );
-    }
+        const selectSql = `SELECT "${opts.column}" AS __val FROM "${opts.table}" WHERE ${opts.where}`;
+        const selected: any[] = Array.from(await tx.unsafe(selectSql));
 
-    const original = (selected[0].__val ?? "") as string;
-    if (typeof original !== "string") {
-      fail(
-        `Column ${opts.table}.${opts.column} is not a text column (got ${typeof original}).`,
-      );
-    }
+        if (selected.length === 0) {
+          fail(
+            `No rows matched: ${opts.table} WHERE ${opts.where}. ` +
+              `(In production, data scoping filters results to the current user — the row may exist but be owned by someone else.)`,
+          );
+        }
+        if (selected.length > 1) {
+          fail(
+            `WHERE matched ${selected.length} rows in ${opts.table}. db-patch expects exactly one row — narrow the WHERE clause (usually by primary key).`,
+          );
+        }
 
-    const { content, results, applied, total } = applyEither(original, opts);
+        const original = (selected[0].__val ?? "") as string;
+        if (typeof original !== "string") {
+          fail(
+            `Column ${opts.table}.${opts.column} is not a text column (got ${typeof original}).`,
+          );
+        }
 
-    if (applied > 0) {
-      await pgSql.unsafe(
-        `UPDATE "${opts.table}" SET "${opts.column}" = $1 WHERE ${opts.where}`,
-        [content],
-      );
-    }
+        const { content, results, applied, total } = applyEither(
+          original,
+          opts,
+        );
 
-    printResult(
-      {
-        table: opts.table,
-        column: opts.column,
-        applied,
-        total,
-        bytesBefore: original.length,
-        bytesAfter: content.length,
-        results,
-      },
-      opts.format,
-    );
+        if (applied > 0) {
+          await tx.unsafe(
+            `UPDATE "${opts.table}" SET "${opts.column}" = $1 WHERE ${opts.where}`,
+            [content],
+          );
+        }
 
-    for (const stmt of scoping.teardown) {
-      await pgSql.unsafe(stmt).catch(() => {});
+        result = {
+          table: opts.table,
+          column: opts.column,
+          applied,
+          total,
+          bytesBefore: original.length,
+          bytesAfter: content.length,
+          results,
+        };
+      } finally {
+        for (const stmt of scoping.teardown) {
+          await tx.unsafe(stmt).catch(() => {});
+        }
+      }
+    });
+
+    if (result) {
+      printResult(result, opts.format);
     }
   } finally {
     await pgSql.end();
@@ -736,6 +757,8 @@ When to use db-patch vs other tools:
     fail(
       `Invalid --column: "${column}". Must be a plain identifier (letters, digits, underscore).`,
     );
+  assertNoSensitiveFrameworkTables(table, "patch");
+  assertNoSensitiveFrameworkTables(where, "read");
   validateWhere(where);
 
   const jsonOps = parseJsonOps(parsed);

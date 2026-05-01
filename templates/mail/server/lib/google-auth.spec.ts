@@ -1,0 +1,172 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
+import {
+  gmailBatchGetThreads,
+  gmailGetThread,
+  gmailListMessages as gmailListMessagesApi,
+  gmailListThreads,
+} from "./google-api.js";
+import { listGmailMessages } from "./google-auth.js";
+
+vi.mock("@agent-native/core/oauth-tokens", () => ({
+  deleteOAuthTokens: vi.fn(),
+  getOAuthTokens: vi.fn(),
+  hasOAuthTokens: vi.fn(),
+  listOAuthAccounts: vi.fn(),
+  listOAuthAccountsByOwner: vi.fn(),
+  saveOAuthTokens: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getOAuthAccounts: vi.fn(),
+  isOAuthConnected: vi.fn(),
+}));
+
+vi.mock("./google-api.js", () => ({
+  createOAuth2Client: vi.fn(),
+  gmailBatchGetMessages: vi.fn(),
+  gmailBatchGetThreads: vi.fn(),
+  gmailGetMessage: vi.fn(),
+  gmailGetProfile: vi.fn(),
+  gmailGetThread: vi.fn(),
+  gmailListHistory: vi.fn(),
+  gmailListLabels: vi.fn(),
+  gmailListMessages: vi.fn(),
+  gmailListThreads: vi.fn(),
+  gmailStopWatch: vi.fn(),
+  gmailWatch: vi.fn(),
+  peopleGetProfile: vi.fn(),
+}));
+
+function mockAccount() {
+  vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+    {
+      accountId: "connected@example.com",
+      owner: "owner@example.com",
+      tokens: {
+        access_token: "access-token",
+        refresh_token: "refresh-token",
+        expiry_date: Date.now() + 60 * 60 * 1000,
+      },
+    },
+  ] as any);
+}
+
+describe("listGmailMessages", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAccount();
+  });
+
+  it("uses Gmail thread search when requested so duplicate matching messages do not consume result slots", async () => {
+    vi.mocked(gmailListThreads).mockResolvedValue({
+      threads: [{ id: "thread-a" }, { id: "thread-b" }],
+      nextPageToken: "next-thread-page",
+      resultSizeEstimate: 12,
+    } as any);
+    vi.mocked(gmailBatchGetThreads).mockResolvedValue([
+      {
+        id: "thread-a",
+        data: {
+          messages: [
+            { id: "a1", threadId: "thread-a", internalDate: "20" },
+            { id: "a2", threadId: "thread-a", internalDate: "30" },
+          ],
+        },
+      },
+      {
+        id: "thread-b",
+        data: {
+          messages: [{ id: "b1", threadId: "thread-b", internalDate: "10" }],
+        },
+      },
+    ] as any);
+
+    const result = await listGmailMessages(
+      "quarterly-update",
+      2,
+      "owner@example.com",
+      undefined,
+      { mode: "threads" },
+    );
+
+    expect(gmailListMessagesApi).not.toHaveBeenCalled();
+    expect(gmailListThreads).toHaveBeenCalledWith("access-token", {
+      q: "quarterly-update",
+      maxResults: 2,
+      pageToken: undefined,
+    });
+    expect(gmailBatchGetThreads).toHaveBeenCalledWith(
+      "access-token",
+      ["thread-a", "thread-b"],
+      "full",
+    );
+    expect(result.messages.map((m) => m.id)).toEqual(["a1", "a2", "b1"]);
+    expect(
+      result.messages.every((m) => m._accountEmail === "connected@example.com"),
+    ).toBe(true);
+    expect(result.nextPageTokens).toEqual({
+      "connected@example.com": "next-thread-page",
+    });
+    expect(result.resultSizeEstimate).toBe(12);
+  });
+
+  it("refills missing thread batch parts before returning search results", async () => {
+    vi.mocked(gmailListThreads).mockResolvedValue({
+      threads: [{ id: "thread-refill" }],
+    } as any);
+    vi.mocked(gmailBatchGetThreads).mockResolvedValue([
+      { id: "thread-refill", data: null, error: "No response part" },
+    ] as any);
+    vi.mocked(gmailGetThread).mockResolvedValue({
+      messages: [{ id: "refilled", threadId: "thread-refill" }],
+    } as any);
+
+    const result = await listGmailMessages(
+      "refill-case",
+      1,
+      "owner@example.com",
+      undefined,
+      { mode: "threads" },
+    );
+
+    expect(gmailGetThread).toHaveBeenCalledWith(
+      "access-token",
+      "thread-refill",
+      "full",
+    );
+    expect(result.messages.map((m) => m.id)).toEqual(["refilled"]);
+  });
+
+  it("keeps default inbox and explicit all-mail thread pages separate in the list cache", async () => {
+    vi.mocked(gmailListThreads).mockResolvedValue({
+      threads: [],
+    } as any);
+
+    await listGmailMessages(
+      undefined,
+      3,
+      "cache-owner@example.com",
+      undefined,
+      {
+        mode: "threads",
+        threadFormat: "metadata",
+      },
+    );
+    await listGmailMessages("", 3, "cache-owner@example.com", undefined, {
+      mode: "threads",
+      threadFormat: "metadata",
+    });
+
+    expect(gmailListThreads).toHaveBeenNthCalledWith(1, "access-token", {
+      q: "in:inbox",
+      maxResults: 3,
+      pageToken: undefined,
+    });
+    expect(gmailListThreads).toHaveBeenNthCalledWith(2, "access-token", {
+      q: "",
+      maxResults: 3,
+      pageToken: undefined,
+    });
+  });
+});

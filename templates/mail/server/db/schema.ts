@@ -58,3 +58,30 @@ export const emailLinkTracking = table("email_link_tracking", {
   firstClickedAt: integer("first_clicked_at"),
   lastClickedAt: integer("last_clicked_at"),
 });
+
+export const queuedEmailDrafts = table("queued_email_drafts", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  requesterEmail: text("requester_email").notNull(),
+  requesterName: text("requester_name"),
+  toRecipients: text("to_recipients").notNull(),
+  ccRecipients: text("cc_recipients"),
+  bccRecipients: text("bcc_recipients"),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  context: text("context"),
+  source: text("source").notNull().default("agent"),
+  sourceThreadId: text("source_thread_id"),
+  accountEmail: text("account_email"),
+  composeId: text("compose_id"),
+  sentMessageId: text("sent_message_id"),
+  status: text("status", {
+    enum: ["queued", "in_review", "sent", "dismissed"],
+  })
+    .notNull()
+    .default("queued"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+  sentAt: integer("sent_at"),
+});

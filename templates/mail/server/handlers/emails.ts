@@ -458,7 +458,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       const accountTokens = await getAccountTokens(email);
       const labelMap = await getCachedLabelMap(accountTokens);
       const { messages, errors, nextPageTokens, resultSizeEstimate } =
-        await listGmailMessages(searchQuery, undefined, email, pageTokens);
+        await listGmailMessages(searchQuery, undefined, email, pageTokens, {
+          mode: "threads",
+          threadFormat: "metadata",
+        });
       if (messages.length === 0 && errors.length > 0) {
         // All accounts failed — surface as error
         setResponseStatus(event, 502);

@@ -385,7 +385,9 @@ describe("scoping", () => {
       const ctx = await buildScopingPostgres(mockPgSql);
       const tasksView = ctx.setup.find((s) => s.includes('"tasks"'));
       expect(tasksView).toBeDefined();
+      expect(tasksView).toContain("CREATE OR REPLACE TEMPORARY VIEW");
       expect(tasksView).toContain("WITH LOCAL CHECK OPTION");
+      expect(ctx.teardown).toContain('DROP VIEW IF EXISTS pg_temp."tasks"');
     });
 
     it("builds scoping views for postgres with public. qualifier", async () => {

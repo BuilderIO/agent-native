@@ -146,7 +146,7 @@ function buildScopedTables(
       }
       scoped.push({
         name: table,
-        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${whereSql}${checkOption}`,
+        viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${whereSql}${checkOption}`,
       });
       continue;
     }
@@ -163,7 +163,7 @@ function buildScopedTables(
         : "";
       scoped.push({
         name: table,
-        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE (("scope" = 'user' AND "${OWNER_COLUMN}" = '${safeEmail}')${orgClause})${checkOption}`,
+        viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${table}" AS SELECT * FROM ${realTable} WHERE (("scope" = 'user' AND "${OWNER_COLUMN}" = '${safeEmail}')${orgClause})${checkOption}`,
       });
       continue;
     }
@@ -184,7 +184,7 @@ function buildScopedTables(
       const realTable = `${qualifiedPrefix}"${table}"`;
       scoped.push({
         name: table,
-        viewSql: `CREATE TEMPORARY VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${clauses.join(" AND ")}${checkOption}`,
+        viewSql: `${isPostgres ? "CREATE OR REPLACE TEMPORARY" : "CREATE TEMPORARY"} VIEW "${table}" AS SELECT * FROM ${realTable} WHERE ${clauses.join(" AND ")}${checkOption}`,
       });
     }
   }
@@ -254,7 +254,7 @@ export async function buildScopingPostgres(
 
   return {
     setup: scoped.map((s) => s.viewSql),
-    teardown: scoped.map((s) => `DROP VIEW IF EXISTS "${s.name}"`),
+    teardown: scoped.map((s) => `DROP VIEW IF EXISTS pg_temp."${s.name}"`),
     active: scoped.length > 0,
     userEmail,
     orgId,
