@@ -18,6 +18,7 @@ import {
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { AvailabilityConfig } from "@shared/api";
 
@@ -112,9 +113,21 @@ export function DatePicker({
       </div>
 
       {/* Days */}
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-1" aria-busy={availabilityLoading}>
         {days.map((day) => {
           const inMonth = isSameMonth(day, viewMonth);
+
+          if (availabilityLoading) {
+            return inMonth ? (
+              <Skeleton
+                key={day.toISOString()}
+                className="h-10 w-full rounded-md"
+              />
+            ) : (
+              <div key={day.toISOString()} className="h-10 opacity-0" />
+            );
+          }
+
           const disabled = !inMonth || isDayDisabled(day);
           const selected = selectedDate && isSameDay(day, selectedDate);
           const todayMark = isToday(day);
@@ -139,11 +152,6 @@ export function DatePicker({
           );
         })}
       </div>
-      {availabilityLoading && (
-        <p className="mt-3 text-center text-xs text-muted-foreground">
-          Checking availability…
-        </p>
-      )}
     </div>
   );
 }

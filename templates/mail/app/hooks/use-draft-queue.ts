@@ -23,6 +23,7 @@ export type QueuedEmailDraft = {
   createdAt: number;
   updatedAt: number;
   sentAt: number | null;
+  reviewUrl?: string;
 };
 
 export type DraftQueueMember = {

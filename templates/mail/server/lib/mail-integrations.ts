@@ -5,9 +5,14 @@ import type {
 } from "@agent-native/core/server";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 
-const slackEmailCache = new Map<
+type SlackSenderProfile = {
+  email: string | null;
+  name: string | null;
+};
+
+const slackProfileCache = new Map<
   string,
-  { email: string | null; expiresAt: number }
+  { profile: SlackSenderProfile; expiresAt: number }
 >();
 const SLACK_EMAIL_CACHE_TTL = 10 * 60 * 1000;
 
@@ -31,18 +36,18 @@ function fallbackOwnerForIncoming(incoming: IncomingMessage): string {
   return `mail+${hash}@integration.local`;
 }
 
-async function resolveSlackSenderEmail(
+async function resolveSlackSenderProfile(
   incoming: IncomingMessage,
-): Promise<string | null> {
-  if (incoming.platform !== "slack") return null;
+): Promise<SlackSenderProfile> {
+  if (incoming.platform !== "slack") return { email: null, name: null };
   const token = process.env.SLACK_BOT_TOKEN;
   const userId = contextString(incoming.senderId);
   const teamId = contextString(incoming.platformContext.teamId);
-  if (!token || !userId) return null;
+  if (!token || !userId) return { email: null, name: null };
 
   const cacheKey = `${teamId ?? "default"}:${userId}`;
-  const cached = slackEmailCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return cached.email;
+  const cached = slackProfileCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.profile;
 
   try {
     const params = new URLSearchParams({ user: userId });
@@ -51,18 +56,34 @@ async function resolveSlackSenderEmail(
     });
     const data = (await res.json()) as {
       ok?: boolean;
-      user?: { profile?: { email?: string } };
+      user?: {
+        real_name?: string;
+        name?: string;
+        profile?: {
+          email?: string;
+          real_name?: string;
+          display_name?: string;
+        };
+      };
     };
-    const email = data.ok
-      ? data.user?.profile?.email?.trim().toLowerCase() || null
-      : null;
-    slackEmailCache.set(cacheKey, {
-      email,
+    const profile = data.ok
+      ? {
+          email: data.user?.profile?.email?.trim().toLowerCase() || null,
+          name:
+            data.user?.profile?.real_name?.trim() ||
+            data.user?.profile?.display_name?.trim() ||
+            data.user?.real_name?.trim() ||
+            data.user?.name?.trim() ||
+            null,
+        }
+      : { email: null, name: null };
+    slackProfileCache.set(cacheKey, {
+      profile,
       expiresAt: Date.now() + SLACK_EMAIL_CACHE_TTL,
     });
-    return email;
+    return profile;
   } catch {
-    return null;
+    return { email: null, name: null };
   }
 }
 
@@ -70,7 +91,7 @@ async function resolveIncomingEmail(
   incoming: IncomingMessage,
 ): Promise<string | null> {
   if (incoming.platform === "slack") {
-    return resolveSlackSenderEmail(incoming);
+    return (await resolveSlackSenderProfile(incoming)).email;
   }
   if (incoming.senderId?.includes("@")) {
     return incoming.senderId.trim().toLowerCase();
@@ -90,7 +111,11 @@ export async function beforeMailIntegrationProcess(
   incoming: IncomingMessage,
   _adapter: PlatformAdapter,
 ): Promise<{ handled: true; responseText?: string } | { handled: false }> {
-  const email = await resolveIncomingEmail(incoming);
+  const profile =
+    incoming.platform === "slack"
+      ? await resolveSlackSenderProfile(incoming)
+      : { email: await resolveIncomingEmail(incoming), name: null };
+  const email = profile.email;
   if (!email) {
     return {
       handled: true,
@@ -107,6 +132,11 @@ export async function beforeMailIntegrationProcess(
         "I can only queue email drafts for Agent-Native organization members. Ask an organization owner to invite you first.",
     };
   }
+
+  incoming.senderEmail = email;
+  incoming.senderName = profile.name || incoming.senderName;
+  incoming.platformContext.senderEmail = email;
+  if (profile.name) incoming.platformContext.senderName = profile.name;
 
   return { handled: false };
 }

@@ -3,8 +3,10 @@ import { nanoid } from "nanoid";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getDbExec } from "@agent-native/core/db";
 import {
+  getAppProductionUrl,
   getRequestOrgId,
   getRequestUserEmail,
+  withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
 
@@ -46,6 +48,7 @@ export type QueuedEmailDraft = {
   createdAt: number;
   updatedAt: number;
   sentAt: number | null;
+  reviewUrl?: string;
 };
 
 function normalizeEmail(value: string): string {
@@ -57,7 +60,7 @@ function isAdminRole(role: string | undefined): boolean {
 }
 
 export function serializeQueuedDraft(row: any): QueuedEmailDraft {
-  return {
+  const draft = {
     id: row.id,
     orgId: row.orgId,
     ownerEmail: row.ownerEmail,
@@ -79,6 +82,12 @@ export function serializeQueuedDraft(row: any): QueuedEmailDraft {
     updatedAt: Number(row.updatedAt),
     sentAt: row.sentAt == null ? null : Number(row.sentAt),
   };
+  return { ...draft, reviewUrl: buildQueuedDraftUrl(draft.id) };
+}
+
+export function buildQueuedDraftUrl(id: string): string {
+  const baseUrl = withConfiguredAppBasePath(getAppProductionUrl());
+  return `${baseUrl}/draft-queue/${encodeURIComponent(id)}`;
 }
 
 async function getMembership(

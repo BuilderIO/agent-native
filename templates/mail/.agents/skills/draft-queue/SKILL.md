@@ -12,26 +12,28 @@ The draft queue is for teammate-requested emails that need the owner to review b
 - Use `queue-email-draft` when a teammate asks the agent to prepare an email for an organization member.
 - The requester and reviewer must both be members of the active organization.
 - Slack requests should queue drafts, not send raw emails.
+- `queue-email-draft` returns `reviewUrl`; include that URL when replying to Slack so the owner can open the exact draft.
+- Slack intake verifies the sender email via Slack `users.info` when the app has `users:read.email`, and passes verified sender name/email into the agent context.
 - Use `send-queued-drafts` only when the queued draft owner explicitly asks to send.
 - Use `open-queued-draft` when the user wants to manually tweak a queued draft in the compose panel.
 
 ## Actions
 
-| Action | Purpose |
-| --- | --- |
-| `list-org-members` | Resolve valid organization members for `ownerEmail` |
-| `queue-email-draft` | Create a queued draft for a member to review |
-| `list-queued-drafts` | List active, sent, dismissed, review, or requested drafts |
-| `update-queued-draft` | Edit queued draft fields or set status |
-| `open-queued-draft` | Open a queued draft as `compose-{id}` |
-| `send-queued-drafts` | Send one queued draft or all active drafts assigned to the current user |
-| `navigate --view=draft-queue` | Open the queue UI |
+| Action                        | Purpose                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| `list-org-members`            | Resolve valid organization members for `ownerEmail`                     |
+| `queue-email-draft`           | Create a queued draft for a member to review                            |
+| `list-queued-drafts`          | List active, sent, dismissed, review, or requested drafts               |
+| `update-queued-draft`         | Edit queued draft fields or set status                                  |
+| `open-queued-draft`           | Open a queued draft as `compose-{id}`                                   |
+| `send-queued-drafts`          | Send one queued draft or all active drafts assigned to the current user |
+| `navigate --view=draft-queue` | Open the queue UI                                                       |
 
 ## Typical Flow
 
 1. Resolve the target reviewer with `list-org-members` if the user gave a name.
 2. Call `queue-email-draft` with `ownerEmail`, recipients, subject, body, and context.
-3. Tell the requester it was queued.
+3. Tell the requester it was queued and include the returned `reviewUrl`.
 
 For review:
 

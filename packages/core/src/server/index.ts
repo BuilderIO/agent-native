@@ -213,11 +213,17 @@ export {
 export {
   renderEmail,
   emailStrong,
+  emailLink,
   type RenderEmailArgs,
   type RenderedEmail,
   type EmailCta,
 } from "./email-template.js";
 export { getAppProductionUrl, getFirstPartyProdUrl } from "./app-url.js";
+export {
+  getConfiguredAppBasePath,
+  normalizeAppBasePath,
+  withConfiguredAppBasePath,
+} from "./app-base-path.js";
 export {
   signShortLivedToken,
   verifyShortLivedToken,

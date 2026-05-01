@@ -809,15 +809,99 @@ function stripHtmlForPlainText(html: string): string {
     .trim();
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function decodeBasicHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function splitTrailingUrlPunctuation(raw: string): {
+  url: string;
+  trailing: string;
+} {
+  let url = raw;
+  let trailing = "";
+  const trailingEntities = ["&quot;", "&#39;"];
+
+  for (;;) {
+    const entity = trailingEntities.find((candidate) =>
+      url.endsWith(candidate),
+    );
+    if (!entity) break;
+    url = url.slice(0, -entity.length);
+    trailing = entity + trailing;
+  }
+
+  while (/[.,!?;:]$/.test(url)) {
+    trailing = url.slice(-1) + trailing;
+    url = url.slice(0, -1);
+  }
+
+  while (url.endsWith(")") && !url.includes("(")) {
+    trailing = ")" + trailing;
+    url = url.slice(0, -1);
+  }
+
+  return { url, trailing };
+}
+
+function labelForUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(decodeBasicHtmlEntities(rawUrl));
+    const host = parsed.hostname.replace(/^www\./, "");
+    return host ? `Open ${host}` : "Open link";
+  } catch {
+    return "Open link";
+  }
+}
+
+function linkifyTextSegment(segment: string): string {
+  return segment.replace(/\bhttps?:\/\/[^\s<>"']+/gi, (raw) => {
+    const { url, trailing } = splitTrailingUrlPunctuation(raw);
+    const href = decodeBasicHtmlEntities(url);
+    return `<a href="${escapeHtml(href)}" style="color:#2563eb;text-decoration:underline;">${escapeHtml(
+      labelForUrl(url),
+    )}</a>${trailing}`;
+  });
+}
+
+function linkifyBareUrlsInHtml(html: string): string {
+  const parts = html.split(/(<\/?[^>]+>)/g);
+  let skipDepth = 0;
+
+  return parts
+    .map((part) => {
+      if (part.startsWith("<") && part.endsWith(">")) {
+        if (/^<\/\s*(a|code)\b/i.test(part)) {
+          skipDepth = Math.max(0, skipDepth - 1);
+        } else if (/^<\s*(a|code)\b/i.test(part)) {
+          skipDepth += 1;
+        }
+        return part;
+      }
+      return skipDepth > 0 ? part : linkifyTextSegment(part);
+    })
+    .join("");
+}
+
 /** Convert basic markdown to HTML for email rendering */
 function markdownToHtml(md: string): string {
   let html = md;
 
   // Escape HTML entities in the source (but not our generated tags)
-  html = html
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  html = escapeHtml(html);
 
   // Bold: **text** or __text__
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
@@ -828,16 +912,23 @@ function markdownToHtml(md: string): string {
   html = html.replace(/(?<!\w)_([^_]+?)_(?!\w)/g, "<em>$1</em>");
 
   // Links: [text](url)
-  html = html.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" style="color:#2563eb;text-decoration:underline;">$1</a>',
-  );
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, url) => {
+    const visibleLabel = /^https?:\/\//i.test(decodeBasicHtmlEntities(label))
+      ? escapeHtml(labelForUrl(label))
+      : label;
+    return `<a href="${escapeHtml(
+      decodeBasicHtmlEntities(url),
+    )}" style="color:#2563eb;text-decoration:underline;">${visibleLabel}</a>`;
+  });
 
   // Inline code: `code`
   html = html.replace(
     /`([^`]+)`/g,
     '<code style="background:#f1f5f9;padding:1px 4px;border-radius:3px;font-size:0.9em;">$1</code>',
   );
+
+  // Bare URLs: keep the destination in href but avoid spelling long URLs out.
+  html = linkifyBareUrlsInHtml(html);
 
   // Unordered lists: lines starting with "- " or "* "
   html = html.replace(/^([*-]) (.+)$/gm, "<li>$2</li>");

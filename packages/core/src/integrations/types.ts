@@ -13,6 +13,8 @@ export interface IncomingMessage {
   text: string;
   /** Display name of the sender */
   senderName?: string;
+  /** Verified sender email, when the platform can provide one */
+  senderEmail?: string;
   /** Platform-specific sender ID */
   senderId?: string;
   /** Raw platform-specific context needed for routing responses */

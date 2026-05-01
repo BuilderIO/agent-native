@@ -97,10 +97,6 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
           </td>
         </tr>
       </table>
-      <p style="margin:20px 0 0 0; font-size:13px; line-height:1.5; color:#71717a; word-break:break-all;">
-        Or paste this link into your browser:<br/>
-        <a href="${escapeAttr(args.cta.url)}" style="color:${linkColor}; text-decoration:none;">${escapeHtml(args.cta.url)}</a>
-      </p>
     `
     : "";
 
@@ -185,4 +181,12 @@ function stripTags(s: string): string {
  */
 export function emailStrong(text: string): string {
   return `<strong style="color:#fafafa; font-weight:600;">${escapeHtml(text)}</strong>`;
+}
+
+/**
+ * Build a labelled inline link for paragraph strings passed to `renderEmail`.
+ * Use this instead of rendering raw URLs in the visible email body.
+ */
+export function emailLink(label: string, url: string): string {
+  return `<a href="${escapeAttr(url)}" style="color:#a1a1aa; text-decoration:underline;">${escapeHtml(label)}</a>`;
 }
