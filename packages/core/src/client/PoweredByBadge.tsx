@@ -1,8 +1,13 @@
 import type { CSSProperties } from "react";
+import { IconBrandGithub } from "@tabler/icons-react";
 import { appPath } from "./api-path.js";
 
 export interface PoweredByBadgeProps {
   position?: "bottom-right" | "bottom-left";
+}
+
+export interface OpenSourceBadgeProps {
+  position?: "bottom-left" | "bottom-right";
 }
 
 const containerStyle = (
@@ -138,6 +143,75 @@ export function PoweredByBadge({
           alt="Agent Native"
           className="an-powered-logo an-powered-logo-dark"
         />
+      </a>
+    </>
+  );
+}
+
+/**
+ * Small GitHub badge: "Open source"
+ *
+ * Intended to pair with PoweredByBadge on public pages.
+ */
+export function OpenSourceBadge({
+  position = "bottom-left",
+}: OpenSourceBadgeProps) {
+  const hidden =
+    (import.meta.env as Record<string, string | undefined>)
+      ?.VITE_HIDE_BRANDING === "true";
+
+  if (hidden) return null;
+
+  return (
+    <>
+      <style>{`
+        .an-open-source-badge svg {
+          width: 15px;
+          height: 15px;
+          flex: none;
+        }
+        .dark .an-open-source-badge {
+          background: rgba(255, 255, 255, 0.06) !important;
+          border-color: rgba(255, 255, 255, 0.08) !important;
+          color: rgba(215, 215, 215, 0.94) !important;
+        }
+        @media ${darkQuery} {
+          .an-open-source-badge {
+            background: rgba(255, 255, 255, 0.06) !important;
+            border-color: rgba(255, 255, 255, 0.08) !important;
+            color: rgba(215, 215, 215, 0.94) !important;
+          }
+        }
+        .light .an-open-source-badge {
+          background: rgba(0, 0, 0, 0.05) !important;
+          border-color: rgba(0, 0, 0, 0.06) !important;
+          color: rgba(95, 95, 95, 0.95) !important;
+        }
+        .an-open-source-badge:hover {
+          opacity: 1 !important;
+          color: rgba(70, 70, 70, 1) !important;
+        }
+        @media ${darkQuery} {
+          .an-open-source-badge:hover {
+            color: rgba(238, 238, 238, 1) !important;
+          }
+        }
+        .dark .an-open-source-badge:hover {
+          color: rgba(238, 238, 238, 1) !important;
+        }
+        .light .an-open-source-badge:hover {
+          color: rgba(70, 70, 70, 1) !important;
+        }
+      `}</style>
+      <a
+        href="https://github.com/BuilderIO/agent-native"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="an-open-source-badge"
+        style={containerStyle(position)}
+      >
+        <IconBrandGithub aria-hidden="true" stroke={1.8} />
+        <span>Open source</span>
       </a>
     </>
   );
