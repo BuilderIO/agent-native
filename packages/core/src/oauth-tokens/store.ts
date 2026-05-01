@@ -2,12 +2,17 @@ import { getDbExec, isPostgres, intType, type DbExec } from "../db/client.js";
 
 let _initPromise: Promise<void> | undefined;
 
+function oauthTokensTable(): string {
+  return isPostgres() ? "public.oauth_tokens" : "oauth_tokens";
+}
+
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
+      const table = oauthTokensTable();
       await client.execute(`
-        CREATE TABLE IF NOT EXISTS oauth_tokens (
+        CREATE TABLE IF NOT EXISTS ${table} (
           provider TEXT NOT NULL,
           account_id TEXT NOT NULL,
           owner TEXT,
@@ -18,21 +23,21 @@ async function ensureTable(): Promise<void> {
       `);
       // Migration: add owner column to existing tables
       try {
-        await client.execute(`ALTER TABLE oauth_tokens ADD COLUMN owner TEXT`);
+        await client.execute(`ALTER TABLE ${table} ADD COLUMN owner TEXT`);
       } catch {
         // Column already exists
       }
       // Migration: add display_name column
       try {
         await client.execute(
-          `ALTER TABLE oauth_tokens ADD COLUMN display_name TEXT`,
+          `ALTER TABLE ${table} ADD COLUMN display_name TEXT`,
         );
       } catch {
         // Column already exists
       }
       // Backfill: set owner = account_id for existing rows without an owner
       await client.execute(
-        `UPDATE oauth_tokens SET owner = account_id WHERE owner IS NULL`,
+        `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
       );
     })();
   }
@@ -45,8 +50,9 @@ export async function getOAuthTokens(
 ): Promise<Record<string, unknown> | null> {
   await ensureTable();
   const client = getDbExec();
+  const table = oauthTokensTable();
   const { rows } = await client.execute({
-    sql: `SELECT tokens FROM oauth_tokens WHERE provider = ? AND account_id = ?`,
+    sql: `SELECT tokens FROM ${table} WHERE provider = ? AND account_id = ?`,
     args: [provider, accountId],
   });
   if (rows.length === 0) return null;
@@ -108,6 +114,7 @@ export async function saveOAuthTokens(
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
+  const table = oauthTokensTable();
 
   // Never store "local@localhost" as owner — it creates shared-ownership bugs
   const sanitizedOwner = owner === "local@localhost" ? accountId : owner;
@@ -119,13 +126,15 @@ export async function saveOAuthTokens(
   let resolvedOwner = sanitizedOwner ?? accountId;
   let existingDisplayName: string | null = null;
   let existingOwner: string | null = null;
+  let existingTokens: Record<string, unknown> | null = null;
   const { rows: existing } = await client.execute({
-    sql: `SELECT owner, display_name FROM oauth_tokens WHERE provider = ? AND account_id = ?`,
+    sql: `SELECT owner, display_name, tokens FROM ${table} WHERE provider = ? AND account_id = ?`,
     args: [provider, accountId],
   });
   if (existing.length > 0) {
     existingOwner = (existing[0].owner as string) ?? null;
     existingDisplayName = (existing[0].display_name as string) ?? null;
+    existingTokens = JSON.parse((existing[0].tokens as string) ?? "{}");
   }
 
   if (!owner) {
@@ -153,16 +162,24 @@ export async function saveOAuthTokens(
     });
   }
 
+  const cleanedIncomingTokens = Object.fromEntries(
+    Object.entries(tokens).filter(([, value]) => value !== undefined),
+  );
+  const tokensToStore = {
+    ...(existingTokens ?? {}),
+    ...cleanedIncomingTokens,
+  };
+
   await client.execute({
     sql: isPostgres()
-      ? `INSERT INTO oauth_tokens (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, oauth_tokens.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO oauth_tokens (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at`
+      : `INSERT OR REPLACE INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
     args: [
       provider,
       accountId,
       resolvedOwner,
       existingDisplayName,
-      JSON.stringify(tokens),
+      JSON.stringify(tokensToStore),
       Date.now(),
     ],
   });
@@ -174,15 +191,16 @@ export async function deleteOAuthTokens(
 ): Promise<number> {
   await ensureTable();
   const client = getDbExec();
+  const table = oauthTokensTable();
   if (accountId) {
     const result = await client.execute({
-      sql: `DELETE FROM oauth_tokens WHERE provider = ? AND account_id = ?`,
+      sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ?`,
       args: [provider, accountId],
     });
     return result.rowsAffected;
   }
   const result = await client.execute({
-    sql: `DELETE FROM oauth_tokens WHERE provider = ?`,
+    sql: `DELETE FROM ${table} WHERE provider = ?`,
     args: [provider],
   });
   return result.rowsAffected;
@@ -197,8 +215,9 @@ export async function listOAuthAccounts(provider: string): Promise<
 > {
   await ensureTable();
   const client = getDbExec();
+  const table = oauthTokensTable();
   const { rows } = await client.execute({
-    sql: `SELECT account_id, owner, tokens FROM oauth_tokens WHERE provider = ?`,
+    sql: `SELECT account_id, owner, tokens FROM ${table} WHERE provider = ?`,
     args: [provider],
   });
   return rows.map((row) => ({
@@ -224,8 +243,9 @@ export async function listOAuthAccountsByOwner(
 > {
   await ensureTable();
   const client = getDbExec();
+  const table = oauthTokensTable();
   const { rows } = await client.execute({
-    sql: `SELECT account_id, display_name, tokens FROM oauth_tokens WHERE provider = ? AND owner = ?`,
+    sql: `SELECT account_id, display_name, tokens FROM ${table} WHERE provider = ? AND owner = ?`,
     args: [provider, owner],
   });
   return rows.map((row) => ({
@@ -245,8 +265,9 @@ export async function setOAuthDisplayName(
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
+  const table = oauthTokensTable();
   await client.execute({
-    sql: `UPDATE oauth_tokens SET display_name = ? WHERE provider = ? AND account_id = ?`,
+    sql: `UPDATE ${table} SET display_name = ? WHERE provider = ? AND account_id = ?`,
     args: [displayName, provider, accountId],
   });
 }
@@ -269,15 +290,16 @@ export async function hasOAuthTokens(
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
+  const table = oauthTokensTable();
   if (owner === "local@localhost") {
     const { rows } = await client.execute({
-      sql: `SELECT 1 FROM oauth_tokens WHERE provider = ? LIMIT 1`,
+      sql: `SELECT 1 FROM ${table} WHERE provider = ? LIMIT 1`,
       args: [provider],
     });
     return rows.length > 0;
   }
   const { rows } = await client.execute({
-    sql: `SELECT 1 FROM oauth_tokens WHERE provider = ? AND owner = ? LIMIT 1`,
+    sql: `SELECT 1 FROM ${table} WHERE provider = ? AND owner = ? LIMIT 1`,
     args: [provider, owner],
   });
   return rows.length > 0;

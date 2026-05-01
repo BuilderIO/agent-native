@@ -23,6 +23,7 @@ import {
   buildScopingSqlite,
   type ScopingContext,
 } from "./scoping.js";
+import { assertNoSensitiveFrameworkTables } from "./safety.js";
 
 function isPostgresUrl(url: string): boolean {
   return url.startsWith("postgres://") || url.startsWith("postgresql://");
@@ -196,6 +197,7 @@ function validateWriteSql(sql: string, index: number): string {
         `Dangerous operations like DROP, ATTACH, VACUUM, DETACH, CREATE, and ALTER are blocked.`,
     );
   }
+  assertNoSensitiveFrameworkTables(normalized, "write");
   return normalized;
 }
 
@@ -604,37 +606,43 @@ Options:
 
       const results: DbExecResult[] = [];
       await pgSql.begin(async (tx: any) => {
-        // For UPDATE/DELETE: temp views scope to current user's rows. Creating
-        // them inside the transaction keeps multi-statement batches on one
-        // connection and avoids cross-call temp-view leakage.
-        for (const stmt of scoping.setup) {
-          await tx.unsafe(stmt);
-        }
+        try {
+          // For UPDATE/DELETE: temp views scope to current user's rows.
+          // Creating and dropping them inside the same transaction keeps
+          // pooled Postgres backends from retaining session-local views.
+          for (const stmt of scoping.setup) {
+            await tx.unsafe(stmt);
+          }
 
-        for (let i = 0; i < statements.length; i++) {
-          const statement = statements[i];
-          const hasReturning = /\bRETURNING\b/i.test(statement.sql);
-          const finalSql = normalizePostgresSql(
-            injectOwnership(statement.sql, scoping),
-            statement.args,
-          );
-          try {
-            const result =
-              statement.args.length > 0
-                ? await tx.unsafe(finalSql, statement.args as any[])
-                : await tx.unsafe(finalSql);
-            const rows: Record<string, unknown>[] =
-              hasReturning && result.length > 0 ? Array.from(result) : [];
-            results.push({
-              index: i + 1,
-              sql: finalSql,
-              changes: result.count ?? 0,
-              rows,
-            });
-          } catch (err: any) {
-            throw new Error(
-              `Statement ${i + 1} failed: ${err?.message ?? String(err)}`,
+          for (let i = 0; i < statements.length; i++) {
+            const statement = statements[i];
+            const hasReturning = /\bRETURNING\b/i.test(statement.sql);
+            const finalSql = normalizePostgresSql(
+              injectOwnership(statement.sql, scoping),
+              statement.args,
             );
+            try {
+              const result =
+                statement.args.length > 0
+                  ? await tx.unsafe(finalSql, statement.args as any[])
+                  : await tx.unsafe(finalSql);
+              const rows: Record<string, unknown>[] =
+                hasReturning && result.length > 0 ? Array.from(result) : [];
+              results.push({
+                index: i + 1,
+                sql: finalSql,
+                changes: result.count ?? 0,
+                rows,
+              });
+            } catch (err: any) {
+              throw new Error(
+                `Statement ${i + 1} failed: ${err?.message ?? String(err)}`,
+              );
+            }
+          }
+        } finally {
+          for (const stmt of scoping.teardown) {
+            await tx.unsafe(stmt).catch(() => {});
           }
         }
       });

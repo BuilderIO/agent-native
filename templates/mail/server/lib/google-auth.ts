@@ -2,8 +2,11 @@ import {
   createOAuth2Client,
   gmailGetProfile,
   gmailGetMessage,
+  gmailGetThread,
   gmailListMessages,
+  gmailListThreads,
   gmailBatchGetMessages,
+  gmailBatchGetThreads,
   gmailListHistory,
   gmailListLabels,
   gmailWatch,
@@ -471,6 +474,18 @@ type ListResult = {
   resultSizeEstimate?: number;
 };
 
+type ListMode = "messages" | "threads";
+
+type ListOptions = {
+  /**
+   * Gmail's UI is thread-first. Thread mode uses users.threads.list so a
+   * conversation with several messages does not consume several slots and hide
+   * other conversations from the page.
+   */
+  mode?: ListMode;
+  threadFormat?: "full" | "metadata" | "minimal";
+};
+
 const LIST_CACHE_TTL = 20_000;
 const listCache = new Map<string, { result: ListResult; expiresAt: number }>();
 const listInflight = new Map<string, Promise<ListResult>>();
@@ -480,6 +495,7 @@ function listCacheKey(
   maxResults: number,
   forEmail: string | undefined,
   pageTokens: Record<string, string> | undefined,
+  options: ListOptions | undefined,
 ): string {
   const tokenPart = pageTokens
     ? Object.keys(pageTokens)
@@ -487,7 +503,8 @@ function listCacheKey(
         .map((k) => `${k}:${pageTokens[k]}`)
         .join("|")
     : "";
-  return `${forEmail ?? ""}::${query ?? ""}::${maxResults}::${tokenPart}`;
+  const queryPart = query === undefined ? "<default>" : query;
+  return `${forEmail ?? ""}::${queryPart}::${maxResults}::${tokenPart}::${options?.mode ?? "messages"}::${options?.threadFormat ?? ""}`;
 }
 
 export async function listGmailMessages(
@@ -495,8 +512,9 @@ export async function listGmailMessages(
   maxResults = 50,
   forEmail?: string,
   pageTokens?: Record<string, string>,
+  options?: ListOptions,
 ): Promise<ListResult> {
-  const key = listCacheKey(query, maxResults, forEmail, pageTokens);
+  const key = listCacheKey(query, maxResults, forEmail, pageTokens, options);
 
   const cached = listCache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
@@ -512,6 +530,7 @@ export async function listGmailMessages(
       maxResults,
       forEmail,
       pageTokens,
+      options,
     );
     // Only cache successful responses. A full-failure result (empty + all
     // accounts errored) would lock the user out of retrying during the TTL.
@@ -980,10 +999,89 @@ async function fetchAccountLegacy(
     messageIds.map((m: any) => m.id),
     "full",
   );
+
+  // Gmail's batch endpoint can return per-part failures without failing the
+  // whole HTTP request. Refill those individually so list/search pages don't
+  // silently drop matching messages.
+  const missing = batchResults.filter((r) => !r.data).map((r) => r.id);
+  if (missing.length > 0) {
+    const refills = await Promise.all(
+      missing.map(async (id) => {
+        try {
+          const data = await gmailGetMessage(accessToken, id, "full");
+          return { id, data };
+        } catch {
+          return { id, data: null as any };
+        }
+      }),
+    );
+    const byId = new Map(refills.map((r) => [r.id, r.data]));
+    for (const r of batchResults) {
+      if (!r.data && byId.has(r.id)) r.data = byId.get(r.id);
+    }
+  }
+
   const messages: any[] = [];
   for (const r of batchResults) {
     if (!r.data) continue;
     messages.push({ ...r.data, _accountEmail: email });
+  }
+  return messages;
+}
+
+async function fetchAccountThreads(
+  accessToken: string,
+  email: string,
+  query: string,
+  maxResults: number,
+  pageToken: string | undefined,
+  format: "full" | "metadata" | "minimal",
+  onNextPageToken: (token: string) => void,
+  onEstimate: (n: number) => void,
+): Promise<any[]> {
+  const listRes = await gmailListThreads(accessToken, {
+    q: query,
+    maxResults,
+    pageToken,
+  });
+
+  onEstimate(listRes.resultSizeEstimate || 0);
+  if (listRes.nextPageToken) onNextPageToken(listRes.nextPageToken);
+
+  const threadIds = (listRes.threads || []).map((t: any) => t.id);
+  if (threadIds.length === 0) return [];
+
+  const batchResults = await gmailBatchGetThreads(
+    accessToken,
+    threadIds,
+    format,
+  );
+
+  // Same partial-batch guard as messages: a missing thread part should not
+  // make search look incomplete when an individual retry can recover it.
+  const missing = batchResults.filter((r) => !r.data).map((r) => r.id);
+  if (missing.length > 0) {
+    const refills = await Promise.all(
+      missing.map(async (id) => {
+        try {
+          const data = await gmailGetThread(accessToken, id, format);
+          return { id, data };
+        } catch {
+          return { id, data: null as any };
+        }
+      }),
+    );
+    const byId = new Map(refills.map((r) => [r.id, r.data]));
+    for (const r of batchResults) {
+      if (!r.data && byId.has(r.id)) r.data = byId.get(r.id);
+    }
+  }
+
+  const messages: any[] = [];
+  for (const r of batchResults) {
+    for (const message of r.data?.messages || []) {
+      messages.push({ ...message, _accountEmail: email });
+    }
   }
   return messages;
 }
@@ -993,6 +1091,7 @@ async function listGmailMessagesUncached(
   maxResults = 50,
   forEmail?: string,
   pageTokens?: Record<string, string>,
+  options?: ListOptions,
 ): Promise<ListResult> {
   const { clients, errors: refreshErrors } =
     await getClientsWithErrors(forEmail);
@@ -1006,8 +1105,11 @@ async function listGmailMessagesUncached(
   const nextPageTokens: Record<string, string> = {};
   let totalEstimate = 0;
 
-  const historyLabel = isHistoryEligible(query, pageTokens);
-  const resolvedQuery = query || "in:inbox";
+  const mode = options?.mode ?? "messages";
+  const threadFormat = options?.threadFormat ?? "full";
+  const historyLabel =
+    mode === "messages" ? isHistoryEligible(query, pageTokens) : null;
+  const resolvedQuery = query ?? "in:inbox";
 
   const allResults = await Promise.all(
     clients.map(async ({ email, accessToken }) => {
@@ -1022,6 +1124,22 @@ async function listGmailMessagesUncached(
           );
           if (res.nextPageToken) nextPageTokens[email] = res.nextPageToken;
           return res.messages;
+        }
+        if (mode === "threads") {
+          return await fetchAccountThreads(
+            accessToken,
+            email,
+            resolvedQuery,
+            maxResults,
+            pageTokens?.[email],
+            threadFormat,
+            (token) => {
+              nextPageTokens[email] = token;
+            },
+            (n) => {
+              totalEstimate += n;
+            },
+          );
         }
         return await fetchAccountLegacy(
           accessToken,
