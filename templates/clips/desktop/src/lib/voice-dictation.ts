@@ -699,46 +699,26 @@ export function installDesktopVoiceDictation(
     try {
       startInFlight = true;
       stopRequestedBeforeReady = false;
-      // Open a parallel mic stream JUST for the live audio meter. This
-      // is safe with the native path because SFSpeechRecognizer's audio
-      // capture lives in Rust (AVAudioEngine, separate bus) — multiple
-      // mic consumers coexist fine on macOS. We deliberately don't do
-      // this on the browser path because webkitSpeechRecognition fights
-      // a sibling getUserMedia in WKWebView.
-      //
-      // Disable echoCancellation / noiseSuppression / autoGainControl so
-      // we stay in standard mic mode. With them ON, macOS may switch
-      // into voice-call mode which conflicts with AVAudioEngine's
-      // input bus and causes getUserMedia to silently return a dead
-      // stream that produces no audio levels.
-      const meterStream = await navigator.mediaDevices
-        .getUserMedia({
-          audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          },
-        })
-        .catch((err) => {
-          console.warn(
-            `[voice-dictation] meter getUserMedia failed (${(err as Error)?.name ?? "Error"}): ${(err as Error)?.message ?? String(err)} — falling back to synthetic meter`,
-          );
-          return null;
-        });
-      if (meterStream) {
-        const tracks = meterStream.getAudioTracks();
-        console.log(
-          `[voice-dictation] meter mic ready: ${tracks.length} track(s)`,
-          tracks[0]?.label || "unlabeled",
-        );
-      }
+      // No parallel meter mic — Rust's AVAudioEngine is the only mic
+      // consumer in this path. We previously opened a sibling
+      // getUserMedia stream so the AnalyserNode could drive a voice-
+      // tracking waveform, but having two consumers on macOS turned out
+      // to (a) sometimes return a dead stream that produced flat zero
+      // levels (so the waveform looked frozen), and (b) keep the orange
+      // mic indicator lit after teardown — `track.stop()` didn't fully
+      // release once the stream entered the degraded state. The
+      // synthetic meter pulses the bars at a low amplitude so the bar
+      // still reads as "listening". Voice-tracking levels can come back
+      // later by having Rust compute RMS in the installTapOnBus block
+      // and emit `voice:audio-level` events from there — single mic
+      // consumer = clean release + real levels.
       await invoke("show_flow_bar");
       setFlowState("recording");
       // Reset any prior partial transcript display in the flow-bar.
       emit("voice:partial-transcript", { text: "" }).catch(() => {});
       const next: VoiceSession = {
         kind: "native",
-        stream: meterStream,
+        stream: null,
         recorder: null,
         chunks: [],
         audioContext: null,
@@ -755,15 +735,7 @@ export function installDesktopVoiceDictation(
       };
       session = next;
       startInFlight = false;
-      // Real audio meter from the parallel mic stream — bars bounce with
-      // the user's voice + volume. Falls back to synthetic if the mic
-      // stream couldn't be opened (e.g. permission denied just for
-      // getUserMedia).
-      if (meterStream) {
-        startMeter(next);
-      } else {
-        startSyntheticMeter(next);
-      }
+      startSyntheticMeter(next);
       try {
         await invoke("native_speech_start", {
           locale: navigator.language || "en-US",

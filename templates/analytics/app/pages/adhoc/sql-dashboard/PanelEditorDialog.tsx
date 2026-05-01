@@ -34,9 +34,9 @@ const CHART_TYPES: { value: ChartType; label: string }[] = [
 
 const SOURCES: { value: DataSourceType; label: string }[] = [
   { value: "bigquery", label: "BigQuery" },
-  { value: "app-db", label: "App DB" },
   { value: "ga4", label: "Google Analytics" },
   { value: "amplitude", label: "Amplitude" },
+  { value: "first-party", label: "First-party Analytics" },
 ];
 
 function generatePanelId(title: string): string {
@@ -175,8 +175,9 @@ export function PanelEditorDialog({
         `The user wants to add a new panel to SQL dashboard "${dashboardId}". ${titlesLine} ` +
         `Use the \`update-dashboard\` action with ops=[{op:'insert', path:'/panels/-', value: <panel>}] ` +
         `to append, or an appropriate index to place the panel in the right spot. ` +
-        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'app-db'|'ga4'|'amplitude'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'), width (1 half | 2 full), config? }. ` +
+        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'), width (1 half | 2 full), config? }. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
+        `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +
         `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), description, columns, pivot, limit }. ` +
         `Consult the data dictionary first via \`list-data-dictionary --search <topic>\`, then read the relevant \`.builder/skills/<provider>/SKILL.md\` before writing SQL. ` +
         `Every BigQuery panel is dry-run validated on save — if columns/tables are wrong the save returns a 400 with the BQ error and you must fix the SQL and retry. ` +

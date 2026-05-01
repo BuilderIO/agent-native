@@ -222,6 +222,15 @@ export function DesignSystemSetup({
       return;
     }
 
+    // Cap inlined file content so a giant pasted README doesn't blow the
+    // prompt budget. Append a marker so the agent doesn't treat the
+    // truncation point as the end of the document.
+    const TEXT_INLINE_MAX = 5000;
+    const inlineText = (text: string) =>
+      text.length > TEXT_INLINE_MAX
+        ? `${text.slice(0, TEXT_INLINE_MAX)}\n…[truncated, ${text.length - TEXT_INLINE_MAX} more chars]`
+        : text;
+
     const parts: string[] = [];
     parts.push(
       "Set up a design system from the following sources. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system for my slide decks.",
@@ -251,7 +260,7 @@ export function DesignSystemSetup({
         );
         for (const f of withContent) {
           parts.push(
-            `\n### ${f.name}\n\`\`\`\n${f.textContent!.slice(0, 5000)}\n\`\`\``,
+            `\n### ${f.name}\n\`\`\`\n${inlineText(f.textContent!)}\n\`\`\``,
           );
         }
       }
@@ -266,7 +275,7 @@ export function DesignSystemSetup({
         );
         for (const f of inlined) {
           parts.push(
-            `\n### ${f.name}\n\`\`\`\n${f.textContent!.slice(0, 5000)}\n\`\`\``,
+            `\n### ${f.name}\n\`\`\`\n${inlineText(f.textContent!)}\n\`\`\``,
           );
         }
       }

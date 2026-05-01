@@ -7,6 +7,7 @@ import { runQuery } from "../lib/bigquery";
 import { runReport } from "../lib/google-analytics";
 import { getUserSegmentation, queryEvents } from "../lib/amplitude";
 import { readBody } from "@agent-native/core/server";
+import { queryFirstPartyAnalytics } from "../lib/first-party-analytics";
 
 /**
  * ga4 panels carry a JSON blob in `sql` describing the GA4 Data API call.
@@ -245,7 +246,7 @@ function flattenAmplitudeResponse(
 }
 
 export const handleSqlQuery = defineEventHandler(async (event) => {
-  return runApiHandlerWithContext(event, async () => {
+  return runApiHandlerWithContext(event, async (ctx) => {
     const { query, source } = await readBody(event);
 
     if (!query || typeof query !== "string") {
@@ -253,10 +254,14 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
       return { error: "Missing or invalid query" };
     }
 
-    if (!source || !["bigquery", "ga4", "amplitude"].includes(source)) {
+    if (
+      !source ||
+      !["bigquery", "ga4", "amplitude", "first-party"].includes(source)
+    ) {
       setResponseStatus(event, 400);
       return {
-        error: "Invalid source. Must be 'bigquery', 'ga4', or 'amplitude'",
+        error:
+          "Invalid source. Must be 'bigquery', 'ga4', 'amplitude', or 'first-party'",
       };
     }
 
@@ -302,6 +307,13 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
         );
         if (missingSecret) return missingSecret;
         return await runAmplitudePanel(query);
+      }
+
+      if (source === "first-party") {
+        return await queryFirstPartyAnalytics(query, {
+          userEmail: ctx.userEmail,
+          orgId: ctx.orgId ?? null,
+        });
       }
 
       setResponseStatus(event, 400);

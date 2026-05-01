@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 import { afterEach, describe, expect, it } from "vitest";
-import { generateWorkerEntry } from "./build.js";
+import { generateWorkerEntry, getNodeBuiltinNames } from "./build.js";
 
 const tempDirs: string[] = [];
 
@@ -233,5 +233,11 @@ export default {
       ok: true,
       echo: { hello: "again" },
     });
+  });
+});
+
+describe("Cloudflare deploy builtins", () => {
+  it("externalizes node:sqlite references from optional runtime probes", () => {
+    expect(getNodeBuiltinNames()).toContain("sqlite");
   });
 });

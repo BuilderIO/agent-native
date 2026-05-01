@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
 import { dryRunQuery } from "../server/lib/bigquery";
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
 import {
   hasCollabState,
   applyText,
@@ -190,7 +191,7 @@ function validateDashboardConfig(
   if (!Array.isArray(panels)) {
     return "config.panels must be an array (use [] for an empty dashboard)";
   }
-  const validSources = new Set(["bigquery", "app-db", "ga4", "amplitude"]);
+  const validSources = new Set(["bigquery", "ga4", "amplitude", "first-party"]);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown> | null;
     if (!p || typeof p !== "object") {
@@ -215,7 +216,7 @@ function validateDashboardConfig(
       }
     }
     if (!validSources.has(p.source as string)) {
-      return `panel[${i}].source must be 'bigquery', 'app-db', 'ga4', or 'amplitude' (got '${p.source}'). source selects the backend — put the table name in sql, not here.`;
+      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', or 'first-party' (got '${p.source}'). source selects the backend — put the table name in sql, not here.`;
     }
   }
   return null;
@@ -244,6 +245,17 @@ async function validatePanelSql(
           }
         } catch (e: any) {
           return `panel[${i}] "${p.title || p.id}" Amplitude descriptor is not valid JSON: ${e?.message}`;
+        }
+      }
+      continue;
+    }
+    if (p.source === "first-party") {
+      const raw = typeof p.sql === "string" ? p.sql : "";
+      if (raw.trim()) {
+        try {
+          validateFirstPartyAnalyticsSql(interpolate(raw, vars));
+        } catch (e: any) {
+          return `panel[${i}] "${p.title || p.id}" first-party analytics SQL is invalid: ${e?.message ?? e}`;
         }
       }
       continue;

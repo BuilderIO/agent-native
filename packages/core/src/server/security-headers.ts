@@ -22,6 +22,9 @@
  *     embedded in the same-origin app shell can opt out by setting its own
  *     header inside the route handler — h3's `setResponseHeader` overwrites,
  *     so a route emitting `SAMEORIGIN` wins over our middleware default.
+ *     We skip this header entirely in dev (NODE_ENV !== "production") so the
+ *     desktop app's local dev frame (localhost:3334) can iframe templates
+ *     running on other localhost ports (e.g. mail at 8085).
  *   - `Referrer-Policy: strict-origin-when-cross-origin` — strips path/query
  *     from outbound Referer headers when the request crosses origin, so a
  *     public-share viewer's outbound link clicks never leak the share token.
@@ -76,9 +79,12 @@ function isHttpsRequest(event: any): boolean {
  * `setResponseHeader` after this runs — the latest write wins.
  */
 export function createSecurityHeadersMiddleware() {
+  const isProduction = process.env.NODE_ENV === "production";
   return defineEventHandler((event) => {
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    setResponseHeader(event, "X-Frame-Options", "DENY");
+    if (isProduction) {
+      setResponseHeader(event, "X-Frame-Options", "DENY");
+    }
     setResponseHeader(
       event,
       "Referrer-Policy",

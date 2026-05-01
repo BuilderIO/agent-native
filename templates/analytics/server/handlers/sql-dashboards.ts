@@ -10,6 +10,7 @@ import {
 } from "../lib/dashboards-store";
 import { dryRunQuery } from "../lib/bigquery";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
+import { validateFirstPartyAnalyticsSql } from "../lib/first-party-analytics";
 
 async function ctxFromEvent(event: any) {
   const ctx = await getOrgContext(event);
@@ -106,12 +107,12 @@ export const saveSqlDashboard = defineEventHandler(async (event) => {
         setResponseStatus(event, 400);
         return { error: validation };
       }
+      const ctx = await ctxFromEvent(event);
       const sqlError = await validatePanelSql(body);
       if (sqlError) {
         setResponseStatus(event, 400);
         return { error: sqlError };
       }
-      const ctx = await ctxFromEvent(event);
       await upsertDashboard(id, "sql", body, ctx);
       return { id, success: true };
     } catch (err: any) {
@@ -152,6 +153,15 @@ async function validatePanelSql(
       const err = validateAmplitudePanelShape(interpolate(raw, vars));
       if (err) {
         return `panel[${i}] "${p.title || p.id}" Amplitude descriptor is invalid: ${err}`;
+      }
+      continue;
+    }
+
+    if (p.source === "first-party") {
+      try {
+        validateFirstPartyAnalyticsSql(interpolate(raw, vars));
+      } catch (e: any) {
+        return `panel[${i}] "${p.title || p.id}" first-party analytics SQL is invalid: ${e?.message ?? e}`;
       }
       continue;
     }
@@ -248,7 +258,12 @@ function validateDashboardConfig(
   }
   if (Array.isArray(panels)) {
     const requiredStrings = ["id", "title", "sql", "source", "chartType"];
-    const validSources = new Set(["bigquery", "app-db", "ga4", "amplitude"]);
+    const validSources = new Set([
+      "bigquery",
+      "ga4",
+      "amplitude",
+      "first-party",
+    ]);
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i] as Record<string, unknown> | null;
       if (!p || typeof p !== "object") return `panel[${i}] must be an object`;
@@ -259,7 +274,7 @@ function validateDashboardConfig(
         }
       }
       if (!validSources.has(p.source as string)) {
-        return `panel[${i}].source must be 'bigquery', 'app-db', 'ga4', or 'amplitude' (got '${p.source}'). The table name belongs in the panel's sql, not in source — source selects the backend, not the table.`;
+        return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', or 'first-party' (got '${p.source}'). The table name belongs in the panel's sql, not in source — source selects the backend, not the table.`;
       }
       if (p.width !== 1 && p.width !== 2) {
         return `panel[${i}].width must be 1 or 2`;

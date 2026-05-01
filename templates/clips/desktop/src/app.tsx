@@ -137,13 +137,19 @@ export function App() {
     return saved === "toggle" ? "toggle" : "push-to-talk";
   });
   const [voiceProvider, setVoiceProvider] = useState<VoiceProvider>(() => {
-    // Default to "browser" — local on-device dictation via the macOS
-    // Speech framework. No server round-trip, no "Polishing..." step,
-    // no API keys. Users wanting cloud-quality can pick a server
-    // provider in Settings → Voice transcription.
-    const saved = loadString(VOICE_PROVIDER_KEY, "browser");
     const isMac =
       typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+    // Default: macOS gets the native path (SFSpeechRecognizer +
+    // AVAudioEngine driven from Rust) — cleanly releases the mic on
+    // stop, no "Polishing..." step, no API keys. WKWebView's
+    // webkitSpeechRecognition keeps the orange mic indicator on after
+    // abort, so we route Mac users away from it by default. Windows /
+    // Linux fall back to the browser path until we add a native
+    // equivalent there.
+    const saved = loadString(
+      VOICE_PROVIDER_KEY,
+      isMac ? "macos-native" : "browser",
+    );
     // `macos-native` calls into native_speech_start which only works on
     // macOS; on Windows/Linux a saved selection would be permanently
     // broken. Coerce back to "browser" if we're not on a Mac.
@@ -156,7 +162,9 @@ export function App() {
       saved === "openai" ||
       saved === "groq"
       ? saved
-      : "browser";
+      : isMac
+        ? "macos-native"
+        : "browser";
   });
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);

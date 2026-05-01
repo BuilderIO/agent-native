@@ -4,6 +4,7 @@ import {
   setResponseStatus,
   setResponseHeader,
   getMethod,
+  getHeader,
 } from "h3";
 import type { H3Event } from "h3";
 import path from "node:path";
@@ -514,20 +515,58 @@ export function createCoreRoutesPlugin(
     // callback minutes later.
     const BUILDER_CONNECT_PENDING_TTL_MS = 10 * 60 * 1000; // 10 min
 
+    // Decide whether a /builder/connect navigation originated from this
+    // app's own UI (allowed) or from a foreign origin (cross-site CSRF
+    // attempt — rejected). Sec-Fetch-Site is the modern signal:
+    //   - "same-origin": user clicked Connect from our own pages — allow
+    //   - "none": typed in URL bar / bookmark / browser extension — allow
+    //   - "same-site" / "cross-site" / missing-but-with-foreign-Origin
+    //     all map to reject.
+    // For older browsers without Sec-Fetch-* we fall back to Origin and
+    // then Referer, comparing against the request's resolved origin.
+    function isSameOriginConnect(event: H3Event): boolean {
+      const fetchSite = getHeader(event, "sec-fetch-site");
+      if (fetchSite === "same-origin" || fetchSite === "none") return true;
+      if (fetchSite) return false; // browser told us it's cross-site/same-site
+      const expected = getOrigin(event).replace(/\/+$/, "");
+      const origin = getHeader(event, "origin");
+      if (origin) return origin.replace(/\/+$/, "") === expected;
+      const referer = getHeader(event, "referer");
+      if (referer) {
+        try {
+          return new URL(referer).origin === expected;
+        } catch {
+          return false;
+        }
+      }
+      // No Sec-Fetch-Site, no Origin, no Referer — pre-2020 browser
+      // making a top-level navigation. Allow; cookies are still
+      // session-bound so the worst case degrades to the prior behavior.
+      return true;
+    }
+
     // Lightweight 302 to the Builder CLI-auth URL. Lets clients do
     // `window.open('/_agent-native/builder/connect', '_blank')` synchronously
     // inside a click handler, avoiding the popup-blocker downgrade that
     // happens when an await sits before window.open.
     //
-    // We record a server-side pending-connect token in the settings table
-    // (keyed by session email) rather than embedding a signed CSRF state in
-    // the redirect_url query string. The URL-embedded approach broke because
-    // Builder's /cli-auth page strips existing query params from redirect_url
-    // when it appends p-key/api-key/etc., so _an_state was always null when
-    // the callback fired. The server-side row is keyed by the session that
-    // started the flow, so it still provides equivalent CSRF protection
-    // (the callback requires a valid session cookie) without depending on
-    // Builder preserving arbitrary URL query params.
+    // CSRF protection here is two-layer because session cookies are
+    // SameSite=None;Secure (so the editor iframe can ride along) — that
+    // means a session cookie alone does NOT prevent cross-origin
+    // window.open from initiating a connect flow on the victim's behalf:
+    //   1. Sec-Fetch-Site header — modern browsers stamp every request
+    //      with the navigation context. We only allow `same-origin` or
+    //      `none` (typed/bookmark/extension); cross-site / same-site are
+    //      rejected. The previous "URL-embedded signed state" was dropped
+    //      because Builder's /cli-auth strips arbitrary query params; this
+    //      replaces that defense with a browser-native one.
+    //   2. Pending row keyed by session email + bound nonce — the callback
+    //      requires both a valid session and a one-time row that this
+    //      handler wrote during the same flow. Without the same-origin
+    //      check above, an attacker could prime the row from cross-site
+    //      and then trick the victim into hitting a callback URL with
+    //      attacker-controlled p-key/api-key, hijacking the victim's
+    //      account. With the check, the attacker can't prime the row.
     getH3App(nitroApp).use(
       `${P}/builder/connect`,
       defineEventHandler(async (event) => {
@@ -536,23 +575,50 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
+
+        // Same-origin gate. Sec-Fetch-Site is the primary signal; fall
+        // back to Origin/Referer for older browsers. Reject any context
+        // that isn't this exact app's origin — including same-site
+        // subdomains, since a compromised subdomain shouldn't be able
+        // to mint Builder credential writes for users of the main app.
+        if (!isSameOriginConnect(event)) {
+          setResponseStatus(event, 403);
+          return { error: "Cross-origin connect requests are not allowed" };
+        }
+
+        // Clear any prior failure row from a previous attempt — otherwise
+        // useBuilderStatus polling sees the stale error and aborts the
+        // new attempt before it can complete.
+        try {
+          await deleteSetting(`builder-connect-error:${session.email}`);
+        } catch {
+          // No prior error row — fine
+        }
+
         // Store a short-lived pending row. If the DB is unavailable we
-        // return a clear error rather than silently issuing a callback
-        // that can never be verified.
+        // surface a popup-renderable error page that signals the parent
+        // via BroadcastChannel, rather than letting the popup show raw
+        // JSON and the parent poll for 5 minutes.
         try {
           await putSetting(`builder-pending-connect:${session.email}`, {
             expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
           });
         } catch (err) {
+          const msg =
+            "Could not initiate Builder connect — storage unavailable. Try again.";
           console.error(
             "[builder] Could not store pending-connect state:",
             (err as Error)?.message ?? err,
           );
+          // Best-effort: also write the error row so the parent's
+          // /builder/status poll picks it up if BroadcastChannel doesn't.
+          await putSetting(`builder-connect-error:${session.email}`, {
+            message: msg,
+            at: Date.now(),
+          }).catch(() => {});
           setResponseStatus(event, 503);
-          return {
-            error:
-              "Could not initiate Builder connect — storage unavailable. Try again.",
-          };
+          setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+          return createBuilderBrowserCallbackErrorPage(msg);
         }
         // Build the cli-auth URL without embedding state in redirect_url:
         // Builder's /cli-auth appends params directly to redirect_url and
@@ -646,9 +712,12 @@ export function createCoreRoutesPlugin(
           return { error: "Method not allowed" };
         }
 
-        // Session blocks anonymous callers; the signed state below blocks
-        // CSRF (session cookies are SameSite=None;Secure for the iframe
-        // editor, so they ride along on attacker-crafted top-level links).
+        // Session blocks anonymous callers; the pending-row check below
+        // (combined with the same-origin gate on /builder/connect) blocks
+        // CSRF. Session cookies are SameSite=None;Secure for the iframe
+        // editor, so they ride along on attacker-crafted top-level links —
+        // the SameSite=None concession is exactly why the connect flow
+        // can't rely on session-cookie identity alone.
         const session = await getSession(event).catch(() => null);
         if (!session?.email) {
           setResponseStatus(event, 401);
@@ -664,7 +733,15 @@ export function createCoreRoutesPlugin(
         // /builder/connect route stored. This replaces the old URL-embedded
         // signed CSRF state (_an_state) which Builder's /cli-auth page was
         // stripping from the redirect_url query string.
+        //
+        // The delete must succeed before we proceed — otherwise a DB blip
+        // leaves the row in place and the same callback URL can be
+        // replayed against the same session for up to 10 minutes (the
+        // TTL window). Treat a delete failure as a hard failure: the
+        // user retries, the next /builder/connect call rewrites the
+        // pending row.
         let pendingValid = false;
+        let pendingError: string | null = null;
         try {
           const pending = (await getSetting(
             `builder-pending-connect:${session.email}`,
@@ -672,17 +749,34 @@ export function createCoreRoutesPlugin(
           if (
             pending &&
             typeof pending.expiresAt === "number" &&
-            Date.now() <= pending.expiresAt
+            Date.now() < pending.expiresAt
           ) {
-            pendingValid = true;
-            // One-time use — delete immediately so the same callback URL
-            // can't be replayed even within the TTL window.
-            await deleteSetting(
-              `builder-pending-connect:${session.email}`,
-            ).catch(() => {});
+            try {
+              await deleteSetting(`builder-pending-connect:${session.email}`);
+              pendingValid = true;
+            } catch (err) {
+              pendingError =
+                "Could not consume pending-connect token (storage error). Please retry.";
+              console.error(
+                "[builder] deleteSetting failed for pending-connect — refusing to proceed (replay risk):",
+                (err as Error)?.message ?? err,
+              );
+            }
           }
         } catch {
           // DB temporarily unavailable — treat as missing.
+        }
+
+        if (pendingError) {
+          // Best-effort signal to the parent's poll loop, then render the
+          // popup-friendly error page so the BroadcastChannel notify fires.
+          await putSetting(`builder-connect-error:${session.email}`, {
+            message: pendingError,
+            at: Date.now(),
+          }).catch(() => {});
+          setResponseStatus(event, 503);
+          setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+          return createBuilderBrowserCallbackErrorPage(pendingError);
         }
 
         if (!pendingValid) {
@@ -707,8 +801,19 @@ export function createCoreRoutesPlugin(
         const publicKey = requestUrl.searchParams.get("api-key");
 
         if (!privateKey || !publicKey) {
+          // Render the popup-friendly error page (and write a status row)
+          // instead of bare JSON, so the parent tab's poll loop terminates
+          // immediately via BroadcastChannel rather than hanging until the
+          // 5-minute timeout.
+          const msg =
+            "Builder didn't return credentials. Restart the connect flow from settings.";
+          await putSetting(`builder-connect-error:${session.email}`, {
+            message: msg,
+            at: Date.now(),
+          }).catch(() => {});
           setResponseStatus(event, 400);
-          return { error: "Missing Builder credentials in callback" };
+          setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+          return createBuilderBrowserCallbackErrorPage(msg);
         }
 
         const userId = requestUrl.searchParams.get("user-id");
