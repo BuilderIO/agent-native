@@ -745,24 +745,59 @@ export default function BookingLinksPage({
         </button>
       ),
       right: selectedLink ? (
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => void handleSaveRef.current()}
-          disabled={updateBookingLink.isPending || !hasUnsavedChanges}
-          className="h-8 px-3"
-        >
-          {updateBookingLink.isPending
-            ? "Saving..."
-            : hasUnsavedChanges
-              ? "Save changes"
-              : "Saved"}
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void copyPreviewUrl(draft.slug)}
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  aria-label="Copy booking link"
+                >
+                  <IconCopy className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Copy link</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => openPreview(draft.slug)}
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  aria-label="Open booking link"
+                >
+                  <IconExternalLink className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Open link</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void handleSaveRef.current()}
+            disabled={updateBookingLink.isPending || !hasUnsavedChanges}
+            className="h-8 px-3"
+          >
+            {updateBookingLink.isPending
+              ? "Saving..."
+              : hasUnsavedChanges
+                ? "Save changes"
+                : "Saved"}
+          </Button>
+        </div>
       ) : null,
     };
   }, [
     selectedId,
     selectedLink,
+    draft.slug,
     updateBookingLink.isPending,
     hasUnsavedChanges,
     navigate,
