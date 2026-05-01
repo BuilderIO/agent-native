@@ -2524,7 +2524,13 @@ const AssistantChatInner = forwardRef<
             <SelectionAttachedPill />
             {/* Input area */}
             <div className="agent-composer-area shrink-0 px-3 py-2">
-              <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
+              <ComposerPrimitive.Root
+                className={cn(
+                  "flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring",
+                  execMode === "plan" &&
+                    "border-amber-500/50 bg-amber-500/[0.03] focus-within:ring-amber-500/30",
+                )}
+              >
                 <ComposerAttachmentPreviewStrip />
                 <TiptapComposer
                   focusRef={tiptapRef}

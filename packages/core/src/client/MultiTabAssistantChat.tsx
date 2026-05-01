@@ -206,6 +206,8 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
     },
     { name: "/new", description: "Same as /clear" },
     { name: "/history", description: "Browse and search past chats" },
+    { name: "/plan", description: "Switch to read-only planning" },
+    { name: "/act", description: "Switch back to acting" },
     { name: "/help", description: "Show this list of commands" },
     { name: "@", description: "Mention files, agents, or resources" },
   ];
@@ -1064,12 +1066,18 @@ export function MultiTabAssistantChat({
         case "history":
           setShowHistory(true);
           break;
+        case "plan":
+          props.onExecModeChange?.("plan");
+          break;
+        case "act":
+          props.onExecModeChange?.("build");
+          break;
         case "help":
           setHelpVisible(true);
           break;
       }
     },
-    [addTab],
+    [addTab, props.onExecModeChange],
   );
 
   const handleForkChat = useCallback(
