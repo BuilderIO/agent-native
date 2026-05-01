@@ -97,6 +97,7 @@ import { CloudUpgrade } from "@/components/CloudUpgrade";
 import BookingsList from "./BookingsList";
 import type {
   AvailabilityConfig,
+  BookingLink,
   ConferencingConfig,
   CustomField,
   DaySchedule,
@@ -146,6 +147,55 @@ const DEFAULT_SCHEDULE: DaySchedule = {
 };
 
 type Tab = "links" | "availability" | "bookings";
+
+function createEmptyDraft(): DraftLink {
+  return {
+    title: "",
+    slug: "",
+    description: "",
+    duration: 30,
+    durations: [30],
+    customFields: [],
+    conferencing: { type: "none" },
+    isActive: true,
+    slugManuallyEdited: false,
+  };
+}
+
+function draftFromBookingLink(link: BookingLink): DraftLink {
+  const durations =
+    link.durations && link.durations.length > 0
+      ? link.durations
+      : [link.duration];
+
+  return {
+    id: link.id,
+    title: link.title,
+    slug: link.slug,
+    description: link.description || "",
+    duration: link.duration,
+    durations,
+    customFields: link.customFields || [],
+    conferencing: link.conferencing || { type: "none" },
+    isActive: link.isActive,
+    // Always lock the slug for saved links — changing a saved URL would
+    // break existing shared links. Users can still edit the slug manually.
+    slugManuallyEdited: true,
+  };
+}
+
+function getDraftSignature(draft: DraftLink) {
+  return JSON.stringify({
+    title: draft.title.trim(),
+    slug: slugify(draft.slug),
+    description: draft.description.trim(),
+    duration: draft.duration,
+    durations: draft.durations,
+    customFields: draft.customFields,
+    conferencing: draft.conferencing,
+    isActive: draft.isActive,
+  });
+}
 
 /** Format "09:00" → "9 am", "17:00" → "5 pm" */
 function formatTime12(time: string) {
@@ -428,17 +478,11 @@ export default function BookingLinksPage({
   const updateBookingLink = useUpdateBookingLink();
   const deleteBookingLink = useDeleteBookingLink();
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
-  const [draft, setDraft] = useState<DraftLink>({
-    title: "",
-    slug: "",
-    description: "",
-    duration: 30,
-    durations: [30],
-    customFields: [],
-    conferencing: { type: "none" },
-    isActive: true,
-    slugManuallyEdited: false,
-  });
+  const [draft, setDraft] = useState<DraftLink>(() => createEmptyDraft());
+  const [savedDraftSignature, setSavedDraftSignature] = useState<string | null>(
+    null,
+  );
+  const [isPreviewCollapsed, setIsPreviewCollapsed] = useState(false);
   const [customDurationInput, setCustomDurationInput] = useState("");
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false);
 
@@ -550,38 +594,14 @@ export default function BookingLinksPage({
 
   useEffect(() => {
     if (!selectedLink) {
-      setDraft({
-        title: "",
-        slug: "",
-        description: "",
-        duration: 30,
-        durations: [30],
-        customFields: [],
-        conferencing: { type: "none" },
-        isActive: true,
-        slugManuallyEdited: false,
-      });
+      setDraft(createEmptyDraft());
+      setSavedDraftSignature(null);
       return;
     }
 
-    const durations =
-      selectedLink.durations && selectedLink.durations.length > 0
-        ? selectedLink.durations
-        : [selectedLink.duration];
-    setDraft({
-      id: selectedLink.id,
-      title: selectedLink.title,
-      slug: selectedLink.slug,
-      description: selectedLink.description || "",
-      duration: selectedLink.duration,
-      durations,
-      customFields: selectedLink.customFields || [],
-      conferencing: selectedLink.conferencing || { type: "none" },
-      isActive: selectedLink.isActive,
-      // Always lock the slug for saved links — changing a saved URL would
-      // break existing shared links. Users can still edit the slug manually.
-      slugManuallyEdited: true,
-    });
+    const nextDraft = draftFromBookingLink(selectedLink);
+    setDraft(nextDraft);
+    setSavedDraftSignature(getDraftSignature(nextDraft));
     setCustomDurationInput("");
     setShowCustomDurationInput(false);
   }, [selectedLink]);
@@ -603,6 +623,11 @@ export default function BookingLinksPage({
   }
 
   const previewUrl = getBookingUrl(draft.slug);
+  const draftSignature = useMemo(() => getDraftSignature(draft), [draft]);
+  const hasUnsavedChanges =
+    !!selectedLink &&
+    savedDraftSignature !== null &&
+    draftSignature !== savedDraftSignature;
 
   function handleCreate() {
     const n = bookingLinks.length + 1;
@@ -638,13 +663,14 @@ export default function BookingLinksPage({
 
   async function handleSave() {
     if (!draft.id) return;
+    if (!hasUnsavedChanges) return;
     // Optimistic row hasn't resolved to a real ID yet — wait for it
     if (draft.id.startsWith(OPTIMISTIC_PREFIX)) {
       toast.error("Still creating — please try again in a moment");
       return;
     }
     try {
-      await updateBookingLink.mutateAsync({
+      const updated = await updateBookingLink.mutateAsync({
         id: draft.id,
         title: draft.title.trim(),
         slug: slugify(draft.slug),
@@ -653,10 +679,12 @@ export default function BookingLinksPage({
         durations: draft.durations.length > 1 ? draft.durations : undefined,
         customFields:
           draft.customFields.length > 0 ? draft.customFields : undefined,
-        conferencing:
-          draft.conferencing.type !== "none" ? draft.conferencing : undefined,
+        conferencing: draft.conferencing,
         isActive: draft.isActive,
       });
+      const nextDraft = draftFromBookingLink(updated);
+      setDraft(nextDraft);
+      setSavedDraftSignature(getDraftSignature(nextDraft));
       toast.success("Booking link updated");
     } catch {
       toast.error("Failed to update booking link");
@@ -726,14 +754,24 @@ export default function BookingLinksPage({
           type="button"
           size="sm"
           onClick={() => void handleSaveRef.current()}
-          disabled={updateBookingLink.isPending}
+          disabled={updateBookingLink.isPending || !hasUnsavedChanges}
           className="h-8 px-3"
         >
-          {updateBookingLink.isPending ? "Saving..." : "Save changes"}
+          {updateBookingLink.isPending
+            ? "Saving..."
+            : hasUnsavedChanges
+              ? "Save changes"
+              : "Saved"}
         </Button>
       ) : null,
     };
-  }, [selectedId, selectedLink, updateBookingLink.isPending, navigate]);
+  }, [
+    selectedId,
+    selectedLink,
+    updateBookingLink.isPending,
+    hasUnsavedChanges,
+    navigate,
+  ]);
   useAppHeaderControls(detailHeaderControls);
 
   const hasLinks = bookingLinks.length > 0;
@@ -743,7 +781,14 @@ export default function BookingLinksPage({
     return (
       <div className="mx-auto max-w-6xl space-y-6 px-4 py-5 sm:p-6">
         {/* Two-column layout: form left, preview right */}
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div
+          className={cn(
+            "grid gap-6",
+            isPreviewCollapsed
+              ? "lg:grid-cols-[minmax(0,1fr)_auto]"
+              : "lg:grid-cols-2",
+          )}
+        >
           {/* Left — Edit form */}
           <div className="space-y-5">
             {isLoading ? (
