@@ -73,6 +73,12 @@ interface VoiceSession {
   // Accumulated final transcript from interim webkit results, in case
   // the recognition session ends before we ask it to stop.
   browserTranscript: string;
+  // browser-only: monotonic timestamp of the most recent
+  // recognition.onresult event. stop() reads this to decide whether
+  // the user was actively speaking up to Fn release (worth a tail-
+  // capture window for trailing words) or had clearly fallen silent
+  // (paste right away, no extra delay).
+  lastResultAt: number;
   // common
   startedAt: number;
   stopping: boolean;
@@ -289,15 +295,21 @@ function startMeter(session: VoiceSession): void {
 }
 
 /**
- * Browser-path: we don't have a real audio meter (Web Speech API doesn't
- * expose the raw stream), but the flow-bar's waveform looks dead without
- * any motion. Drive it with a low-amplitude synthetic level that pulses
- * gently so the bar still reads as "listening." Matches Wispr Flow's
- * fallback behavior.
+ * Browser-path / native-path placeholder meter: pulses a low-amplitude
+ * sine wave so the bar reads as "listening" even when we don't have a
+ * real mic stream to analyse. Bails out the moment a real meter takes
+ * over (either because the parallel `getUserMedia` succeeded mid-
+ * session, or because the session ended).
  */
 function startSyntheticMeter(session: VoiceSession): void {
   const tick = () => {
     if (session.cancelled || session.stopping) return;
+    // Real meter has taken over once `session.stream` is set —
+    // startMeter will own session.raf from here. Bail so we don't
+    // keep emitting synthetic levels that overwrite the real ones
+    // and make the bars fight visually. (Cancelling raf alone isn't
+    // enough — a tick currently in flight would still reschedule.)
+    if (session.stream) return;
     const t = (Date.now() - session.startedAt) / 1000;
     const level = 0.18 + 0.08 * Math.sin(t * 4);
     emit("voice:audio-level", { level }).catch(() => {});
@@ -581,6 +593,7 @@ export function installDesktopVoiceDictation(
         mimeType: recorder.mimeType || mimeType,
         recognition: null,
         browserTranscript: "",
+        lastResultAt: 0,
         startedAt: Date.now(),
         stopping: false,
         transcribeAbort: null,
@@ -734,6 +747,7 @@ export function installDesktopVoiceDictation(
         mimeType: "",
         recognition: null,
         browserTranscript: "",
+        lastResultAt: 0,
         startedAt: Date.now(),
         stopping: false,
         transcribeAbort: null,
@@ -823,6 +837,7 @@ export function installDesktopVoiceDictation(
         mimeType: "",
         recognition,
         browserTranscript: "",
+        lastResultAt: 0,
         startedAt: Date.now(),
         stopping: false,
         transcribeAbort: null,
@@ -842,22 +857,19 @@ export function installDesktopVoiceDictation(
         // (rather than before recognition.start()) lets recognition
         // claim the device first; the second consumer rides along on
         // macOS's multi-tap mic. If we can't open it, the synthetic
-        // meter started below stays running.
+        // meter started below stays running. Try a plain `audio: true`
+        // first — adding echo/noise/agc constraints on macOS sometimes
+        // forces the audio session into a different mode that conflicts
+        // with the recognizer, which silently returns a dead stream.
+        console.log("[voice-dictation] requesting parallel mic for live meter");
         navigator.mediaDevices
-          .getUserMedia({
-            audio: {
-              echoCancellation: false,
-              noiseSuppression: false,
-              autoGainControl: false,
-            },
-          })
+          .getUserMedia({ audio: true })
           .then((meterStream) => {
             if (next.cancelled || session !== next) {
               meterStream.getTracks().forEach((t) => t.stop());
               return;
             }
             next.stream = meterStream;
-            stopMeter(next);
             startMeter(next);
             console.log(
               "[voice-dictation] meter mic ready (browser):",
@@ -875,6 +887,9 @@ export function installDesktopVoiceDictation(
       ).onspeechstart = () =>
         console.log("[voice-dictation] recognition.onspeechstart");
       recognition.onresult = (ev) => {
+        // Mark "still hearing speech" so stop() can decide whether to
+        // wait out a tail-capture window or paste immediately.
+        next.lastResultAt = Date.now();
         // Build current full text (final segments + latest interim).
         let finalSoFar = "";
         let interim = "";
@@ -1147,21 +1162,53 @@ export function installDesktopVoiceDictation(
         // crash, etc.), proceed after 3s with whatever partial we have.
         window.setTimeout(() => finalize("timeout"), 3000);
       } else {
-        // BROWSER PATH: conditional dismiss based on whether we
-        // captured any words.
+        // BROWSER PATH: three branches based on what we captured AND
+        // whether the user was still actively speaking at Fn release.
         //
-        // Empty transcript (accidental Fn tap, or user released before
-        // speaking): snappy dismiss — pill + everything goes RIGHT
-        // away, no tail capture.
+        // 1. Empty transcript (accidental Fn tap, or user released
+        //    before speaking): snappy dismiss — pill + everything goes
+        //    RIGHT away, no tail capture. Mic released immediately.
         //
-        // Transcript present (user actually dictated): pill goes away
-        // immediately for snappiness, but we keep recognition alive
-        // for ~1500ms to catch the trailing word(s) the user hadn't
-        // finished saying when they lifted Fn. The transcript chip
-        // stays visible during this tail-capture window AND for an
-        // additional ~1000ms linger after we paste, so the user can
-        // read what landed.
+        // 2. Transcript present + user fell silent before release
+        //    ("now please paste this." pause "*lifts Fn*"): paste
+        //    RIGHT NOW. No 1.5s wait. Mic released immediately.
+        //
+        // 3. Transcript present + user still speaking up to release
+        //    ("...the last thing*lifts Fn*"): keep recognition alive
+        //    for ~1.5s so the tail of the sentence has time to land.
+        //    Pill fades out immediately, transcript chip lingers.
+        //
+        // Quiet detection: the recognizer fires onresult continuously
+        // while it hears speech and stops firing once the user falls
+        // quiet. lastResultAt captures that — if no result has fired
+        // in the last QUIET_MS, the user clearly stopped, and there's
+        // nothing for tail-capture to catch.
         const initialText = current.browserTranscript.trim();
+        const sinceLastResult =
+          current.lastResultAt > 0
+            ? Date.now() - current.lastResultAt
+            : Infinity;
+        const QUIET_MS = 600;
+        const userFellSilent = sinceLastResult > QUIET_MS;
+
+        // Helper: detach recognition handlers before abort. abort()
+        // synchronously triggers onend, and our existing onend handler
+        // would `emit("voice:partial-transcript", "")` and clear the
+        // chip mid-linger. Detaching gives us full control of dismissal
+        // timing in stop()'s post-abort code below.
+        const detachAndAbort = (s: VoiceSession) => {
+          if (!s.recognition) return;
+          s.recognition.onresult = null;
+          s.recognition.onerror = null;
+          s.recognition.onend = null;
+          try {
+            s.recognition.abort();
+          } catch {
+            // ignore
+          }
+          s.recognition = null;
+        };
+
         if (!initialText) {
           // Snappy path — accidental tap.
           current.browserTranscript = "";
@@ -1171,16 +1218,55 @@ export function installDesktopVoiceDictation(
           setFlowState("idle");
           invoke("hide_flow_bar").catch(() => {});
           emit("voice:partial-transcript", { text: "" }).catch(() => {});
-          try {
-            current.recognition?.abort();
-          } catch {
-            // ignore
-          }
+          detachAndAbort(current);
           stopMeter(current);
           stopTracks(current);
           console.warn(
             "[voice-dictation] no transcript captured — recognition didn't produce results",
           );
+        } else if (userFellSilent) {
+          // Snappy paste — user clearly stopped speaking before
+          // releasing Fn, so there's nothing for tail-capture to add.
+          // Release everything NOW so the macOS mic indicator goes
+          // off immediately.
+          const lingering = current;
+          if (session === current) session = null;
+          startInFlight = false;
+          stopRequestedBeforeReady = false;
+          setFlowState("idle");
+          stopMeter(lingering);
+          if (lingering.stream) {
+            lingering.stream.getTracks().forEach((t) => {
+              try {
+                t.stop();
+              } catch {
+                // ignore
+              }
+            });
+            lingering.stream = null;
+          }
+          detachAndAbort(lingering);
+          const finalText = lingering.browserTranscript.trim();
+          lingering.browserTranscript = "";
+          console.log(
+            `[voice-dictation] snappy paste (quiet ${sinceLastResult}ms, ${finalText.length} chars): "${finalText.slice(0, 80)}"`,
+          );
+          // Re-pin the chip text to the final value (paranoia in case
+          // the last interim differed from final).
+          emit("voice:partial-transcript", { text: finalText }).catch(() => {});
+          invoke("complete_voice_dictation", { text: finalText }).catch(
+            (err) => {
+              console.error("[voice-dictation] paste failed:", err);
+            },
+          );
+          // Linger ~1s with the chip showing the pasted text, then
+          // dismiss the flow bar entirely.
+          window.setTimeout(() => {
+            if (disposed) return;
+            if (session && session !== lingering) return;
+            invoke("hide_flow_bar").catch(() => {});
+            emit("voice:partial-transcript", { text: "" }).catch(() => {});
+          }, 1000);
         } else {
           // Tail-capture path. Hide pill but keep recognition listening
           // so onresult continues to grow browserTranscript for ~1.5s.
@@ -1193,26 +1279,38 @@ export function installDesktopVoiceDictation(
           stopRequestedBeforeReady = false;
           setFlowState("idle");
           stopMeter(lingering);
+          // Release the parallel-mic meter stream RIGHT NOW. The pill is
+          // fading out so we don't need the visualizer any more, and
+          // holding a second mic consumer open during tail-capture +
+          // linger keeps macOS's orange mic indicator on for ~2.5s
+          // longer than necessary. Recognition keeps its OWN internal
+          // mic for the next 1.5s — that's required for the tail-capture
+          // feature — but cutting our sibling stream cuts ours.
+          if (lingering.stream) {
+            lingering.stream.getTracks().forEach((t) => {
+              try {
+                t.stop();
+              } catch {
+                // ignore
+              }
+            });
+            lingering.stream = null;
+          }
           console.log(
-            `[voice-dictation] tail-capture starting (${initialText.length} chars so far): "${initialText.slice(0, 60)}..."`,
+            `[voice-dictation] tail-capture starting (active ${sinceLastResult}ms ago, ${initialText.length} chars so far): "${initialText.slice(0, 60)}..."`,
           );
           window.setTimeout(() => {
             if (disposed) return;
             // If a new Fn-tap took over during tail-capture, mark the
-            // old session cancelled BEFORE aborting so its `onend`
-            // handler skips the paste (otherwise abort() fires onend
-            // synchronously and complete_voice_dictation pastes the
-            // stale transcript into the new session's focused field).
+            // old session cancelled BEFORE aborting so paste is skipped
+            // (otherwise complete_voice_dictation would type stale
+            // transcript into the new session's focused field).
             const supersededByNewSession = !!session && session !== lingering;
             if (supersededByNewSession) lingering.cancelled = true;
             // Always release the lingering session's mic + recognizer
-            // — even if cancelled or superseded. Skipping abort/stopTracks
+            // — even if cancelled or superseded. Skipping detach/stop
             // would leave the old recognizer listening and the mic open.
-            try {
-              lingering.recognition?.abort();
-            } catch {
-              // ignore
-            }
+            detachAndAbort(lingering);
             stopTracks(lingering);
             if (lingering.cancelled) return;
             if (supersededByNewSession) return;
@@ -1222,6 +1320,9 @@ export function installDesktopVoiceDictation(
               const tailGain = finalText.length - initialText.length;
               console.log(
                 `[voice-dictation] tail-capture done (${finalText.length} chars, +${tailGain} from tail): "${finalText.slice(0, 80)}"`,
+              );
+              emit("voice:partial-transcript", { text: finalText }).catch(
+                () => {},
               );
               invoke("complete_voice_dictation", { text: finalText }).catch(
                 (err) => {
