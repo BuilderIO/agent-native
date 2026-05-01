@@ -88,7 +88,11 @@ function addLocalDays(date: Date, days: number): Date {
 
 function countDaysInclusive(start: Date, end: Date): number {
   let count = 0;
-  for (let cursor = new Date(start); cursor <= end; cursor = addLocalDays(cursor, 1)) {
+  for (
+    let cursor = new Date(start);
+    cursor <= end;
+    cursor = addLocalDays(cursor, 1)
+  ) {
     count += 1;
     if (count > MAX_AVAILABILITY_RANGE_DAYS) return count;
   }
@@ -223,16 +227,33 @@ function generateAvailableSlotsForDate({
 
   const availableSlots: TimeSlot[] = [];
   const slotDuration = duration || config.slotDurationMinutes;
-  const bufferMs = Math.max(0, config.bufferMinutes) * 60 * 1000;
+  const bufferMinutes = Number.isFinite(config.bufferMinutes)
+    ? config.bufferMinutes
+    : 0;
+  const minNoticeHours = Number.isFinite(config.minNoticeHours)
+    ? config.minNoticeHours
+    : 0;
+  const maxAdvanceDays = Number.isFinite(config.maxAdvanceDays)
+    ? config.maxAdvanceDays
+    : 60;
+  const bufferMs = Math.max(0, bufferMinutes) * 60 * 1000;
   const earliestStart =
-    Date.now() + Math.max(0, config.minNoticeHours) * 60 * 60 * 1000;
+    Date.now() + Math.max(0, minNoticeHours) * 60 * 60 * 1000;
   const latestDate = new Date();
   latestDate.setHours(23, 59, 59, 999);
-  latestDate.setDate(latestDate.getDate() + config.maxAdvanceDays);
+  latestDate.setDate(latestDate.getDate() + Math.max(0, maxAdvanceDays));
 
   for (const scheduleSlot of daySchedule.slots) {
     const [startHour, startMin] = scheduleSlot.start.split(":").map(Number);
     const [endHour, endMin] = scheduleSlot.end.split(":").map(Number);
+    if (
+      !Number.isFinite(startHour) ||
+      !Number.isFinite(startMin) ||
+      !Number.isFinite(endHour) ||
+      !Number.isFinite(endMin)
+    ) {
+      continue;
+    }
 
     const slotStart = new Date(`${date}T00:00:00`);
     slotStart.setHours(startHour, startMin, 0, 0);
@@ -242,10 +263,7 @@ function generateAvailableSlotsForDate({
 
     let current = new Date(slotStart);
 
-    while (
-      current.getTime() + slotDuration * 60 * 1000 <=
-      slotEnd.getTime()
-    ) {
+    while (current.getTime() + slotDuration * 60 * 1000 <= slotEnd.getTime()) {
       const candidateStart = new Date(current);
       const candidateEnd = new Date(
         current.getTime() + slotDuration * 60 * 1000,
@@ -621,7 +639,11 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
     const date = typeof query.date === "string" ? query.date : "";
     const from = parseDateOnly(query.from);
     const to = parseDateOnly(query.to);
-    const duration = parseInt((query.duration as string) || "30", 10);
+    const hasRangeQuery = query.from !== undefined || query.to !== undefined;
+    const duration = parseInt(
+      typeof query.duration === "string" ? query.duration : "30",
+      10,
+    );
     const slug = typeof query.slug === "string" ? query.slug : "";
 
     if (!Number.isFinite(duration) || duration <= 0 || duration > 24 * 60) {
@@ -629,15 +651,13 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
       return { error: "duration must be between 1 and 1440 minutes" };
     }
 
-    const context = await resolveAvailabilityContext(slug);
-    if (!context.effectiveConfig) {
-      return from || to ? { dates: [] } : { slots: [] };
-    }
-
-    if (from || to) {
+    if (hasRangeQuery) {
       if (!from || !to) {
         setResponseStatus(event, 400);
-        return { error: "from and to query parameters are required together" };
+        return {
+          error:
+            "from and to query parameters are required together in YYYY-MM-DD format",
+        };
       }
       if (from > to) {
         setResponseStatus(event, 400);
@@ -649,9 +669,19 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
           error: `date range cannot exceed ${MAX_AVAILABILITY_RANGE_DAYS} days`,
         };
       }
+    } else if (!parseDateOnly(date)) {
+      setResponseStatus(event, 400);
+      return { error: "date query parameter is required" };
+    }
 
-      const rangeStart = formatDateOnly(from);
-      const rangeEnd = formatDateOnly(to);
+    const context = await resolveAvailabilityContext(slug);
+    if (!context.effectiveConfig) {
+      return hasRangeQuery ? { dates: [] } : { slots: [] };
+    }
+
+    if (hasRangeQuery) {
+      const rangeStart = formatDateOnly(from!);
+      const rangeEnd = formatDateOnly(to!);
       const conflictItems = await getConflictItems({
         ownerEmail: context.ownerEmail,
         conflictSlugs: context.conflictSlugs,
@@ -660,8 +690,8 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
       });
       const dates: string[] = [];
       for (
-        let cursor = new Date(from);
-        cursor <= to;
+        let cursor = new Date(from!);
+        cursor <= to!;
         cursor = addLocalDays(cursor, 1)
       ) {
         const day = formatDateOnly(cursor);
@@ -676,11 +706,6 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
         }
       }
       return { dates };
-    }
-
-    if (!parseDateOnly(date)) {
-      setResponseStatus(event, 400);
-      return { error: "date query parameter is required" };
     }
 
     const conflictItems = await getConflictItems({

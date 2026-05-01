@@ -126,12 +126,12 @@ export function DatePicker({
               disabled={disabled}
               className={cn(
                 "flex h-10 w-full items-center justify-center rounded-md text-sm transition-colors",
-                !inMonth && "opacity-0 pointer-events-none",
                 inMonth && !disabled && "hover:bg-accent cursor-pointer",
-                disabled && "opacity-30 cursor-not-allowed",
+                disabled && inMonth && "opacity-30 cursor-not-allowed",
                 selected &&
                   "bg-primary text-primary-foreground hover:bg-primary/90",
                 todayMark && !selected && "border border-primary/50",
+                !inMonth && "pointer-events-none opacity-0",
               )}
             >
               {format(day, "d")}
