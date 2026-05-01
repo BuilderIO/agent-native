@@ -1721,6 +1721,9 @@ export function AgentSidebar({
   // already viewport-covering, so the maximize button is hidden and the
   // mounted state ignores any persisted value.
   const effectiveFullscreen = fullscreen && !isMobile;
+  // On desktop the resize handle is also the visual divider. Avoid painting a
+  // second panel border next to it.
+  const showResizeHandle = !isMobile && !effectiveFullscreen && open;
 
   // On mobile the sidebar floats as a fixed overlay so the content below isn't
   // squashed. On desktop it participates in the flex layout as before, except
@@ -1765,15 +1768,13 @@ export function AgentSidebar({
       ...AGENT_PANEL_ROOT_STYLE,
       width,
       maxHeight: "100vh",
-      borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
-      borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
+      borderLeft:
+        isLeft || showResizeHandle ? "none" : "1px solid hsl(var(--border))",
+      borderRight:
+        !isLeft || showResizeHandle ? "none" : "1px solid hsl(var(--border))",
       display: open ? "flex" : "none",
     };
   }
-
-  // Hide the resize handle when not draggable: mobile (overlay) or fullscreen
-  // (no width to drag — the panel covers the viewport).
-  const showResizeHandle = !isMobile && !effectiveFullscreen && open;
 
   // Always render the sidebar panel (even when closed) so MultiTabAssistantChat
   // stays mounted and can receive messages (e.g. from voice dictation) while
