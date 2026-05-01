@@ -173,6 +173,7 @@ export {
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
+  oauthDesktopExchangePage,
   type OAuthStatePayload,
   type OAuthOwnerResult,
   type OAuthSessionResult,

@@ -712,9 +712,7 @@ function openOAuthWindow(
       // Detect the OAuth callback (works for both /api/google/callback and
       // /_agent-native/google/callback).
       if (parsed.pathname.includes(provider.callbackPathFragment)) {
-        // Google success pages close via the agentnative:// handoff below.
-        // Error pages do not deep-link, so keep the popup open for the user.
-        if (provider.name !== "google") scheduleClose();
+        scheduleClose();
       }
       // Detect agentnative:// deep link — handle it and close the popup.
       if (parsed.protocol === `${DEEP_LINK_PROTOCOL}:`) {

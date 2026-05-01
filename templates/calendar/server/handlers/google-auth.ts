@@ -16,8 +16,10 @@ import {
   resolveOAuthOwner,
   createOAuthSession,
   oauthCallbackResponse,
+  oauthDesktopExchangePage,
   oauthErrorPage,
   setDesktopExchange,
+  setDesktopExchangeError,
   DEV_MODE_USER_EMAIL,
 } from "@agent-native/core/server";
 import {
@@ -28,29 +30,67 @@ import {
 } from "../lib/google-calendar.js";
 import { OAuthAccountOwnedByOtherUserError } from "@agent-native/core/oauth-tokens";
 
-function googleOAuthErrorMessage(
+function googleOAuthErrorPayload(
   error: any,
   prefix = "Connection failed",
-): string {
+): {
+  message: string;
+  code?: string;
+  accountId?: string;
+  existingOwner?: string;
+  attemptedOwner?: string;
+} {
   if (
     error instanceof OAuthAccountOwnedByOtherUserError ||
     error?.name === "OAuthAccountOwnedByOtherUserError"
   ) {
     const account = error.accountId || "This Google account";
+    const existingOwner = error.existingOwner || undefined;
+    const attemptedOwner = error.attemptedOwner || undefined;
     const owner =
       error.existingOwner === DEV_MODE_USER_EMAIL
         ? "a previous local session"
         : error.existingOwner || "another user";
-    return `${account} is already connected to ${owner}. Sign in as that user or disconnect the Google account there first.`;
+    const message =
+      attemptedOwner && attemptedOwner !== existingOwner
+        ? `You selected ${account}, but Calendar is currently signed in as ${attemptedOwner}. Sign out, then sign back in with ${account}.`
+        : `${account} is already connected to ${owner}. Sign in as that user or disconnect the Google account there first.`;
+    return {
+      message,
+      code: "account_owner_mismatch",
+      accountId: error.accountId,
+      existingOwner,
+      attemptedOwner,
+    };
   }
 
   const msg = error?.message || "Unknown error";
   const isPermission =
     msg.includes("Insufficient Permission") ||
     msg.includes("insufficient_scope");
-  return isPermission
-    ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
-    : `${prefix}: ${msg}`;
+  return {
+    message: isPermission
+      ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+      : `${prefix}: ${msg}`,
+    code: isPermission ? "missing_google_permissions" : "google_oauth_failed",
+  };
+}
+
+function googleOAuthErrorMessage(error: any, prefix = "Connection failed") {
+  return googleOAuthErrorPayload(error, prefix).message;
+}
+
+function googleOAuthErrorResponse(
+  event: H3Event,
+  error: any,
+  opts: { desktop?: boolean; flowId?: string; prefix?: string } = {},
+) {
+  const payload = googleOAuthErrorPayload(error, opts.prefix);
+  if (opts.desktop && opts.flowId) {
+    setDesktopExchangeError(opts.flowId, payload);
+    return oauthDesktopExchangePage("Returning to Calendar...");
+  }
+  return oauthErrorPage(payload.message);
 }
 
 export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
