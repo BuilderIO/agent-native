@@ -236,6 +236,7 @@ function SidebarContent({
             <Link
               key={item.href}
               to={item.href}
+              aria-label={collapsed ? item.label : undefined}
               className={cn(
                 "flex h-9 items-center rounded-lg text-sm transition-colors",
                 collapsed ? "justify-center px-0" : "gap-3 px-3",
