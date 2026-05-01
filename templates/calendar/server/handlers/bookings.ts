@@ -29,6 +29,10 @@ import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { getDb, schema } from "../db/index.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 import { createZoomMeeting } from "../lib/zoom.js";
+import {
+  sendBookingCancellationEmails,
+  sendBookingConfirmationEmails,
+} from "../lib/booking-emails.js";
 
 async function requireRequestContext<T>(
   event: H3Event,
@@ -52,6 +56,18 @@ async function getBookingLinkSlugsForOwner(
     .from(schema.bookingLinks)
     .where(eq(schema.bookingLinks.ownerEmail, ownerEmail));
   return rows.map((row) => row.slug);
+}
+
+async function getBookingLinkOwnerEmail(
+  slug: string,
+): Promise<string | undefined> {
+  if (!slug) return undefined;
+  const row = await getDb()
+    .select({ ownerEmail: schema.bookingLinks.ownerEmail })
+    .from(schema.bookingLinks)
+    .where(eq(schema.bookingLinks.slug, slug))
+    .then((rows) => rows[0]);
+  return row?.ownerEmail;
 }
 
 type AvailabilityContext = {
@@ -607,6 +623,16 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       createdAt: now,
     };
 
+    await sendBookingConfirmationEmails({
+      booking,
+      hostEmail,
+      manageUrl,
+      timeZone:
+        (body.timezone as string | undefined) ??
+        Intl.DateTimeFormat().resolvedOptions().timeZone ??
+        "UTC",
+    });
+
     try {
       emit(
         "calendar.booking.created",
@@ -759,6 +785,18 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
         return { error: "Access denied" };
       }
 
+      const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
+      const reqUrl = getRequestURL(event);
+      const bookAgainUrl = existing.slug
+        ? `${reqUrl.origin}/book/${existing.slug}`
+        : undefined;
+
+      await sendBookingCancellationEmails({
+        booking: rowToBooking(existing),
+        hostEmail,
+        bookAgainUrl,
+      });
+
       await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
       return { success: true };
     } catch (error: any) {
@@ -835,6 +873,17 @@ export const cancelBookingByToken = defineEventHandler(
         .update(schema.bookings)
         .set({ status: "cancelled" })
         .where(eq(schema.bookings.id, row.id));
+
+      const hostEmail = await getBookingLinkOwnerEmail(row.slug);
+      const reqUrl = getRequestURL(event);
+      const bookAgainUrl = row.slug
+        ? `${reqUrl.origin}/book/${row.slug}`
+        : undefined;
+      await sendBookingCancellationEmails({
+        booking: rowToBooking(row),
+        hostEmail,
+        bookAgainUrl,
+      });
 
       return { success: true, slug: row.slug };
     } catch (error: any) {
