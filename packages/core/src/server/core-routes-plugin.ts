@@ -14,15 +14,12 @@ import type { EnvKeyConfig } from "./create-server.js";
 import { readBody } from "./h3-helpers.js";
 import {
   BUILDER_ENV_KEYS,
-  BUILDER_STATE_PARAM,
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
   getBuilderBrowserStatusForEvent,
   resolveSafePreviewUrl,
   runBuilderAgent,
-  signBuilderCallbackState,
-  verifyBuilderCallbackState,
 } from "./builder-browser.js";
 import {
   getState,
@@ -511,13 +508,26 @@ export function createCoreRoutesPlugin(
       }),
     );
 
+    // How long a pending-connect row is valid. Must be long enough for
+    // the user to complete the Builder CLI-auth flow, but short enough
+    // that a stale row from an abandoned attempt doesn't accept a new
+    // callback minutes later.
+    const BUILDER_CONNECT_PENDING_TTL_MS = 10 * 60 * 1000; // 10 min
+
     // Lightweight 302 to the Builder CLI-auth URL. Lets clients do
     // `window.open('/_agent-native/builder/connect', '_blank')` synchronously
     // inside a click handler, avoiding the popup-blocker downgrade that
-    // happens when an await sits before window.open. We mint a signed
-    // CSRF state here and embed it in the callback URL we hand to
-    // Builder; the callback handler verifies it before accepting any
-    // keys. See `signBuilderCallbackState` for the threat model.
+    // happens when an await sits before window.open.
+    //
+    // We record a server-side pending-connect token in the settings table
+    // (keyed by session email) rather than embedding a signed CSRF state in
+    // the redirect_url query string. The URL-embedded approach broke because
+    // Builder's /cli-auth page strips existing query params from redirect_url
+    // when it appends p-key/api-key/etc., so _an_state was always null when
+    // the callback fired. The server-side row is keyed by the session that
+    // started the flow, so it still provides equivalent CSRF protection
+    // (the callback requires a valid session cookie) without depending on
+    // Builder preserving arbitrary URL query params.
     getH3App(nitroApp).use(
       `${P}/builder/connect`,
       defineEventHandler(async (event) => {
@@ -526,8 +536,28 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 401);
           return { error: "Authentication required" };
         }
-        const state = signBuilderCallbackState(session.email);
-        const cliAuthUrl = buildBuilderCliAuthUrl(getOrigin(event), state);
+        // Store a short-lived pending row. If the DB is unavailable we
+        // return a clear error rather than silently issuing a callback
+        // that can never be verified.
+        try {
+          await putSetting(`builder-pending-connect:${session.email}`, {
+            expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
+          });
+        } catch (err) {
+          console.error(
+            "[builder] Could not store pending-connect state:",
+            (err as Error)?.message ?? err,
+          );
+          setResponseStatus(event, 503);
+          return {
+            error:
+              "Could not initiate Builder connect — storage unavailable. Try again.",
+          };
+        }
+        // Build the cli-auth URL without embedding state in redirect_url:
+        // Builder's /cli-auth appends params directly to redirect_url and
+        // does not preserve any pre-existing query string we put there.
+        const cliAuthUrl = buildBuilderCliAuthUrl(getOrigin(event), null);
         setResponseStatus(event, 302);
         setResponseHeader(event, "Location", cliAuthUrl);
         return "";
@@ -630,13 +660,47 @@ export function createCoreRoutesPlugin(
           getOrigin(event),
         );
 
-        const state = requestUrl.searchParams.get(BUILDER_STATE_PARAM);
-        if (!verifyBuilderCallbackState(state, session.email)) {
+        // Verify and consume the server-side pending-connect row that the
+        // /builder/connect route stored. This replaces the old URL-embedded
+        // signed CSRF state (_an_state) which Builder's /cli-auth page was
+        // stripping from the redirect_url query string.
+        let pendingValid = false;
+        try {
+          const pending = (await getSetting(
+            `builder-pending-connect:${session.email}`,
+          )) as { expiresAt?: number } | null;
+          if (
+            pending &&
+            typeof pending.expiresAt === "number" &&
+            Date.now() <= pending.expiresAt
+          ) {
+            pendingValid = true;
+            // One-time use — delete immediately so the same callback URL
+            // can't be replayed even within the TTL window.
+            await deleteSetting(
+              `builder-pending-connect:${session.email}`,
+            ).catch(() => {});
+          }
+        } catch {
+          // DB temporarily unavailable — treat as missing.
+        }
+
+        if (!pendingValid) {
+          const msg =
+            "No active connect flow found. Restart the Builder connect flow from Settings.";
+          // Write an error signal so the polling loop in the parent tab
+          // terminates quickly instead of waiting 5 minutes for the timeout.
+          try {
+            await putSetting(`builder-connect-error:${session.email}`, {
+              message: msg,
+              at: Date.now(),
+            });
+          } catch {
+            // DB unavailable — parent will time out naturally.
+          }
           setResponseStatus(event, 403);
-          return {
-            error:
-              "Invalid or expired connect token. Restart the Builder connect flow from Settings.",
-          };
+          setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+          return createBuilderBrowserCallbackErrorPage(msg);
         }
 
         const privateKey = requestUrl.searchParams.get("p-key");

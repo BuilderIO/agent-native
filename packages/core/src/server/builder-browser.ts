@@ -390,9 +390,20 @@ export function createBuilderBrowserCallbackErrorPage(message: string): string {
       try {
         var msg = ${escapedMessage};
         document.getElementById("msg").textContent = msg;
-        // Stop the parent's poll immediately. /builder/status also surfaces
-        // a connectError row written by the callback so the parent picks
-        // this up even if the popup closed before postMessage delivered.
+        // Notify the parent tab immediately so its polling loop stops
+        // without waiting for the next /builder/status tick.
+        //
+        // BroadcastChannel works across same-origin windows regardless of
+        // opener access — it is the only reliable channel here because
+        // popups opened with window.open(..., "noopener") or links with
+        // rel="noopener" have window.opener === null. The legacy
+        // window.opener.postMessage path is kept as a belt-and-suspenders
+        // fallback for non-BroadcastChannel environments.
+        try {
+          var bc = new BroadcastChannel("builder-connect:" + window.location.host);
+          bc.postMessage({ type: "builder-connect-error", message: msg });
+          bc.close();
+        } catch (e) {}
         if (window.opener && !window.opener.closed) {
           try {
             window.opener.postMessage(
