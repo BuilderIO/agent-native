@@ -286,8 +286,8 @@ export function useEmails(
   const data = useMemo(() => {
     if (!q.data) return undefined;
     const all = q.data.pages.flatMap((p: EmailsPage) => p.emails);
-    return applyOverrides(filterSuppressed(all, view));
-  }, [q.data, view]);
+    return applyOverrides(search ? all : filterSuppressed(all, view));
+  }, [q.data, search, view]);
 
   return {
     data,
