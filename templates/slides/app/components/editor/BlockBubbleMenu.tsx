@@ -120,9 +120,11 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
 
   const runCommand = (cmd: string, value?: string) => {
     if (!restoreSelection()) return;
-    // Don't sync to React state per-command: it would re-run SlideRenderer's
-    // dangerouslySetInnerHTML and wipe the contentEditable attribute. Edit
-    // exit captures the final DOM via slideContent.innerHTML.
+    // Force <span style="..."> output so colors survive sanitizeSlideHtml,
+    // which strips <font> tags and would silently lose foreColor on save.
+    document.execCommand("styleWithCSS", false, "true");
+    // No state sync per-command — would re-run dangerouslySetInnerHTML and
+    // wipe contentEditable. Final DOM is captured by exitInlineEdit.
     document.execCommand(cmd, false, value);
   };
 
@@ -183,6 +185,9 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
           icon={IconPalette}
           title="Color"
           onClick={() => {
+            // Imperative set BEFORE state change — useEffect runs after the
+            // input's autoFocus has already fired selectionchange, too late.
+            if (!showColors) interactingRef.current = true;
             setShowColors((v) => !v);
             setShowLinkInput(false);
           }}
@@ -209,6 +214,7 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
         icon={IconLink}
         title="Link"
         onClick={() => {
+          if (!showLinkInput) interactingRef.current = true;
           setShowLinkInput((v) => !v);
           setShowColors(false);
         }}
