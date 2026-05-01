@@ -2185,7 +2185,7 @@ export function createAgentChatPlugin(
       if (!rawActions && Object.keys(templateScripts).length === 0) {
         try {
           const { autoDiscoverActions } = await import("./action-discovery.js");
-          templateScripts = await autoDiscoverActions(process.cwd());
+          templateScripts = await autoDiscoverActions("auto");
         } catch {
           // Filesystem discovery unavailable (serverless bundle) — skip.
         }

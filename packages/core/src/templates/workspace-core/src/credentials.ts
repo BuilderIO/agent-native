@@ -17,7 +17,10 @@
  * automatically inside agent-native actions; otherwise pass it explicitly.
  */
 import { resolveCredential } from "@agent-native/core/credentials";
-import { getRequestOrgId, getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 
 /**
  * Optional context for scoping a credential lookup to a specific user or org.

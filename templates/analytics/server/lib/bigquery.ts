@@ -34,7 +34,10 @@ async function resolveTablePlaceholder(
 ): Promise<string> {
   projectId ??= await getProjectId();
   const appEventsTable = `${projectId}.analytics.events_partitioned`;
-  return sql.replace(/@app_events/gi, `\`${appEventsTable}\``);
+  return sql
+    .replace(/@app_events/gi, `\`${appEventsTable}\``)
+    .replace(/`your-gcp-project-id\./g, `\`${projectId}.`)
+    .replace(/\byour-gcp-project-id\./g, `${projectId}.`);
 }
 
 /**

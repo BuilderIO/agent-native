@@ -710,10 +710,12 @@ async function promptTemplatePicker(
     preselected.length > 0
       ? preselected.filter((p) => options.some((o) => o.value === p))
       : opts?.defaultTemplates
-        ? opts.defaultTemplates.filter((p) => options.some((o) => o.value === p))
-      : options.some((o) => o.value === "starter")
-        ? ["starter"]
-        : [];
+        ? opts.defaultTemplates.filter((p) =>
+            options.some((o) => o.value === p),
+          )
+        : options.some((o) => o.value === "starter")
+          ? ["starter"]
+          : [];
 
   const baseMessage = opts?.message ?? "Which apps would you like to include?";
   const result = await clack.multiselect({
