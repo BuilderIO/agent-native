@@ -143,15 +143,17 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
                 <span className="truncate font-medium">
                   {selectedOption.label}
                 </span>
-                {selectedStatus === "connected" && (
-                  <Badge
-                    variant="secondary"
-                    className="h-5 gap-1 text-[10px] font-normal"
-                  >
-                    <IconCheck className="h-3 w-3" />
-                    Connected
-                  </Badge>
-                )}
+                {selectedStatus === "connected" &&
+                  selectedOption.type !== "none" &&
+                  selectedOption.type !== "custom" && (
+                    <Badge
+                      variant="secondary"
+                      className="h-5 gap-1 text-[10px] font-normal"
+                    >
+                      <IconCheck className="h-3 w-3" />
+                      Connected
+                    </Badge>
+                  )}
               </div>
               <p className="truncate text-xs text-muted-foreground">
                 {selectedStatus === "not-configured"
@@ -177,11 +179,13 @@ export function ConferencingSelector(props: ConferencingSelectorProps) {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{opt.label}</span>
-                      {status === "connected" && (
-                        <span className="text-[10px] text-muted-foreground">
-                          Connected
-                        </span>
-                      )}
+                      {status === "connected" &&
+                        opt.type !== "none" &&
+                        opt.type !== "custom" && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Connected
+                          </span>
+                        )}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {isUnavailable
