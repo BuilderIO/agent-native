@@ -1,4 +1,5 @@
 [build]
+  ignore = "node ./scripts/netlify-ignore-build.mjs scheduling"
   command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} NITRO_PRESET=netlify pnpm --filter scheduling build"
   publish = "templates/scheduling/dist"
   functions = "templates/scheduling/.netlify/functions-internal"

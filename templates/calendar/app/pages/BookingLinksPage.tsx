@@ -6,7 +6,6 @@ import {
   IconCalendar,
   IconChevronLeft,
   IconChevronRight,
-  IconCheck,
   IconCopy,
   IconExternalLink,
   IconLink,
@@ -100,6 +99,7 @@ import {
 } from "@/hooks/use-availability";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import BookingsList from "./BookingsList";
 import type {
   AvailabilityConfig,
@@ -1220,7 +1220,7 @@ export default function BookingLinksPage({
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
+    <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Booking Links</h1>
@@ -1307,7 +1307,8 @@ export default function BookingLinksPage({
                           </p>
                           {availability && (
                             <p className="mt-0.5 text-xs text-muted-foreground truncate">
-                              {formatAvailabilitySummary(availability)}
+                              {formatAvailabilitySummary(availability)} •{" "}
+                              {availability.timezone}
                             </p>
                           )}
                         </button>
@@ -1397,7 +1398,7 @@ export default function BookingLinksPage({
         </TabsContent>
 
         <TabsContent value="availability">
-          <div className="max-w-2xl space-y-6">
+          <div className="mx-auto max-w-2xl space-y-6">
             {/* Weekly Schedule */}
             <Card>
               <CardHeader>
@@ -1407,6 +1408,20 @@ export default function BookingLinksPage({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+                  <Label htmlFor="booking-links-availability-timezone">
+                    Timezone
+                  </Label>
+                  <TimezoneCombobox
+                    id="booking-links-availability-timezone"
+                    value={timezone}
+                    onChange={setTimezone}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Weekly hours like 9 AM-5 PM are interpreted in this timezone
+                    before visitors see them in their own browser timezone.
+                  </p>
+                </div>
                 {DAYS.map(({ key, label, short }) => {
                   const day = schedule[key];
                   const slot = day.slots[0] ?? { start: "09:00", end: "17:00" };

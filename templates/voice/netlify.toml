@@ -1,4 +1,5 @@
 [build]
+  ignore = "node ./scripts/netlify-ignore-build.mjs voice"
   command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter voice build"
   publish = "templates/voice/dist"
   functions = "templates/voice/.netlify/functions-internal"

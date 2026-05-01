@@ -1,4 +1,5 @@
 [build]
+  ignore = "node ./scripts/netlify-ignore-build.mjs analytics"
   command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter analytics build"
   publish = "templates/analytics/dist"
   functions = "templates/analytics/.netlify/functions-internal"
