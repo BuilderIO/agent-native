@@ -18,6 +18,7 @@ import {
   oauthCallbackResponse,
   oauthDesktopExchangePage,
   oauthErrorPage,
+  safeReturnPath,
   setDesktopExchange,
   setDesktopExchangeError,
   DEV_MODE_USER_EMAIL,
@@ -111,6 +112,9 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+    const requestedReturn =
+      typeof q.return === "string" ? safeReturnPath(q.return) : "/";
+    const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
     // Use the named-arg overload — the positional form smuggled `flowId`
     // into the `returnUrl` slot in earlier revisions, which broke desktop
     // OAuth completion. See encodeOAuthState's docs.
@@ -120,6 +124,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       desktop,
       addAccount: false,
       app: "mail",
+      returnUrl,
       flowId,
     });
     const url = getAuthUrl(undefined, redirectUri, state);
@@ -169,7 +174,7 @@ export const handleGoogleCallback = defineEventHandler(
         return { error: "Missing authorization code" };
       }
 
-      const { redirectUri, owner: stateOwner, addAccount } = state;
+      const { redirectUri, owner: stateOwner, addAccount, returnUrl } = state;
 
       // 1. Resolve owner (needs session context, before exchangeCode)
       const { owner, hasProductionSession } = await resolveOAuthOwner(
@@ -235,6 +240,7 @@ export const handleGoogleCallback = defineEventHandler(
         sessionToken,
         desktop,
         addAccount: isAddAccount,
+        returnUrl,
         flowId,
         appName: "Mail",
       });
