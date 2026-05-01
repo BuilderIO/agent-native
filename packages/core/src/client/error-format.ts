@@ -1,6 +1,6 @@
 /**
- * Append an "Upgrade at builder.io" markdown link to an error message when
- * the Builder gateway returns a 402 quota/billing response. Used by both
+ * Append a Builder CTA markdown link to gateway errors that users can fix
+ * outside the app. Used by both
  * chat SSE consumers (`sse-event-processor.ts` and `useProductionAgent.ts`)
  * to keep the copy in lockstep.
  *
@@ -11,6 +11,8 @@
  * regex stays narrow; `buildUpgradeUrl` emits org-name URLs that may
  * contain `(` (e.g. `Acme%20(staging)`) and we don't want to reject them.
  */
+export const BUILDER_SPACE_SETTINGS_URL = "https://builder.io/account/space";
+
 function isSafeUpgradeUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -24,8 +26,15 @@ function isSafeUpgradeUrl(url: string): boolean {
 export function formatChatErrorText(
   errorMessage: string,
   upgradeUrl?: string,
+  errorCode?: string,
 ): string {
   const normalized = normalizeChatError(errorMessage);
+  if (
+    errorCode === "gateway_not_enabled" ||
+    /space has not enabled the LLM gateway/i.test(normalized.message)
+  ) {
+    return `Error: ${normalized.message}\n\n[Open Builder space settings](${BUILDER_SPACE_SETTINGS_URL})`;
+  }
   if (!upgradeUrl || !isSafeUpgradeUrl(upgradeUrl)) {
     return `Error: ${normalized.message}`;
   }
@@ -60,7 +69,8 @@ export function normalizeChatError(errorMessage: string): NormalizedChatError {
 
   if (looksHtml) {
     return {
-      message: text.slice(0, 240) || "The provider returned an HTML error page.",
+      message:
+        text.slice(0, 240) || "The provider returned an HTML error page.",
       details: text,
     };
   }

@@ -39,6 +39,7 @@ import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { agentNativePath } from "./api-path.js";
+import { BUILDER_SPACE_SETTINGS_URL } from "./error-format.js";
 import {
   TiptapComposer,
   type TiptapComposerHandle,
@@ -75,6 +76,9 @@ import {
   IconGauge,
   IconArrowRight,
   IconSettings,
+  IconAlertTriangle,
+  IconRefresh,
+  IconPlayerPlay,
 } from "@tabler/icons-react";
 
 const ThumbsFeedbackLazy = React.lazy(() =>
@@ -340,6 +344,32 @@ function HighlightedCodeBlock({ code, lang }: { code: string; lang: string }) {
 }
 
 const markdownComponents = {
+  a(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+    const { href, children, className, ...rest } = props;
+    const isBuilderCta = isBuilderErrorCtaHref(href);
+    if (!isBuilderCta) {
+      return (
+        <a href={href} className={className} {...rest}>
+          {children}
+        </a>
+      );
+    }
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className={cn(
+          "mt-1 inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background no-underline shadow-sm transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          className,
+        )}
+        {...rest}
+      >
+        <span>{children}</span>
+        <IconExternalLink size={13} strokeWidth={2} aria-hidden="true" />
+      </a>
+    );
+  },
   pre(props: React.HTMLAttributes<HTMLPreElement>) {
     const { children, ...rest } = props;
     if (React.isValidElement(children)) {
@@ -364,6 +394,23 @@ const markdownComponents = {
     return <pre {...rest}>{children}</pre>;
   },
 };
+
+function isBuilderErrorCtaHref(href: string | undefined): boolean {
+  if (!href) return false;
+  try {
+    const url = new URL(href);
+    if (url.protocol !== "https:" || url.hostname !== "builder.io") {
+      return false;
+    }
+    return (
+      url.href === BUILDER_SPACE_SETTINGS_URL ||
+      url.pathname === "/account/billing" ||
+      /^\/app\/organizations\/[^/]+\/billing$/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
 
 function MarkdownText() {
   useEffect(() => {
@@ -1469,6 +1516,13 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
 // ─── Loop Limit Continue Card ───────────────────────────────────────────────
 
 type LoopLimitInfo = { maxIterations?: number };
+type RunErrorInfo = {
+  message: string;
+  details?: string;
+  errorCode?: string;
+  runId?: string;
+  recoverable?: boolean;
+};
 
 interface AgentLoopSettingsResponse {
   maxIterations: number;
@@ -1496,6 +1550,159 @@ function getLoopLimitMetadata(message: unknown): LoopLimitInfo | null {
       ? { maxIterations: loopLimit.maxIterations }
       : {}),
   };
+}
+
+function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | {
+        custom?: { runError?: RunErrorInfo; runId?: unknown };
+        runError?: RunErrorInfo;
+        runId?: unknown;
+      }
+    | undefined;
+  const runError = meta?.custom?.runError ?? meta?.runError;
+  if (!runError || typeof runError !== "object") return null;
+  const messageText =
+    typeof runError.message === "string" ? runError.message : "";
+  if (!messageText) return null;
+  const runId =
+    typeof runError.runId === "string"
+      ? runError.runId
+      : typeof meta?.custom?.runId === "string"
+        ? meta.custom.runId
+        : typeof meta?.runId === "string"
+          ? meta.runId
+          : undefined;
+  return {
+    message: messageText,
+    ...(typeof runError.details === "string"
+      ? { details: runError.details }
+      : {}),
+    ...(typeof runError.errorCode === "string"
+      ? { errorCode: runError.errorCode }
+      : {}),
+    ...(runId ? { runId } : {}),
+    ...(runError.recoverable ? { recoverable: true } : {}),
+  };
+}
+
+function RunErrorRecoveryCard({
+  info,
+  onContinue,
+  onRetry,
+  onFork,
+  onDismiss,
+}: {
+  info: RunErrorInfo;
+  onContinue: () => void;
+  onRetry: () => void;
+  onFork?: () => void;
+  onDismiss: () => void;
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copyDetails = useCallback(() => {
+    const text = [
+      info.message,
+      info.errorCode ? `Code: ${info.errorCode}` : "",
+      info.runId ? `Run: ${info.runId}` : "",
+      info.details ? `Details:\n${info.details}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  }, [info]);
+
+  return (
+    <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/12 text-amber-700 dark:text-amber-300">
+          <IconAlertTriangle size={14} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-medium text-foreground">
+            The agent stopped before finishing
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {info.message}
+          </p>
+          {(info.runId || info.errorCode || info.details) && (
+            <button
+              type="button"
+              onClick={() => setDetailsOpen((v) => !v)}
+              className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+            >
+              <IconChevronDown
+                size={12}
+                className={cn(
+                  "transition-transform",
+                  detailsOpen && "rotate-180",
+                )}
+              />
+              Details
+            </button>
+          )}
+          {detailsOpen && (
+            <div className="mt-2 rounded-md border border-border/60 bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+              {info.runId && <div>run: {info.runId}</div>}
+              {info.errorCode && <div>code: {info.errorCode}</div>}
+              {info.details && (
+                <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono">
+                  {info.details}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/80 hover:text-foreground"
+        >
+          <IconX size={14} />
+        </button>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onContinue}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+        >
+          <IconPlayerPlay size={13} />
+          Continue
+        </button>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
+        >
+          <IconRefresh size={13} />
+          Retry
+        </button>
+        {onFork && (
+          <button
+            type="button"
+            onClick={onFork}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
+          >
+            <IconGitFork size={13} />
+            Fork
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={copyDetails}
+          className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-background/80 hover:text-foreground"
+        >
+          {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function LoopLimitContinueCard({

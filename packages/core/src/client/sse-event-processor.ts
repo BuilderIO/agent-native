@@ -29,8 +29,8 @@ export interface SSEEvent {
   preview?: string;
   currentStep?: string;
   summary?: string;
-  // Structured error metadata — Builder gateway sets these on 402/403 so the
-  // UI can render an upgrade CTA alongside the error text.
+  // Structured error metadata — Builder gateway sets these on quota/auth/setup
+  // failures so the UI can render a CTA alongside the error text.
   errorCode?: string;
   upgradeUrl?: string;
   details?: string;
@@ -266,7 +266,7 @@ export function processEvent(
     }
     content.push({
       type: "text",
-      text: formatChatErrorText(errMsg, ev.upgradeUrl),
+      text: formatChatErrorText(errMsg, ev.upgradeUrl, ev.errorCode),
     });
     return {
       action: "error",
