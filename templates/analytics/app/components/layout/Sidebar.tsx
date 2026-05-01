@@ -12,8 +12,10 @@ import {
   IconMoon,
   IconInfoCircle,
   IconTrash,
+  IconDots,
   IconLoader2,
   IconStar,
+  IconPencil,
   IconSettings,
   IconGripVertical,
   IconBook2,
@@ -50,9 +52,19 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton, appApiPath } from "@agent-native/core/client";
+import {
+  FeedbackButton,
+  appApiPath,
+  useActionMutation,
+} from "@agent-native/core/client";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 import { NewAnalysisDialog } from "./NewAnalysisDialog";
@@ -116,28 +128,24 @@ function applyOrder<T extends { id: string }>(
 function SortableRow({
   id,
   favoriteKey,
-  deleteKey,
   name,
   href,
   isActive,
   favoriteIds,
   onToggleFavorite,
-  deletingId,
-  setDeletingId,
   onDelete,
+  onRename,
   children,
 }: {
   id: string;
   favoriteKey: string;
-  deleteKey: string;
   name: string;
   href: string;
   isActive: boolean;
   favoriteIds: Set<string>;
   onToggleFavorite: (key: string) => void;
-  deletingId: string | null;
-  setDeletingId: (id: string | null) => void;
   onDelete: () => Promise<void> | void;
+  onRename: (name: string) => Promise<void> | void;
   children?: React.ReactNode;
 }) {
   const {
@@ -155,82 +163,138 @@ function SortableRow({
     opacity: isDragging ? 0.5 : 1,
   };
   const isFav = favoriteIds.has(favoriteKey);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(name);
+
+  useEffect(() => {
+    if (!isRenaming) setRenameValue(name);
+  }, [isRenaming, name]);
+
+  const submitRename = useCallback(async () => {
+    const trimmed = renameValue.trim();
+    setIsRenaming(false);
+    if (!trimmed || trimmed === name) {
+      setRenameValue(name);
+      return;
+    }
+    try {
+      await onRename(trimmed);
+    } catch (e) {
+      setRenameValue(name);
+      toast.error(
+        e instanceof Error
+          ? `Couldn't rename ${name}: ${e.message}`
+          : `Couldn't rename ${name}`,
+      );
+    }
+  }, [name, onRename, renameValue]);
+
+  const runDelete = useCallback(async () => {
+    setMenuOpen(false);
+    try {
+      await onDelete();
+    } catch (e) {
+      toast.error(
+        e instanceof Error
+          ? `Couldn't delete ${name}: ${e.message}`
+          : `Couldn't delete ${name}`,
+      );
+    }
+  }, [name, onDelete]);
+
   return (
     <div ref={setNodeRef} style={style} className="group/item relative min-w-0">
-      <div className="flex items-center min-w-0">
-        <button
-          className="-ml-3 p-1 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors shrink-0 opacity-0 group-hover/item:opacity-100"
-          {...attributes}
-          {...listeners}
-        >
-          <IconGripVertical className="h-3 w-3" />
-        </button>
-        <Link
-          to={href}
-          className={cn(
-            "flex-1 min-w-0 flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-all hover:text-primary",
-            isActive
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "text-muted-foreground hover:bg-sidebar-accent/50",
-          )}
-        >
-          <span className="truncate">{name}</span>
-        </Link>
-        <button
-          onClick={() => onToggleFavorite(favoriteKey)}
-          className={cn(
-            "p-1 rounded transition-all shrink-0",
-            isFav
-              ? "text-yellow-500 opacity-100"
-              : "opacity-0 group-hover/item:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
-          )}
-          title={isFav ? "Unfavorite" : "Favorite"}
-        >
-          <IconStar className={cn("h-3 w-3", isFav && "fill-current")} />
-        </button>
-        <Popover
-          open={deletingId === deleteKey}
-          onOpenChange={(open) => setDeletingId(open ? deleteKey : null)}
-        >
-          <PopoverTrigger asChild>
+      <button
+        type="button"
+        className="absolute -left-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
+        aria-label={`Drag ${name}`}
+        {...attributes}
+        {...listeners}
+      >
+        <IconGripVertical className="h-3 w-3" />
+      </button>
+      <div
+        className={cn(
+          "relative flex min-w-0 items-center rounded-lg transition-colors",
+          isActive
+            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+            : "text-muted-foreground hover:bg-sidebar-accent/50 group-hover/item:text-primary",
+        )}
+      >
+        {isRenaming ? (
+          <input
+            autoFocus
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onBlur={submitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submitRename();
+              if (e.key === "Escape") {
+                setRenameValue(name);
+                setIsRenaming(false);
+              }
+            }}
+            className="min-w-0 flex-1 bg-transparent px-2 py-1.5 pr-12 text-xs outline-none"
+          />
+        ) : (
+          <Link
+            to={href}
+            title={name}
+            className="min-w-0 flex-1 px-2 py-1.5 pr-12 text-xs transition-[padding] md:pr-2 md:group-hover/item:pr-12 md:group-focus-within/item:pr-12"
+          >
+            <span className="block truncate">{name}</span>
+          </Link>
+        )}
+        <div className="pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/item:opacity-100 md:group-focus-within/item:opacity-100">
+          <button
+            type="button"
+            onClick={() => onToggleFavorite(favoriteKey)}
+            className={cn(
+              "pointer-events-auto rounded p-0.5 transition-colors",
+              isFav
+                ? "text-yellow-500"
+                : "text-muted-foreground/50 hover:text-yellow-500",
+            )}
+            title={isFav ? "Unfavorite" : "Favorite"}
+            aria-label={isFav ? "Unfavorite" : "Favorite"}
+          >
+            <IconStar className={cn("h-3 w-3", isFav && "fill-current")} />
+          </button>
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger asChild>
             <button
-              className="opacity-0 group-hover/item:opacity-100 p-1 rounded text-muted-foreground/50 hover:text-foreground transition-all shrink-0 mr-1"
-              title={`Remove ${name}`}
+              type="button"
+              className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 transition-colors hover:text-foreground"
+              title={`${name} actions`}
+              aria-label={`${name} actions`}
             >
-              <IconTrash className="h-3 w-3" />
+              <IconDots className="h-3 w-3" />
             </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-52 p-3" side="right" align="start">
-            <p className="text-sm mb-3">
-              Remove <strong>{name}</strong>?
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={async () => {
-                  try {
-                    await onDelete();
-                    setDeletingId(null);
-                  } catch (e) {
-                    toast.error(
-                      e instanceof Error
-                        ? `Couldn't remove ${name}: ${e.message}`
-                        : `Couldn't remove ${name}`,
-                    );
-                  }
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="right" align="start" className="w-36">
+              <DropdownMenuItem
+                onSelect={() => {
+                  setRenameValue(name);
+                  setIsRenaming(true);
                 }}
-                className="flex-1 rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
               >
-                Remove
-              </button>
-              <button
-                onClick={() => setDeletingId(null)}
-                className="flex-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-sidebar-accent/50 transition-colors"
+                <IconPencil className="mr-2 h-3.5 w-3.5" />
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void runDelete();
+                }}
+                className="text-destructive focus:text-destructive"
               >
-                Cancel
-              </button>
-            </div>
-          </PopoverContent>
-        </Popover>
+                <IconTrash className="mr-2 h-3.5 w-3.5" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
       {children}
     </div>
