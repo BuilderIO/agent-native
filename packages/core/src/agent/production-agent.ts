@@ -476,12 +476,24 @@ function isContextTooLongError(err: unknown): boolean {
 function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
+  const code =
+    err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   return (
+    code === "http_502" ||
+    code === "http_503" ||
+    code === "http_504" ||
+    code === "timeout" ||
     msg.includes("overloaded") ||
     msg.includes("rate_limit") ||
     msg.includes("529") ||
+    msg.includes("502") ||
     msg.includes("503") ||
-    msg.includes("too many requests")
+    msg.includes("504") ||
+    msg.includes("too many requests") ||
+    msg.includes("timeout") ||
+    msg.includes("gateway timeout") ||
+    msg.includes("inactivity timeout") ||
+    msg.includes("too much time has passed without sending any data")
   );
 }
 

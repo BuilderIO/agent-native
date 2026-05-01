@@ -290,9 +290,21 @@ function subscribeInMemory(
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   let subscriberRef: ((event: RunEvent) => void) | null = null;
+  let pingTimer: ReturnType<typeof setInterval> | null = null;
 
   return new ReadableStream({
     start(controller) {
+      const ping = () => {
+        try {
+          controller.enqueue(encoder.encode(`: ping ${Date.now()}\n\n`));
+        } catch {
+          if (subscriberRef) run.subscribers.delete(subscriberRef);
+          if (pingTimer) clearInterval(pingTimer);
+        }
+      };
+      ping();
+      pingTimer = setInterval(ping, 10_000);
+
       // Replay buffered events from fromSeq
       for (let i = fromSeq; i < run.events.length; i++) {
         try {
@@ -308,6 +320,7 @@ function subscribeInMemory(
 
       // If run is already done, close immediately
       if (run.status !== "running") {
+        if (pingTimer) clearInterval(pingTimer);
         controller.close();
         return;
       }
@@ -328,6 +341,7 @@ function subscribeInMemory(
             event.event.type === "loop_limit"
           ) {
             run.subscribers.delete(subscriberRef!);
+            if (pingTimer) clearInterval(pingTimer);
             controller.close();
           }
         } catch {
@@ -340,6 +354,7 @@ function subscribeInMemory(
     cancel() {
       // Only unsubscribe — do NOT abort the agent run
       if (subscriberRef) run.subscribers.delete(subscriberRef);
+      if (pingTimer) clearInterval(pingTimer);
     },
   });
 }
@@ -352,10 +367,21 @@ function subscribeFromSQL(
   const encoder = new TextEncoder();
   let cancelled = false;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  let pingTimer: ReturnType<typeof setInterval> | null = null;
 
   return new ReadableStream({
     async start(controller) {
       let lastSeq = fromSeq;
+      const ping = () => {
+        try {
+          controller.enqueue(encoder.encode(`: ping ${Date.now()}\n\n`));
+        } catch {
+          cancelled = true;
+          if (pingTimer) clearInterval(pingTimer);
+        }
+      };
+      ping();
+      pingTimer = setInterval(ping, 10_000);
 
       const poll = async () => {
         if (cancelled) return;
@@ -388,6 +414,7 @@ function subscribeFromSQL(
               parsed.type === "missing_api_key" ||
               parsed.type === "loop_limit"
             ) {
+              if (pingTimer) clearInterval(pingTimer);
               controller.close();
               return;
             }
@@ -421,6 +448,7 @@ function subscribeFromSQL(
                   return;
                 }
               }
+              if (pingTimer) clearInterval(pingTimer);
               controller.close();
               return;
             }
@@ -433,6 +461,7 @@ function subscribeFromSQL(
         } catch {
           // SQL error — close stream
           try {
+            if (pingTimer) clearInterval(pingTimer);
             controller.close();
           } catch {}
         }
@@ -442,6 +471,7 @@ function subscribeFromSQL(
       try {
         const run = await getRunById(runId);
         if (!run) {
+          if (pingTimer) clearInterval(pingTimer);
           controller.close();
           return;
         }
@@ -455,6 +485,7 @@ function subscribeFromSQL(
     cancel() {
       cancelled = true;
       if (pollTimer) clearTimeout(pollTimer);
+      if (pingTimer) clearInterval(pingTimer);
     },
   });
 }

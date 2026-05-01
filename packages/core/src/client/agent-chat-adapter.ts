@@ -6,6 +6,7 @@ import {
 } from "./active-run-state.js";
 import { type ContentPart, readSSEStream } from "./sse-event-processor.js";
 import { agentNativePath } from "./api-path.js";
+import { normalizeChatError } from "./error-format.js";
 
 /**
  * The composer's exec mode is sent as explicit request metadata. The server
@@ -340,11 +341,26 @@ export function createAgentChatAdapter(options?: {
         }
 
         // Reconnect failed or not possible — show error with details
+        const normalized = normalizeChatError(errMsg);
+        const runError = {
+          message: normalized.message,
+          ...(normalized.details ? { details: normalized.details } : {}),
+          errorCode: "connection_error",
+          recoverable: true,
+          ...(runId ? { runId } : {}),
+        };
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:run-error", {
+              detail: { ...runError, tabId },
+            }),
+          );
+        }
         content.push({
           type: "text",
           text: errMsg.startsWith("Server error:")
             ? errMsg
-            : `Something went wrong: ${errMsg}`,
+            : `Something went wrong: ${normalized.message}`,
         });
         yield {
           content: [...content],
@@ -352,7 +368,7 @@ export function createAgentChatAdapter(options?: {
             type: "incomplete" as const,
             reason: "error" as const,
           },
-          ...(runId ? { metadata: { custom: { runId } } } : {}),
+          metadata: { custom: { ...(runId ? { runId } : {}), runError } },
         };
       } finally {
         if (typeof window !== "undefined") {

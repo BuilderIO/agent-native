@@ -472,4 +472,21 @@ export async function readSSEStreamRaw(
   } finally {
     reader.releaseLock();
   }
+  if (content.length > 0) {
+    const runError = {
+      message:
+        "The response stream ended before the agent sent a completion signal. You can continue from the partial work or retry.",
+      errorCode: "stream_ended",
+      recoverable: true,
+    };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:run-error", {
+          detail: { ...runError, tabId },
+        }),
+      );
+    }
+    content.push({ type: "text", text: `Error: ${runError.message}` });
+    onUpdate([...content]);
+  }
 }
