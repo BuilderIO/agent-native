@@ -13,6 +13,7 @@ import {
   IconFingerprint,
   IconHistory,
   IconPuzzle,
+  IconPlus,
   IconShieldCheck,
   IconUsersGroup,
 } from "@tabler/icons-react";
@@ -23,6 +24,7 @@ import { HeaderActionsProvider } from "./HeaderActions";
 
 const NAV_ITEMS = [
   { to: "/overview", label: "Overview", icon: IconBroadcast },
+  { to: "/new-app", label: "New App", icon: IconPlus },
   { to: "/vault", label: "Vault", icon: IconKey },
   { to: "/integrations", label: "Integrations", icon: IconPuzzle },
   { to: "/workspace", label: "Resources", icon: IconLayersSubtract },

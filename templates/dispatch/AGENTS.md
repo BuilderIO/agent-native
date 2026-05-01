@@ -43,12 +43,13 @@ Use resources for:
 
 The UI writes:
 
-- `navigation.view`: `overview`, `vault`, `integrations`, `workspace`, `destinations`, `identities`, `approvals`, `audit`, or `team`
+- `navigation.view`: `overview`, `new-app`, `vault`, `integrations`, `workspace`, `destinations`, `identities`, `approvals`, `audit`, or `team`
 - `navigation.path`: current route path
 
 The agent can navigate with:
 
 - `navigate(view="overview")`
+- `navigate(view="new-app")`
 - `navigate(view="vault")`
 - `navigate(view="integrations")`
 - `navigate(view="workspace")`
@@ -63,11 +64,13 @@ The agent can navigate with:
 ### Vault (workspace-wide secrets)
 
 - `list-vault-secrets`: list all secrets in the vault (values are masked)
+- `list-vault-secret-options`: list vault secrets for app-creation key pickers without exposing values
 - `create-vault-secret`: store a new secret (admin only)
 - `update-vault-secret`: update a secret's value (admin only)
 - `delete-vault-secret`: remove a secret and all its grants (admin only)
 - `list-vault-grants`: list which apps have access to which secrets
 - `create-vault-grant`: grant an app access to a secret (admin only)
+- `grant-vault-secrets-to-app`: grant several selected secrets to a new workspace app, skipping existing active grants
 - `revoke-vault-grant`: revoke an app's access to a secret (admin only)
 - `sync-vault-to-app`: push all granted secrets to an app's env-vars endpoint
 - `list-vault-audit`: view secret access, grant, and sync history
