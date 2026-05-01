@@ -358,7 +358,7 @@ export default defineAction({
 
       const reason = builderError
         ? `Builder transcription failed: ${builderError}. Add GROQ_API_KEY or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
-        : "No transcription key configured. Set GROQ_API_KEY (fast) or OPENAI_API_KEY.";
+        : "No transcription provider configured. Connect Builder.io (free, no API key needed) or add GROQ_API_KEY / OPENAI_API_KEY in Settings.";
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,
