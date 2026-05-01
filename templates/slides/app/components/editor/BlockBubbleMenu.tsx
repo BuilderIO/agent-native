@@ -14,8 +14,6 @@ import {
 interface BlockBubbleMenuProps {
   /** The element currently in contentEditable mode. Menu only shows while selection is inside it. */
   editingEl: HTMLElement | null;
-  /** Called when formatting changes, so the parent can persist the updated HTML. */
-  onChange?: () => void;
 }
 
 interface Position {
@@ -45,12 +43,18 @@ const COLORS = [
  * the DOM. Designed to work with the in-place per-block editing in
  * SlideEditor — it never mutates anything outside the editing element.
  */
-export function BlockBubbleMenu({ editingEl, onChange }: BlockBubbleMenuProps) {
+export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
   const [pos, setPos] = useState<Position | null>(null);
   const [showColors, setShowColors] = useState(false);
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkValue, setLinkValue] = useState("");
   const savedRangeRef = useRef<Range | null>(null);
+  // True while a popup/input has the user's focus — keeps the menu pinned
+  // even when the contentEditable selection collapses behind the scenes.
+  const interactingRef = useRef(false);
+  useEffect(() => {
+    interactingRef.current = showColors || showLinkInput;
+  }, [showColors, showLinkInput]);
 
   // Hide menu when the editing element changes
   useEffect(() => {
@@ -64,6 +68,7 @@ export function BlockBubbleMenu({ editingEl, onChange }: BlockBubbleMenuProps) {
     if (!editingEl) return;
 
     const updatePosition = () => {
+      if (interactingRef.current) return;
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
         setPos(null);
@@ -115,11 +120,10 @@ export function BlockBubbleMenu({ editingEl, onChange }: BlockBubbleMenuProps) {
 
   const runCommand = (cmd: string, value?: string) => {
     if (!restoreSelection()) return;
-    // execCommand is deprecated but still the simplest way to apply
-    // inline formatting inside a contentEditable region. We scope all
-    // commands to the editing element by restoring its selection first.
+    // Don't sync to React state per-command: it would re-run SlideRenderer's
+    // dangerouslySetInnerHTML and wipe the contentEditable attribute. Edit
+    // exit captures the final DOM via slideContent.innerHTML.
     document.execCommand(cmd, false, value);
-    onChange?.();
   };
 
   const applyColor = (color: string) => {
