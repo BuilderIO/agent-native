@@ -3,11 +3,11 @@ import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [
-    { title: "Slides" },
+    { title: "Agent-Native Slides" },
     {
       name: "description",
       content:
-        "Agent-native slides — generate and edit React presentations, then export to PPTX or share a public link.",
+        "Your AI agent builds, edits, and refines presentations alongside you.",
     },
   ];
 }

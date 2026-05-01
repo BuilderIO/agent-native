@@ -28,6 +28,33 @@ export function useAvailableSlots(
   });
 }
 
+export function useAvailableDays(
+  from: string,
+  to: string,
+  duration: number,
+  slug?: string,
+  enabled = true,
+) {
+  return useQuery<string[]>({
+    queryKey: ["available-days", from, to, duration, slug],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        from,
+        to,
+        duration: String(duration),
+      });
+      if (slug) params.set("slug", slug);
+      const res = await fetch(
+        appApiPath(`/api/bookings/available-slots?${params}`),
+      );
+      if (!res.ok) throw new Error("Failed to fetch available days");
+      const data = await res.json();
+      return Array.isArray(data?.dates) ? data.dates : [];
+    },
+    enabled: enabled && !!from && !!to,
+  });
+}
+
 export function useCreateBooking() {
   const queryClient = useQueryClient();
   return useMutation({

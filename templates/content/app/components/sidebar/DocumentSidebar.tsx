@@ -224,7 +224,7 @@ export function DocumentSidebar({
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between h-12 px-3 border-b border-border">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
         <div className="flex items-center gap-2 min-w-0">
           <img
             src="/agent-native-icon-light.svg"

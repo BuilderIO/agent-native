@@ -236,7 +236,7 @@ export default function EditorToolbar({
   };
 
   return (
-    <div className="h-12 border-b border-border bg-background flex items-center px-1 sm:px-3 gap-1 sm:gap-2 overflow-x-auto">
+    <div className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-background px-1 sm:gap-2 sm:px-3">
       {/* Back button */}
       <Link
         to="/"

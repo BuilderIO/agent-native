@@ -7,11 +7,11 @@ import { useDocuments } from "@/hooks/use-documents";
 
 export function meta() {
   return [
-    { title: "Content" },
+    { title: "Agent-Native Content" },
     {
       name: "description",
       content:
-        "Agent-native docs — write and organize alongside an agent that can read, edit, and search every page.",
+        "Your AI agent creates, edits, and organizes documents alongside you in a Notion-like workspace.",
     },
   ];
 }

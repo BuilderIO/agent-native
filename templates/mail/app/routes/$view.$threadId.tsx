@@ -2,7 +2,7 @@ import { InboxPage } from "@/pages/InboxPage";
 import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
-  return [{ title: "Mail" }];
+  return [{ title: "Agent-Native Mail" }];
 }
 
 export function HydrateFallback() {

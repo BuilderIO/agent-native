@@ -54,6 +54,10 @@ To switch back to real auth, remove the line from `.env` (or clear the marker fi
 
 ## QA Accounts {#qa-accounts}
 
+Local development and tests skip signup email verification by default, so you
+can create real email/password accounts without waiting on an inbox. To force
+verification locally while testing that flow, set `AUTH_SKIP_EMAIL_VERIFICATION=0`.
+
 For hosted QA environments where testers need real accounts but should not wait
 on email delivery, set:
 
@@ -218,16 +222,16 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 
 ## Environment Variables {#environment-variables}
 
-| Variable                       | Purpose                                                                                          |
-| ------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `AUTH_MODE`                    | Set to `local` to disable auth                                                                   |
-| `BETTER_AUTH_SECRET`           | Signing key for Better Auth (auto-generated if not set)                                          |
-| `AUTH_SKIP_EMAIL_VERIFICATION` | Set to `1` in QA/preview environments to let email/password signups proceed without verification |
-| `GOOGLE_CLIENT_ID`             | Enable Google OAuth                                                                              |
-| `GOOGLE_CLIENT_SECRET`         | Google OAuth secret                                                                              |
-| `GITHUB_CLIENT_ID`             | Enable GitHub OAuth                                                                              |
-| `GITHUB_CLIENT_SECRET`         | GitHub OAuth secret                                                                              |
-| `ACCESS_TOKEN`                 | Simple shared token auth                                                                         |
-| `ACCESS_TOKENS`                | Comma-separated shared tokens                                                                    |
-| `AUTH_DISABLED`                | Set to `true` to skip auth (infrastructure-level auth)                                           |
-| `A2A_SECRET`                   | Shared secret for JWT-signed A2A cross-app identity verification                                 |
+| Variable                       | Purpose                                                                                                                           |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_MODE`                    | Set to `local` to disable auth                                                                                                    |
+| `BETTER_AUTH_SECRET`           | Signing key for Better Auth (auto-generated if not set)                                                                           |
+| `AUTH_SKIP_EMAIL_VERIFICATION` | Set to `1` in QA/preview environments to let email/password signups proceed without verification; local dev/test skips by default |
+| `GOOGLE_CLIENT_ID`             | Enable Google OAuth                                                                                                               |
+| `GOOGLE_CLIENT_SECRET`         | Google OAuth secret                                                                                                               |
+| `GITHUB_CLIENT_ID`             | Enable GitHub OAuth                                                                                                               |
+| `GITHUB_CLIENT_SECRET`         | GitHub OAuth secret                                                                                                               |
+| `ACCESS_TOKEN`                 | Simple shared token auth                                                                                                          |
+| `ACCESS_TOKENS`                | Comma-separated shared tokens                                                                                                     |
+| `AUTH_DISABLED`                | Set to `true` to skip auth (infrastructure-level auth)                                                                            |
+| `A2A_SECRET`                   | Shared secret for JWT-signed A2A cross-app identity verification                                                                  |

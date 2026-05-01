@@ -3,11 +3,11 @@ import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [
-    { title: "Calendar" },
+    { title: "Agent-Native Calendar" },
     {
       name: "description",
       content:
-        "Agent-native calendar — sync Google Calendar, manage events, and share booking links.",
+        "Your AI agent schedules, reschedules, and manages your calendar so you never have to.",
     },
   ];
 }

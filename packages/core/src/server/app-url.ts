@@ -6,15 +6,16 @@
  * Resolution order:
  *   1. `APP_URL` env var — explicit override
  *   2. `BETTER_AUTH_URL` env var — Better Auth's canonical URL
- *   3. First-party template `prodUrl` from the registry (matched by
+ *   3. `WORKSPACE_GATEWAY_URL` — local multi-app workspace gateway
+ *   4. First-party template `prodUrl` from the registry (matched by
  *      package.json name) — lets deployed first-party apps (mail,
  *      calendar, analytics, …) use e.g. `analytics.agent-native.com`
  *      instead of their Netlify preview hostname.
- *   4. Incoming request's origin (when an H3Event is available)
- *   5. Platform-injected URL (Netlify `URL`, Vercel `VERCEL_URL`) —
+ *   5. Incoming request's origin (when an H3Event is available)
+ *   6. Platform-injected URL (Netlify `URL`, Vercel `VERCEL_URL`) —
  *      automatically set by the hosting platform, so user-deployed apps
  *      get a real hostname in emails without needing to set `APP_URL`.
- *   6. `http://localhost:3000`
+ *   7. `http://localhost:3000`
  */
 import { getRequestURL, type H3Event } from "h3";
 import path from "node:path";
@@ -65,6 +66,10 @@ export function getFirstPartyProdUrl(): string | undefined {
 export function getAppProductionUrl(event?: H3Event): string {
   const envUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL;
   if (envUrl) return stripTrailingSlash(envUrl);
+
+  if (process.env.WORKSPACE_GATEWAY_URL) {
+    return stripTrailingSlash(process.env.WORKSPACE_GATEWAY_URL);
+  }
 
   // Prefer the incoming request's origin when we have one — for local dev
   // this is `http://localhost:3000`, which keeps Better Auth from setting

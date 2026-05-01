@@ -86,7 +86,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         >
           {/* Sidebar header */}
-          <div className="flex h-12 items-center justify-between border-b border-border px-3">
+          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
             {!sidebarCollapsed && (
               <div className="flex items-center gap-2">
                 <img

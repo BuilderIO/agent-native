@@ -37,7 +37,7 @@ export const meta = ({ params }: { params: { slug?: string } }) => {
   const template = findTemplate(params.slug);
   if (!template) return [{ title: "Template Not Found — Agent-Native" }];
   return [
-    { title: `${template.name} Template — Agent-Native` },
+    { title: `Agent-Native ${template.name} Template` },
     { name: "description", content: template.description },
   ];
 };

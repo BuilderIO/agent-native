@@ -71,7 +71,7 @@ export function Header() {
             onClick={() => setMenuOpen(false)}
           />
           <div className="fixed inset-y-0 left-0 z-50 w-64 overflow-y-auto border-r border-border bg-background shadow-xl">
-            <div className="flex h-12 items-center justify-between border-b border-border px-4">
+            <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
               <div className="flex items-center gap-2">
                 <img
                   src="/agent-native-icon-light.svg"

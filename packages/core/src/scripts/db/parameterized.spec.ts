@@ -29,7 +29,7 @@ describe("db scripts parameterized SQL", () => {
         { table_name: "notes", column_name: "org_id" },
         { table_name: "notes", column_name: "title" },
       ]),
-      { unsafe, end },
+      { unsafe, end, begin: async (fn: any) => fn({ unsafe }) },
     );
     vi.doMock("postgres", () => ({
       default: () => pgSql,
@@ -91,6 +91,57 @@ describe("db scripts parameterized SQL", () => {
       sql: "UPDATE notes SET title = ? WHERE id = ?",
       args: ["New title", "note-1"],
     });
+  });
+
+  it("executes db-exec statement batches in one SQLite transaction", async () => {
+    const execute = vi.fn(async () => ({
+      rows: [],
+      columns: [],
+      rowsAffected: 1,
+      lastInsertRowid: undefined,
+    }));
+    mockSqliteClient(execute);
+
+    const { default: dbExec } = await import("./exec.js");
+
+    await dbExec([
+      "--statements",
+      JSON.stringify([
+        {
+          sql: "INSERT INTO notes (id, title) VALUES (?, ?)",
+          args: ["note-1", "One"],
+        },
+        {
+          sql: "UPDATE notes SET title = ? WHERE id = ?",
+          args: ["Two", "note-1"],
+        },
+      ]),
+      "--format",
+      "json",
+    ]);
+
+    expect(execute).toHaveBeenNthCalledWith(1, "BEGIN");
+    expect(execute).toHaveBeenNthCalledWith(2, {
+      sql: "INSERT INTO notes (id, title) VALUES (?, ?)",
+      args: ["note-1", "One"],
+    });
+    expect(execute).toHaveBeenNthCalledWith(3, {
+      sql: "UPDATE notes SET title = ? WHERE id = ?",
+      args: ["Two", "note-1"],
+    });
+    expect(execute).toHaveBeenNthCalledWith(4, "COMMIT");
+  });
+
+  it("rejects ad-hoc schema changes through db-exec", async () => {
+    const execute = vi.fn();
+    mockSqliteClient(execute);
+
+    const { default: dbExec } = await import("./exec.js");
+
+    await expect(
+      dbExec(["--sql", "ALTER TABLE notes DROP COLUMN title"]),
+    ).rejects.toThrow("schema changes are not allowed through db-exec");
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("keeps SQLite bind args aligned after scoped db-exec predicates are injected", async () => {

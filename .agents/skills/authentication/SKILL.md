@@ -19,7 +19,7 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 | **Development (default)** | Auth is automatically bypassed. `getSession()` falls back to `{ email: "local@localhost" }` when nothing else succeeds. No config.      |
 | **Production (default)**  | Better Auth with email/password + social providers (Google, GitHub). Organizations built in.                                             |
 | **`AUTH_MODE=local`**     | Explicit escape hatch. `getSession()` always returns `{ email: "local@localhost" }`. Set via `.env` or the onboarding page's "Use locally" button. |
-| **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for real email/password accounts. Signup skips email verification and does not send the signup verification email. Use `+qa` emails for test accounts. |
+| **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for real email/password accounts. Signup skips email verification and does not send the signup verification email. Local dev/test skips verification by default; set `AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing verification itself. Use `+qa` emails for test accounts. |
 | **`ACCESS_TOKEN` / `ACCESS_TOKENS`** | Simple token-based auth for production deployments.                                                                           |
 | **`AUTH_DISABLED=true`**  | Skip auth entirely (for apps behind infrastructure-level auth like Cloudflare Access).                                                   |
 | **Custom**                | Pass your own `getSession` to `autoMountAuth(app, { getSession })`.                                                                     |

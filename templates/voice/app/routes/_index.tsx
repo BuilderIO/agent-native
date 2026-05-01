@@ -22,11 +22,11 @@ import { cn } from "@/lib/utils";
 
 export function meta() {
   return [
-    { title: "Voice" },
+    { title: "Agent-Native Voice" },
     {
       name: "description",
       content:
-        "Voice dictation with context-aware formatting, snippets, and a custom dictionary — speak to type anywhere.",
+        "Speak to type anywhere with context-aware formatting, snippets, and custom vocabulary.",
     },
   ];
 }

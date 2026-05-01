@@ -54,6 +54,247 @@ async function getBookingLinkSlugsForOwner(
   return rows.map((row) => row.slug);
 }
 
+type AvailabilityContext = {
+  effectiveConfig: AvailabilityConfig | null;
+  ownerEmail?: string;
+  slug: string;
+  conflictSlugs: string[];
+};
+
+type ConflictItem = { start: string; end: string };
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_AVAILABILITY_RANGE_DAYS = 93;
+
+function formatDateOnly(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateOnly(value: unknown): Date | null {
+  if (typeof value !== "string" || !DATE_ONLY_RE.test(value)) return null;
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return formatDateOnly(date) === value ? date : null;
+}
+
+function addLocalDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function countDaysInclusive(start: Date, end: Date): number {
+  let count = 0;
+  for (
+    let cursor = new Date(start);
+    cursor <= end;
+    cursor = addLocalDays(cursor, 1)
+  ) {
+    count += 1;
+    if (count > MAX_AVAILABILITY_RANGE_DAYS) return count;
+  }
+  return count;
+}
+
+function dateStartIso(date: string): string {
+  return new Date(`${date}T00:00:00`).toISOString();
+}
+
+function dateEndIso(date: string): string {
+  return new Date(`${date}T23:59:59.999`).toISOString();
+}
+
+async function resolveAvailabilityContext(
+  slug: string,
+): Promise<AvailabilityContext> {
+  const config = (await getSetting(
+    "calendar-availability",
+  )) as unknown as AvailabilityConfig | null;
+  const bookingLink = slug
+    ? await getDb()
+        .select()
+        .from(schema.bookingLinks)
+        .where(eq(schema.bookingLinks.slug, slug))
+        .then((rows) => rows[0])
+    : undefined;
+  const ownerEmail = bookingLink?.ownerEmail;
+  const ownerConfig = ownerEmail
+    ? ((await getUserSetting(
+        ownerEmail,
+        "calendar-availability",
+      )) as unknown as AvailabilityConfig | null)
+    : null;
+  const conflictSlugs = ownerEmail
+    ? await getBookingLinkSlugsForOwner(ownerEmail)
+    : slug
+      ? [slug]
+      : [];
+
+  return {
+    effectiveConfig: ownerConfig || config,
+    ownerEmail,
+    slug,
+    conflictSlugs,
+  };
+}
+
+async function getConflictItems({
+  ownerEmail,
+  conflictSlugs,
+  rangeStartIso,
+  rangeEndIso,
+}: {
+  ownerEmail?: string;
+  conflictSlugs: string[];
+  rangeStartIso: string;
+  rangeEndIso: string;
+}): Promise<ConflictItem[]> {
+  const conflictItems: ConflictItem[] = [];
+
+  if (await googleCalendar.isConnected(ownerEmail)) {
+    try {
+      const { events: googleEvents } = await googleCalendar.listEvents(
+        rangeStartIso,
+        rangeEndIso,
+        ownerEmail,
+      );
+      conflictItems.push(
+        ...googleEvents.map((event) => ({
+          start: event.start,
+          end: event.end,
+        })),
+      );
+    } catch {
+      // Continue without Google events if API fails
+    }
+  }
+
+  const bookings = await getDb()
+    .select()
+    .from(schema.bookings)
+    .where(
+      and(
+        ne(schema.bookings.status, "cancelled"),
+        lte(schema.bookings.start, rangeEndIso),
+        gte(schema.bookings.end, rangeStartIso),
+        conflictSlugs.length > 0
+          ? inArray(schema.bookings.slug, conflictSlugs)
+          : undefined,
+      ),
+    );
+
+  conflictItems.push(
+    ...bookings.map((booking) => ({
+      start: booking.start,
+      end: booking.end,
+    })),
+  );
+
+  return conflictItems;
+}
+
+function generateAvailableSlotsForDate({
+  date,
+  duration,
+  config,
+  conflictItems,
+}: {
+  date: string;
+  duration: number;
+  config: AvailabilityConfig;
+  conflictItems: ConflictItem[];
+}): TimeSlot[] {
+  const targetDate = new Date(`${date}T00:00:00`);
+  const dayNames = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ] as const;
+  const dayName = dayNames[targetDate.getDay()];
+  const daySchedule =
+    config.weeklySchedule[dayName as keyof typeof config.weeklySchedule];
+
+  if (!daySchedule || !daySchedule.enabled || daySchedule.slots.length === 0) {
+    return [];
+  }
+
+  const availableSlots: TimeSlot[] = [];
+  const slotDuration = duration || config.slotDurationMinutes;
+  const bufferMinutes = Number.isFinite(config.bufferMinutes)
+    ? config.bufferMinutes
+    : 0;
+  const minNoticeHours = Number.isFinite(config.minNoticeHours)
+    ? config.minNoticeHours
+    : 0;
+  const maxAdvanceDays = Number.isFinite(config.maxAdvanceDays)
+    ? config.maxAdvanceDays
+    : 60;
+  const bufferMs = Math.max(0, bufferMinutes) * 60 * 1000;
+  const earliestStart =
+    Date.now() + Math.max(0, minNoticeHours) * 60 * 60 * 1000;
+  const latestDate = new Date();
+  latestDate.setHours(23, 59, 59, 999);
+  latestDate.setDate(latestDate.getDate() + Math.max(0, maxAdvanceDays));
+
+  for (const scheduleSlot of daySchedule.slots) {
+    const [startHour, startMin] = scheduleSlot.start.split(":").map(Number);
+    const [endHour, endMin] = scheduleSlot.end.split(":").map(Number);
+    if (
+      !Number.isFinite(startHour) ||
+      !Number.isFinite(startMin) ||
+      !Number.isFinite(endHour) ||
+      !Number.isFinite(endMin)
+    ) {
+      continue;
+    }
+
+    const slotStart = new Date(`${date}T00:00:00`);
+    slotStart.setHours(startHour, startMin, 0, 0);
+
+    const slotEnd = new Date(`${date}T00:00:00`);
+    slotEnd.setHours(endHour, endMin, 0, 0);
+
+    let current = new Date(slotStart);
+
+    while (current.getTime() + slotDuration * 60 * 1000 <= slotEnd.getTime()) {
+      const candidateStart = new Date(current);
+      const candidateEnd = new Date(
+        current.getTime() + slotDuration * 60 * 1000,
+      );
+
+      const outsideBookingWindow =
+        candidateStart.getTime() < earliestStart ||
+        candidateStart.getTime() > latestDate.getTime();
+      const hasConflict = conflictItems.some((item) => {
+        const itemStart = new Date(item.start).getTime() - bufferMs;
+        const itemEnd = new Date(item.end).getTime() + bufferMs;
+        return (
+          candidateStart.getTime() < itemEnd &&
+          candidateEnd.getTime() > itemStart
+        );
+      });
+
+      if (!outsideBookingWindow && !hasConflict) {
+        availableSlots.push({
+          start: candidateStart.toISOString(),
+          end: candidateEnd.toISOString(),
+        });
+      }
+
+      current = new Date(current.getTime() + slotDuration * 60 * 1000);
+    }
+  }
+
+  return availableSlots;
+}
+
 export const listBookings = defineEventHandler(async (_event: H3Event) => {
   return requireRequestContext(_event, async () => {
     try {
@@ -395,151 +636,90 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
   try {
     const query = getQuery(event);
-    const date = query.date as string;
-    const duration = parseInt((query.duration as string) || "30", 10);
+    const date = typeof query.date === "string" ? query.date : "";
+    const from = parseDateOnly(query.from);
+    const to = parseDateOnly(query.to);
+    const hasRangeQuery = query.from !== undefined || query.to !== undefined;
+    const duration = parseInt(
+      typeof query.duration === "string" ? query.duration : "30",
+      10,
+    );
+    const slug = typeof query.slug === "string" ? query.slug : "";
 
-    if (!date) {
+    if (!Number.isFinite(duration) || duration <= 0 || duration > 24 * 60) {
+      setResponseStatus(event, 400);
+      return { error: "duration must be between 1 and 1440 minutes" };
+    }
+
+    if (hasRangeQuery) {
+      if (!from || !to) {
+        setResponseStatus(event, 400);
+        return {
+          error:
+            "from and to query parameters are required together in YYYY-MM-DD format",
+        };
+      }
+      if (from > to) {
+        setResponseStatus(event, 400);
+        return { error: "from must be before to" };
+      }
+      if (countDaysInclusive(from, to) > MAX_AVAILABILITY_RANGE_DAYS) {
+        setResponseStatus(event, 400);
+        return {
+          error: `date range cannot exceed ${MAX_AVAILABILITY_RANGE_DAYS} days`,
+        };
+      }
+    } else if (!parseDateOnly(date)) {
       setResponseStatus(event, 400);
       return { error: "date query parameter is required" };
     }
 
-    const config = (await getSetting(
-      "calendar-availability",
-    )) as unknown as AvailabilityConfig | null;
-    const slug = typeof query.slug === "string" ? query.slug : "";
-    const bookingLink = slug
-      ? await getDb()
-          .select()
-          .from(schema.bookingLinks)
-          .where(eq(schema.bookingLinks.slug, slug))
-          .then((rows) => rows[0])
-      : undefined;
-    const ownerEmail = bookingLink?.ownerEmail;
-    const ownerConfig = ownerEmail
-      ? ((await getUserSetting(
-          ownerEmail,
-          "calendar-availability",
-        )) as unknown as AvailabilityConfig | null)
-      : null;
-    const effectiveConfig = ownerConfig || config;
-    if (!effectiveConfig) {
-      return { slots: [] };
+    const context = await resolveAvailabilityContext(slug);
+    if (!context.effectiveConfig) {
+      return hasRangeQuery ? { dates: [] } : { slots: [] };
     }
 
-    // Determine the day of the week
-    const targetDate = new Date(date + "T00:00:00");
-    const dayNames = [
-      "sunday",
-      "monday",
-      "tuesday",
-      "wednesday",
-      "thursday",
-      "friday",
-      "saturday",
-    ] as const;
-    const dayName = dayNames[targetDate.getDay()];
-    const daySchedule =
-      effectiveConfig.weeklySchedule[
-        dayName as keyof typeof effectiveConfig.weeklySchedule
-      ];
-
-    if (
-      !daySchedule ||
-      !daySchedule.enabled ||
-      daySchedule.slots.length === 0
-    ) {
-      return { slots: [] };
-    }
-
-    // Get all events for this date to check for conflicts
-    const dayStart = new Date(date + "T00:00:00").toISOString();
-    const dayEnd = new Date(date + "T23:59:59").toISOString();
-
-    // Fetch Google Calendar events for the day if connected
-    let dayEvents: Array<{ start: string; end: string }> = [];
-    if (await googleCalendar.isConnected(ownerEmail)) {
-      try {
-        const { events: googleEvents } = await googleCalendar.listEvents(
-          dayStart,
-          dayEnd,
-          ownerEmail,
-        );
-        dayEvents = googleEvents.map((e) => ({ start: e.start, end: e.end }));
-      } catch {
-        // Continue without Google events if API fails
-      }
-    }
-
-    // Get bookings for this date from DB
-    const conflictSlugs = ownerEmail
-      ? await getBookingLinkSlugsForOwner(ownerEmail)
-      : slug
-        ? [slug]
-        : [];
-    const dayBookings = await getDb()
-      .select()
-      .from(schema.bookings)
-      .where(
-        and(
-          ne(schema.bookings.status, "cancelled"),
-          lte(schema.bookings.start, dayEnd),
-          gte(schema.bookings.end, dayStart),
-          conflictSlugs.length > 0
-            ? inArray(schema.bookings.slug, conflictSlugs)
-            : undefined,
-        ),
-      );
-
-    // Generate available slots
-    const availableSlots: TimeSlot[] = [];
-    const slotDuration = duration || effectiveConfig.slotDurationMinutes;
-    const bufferMs = effectiveConfig.bufferMinutes * 60 * 1000;
-
-    for (const scheduleSlot of daySchedule.slots) {
-      const [startHour, startMin] = scheduleSlot.start.split(":").map(Number);
-      const [endHour, endMin] = scheduleSlot.end.split(":").map(Number);
-
-      const slotStart = new Date(date + "T00:00:00");
-      slotStart.setHours(startHour, startMin, 0, 0);
-
-      const slotEnd = new Date(date + "T00:00:00");
-      slotEnd.setHours(endHour, endMin, 0, 0);
-
-      let current = new Date(slotStart);
-
-      while (
-        current.getTime() + slotDuration * 60 * 1000 <=
-        slotEnd.getTime()
+    if (hasRangeQuery) {
+      const rangeStart = formatDateOnly(from!);
+      const rangeEnd = formatDateOnly(to!);
+      const conflictItems = await getConflictItems({
+        ownerEmail: context.ownerEmail,
+        conflictSlugs: context.conflictSlugs,
+        rangeStartIso: dateStartIso(rangeStart),
+        rangeEndIso: dateEndIso(rangeEnd),
+      });
+      const dates: string[] = [];
+      for (
+        let cursor = new Date(from!);
+        cursor <= to!;
+        cursor = addLocalDays(cursor, 1)
       ) {
-        const candidateStart = new Date(current);
-        const candidateEnd = new Date(
-          current.getTime() + slotDuration * 60 * 1000,
-        );
-
-        // Check for conflicts with events and DB bookings (including buffer)
-        const allConflictItems = [
-          ...dayEvents.map((e) => ({ start: e.start, end: e.end })),
-          ...dayBookings.map((b) => ({ start: b.start, end: b.end })),
-        ];
-        const hasConflict = allConflictItems.some((item) => {
-          const itemStart = new Date(item.start).getTime() - bufferMs;
-          const itemEnd = new Date(item.end).getTime() + bufferMs;
-          return (
-            candidateStart.getTime() < itemEnd &&
-            candidateEnd.getTime() > itemStart
-          );
+        const day = formatDateOnly(cursor);
+        const slots = generateAvailableSlotsForDate({
+          date: day,
+          duration,
+          config: context.effectiveConfig,
+          conflictItems,
         });
-
-        if (!hasConflict) {
-          availableSlots.push({
-            start: candidateStart.toISOString(),
-            end: candidateEnd.toISOString(),
-          });
+        if (slots.length > 0) {
+          dates.push(day);
         }
-
-        current = new Date(current.getTime() + slotDuration * 60 * 1000);
       }
+      return { dates };
     }
+
+    const conflictItems = await getConflictItems({
+      ownerEmail: context.ownerEmail,
+      conflictSlugs: context.conflictSlugs,
+      rangeStartIso: dateStartIso(date),
+      rangeEndIso: dateEndIso(date),
+    });
+    const availableSlots = generateAvailableSlotsForDate({
+      date,
+      duration,
+      config: context.effectiveConfig,
+      conflictItems,
+    });
 
     return { slots: availableSlots };
   } catch (error: any) {

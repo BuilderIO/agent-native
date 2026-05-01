@@ -170,7 +170,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 : "-translate-x-full md:translate-x-0",
             )}
           >
-            <div className="flex h-12 items-center gap-2 px-4 border-b border-border">
+            <div className="flex h-12 shrink-0 items-center gap-2 px-4 border-b border-border">
               <img
                 src="/agent-native-icon-light.svg"
                 alt=""

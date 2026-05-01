@@ -4,7 +4,7 @@ import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -12,9 +12,7 @@ const repoRoot = path.resolve(
 );
 const cliEntry = path.join(repoRoot, "packages/core/src/cli/index.ts");
 const tsxBin = path.join(repoRoot, "node_modules/.bin/tsx");
-const coreDependencyVersion = `^${
-  readJson(path.join(repoRoot, "packages/core/package.json")).version
-}`;
+const coreDependencyVersion = resolveExpectedCoreDependencyVersion();
 
 function run(
   cmd: string,
@@ -57,6 +55,14 @@ function assertCliFails(args: string[], cwd: string, pattern: RegExp): void {
 
 function readJson(file: string): any {
   return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function resolveExpectedCoreDependencyVersion(): string {
+  const localCorePackage = path.join(repoRoot, "packages/core");
+  if (fs.existsSync(path.join(localCorePackage, "package.json"))) {
+    return pathToFileURL(localCorePackage).href;
+  }
+  return `^${readJson(path.join(repoRoot, "packages/core/package.json")).version}`;
 }
 
 function assertNoUnresolvedPlaceholders(dir: string): void {
@@ -258,8 +264,8 @@ try {
   assert.equal(workspacePkg["agent-native"].workspaceCore, workspaceCoreName);
   assert.equal(
     workspacePkg.scripts.dev,
-    "pnpm --filter starter dev",
-    "workspace dev script must point at the first scaffolded app",
+    "tsx scripts/workspace-dev.ts",
+    "workspace dev script must run the shared gateway",
   );
   assert.match(
     workspacePkg.scripts.postinstall,

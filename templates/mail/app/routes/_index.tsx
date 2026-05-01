@@ -3,11 +3,11 @@ import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [
-    { title: "Mail" },
+    { title: "Agent-Native Mail" },
     {
       name: "description",
       content:
-        "Agent-native email — keyboard-first inbox, AI triage, drafts, and search across every connected account.",
+        "Your AI agent reads, drafts, and organizes email alongside you.",
     },
   ];
 }

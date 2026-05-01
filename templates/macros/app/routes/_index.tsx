@@ -29,11 +29,11 @@ import type { Meal, Exercise } from "@shared/types";
 
 export function meta() {
   return [
-    { title: "Macros" },
+    { title: "Agent-Native Macros" },
     {
       name: "description",
       content:
-        "Agent-native macro tracking. Log meals, exercises, and weight by typing or voice — the agent estimates calories and macros for you.",
+        "Log meals, exercises, and weight by typing or voice while the agent estimates calories and macros for you.",
     },
   ];
 }

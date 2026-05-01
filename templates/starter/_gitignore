@@ -1,5 +1,6 @@
 # React Router generated types
 .react-router/
+.generated/
 
 # Logs
 logs
@@ -29,6 +30,9 @@ dist-ssr
 !.env.example
 
 # Data
+data/*.db
+data/*.db-shm
+data/*.db-wal
 data/uploads/
 data/settings.json
 data/.sessions.json

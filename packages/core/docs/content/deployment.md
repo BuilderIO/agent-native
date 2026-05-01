@@ -181,16 +181,16 @@ These must be set before promoting an app to a real prod deploy. Missing values 
 
 ### Auth & Identity {#env-auth}
 
-| Variable                       | Description                                                                                                         |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `ACCESS_TOKEN`                 | Single shared token for simple production deploys (alternative to Better Auth).                                     |
-| `ACCESS_TOKENS`                | Comma-separated list of access tokens.                                                                              |
-| `AUTH_MODE`                    | `local` skips auth entirely (`local@localhost` identity). For dev/single-tenant only; never set in real prod.       |
-| `AUTH_SKIP_EMAIL_VERIFICATION` | Skip email verification for QA accounts. **Disables a real security control** — only use on hosted QA environments. |
-| `GOOGLE_CLIENT_ID`             | Google OAuth client ID. Auto-enables "Sign in with Google" in Better Auth.                                          |
-| `GOOGLE_CLIENT_SECRET`         | Google OAuth client secret.                                                                                         |
-| `GITHUB_CLIENT_ID`             | GitHub OAuth client ID.                                                                                             |
-| `GITHUB_CLIENT_SECRET`         | GitHub OAuth client secret.                                                                                         |
+| Variable                       | Description                                                                                                                                                                                   |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACCESS_TOKEN`                 | Single shared token for simple production deploys (alternative to Better Auth).                                                                                                               |
+| `ACCESS_TOKENS`                | Comma-separated list of access tokens.                                                                                                                                                        |
+| `AUTH_MODE`                    | `local` skips auth entirely (`local@localhost` identity). For dev/single-tenant only; never set in real prod.                                                                                 |
+| `AUTH_SKIP_EMAIL_VERIFICATION` | Skip email verification for QA accounts. Local dev/test skips by default; hosted deploys must set this explicitly. **Disables a real security control** — only use on hosted QA environments. |
+| `GOOGLE_CLIENT_ID`             | Google OAuth client ID. Auto-enables "Sign in with Google" in Better Auth.                                                                                                                    |
+| `GOOGLE_CLIENT_SECRET`         | Google OAuth client secret.                                                                                                                                                                   |
+| `GITHUB_CLIENT_ID`             | GitHub OAuth client ID.                                                                                                                                                                       |
+| `GITHUB_CLIENT_SECRET`         | GitHub OAuth client secret.                                                                                                                                                                   |
 
 ### Inbound Webhooks {#env-webhooks}
 
@@ -225,7 +225,7 @@ Defaults are strict; these flags relax behavior. Don't set them unless you speci
 | `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK`   | `=1` to let `${keys.NAME}` resolution in tools/automations fall through user-scope → workspace-scope. Default off (user-scope only) — a malicious org member could otherwise plant a workspace `OPENAI_API_KEY` and harvest other members' calls. Turn on only if your org genuinely shares workspace-wide keys. |
 | `AGENT_NATIVE_MCP_HUB_MULTI_ORG`         | `=1` to allow `AGENT_NATIVE_MCP_HUB_TOKEN` to serve multiple orgs from a single hub deployment. Default refuses to serve when more than one org exists in a hub deploy. Only relevant if you operate the workspace MCP hub.                                                                                      |
 | `AGENT_NATIVE_ALLOW_ENV_VAR_WRITES`      | `=1` to let runtime code mutate `process.env` from the env-var write API. Off by default — required to be explicitly enabled outside dev SQLite.                                                                                                                                                                 |
-| `AUTH_SKIP_EMAIL_VERIFICATION`           | `=1` to skip email verification for password signups. QA-only — see Auth section above.                                                                                                                                                                                                                          |
+| `AUTH_SKIP_EMAIL_VERIFICATION`           | `=1` to skip email verification for password signups. Local dev/test skips by default; hosted deploys should use this only for QA — see Auth section above.                                                                                                                                                      |
 
 ### Workspace .env Inheritance {#env-inheritance}
 

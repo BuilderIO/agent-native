@@ -167,7 +167,11 @@ function appendEnvLocalSecret(envLocalPath: string, secret: string): void {
 
 export function shouldSkipEmailVerification(): boolean {
   const value = process.env.AUTH_SKIP_EMAIL_VERIFICATION;
-  if (value == null) return false;
+  if (value == null) {
+    return (
+      process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test"
+    );
+  }
   const normalized = value.trim().toLowerCase();
   return normalized !== "" && normalized !== "0" && normalized !== "false";
 }
@@ -626,9 +630,9 @@ async function createBetterAuthInstance(
       minPasswordLength: 8,
       // Only require email verification when an email provider is configured.
       // Without a provider, verification emails can't be sent, so requiring
-      // verification would lock users out of signup entirely. QA deployments
-      // can opt out with AUTH_SKIP_EMAIL_VERIFICATION=1 so +qa accounts can
-      // sign up without waiting on inbox delivery.
+      // verification would lock users out of signup entirely. Local dev/test
+      // skip verification by default so +qa accounts can be created quickly;
+      // hosted QA deployments can opt out with AUTH_SKIP_EMAIL_VERIFICATION=1.
       requireEmailVerification,
       sendResetPassword: async ({ user, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The

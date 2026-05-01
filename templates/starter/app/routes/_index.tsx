@@ -14,11 +14,11 @@ import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [
-    { title: "Starter — Agent Native" },
+    { title: "Agent-Native Starter" },
     {
       name: "description",
       content:
-        "Minimal scaffold for building agent-native apps — agent chat and core architecture wired up.",
+        "Build apps where the AI agent and UI are equal partners — sharing state, actions, and context in real time.",
     },
   ];
 }
