@@ -30,7 +30,35 @@ import {
 } from "../lib/google-auth.js";
 import { googleFetch } from "../lib/google-api.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
+import {
+  OAuthAccountOwnedByOtherUserError,
+  setOAuthDisplayName,
+} from "@agent-native/core/oauth-tokens";
+
+function googleOAuthErrorMessage(
+  error: any,
+  prefix = "Connection failed",
+): string {
+  if (
+    error instanceof OAuthAccountOwnedByOtherUserError ||
+    error?.name === "OAuthAccountOwnedByOtherUserError"
+  ) {
+    const account = error.accountId || "This Google account";
+    const owner =
+      error.existingOwner === DEV_MODE_USER_EMAIL
+        ? "a previous local session"
+        : error.existingOwner || "another user";
+    return `${account} is already connected to ${owner}. Sign in as that user or disconnect the Google account there first.`;
+  }
+
+  const msg = error?.message || "Unknown error";
+  const isPermission =
+    msg.includes("Insufficient Permission") ||
+    msg.includes("insufficient_scope");
+  return isPermission
+    ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+    : `${prefix}: ${msg}`;
+}
 
 export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -180,14 +208,7 @@ export const handleGoogleCallback = defineEventHandler(
         appName: "Mail",
       });
     } catch (error: any) {
-      const msg = error.message || "Unknown error";
-      const isPermission =
-        msg.includes("Insufficient Permission") ||
-        msg.includes("insufficient_scope");
-      const userMessage = isPermission
-        ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
-        : `Connection failed: ${msg}`;
-      return oauthErrorPage(userMessage);
+      return oauthErrorPage(googleOAuthErrorMessage(error));
     }
   },
 );
@@ -288,14 +309,9 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         appName: "Mail",
       });
     } catch (error: any) {
-      const msg = error.message || "Unknown error";
-      const isPermission =
-        msg.includes("Insufficient Permission") ||
-        msg.includes("insufficient_scope");
-      const userMessage = isPermission
-        ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen."
-        : `Failed to add account: ${msg}`;
-      return oauthErrorPage(userMessage);
+      return oauthErrorPage(
+        googleOAuthErrorMessage(error, "Failed to add account"),
+      );
     }
   },
 );

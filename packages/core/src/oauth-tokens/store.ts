@@ -131,6 +131,11 @@ export async function saveOAuthTokens(
   if (!owner) {
     // Token-refresh path: keep the existing owner/displayName unchanged.
     if (existingOwner) resolvedOwner = existingOwner;
+  } else if (existingOwner === "local@localhost" && sanitizedOwner) {
+    // Legacy dev rows from older OAuth flows were sometimes stored under the
+    // synthetic local user. A successful OAuth callback proves control of the
+    // Google account, so let the reconnect repair that owner in place.
+    resolvedOwner = sanitizedOwner;
   } else if (
     existingOwner &&
     sanitizedOwner &&
