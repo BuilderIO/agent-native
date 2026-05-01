@@ -138,24 +138,40 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
 
 export const handleGoogleCallback = defineEventHandler(
   async (event: H3Event) => {
+    let desktop = false;
+    let flowId: string | undefined;
     try {
       const query = getQuery(event);
+      const state = decodeOAuthState(
+        query.state as string | undefined,
+        getAppUrl(event, "/_agent-native/google/callback"),
+      );
+      desktop = state.desktop;
+      flowId = state.flowId;
+
+      const googleError = query.error as string | undefined;
+      if (googleError) {
+        const errorDesc =
+          (query.error_description as string | undefined) || googleError;
+        const isPermission =
+          googleError === "access_denied" ||
+          errorDesc.includes("Insufficient Permission");
+        const userMessage = isPermission
+          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+          : `Connection failed: ${errorDesc}`;
+        return googleOAuthErrorResponse(event, new Error(userMessage), {
+          desktop,
+          flowId,
+        });
+      }
+
       const code = query.code as string;
       if (!code) {
         setResponseStatus(event, 400);
         return { error: "Missing authorization code" };
       }
 
-      const {
-        redirectUri,
-        owner: stateOwner,
-        desktop,
-        addAccount,
-        flowId,
-      } = decodeOAuthState(
-        query.state as string | undefined,
-        getAppUrl(event, "/_agent-native/google/callback"),
-      );
+      const { redirectUri, owner: stateOwner, addAccount } = state;
 
       // 1. Resolve owner (needs session context, before exchangeCode)
       const { owner, hasProductionSession } = await resolveOAuthOwner(
@@ -194,7 +210,7 @@ export const handleGoogleCallback = defineEventHandler(
         appName: "Calendar",
       });
     } catch (error: any) {
-      return oauthErrorPage(googleOAuthErrorMessage(error));
+      return googleOAuthErrorResponse(event, error, { desktop, flowId });
     }
   },
 );
