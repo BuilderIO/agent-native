@@ -194,6 +194,12 @@ export {
   deleteBuilderCredentials,
   resolveSecret,
 } from "./credential-provider.js";
+export {
+  getBuilderBranchProjectId,
+  isBuilderBranchingEnabled,
+  runBuilderAgent,
+  type RunBuilderAgentResult,
+} from "./builder-browser.js";
 
 export {
   sendEmail,

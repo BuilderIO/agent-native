@@ -162,6 +162,7 @@ export const DEFAULT_BUILDER_BRANCH_PROJECT_ID =
 
 export function getBuilderBranchProjectId(): string {
   return (
+    process.env.DISPATCH_BUILDER_PROJECT_ID ||
     process.env.BUILDER_BRANCH_PROJECT_ID ||
     process.env.BUILDER_PROJECT_ID ||
     DEFAULT_BUILDER_BRANCH_PROJECT_ID
@@ -172,6 +173,7 @@ export function isBuilderBranchingEnabled(): boolean {
   return !!(
     process.env.ENABLE_BUILDER === "true" ||
     process.env.ENABLE_BUILDER === "1" ||
+    process.env.DISPATCH_BUILDER_PROJECT_ID ||
     process.env.BUILDER_BRANCH_PROJECT_ID ||
     process.env.BUILDER_PROJECT_ID
   );
@@ -227,7 +229,9 @@ export function getBuilderBrowserConnectUrl(origin: string): string {
 
 export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
   const branchProjectId =
-    process.env.BUILDER_BRANCH_PROJECT_ID || process.env.BUILDER_PROJECT_ID;
+    process.env.DISPATCH_BUILDER_PROJECT_ID ||
+    process.env.BUILDER_BRANCH_PROJECT_ID ||
+    process.env.BUILDER_PROJECT_ID;
   const envManaged = !!process.env.BUILDER_PRIVATE_KEY;
   return {
     configured: !!(
