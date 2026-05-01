@@ -16,8 +16,10 @@ export {
   getSessionEmail,
   runAuthGuard,
   setDesktopExchange,
+  setDesktopExchangeError,
   DEV_MODE_USER_EMAIL,
   safeReturnPath,
+  type DesktopExchangeErrorPayload,
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";

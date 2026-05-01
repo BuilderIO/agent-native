@@ -566,10 +566,20 @@ function areGenericGoogleOAuthRoutesEnabled(app: H3App): boolean {
 // durability (Cloudflare Workers, multi-region deployments). The value stored
 // in the `email` column is "{realToken}::{userEmail}" so both can be recovered
 // from a single DB lookup.
-const _desktopExchanges = new Map<
-  string,
-  { token: string; email: string; expiresAt: number }
->();
+export interface DesktopExchangeErrorPayload {
+  message: string;
+  code?: string;
+  accountId?: string;
+  existingOwner?: string;
+  attemptedOwner?: string;
+}
+
+type DesktopExchangeEntry =
+  | { token: string; email: string; expiresAt: number }
+  | { error: DesktopExchangeErrorPayload; expiresAt: number };
+
+const _desktopExchanges = new Map<string, DesktopExchangeEntry>();
+const DESKTOP_EXCHANGE_ERROR_PREFIX = "__error__::";
 
 // 5-minute TTL for exchange entries (short — single-use tokens).
 const DESKTOP_EXCHANGE_TTL_MS = 5 * 60 * 1000;
@@ -588,6 +598,17 @@ export function setDesktopExchange(
   // templates call this helper directly instead of going through the OAuth
   // callback path).
   void persistDesktopExchangeToDB(flowId, token, email);
+}
+
+export function setDesktopExchangeError(
+  flowId: string,
+  error: DesktopExchangeErrorPayload,
+) {
+  _desktopExchanges.set(flowId, {
+    error,
+    expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
+  });
+  void persistDesktopExchangeErrorToDB(flowId, error);
 }
 
 /**
@@ -610,13 +631,28 @@ async function persistDesktopExchangeToDB(
   }
 }
 
+async function persistDesktopExchangeErrorToDB(
+  flowId: string,
+  error: DesktopExchangeErrorPayload,
+): Promise<void> {
+  try {
+    const payload = Buffer.from(JSON.stringify(error)).toString("base64url");
+    await addSession(
+      `dex:${flowId}`,
+      `${DESKTOP_EXCHANGE_ERROR_PREFIX}${payload}`,
+    );
+  } catch {
+    // non-fatal — in-memory Map is the primary path
+  }
+}
+
 /**
  * Retrieve and consume a desktop exchange entry from the DB fallback.
  * Returns null if not found or already consumed.
  */
 async function consumeDesktopExchangeFromDB(
   flowId: string,
-): Promise<{ token: string; email: string } | null> {
+): Promise<Omit<DesktopExchangeEntry, "expiresAt"> | null> {
   try {
     // Atomic DELETE...RETURNING prevents token replay: two concurrent polls
     // cannot both retrieve the token because only one DELETE will match the row.
@@ -632,6 +668,12 @@ async function consumeDesktopExchangeFromDB(
     if (rows.length === 0) return null;
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
     if (!packed) return null;
+    if (packed.startsWith(DESKTOP_EXCHANGE_ERROR_PREFIX)) {
+      const raw = packed.slice(DESKTOP_EXCHANGE_ERROR_PREFIX.length);
+      return {
+        error: JSON.parse(Buffer.from(raw, "base64url").toString()),
+      };
+    }
     const sepIdx = packed.indexOf("::");
     if (sepIdx === -1) return null;
     return { token: packed.slice(0, sepIdx), email: packed.slice(sepIdx + 2) };
@@ -1583,8 +1625,7 @@ async function mountBetterAuthRoutes(
           return { pending: true };
         }
         entry = {
-          token: fromDb.token,
-          email: fromDb.email,
+          ...fromDb,
           expiresAt: Date.now() + 1, // already consumed from DB
         };
       }
@@ -1592,6 +1633,9 @@ async function mountBetterAuthRoutes(
       // Also wipe the DB-persisted entry so it cannot be replayed via the
       // DB fallback path after in-memory consumption.
       void removeSession(`dex:${flowId}`);
+      if ("error" in entry) {
+        return { error: entry.error.message, ...entry.error };
+      }
       // Make the exchange itself establish the app session. Older clients
       // still make a follow-up /auth/session?_session=... request, but the
       // OAuth handoff should not depend on that second request succeeding.
