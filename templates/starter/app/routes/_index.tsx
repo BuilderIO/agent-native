@@ -106,7 +106,7 @@ export default function IndexPage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
-      <div className="flex flex-1 flex-col items-center justify-center px-6">
+      <div className="flex flex-1 flex-col items-center justify-start px-6 pt-12 pb-10 md:pt-16">
         <div className="w-full max-w-xl space-y-6">
           <h1 className="text-center text-3xl font-semibold tracking-tight text-foreground">
             {isFirstVisit
