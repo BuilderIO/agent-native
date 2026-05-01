@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import {
   IconCheck,
   IconClock,
@@ -593,11 +593,13 @@ function DraftDetail({
 }
 
 export function DraftQueuePage() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const params = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const routeDraftId = params.id;
   const [scope, setScope] = useState<QueueScope>("review");
   const [selectedId, setSelectedId] = useState<string | null>(
-    searchParams.get("id"),
+    routeDraftId || searchParams.get("id"),
   );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<DraftFormState>(EMPTY_FORM);
@@ -611,9 +613,9 @@ export function DraftQueuePage() {
   );
 
   useEffect(() => {
-    const id = searchParams.get("id");
+    const id = routeDraftId || searchParams.get("id");
     if (id && id !== selectedId) setSelectedId(id);
-  }, [searchParams, selectedId]);
+  }, [routeDraftId, searchParams, selectedId]);
 
   useEffect(() => {
     if (queue.drafts.length === 0) {
@@ -641,7 +643,7 @@ export function DraftQueuePage() {
   useEffect(() => {
     if (!navCommand || navCommand.view !== "draft-queue") return;
     const target = navCommand.queuedDraftId
-      ? `/draft-queue?id=${encodeURIComponent(navCommand.queuedDraftId)}`
+      ? `/draft-queue/${encodeURIComponent(navCommand.queuedDraftId)}`
       : "/draft-queue";
     if (navCommand.queuedDraftId) {
       setSelectedId(navCommand.queuedDraftId);
@@ -722,7 +724,7 @@ export function DraftQueuePage() {
               selectedId={selectedId}
               onSelect={(id) => {
                 setSelectedId(id);
-                setSearchParams({ id });
+                navigate(`/draft-queue/${encodeURIComponent(id)}`);
               }}
               isLoading={queue.isLoading}
             />

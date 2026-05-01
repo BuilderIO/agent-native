@@ -219,6 +219,11 @@ export {
 } from "./email-template.js";
 export { getAppProductionUrl, getFirstPartyProdUrl } from "./app-url.js";
 export {
+  getConfiguredAppBasePath,
+  normalizeAppBasePath,
+  withConfiguredAppBasePath,
+} from "./app-base-path.js";
+export {
   signShortLivedToken,
   verifyShortLivedToken,
   type ShortLivedTokenClaims,
