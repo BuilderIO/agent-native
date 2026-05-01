@@ -194,14 +194,14 @@ export function BlockBubbleMenu({ editingEl }: BlockBubbleMenuProps) {
           active={showColors}
         />
         {showColors && (
-          <div className="absolute top-full left-0 mt-1 p-2 rounded-lg bg-popover border border-border shadow-2xl shadow-black/60 grid grid-cols-6 gap-1">
+          <div className="absolute top-full left-0 mt-1 p-3 rounded-lg bg-popover border border-border shadow-2xl shadow-black/60 grid grid-cols-6 gap-2 w-max">
             {COLORS.map((c) => (
               <button
                 key={c}
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => applyColor(c)}
-                className="w-5 h-5 rounded border border-border hover:scale-110 transition-transform"
+                className="w-7 h-7 rounded-md border border-foreground/25 hover:scale-110 transition-transform"
                 style={{ background: c }}
                 title={c}
                 aria-label={`Set color ${c}`}
