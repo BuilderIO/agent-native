@@ -70,7 +70,8 @@ export async function ensureObservabilityTables(): Promise<void> {
     _initPromise = (async () => {
       const client = getDbExec();
 
-      await retryOnDdlRace(() => client.execute(`
+      await retryOnDdlRace(() =>
+        client.execute(`
         CREATE TABLE IF NOT EXISTS agent_trace_spans (
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL,
@@ -90,9 +91,11 @@ export async function ensureObservabilityTables(): Promise<void> {
           metadata TEXT,
           created_at ${intType()} NOT NULL
         )
-      `));
+      `),
+      );
 
-      await retryOnDdlRace(() => client.execute(`
+      await retryOnDdlRace(() =>
+        client.execute(`
         CREATE TABLE IF NOT EXISTS agent_trace_summaries (
           run_id TEXT PRIMARY KEY,
           thread_id TEXT,
@@ -109,9 +112,11 @@ export async function ensureObservabilityTables(): Promise<void> {
           model TEXT NOT NULL DEFAULT '',
           created_at ${intType()} NOT NULL
         )
-      `));
+      `),
+      );
 
-      await retryOnDdlRace(() => client.execute(`
+      await retryOnDdlRace(() =>
+        client.execute(`
         CREATE TABLE IF NOT EXISTS agent_feedback (
           id TEXT PRIMARY KEY,
           run_id TEXT,
@@ -122,9 +127,11 @@ export async function ensureObservabilityTables(): Promise<void> {
           user_id TEXT,
           created_at ${intType()} NOT NULL
         )
-      `));
+      `),
+      );
 
-      await retryOnDdlRace(() => client.execute(`
+      await retryOnDdlRace(() =>
+        client.execute(`
         CREATE TABLE IF NOT EXISTS agent_satisfaction_scores (
           id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
@@ -136,9 +143,11 @@ export async function ensureObservabilityTables(): Promise<void> {
           length_trend_score REAL NOT NULL DEFAULT 0,
           computed_at ${intType()} NOT NULL
         )
-      `));
+      `),
+      );
 
-      await retryOnDdlRace(() => client.execute(`
+      await retryOnDdlRace(() =>
+        client.execute(`
         CREATE TABLE IF NOT EXISTS agent_evals (
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL,
@@ -151,9 +160,11 @@ export async function ensureObservabilityTables(): Promise<void> {
           metadata TEXT,
           created_at ${intType()} NOT NULL
         )
-      `));
+      `),
+      );
 
-      await retryOnDdlRace(() => client.execute(`
+      await retryOnDdlRace(() =>
+        client.execute(`
         CREATE TABLE IF NOT EXISTS agent_eval_datasets (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -162,9 +173,11 @@ export async function ensureObservabilityTables(): Promise<void> {
           created_at ${intType()} NOT NULL,
           updated_at ${intType()} NOT NULL
         )
-      `));
+      `),
+      );
 
-      await retryOnDdlRace(() => client.execute(`
+      await retryOnDdlRace(() =>
+        client.execute(`
         CREATE TABLE IF NOT EXISTS agent_experiments (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -177,7 +190,8 @@ export async function ensureObservabilityTables(): Promise<void> {
           created_at ${intType()} NOT NULL,
           owner_email TEXT
         )
-      `));
+      `),
+      );
       // Additive migration for DBs created before the owner column shipped
       // (any pre-existing rows have NULL owner — see `updateExperiment` for
       // the migration semantics). Mutations on those rows fall back to the
@@ -191,7 +205,8 @@ export async function ensureObservabilityTables(): Promise<void> {
         // Column already exists — expected after first run.
       }
 
-      await retryOnDdlRace(() => client.execute(`
+      await retryOnDdlRace(() =>
+        client.execute(`
         CREATE TABLE IF NOT EXISTS agent_experiment_assignments (
           experiment_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
@@ -199,9 +214,11 @@ export async function ensureObservabilityTables(): Promise<void> {
           assigned_at ${intType()} NOT NULL,
           PRIMARY KEY (experiment_id, user_id)
         )
-      `));
+      `),
+      );
 
-      await retryOnDdlRace(() => client.execute(`
+      await retryOnDdlRace(() =>
+        client.execute(`
         CREATE TABLE IF NOT EXISTS agent_experiment_results (
           id TEXT PRIMARY KEY,
           experiment_id TEXT NOT NULL,
@@ -213,7 +230,8 @@ export async function ensureObservabilityTables(): Promise<void> {
           confidence_high REAL NOT NULL DEFAULT 0,
           computed_at ${intType()} NOT NULL
         )
-      `));
+      `),
+      );
 
       // Idempotent column upgrades for DBs created before per-user
       // isolation. SQLite has no `ADD COLUMN IF NOT EXISTS`; Postgres

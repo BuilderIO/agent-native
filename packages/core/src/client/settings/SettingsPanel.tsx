@@ -1048,7 +1048,7 @@ function EmailSectionInner({
     <SettingsSection
       icon={<IconMail size={14} />}
       title="Email"
-      subtitle="Send password resets and team invitations. Without a provider, emails are logged to the server console."
+      subtitle="Needed before deploy for password resets, team invitations, and share notifications. Local development can run without it."
       connected={!envLoaded ? undefined : anyConfigured}
       open={open}
       onToggle={onToggle}

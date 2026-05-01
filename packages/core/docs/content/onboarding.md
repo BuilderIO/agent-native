@@ -49,9 +49,9 @@ behind a picker or disclosure when a step has several equivalent providers.
   SQL database connection string.
 - **Authentication** (optional) — built-in email/password accounts work by
   default. Add OAuth or access-token sign-in only when you want those paths.
-- **Email delivery** (optional) — needed for password resets and team
-  invitations. Use the provider you already use; without one, local/dev reset
-  emails log to the server console.
+- **Email delivery** (optional) — useful before deploy for password resets,
+  team invitations, and share notifications. Use the provider you already use;
+  local development can run without it.
 
 Templates can add their own steps on top of these — e.g. a CRM template might
 add "Connect Gmail", a docs template might add "Pick a default workspace". See

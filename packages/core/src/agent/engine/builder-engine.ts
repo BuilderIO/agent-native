@@ -345,7 +345,10 @@ async function* parseJsonlStream(
         yield {
           type: "stop",
           reason: "error",
-          error: normalized,
+          error: `Builder gateway returned invalid JSONL: ${normalized.slice(
+            0,
+            240,
+          )}`,
           errorCode: "http_502",
         };
         return;

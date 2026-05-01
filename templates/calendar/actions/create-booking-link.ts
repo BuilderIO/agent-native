@@ -48,23 +48,39 @@ function rowToBookingLink(
 }
 
 export default defineAction({
-  description: "Create a new booking link",
+  description:
+    "Create a new booking link/event type. Use this instead of raw SQL for booking links.",
   schema: z.object({
-    title: z.string().optional().describe("Booking link title (required)"),
-    slug: z.string().optional().describe("URL slug (required)"),
+    title: z.string().min(1).describe("Booking link title"),
+    slug: z
+      .string()
+      .min(1)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+      .describe("URL slug, lowercase words separated by hyphens"),
     duration: z.coerce
       .number()
-      .optional()
-      .describe("Default duration in minutes (required)"),
+      .int()
+      .min(5)
+      .max(24 * 60)
+      .describe("Default duration in minutes"),
     description: z.string().optional().describe("Description"),
+    durations: z
+      .array(
+        z.coerce
+          .number()
+          .int()
+          .min(5)
+          .max(24 * 60),
+      )
+      .optional()
+      .describe("Optional duration choices, e.g. [30,45,60]"),
+    customFields: z.array(z.any()).optional().describe("Custom form fields"),
+    conferencing: z.any().optional().describe("Conferencing configuration"),
+    color: z.string().optional().describe("Display color"),
+    isActive: z.boolean().optional().describe("Whether the link is active"),
   }),
   run: async (args) => {
     const body = args as Record<string, any>;
-
-    if (!body.title || !body.slug || !body.duration) {
-      throw new Error("title, slug, and duration are required");
-    }
-
     const slug = String(body.slug).trim().toLowerCase();
     const [existingLink, existingRedirect] = await Promise.all([
       getDb()

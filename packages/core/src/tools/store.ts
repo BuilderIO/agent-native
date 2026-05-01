@@ -46,9 +46,7 @@ export async function ensureToolsTables(): Promise<void> {
         client.execute(pg ? TOOLS_CREATE_SQL_PG : TOOLS_CREATE_SQL),
       );
       await retryOnDdlRace(() =>
-        client.execute(
-          pg ? TOOL_SHARES_CREATE_SQL_PG : TOOL_SHARES_CREATE_SQL,
-        ),
+        client.execute(pg ? TOOL_SHARES_CREATE_SQL_PG : TOOL_SHARES_CREATE_SQL),
       );
       await retryOnDdlRace(() =>
         client.execute(pg ? TOOL_DATA_CREATE_SQL_PG : TOOL_DATA_CREATE_SQL),

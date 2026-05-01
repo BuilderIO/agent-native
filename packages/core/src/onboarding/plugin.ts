@@ -21,6 +21,7 @@ import {
 } from "../server/framework-request-handler.js";
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getSession, DEV_MODE_USER_EMAIL } from "../server/auth.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { listOnboardingSteps } from "./registry.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
 import type {
@@ -111,6 +112,19 @@ async function serializeSteps(
   return out;
 }
 
+function withOnboardingRequestContext<T>(
+  context: OnboardingResolveContext,
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  return runWithRequestContext(
+    {
+      userEmail: context.userEmail,
+      orgId: context.orgId ?? undefined,
+    },
+    fn,
+  );
+}
+
 function allRequiredComplete(statuses: OnboardingStepStatus[]): boolean {
   return statuses.filter((s) => s.required).every((s) => s.complete);
 }
@@ -147,7 +161,9 @@ export function createOnboardingPlugin(
           const context = await resolveOnboardingContext(event);
           const query = getQuery(event) as Record<string, unknown>;
           const preview = query.preview === "1" || query.preview === 1;
-          return serializeSteps(context, { preview });
+          return withOnboardingRequestContext(context, () =>
+            serializeSteps(context, { preview }),
+          );
         }
 
         // Override endpoint — POST /steps/:id/complete
@@ -227,15 +243,17 @@ export function createOnboardingPlugin(
         // can throw — return safe defaults so a transient connection error
         // doesn't surface as a 500 to the client.
         try {
-          const value = await appStateGet(context.sessionId, DISMISSED_KEY);
-          const dismissed = !!(
-            value && (value as { dismissed?: boolean }).dismissed
-          );
-          const statuses = await serializeSteps(context);
-          return {
-            dismissed,
-            allComplete: allRequiredComplete(statuses),
-          };
+          return await withOnboardingRequestContext(context, async () => {
+            const value = await appStateGet(context.sessionId, DISMISSED_KEY);
+            const dismissed = !!(
+              value && (value as { dismissed?: boolean }).dismissed
+            );
+            const statuses = await serializeSteps(context);
+            return {
+              dismissed,
+              allComplete: allRequiredComplete(statuses),
+            };
+          });
         } catch {
           return { dismissed: false, allComplete: false };
         }

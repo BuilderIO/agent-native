@@ -30,14 +30,12 @@ export function buildAssistantMessage(
   const content: ContentPart[] = [];
   let toolCallCounter = 0;
   let loopLimit: { maxIterations?: number } | null = null;
-  let runError:
-    | {
-        message: string;
-        errorCode?: string;
-        details?: string;
-        recoverable?: boolean;
-      }
-    | null = null;
+  let runError: {
+    message: string;
+    errorCode?: string;
+    details?: string;
+    recoverable?: boolean;
+  } | null = null;
 
   const appendText = (text: string) => {
     const last = content[content.length - 1];

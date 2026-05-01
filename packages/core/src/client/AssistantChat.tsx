@@ -3093,14 +3093,17 @@ const AssistantChatInner = forwardRef<
                           // immediately. This unblocks submission even if the
                           // runtime or reconnect state is stuck.
                           setForceStopped(true);
+                          const activeRun = getActiveRun();
+                          const runIdToAbort =
+                            reconnectRunIdRef.current ?? activeRun?.runId;
+                          if (runIdToAbort) {
+                            fetch(
+                              `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
+                              { method: "POST" },
+                            ).catch(() => {});
+                          }
 
                           if (isReconnecting) {
-                            if (reconnectRunIdRef.current) {
-                              fetch(
-                                `${apiUrl}/runs/${encodeURIComponent(reconnectRunIdRef.current)}/abort`,
-                                { method: "POST" },
-                              );
-                            }
                             reconnectAbortRef.current?.abort();
                             reconnectAbortRef.current = null;
                             reconnectRunIdRef.current = null;
