@@ -28,9 +28,7 @@ async function getOrgSlug(orgSlug?: string): Promise<string> {
   const trimmed = orgSlug?.trim();
   if (trimmed) return trimmed;
   const ctx = requireRequestCredentialContext("SENTRY_AUTH_TOKEN");
-  return (
-    (await resolveCredential("SENTRY_ORG_SLUG", ctx)) ?? DEFAULT_ORG_SLUG
-  );
+  return (await resolveCredential("SENTRY_ORG_SLUG", ctx)) ?? DEFAULT_ORG_SLUG;
 }
 
 function cacheSet(key: string, data: unknown) {
@@ -125,9 +123,7 @@ export interface SentryOrgStats {
 
 // -- API functions --
 
-export async function listProjects(
-  orgSlug?: string,
-): Promise<SentryProject[]> {
+export async function listProjects(orgSlug?: string): Promise<SentryProject[]> {
   const org = await getOrgSlug(orgSlug);
   return apiGet<SentryProject[]>(`/organizations/${org}/projects/`);
 }

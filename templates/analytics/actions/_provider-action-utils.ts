@@ -66,7 +66,9 @@ export async function requireActionCredentials(
   if (hasRequired) return { ok: true, ctx };
 
   const missingKey =
-    mode === "any" ? firstKey : keys.find((key) => !configured[key]) ?? firstKey;
+    mode === "any"
+      ? firstKey
+      : (keys.find((key) => !configured[key]) ?? firstKey);
 
   return {
     ok: false,

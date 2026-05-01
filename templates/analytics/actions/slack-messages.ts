@@ -25,9 +25,10 @@ function enrichMessages(messages: SlackMessage[]): SlackMessage[] {
     const blockTexts = blocks
       .map((block: any) => {
         if (block.type === "section" || block.type === "rich_text") {
-          return block.text?.text || (typeof block.text === "string"
-            ? block.text
-            : null);
+          return (
+            block.text?.text ||
+            (typeof block.text === "string" ? block.text : null)
+          );
         }
         return null;
       })
@@ -72,7 +73,7 @@ export default defineAction({
       .optional()
       .describe("Per-channel cursors for mode=multi-history"),
   }),
-  http: { method: "GET" },
+  readOnly: true,
   run: async (args) => {
     const workspace = parseWorkspace(args.workspace);
     const key =

@@ -284,10 +284,10 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 | `gong-calls`                   | `--company`, `--days`       | Sales call recordings                                                                                                       |
 | `apollo-search`                | `--query`                   | Contact/company enrichment                                                                                                  |
 | `sentry`                       | `--mode`, `--statsPeriod`   | Sentry projects, frequent issues, issue events, and error stats                                                             |
-| `grafana`                      | `--mode`, `--search`        | Grafana dashboards, datasources, alert rules, and datasource queries                                                         |
-| `gcloud`                       | `--mode`, `--service`       | Google Cloud services, Cloud Monitoring metrics, and Cloud Logging entries                                                   |
-| `stripe`                       | `--mode`, `--email`         | Stripe billing, subscriptions, refunds, and payment status                                                                   |
-| `slack-messages`               | `--mode`, `--channel`       | Slack team info, channels, channel history, multi-channel history, and message search                                        |
+| `grafana`                      | `--mode`, `--search`        | Grafana dashboards, datasources, alert rules, and datasource queries                                                        |
+| `gcloud`                       | `--mode`, `--service`       | Google Cloud services, Cloud Monitoring metrics, and Cloud Logging entries                                                  |
+| `stripe`                       | `--mode`, `--email`         | Stripe billing, subscriptions, refunds, and payment status                                                                  |
+| `slack-messages`               | `--mode`, `--channel`       | Slack team info, channels, channel history, multi-channel history, and message search                                       |
 | `seo-top-keywords`             | `--limit`                   | Keyword rankings                                                                                                            |
 | `seo-page-keywords`            | `--url`                     | Keywords for a specific page                                                                                                |
 | `seo-blog-pages`               |                             | Blog page SEO metrics                                                                                                       |

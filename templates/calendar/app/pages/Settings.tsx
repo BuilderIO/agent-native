@@ -158,7 +158,7 @@ export default function Settings() {
       {!googleStatus.data?.connected && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Setup Google Calendar</CardTitle>
+            <CardTitle className="text-lg">Connect Google Calendar</CardTitle>
             <CardDescription>
               Follow these steps to connect your Google account. Takes about 3
               minutes.
