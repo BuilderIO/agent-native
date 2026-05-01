@@ -35,14 +35,15 @@ export function useSendToAgentChat(): {
       const fromAgentFrame = isTrustedFrameMessage(event);
       const fromBuilderFrame = isTrustedBuilderMessage(event);
       if (!fromAgentFrame && !fromBuilderFrame) return;
+      const runningDetail = event.data?.detail ?? event.data?.data;
       if (
         event.data?.type === "agentNative.codeComplete" ||
         (fromBuilderFrame && event.data?.type === "builder.codeComplete") ||
         (event.data?.type === "agentNative.chatRunning" &&
-          !event.data?.detail?.isRunning) ||
+          !runningDetail?.isRunning) ||
         (fromBuilderFrame &&
           event.data?.type === "builder.chatRunning" &&
-          !event.data?.detail?.isRunning)
+          !runningDetail?.isRunning)
       ) {
         setCodeAgentWorking(false);
       }

@@ -65,6 +65,8 @@ export interface AgentChatRequest {
   references?: AgentChatReference[];
   threadId?: string;
   attachments?: AgentChatAttachment[];
+  /** Execution mode for this turn. Plan mode is read-only and proposes before acting. */
+  mode?: "act" | "plan";
   /** Per-request model override (ephemeral, from the composer model picker). */
   model?: string;
   /** Per-request engine override (sent alongside model for cross-provider switches). */

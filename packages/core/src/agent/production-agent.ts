@@ -41,6 +41,10 @@ import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getRequestUserEmail } from "../server/request-context.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import {
+  createToolSearchEntry,
+  TOOL_SEARCH_ACTION_NAME,
+} from "./tool-search.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -199,6 +203,195 @@ export interface ActionEntry {
 
 /** @deprecated Use `ActionEntry` instead */
 export type ScriptEntry = ActionEntry;
+
+export type AgentExecutionMode = "act" | "plan";
+
+export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
+
+You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
+
+Hard rules:
+- Use only read-only tools. Do not edit files, write resources, run shell commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
+- If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
+- When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
+- Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector, Shift+Tab, or /act before implementation.`;
+
+const PLAN_MODE_BLOCKED_READONLY_TOOLS = new Set([
+  "refresh-screen",
+  "set-search-params",
+  "set-url-path",
+]);
+
+const PLAN_MODE_ALLOWED_ACTIONS: Record<string, readonly string[]> = {
+  resources: ["list", "read"],
+  "chat-history": ["search"],
+  "agent-teams": ["status", "read-result", "list"],
+  "manage-jobs": ["list"],
+  "manage-automations": ["list-events", "list"],
+  "manage-notifications": ["list"],
+  "manage-progress": ["list"],
+  "manage-agent-engine": ["list"],
+};
+
+const PLAN_MODE_WEB_REQUEST_METHODS = new Set(["GET", "HEAD"]);
+
+function getToolAction(name: string, args: unknown): string {
+  const raw =
+    args && typeof args === "object" && "action" in args
+      ? (args as Record<string, unknown>).action
+      : undefined;
+  if (raw == null && name === "chat-history") return "search";
+  return String(raw ?? "").toLowerCase();
+}
+
+function getWebRequestMethod(args: unknown): string {
+  const raw =
+    args && typeof args === "object" && "method" in args
+      ? (args as Record<string, unknown>).method
+      : undefined;
+  return String(raw ?? "GET").toUpperCase();
+}
+
+function restrictActionEnum(
+  parameters: ActionTool["parameters"] | undefined,
+  allowedActions: readonly string[],
+): ActionTool["parameters"] | undefined {
+  if (!parameters) return parameters;
+  const actionParam = parameters.properties.action;
+  if (!actionParam) return parameters;
+  return {
+    ...parameters,
+    properties: {
+      ...parameters.properties,
+      action: {
+        ...actionParam,
+        enum: [...allowedActions],
+      },
+    },
+  };
+}
+
+function restrictWebRequestMethods(
+  parameters: ActionTool["parameters"] | undefined,
+): ActionTool["parameters"] | undefined {
+  if (!parameters) return parameters;
+  const methodParam = parameters.properties.method;
+  if (!methodParam) return parameters;
+  return {
+    ...parameters,
+    properties: {
+      ...parameters.properties,
+      method: {
+        ...methodParam,
+        enum: [...PLAN_MODE_WEB_REQUEST_METHODS],
+      },
+    },
+  };
+}
+
+function planModeBlockedMessage(toolName: string, reason?: string): string {
+  return (
+    `Plan mode blocked \`${toolName}\`` +
+    (reason ? ` (${reason})` : "") +
+    ". Switch to Act mode after the user approves the plan, then retry the action."
+  );
+}
+
+export function isPlanModeToolCallAllowed(
+  name: string,
+  input: unknown,
+  entry: ActionEntry,
+): boolean {
+  if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) return false;
+
+  if (name === "web-request") {
+    return PLAN_MODE_WEB_REQUEST_METHODS.has(getWebRequestMethod(input));
+  }
+
+  const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
+  if (allowedActions) {
+    return allowedActions.includes(getToolAction(name, input));
+  }
+
+  return entry.readOnly === true;
+}
+
+function createPlanModeGuardedAction(
+  name: string,
+  entry: ActionEntry,
+  allowedActions: readonly string[],
+): ActionEntry {
+  return {
+    ...entry,
+    readOnly: true,
+    tool: {
+      ...entry.tool,
+      description:
+        `${entry.tool.description}\n\nPlan mode: only these read-only actions are available: ` +
+        allowedActions.map((action) => `"${action}"`).join(", ") +
+        ".",
+      parameters: restrictActionEnum(entry.tool.parameters, allowedActions),
+    },
+    run: async (args, context) => {
+      const action = getToolAction(name, args);
+      if (!allowedActions.includes(action)) {
+        return planModeBlockedMessage(name, `action="${action || "(missing)"}"`);
+      }
+      return entry.run(args, context);
+    },
+  };
+}
+
+function createPlanModeWebRequestAction(entry: ActionEntry): ActionEntry {
+  return {
+    ...entry,
+    readOnly: true,
+    tool: {
+      ...entry.tool,
+      description: `${entry.tool.description}\n\nPlan mode: only GET and HEAD requests are allowed.`,
+      parameters: restrictWebRequestMethods(entry.tool.parameters),
+    },
+    run: async (args, context) => {
+      const method = getWebRequestMethod(args);
+      if (!PLAN_MODE_WEB_REQUEST_METHODS.has(method)) {
+        return planModeBlockedMessage("web-request", `method="${method}"`);
+      }
+      return entry.run(args, context);
+    },
+  };
+}
+
+export function createPlanModeActionRegistry(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  const filtered: Record<string, ActionEntry> = {};
+
+  for (const [name, entry] of Object.entries(actions)) {
+    if (name === TOOL_SEARCH_ACTION_NAME) continue;
+    if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) continue;
+
+    const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
+    if (allowedActions) {
+      filtered[name] = createPlanModeGuardedAction(name, entry, allowedActions);
+      continue;
+    }
+
+    if (name === "web-request") {
+      filtered[name] = createPlanModeWebRequestAction(entry);
+      continue;
+    }
+
+    if (entry.readOnly === true) {
+      filtered[name] = entry;
+    }
+  }
+
+  if (actions[TOOL_SEARCH_ACTION_NAME]) {
+    filtered[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => filtered);
+  }
+
+  return filtered;
+}
 
 export interface ProductionAgentOptions {
   /** Action entries for the agent. Use `actions` (preferred) or `scripts` (deprecated alias). */

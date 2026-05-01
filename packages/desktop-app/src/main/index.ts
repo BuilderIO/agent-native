@@ -946,8 +946,12 @@ function openOAuthWindow(
 // doesn't reliably catch webviews created this way).
 
 app.on("web-contents-created", (_event, contents) => {
+  installContextMenu(contents);
+
   if (contents.getType() !== "webview") {
     contents.on("did-attach-webview" as any, (_e: any, wc: any) => {
+      installContextMenu(wc);
+
       wc.setWindowOpenHandler(({ url }: any) => {
         try {
           const parsed = new URL(url);
