@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, getCallbackOrigin } from "@agent-native/core/client";
 
 export interface ZoomAuthStatus {
   connected: boolean;
@@ -67,30 +67,30 @@ export function useConnectZoom() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const { getCallbackOrigin } = await import("@agent-native/core/client");
       const redirectUri = `${getCallbackOrigin()}${agentNativePath(
         "/_agent-native/zoom/callback",
       )}`;
-      const { url } = await fetchJson<{ url: string }>(
+      const popup = window.open(
         agentNativePath(
-          `/_agent-native/zoom/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}`,
+          `/_agent-native/zoom/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&redirect=1`,
         ),
+        "_blank",
+        "noopener,noreferrer",
       );
-      const popup = window.open(url, "_blank");
       if (!popup) {
         throw new Error("Your browser blocked the Zoom connection popup.");
       }
-      try {
-        popup.opener = null;
-      } catch {
-        // best-effort hardening; BroadcastChannel still updates this tab
-      }
-      popup.focus();
     },
     onSuccess: () => {
-      setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ["zoom-status"] });
+
+      const startedAt = Date.now();
+      const pollId = window.setInterval(() => {
         queryClient.invalidateQueries({ queryKey: ["zoom-status"] });
-      }, 1000);
+        if (Date.now() - startedAt > 120_000) {
+          window.clearInterval(pollId);
+        }
+      }, 2_000);
     },
   });
 }

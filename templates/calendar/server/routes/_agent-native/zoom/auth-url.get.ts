@@ -8,6 +8,7 @@
 import {
   defineEventHandler,
   getQuery,
+  sendRedirect,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -40,5 +41,8 @@ export default defineEventHandler(async (event: H3Event) => {
   const desktop = isElectron(event);
   const state = encodeOAuthState(redirectUri, owner, desktop, false, "zoom");
   const url = getZoomAuthUrl(redirectUri, state);
+  if (getQuery(event).redirect === "1") {
+    return sendRedirect(event, url, 302);
+  }
   return { url };
 });
