@@ -42,7 +42,7 @@ export default defineAction({
     if (navigation?.view === "destinations") {
       screen.recentDestinations = overview.recentDestinations;
     }
-    if (navigation?.view === "vault") {
+    if (navigation?.view === "vault" || navigation?.view === "new-app") {
       const [secrets, grants, requests] = await Promise.all([
         listSecrets(),
         listGrants(),
