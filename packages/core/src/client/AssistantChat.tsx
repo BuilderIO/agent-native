@@ -72,6 +72,9 @@ import {
   IconGitFork,
   IconId,
   IconQuote,
+  IconGauge,
+  IconArrowRight,
+  IconSettings,
 } from "@tabler/icons-react";
 
 const ThumbsFeedbackLazy = React.lazy(() =>
@@ -1465,6 +1468,214 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
   );
 }
 
+// ─── Loop Limit Continue Card ───────────────────────────────────────────────
+
+type LoopLimitInfo = { maxIterations?: number };
+
+interface AgentLoopSettingsResponse {
+  maxIterations: number;
+  defaultMaxIterations: number;
+  minMaxIterations: number;
+  maxMaxIterations: number;
+  scope: "org" | "user" | "default";
+  source: "org" | "user" | "env" | "default";
+  canUpdate: boolean;
+  orgName?: string | null;
+  role?: string | null;
+}
+
+function getLoopLimitMetadata(message: unknown): LoopLimitInfo | null {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | {
+        custom?: { loopLimit?: LoopLimitInfo };
+        loopLimit?: LoopLimitInfo;
+      }
+    | undefined;
+  const loopLimit = meta?.custom?.loopLimit ?? meta?.loopLimit;
+  if (!loopLimit || typeof loopLimit !== "object") return null;
+  return {
+    ...(typeof loopLimit.maxIterations === "number"
+      ? { maxIterations: loopLimit.maxIterations }
+      : {}),
+  };
+}
+
+function LoopLimitContinueCard({
+  info,
+  onContinue,
+}: {
+  info: LoopLimitInfo;
+  onContinue: () => void;
+}) {
+  const [settings, setSettings] = useState<AgentLoopSettingsResponse | null>(
+    null,
+  );
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    let cancelled = false;
+    fetch(agentNativePath("/_agent-native/agent-loop-settings"))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: AgentLoopSettingsResponse | null) => {
+        if (cancelled || !data) return;
+        setSettings(data);
+        setValue(String(data.maxIterations));
+      })
+      .catch(() => {
+        if (!cancelled) setValue(String(info.maxIterations ?? ""));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [info.maxIterations]);
+
+  useEffect(() => load(), [load]);
+
+  const currentLimit = settings?.maxIterations ?? info.maxIterations;
+  const numericValue = Number(value);
+  const hasPendingChange =
+    !!settings &&
+    settings.canUpdate &&
+    Number.isInteger(numericValue) &&
+    numericValue !== settings.maxIterations;
+  const scopeLabel =
+    settings?.scope === "org"
+      ? settings.orgName
+        ? `${settings.orgName} org`
+        : "org"
+      : "your account";
+
+  const saveLimit = useCallback(async (): Promise<boolean> => {
+    if (!settings?.canUpdate) return false;
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      const res = await fetch(
+        agentNativePath("/_agent-native/agent-loop-settings"),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ maxIterations: numericValue }),
+        },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body?.error ?? `Save failed (${res.status})`);
+      }
+      setSettings(body as AgentLoopSettingsResponse);
+      setValue(String((body as AgentLoopSettingsResponse).maxIterations));
+      setSaved(true);
+      window.dispatchEvent(
+        new CustomEvent("agent-loop-settings:changed", { detail: body }),
+      );
+      setTimeout(() => setSaved(false), 2000);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [numericValue, settings?.canUpdate]);
+
+  const handleContinue = useCallback(async () => {
+    if (hasPendingChange) {
+      const ok = await saveLimit();
+      if (!ok) return;
+    }
+    onContinue();
+  }, [hasPendingChange, onContinue, saveLimit]);
+
+  const openSettings = useCallback(() => {
+    try {
+      window.location.hash = "agent-limits";
+    } catch {}
+    window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
+  }, []);
+
+  return (
+    <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-3 shadow-sm">
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+          <IconGauge size={14} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">
+            Step limit reached
+          </p>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            The agent used{" "}
+            {currentLimit ? `${currentLimit.toLocaleString()} steps` : "all available steps"}
+            . Keep going in a fresh turn, or raise the {scopeLabel} limit first.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="min-w-[116px] flex-1 space-y-1">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Max steps
+          </span>
+          <input
+            type="number"
+            min={settings?.minMaxIterations ?? 1}
+            max={settings?.maxMaxIterations ?? 1000}
+            value={value}
+            disabled={!settings?.canUpdate || saving}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setError(null);
+            }}
+            className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={saveLimit}
+          disabled={!hasPendingChange || saving}
+          className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+        >
+          {saving ? (
+            <IconLoader2 size={12} className="animate-spin" />
+          ) : saved ? (
+            <IconCheck size={12} />
+          ) : (
+            "Save"
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={openSettings}
+          className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <IconSettings size={12} />
+          Settings
+        </button>
+        <button
+          type="button"
+          onClick={handleContinue}
+          disabled={saving}
+          className="ml-auto inline-flex h-8 items-center gap-1 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:opacity-60"
+        >
+          {hasPendingChange ? "Save and keep going" : "Keep going"}
+          <IconArrowRight size={12} />
+        </button>
+      </div>
+
+      {settings && !settings.canUpdate && (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Only organization owners and admins can change this limit.
+        </p>
+      )}
+      {error && <p className="mt-2 text-[11px] text-destructive">{error}</p>}
+    </div>
+  );
+}
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export interface AssistantChatHandle {
@@ -1625,6 +1836,9 @@ const AssistantChatInner = forwardRef<
   // on mount, or queue state that hasn't actually changed).
   const lastPersistedQueueRef = useRef<string>("[]");
   const [showContinue, setShowContinue] = useState(false);
+  const [loopLimitInfo, setLoopLimitInfo] = useState<LoopLimitInfo | null>(
+    null,
+  );
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
@@ -2103,6 +2317,11 @@ const AssistantChatInner = forwardRef<
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!tabId || detail?.tabId === tabId) {
+        setLoopLimitInfo({
+          ...(typeof detail?.maxIterations === "number"
+            ? { maxIterations: detail.maxIterations }
+            : {}),
+        });
         setShowContinue(true);
       }
     };
@@ -2171,6 +2390,7 @@ const AssistantChatInner = forwardRef<
   const addToQueue = useCallback(
     (text: string, images?: string[], references?: Reference[]) => {
       setShowContinue(false);
+      setLoopLimitInfo(null);
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
