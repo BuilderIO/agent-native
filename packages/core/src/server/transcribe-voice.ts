@@ -2,15 +2,17 @@
  * POST /_agent-native/transcribe-voice
  *
  * Receives an audio blob from the agent sidebar composer and forwards it to
- * OpenAI Whisper. Returns `{ text }` on success, `{ error }` on failure.
+ * the configured transcription provider. Returns `{ text }` on success,
+ * `{ error }` on failure.
  *
- * Key resolution order (mirrors `templates/clips/actions/request-transcript.ts`):
+ * Key resolution order for BYOK providers:
  *   1. User-scoped encrypted secret (`readAppSecret` — set via the sidebar
  *      settings UI).
- *   2. `resolveCredential("OPENAI_API_KEY")` — env var + SQL settings store.
+ *   2. `resolveCredential("<PROVIDER>_API_KEY")` — env var + SQL settings
+ *      store.
  *
- * If no key is configured, returns 400 with an error the composer UI can
- * surface (the client falls back to the browser Web Speech API).
+ * If no server provider is configured, returns 400 with an error the
+ * composer UI can surface (the client falls back to Web Speech when possible).
  *
  * This is a framework route rather than a `defineAction` because multipart
  * audio bodies aren't a clean fit for the action contract (actions are
@@ -37,14 +39,17 @@ const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
 const OPENAI_MODEL = "whisper-1";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper hard limit.
+// Public Builder transcription model id. The Builder gateway maps this to
+// Gemini 3.1 Flash-Lite.
+const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 
-// Gemini Flash Lite — fastest path when GEMINI_API_KEY is configured.
+// Gemini Flash Lite BYOK path when GEMINI_API_KEY is configured.
 // Gemini accepts inline audio; we just give it the bytes and a "transcribe
 // this" prompt and it replies with text. 2.5x faster TTFT than 2.5 Flash
 // per Google's release notes, and noticeably snappier than the Whisper
 // round-trip even on a fast connection.
-// gemini-2.0-flash-lite is the stable GA Flash Lite as of April 2026.
-// (gemini-3.1-flash-lite-preview was never a real model ID — Gemini is on 2.x naming.)
+// Keep the direct Google AI path on a stable public model id; Builder's
+// managed provider above handles the newer Gemini 3.1 Flash-Lite preview.
 const GEMINI_MODEL = "gemini-2.0-flash-lite";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
@@ -155,6 +160,7 @@ export function createTranscribeVoiceHandler() {
         v === "auto" ||
         v === "browser" ||
         v === "builder" ||
+        v === "builder-gemini" ||
         v === "gemini" ||
         v === "openai" ||
         v === "groq"
@@ -250,18 +256,25 @@ export function createTranscribeVoiceHandler() {
       }
     }
 
-    if (providerPref === "builder") {
+    if (providerPref === "builder" || providerPref === "builder-gemini") {
+      const label =
+        providerPref === "builder-gemini"
+          ? "Builder Gemini Flash-Lite"
+          : "Builder";
       if (!(await resolveHasBuilderPrivateKey())) {
         setResponseStatus(event, 400);
         return {
-          error:
-            "Builder is selected but is not connected. Connect Builder.io in Settings, or change the provider preference.",
+          error: `${label} is selected but Builder.io is not connected. Connect Builder.io in Settings, or change the provider preference.`,
         };
       }
       try {
         const result = await transcribeWithBuilder({
           audioBytes,
           mimeType: mime,
+          model:
+            providerPref === "builder-gemini"
+              ? BUILDER_GEMINI_TRANSCRIPTION_MODEL
+              : undefined,
           language: language || undefined,
         });
         return { text: (result.text ?? "").trim() };
@@ -272,7 +285,7 @@ export function createTranscribeVoiceHandler() {
           return { error: message };
         }
         setResponseStatus(event, 502);
-        return { error: `Builder transcription failed: ${message}` };
+        return { error: `${label} transcription failed: ${message}` };
       }
     }
 
@@ -301,10 +314,33 @@ export function createTranscribeVoiceHandler() {
 
     // ── Auto / undefined / openai fallback chain ────────────────────────
 
-    // ── Gemini Flash Lite path (fastest) ────────────────────────────────
-    // First-priority when a Gemini key is configured. The provider-pref
-    // "openai" still forces Whisper; otherwise we try Gemini before
-    // Builder / Groq / OpenAI Whisper because it's reliably faster.
+    // ── Builder Gemini Flash-Lite path ─────────────────────────────────
+    // First-priority in auto mode when Builder is connected. This lets users
+    // try Gemini 3.1 Flash-Lite without bringing their own Google key.
+    if (providerPref !== "openai" && (await resolveHasBuilderPrivateKey())) {
+      try {
+        const result = await transcribeWithBuilder({
+          audioBytes,
+          mimeType: mime,
+          model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+          language: language || undefined,
+        });
+        return { text: (result.text ?? "").trim() };
+      } catch (err) {
+        const message = (err as Error)?.message ?? String(err);
+        // Surface 402 (credits exhausted) as a 402 so the client can show
+        // a specific upgrade prompt.
+        if (message.includes("credits exhausted")) {
+          setResponseStatus(event, 402);
+          return { error: message };
+        }
+        builderError = message;
+      }
+    }
+
+    // ── Gemini Flash Lite BYOK path ────────────────────────────────────
+    // If Builder is unavailable, try a user-provided Gemini key before
+    // Whisper-compatible providers.
     if (providerPref !== "openai") {
       const geminiKey = await resolveApiKey("GEMINI_API_KEY");
       if (geminiKey) {
@@ -329,27 +365,6 @@ export function createTranscribeVoiceHandler() {
             (err as Error)?.message ?? err,
           );
         }
-      }
-    }
-
-    // ── Builder proxy path ──────────────────────────────────────────────
-    if (providerPref !== "openai" && (await resolveHasBuilderPrivateKey())) {
-      try {
-        const result = await transcribeWithBuilder({
-          audioBytes,
-          mimeType: mime,
-          language: language || undefined,
-        });
-        return { text: (result.text ?? "").trim() };
-      } catch (err) {
-        const message = (err as Error)?.message ?? String(err);
-        // Surface 402 (credits exhausted) as a 402 so the client can show
-        // a specific upgrade prompt.
-        if (message.includes("credits exhausted")) {
-          setResponseStatus(event, 402);
-          return { error: message };
-        }
-        builderError = message;
       }
     }
 

@@ -87,6 +87,7 @@ const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/audio/transcriptions";
 const OPENAI_MODEL = "whisper-1";
+const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 
 /**
  * Resolve a secret from (in order):
@@ -286,6 +287,7 @@ export default defineAction({
         const builderResult = await transcribeWithBuilder({
           audioBytes,
           mimeType,
+          model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
           diarize: false,
         });
 

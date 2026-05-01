@@ -18,7 +18,13 @@ import {
 } from "@tabler/icons-react";
 import { useBuilderStatus } from "./useBuilderStatus.js";
 
-type Provider = "openai" | "builder" | "browser" | "gemini" | "groq";
+type Provider =
+  | "openai"
+  | "builder-gemini"
+  | "builder"
+  | "browser"
+  | "gemini"
+  | "groq";
 
 interface Prefs {
   provider: Provider;
@@ -46,8 +52,20 @@ const PROVIDER_STATUS_URL = agentNativePath(
 );
 const DEFAULT_PROVIDER: Provider = "browser";
 
+function isProvider(value: unknown): value is Provider {
+  return (
+    value === "openai" ||
+    value === "builder-gemini" ||
+    value === "builder" ||
+    value === "browser" ||
+    value === "gemini" ||
+    value === "groq"
+  );
+}
+
 export function VoiceTranscriptionSection() {
   const [provider, setProvider] = useState<Provider | null>(null);
+  const [hasStoredProvider, setHasStoredProvider] = useState(false);
   const [openAiConfigured, setOpenAiConfigured] = useState<boolean | null>(
     null,
   );
@@ -68,21 +86,19 @@ export function VoiceTranscriptionSection() {
         const p =
           (body as Prefs | null)?.provider ??
           (body as { value?: Prefs } | null)?.value?.provider;
-        setProvider(
-          p === "openai" ||
-            p === "builder" ||
-            p === "browser" ||
-            p === "gemini" ||
-            p === "groq"
-            ? p
-            : DEFAULT_PROVIDER,
-        );
+        setHasStoredProvider(isProvider(p));
+        setProvider(isProvider(p) ? p : DEFAULT_PROVIDER);
       })
       .catch(() => !cancelled && setProvider(DEFAULT_PROVIDER));
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (hasStoredProvider || provider === null) return;
+    if (builderStatus?.configured) setProvider("builder-gemini");
+  }, [builderStatus?.configured, hasStoredProvider, provider]);
 
   useEffect(() => {
     let cancelled = false;
@@ -206,6 +222,47 @@ export function VoiceTranscriptionSection() {
           builderStatus?.configured
             ? "High-quality transcription via Builder.io. No API key needed."
             : "Connect your Builder.io account for high-quality transcription."
+        }
+        rightSlot={
+          builderStatus?.configured ? (
+            <span className="flex items-center gap-1 text-[10px] text-green-500">
+              <IconCheck size={10} />
+              Connected
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                const url = new URL(
+                  agentNativePath("/_agent-native/builder/connect"),
+                  window.location.origin,
+                ).href;
+                window.open(
+                  url,
+                  "_blank",
+                  "noopener,noreferrer,width=600,height=700",
+                );
+              }}
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
+            >
+              Connect Builder.io
+              <IconExternalLink size={10} />
+            </button>
+          )
+        }
+      />
+
+      <ProviderOption
+        id="builder-gemini"
+        selected={provider === "builder-gemini"}
+        onSelect={() => choose("builder-gemini")}
+        disabled={!builderStatus?.configured}
+        title="Builder Gemini Flash-Lite"
+        subtitle={
+          builderStatus?.configured
+            ? "Fast Gemini 3.1 Flash-Lite transcription through Builder.io. No API key needed."
+            : "Connect Builder.io to try Gemini 3.1 Flash-Lite without a Google key."
         }
         rightSlot={
           builderStatus?.configured ? (

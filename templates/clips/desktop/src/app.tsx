@@ -139,17 +139,10 @@ export function App() {
   const [voiceProvider, setVoiceProvider] = useState<VoiceProvider>(() => {
     const isMac =
       typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
-    // Default: macOS gets the native path (SFSpeechRecognizer +
-    // AVAudioEngine driven from Rust) — cleanly releases the mic on
-    // stop, no "Polishing..." step, no API keys. WKWebView's
-    // webkitSpeechRecognition keeps the orange mic indicator on after
-    // abort, so we route Mac users away from it by default. Windows /
-    // Linux fall back to the browser path until we add a native
-    // equivalent there.
-    const saved = loadString(
-      VOICE_PROVIDER_KEY,
-      isMac ? "macos-native" : "browser",
-    );
+    // Default to Auto so connected Builder users get the Builder-hosted
+    // Gemini 3.1 Flash-Lite path, while everyone else falls back to native
+    // macOS dictation or browser speech without any setup.
+    const saved = loadString(VOICE_PROVIDER_KEY, "auto");
     // `macos-native` calls into native_speech_start which only works on
     // macOS; on Windows/Linux a saved selection would be permanently
     // broken. Coerce back to "browser" if we're not on a Mac.
@@ -157,14 +150,13 @@ export function App() {
     return saved === "auto" ||
       saved === "browser" ||
       saved === "macos-native" ||
+      saved === "builder-gemini" ||
       saved === "builder" ||
       saved === "gemini" ||
       saved === "openai" ||
       saved === "groq"
       ? saved
-      : isMac
-        ? "macos-native"
-        : "browser";
+      : "auto";
   });
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
@@ -2035,11 +2027,13 @@ function Setup({
   }
 
   const providerHint: Record<VoiceProvider, string> = {
-    auto: "Picks the best available provider for your setup.",
+    auto: "Uses Builder Gemini Flash-Lite when Builder is connected, then falls back to your other providers.",
     browser: "Free Web Speech dictation. Cross-platform; quality varies.",
     "macos-native":
       "Apple's on-device dictation via SFSpeechRecognizer. Fastest and most reliable on macOS.",
-    builder: "Builder.io's transcription. Needs BUILDER_PRIVATE_KEY.",
+    "builder-gemini":
+      "Gemini 3.1 Flash-Lite through Builder.io. No Google API key needed.",
+    builder: "Builder.io's transcription. Connect Builder.io first.",
     gemini: "Google Gemini Flash Lite. Needs GEMINI_API_KEY.",
     openai: "OpenAI Whisper. Needs OPENAI_API_KEY.",
     groq: "Groq Whisper — fastest cloud option. Needs GROQ_API_KEY.",
@@ -2066,14 +2060,19 @@ function Setup({
     ) {
       return null;
     }
-    if (providerStatus[voiceProvider]) return null;
-    const envKey = {
-      builder: "BUILDER_PRIVATE_KEY",
+    const configured =
+      voiceProvider === "builder-gemini"
+        ? providerStatus.builder
+        : providerStatus[voiceProvider];
+    if (configured) return null;
+    const requirement = {
+      "builder-gemini": "Builder.io is not connected",
+      builder: "Builder.io is not connected",
       gemini: "GEMINI_API_KEY",
       openai: "OPENAI_API_KEY",
       groq: "GROQ_API_KEY",
     }[voiceProvider];
-    return `${envKey} not set on the server — falling back to browser.`;
+    return `${requirement} — this provider will fail until configured.`;
   })();
 
   return (
@@ -2149,6 +2148,9 @@ function Setup({
                   macOS native (on-device, fastest)
                 </option>
               ) : null}
+              <option value="builder-gemini">
+                Builder Gemini 3.1 Flash-Lite
+              </option>
               <option value="builder">Builder.io</option>
               <option value="gemini">Google Gemini Flash Lite</option>
               <option value="openai">OpenAI Whisper</option>
