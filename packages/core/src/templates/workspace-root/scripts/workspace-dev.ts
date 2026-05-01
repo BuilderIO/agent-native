@@ -15,6 +15,7 @@ interface WorkspaceApp {
 
 const root = process.cwd();
 const appsDir = path.join(root, "apps");
+fs.mkdirSync(path.join(root, "data"), { recursive: true });
 const gatewayHost = process.env.WORKSPACE_HOST || "127.0.0.1";
 const requestedPort = Number(
   process.env.WORKSPACE_PORT || process.env.PORT || 8080,
@@ -118,41 +119,6 @@ function appForRequest(req: http.IncomingMessage): WorkspaceApp | null {
     : null;
 }
 
-function stripAppPrefixForDevAsset(
-  app: WorkspaceApp,
-  requestUrl: string | undefined,
-): string | undefined {
-  if (!requestUrl) return requestUrl;
-  const basePath = `/${app.id}`;
-  try {
-    const parsed = new URL(requestUrl, "http://workspace.local");
-    if (
-      parsed.pathname !== basePath &&
-      !parsed.pathname.startsWith(`${basePath}/`)
-    ) {
-      return requestUrl;
-    }
-
-    const innerPath = parsed.pathname.slice(basePath.length) || "/";
-    const isDevAsset =
-      innerPath === "/@vite/client" ||
-      innerPath.startsWith("/@vite/") ||
-      innerPath.startsWith("/@id/") ||
-      innerPath.startsWith("/@fs/") ||
-      innerPath.startsWith("/@react-router/") ||
-      innerPath.startsWith("/.vite/") ||
-      innerPath.startsWith("/app/") ||
-      innerPath.startsWith("/node_modules/") ||
-      (/\.[a-z0-9]+$/i.test(innerPath) && !innerPath.endsWith(".data"));
-    if (!isDevAsset) return requestUrl;
-
-    parsed.pathname = innerPath;
-    return `${parsed.pathname}${parsed.search}`;
-  } catch {
-    return requestUrl;
-  }
-}
-
 function startApp(app: WorkspaceApp): void {
   const basePath = `/${app.id}`;
   const child = spawn(
@@ -176,7 +142,6 @@ function startApp(app: WorkspaceApp): void {
         APP_NAME: app.id,
         APP_BASE_PATH: basePath,
         VITE_APP_BASE_PATH: basePath,
-        AGENT_NATIVE_VITE_BASE_PATH: "/",
         PORT: String(app.port),
         WORKSPACE_GATEWAY_URL: gatewayUrl,
       },
@@ -253,7 +218,7 @@ function proxyHttp(
       hostname: "127.0.0.1",
       port: app.port,
       method: req.method,
-      path: stripAppPrefixForDevAsset(app, req.url),
+      path: req.url,
       headers,
     },
     (proxyRes) => {
@@ -288,7 +253,7 @@ function proxyUpgrade(
       )
       .join("\r\n");
     target.write(
-      `${req.method} ${stripAppPrefixForDevAsset(app, req.url)} HTTP/${req.httpVersion}\r\n${headers}\r\n\r\n`,
+      `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n${headers}\r\n\r\n`,
     );
     if (head.length) target.write(head);
     socket.pipe(target).pipe(socket);

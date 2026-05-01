@@ -31,11 +31,16 @@ export function usePublicAvailability(slug?: string) {
   });
 }
 
-export function usePublicBookingLink(slug?: string) {
-  return useQuery<BookingLink & { redirect?: string }>({
-    queryKey: ["public-booking-link", slug],
+export function usePublicBookingLink(slug?: string, username?: string) {
+  return useQuery<BookingLink & { redirect?: string; redirectPath?: string }>({
+    queryKey: ["public-booking-link", slug, username],
     queryFn: async () => {
-      const res = await fetch(appApiPath(`/api/public/booking-links/${slug}`));
+      const params = new URLSearchParams();
+      if (username) params.set("username", username);
+      const path = params.size
+        ? `/api/public/booking-links/${slug}?${params}`
+        : `/api/public/booking-links/${slug}`;
+      const res = await fetch(appApiPath(path));
       if (!res.ok) throw new Error("Failed to fetch booking link");
       return res.json();
     },

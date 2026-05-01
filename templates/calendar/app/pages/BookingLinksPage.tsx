@@ -1,27 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
+  IconBrandGoogle,
+  IconBrandZoom,
   IconCalendar,
-  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
+  IconCheck,
   IconCopy,
   IconExternalLink,
-  IconGripVertical,
   IconLink,
   IconDotsVertical,
   IconPlus,
   IconTrash,
-  IconAlertTriangle,
-  IconListCheck,
   IconVideo,
+  IconVideoOff,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import { toast } from "sonner";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
 import {
-  ConferencingSelector,
   CustomFieldsEditor as SharedCustomFieldsEditor,
   SlugEditor,
 } from "@agent-native/scheduling/react/components";
@@ -73,8 +72,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
+import { VisibilityBadge } from "@agent-native/core/client";
+import { useAppHeaderControls } from "@/components/layout/AppLayout";
 import {
   useBookingLinks,
   useCreateBookingLink,
@@ -197,6 +203,189 @@ function formatAvailabilitySummary(config: AvailabilityConfig) {
   return `${dayLabel}, ${formatTime12(slot.start)} - ${formatTime12(slot.end)}`;
 }
 
+type ProviderStatus = "connected" | "disconnected" | "not-configured";
+
+const CONFERENCING_OPTIONS = [
+  {
+    type: "none",
+    label: "No conferencing",
+    description: "In-person, phone, or add details later",
+    Icon: IconVideoOff,
+  },
+  {
+    type: "google_meet",
+    label: "Google Meet",
+    description: "Auto-generate a Meet link",
+    Icon: IconBrandGoogle,
+  },
+  {
+    type: "zoom",
+    label: "Zoom",
+    description: "Auto-create a Zoom meeting per booking",
+    Icon: IconBrandZoom,
+  },
+  {
+    type: "custom",
+    label: "Custom link",
+    description: "Paste any meeting URL",
+    Icon: IconLink,
+  },
+] satisfies Array<{
+  type: ConferencingConfig["type"];
+  label: string;
+  description: string;
+  Icon: typeof IconVideo;
+}>;
+
+function BookingConferencingSelect({
+  value,
+  onChange,
+  zoomStatus,
+  googleStatus,
+  onConnectZoom,
+  zoomPending,
+}: {
+  value: ConferencingConfig;
+  onChange: (next: ConferencingConfig) => void;
+  zoomStatus: ProviderStatus;
+  googleStatus: ProviderStatus;
+  onConnectZoom: () => void;
+  zoomPending: boolean;
+}) {
+  const selected =
+    CONFERENCING_OPTIONS.find((option) => option.type === value.type) ??
+    CONFERENCING_OPTIONS[0];
+  const SelectedIcon = selected.Icon;
+  const selectedStatus =
+    value.type === "zoom"
+      ? zoomStatus
+      : value.type === "google_meet"
+        ? googleStatus
+        : "connected";
+
+  return (
+    <div className="space-y-3">
+      <Label className="flex items-center gap-1.5">
+        <IconVideo className="h-4 w-4" />
+        Conferencing
+      </Label>
+      <Select
+        value={value.type}
+        onValueChange={(type) =>
+          onChange({
+            type: type as ConferencingConfig["type"],
+            url: type === "custom" ? value.url : undefined,
+          })
+        }
+      >
+        <SelectTrigger className="h-auto min-h-11 py-2">
+          <div className="flex min-w-0 items-center gap-2 text-left">
+            <SelectedIcon className="h-4 w-4 shrink-0" />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="truncate font-medium">{selected.label}</span>
+                {selectedStatus === "connected" &&
+                  value.type !== "none" &&
+                  value.type !== "custom" && (
+                    <Badge
+                      variant="secondary"
+                      className="h-5 gap-1 text-[10px] font-normal"
+                    >
+                      <IconCheck className="h-3 w-3" />
+                      Connected
+                    </Badge>
+                  )}
+              </div>
+              <p className="truncate text-xs text-muted-foreground">
+                {selected.description}
+              </p>
+            </div>
+          </div>
+        </SelectTrigger>
+        <SelectContent>
+          {CONFERENCING_OPTIONS.map((option) => {
+            const status =
+              option.type === "zoom"
+                ? zoomStatus
+                : option.type === "google_meet"
+                  ? googleStatus
+                  : "connected";
+            return (
+              <SelectItem
+                key={option.type}
+                value={option.type}
+                className="py-2"
+              >
+                <div className="flex min-w-0 items-start gap-2">
+                  <option.Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{option.label}</span>
+                      {status === "connected" &&
+                        option.type !== "none" &&
+                        option.type !== "custom" && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Connected
+                          </span>
+                        )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {option.description}
+                    </p>
+                  </div>
+                </div>
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+
+      {value.type === "zoom" && zoomStatus !== "connected" && (
+        <div className="rounded-lg border border-border/70 bg-muted/25 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Connect Zoom</p>
+              <p className="text-xs text-muted-foreground">
+                {zoomStatus === "not-configured"
+                  ? "Zoom is selected, but this deployment is missing Zoom OAuth credentials."
+                  : "Zoom is selected. Connect your account to create a meeting for each booking."}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onConnectZoom}
+              disabled={zoomPending}
+              className="gap-1.5"
+            >
+              <IconBrandZoom className="h-4 w-4" />
+              {zoomPending ? "Connecting..." : "Connect Zoom"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {value.type === "custom" && (
+        <div className="space-y-1.5">
+          <Label htmlFor="booking-link-meeting-url" className="text-xs">
+            Meeting URL
+          </Label>
+          <Input
+            id="booking-link-meeting-url"
+            type="url"
+            value={value.url ?? ""}
+            onChange={(e) =>
+              onChange({ type: "custom", url: e.currentTarget.value })
+            }
+            placeholder="https://meet.example.com/room"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BookingLinksPage({
   selectedId = null,
 }: {
@@ -221,7 +410,8 @@ export default function BookingLinksPage({
     isActive: true,
     slugManuallyEdited: false,
   });
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [customDurationInput, setCustomDurationInput] = useState("");
+  const [showCustomDurationInput, setShowCustomDurationInput] = useState(false);
 
   // Availability state
   const { data: availability } = useAvailability();
@@ -303,7 +493,12 @@ export default function BookingLinksPage({
       },
       {
         onSuccess: () => toast.success("Availability saved"),
-        onError: () => toast.error("Failed to save availability"),
+        onError: (error) =>
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to save availability",
+          ),
       },
     );
   }
@@ -337,7 +532,6 @@ export default function BookingLinksPage({
         isActive: true,
         slugManuallyEdited: false,
       });
-      setShowAdvanced(false);
       return;
     }
 
@@ -359,8 +553,8 @@ export default function BookingLinksPage({
       // break existing shared links. Users can still edit the slug manually.
       slugManuallyEdited: true,
     });
-    // Show advanced section if link has a description or custom slug
-    setShowAdvanced(!!selectedLink.description);
+    setCustomDurationInput("");
+    setShowCustomDurationInput(false);
   }, [selectedLink]);
 
   const bookingUsername = availability?.bookingUsername;
@@ -372,7 +566,7 @@ export default function BookingLinksPage({
         window.location.hostname !== "localhost"
           ? window.location.origin
           : `https://${PRODUCTION_DOMAIN}`;
-      return `${host}/meet/${bookingUsername}/${slug}`;
+      return `${host}/book/${bookingUsername}/${slug}`;
     }
     // Fallback for no username set
     if (typeof window === "undefined") return `/book/${slug}`;
@@ -452,6 +646,22 @@ export default function BookingLinksPage({
     }
   }
 
+  function addCustomDuration() {
+    const minutes = Number.parseInt(customDurationInput, 10);
+    if (!Number.isFinite(minutes) || minutes < 5 || minutes > 480) {
+      toast.error("Enter a duration between 5 and 480 minutes");
+      return;
+    }
+    setDraft((prev) => {
+      const next = Array.from(new Set([...prev.durations, minutes])).sort(
+        (a, b) => a - b,
+      );
+      return { ...prev, durations: next, duration: next[0] };
+    });
+    setCustomDurationInput("");
+    setShowCustomDurationInput(false);
+  }
+
   async function copyPreviewUrl(slug: string) {
     await navigator.clipboard.writeText(getBookingUrl(slug));
     toast.success("Booking link copied");
@@ -460,45 +670,48 @@ export default function BookingLinksPage({
   function openPreview(slug: string) {
     // For local preview, use the local path
     const localPath = bookingUsername
-      ? `/meet/${bookingUsername}/${slug}`
+      ? `/book/${bookingUsername}/${slug}`
       : `/book/${slug}`;
     window.open(localPath, "_blank", "noopener,noreferrer");
   }
+
+  const handleSaveRef = useRef(handleSave);
+  useEffect(() => {
+    handleSaveRef.current = handleSave;
+  });
+
+  const detailHeaderControls = useMemo(() => {
+    if (!selectedId) return null;
+    return {
+      left: (
+        <button
+          type="button"
+          onClick={() => navigate("/booking-links")}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <IconChevronLeft className="h-4 w-4" />
+          Back
+        </button>
+      ),
+      right: selectedLink ? (
+        <Button
+          type="button"
+          onClick={() => void handleSaveRef.current()}
+          disabled={updateBookingLink.isPending}
+        >
+          {updateBookingLink.isPending ? "Saving..." : "Save changes"}
+        </Button>
+      ) : null,
+    };
+  }, [selectedId, selectedLink, updateBookingLink.isPending, navigate]);
+  useAppHeaderControls(detailHeaderControls);
 
   const hasLinks = bookingLinks.length > 0;
 
   // If a link is selected, show the detail/edit view
   if (selectedId) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:p-6">
-        {/* Top bar: back + save */}
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => navigate("/booking-links")}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <IconChevronLeft className="h-4 w-4" />
-            Back
-          </button>
-          {selectedLink && (
-            <div className="flex items-center gap-2">
-              <ShareButton
-                resourceType="booking-link"
-                resourceId={selectedLink.id}
-                resourceTitle={selectedLink.title}
-              />
-              <Button
-                type="button"
-                onClick={handleSave}
-                disabled={updateBookingLink.isPending}
-              >
-                {updateBookingLink.isPending ? "Saving…" : "Save changes"}
-              </Button>
-            </div>
-          )}
-        </div>
-
+      <div className="mx-auto max-w-6xl space-y-6 px-4 py-5 sm:p-6">
         {/* Two-column layout: form left, preview right */}
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Left — Edit form */}
@@ -612,29 +825,94 @@ export default function BookingLinksPage({
                         </button>
                       );
                     })}
+                    {draft.durations
+                      .filter((minutes) => !DURATION_PRESETS.includes(minutes))
+                      .map((minutes) => {
+                        const isSelected = draft.durations.includes(minutes);
+                        return (
+                          <button
+                            key={minutes}
+                            type="button"
+                            onClick={() =>
+                              setDraft((prev) => {
+                                if (prev.durations.length === 1) return prev;
+                                const next = prev.durations.filter(
+                                  (d) => d !== minutes,
+                                );
+                                return {
+                                  ...prev,
+                                  durations: next,
+                                  duration: next[0],
+                                };
+                              })
+                            }
+                            className={cn(
+                              "rounded-full border px-3 py-1.5 text-sm",
+                              isSelected
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                            )}
+                          >
+                            {minutes} min
+                          </button>
+                        );
+                      })}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowCustomDurationInput((visible) => !visible)
+                      }
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm",
+                        showCustomDurationInput
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border border-dashed text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                      )}
+                    >
+                      <IconPlus className="h-3.5 w-3.5" />
+                      Custom
+                    </button>
                   </div>
+                  {showCustomDurationInput && (
+                    <div className="flex max-w-xs items-center gap-2">
+                      <Input
+                        type="number"
+                        min={5}
+                        max={480}
+                        step={5}
+                        autoFocus
+                        value={customDurationInput}
+                        onChange={(e) => setCustomDurationInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addCustomDuration();
+                          }
+                          if (e.key === "Escape") {
+                            setShowCustomDurationInput(false);
+                          }
+                        }}
+                        placeholder="Minutes"
+                        className="h-9"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addCustomDuration}
+                        disabled={!customDurationInput.trim()}
+                        className="shrink-0"
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  )}
                   {draft.durations.length > 1 && (
                     <p className="text-xs text-muted-foreground">
                       Bookers will choose between:{" "}
                       {draft.durations.map((d) => `${d} min`).join(", ")}
                     </p>
                   )}
-                </div>
-
-                {/* Visibility toggle */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">Link visibility</p>
-                    <p className="text-xs text-muted-foreground">
-                      Turn this off to disable the public booking page.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={draft.isActive}
-                    onCheckedChange={(checked) =>
-                      setDraft((prev) => ({ ...prev, isActive: checked }))
-                    }
-                  />
                 </div>
 
                 {/* Editable URL parts (username / slug) — shared package component */}
@@ -645,7 +923,7 @@ export default function BookingLinksPage({
                       ? window.location.host
                       : PRODUCTION_DOMAIN
                   }
-                  pathPrefix="/meet"
+                  pathPrefix="/book"
                   username={
                     bookingUsername || usernameInput || suggestedUsername || ""
                   }
@@ -653,16 +931,26 @@ export default function BookingLinksPage({
                   onUsernameChange={(val) => {
                     setUsernameInput(val);
                     if (val) {
-                      updateAvailability.mutate({
-                        timezone,
-                        weeklySchedule: schedule,
-                        bufferMinutes,
-                        minNoticeHours,
-                        maxAdvanceDays,
-                        slotDurationMinutes: slotDuration,
-                        bookingPageSlug: bookingSlug,
-                        bookingUsername: val,
-                      });
+                      updateAvailability.mutate(
+                        {
+                          timezone,
+                          weeklySchedule: schedule,
+                          bufferMinutes,
+                          minNoticeHours,
+                          maxAdvanceDays,
+                          slotDurationMinutes: slotDuration,
+                          bookingPageSlug: bookingSlug,
+                          bookingUsername: val,
+                        },
+                        {
+                          onError: (error) =>
+                            toast.error(
+                              error instanceof Error
+                                ? error.message
+                                : "Failed to update booking username",
+                            ),
+                        },
+                      );
                     }
                   }}
                   onSlugChange={(val) => {
@@ -674,8 +962,8 @@ export default function BookingLinksPage({
                   }}
                 />
 
-                {/* Conferencing — shared package component, Zoom uses real OAuth */}
-                <ConferencingSelector
+                {/* Conferencing — Zoom uses real OAuth */}
+                <BookingConferencingSelect
                   value={draft.conferencing}
                   onChange={(conferencing) =>
                     setDraft((prev) => ({ ...prev, conferencing }))
@@ -690,7 +978,17 @@ export default function BookingLinksPage({
                   googleStatus={
                     googleStatus.data?.connected ? "connected" : "disconnected"
                   }
-                  onConnectZoom={() => connectZoom.mutate()}
+                  onConnectZoom={() =>
+                    connectZoom.mutate(undefined, {
+                      onError: (error) =>
+                        toast.error(
+                          error instanceof Error
+                            ? error.message
+                            : "Could not start Zoom connection",
+                        ),
+                    })
+                  }
+                  zoomPending={connectZoom.isPending}
                 />
 
                 {/* Custom fields editor — shared package component */}
@@ -701,8 +999,22 @@ export default function BookingLinksPage({
                   }
                 />
 
-                {/* Actions */}
-                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+                {/* Lower-risk settings */}
+                <div className="space-y-4 border-t border-border pt-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium">Link visibility</p>
+                      <p className="text-xs text-muted-foreground">
+                        Turn this off to disable the public page.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={draft.isActive}
+                      onCheckedChange={(checked) =>
+                        setDraft((prev) => ({ ...prev, isActive: checked }))
+                      }
+                    />
+                  </div>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <button
@@ -1053,7 +1365,7 @@ export default function BookingLinksPage({
                   <p className="text-xs text-muted-foreground">
                     Your unique handle for booking URLs, e.g.{" "}
                     {PRODUCTION_DOMAIN}
-                    /meet/
+                    /book/
                     <strong>{usernameInput || "your-name"}</strong>/meeting-slug
                   </p>
                   <Input
