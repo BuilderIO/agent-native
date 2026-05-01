@@ -40,6 +40,7 @@ export interface WalkthroughStep {
   inputLabel?: string;
   inputPlaceholder?: string;
   inputType?: "text" | "password" | "textarea";
+  optional?: boolean;
   /** Allow file upload for this input (e.g. ".json") */
   inputAcceptFile?: string;
 }
