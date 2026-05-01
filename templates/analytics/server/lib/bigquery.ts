@@ -12,9 +12,8 @@ async function getProjectInfo(): Promise<{
   cacheScope: string;
 }> {
   const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
-  const projectId =
-    (await resolveCredential("BIGQUERY_PROJECT_ID", ctx)) ||
-    "your-gcp-project-id";
+  const projectId = await resolveCredential("BIGQUERY_PROJECT_ID", ctx);
+  if (!projectId) throw new Error("BIGQUERY_PROJECT_ID not configured");
   return { projectId, cacheScope: cacheScopeForContext(ctx) };
 }
 

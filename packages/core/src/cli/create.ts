@@ -116,7 +116,9 @@ async function createWorkspaceInteractive(
   const templates =
     preselected.length > 0
       ? preselected
-      : await promptTemplatePicker(preselected, clack);
+      : await promptTemplatePicker(preselected, clack, {
+          defaultTemplates: ["starter", "dispatch"],
+        });
   if (templates.length === 0) {
     clack.cancel("No apps selected. Cancelled.");
     process.exit(0);
@@ -145,6 +147,7 @@ async function createWorkspaceInteractive(
       workspacifyApp({
         appDir,
         appName: t,
+        templateName: t,
         workspaceRoot: targetDir,
         workspaceCoreName,
         coreDependencyVersion: getCoreDependencyVersion(),
@@ -302,6 +305,7 @@ async function scaffoldOneAppIntoWorkspace(
     workspacifyApp({
       appDir,
       appName,
+      templateName,
       workspaceRoot: workspace.workspaceRoot,
       workspaceCoreName: workspace.workspaceCoreName,
       coreDependencyVersion: getCoreDependencyVersion(),
@@ -681,7 +685,11 @@ async function promptNameIfMissing(
 async function promptTemplatePicker(
   preselected: string[],
   clack: typeof import("@clack/prompts"),
-  opts?: { excludeNames?: string[]; message?: string },
+  opts?: {
+    defaultTemplates?: string[];
+    excludeNames?: string[];
+    message?: string;
+  },
 ): Promise<string[]> {
   const excluded = new Set(opts?.excludeNames ?? []);
   const options = starterFirst(coreTemplates())
@@ -701,6 +709,8 @@ async function promptTemplatePicker(
   const defaults =
     preselected.length > 0
       ? preselected.filter((p) => options.some((o) => o.value === p))
+      : opts?.defaultTemplates
+        ? opts.defaultTemplates.filter((p) => options.some((o) => o.value === p))
       : options.some((o) => o.value === "starter")
         ? ["starter"]
         : [];
