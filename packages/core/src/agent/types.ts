@@ -115,6 +115,10 @@ export type AgentChatEvent =
       errorCode?: string;
       /** Optional link paired with errorCode — e.g. Builder billing page. */
       upgradeUrl?: string;
+      /** Optional details for expandable UI/debugging. */
+      details?: string;
+      /** True when the user can reasonably continue/retry from partial work. */
+      recoverable?: boolean;
     }
   | { type: "missing_api_key" }
   | { type: "loop_limit"; maxIterations?: number }
@@ -125,4 +129,4 @@ export interface RunEvent {
   event: AgentChatEvent;
 }
 
-export type RunStatus = "running" | "completed" | "errored";
+export type RunStatus = "running" | "completed" | "errored" | "aborted";

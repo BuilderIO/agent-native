@@ -15,6 +15,16 @@ let _initPromise: Promise<void> | undefined;
  */
 export const RUN_STALE_MS = 6_000;
 
+const STALE_RUN_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent stopped before it could finish. It may have hit a server timeout or the worker may have been interrupted.",
+  errorCode: "stale_run",
+  recoverable: true,
+  details:
+    "The run heartbeat stopped while the run was still marked running. Partial output and tool calls were preserved when available.",
+} as const;
+
 async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -96,7 +106,11 @@ export async function reapIfStale(
             AND COALESCE(heartbeat_at, started_at) < ?`,
     args: [Date.now(), runId, cutoff],
   });
-  return (rowsAffected ?? 0) > 0;
+  const reaped = (rowsAffected ?? 0) > 0;
+  if (reaped) {
+    await appendTerminalRunEvent(runId, STALE_RUN_ERROR_EVENT).catch(() => {});
+  }
+  return reaped;
 }
 
 export async function updateRunStatus(
@@ -228,6 +242,12 @@ export async function reapAllStaleRuns(): Promise<number> {
   await ensureRunTables();
   const client = getDbExec();
   const heartbeatCutoff = Date.now() - RUN_STALE_MS;
+  const stale = await client.execute({
+    sql: `SELECT id FROM agent_runs
+          WHERE status = 'running'
+            AND COALESCE(heartbeat_at, started_at) < ?`,
+    args: [heartbeatCutoff],
+  });
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
           SET status = 'errored', completed_at = ?
@@ -235,6 +255,12 @@ export async function reapAllStaleRuns(): Promise<number> {
             AND COALESCE(heartbeat_at, started_at) < ?`,
     args: [Date.now(), heartbeatCutoff],
   });
+  for (const row of stale.rows) {
+    const id = (row as { id?: unknown }).id;
+    if (typeof id === "string") {
+      await appendTerminalRunEvent(id, STALE_RUN_ERROR_EVENT).catch(() => {});
+    }
+  }
   return rowsAffected ?? 0;
 }
 
@@ -247,12 +273,18 @@ export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
   const cutoff = Date.now() - olderThanMs;
   // Expire stale running rows on the absolute-age threshold — safety net
   // for runs that never received a heartbeat (very old deployments).
+  const heartbeatCutoff = Date.now() - RUN_STALE_MS;
+  const stale = await client.execute({
+    sql: `SELECT id FROM agent_runs
+          WHERE status = 'running'
+            AND COALESCE(heartbeat_at, started_at) < ?`,
+    args: [heartbeatCutoff],
+  });
   await client.execute({
     sql: `UPDATE agent_runs SET status = 'errored', completed_at = ? WHERE status = 'running' AND started_at < ?`,
     args: [Date.now(), cutoff],
   });
   // Also expire runs whose heartbeat is stale — producer has died.
-  const heartbeatCutoff = Date.now() - RUN_STALE_MS;
   await client.execute({
     sql: `UPDATE agent_runs
           SET status = 'errored', completed_at = ?
@@ -260,6 +292,12 @@ export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
             AND COALESCE(heartbeat_at, started_at) < ?`,
     args: [Date.now(), heartbeatCutoff],
   });
+  for (const row of stale.rows) {
+    const id = (row as { id?: unknown }).id;
+    if (typeof id === "string") {
+      await appendTerminalRunEvent(id, STALE_RUN_ERROR_EVENT).catch(() => {});
+    }
+  }
   // Delete events for old non-running runs
   await client.execute({
     sql: `DELETE FROM agent_run_events WHERE run_id IN (
@@ -270,5 +308,40 @@ export async function cleanupOldRuns(olderThanMs: number): Promise<void> {
   await client.execute({
     sql: `DELETE FROM agent_runs WHERE status != 'running' AND completed_at < ?`,
     args: [cutoff],
+  });
+}
+
+async function appendTerminalRunEvent(
+  runId: string,
+  event: Record<string, unknown>,
+): Promise<void> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
+    args: [runId],
+  });
+  const last = rows[0] as
+    | { seq?: number | string; event_data?: string }
+    | undefined;
+  if (last?.event_data) {
+    try {
+      const parsed = JSON.parse(last.event_data);
+      if (
+        parsed?.type === "done" ||
+        parsed?.type === "error" ||
+        parsed?.type === "missing_api_key" ||
+        parsed?.type === "loop_limit"
+      ) {
+        return;
+      }
+    } catch {
+      // Ignore malformed rows and append the terminal event.
+    }
+  }
+  const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
+  await client.execute({
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_data) VALUES (?, ?, ?)`,
+    args: [runId, nextSeq, JSON.stringify(event)],
   });
 }

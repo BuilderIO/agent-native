@@ -29,6 +29,13 @@ const threadToRun = new Map<string, string>();
 
 /** How long to keep completed runs in memory before cleanup (5 min) */
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
+const DEFAULT_RUN_SOFT_TIMEOUT_MS = 75_000;
+
+function getRunSoftTimeoutMs(): number {
+  const raw = Number(process.env.AGENT_RUN_SOFT_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw >= 0) return raw;
+  return DEFAULT_RUN_SOFT_TIMEOUT_MS;
+}
 
 /**
  * Start a new agent run in the background.
@@ -53,6 +60,7 @@ export function startRun(
   }
 
   const abort = new AbortController();
+  let softTimedOut = false;
   const run: ActiveRun = {
     runId,
     threadId,
@@ -76,6 +84,25 @@ export function startRun(
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     updateRunHeartbeat(runId).catch(() => {});
   }, 1500);
+  const softTimeoutMs = getRunSoftTimeoutMs();
+  const softTimeoutTimer =
+    softTimeoutMs > 0
+      ? setTimeout(() => {
+          if (run.status !== "running" || abort.signal.aborted) return;
+          softTimedOut = true;
+          send({
+            type: "error",
+            error:
+              "The agent reached the run time limit before it could finish.",
+            errorCode: "run_timeout",
+            recoverable: true,
+            details: `The run exceeded ${Math.round(
+              softTimeoutMs / 1000,
+            )} seconds. Partial output and tool calls were preserved so you can continue or retry.`,
+          });
+          abort.abort();
+        }, softTimeoutMs)
+      : null;
 
   // Periodic SQL abort check interval (for cross-isolate abort on Workers)
   let lastAbortCheck = Date.now();
@@ -111,12 +138,12 @@ export function startRun(
   // Run in background — intentionally detached from any HTTP connection
   const runPromise = runFn(send, abort.signal)
     .then(() => {
-      run.status = "completed";
+      run.status = softTimedOut ? "errored" : "completed";
     })
     .catch((err) => {
       // Don't surface abort errors — the run was intentionally stopped
       if (abort.signal.aborted) {
-        run.status = "completed";
+        run.status = softTimedOut ? "errored" : "aborted";
         return;
       }
       run.status = "errored";
@@ -195,6 +222,7 @@ export function startRun(
 
       // 3. Stop the heartbeat — all liveness writes are done.
       clearInterval(heartbeatTimer);
+      if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
 
       // 4. Persist final status to SQL. If the completion callback threw,
       //    we'd rather mark the run errored than claim success with

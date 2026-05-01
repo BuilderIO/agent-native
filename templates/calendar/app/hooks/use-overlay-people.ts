@@ -22,7 +22,7 @@ export function useAddOverlayPerson() {
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updated),
+          body: JSON.stringify({ people: updated }),
         },
       );
       if (!res.ok) throw new Error("Failed to save");
@@ -53,7 +53,7 @@ export function useUpdateOverlayPersonColor() {
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updated),
+          body: JSON.stringify({ people: updated }),
         },
       );
       if (!res.ok) throw new Error("Failed to save");
@@ -82,7 +82,7 @@ export function useRemoveOverlayPerson() {
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updated),
+          body: JSON.stringify({ people: updated }),
         },
       );
       if (!res.ok) throw new Error("Failed to save");
