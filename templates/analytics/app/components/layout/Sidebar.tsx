@@ -799,6 +799,44 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [queryClient],
   );
 
+  const handleDashboardRename = useCallback(
+    async (d: SidebarDashboard, name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed || trimmed === d.name) return;
+
+      if (d.source === "static") {
+        setStaticDashboardRenamesState((prev) => {
+          const next = { ...prev, [d.id]: trimmed };
+          setStaticDashboardRenames(next);
+          return next;
+        });
+        return;
+      }
+
+      const queryKey = ["sql-dashboards-sidebar"] as const;
+      const prev =
+        queryClient.getQueryData<{ id: string; name: string }[]>(queryKey);
+      queryClient.setQueryData<{ id: string; name: string }[]>(
+        queryKey,
+        (old) =>
+          (old ?? []).map((item) =>
+            item.id === d.id ? { ...item, name: trimmed } : item,
+          ),
+      );
+      try {
+        await renameDashboard({ id: d.id, name: trimmed });
+        queryClient.invalidateQueries({ queryKey });
+        queryClient.invalidateQueries({
+          queryKey: ["sql-dashboards-palette"],
+        });
+      } catch (err) {
+        if (prev) queryClient.setQueryData(queryKey, prev);
+        throw err;
+      }
+    },
+    [queryClient, renameDashboard],
+  );
+
   const handleAnalysisDelete = useCallback(
     async (a: { id: string; name: string }) => {
       const queryKey = ["analyses-sidebar"] as const;
@@ -825,6 +863,50 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       }
     },
     [queryClient],
+  );
+
+  const handleAnalysisRename = useCallback(
+    async (a: { id: string; name: string }, name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed || trimmed === a.name) return;
+
+      const sidebarKey = ["analyses-sidebar"] as const;
+      const listKey = ["analyses-list"] as const;
+      const detailKey = ["analysis-detail", a.id] as const;
+      const prevSidebar =
+        queryClient.getQueryData<{ id: string; name: string }[]>(sidebarKey);
+      const prevList = queryClient.getQueryData<any[]>(listKey);
+      const prevDetail = queryClient.getQueryData<any>(detailKey);
+
+      queryClient.setQueryData<{ id: string; name: string }[]>(
+        sidebarKey,
+        (old) =>
+          (old ?? []).map((item) =>
+            item.id === a.id ? { ...item, name: trimmed } : item,
+          ),
+      );
+      queryClient.setQueryData<any[]>(listKey, (old) =>
+        (old ?? []).map((item) =>
+          item.id === a.id ? { ...item, name: trimmed } : item,
+        ),
+      );
+      queryClient.setQueryData<any>(detailKey, (old) =>
+        old ? { ...old, name: trimmed } : old,
+      );
+
+      try {
+        await renameAnalysis({ id: a.id, name: trimmed });
+        queryClient.invalidateQueries({ queryKey: sidebarKey });
+        queryClient.invalidateQueries({ queryKey: listKey });
+        queryClient.invalidateQueries({ queryKey: detailKey });
+      } catch (err) {
+        if (prevSidebar) queryClient.setQueryData(sidebarKey, prevSidebar);
+        if (prevList) queryClient.setQueryData(listKey, prevList);
+        if (prevDetail) queryClient.setQueryData(detailKey, prevDetail);
+        throw err;
+      }
+    },
+    [queryClient, renameAnalysis],
   );
 
   const sensors = useSensors(
@@ -1002,10 +1084,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       isActive={location.pathname === `/adhoc/${d.id}`}
                       location={location}
                       favoriteIds={favoriteIds}
-                      deletingId={deletingId}
                       onToggleFavorite={toggleFavorite}
-                      setDeletingId={setDeletingId}
                       onDelete={handleDashboardDelete}
+                      onRename={handleDashboardRename}
                       views={allViewsMap[d.id]}
                     />
                   ))}
@@ -1075,15 +1156,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       key={a.id}
                       id={a.id}
                       favoriteKey={`analysis:${a.id}`}
-                      deleteKey={`analysis:${a.id}`}
                       name={a.name}
                       href={`/analyses/${a.id}`}
                       isActive={location.pathname === `/analyses/${a.id}`}
                       favoriteIds={favoriteIds}
                       onToggleFavorite={toggleFavorite}
-                      deletingId={deletingId}
-                      setDeletingId={setDeletingId}
                       onDelete={() => handleAnalysisDelete(a)}
+                      onRename={(name) => handleAnalysisRename(a, name)}
                     />
                   ))}
                   {sortedAnalyses.length > SIDEBAR_PREVIEW_COUNT && (

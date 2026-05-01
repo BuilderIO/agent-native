@@ -20,11 +20,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import {
-  applyToolsOrder,
-  getToolsOrder,
-  setToolsOrder,
-} from "./tool-order.js";
+import { applyToolsOrder, getToolsOrder, setToolsOrder } from "./tool-order.js";
 
 interface Tool {
   id: string;
