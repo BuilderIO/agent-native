@@ -1,15 +1,18 @@
 /**
- * Request a Whisper transcription for a recording.
+ * Request transcription for a recording.
  *
- * This is the ONE AI action that calls Whisper directly (transcription is a
- * data pipeline, not reasoning). Everything else — titles, summaries, chapters,
- * workflow docs — delegates to the agent chat.
+ * Native transcript first: the web recorder uses the browser Web Speech API
+ * and the desktop app uses macOS Speech. Those transcripts are saved via
+ * `save-browser-transcript` and are authoritative. This action preserves an
+ * existing native transcript, then only falls back to cloud transcription when
+ * no native transcript exists.
  *
- * Provider selection:
- *   1. `GROQ_API_KEY` → Groq's `whisper-large-v3-turbo` (OpenAI-compatible API,
- *      typically 10-30x faster than OpenAI Whisper, ~$0.04/hour). **Preferred.**
- *   2. `OPENAI_API_KEY` → OpenAI's `whisper-1` (fallback, slower).
- *   3. Neither → fail with a clear reason.
+ * Cloud fallback provider selection:
+ *   1. Builder.io transcription (Gemini 3.1 Flash-Lite behind the Builder
+ *      proxy) when Builder is connected.
+ *   2. `GROQ_API_KEY` → Groq's `whisper-large-v3-turbo`.
+ *   3. `OPENAI_API_KEY` → OpenAI's `whisper-1`.
+ *   4. Neither → keep any native transcript or fail with a clear reason.
  *
  * Both providers accept the same multipart form-data shape, so the only
  * differences are the endpoint URL and the `model` field.
@@ -152,7 +155,44 @@ export default defineAction({
     const userEmail = getRequestUserEmail() ?? ownerEmail;
     let builderError: string | null = null;
 
-    // ── Builder transcription (highest priority) ──────────────────────
+    const [existingNativeTranscript] = await db
+      .select({
+        status: schema.recordingTranscripts.status,
+        fullText: schema.recordingTranscripts.fullText,
+      })
+      .from(schema.recordingTranscripts)
+      .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
+      .limit(1);
+
+    if (
+      existingNativeTranscript?.status === "ready" &&
+      existingNativeTranscript.fullText?.trim()
+    ) {
+      const [recForTitle] = await db
+        .select({ title: schema.recordings.title })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.recordingId))
+        .limit(1);
+
+      if (recForTitle && isDefaultTitle(recForTitle.title)) {
+        try {
+          await regenerateTitle.run({ recordingId: args.recordingId });
+        } catch (delegateErr) {
+          console.warn(
+            `[clips] native-transcript title generation failed for ${args.recordingId}:`,
+            (delegateErr as Error).message,
+          );
+        }
+      }
+
+      return {
+        recordingId: args.recordingId,
+        status: "ready" as const,
+        provider: "native",
+      };
+    }
+
+    // ── Builder transcription (cloud fallback) ────────────────────────
     // Builder proxy is available when the current user has connected
     // Builder via OAuth (per-user app_secrets) OR when BUILDER_PRIVATE_KEY
     // is set at the deployment level. Use the per-user-aware resolver so

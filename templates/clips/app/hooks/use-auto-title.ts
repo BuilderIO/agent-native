@@ -1,26 +1,20 @@
 /**
  * Auto-title bridge
  *
- * Watches the `clips-ai-request-:id` application_state queue that server-side
- * actions (notably `request-transcript` after a transcript lands ready) write
- * when a clip still has the default title. For each pending request with
- * kind="regenerate-title" we fire a single `sendToAgentChat` so the agent
- * picks up the delegation — exactly once per (recordingId, requestedAt).
+ * Watches the `clips-ai-request-:id` application_state queue for default-title
+ * follow-up. The normal path is server-side Builder title generation; this
+ * bridge handles setup prompts (connect Builder) and the legacy agent-chat
+ * fallback exactly once per (recordingId, requestedAt).
  *
- * Once dispatched we DELETE the request entry so the next page load / tab
- * switch doesn't re-fire. The agent is in charge from that point on; when it
- * calls `update-recording --title=...` the polling layer will flip the
- * skeleton in `recording-card` / `r.$recordingId` over to the real title.
- *
- * This keeps the UI in charge of every LLM call (Rule 1: all AI goes through
- * the agent chat) while letting the server signal "please auto-title this
- * recording" from a request-transcript fire-and-forget where `postMessage`
- * isn't available.
+ * Once handled we DELETE the request entry so the next page load / tab switch
+ * doesn't re-fire. The polling layer flips the skeleton in `recording-card` /
+ * `r.$recordingId` over to the real title when `update-recording` lands.
  */
 
 import { useEffect, useRef } from "react";
 import { agentNativePath, sendToAgentChat } from "@agent-native/core/client";
 import { useRecordings, type RecordingSummary } from "./use-library";
+import { toast } from "sonner";
 
 const DEFAULT_TITLE = "Untitled recording";
 const POLL_INTERVAL_MS = 3000;
@@ -39,6 +33,7 @@ interface AiRequest {
   currentTitle?: string;
   transcriptStatus?: string;
   transcriptText?: string;
+  requiresBuilderConnection?: boolean;
   message?: string;
 }
 
@@ -111,6 +106,25 @@ export function useAutoTitleBridge(): void {
             if (dispatched.current.has(dispatchKey)) continue;
             dispatched.current.add(dispatchKey);
 
+            if (request.requiresBuilderConnection) {
+              toast("Connect Builder.io to generate Clip titles", {
+                description:
+                  "Clips uses Builder's Gemini Flash-Lite model for transcript-based default titles.",
+                action: {
+                  label: "Connect",
+                  onClick: () => {
+                    window.open(
+                      agentNativePath("/_agent-native/builder/connect"),
+                      "_blank",
+                      "noopener,noreferrer",
+                    );
+                  },
+                },
+              });
+              void clearRequest(rec.id);
+              continue;
+            }
+
             sendToAgentChat({
               message:
                 request.message ??
@@ -143,15 +157,11 @@ export function useAutoTitleBridge(): void {
             if (dispatched.current.has(fallbackKey)) continue;
             dispatched.current.add(fallbackKey);
 
-            sendToAgentChat({
-              message: `This clip (${rec.id}) still has its default title. Please read its transcript via get-recording-player-data and generate a concise 3-8 word title, then call update-recording --id=${rec.id} --title="...".`,
-              context: JSON.stringify({
-                recordingId: rec.id,
-                currentTitle: rec.title,
-              }),
-              submit: true,
-              openSidebar: false,
-            });
+            fetch(agentNativePath("/_agent-native/actions/regenerate-title"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ recordingId: rec.id }),
+            }).catch(() => {});
           }
         }
       } finally {

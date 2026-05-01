@@ -36,6 +36,7 @@ export interface LiveTranscriptionApi {
   interimText: string;
   start: () => void;
   stop: () => string;
+  stopAndWait: (timeoutMs?: number) => Promise<string>;
   pause: () => void;
   resume: () => void;
 }
@@ -55,6 +56,7 @@ export function useLiveTranscription(
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
   const stoppedManuallyRef = useRef(false);
+  const stopWaiterRef = useRef<((text: string) => void) | null>(null);
 
   const supported = !!getSpeechRecognitionCtor();
 
@@ -113,6 +115,9 @@ export function useLiveTranscription(
         return;
       }
       setIsActive(false);
+      if (stopWaiterRef.current) {
+        stopWaiterRef.current(transcriptRef.current);
+      }
     };
 
     try {
@@ -136,6 +141,45 @@ export function useLiveTranscription(
     }
     setIsActive(false);
     return transcriptRef.current;
+  }, []);
+
+  const stopAndWait = useCallback((timeoutMs = 1200): Promise<string> => {
+    stoppedManuallyRef.current = true;
+    setInterimText("");
+
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      setIsActive(false);
+      return Promise.resolve(transcriptRef.current);
+    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (text: string) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        if (stopWaiterRef.current === finish) {
+          stopWaiterRef.current = null;
+        }
+        if (recognitionRef.current === recognition) {
+          recognitionRef.current = null;
+        }
+        setIsActive(false);
+        resolve(text);
+      };
+
+      const timeout = window.setTimeout(() => {
+        finish(transcriptRef.current);
+      }, timeoutMs);
+
+      stopWaiterRef.current = finish;
+      try {
+        recognition.stop();
+      } catch {
+        finish(transcriptRef.current);
+      }
+    });
   }, []);
 
   const pause = useCallback(() => {
@@ -178,6 +222,7 @@ export function useLiveTranscription(
     interimText,
     start,
     stop,
+    stopAndWait,
     pause,
     resume,
   };
