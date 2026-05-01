@@ -3,11 +3,11 @@ import { DefaultSpinner } from "@agent-native/core/client";
 
 export function meta() {
   return [
-    { title: "Clips" },
+    { title: "Agent-Native Clips" },
     {
       name: "description",
       content:
-        "Async screen recording with auto-transcription, chapters, and shareable links — agent-native by default.",
+        "Your AI agent titles, summarizes, and chapters your screen recordings while you keep working.",
     },
   ];
 }

@@ -109,7 +109,12 @@ function wrapCliScript(
     run: async (args: Record<string, string>): Promise<string> => {
       const cliArgs: string[] = [];
       for (const [k, v] of Object.entries(args)) {
-        cliArgs.push(`--${k}`, v);
+        const raw = v as unknown;
+        const value =
+          raw != null && typeof raw === "object"
+            ? JSON.stringify(raw)
+            : String(raw);
+        cliArgs.push(`--${k}`, value);
       }
       return captureCliOutput(() => cliDefault(cliArgs));
     },
@@ -365,6 +370,11 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
                 description:
                   "SELECT query to run, e.g. \"SELECT key, value FROM settings WHERE key LIKE 'sql-dashboard-%'\"",
               },
+              args: {
+                type: "string",
+                description:
+                  'Optional JSON array of positional bind args for parameterized placeholders. Example: \'["draft","form-123"]\'',
+              },
               format: {
                 type: "string",
                 description: 'Output format: "json" or "text" (default: text)',
@@ -385,17 +395,31 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
       "db-exec": wrapCliScript(
         {
           description:
-            "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE against the app's internal tables. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
+            "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE / REPLACE against the app's internal tables. For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Schema changes (CREATE/ALTER/DROP) are blocked. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
           parameters: {
             type: "object",
             properties: {
               sql: {
                 type: "string",
                 description:
-                  "INSERT / UPDATE / DELETE statement. Use parameterized placeholders (?) if possible.",
+                  "Single INSERT / UPDATE / DELETE / REPLACE statement. Use parameterized placeholders (?) where possible.",
+              },
+              args: {
+                type: "string",
+                description:
+                  'Optional JSON array of positional bind args for `sql`. Example: \'["published","form-123"]\'',
+              },
+              statements: {
+                type: "string",
+                description:
+                  'Optional JSON array of write statements to execute in one transaction. Prefer this over multiple db-exec calls. Example: \'[{"sql":"INSERT INTO notes (id,title) VALUES (?,?)","args":["n1","One"]},{"sql":"UPDATE counters SET value = value + 1 WHERE key = ?","args":["notes"]}]\'',
+              },
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
               },
             },
-            required: ["sql"],
           },
         },
         execMod.default,
@@ -1450,11 +1474,12 @@ Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every convers
 
 - \`db-schema\` — refresh the full schema with indexes and foreign keys
 - \`db-query\` — run a SELECT (read-only; results already filtered to the current user/org)
-- \`db-exec\` — run INSERT / UPDATE / DELETE (writes already scoped; owner_email and org_id are auto-injected on INSERT)
+- \`db-exec\` — run INSERT / UPDATE / DELETE / REPLACE (writes already scoped; owner_email and org_id are auto-injected on INSERT). For multiple related writes, use \`statements\` so they run in one transaction instead of separate tool calls. Schema changes are blocked.
 - \`db-patch\` — surgical search-and-replace on a large text column. Use for edits to large fields instead of re-sending multi-kilobyte strings.
 
 ### When to pick which SQL tool
 - Set a short column outright, update multiple columns, or do computed updates → \`db-exec UPDATE\`
+- Insert/update several rows as one logical operation → \`db-exec\` with \`statements: '[{"sql":"...","args":[...]}]'\`
 - Change a small slice of a large text/JSON column → \`db-patch\`
 - A template-specific action exists for the table → use that action (it encodes business rules and pushes live Yjs updates)
 - Read data → \`db-query\`. Never re-add \`WHERE owner_email = ...\` — scoping already applies it.

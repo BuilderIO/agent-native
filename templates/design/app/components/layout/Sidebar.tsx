@@ -55,7 +55,7 @@ export function Sidebar() {
     >
       <div
         className={cn(
-          "flex h-12 items-center border-b border-border",
+          "flex h-12 shrink-0 items-center border-b border-border",
           collapsed ? "justify-center px-2" : "justify-between px-4",
         )}
       >

@@ -494,7 +494,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         )}
       >
         {/* Logo */}
-        <div className="flex h-14 items-center justify-between gap-2.5 border-b border-border px-4">
+        <div className="flex h-14 shrink-0 items-center justify-between gap-2.5 border-b border-border px-4">
           <div className="flex items-center gap-2">
             <img
               src="/agent-native-icon-light.svg"

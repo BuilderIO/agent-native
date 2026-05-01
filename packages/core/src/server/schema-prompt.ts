@@ -324,7 +324,7 @@ export async function loadSchemaPromptBlock(opts: {
       "- `db-query` — run a SELECT (read-only; results already filtered to the current user/org)",
     );
     lines.push(
-      "- `db-exec` — run INSERT / UPDATE / DELETE (writes already scoped; owner_email and org_id are auto-injected on INSERT)",
+      "- `db-exec` — run INSERT / UPDATE / DELETE / REPLACE (writes already scoped; owner_email and org_id are auto-injected on INSERT). For multiple related writes, pass `statements` so they run in one transaction instead of separate tool calls. Schema changes are blocked.",
     );
     lines.push(
       "- `db-patch` — surgical search-and-replace on a large text column. Send `{find, replace}` pairs instead of the full new value. Use this for edits to large fields (documents, slide HTML, dashboard/form JSON) — it avoids re-sending multi-kilobyte strings and saves tokens. Targets exactly one row (narrow `--where` by primary key). Uses the same per-user/per-org scoping as db-exec.",
@@ -333,6 +333,9 @@ export async function loadSchemaPromptBlock(opts: {
     lines.push("### When to pick which SQL tool");
     lines.push(
       "- Set a short column outright, update multiple columns, or do computed updates (`calories = calories + 50`) → `db-exec UPDATE`.",
+    );
+    lines.push(
+      '- Insert/update several rows as one logical operation → `db-exec` with `statements: \'[{"sql":"...","args":[...]}]\'` so the batch commits or rolls back together.',
     );
     lines.push(
       "- Change a small slice of a large text/JSON column → `db-patch`. Much cheaper token-wise than re-sending the whole column.",

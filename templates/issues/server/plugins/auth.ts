@@ -7,7 +7,10 @@ const ATLASSIAN_LOGIN_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Sign in</title>
+<title>Agent-Native Issues — Sign in</title>
+<meta name="description" content="Manage projects, issues, and sprints with an agent that triages and updates tickets for you.">
+<meta property="og:title" content="Agent-Native Issues">
+<meta property="og:description" content="Manage projects, issues, and sprints with an agent that triages and updates tickets for you.">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {

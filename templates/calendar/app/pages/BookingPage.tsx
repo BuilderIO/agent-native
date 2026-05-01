@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { format } from "date-fns";
+import { endOfMonth, format, startOfMonth } from "date-fns";
 import { IconCalendar } from "@tabler/icons-react";
-import { PoweredByBadge } from "@agent-native/core/client";
+import { OpenSourceBadge, PoweredByBadge } from "@agent-native/core/client";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { DatePicker } from "@/components/booking/DatePicker";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
@@ -13,11 +13,16 @@ import {
   usePublicAvailability,
   usePublicBookingLink,
 } from "@/hooks/use-public-data";
-import { useAvailableSlots, useCreateBooking } from "@/hooks/use-bookings";
+import {
+  useAvailableDays,
+  useAvailableSlots,
+  useCreateBooking,
+} from "@/hooks/use-bookings";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import type { Booking } from "@shared/api";
+import { cn } from "@/lib/utils";
 
 type Step = "duration" | "date" | "time" | "info" | "confirmed";
 
@@ -50,6 +55,7 @@ export default function BookingPage() {
     null,
   );
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
+  const [viewMonth, setViewMonth] = useState(() => new Date());
 
   const dateStr = selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
   const durationOptions =
@@ -67,6 +73,16 @@ export default function BookingPage() {
     duration,
     slug,
   );
+  const monthStart = format(startOfMonth(viewMonth), "yyyy-MM-dd");
+  const monthEnd = format(endOfMonth(viewMonth), "yyyy-MM-dd");
+  const { data: availableDates = [], isLoading: availableDatesLoading } =
+    useAvailableDays(
+      monthStart,
+      monthEnd,
+      duration,
+      slug,
+      step === "date" && !!availability,
+    );
   const createBooking = useCreateBooking();
 
   function handleDateSelect(date: Date) {
@@ -121,6 +137,28 @@ export default function BookingPage() {
     setConfirmedBooking(null);
   }
 
+  function handleStepNavigation(target: Step) {
+    if (target === step) return;
+
+    if (target === "duration") {
+      setSelectedDate(null);
+      setSelectedSlot(null);
+      setStep("duration");
+      return;
+    }
+
+    if (target === "date") {
+      setSelectedSlot(null);
+      setStep("date");
+      return;
+    }
+
+    if (target === "time" && selectedDate) {
+      setSelectedSlot(null);
+      setStep("time");
+    }
+  }
+
   const title = settings?.bookingPageTitle || "Book a Meeting";
   const description =
     settings?.bookingPageDescription || "Pick a time that works for you.";
@@ -130,16 +168,18 @@ export default function BookingPage() {
 
   if (bookingLinkLoading || settingsLoading || availabilityLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Spinner className="size-8 text-foreground" />
+      <div className="min-h-screen bg-background p-4">
+        <div className="mx-auto mt-[7.5vh] flex w-full max-w-lg justify-center">
+          <Spinner className="size-8 text-foreground" />
+        </div>
       </div>
     );
   }
 
   if ((bookingLinkError || !bookingLink) && !isLegacyBookingPage) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center">
+      <div className="min-h-screen bg-background p-4">
+        <div className="mx-auto mt-[7.5vh] w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center">
           <h1 className="text-xl font-semibold">Booking link not found</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             This meeting type may have been removed or is no longer active.
@@ -150,11 +190,11 @@ export default function BookingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4 relative">
+    <div className="relative min-h-screen bg-background p-4 pb-20">
       <div className="absolute top-4 right-4">
         <ThemeToggle />
       </div>
-      <div className="w-full max-w-lg">
+      <div className="mx-auto mt-[7.5vh] w-full max-w-lg">
         {/* Header */}
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
@@ -179,26 +219,58 @@ export default function BookingPage() {
               const steps = hasDurationChoice
                 ? (["duration", "date", "time", "info"] as const)
                 : (["date", "time", "info"] as const);
+              const currentStepIndex = (steps as readonly string[]).indexOf(
+                step,
+              );
+              const stepLabels: Record<Step, string> = {
+                duration: "duration selection",
+                date: "date selection",
+                time: "time selection",
+                info: "your information",
+                confirmed: "confirmation",
+              };
               return (
                 <div className="mb-6 flex items-center justify-center gap-2">
-                  {steps.map((s, i) => (
-                    <div key={s} className="flex items-center gap-2">
-                      <div
-                        className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium ${
-                          step === s
-                            ? "bg-primary text-primary-foreground"
-                            : (steps as readonly string[]).indexOf(step) > i
-                              ? "bg-primary/20 text-primary"
-                              : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {i + 1}
+                  {steps.map((s, i) => {
+                    const isCurrent = step === s;
+                    const isPrevious = currentStepIndex > i;
+                    const isReachable =
+                      !isCurrent &&
+                      (isPrevious ||
+                        (s === "date" && !!selectedDuration) ||
+                        (s === "time" && !!selectedDate) ||
+                        (s === "info" && !!selectedSlot));
+                    const circleClass = cn(
+                      "flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors",
+                      isCurrent
+                        ? "bg-primary text-primary-foreground"
+                        : isPrevious
+                          ? "bg-primary/20 text-primary"
+                          : "bg-muted text-muted-foreground",
+                      isReachable &&
+                        "cursor-pointer hover:bg-primary/30 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                    );
+
+                    return (
+                      <div key={s} className="flex items-center gap-2">
+                        {isReachable ? (
+                          <button
+                            type="button"
+                            onClick={() => handleStepNavigation(s)}
+                            className={circleClass}
+                            aria-label={`Go to ${stepLabels[s]}`}
+                          >
+                            {i + 1}
+                          </button>
+                        ) : (
+                          <div className={circleClass}>{i + 1}</div>
+                        )}
+                        {i < steps.length - 1 && (
+                          <div className="h-px w-8 bg-border" />
+                        )}
                       </div>
-                      {i < steps.length - 1 && (
-                        <div className="h-px w-8 bg-border" />
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               );
             })()}
@@ -236,6 +308,10 @@ export default function BookingPage() {
                   selectedDate={selectedDate}
                   onSelect={handleDateSelect}
                   availability={availability}
+                  availableDates={availableDates}
+                  availabilityLoading={availableDatesLoading}
+                  viewMonth={viewMonth}
+                  onViewMonthChange={setViewMonth}
                 />
               </div>
             </div>
@@ -296,6 +372,7 @@ export default function BookingPage() {
           )}
         </div>
       </div>
+      <OpenSourceBadge />
       <PoweredByBadge />
     </div>
   );

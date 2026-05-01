@@ -173,6 +173,71 @@ function getClientDedupe(cwd: string): string[] {
   return [...always];
 }
 
+function getDefaultOptimizeDeps(cwd: string): string[] {
+  const entries: Array<{ specifier: string; packageName?: string }> = [
+    { specifier: "@agent-native/core" },
+    {
+      specifier: "@agent-native/core/client",
+      packageName: "@agent-native/core",
+    },
+    {
+      specifier: "@agent-native/core/client/org",
+      packageName: "@agent-native/core",
+    },
+    {
+      specifier: "@agent-native/core/client/tools",
+      packageName: "@agent-native/core",
+    },
+    { specifier: "@libsql/client" },
+    { specifier: "@radix-ui/react-accordion" },
+    { specifier: "@radix-ui/react-alert-dialog" },
+    { specifier: "@radix-ui/react-avatar" },
+    { specifier: "@radix-ui/react-checkbox" },
+    { specifier: "@radix-ui/react-collapsible" },
+    { specifier: "@radix-ui/react-context-menu" },
+    { specifier: "@radix-ui/react-dialog" },
+    { specifier: "@radix-ui/react-dropdown-menu" },
+    { specifier: "@radix-ui/react-hover-card" },
+    { specifier: "@radix-ui/react-label" },
+    { specifier: "@radix-ui/react-menubar" },
+    { specifier: "@radix-ui/react-navigation-menu" },
+    { specifier: "@radix-ui/react-popover" },
+    { specifier: "@radix-ui/react-progress" },
+    { specifier: "@radix-ui/react-radio-group" },
+    { specifier: "@radix-ui/react-scroll-area" },
+    { specifier: "@radix-ui/react-select" },
+    { specifier: "@radix-ui/react-separator" },
+    { specifier: "@radix-ui/react-slider" },
+    { specifier: "@radix-ui/react-slot" },
+    { specifier: "@radix-ui/react-switch" },
+    { specifier: "@radix-ui/react-tabs" },
+    { specifier: "@radix-ui/react-toast" },
+    { specifier: "@radix-ui/react-toggle" },
+    { specifier: "@radix-ui/react-toggle-group" },
+    { specifier: "@radix-ui/react-tooltip" },
+    { specifier: "@tanstack/react-query" },
+    { specifier: "@tabler/icons-react" },
+    { specifier: "class-variance-authority" },
+    { specifier: "clsx" },
+    { specifier: "cmdk" },
+    { specifier: "drizzle-orm" },
+    { specifier: "drizzle-orm/pg-core", packageName: "drizzle-orm" },
+    { specifier: "drizzle-orm/sqlite-core", packageName: "drizzle-orm" },
+    { specifier: "h3" },
+    { specifier: "next-themes" },
+    { specifier: "react-hook-form" },
+    { specifier: "sonner" },
+    { specifier: "tailwind-merge" },
+    { specifier: "zod" },
+  ];
+
+  return entries
+    .filter(({ specifier, packageName }) =>
+      hasDep(packageName ?? specifier, cwd),
+    )
+    .map(({ specifier }) => specifier);
+}
+
 /**
  * In monorepo dev mode, resolve @agent-native/core imports to source (src/)
  * instead of dist/ so that Vite HMR picks up changes without rebuilding.
@@ -818,9 +883,13 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
 
   // APP_BASE_PATH lets this app be mounted under a prefix (e.g. "/mail") as
   // part of a unified workspace deploy. Defaults to "/" for standalone apps.
+  // Workspace dev can override Vite's asset base to "/" while keeping
+  // APP_BASE_PATH for app URLs; the workspace gateway strips app prefixes
+  // before proxying Vite module/static asset requests.
   const appBasePath =
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "/";
-  const base = appBasePath.endsWith("/") ? appBasePath : `${appBasePath}/`;
+  const viteBasePath = process.env.AGENT_NATIVE_VITE_BASE_PATH || appBasePath;
+  const base = viteBasePath.endsWith("/") ? viteBasePath : `${viteBasePath}/`;
   const monorepoCoreAllow = [
     path.resolve(cwd, "../../packages/core"),
     path.resolve(cwd, "../core"),
@@ -946,7 +1015,7 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     ].filter(Boolean),
     optimizeDeps: {
       include: [
-        "@tabler/icons-react",
+        ...getDefaultOptimizeDeps(cwd),
         ...(hasDep("@agent-native/pinpoint", cwd)
           ? ["@agent-native/pinpoint/react"]
           : []),

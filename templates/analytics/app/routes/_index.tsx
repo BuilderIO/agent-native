@@ -3,11 +3,11 @@ import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [
-    { title: "Analytics" },
+    { title: "Agent-Native Analytics" },
     {
       name: "description",
       content:
-        "Agent-native product analytics — connect data sources, generate charts from natural language, and explore funnels and cohorts.",
+        "Your AI agent queries your data sources, builds dashboards, and answers business questions alongside you.",
     },
   ];
 }

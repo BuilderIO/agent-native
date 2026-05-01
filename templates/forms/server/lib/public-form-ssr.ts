@@ -210,7 +210,9 @@ function renderFormPage(form: {
   const settings: FormSettings = form.settings || {};
   const fields: FormField[] = form.fields || [];
   const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY || "";
-  const submitPath = `${getAppBasePath()}/api/submit/`;
+  const appBasePath = getAppBasePath();
+  const submitPath = `${appBasePath}/api/submit/`;
+  const faviconPath = `${appBasePath}/favicon.svg`;
 
   const fieldsHtml = fields.map(renderField).join("\n");
 
@@ -221,7 +223,7 @@ function renderFormPage(form: {
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>${escapeHtml(form.title)}</title>
 ${form.description ? `<meta name="description" content="${escapeHtml(form.description)}">` : ""}
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
+<link rel="icon" type="image/svg+xml" href="${faviconPath}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
