@@ -37,6 +37,7 @@ import {
   IconCheck,
   IconPlus,
   IconTool,
+  IconClock,
 } from "@tabler/icons-react";
 import {
   Popover,
@@ -57,6 +58,7 @@ import type { Label } from "@shared/types";
 import { toast } from "sonner";
 
 import { AccountFilterContext } from "@/hooks/use-account-filter";
+import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
 import { appApiPath } from "@/lib/api-path";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -111,6 +113,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const pathSegments = location.pathname.split("/").filter(Boolean);
   const view = pathSegments[0] || "inbox";
   const threadId = pathSegments[1] || undefined;
+  const queuedDrafts = useQueuedDraftCount();
   const [searchParams] = useSearchParams();
   const activeSearchQuery = searchParams.get("q");
   const activeLabel = searchParams.get("label");
@@ -404,7 +407,23 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [compose]);
 
   // Spam / block / mute actions (need current email context)
-  const { data: currentViewEmails = [] } = useEmails(view);
+  const isMailboxView = [
+    "inbox",
+    "starred",
+    "sent",
+    "drafts",
+    "archive",
+    "trash",
+    "snoozed",
+    "scheduled",
+    "all",
+  ].includes(view);
+  const { data: currentViewEmails = [] } = useEmails(
+    isMailboxView ? view : "inbox",
+    undefined,
+    undefined,
+    { enabled: isMailboxView },
+  );
   const reportSpam = useReportSpam();
   const blockSender = useBlockSender();
   const muteThread = useMuteThread();
@@ -882,6 +901,25 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 />
               )}
 
+              {/* Draft queue */}
+              <Link
+                to="/draft-queue"
+                className={cn(
+                  "relative flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded transition-colors shrink-0",
+                  view === "draft-queue"
+                    ? "text-foreground bg-accent/50"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                )}
+                title="Draft queue"
+              >
+                <IconClock className="h-4 w-4" />
+                {queuedDrafts.count > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-amber-400 px-1 text-center text-[10px] font-semibold leading-4 text-black">
+                    {queuedDrafts.count > 9 ? "9+" : queuedDrafts.count}
+                  </span>
+                )}
+              </Link>
+
               {/* Tools */}
               <Link
                 to="/tools"
@@ -1071,6 +1109,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         { id: "snoozed", label: "Snoozed", href: "/snoozed" },
                         { id: "sent", label: "Sent", href: "/sent" },
                         {
+                          id: "draft-queue",
+                          label: "Draft queue",
+                          href: "/draft-queue",
+                        },
+                        {
                           id: "scheduled",
                           label: "Scheduled",
                           href: "/scheduled",
@@ -1091,6 +1134,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           )}
                         >
                           <span>{item.label}</span>
+                          {item.id === "draft-queue" &&
+                            queuedDrafts.count > 0 && (
+                              <span className="text-[12px] text-amber-300 tabular-nums">
+                                {queuedDrafts.count}
+                              </span>
+                            )}
                           {item.id === "inbox" && labelCounts["inbox"] > 0 && (
                             <span className="text-[12px] text-muted-foreground/50 tabular-nums">
                               {labelCounts["inbox"]}
@@ -1190,7 +1239,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             !googleStatus.isError &&
             !hasAccounts &&
             !hasLocalMailboxData &&
-            view !== "settings" ? (
+            view !== "settings" &&
+            view !== "draft-queue" ? (
               <GoogleConnectBanner variant="hero" />
             ) : (
               <main className="flex flex-1 overflow-hidden">{children}</main>

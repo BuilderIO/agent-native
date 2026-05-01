@@ -371,7 +371,12 @@ export function InboxPage() {
     const targetView = navCommand.view || view;
     const targetThread = navCommand.threadId;
 
-    if (targetThread) {
+    if (targetView === "draft-queue") {
+      const target = navCommand.queuedDraftId
+        ? `/draft-queue?id=${encodeURIComponent(navCommand.queuedDraftId)}`
+        : "/draft-queue";
+      navigate(target);
+    } else if (targetThread) {
       navigate(`/${targetView}/${targetThread}`);
     } else if (targetView !== view) {
       navigate(`/${targetView}`);

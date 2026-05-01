@@ -92,6 +92,10 @@ export type ComposeState = {
   accountEmail?: string;
   /** When true, render inline in the thread view instead of the popout composer */
   inline?: boolean;
+  /** Queued draft row this compose tab came from, if any */
+  queuedDraftId?: string;
+  queuedDraftRequesterEmail?: string;
+  queuedDraftContext?: string;
 };
 
 export type MailboxView =

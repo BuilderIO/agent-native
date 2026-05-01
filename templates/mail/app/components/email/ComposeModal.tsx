@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select";
 import { useSendEmail, useAddOptimisticReply } from "@/hooks/use-emails";
 import { useAliases } from "@/hooks/use-aliases";
+import { useUpdateQueuedDraft } from "@/hooks/use-draft-queue";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
 import { SendLaterButton } from "./SendLaterButton";
 import { expandAliasTokens } from "@/lib/alias-utils";
@@ -180,6 +181,7 @@ export function ComposeModal({
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
   const addOptimisticReply = useAddOptimisticReply();
+  const updateQueuedDraft = useUpdateQueuedDraft();
   const scheduleEmail = useScheduleEmail();
   const { data: aliases = [] } = useAliases();
   const { allAccounts } = useAccountFilter();
@@ -283,6 +285,15 @@ export function ComposeModal({
           accountEmail: draftSnapshot.accountEmail,
         },
         {
+          onSuccess: (result) => {
+            if (draftSnapshot.queuedDraftId) {
+              updateQueuedDraft.mutate({
+                id: draftSnapshot.queuedDraftId,
+                status: "sent",
+                sentMessageId: result?.id,
+              });
+            }
+          },
           onError: () => {
             toast.error("Failed to send email");
             // Reopen composer on failure

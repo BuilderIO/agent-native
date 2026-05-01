@@ -12,6 +12,10 @@ import {
 import { gmailGetThread } from "../server/lib/google-api.js";
 import { getSetting } from "@agent-native/core/settings";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
+import {
+  listQueuedDrafts,
+  requireQueuedDraft,
+} from "../server/lib/queued-drafts.js";
 
 const VIEW_QUERIES: Record<string, string> = {
   inbox: "in:inbox",
@@ -23,6 +27,23 @@ const VIEW_QUERIES: Record<string, string> = {
   trash: "in:trash",
   all: "",
 };
+
+function latestPerThread(emails: any[]): any[] {
+  const byThread = new Map<string, any>();
+  for (const email of emails) {
+    const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
+    const existing = byThread.get(key);
+    if (
+      !existing ||
+      new Date(email.date).getTime() > new Date(existing.date).getTime()
+    ) {
+      byThread.set(key, email);
+    }
+  }
+  return Array.from(byThread.values()).sort(
+    (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
+}
 
 async function fetchEmailList(
   view: string,
@@ -46,19 +67,21 @@ async function fetchEmailList(
 
       const viewPrefix = VIEW_QUERIES[view] ?? `label:${view}`;
       const gmailQuery = [viewPrefix, search].filter(Boolean).join(" ");
+      const effectiveQuery =
+        view === "all" && !search ? "" : gmailQuery || "in:inbox";
       const { messages } = await listGmailMessages(
-        gmailQuery || "in:inbox",
+        effectiveQuery,
         50,
         ownerEmail,
+        undefined,
+        { mode: "threads", threadFormat: "metadata" },
       );
 
-      return messages
-        .map((m: any) => gmailToEmailMessage(m, m._accountEmail, labelMap))
-        .sort(
-          (a: any, b: any) =>
-            new Date(b.date).getTime() - new Date(a.date).getTime(),
-        )
-        .slice(0, 50);
+      return latestPerThread(
+        messages.map((m: any) =>
+          gmailToEmailMessage(m, m._accountEmail, labelMap),
+        ),
+      ).slice(0, 50);
     }
 
     // Fallback: local store
@@ -192,9 +215,41 @@ export default defineAction({
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
 
-    // Fetch emails based on the user's current filter state
+    // Fetch queued drafts when the user is on the draft queue.
     const nav = navigation as any;
-    if (nav?.view) {
+    if (nav?.view === "draft-queue") {
+      try {
+        const drafts = await listQueuedDrafts({
+          scope: nav.queueScope === "requested" ? "requested" : "review",
+          status: "active",
+          limit: 50,
+        });
+        screen.draftQueue = {
+          scope: nav.queueScope ?? "review",
+          count: drafts.length,
+          drafts: drafts.map((draft) => ({
+            id: draft.id,
+            ownerEmail: draft.ownerEmail,
+            requesterEmail: draft.requesterEmail,
+            to: draft.to,
+            subject: draft.subject,
+            status: draft.status,
+            context: draft.context,
+            createdAt: draft.createdAt,
+          })),
+        };
+        if (nav.queuedDraftId) {
+          const { draft: selected } = await requireQueuedDraft(
+            nav.queuedDraftId,
+          );
+          screen.queuedDraft = selected;
+        }
+      } catch (err) {
+        screen.draftQueue = {
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    } else if (nav?.view) {
       const emails = await fetchEmailList(nav.view, nav.search, nav.label);
       const compact = emails.slice(0, 50).map((e: any) => ({
         id: e.id,

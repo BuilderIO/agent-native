@@ -8,6 +8,9 @@ export interface NavigationState {
   focusedEmailId?: string;
   search?: string;
   label?: string;
+  queuedDraftId?: string;
+  queueScope?: string;
+  _ts?: number;
 }
 
 import { TAB_ID } from "@/lib/tab-id";
