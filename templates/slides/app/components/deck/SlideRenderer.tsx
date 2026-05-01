@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Slide } from "@/context/DeckContext";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -112,33 +112,48 @@ const markdownComponents = {
 function BlankSlideContent({ content }: { content: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
-  const processedContent = sanitizeSlideHtml(
-    content.replace(
-      /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi,
-      (_match, before, close) => {
-        if (before.includes('style="')) {
-          return (
-            before.replace(
-              'style="',
-              'style="filter:brightness(0) invert(1);',
-            ) + close
-          );
-        }
-        return before + ' style="filter:brightness(0) invert(1);"' + close;
-      },
-    ),
-  );
+  // Memoize derived strings + the dangerouslySetInnerHTML object on `content` so
+  // the prop value has a stable reference across re-renders. React 19 only checks
+  // reference equality on `dangerouslySetInnerHTML` and unconditionally re-assigns
+  // `domElement.innerHTML` when the object reference differs — a fresh `{ __html }`
+  // literal each render therefore wipes any DOM mutations made on children. That
+  // includes the per-block `contentEditable="true"` set by SlideEditor's
+  // double-click-to-edit flow, which made inline text editing appear to do nothing.
+  const { mermaidBlocks, htmlWithPlaceholders, dangerousHtml } = useMemo(() => {
+    // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
+    const processed = sanitizeSlideHtml(
+      content.replace(
+        /(<img\s+(?=[^>]*src="[^"]*(?:brandfetch|logo\.dev)[^"]*")[^>]*)(\/?>)/gi,
+        (_match, before, close) => {
+          if (before.includes('style="')) {
+            return (
+              before.replace(
+                'style="',
+                'style="filter:brightness(0) invert(1);',
+              ) + close
+            );
+          }
+          return before + ' style="filter:brightness(0) invert(1);"' + close;
+        },
+      ),
+    );
 
-  // Extract mermaid blocks from HTML content for React-based rendering
-  const mermaidBlocks: string[] = [];
-  const htmlWithPlaceholders = processedContent.replace(
-    /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/gi,
-    (_, definition) => {
-      mermaidBlocks.push(definition.trim());
-      return `<div data-mermaid-index="${mermaidBlocks.length - 1}"></div>`;
-    },
-  );
+    // Extract mermaid blocks from HTML content for React-based rendering
+    const blocks: string[] = [];
+    const withPlaceholders = processed.replace(
+      /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/gi,
+      (_, definition) => {
+        blocks.push(definition.trim());
+        return `<div data-mermaid-index="${blocks.length - 1}"></div>`;
+      },
+    );
+
+    return {
+      mermaidBlocks: blocks,
+      htmlWithPlaceholders: withPlaceholders,
+      dangerousHtml: { __html: processed },
+    };
+  }, [content]);
 
   if (mermaidBlocks.length > 0) {
     return (
@@ -155,7 +170,7 @@ function BlankSlideContent({ content }: { content: string }) {
     <div
       ref={containerRef}
       className="slide-content text-white/90 w-full block h-full"
-      dangerouslySetInnerHTML={{ __html: processedContent }}
+      dangerouslySetInnerHTML={dangerousHtml}
     />
   );
 }
