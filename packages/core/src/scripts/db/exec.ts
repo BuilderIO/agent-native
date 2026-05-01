@@ -23,6 +23,7 @@ import {
   buildScopingSqlite,
   type ScopingContext,
 } from "./scoping.js";
+import { assertNoSensitiveFrameworkTables } from "./safety.js";
 
 function isPostgresUrl(url: string): boolean {
   return url.startsWith("postgres://") || url.startsWith("postgresql://");
@@ -196,6 +197,7 @@ function validateWriteSql(sql: string, index: number): string {
         `Dangerous operations like DROP, ATTACH, VACUUM, DETACH, CREATE, and ALTER are blocked.`,
     );
   }
+  assertNoSensitiveFrameworkTables(normalized, "write");
   return normalized;
 }
 

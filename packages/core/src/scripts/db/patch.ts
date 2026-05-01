@@ -51,6 +51,7 @@ import path from "path";
 import { createClient } from "@libsql/client";
 import { getDatabaseUrl, getDatabaseAuthToken } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
+import { assertNoSensitiveFrameworkTables } from "./safety.js";
 import { buildScopingPostgres, buildScopingSqlite } from "./scoping.js";
 
 interface TextEdit {
@@ -756,6 +757,8 @@ When to use db-patch vs other tools:
     fail(
       `Invalid --column: "${column}". Must be a plain identifier (letters, digits, underscore).`,
     );
+  assertNoSensitiveFrameworkTables(table, "patch");
+  assertNoSensitiveFrameworkTables(where, "read");
   validateWhere(where);
 
   const jsonOps = parseJsonOps(parsed);

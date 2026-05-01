@@ -147,6 +147,53 @@ describe("db scripts parameterized SQL", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("rejects raw db-query reads from credential tables", async () => {
+    const execute = vi.fn();
+    mockSqliteClient(execute);
+
+    const { default: dbQuery } = await import("./query.js");
+
+    await expect(
+      dbQuery(["--sql", "SELECT tokens FROM oauth_tokens"]),
+    ).rejects.toThrow("Sensitive framework table");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects raw db-exec writes to credential tables", async () => {
+    const execute = vi.fn();
+    mockSqliteClient(execute);
+
+    const { default: dbExec } = await import("./exec.js");
+
+    await expect(
+      dbExec(["--sql", "UPDATE app_secrets SET encrypted_value = ?"]),
+    ).rejects.toThrow("Sensitive framework table");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects db-patch against credential tables", async () => {
+    const execute = vi.fn();
+    mockSqliteClient(execute);
+
+    const { default: dbPatch } = await import("./patch.js");
+
+    await expect(
+      dbPatch([
+        "--table",
+        "oauth_tokens",
+        "--column",
+        "tokens",
+        "--where",
+        "account_id = 'steve@builder.io'",
+        "--find",
+        "old",
+        "--replace",
+        "new",
+      ]),
+    ).rejects.toThrow("Sensitive framework table");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("keeps SQLite bind args aligned after scoped db-exec predicates are injected", async () => {
     vi.stubEnv("AGENT_USER_EMAIL", "script+qa-alice@example.com");
     vi.stubEnv("AGENT_ORG_ID", "org-qa-1");

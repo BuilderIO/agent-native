@@ -16,6 +16,7 @@ import path from "path";
 import { createClient } from "@libsql/client";
 import { getDatabaseUrl, getDatabaseAuthToken } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
+import { assertNoSensitiveFrameworkTables } from "./safety.js";
 import { buildScopingPostgres, buildScopingSqlite } from "./scoping.js";
 
 function isPostgresUrl(url: string): boolean {
@@ -201,6 +202,7 @@ Options:
       "Only SELECT, WITH, EXPLAIN, and PRAGMA queries are allowed. Use db-exec for writes.",
     );
   }
+  assertNoSensitiveFrameworkTables(stripped, "read");
 
   // Resolve database URL: --db flag → DATABASE_URL env → default file path
   let url: string;
