@@ -75,7 +75,9 @@ async function fetchJson(url: string, init?: RequestInit): Promise<any> {
   const res = await fetch(url, init);
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error(data?.error || data?.message || `Request failed ${res.status}`);
+    throw new Error(
+      data?.error || data?.message || `Request failed ${res.status}`,
+    );
   }
   return data;
 }
@@ -104,7 +106,10 @@ export function NewWorkspaceAppFlow({
 
   useEffect(() => {
     let cancelled = false;
-    const url = actionUrl(effectiveDispatchBasePath, "list-vault-secret-options");
+    const url = actionUrl(
+      effectiveDispatchBasePath,
+      "list-vault-secret-options",
+    );
     fetchJson(url)
       .then((data) => {
         if (cancelled) return;
@@ -157,14 +162,17 @@ export function NewWorkspaceAppFlow({
   async function grantSelectedSecrets(safeAppName: string) {
     if (selectedSecretIds.length === 0) return;
     try {
-      await fetchJson(actionUrl(effectiveDispatchBasePath, "grant-vault-secrets-to-app"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          appId: safeAppName,
-          secretIds: selectedSecretIds,
-        }),
-      });
+      await fetchJson(
+        actionUrl(effectiveDispatchBasePath, "grant-vault-secrets-to-app"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            appId: safeAppName,
+            secretIds: selectedSecretIds,
+          }),
+        },
+      );
     } catch (err: any) {
       setStatusMessage(
         `The app request was prepared, but Dispatch grants could not be saved yet: ${err?.message || "unknown error"}`,
@@ -194,11 +202,14 @@ export function NewWorkspaceAppFlow({
           agentNativePath("/_agent-native/builder/status"),
         ).catch(() => null);
         if (builderStatus?.builderEnabled && builderStatus?.configured) {
-          const result = await fetchJson(agentNativePath("/_agent-native/builder/run"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt: message }),
-          });
+          const result = await fetchJson(
+            agentNativePath("/_agent-native/builder/run"),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prompt: message }),
+            },
+          );
           setBranchUrl(result?.url || null);
           setStatusMessage("Builder branch created.");
         } else {
@@ -266,7 +277,9 @@ export function NewWorkspaceAppFlow({
                 </span>
                 <select
                   value={template}
-                  onChange={(e) => setTemplate(e.target.value as typeof template)}
+                  onChange={(e) =>
+                    setTemplate(e.target.value as typeof template)
+                  }
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring"
                 >
                   {TEMPLATE_OPTIONS.map((option) => (

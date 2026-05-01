@@ -11,8 +11,9 @@ function normalizeOrigin(value: unknown): string | null {
 
 function ancestorOrigin(): string | null {
   if (typeof window === "undefined") return null;
-  const origins = (window.location as Location & { ancestorOrigins?: DOMStringList })
-    .ancestorOrigins;
+  const origins = (
+    window.location as Location & { ancestorOrigins?: DOMStringList }
+  ).ancestorOrigins;
   const first = origins?.[0];
   const fromAncestor = normalizeOrigin(first);
   if (fromAncestor) return fromAncestor;

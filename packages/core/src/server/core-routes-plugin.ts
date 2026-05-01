@@ -598,7 +598,8 @@ export function createCoreRoutesPlugin(
         // connect attempt — any per-user keys we wrote would be ignored
         // by the resolver, so completing the OAuth flow would be a no-op
         // that misleads the user about the resulting connection state.
-        const { isBuilderEnvManaged } = await import("./credential-provider.js");
+        const { isBuilderEnvManaged } =
+          await import("./credential-provider.js");
         if (isBuilderEnvManaged()) {
           setResponseStatus(event, 409);
           return {
@@ -977,9 +978,8 @@ export function createCoreRoutesPlugin(
           return { error: "unauthorized" };
         }
 
-        const { isBuilderEnvManaged, deleteBuilderCredentials } = await import(
-          "./credential-provider.js"
-        );
+        const { isBuilderEnvManaged, deleteBuilderCredentials } =
+          await import("./credential-provider.js");
         if (isBuilderEnvManaged()) {
           setResponseStatus(event, 409);
           return {

@@ -126,8 +126,8 @@ export function ConnectBuilderCard({
     subtitle = flow.envManaged ? (
       <>
         Managed by this deployment — every user of this app uses the same
-        Builder identity. LLM access, browser automation, and more are ready
-        to use.
+        Builder identity. LLM access, browser automation, and more are ready to
+        use.
       </>
     ) : orgName ? (
       <>

@@ -71,10 +71,7 @@ const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
  */
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
-    if (
-      !isTrustedFrameMessage(event) &&
-      !isTrustedBuilderMessage(event)
-    ) {
+    if (!isTrustedFrameMessage(event) && !isTrustedBuilderMessage(event)) {
       return;
     }
     if (
