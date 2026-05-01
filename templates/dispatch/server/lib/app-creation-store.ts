@@ -209,9 +209,6 @@ export async function startWorkspaceAppCreation(input: {
     appId: input.appId,
     template: input.template,
   });
-  if (input.secretIds?.length) {
-    await grantSecretsToApp(input.secretIds, initial.appId);
-  }
   const selectedKeys = input.secretIds?.length
     ? (await listSecrets())
         .filter((secret) => input.secretIds?.includes(secret.id))
@@ -227,6 +224,9 @@ export async function startWorkspaceAppCreation(input: {
   const isLocal = process.env.NODE_ENV !== "production";
 
   if (isLocal) {
+    if (input.secretIds?.length) {
+      await grantSecretsToApp(input.secretIds, initial.appId);
+    }
     return {
       mode: "local-agent",
       appId: built.appId,
@@ -250,6 +250,10 @@ export async function startWorkspaceAppCreation(input: {
     projectId: settings.builderProjectId,
     userEmail: currentOwnerEmail(),
   });
+
+  if (input.secretIds?.length) {
+    await grantSecretsToApp(input.secretIds, built.appId);
+  }
 
   return {
     mode: "builder",
