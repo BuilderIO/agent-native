@@ -141,7 +141,6 @@ function startApp(app: WorkspaceApp): void {
         APP_NAME: app.id,
         APP_BASE_PATH: basePath,
         VITE_APP_BASE_PATH: basePath,
-        AGENT_NATIVE_VITE_BASE_PATH: "/",
         PORT: String(app.port),
         WORKSPACE_GATEWAY_URL: gatewayUrl,
       },
