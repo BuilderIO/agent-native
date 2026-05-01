@@ -109,7 +109,9 @@ function wrapCliScript(
     run: async (args: Record<string, string>): Promise<string> => {
       const cliArgs: string[] = [];
       for (const [k, v] of Object.entries(args)) {
-        cliArgs.push(`--${k}`, v);
+        const value =
+          v != null && typeof v === "object" ? JSON.stringify(v) : String(v);
+        cliArgs.push(`--${k}`, value);
       }
       return captureCliOutput(() => cliDefault(cliArgs));
     },
@@ -365,6 +367,11 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
                 description:
                   "SELECT query to run, e.g. \"SELECT key, value FROM settings WHERE key LIKE 'sql-dashboard-%'\"",
               },
+              args: {
+                type: "string",
+                description:
+                  'Optional JSON array of positional bind args for parameterized placeholders. Example: \'["draft","form-123"]\'',
+              },
               format: {
                 type: "string",
                 description: 'Output format: "json" or "text" (default: text)',
@@ -385,17 +392,31 @@ async function createDbScriptEntries(): Promise<Record<string, ActionEntry>> {
       "db-exec": wrapCliScript(
         {
           description:
-            "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE against the app's internal tables. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
+            "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE / REPLACE against the app's internal tables. For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Schema changes (CREATE/ALTER/DROP) are blocked. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
           parameters: {
             type: "object",
             properties: {
               sql: {
                 type: "string",
                 description:
-                  "INSERT / UPDATE / DELETE statement. Use parameterized placeholders (?) if possible.",
+                  "Single INSERT / UPDATE / DELETE / REPLACE statement. Use parameterized placeholders (?) where possible.",
+              },
+              args: {
+                type: "string",
+                description:
+                  'Optional JSON array of positional bind args for `sql`. Example: \'["published","form-123"]\'',
+              },
+              statements: {
+                type: "string",
+                description:
+                  'Optional JSON array of write statements to execute in one transaction. Prefer this over multiple db-exec calls. Example: \'[{"sql":"INSERT INTO notes (id,title) VALUES (?,?)","args":["n1","One"]},{"sql":"UPDATE counters SET value = value + 1 WHERE key = ?","args":["notes"]}]\'',
+              },
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
               },
             },
-            required: ["sql"],
           },
         },
         execMod.default,

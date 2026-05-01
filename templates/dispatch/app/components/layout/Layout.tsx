@@ -122,7 +122,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <HeaderActionsProvider>
       <div className="flex h-screen w-full overflow-hidden bg-background">
-        <aside className="hidden md:flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+        <aside className="hidden xl:flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
           <NavContent />
         </aside>
 
