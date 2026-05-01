@@ -4,19 +4,15 @@ import {
   IconBrandGoogle,
   IconBrandZoom,
   IconCalendar,
-  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconCheck,
   IconCopy,
   IconExternalLink,
-  IconGripVertical,
   IconLink,
   IconDotsVertical,
   IconPlus,
   IconTrash,
-  IconAlertTriangle,
-  IconListCheck,
   IconVideo,
   IconVideoOff,
 } from "@tabler/icons-react";
@@ -414,7 +410,6 @@ export default function BookingLinksPage({
     isActive: true,
     slugManuallyEdited: false,
   });
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [customDurationInput, setCustomDurationInput] = useState("");
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false);
 
@@ -537,7 +532,6 @@ export default function BookingLinksPage({
         isActive: true,
         slugManuallyEdited: false,
       });
-      setShowAdvanced(false);
       return;
     }
 
@@ -559,8 +553,6 @@ export default function BookingLinksPage({
       // break existing shared links. Users can still edit the slug manually.
       slugManuallyEdited: true,
     });
-    // Show advanced section if link has a description or custom slug
-    setShowAdvanced(!!selectedLink.description);
     setCustomDurationInput("");
     setShowCustomDurationInput(false);
   }, [selectedLink]);
