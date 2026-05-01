@@ -6,7 +6,7 @@ import type {
 } from "./types";
 import { TOP_LEVEL_COLUMN_SET, ENRICHED_PROPERTY_MAP } from "./types";
 
-const APP_EVENTS = "`your-gcp-project-id.analytics.events_partitioned`";
+const APP_EVENTS = "`@project.analytics.events_partitioned`";
 
 function columnRef(property: string, tableAlias?: string): string {
   const enriched = ENRICHED_PROPERTY_MAP.get(property);

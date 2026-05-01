@@ -63,9 +63,9 @@ export interface EnrichedProperty {
   category: string;
 }
 
-const DIM_SUB = "`your-gcp-project-id.dbt_mart.dim_subscriptions`";
-const DIM_ORG = "`your-gcp-project-id.dbt_mart.dim_organizations`";
-const DIM_USER = "`your-gcp-project-id.dbt_mart.dim_users`";
+const DIM_SUB = "`@project.dbt_mart.dim_subscriptions`";
+const DIM_ORG = "`@project.dbt_mart.dim_organizations`";
+const DIM_USER = "`@project.dbt_mart.dim_users`";
 
 function dimValsSql(table: string, col: string): string {
   return `SELECT ${col} AS val, COUNT(*) AS cnt FROM ${table} WHERE ${col} IS NOT NULL AND ${col} != '' GROUP BY val ORDER BY cnt DESC LIMIT 50`;

@@ -8,7 +8,6 @@ import {
 } from "./credentials-context";
 
 const API_BASE = "https://sentry.io/api/0";
-const DEFAULT_ORG_SLUG = "bridge-tm";
 
 // In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
@@ -32,8 +31,12 @@ async function getOrgSlug(orgSlug?: string): Promise<string> {
   if (configured) return configured;
 
   const organizations = await listOrganizations();
-  const defaultOrg = organizations.find((org) => org.slug === DEFAULT_ORG_SLUG);
-  return defaultOrg?.slug ?? organizations[0]?.slug ?? DEFAULT_ORG_SLUG;
+  const discovered = organizations[0]?.slug;
+  if (discovered) return discovered;
+
+  throw new Error(
+    "SENTRY_ORG_SLUG not configured and no accessible Sentry organizations found. Pass --orgSlug or configure SENTRY_ORG_SLUG.",
+  );
 }
 
 function cacheSet(key: string, data: unknown) {

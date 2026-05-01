@@ -333,7 +333,7 @@ pnpm action commonroom-members --query="enterprise" --limit=10
 | "How many open bugs?"               | `jira-search --jql="issuetype = Bug AND resolution = Unresolved"`              |
 | "Find deals over $50k"              | `hubspot-deals --grep="50000" --fields=dealname,amount,stageLabel`             |
 | "Check error rates"                 | `sentry --mode=issues --statsPeriod=7d`                                        |
-| "Show me PRs from this week"        | `github-prs --org=YourOrg --query="is:open created:>2026-03-27"`               |
+| "Show me PRs from this week"        | `github-prs --org=<github-org> --query="is:open created:>2026-03-27"`          |
 | "Top keywords for our blog"         | `seo-top-keywords --fields=keyword,rank_absolute,etv`                          |
 | "Go to the overview"                | `navigate --view=overview`                                                     |
 | "Open the weekly metrics dashboard" | `navigate --view=adhoc --dashboardId=weekly-metrics`                           |
