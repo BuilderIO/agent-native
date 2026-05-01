@@ -124,7 +124,7 @@ Create and edit visual designs by prompt or by hand, with the agent as your co-d
 
 **Mission control for agent-native apps**
 
-Centralized messaging and management for every agent in your stack. Talk to your agents from Slack, Telegram, or the web; route jobs, hold memory, approve actions, and delegate across apps.
+Message, manage, and delegate to agents from Slack, Telegram, or the web, with routing, memory, and approvals built in.
 
 </td>
 </tr>

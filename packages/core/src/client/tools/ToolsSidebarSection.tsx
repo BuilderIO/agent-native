@@ -305,6 +305,7 @@ export function ToolsSidebarSection() {
               location.pathname === `/tools/${tool.id}/edit`;
             const isFav = favoriteIds.has(tool.id);
             const isRenamingThis = renamingId === tool.id;
+            const actionsVisible = menuOpenId === tool.id || isRenamingThis;
 
             return (
               <div
@@ -358,7 +359,8 @@ export function ToolsSidebarSection() {
                 <Link
                   to={`/tools/${tool.id}`}
                   className={cn(
-                    "flex min-w-0 flex-1 items-center rounded-md px-2 py-1.5 pr-12 text-xs transition-colors",
+                    "flex min-w-0 flex-1 items-center rounded-md px-2 py-1.5 pr-12 text-xs transition-[padding,color,background-color] md:pr-2 md:group-hover/tool:pr-12 md:group-focus-within/tool:pr-12",
+                    actionsVisible && "md:pr-12",
                     isActive
                       ? "bg-accent text-accent-foreground font-medium"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
@@ -378,14 +380,19 @@ export function ToolsSidebarSection() {
                         e.preventDefault();
                         e.stopPropagation();
                       }}
-                      className="flex-1 min-w-0 truncate text-xs bg-transparent border-b border-primary outline-none py-0 px-0"
+                      className="min-w-0 flex-1 truncate border-b border-primary bg-transparent px-0 py-0 text-xs outline-none"
                     />
                   ) : (
-                    <span className="truncate">{tool.name}</span>
+                    <span className="block truncate">{tool.name}</span>
                   )}
                 </Link>
 
-                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                <div
+                  className={cn(
+                    "pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/tool:opacity-100 md:group-focus-within/tool:opacity-100",
+                    actionsVisible && "md:opacity-100",
+                  )}
+                >
                   <button
                     type="button"
                     onClick={(e) => {
@@ -394,10 +401,10 @@ export function ToolsSidebarSection() {
                       toggleFavorite(tool.id);
                     }}
                     className={cn(
-                      "cursor-pointer rounded p-0.5",
+                      "pointer-events-auto cursor-pointer rounded p-0.5 transition-colors",
                       isFav
                         ? "text-yellow-500"
-                        : "text-muted-foreground/40 opacity-100 hover:text-yellow-500 md:opacity-0 md:group-hover/tool:opacity-100 md:group-focus-within/tool:opacity-100",
+                        : "text-muted-foreground/40 hover:text-yellow-500",
                     )}
                     aria-label={isFav ? "Unfavorite" : "Favorite"}
                   >
@@ -416,7 +423,7 @@ export function ToolsSidebarSection() {
                         e.stopPropagation();
                         setMenuOpenId(menuOpenId === tool.id ? null : tool.id);
                       }}
-                      className="cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-100 hover:text-foreground md:opacity-0 md:group-hover/tool:opacity-100 md:group-focus-within/tool:opacity-100"
+                      className="pointer-events-auto cursor-pointer rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground"
                       aria-label="Tool actions"
                     >
                       <IconDots className="h-3 w-3" />

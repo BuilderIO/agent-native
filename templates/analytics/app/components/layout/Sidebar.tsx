@@ -263,14 +263,14 @@ function SortableRow({
           </button>
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 transition-colors hover:text-foreground"
-              title={`${name} actions`}
-              aria-label={`${name} actions`}
-            >
-              <IconDots className="h-3 w-3" />
-            </button>
+              <button
+                type="button"
+                className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 transition-colors hover:text-foreground"
+                title={`${name} actions`}
+                aria-label={`${name} actions`}
+              >
+                <IconDots className="h-3 w-3" />
+              </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="right" align="start" className="w-36">
               <DropdownMenuItem
@@ -628,9 +628,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       .catch(() => {});
   }, []);
   const [logoutOpen, setLogoutOpen] = useState(false);
-  const { mutateAsync: renameDashboard } = useActionMutation(
-    "rename-dashboard",
-  );
+  const { mutateAsync: renameDashboard } =
+    useActionMutation("rename-dashboard");
   const { mutateAsync: renameAnalysis } = useActionMutation("rename-analysis");
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") return 256;
