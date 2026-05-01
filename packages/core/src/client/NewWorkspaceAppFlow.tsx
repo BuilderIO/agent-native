@@ -350,18 +350,19 @@ export function NewWorkspaceAppFlow({
                   <button
                     key={secret.id}
                     type="button"
+                    aria-pressed={selected}
                     onClick={() => toggleSecret(secret.id)}
-                    className={`flex w-full items-start gap-3 rounded-md border px-3 py-2 text-left text-sm transition ${
+                    className={`group flex w-full items-start gap-3 rounded-md border px-3 py-2 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 ${
                       selected
-                        ? "border-foreground bg-foreground text-background"
-                        : "border-border hover:bg-accent"
+                        ? "border-ring/60 bg-muted/70 text-foreground"
+                        : "border-border bg-background/30 text-foreground hover:border-muted-foreground/40 hover:bg-accent/45"
                     }`}
                   >
                     <span
-                      className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                      className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
                         selected
-                          ? "border-background"
-                          : "border-muted-foreground/40"
+                          ? "border-ring bg-background text-foreground"
+                          : "border-muted-foreground/35 text-transparent group-hover:border-muted-foreground/60"
                       }`}
                     >
                       {selected ? <IconCheck className="h-3 w-3" /> : null}
@@ -370,13 +371,7 @@ export function NewWorkspaceAppFlow({
                       <span className="block truncate font-medium">
                         {secret.credentialKey}
                       </span>
-                      <span
-                        className={`block truncate text-xs ${
-                          selected
-                            ? "text-background/70"
-                            : "text-muted-foreground"
-                        }`}
-                      >
+                      <span className="block truncate text-xs text-muted-foreground">
                         {secret.provider || secret.name}
                       </span>
                     </span>
