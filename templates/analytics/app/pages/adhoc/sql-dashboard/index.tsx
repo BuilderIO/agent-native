@@ -46,6 +46,7 @@ import { useUserPref } from "@/hooks/use-user-pref";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { incrementItemView } from "@/lib/item-popularity";
 import {
+  DashboardTitleSkeleton,
   useSetPageTitle,
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
@@ -521,6 +522,8 @@ export default function SqlDashboardPage() {
           </button>
         )}
       </div>
+    ) : dashboardId && !loaded ? (
+      <DashboardTitleSkeleton />
     ) : null,
   );
 

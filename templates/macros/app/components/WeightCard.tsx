@@ -24,6 +24,7 @@ interface WeightCardProps {
   onEdit: (weight: Weight) => void;
   onDelete: (weight: Weight) => void;
   isDeleting?: boolean;
+  isPending?: boolean;
 }
 
 export function WeightCard({
@@ -31,6 +32,7 @@ export function WeightCard({
   onEdit,
   onDelete,
   isDeleting,
+  isPending,
 }: WeightCardProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -51,53 +53,64 @@ export function WeightCard({
         </p>
       </div>
       <div className="flex gap-0.5 md:opacity-0 md:group-hover:opacity-100">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={`Edit weight ${weight.weight} lbs`}
-          className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-foreground hover:bg-white/5"
-          onClick={() => onEdit(weight)}
-        >
-          <IconPencil className="h-4 w-4 md:h-3.5 md:w-3.5" />
-        </Button>
-        <AlertDialog
-          open={showDeleteConfirm}
-          onOpenChange={setShowDeleteConfirm}
-        >
-          <AlertDialogTrigger asChild>
+        {isPending ? (
+          <div
+            className="flex h-9 w-9 items-center justify-center text-muted-foreground/60 md:h-7 md:w-7"
+            aria-label="Saving weight"
+          >
+            <IconLoader2 className="h-4 w-4 animate-spin md:h-3.5 md:w-3.5" />
+          </div>
+        ) : (
+          <>
             <Button
               variant="ghost"
               size="icon"
-              aria-label={`Delete weight ${weight.weight} lbs`}
-              className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10"
-              disabled={isDeleting}
+              aria-label={`Edit weight ${weight.weight} lbs`}
+              className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-foreground hover:bg-white/5"
+              onClick={() => onEdit(weight)}
             >
-              {isDeleting ? (
-                <IconLoader2 className="h-4 w-4 md:h-3.5 md:w-3.5 animate-spin" />
-              ) : (
-                <IconTrash className="h-4 w-4 md:h-3.5 md:w-3.5" />
-              )}
+              <IconPencil className="h-4 w-4 md:h-3.5 md:w-3.5" />
             </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete weight entry?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will permanently delete this weight entry ({weight.weight}{" "}
-                lbs).
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => onDelete(weight)}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+            <AlertDialog
+              open={showDeleteConfirm}
+              onOpenChange={setShowDeleteConfirm}
+            >
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Delete weight ${weight.weight} lbs`}
+                  className="h-9 w-9 md:h-7 md:w-7 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10"
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? (
+                    <IconLoader2 className="h-4 w-4 md:h-3.5 md:w-3.5 animate-spin" />
+                  ) : (
+                    <IconTrash className="h-4 w-4 md:h-3.5 md:w-3.5" />
+                  )}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete weight entry?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete this weight entry (
+                    {weight.weight} lbs).
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => onDelete(weight)}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
+        )}
       </div>
     </div>
   );

@@ -133,7 +133,7 @@ Use manage-automations with action=define to create it. Ask clarifying questions
     getContext: (prompt) =>
       `The user wants to create an interactive tool (mini app). Their description: "${prompt}"
 
-Use the create-tool action with Alpine.js HTML content. The tool runs as a sandboxed iframe with Tailwind CSS.
+Use the create-tool action with Alpine.js HTML content. The tool runs as a sandboxed iframe with Tailwind CSS and modest default canvas padding. For edge-to-edge layouts, put data-tool-layout="full-bleed" on the outermost element.
 
 After creating the tool, navigate the user to it with set-url-path using pathname "/tools/<id>".
 

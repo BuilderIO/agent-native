@@ -44,6 +44,10 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import { getIdToken } from "@/lib/auth";
+import {
+  DashboardTitleSkeleton,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 import { DashboardChartCard } from "./ChartCard";
 import {
   DndContext,
@@ -294,6 +298,20 @@ export default function ExplorerDashboardPage() {
     persist({ ...dashboard, name });
     setEditingName(false);
   }, [dashboard, nameInput, persist]);
+
+  useSetPageTitle(
+    !dashboardId ? (
+      <h1 className="text-lg font-semibold tracking-tight truncate">
+        Dashboard
+      </h1>
+    ) : dashboard ? (
+      <h1 className="text-lg font-semibold tracking-tight truncate">
+        {dashboard.name}
+      </h1>
+    ) : !loaded ? (
+      <DashboardTitleSkeleton />
+    ) : null,
+  );
 
   if (!dashboardId) {
     return (

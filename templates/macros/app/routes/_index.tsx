@@ -19,6 +19,11 @@ import { WeightTracker } from "@/components/WeightTracker";
 import { VoiceDictation } from "@/components/VoiceDictation";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  getLogRowKey,
+  isOptimisticLogRow,
+  useOptimisticLogRows,
+} from "@/hooks/use-optimistic-log-rows";
 import { toast } from "sonner";
 import type { Meal, Exercise } from "@shared/types";
 
@@ -54,13 +59,17 @@ export default function IndexPage() {
     "list-meals",
     { date: dateStr },
   );
-  const meals = Array.isArray(rawMeals) ? rawMeals : [];
+  const serverMeals = Array.isArray(rawMeals) ? rawMeals : [];
+  const { rows: meals, hasOptimisticRows: hasOptimisticMeals } =
+    useOptimisticLogRows("meal", serverMeals, dateStr);
 
   const { data: rawExercises, isLoading: exercisesLoading } = useActionQuery(
     "list-exercises",
     { date: dateStr },
   );
-  const exercises = Array.isArray(rawExercises) ? rawExercises : [];
+  const serverExercises = Array.isArray(rawExercises) ? rawExercises : [];
+  const { rows: exercises, hasOptimisticRows: hasOptimisticExercises } =
+    useOptimisticLogRows("exercise", serverExercises, dateStr);
 
   const deleteMealMutation = useActionMutation("delete-meal", {
     onSuccess: () => {
@@ -94,13 +103,14 @@ export default function IndexPage() {
   );
 
   const GOAL_CALORIES = 2000;
-  const isLoading = mealsLoading || exercisesLoading;
+  const hasOptimisticLogs = hasOptimisticMeals || hasOptimisticExercises;
+  const isLoading = (mealsLoading || exercisesLoading) && !hasOptimisticLogs;
 
   return (
     <div className="min-h-screen pb-32 relative z-10">
       <VoiceDictation currentDate={date} />
 
-      <div className="max-w-3xl lg:max-w-6xl mx-auto px-3 sm:px-4 py-6 sm:py-8 space-y-8 sm:space-y-12">
+      <div className="macros-entry-container max-w-3xl lg:max-w-6xl mx-auto px-3 sm:px-4 py-6 sm:py-8 space-y-8 sm:space-y-12">
         {/* Date Navigation */}
         <div className="flex items-center justify-center gap-1 sm:gap-2">
           <Button
@@ -146,7 +156,7 @@ export default function IndexPage() {
         </section>
 
         {/* Triple Column Layout */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
+        <div className="macros-entry-grid">
           {/* Meals */}
           <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
             <div className="flex items-center justify-between px-1">
@@ -168,7 +178,7 @@ export default function IndexPage() {
               )}
             </div>
             <div className="space-y-2">
-              {isLoading ? (
+              {mealsLoading && !hasOptimisticMeals ? (
                 <>
                   <Skeleton className="h-16 w-full rounded-xl" />
                   <Skeleton className="h-16 w-full rounded-xl" />
@@ -188,7 +198,7 @@ export default function IndexPage() {
               ) : (
                 meals.map((meal) => (
                   <MealCard
-                    key={meal.id}
+                    key={getLogRowKey(meal)}
                     meal={meal}
                     onDelete={(id) =>
                       deleteMealMutation.mutate({ id: String(id) })
@@ -201,6 +211,7 @@ export default function IndexPage() {
                       deleteMealMutation.isPending &&
                       deleteMealMutation.variables?.id === String(meal.id)
                     }
+                    isPending={isOptimisticLogRow(meal)}
                   />
                 ))
               )}
@@ -228,7 +239,7 @@ export default function IndexPage() {
               )}
             </div>
             <div className="space-y-2">
-              {isLoading ? (
+              {exercisesLoading && !hasOptimisticExercises ? (
                 <Skeleton className="h-16 w-full rounded-xl" />
               ) : exercises.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-white/[0.02] border border-dashed border-white/[0.06]">
@@ -245,7 +256,7 @@ export default function IndexPage() {
               ) : (
                 exercises.map((exercise) => (
                   <ExerciseCard
-                    key={exercise.id}
+                    key={getLogRowKey(exercise)}
                     exercise={exercise}
                     onDelete={(id) =>
                       deleteExerciseMutation.mutate({ id: String(id) })
@@ -259,6 +270,7 @@ export default function IndexPage() {
                       deleteExerciseMutation.variables?.id ===
                         String(exercise.id)
                     }
+                    isPending={isOptimisticLogRow(exercise)}
                   />
                 ))
               )}
@@ -266,7 +278,7 @@ export default function IndexPage() {
           </section>
 
           {/* Weight */}
-          <section className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-300">
+          <section className="macros-weight-section animate-in fade-in slide-in-from-bottom-4 duration-500 delay-300">
             <WeightTracker currentDate={date} />
           </section>
         </div>

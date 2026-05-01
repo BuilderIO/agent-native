@@ -744,9 +744,14 @@ function openOAuthWindow(
     scheduleClose();
   });
 
-  // Reload webviews when the OAuth window closes (whether auto or manual)
+  // Builder's callback writes credentials server-side, so reload after it
+  // closes. Google success already reloads through the agentnative:// handoff;
+  // Google failures are delivered to the app through desktop-exchange, so an
+  // unconditional reload here would erase the in-app recovery panel.
   oauthWin.on("closed", () => {
-    reloadAllWebviews();
+    if (provider.name !== "google") {
+      reloadAllWebviews();
+    }
   });
 }
 

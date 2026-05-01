@@ -189,7 +189,19 @@ export function buildToolHtml(
   </style>
 	  <style>
 	    *, *::before, *::after { border-color: hsl(var(--border)); }
-	    body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; min-height: 100vh; }
+	    body {
+	      --agent-native-tool-padding: clamp(16px, 2vw, 24px);
+	      box-sizing: border-box;
+	      font-family: 'Inter', sans-serif;
+	      margin: 0;
+	      min-height: 100vh;
+	      padding: var(--agent-native-tool-padding);
+	    }
+	    body:has(> [data-tool-layout="full-bleed"]),
+	    body:has(> [data-tool-padding="none"]),
+	    body:has(> .agent-native-tool-bleed) {
+	      padding: 0;
+	    }
 	  </style>
 	  <script>
 	    var _toolRequestSeq = 0;
