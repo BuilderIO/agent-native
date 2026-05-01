@@ -164,6 +164,7 @@ export function VoiceTranscriptionSection() {
   const choose = (next: Provider) => {
     if (next === provider) return;
     const previous = provider;
+    setHasStoredProvider(true);
     setProvider(next);
     void persist(next, previous);
   };

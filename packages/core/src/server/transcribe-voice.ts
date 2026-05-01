@@ -33,6 +33,8 @@ import { getSession, DEV_MODE_USER_EMAIL } from "./auth.js";
 import { appStateGet } from "../application-state/store.js";
 import { resolveHasBuilderPrivateKey } from "./credential-provider.js";
 import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
+import { runWithRequestContext } from "./request-context.js";
+import { getOrgContext } from "../org/context.js";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -139,6 +141,22 @@ export function createTranscribeVoiceHandler() {
       setResponseStatus(event, 401);
       return { error: "Authentication required" };
     }
+    const orgCtx = session?.email
+      ? await getOrgContext(event).catch(() => null)
+      : null;
+    const requestContext = {
+      userEmail: session?.email,
+      orgId: orgCtx?.orgId ?? undefined,
+    };
+    const withRequestContext = <T>(fn: () => Promise<T>) =>
+      requestContext.userEmail
+        ? runWithRequestContext(requestContext, fn)
+        : fn();
+    const hasBuilderPrivateKey = () =>
+      withRequestContext(() => resolveHasBuilderPrivateKey());
+    const transcribeWithBuilderForRequest = (
+      opts: Parameters<typeof transcribeWithBuilder>[0],
+    ) => withRequestContext(() => transcribeWithBuilder(opts));
     const sessionId =
       session?.email === DEV_MODE_USER_EMAIL
         ? "local"
@@ -261,14 +279,14 @@ export function createTranscribeVoiceHandler() {
         providerPref === "builder-gemini"
           ? "Builder Gemini Flash-Lite"
           : "Builder";
-      if (!(await resolveHasBuilderPrivateKey())) {
+      if (!(await hasBuilderPrivateKey())) {
         setResponseStatus(event, 400);
         return {
           error: `${label} is selected but Builder.io is not connected. Connect Builder.io in Settings, or change the provider preference.`,
         };
       }
       try {
-        const result = await transcribeWithBuilder({
+        const result = await transcribeWithBuilderForRequest({
           audioBytes,
           mimeType: mime,
           model:
@@ -317,9 +335,9 @@ export function createTranscribeVoiceHandler() {
     // ── Builder Gemini Flash-Lite path ─────────────────────────────────
     // First-priority in auto mode when Builder is connected. This lets users
     // try Gemini 3.1 Flash-Lite without bringing their own Google key.
-    if (providerPref !== "openai" && (await resolveHasBuilderPrivateKey())) {
+    if (providerPref !== "openai" && (await hasBuilderPrivateKey())) {
       try {
-        const result = await transcribeWithBuilder({
+        const result = await transcribeWithBuilderForRequest({
           audioBytes,
           mimeType: mime,
           model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
