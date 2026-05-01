@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { format } from "date-fns";
+import { endOfMonth, format, startOfMonth } from "date-fns";
 import { IconCalendar } from "@tabler/icons-react";
 import { PoweredByBadge } from "@agent-native/core/client";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -13,7 +13,11 @@ import {
   usePublicAvailability,
   usePublicBookingLink,
 } from "@/hooks/use-public-data";
-import { useAvailableSlots, useCreateBooking } from "@/hooks/use-bookings";
+import {
+  useAvailableDays,
+  useAvailableSlots,
+  useCreateBooking,
+} from "@/hooks/use-bookings";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
@@ -50,6 +54,7 @@ export default function BookingPage() {
     null,
   );
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
+  const [viewMonth, setViewMonth] = useState(() => new Date());
 
   const dateStr = selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
   const durationOptions =
@@ -67,6 +72,16 @@ export default function BookingPage() {
     duration,
     slug,
   );
+  const monthStart = format(startOfMonth(viewMonth), "yyyy-MM-dd");
+  const monthEnd = format(endOfMonth(viewMonth), "yyyy-MM-dd");
+  const { data: availableDates = [], isLoading: availableDatesLoading } =
+    useAvailableDays(
+      monthStart,
+      monthEnd,
+      duration,
+      slug,
+      step === "date" && !!availability,
+    );
   const createBooking = useCreateBooking();
 
   function handleDateSelect(date: Date) {
@@ -130,16 +145,18 @@ export default function BookingPage() {
 
   if (bookingLinkLoading || settingsLoading || availabilityLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Spinner className="size-8 text-foreground" />
+      <div className="min-h-screen bg-background p-4">
+        <div className="mx-auto mt-[7.5vh] flex w-full max-w-lg justify-center">
+          <Spinner className="size-8 text-foreground" />
+        </div>
       </div>
     );
   }
 
   if ((bookingLinkError || !bookingLink) && !isLegacyBookingPage) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center">
+      <div className="min-h-screen bg-background p-4">
+        <div className="mx-auto mt-[7.5vh] w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center">
           <h1 className="text-xl font-semibold">Booking link not found</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             This meeting type may have been removed or is no longer active.
@@ -150,11 +167,11 @@ export default function BookingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4 relative">
+    <div className="relative min-h-screen bg-background p-4 pb-20">
       <div className="absolute top-4 right-4">
         <ThemeToggle />
       </div>
-      <div className="w-full max-w-lg">
+      <div className="mx-auto mt-[7.5vh] w-full max-w-lg">
         {/* Header */}
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
@@ -236,6 +253,10 @@ export default function BookingPage() {
                   selectedDate={selectedDate}
                   onSelect={handleDateSelect}
                   availability={availability}
+                  availableDates={availableDates}
+                  availabilityLoading={availableDatesLoading}
+                  viewMonth={viewMonth}
+                  onViewMonthChange={setViewMonth}
                 />
               </div>
             </div>

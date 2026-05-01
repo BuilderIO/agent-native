@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { IconStack2 } from "@tabler/icons-react";
+import { appPath } from "./api-path.js";
 
 export interface PoweredByBadgeProps {
   position?: "bottom-right" | "bottom-left";
@@ -35,7 +35,7 @@ const containerStyle = (
 const darkQuery = "(prefers-color-scheme: dark)";
 
 /**
- * Small branding badge: "Built with Agent Native"
+ * Small branding badge: "Built with [Agent Native logo]"
  *
  * - Fixed position in the corner
  * - Subtle, semi-transparent
@@ -53,14 +53,43 @@ export function PoweredByBadge({
 
   if (hidden) return null;
 
+  const logoOnLight = appPath("/agent-native-logo-light.svg");
+  const logoOnDark = appPath("/agent-native-logo-dark.svg");
+
   return (
     <>
       <style>{`
+        .an-powered-logo {
+          display: block;
+          height: 12px;
+          width: auto;
+          flex: none;
+        }
+        .an-powered-logo-dark {
+          display: none;
+        }
+        .dark .an-powered-badge {
+          background: rgba(255, 255, 255, 0.06) !important;
+          border-color: rgba(255, 255, 255, 0.08) !important;
+          color: rgba(180, 180, 180, 0.9) !important;
+        }
+        .dark .an-powered-logo-light {
+          display: none;
+        }
+        .dark .an-powered-logo-dark {
+          display: block;
+        }
         @media ${darkQuery} {
           .an-powered-badge {
             background: rgba(255, 255, 255, 0.06) !important;
             border-color: rgba(255, 255, 255, 0.08) !important;
             color: rgba(180, 180, 180, 0.9) !important;
+          }
+          .an-powered-logo-light {
+            display: none;
+          }
+          .an-powered-logo-dark {
+            display: block;
           }
         }
         .an-powered-badge:hover {
@@ -79,9 +108,19 @@ export function PoweredByBadge({
         rel="noopener noreferrer"
         className="an-powered-badge"
         style={containerStyle(position)}
+        aria-label="Built with Agent Native"
       >
-        <IconStack2 size={14} />
-        Built with Agent Native
+        <span>Built with</span>
+        <img
+          src={logoOnLight}
+          alt="Agent Native"
+          className="an-powered-logo an-powered-logo-light"
+        />
+        <img
+          src={logoOnDark}
+          alt="Agent Native"
+          className="an-powered-logo an-powered-logo-dark"
+        />
       </a>
     </>
   );

@@ -1,7 +1,7 @@
 /**
  * Core script: db-exec
  *
- * Execute a write SQL statement (INSERT, UPDATE, DELETE, etc.)
+ * Execute write SQL statements (INSERT, UPDATE, DELETE, REPLACE)
  * against a SQLite or Postgres database.
  *
  * In production mode, temporary views scope UPDATE/DELETE to the current
@@ -11,6 +11,7 @@
  *
  * Usage:
  *   pnpm action db-exec --sql "UPDATE forms SET status=? WHERE id=?" [--args '["published","abc"]'] [--db path]
+ *   pnpm action db-exec --statements '[{"sql":"INSERT INTO notes (id,title) VALUES (?,?)","args":["n1","One"]},{"sql":"UPDATE counters SET value=value+1 WHERE key=?","args":["notes"]}]'
  */
 
 import path from "path";

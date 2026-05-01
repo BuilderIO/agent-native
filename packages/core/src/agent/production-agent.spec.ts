@@ -159,6 +159,82 @@ describe("buildUserContentWithAttachments", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("serializes tool calls when a turn includes mutating actions", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          const parts = [
+            {
+              type: "tool-call" as const,
+              id: "tool-a",
+              name: "write-a",
+              input: {},
+            },
+            {
+              type: "tool-call" as const,
+              id: "tool-b",
+              name: "write-b",
+              input: {},
+            },
+          ];
+          yield { type: "assistant-content", parts };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const order: string[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "write-a": {
+          ...actionEntry({ readOnly: false }),
+          run: async () => {
+            order.push("a:start");
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            order.push("a:end");
+            return "a";
+          },
+        },
+        "write-b": {
+          ...actionEntry({ readOnly: false }),
+          run: async () => {
+            order.push("b:start");
+            order.push("b:end");
+            return "b";
+          },
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(order).toEqual(["a:start", "a:end", "b:start", "b:end"]);
+  });
+
   it("emits loop_limit with the configured max iteration count", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {

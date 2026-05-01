@@ -1474,11 +1474,12 @@ Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every convers
 
 - \`db-schema\` — refresh the full schema with indexes and foreign keys
 - \`db-query\` — run a SELECT (read-only; results already filtered to the current user/org)
-- \`db-exec\` — run INSERT / UPDATE / DELETE (writes already scoped; owner_email and org_id are auto-injected on INSERT)
+- \`db-exec\` — run INSERT / UPDATE / DELETE / REPLACE (writes already scoped; owner_email and org_id are auto-injected on INSERT). For multiple related writes, use \`statements\` so they run in one transaction instead of separate tool calls. Schema changes are blocked.
 - \`db-patch\` — surgical search-and-replace on a large text column. Use for edits to large fields instead of re-sending multi-kilobyte strings.
 
 ### When to pick which SQL tool
 - Set a short column outright, update multiple columns, or do computed updates → \`db-exec UPDATE\`
+- Insert/update several rows as one logical operation → \`db-exec\` with \`statements: '[{"sql":"...","args":[...]}]'\`
 - Change a small slice of a large text/JSON column → \`db-patch\`
 - A template-specific action exists for the table → use that action (it encodes business rules and pushes live Yjs updates)
 - Read data → \`db-query\`. Never re-add \`WHERE owner_email = ...\` — scoping already applies it.

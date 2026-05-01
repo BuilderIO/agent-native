@@ -833,103 +833,102 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
-        const actionEntry = actions[toolCall.name];
-        if (!actionEntry) {
-          const result = `Error: Unknown tool "${toolCall.name}"`;
-          send({
-            type: "tool_start",
-            tool: toolCall.name,
-            input: toolCall.input as Record<string, string>,
-          });
-          send({ type: "tool_done", tool: toolCall.name, result });
-          return {
-            type: "tool-result" as const,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            content: result,
-            isError: true,
-          };
-        }
-
+      const actionEntry = actions[toolCall.name];
+      if (!actionEntry) {
+        const result = `Error: Unknown tool "${toolCall.name}"`;
         send({
           type: "tool_start",
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
-
-        if (
-          opts.executionMode === "plan" &&
-          !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
-        ) {
-          const result = planModeBlockedMessage(toolCall.name);
-          send({ type: "tool_done", tool: toolCall.name, result });
-          return {
-            type: "tool-result" as const,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            content: result,
-            isError: true,
-          };
-        }
-
-        const MAX_TOOL_RESULT_CHARS = 50_000;
-        const TOOL_TIMEOUT_MS = 60_000;
-        let result: string;
-        let isError = false;
-        try {
-          const timeoutSignal = AbortSignal.timeout(TOOL_TIMEOUT_MS);
-          const raw = await Promise.race([
-            actionEntry.run(toolCall.input as Record<string, string>, { send }),
-            new Promise<never>((_, reject) => {
-              timeoutSignal.addEventListener("abort", () =>
-                reject(new Error("Tool call timed out after 60 seconds")),
-              );
-            }),
-          ]);
-          let resultStr =
-            typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
-          if (resultStr.length > MAX_TOOL_RESULT_CHARS) {
-            const truncated = resultStr.slice(0, MAX_TOOL_RESULT_CHARS);
-            resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${MAX_TOOL_RESULT_CHARS.toLocaleString()} shown]`;
-          }
-          result = resultStr;
-        } catch (err: any) {
-          result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
-          isError = true;
-        }
-
-        // Auto-refresh the UI after a successful mutating tool call. Any action
-        // that isn't explicitly read-only is assumed to mutate. The client's
-        // useDbSync listener sees a poll event with source:"action" and
-        // invalidates ["action"] queries so list-* / get-* refetch. This makes
-        // refresh after agent writes reliable without the model needing to
-        // remember to call `refresh-screen` itself.
-        if (!isError && actionEntry.readOnly !== true) {
-          try {
-            const { recordChange } = await import("../server/poll.js");
-            const owner =
-              opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
-            const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-            recordChange({
-              source: "action",
-              type: "change",
-              key: toolCall.name,
-              ...(owner ? { owner } : {}),
-              ...(orgId ? { orgId } : {}),
-            });
-          } catch {
-            // poll module may be unavailable in non-server contexts — ignore
-          }
-        }
-
         send({ type: "tool_done", tool: toolCall.name, result });
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
           content: result,
-          ...(isError ? { isError } : {}),
+          isError: true,
         };
+      }
+
+      send({
+        type: "tool_start",
+        tool: toolCall.name,
+        input: toolCall.input as Record<string, string>,
+      });
+
+      if (
+        opts.executionMode === "plan" &&
+        !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
+      ) {
+        const result = planModeBlockedMessage(toolCall.name);
+        send({ type: "tool_done", tool: toolCall.name, result });
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          content: result,
+          isError: true,
+        };
+      }
+
+      const MAX_TOOL_RESULT_CHARS = 50_000;
+      const TOOL_TIMEOUT_MS = 60_000;
+      let result: string;
+      let isError = false;
+      try {
+        const timeoutSignal = AbortSignal.timeout(TOOL_TIMEOUT_MS);
+        const raw = await Promise.race([
+          actionEntry.run(toolCall.input as Record<string, string>, { send }),
+          new Promise<never>((_, reject) => {
+            timeoutSignal.addEventListener("abort", () =>
+              reject(new Error("Tool call timed out after 60 seconds")),
+            );
+          }),
+        ]);
+        let resultStr =
+          typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+        if (resultStr.length > MAX_TOOL_RESULT_CHARS) {
+          const truncated = resultStr.slice(0, MAX_TOOL_RESULT_CHARS);
+          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${MAX_TOOL_RESULT_CHARS.toLocaleString()} shown]`;
+        }
+        result = resultStr;
+      } catch (err: any) {
+        result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
+        isError = true;
+      }
+
+      // Auto-refresh the UI after a successful mutating tool call. Any action
+      // that isn't explicitly read-only is assumed to mutate. The client's
+      // useDbSync listener sees a poll event with source:"action" and
+      // invalidates ["action"] queries so list-* / get-* refetch. This makes
+      // refresh after agent writes reliable without the model needing to
+      // remember to call `refresh-screen` itself.
+      if (!isError && actionEntry.readOnly !== true) {
+        try {
+          const { recordChange } = await import("../server/poll.js");
+          const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
+          const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
+          recordChange({
+            source: "action",
+            type: "change",
+            key: toolCall.name,
+            ...(owner ? { owner } : {}),
+            ...(orgId ? { orgId } : {}),
+          });
+        } catch {
+          // poll module may be unavailable in non-server contexts — ignore
+        }
+      }
+
+      send({ type: "tool_done", tool: toolCall.name, result });
+      return {
+        type: "tool-result" as const,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        content: result,
+        ...(isError ? { isError } : {}),
+      };
     };
 
     const hasMutatingToolCall = toolCallParts.some((toolCall) => {
@@ -947,7 +946,9 @@ export async function runAgentLoop(opts: {
         toolResultParts.push(await runToolCall(toolCall));
       }
     } else {
-      toolResultParts.push(...(await Promise.all(toolCallParts.map(runToolCall))));
+      toolResultParts.push(
+        ...(await Promise.all(toolCallParts.map(runToolCall))),
+      );
     }
 
     messages.push({ role: "user", content: toolResultParts });
