@@ -604,7 +604,7 @@ export default function BookingLinksPage({
     setSavedDraftSignature(getDraftSignature(nextDraft));
     setCustomDurationInput("");
     setShowCustomDurationInput(false);
-  }, [selectedLink]);
+  }, [selectedLink?.id, selectedLink?.updatedAt]);
 
   const bookingUsername = availability?.bookingUsername;
 
@@ -790,7 +790,7 @@ export default function BookingLinksPage({
           )}
         >
           {/* Left — Edit form */}
-          <div className="space-y-5">
+          <div className="space-y-8">
             {isLoading ? (
               <div className="space-y-5">
                 <div className="space-y-2">
@@ -990,52 +990,72 @@ export default function BookingLinksPage({
                   )}
                 </div>
 
-                {/* Editable URL parts (username / slug) — shared package component */}
-                <SlugEditor
-                  host={
-                    typeof window !== "undefined" &&
-                    window.location.hostname !== "localhost"
-                      ? window.location.host
-                      : PRODUCTION_DOMAIN
-                  }
-                  pathPrefix="/book"
-                  username={
-                    bookingUsername || usernameInput || suggestedUsername || ""
-                  }
-                  slug={draft.slug}
-                  onUsernameChange={(val) => {
-                    setUsernameInput(val);
-                    if (val) {
-                      updateAvailability.mutate(
-                        {
-                          timezone,
-                          weeklySchedule: schedule,
-                          bufferMinutes,
-                          minNoticeHours,
-                          maxAdvanceDays,
-                          slotDurationMinutes: slotDuration,
-                          bookingPageSlug: bookingSlug,
-                          bookingUsername: val,
-                        },
-                        {
-                          onError: (error) =>
-                            toast.error(
-                              error instanceof Error
-                                ? error.message
-                                : "Failed to update booking username",
-                            ),
-                        },
-                      );
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label>URL</Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => openPreview(draft.slug)}
+                      className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                      title="Open in new tab"
+                      aria-label="Open booking page in new tab"
+                    >
+                      <IconExternalLink className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {/* Editable URL parts (username / slug) — shared package component */}
+                  <SlugEditor
+                    hideLabel
+                    host={
+                      typeof window !== "undefined" &&
+                      window.location.hostname !== "localhost"
+                        ? window.location.host
+                        : PRODUCTION_DOMAIN
                     }
-                  }}
-                  onSlugChange={(val) => {
-                    setDraft((prev) => ({
-                      ...prev,
-                      slug: val,
-                      slugManuallyEdited: true,
-                    }));
-                  }}
-                />
+                    pathPrefix="/book"
+                    username={
+                      bookingUsername ||
+                      usernameInput ||
+                      suggestedUsername ||
+                      ""
+                    }
+                    slug={draft.slug}
+                    onUsernameChange={(val) => {
+                      setUsernameInput(val);
+                      if (val) {
+                        updateAvailability.mutate(
+                          {
+                            timezone,
+                            weeklySchedule: schedule,
+                            bufferMinutes,
+                            minNoticeHours,
+                            maxAdvanceDays,
+                            slotDurationMinutes: slotDuration,
+                            bookingPageSlug: bookingSlug,
+                            bookingUsername: val,
+                          },
+                          {
+                            onError: (error) =>
+                              toast.error(
+                                error instanceof Error
+                                  ? error.message
+                                  : "Failed to update booking username",
+                              ),
+                          },
+                        );
+                      }
+                    }}
+                    onSlugChange={(val) => {
+                      setDraft((prev) => ({
+                        ...prev,
+                        slug: val,
+                        slugManuallyEdited: true,
+                      }));
+                    }}
+                  />
+                </div>
 
                 {/* Conferencing — Zoom uses real OAuth */}
                 <BookingConferencingSelect
@@ -1075,7 +1095,7 @@ export default function BookingLinksPage({
                 />
 
                 {/* Lower-risk settings */}
-                <div className="space-y-4 border-t border-border pt-4">
+                <div className="space-y-5 border-t border-border pt-5">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-sm font-medium">Link visibility</p>
@@ -1127,17 +1147,30 @@ export default function BookingLinksPage({
           {/* Right — Live booking page preview */}
           {selectedLink && (
             <div className="lg:sticky lg:top-8 lg:self-start">
-              <BookingPreview
-                title={draft.title}
-                description={draft.description}
-                durations={draft.durations}
-                customFields={draft.customFields}
-                isActive={draft.isActive}
-                availability={availability ?? undefined}
-                bookingUrl={previewUrl}
-                onCopy={() => void copyPreviewUrl(draft.slug)}
-                onOpen={() => openPreview(draft.slug)}
-              />
+              {isPreviewCollapsed ? (
+                <button
+                  type="button"
+                  onClick={() => setIsPreviewCollapsed(false)}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground lg:w-auto lg:flex-col lg:px-3"
+                  title="Show preview"
+                >
+                  <IconChevronLeft className="h-4 w-4" />
+                  Preview
+                </button>
+              ) : (
+                <BookingPreview
+                  title={draft.title}
+                  description={draft.description}
+                  durations={draft.durations}
+                  customFields={draft.customFields}
+                  isActive={draft.isActive}
+                  availability={availability ?? undefined}
+                  bookingUrl={previewUrl}
+                  onCopy={() => void copyPreviewUrl(draft.slug)}
+                  onOpen={() => openPreview(draft.slug)}
+                  onCollapse={() => setIsPreviewCollapsed(true)}
+                />
+              )}
             </div>
           )}
         </div>
@@ -1511,6 +1544,7 @@ function BookingPreview({
   bookingUrl,
   onCopy,
   onOpen,
+  onCollapse,
 }: {
   title: string;
   description: string;
@@ -1521,6 +1555,7 @@ function BookingPreview({
   bookingUrl?: string;
   onCopy?: () => void;
   onOpen?: () => void;
+  onCollapse?: () => void;
 }) {
   const displayTitle = title.trim() || "Untitled Meeting";
   const hasDurationChoice = durations.length > 1;
@@ -1614,6 +1649,16 @@ function BookingPreview({
               <Badge variant="secondary" className="text-[10px]">
                 Hidden
               </Badge>
+            )}
+            {onCollapse && (
+              <button
+                type="button"
+                onClick={onCollapse}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                title="Collapse preview"
+              >
+                <IconChevronRight className="h-3.5 w-3.5" />
+              </button>
             )}
             {onCopy && (
               <button
