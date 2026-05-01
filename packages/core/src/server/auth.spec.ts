@@ -455,6 +455,64 @@ describe("server/auth", () => {
       );
     });
 
+    it("desktop exchange can deliver OAuth errors to the app surface", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+      delete process.env.AUTH_MODE;
+
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+            listOrganizations: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth, setDesktopExchangeError } =
+        await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      setDesktopExchangeError("flow-error", {
+        message: "Sign out and try again.",
+        code: "account_owner_mismatch",
+        accountId: "steve@builder.io",
+        attemptedOwner: "other@example.com",
+      });
+
+      const exchangeHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/desktop-exchange",
+      )?.[1];
+      const result = await exchangeHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/desktop-exchange",
+          query: { flow_id: "flow-error" },
+        }),
+      );
+
+      expect(result).toEqual({
+        error: "Sign out and try again.",
+        message: "Sign out and try again.",
+        code: "account_owner_mismatch",
+        accountId: "steve@builder.io",
+        attemptedOwner: "other@example.com",
+      });
+    });
+
     it("strips APP_BASE_PATH before forwarding requests to Better Auth", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("APP_BASE_PATH", "/docs");

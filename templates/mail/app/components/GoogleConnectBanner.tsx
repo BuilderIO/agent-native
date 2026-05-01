@@ -623,6 +623,12 @@ export function GoogleConnectBanner({
             <IconX className="h-3 w-3" />
           </Button>
         </div>
+        <GoogleAuthIssuePanel
+          issue={desktopAuthIssue}
+          onSignOut={handleSignOutForGoogle}
+          onDismiss={() => setDesktopAuthIssue(null)}
+          className="mx-4 mb-3"
+        />
       </div>
     );
   }

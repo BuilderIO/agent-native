@@ -456,6 +456,12 @@ export function GoogleConnectBanner({
             <IconX className="h-3 w-3" />
           </Button>
         </div>
+        <GoogleAuthIssuePanel
+          issue={desktopAuthIssue}
+          onSignOut={handleSignOutForGoogle}
+          onDismiss={() => setDesktopAuthIssue(null)}
+          className="mx-4 mb-3"
+        />
       </div>
     );
   }
@@ -548,6 +554,75 @@ export function GoogleConnectBanner({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+function GoogleAuthIssuePanel({
+  issue,
+  onSignOut,
+  onDismiss,
+  className = "",
+}: {
+  issue: DesktopAuthIssue | null;
+  onSignOut: () => void;
+  onDismiss: () => void;
+  className?: string;
+}) {
+  if (!issue) return null;
+  const account = issue.accountId || "that Google account";
+  const detail =
+    issue.message ||
+    issue.error ||
+    `Sign out, then sign back in with ${account}.`;
+  const shouldOfferSignOut =
+    issue.code === "account_owner_mismatch" ||
+    Boolean(issue.existingOwner || issue.attemptedOwner || issue.accountId);
+
+  return (
+    <div
+      className={`rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-3 text-left ${className}`}
+    >
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
+          <IconAlertTriangle className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-foreground">
+            Use the matching Agent Native login
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {detail}
+          </p>
+          {shouldOfferSignOut && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 px-3 text-xs font-medium"
+                onClick={onSignOut}
+              >
+                <IconLogout className="h-3.5 w-3.5" />
+                Sign out
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                onClick={onDismiss}
+              >
+                Dismiss
+              </Button>
+            </div>
+          )}
+        </div>
+        <button
+          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-white/5 hover:text-foreground"
+          onClick={onDismiss}
+          aria-label="Dismiss Google sign-in notice"
+        >
+          <IconX className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
