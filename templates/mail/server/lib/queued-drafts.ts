@@ -313,7 +313,7 @@ export async function updateQueuedDraft(
     sentMessageId?: string;
   },
 ): Promise<QueuedEmailDraft> {
-  const { ctx, draft } = await requireQueuedDraft(id);
+  const { ctx, draft } = await requireQueuedDraft(id, { ownerOnly: true });
   if (draft.status === "sent" && input.status !== "sent") {
     throw new Error("Sent queued drafts cannot be edited.");
   }
