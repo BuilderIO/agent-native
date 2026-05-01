@@ -70,6 +70,45 @@ async function getBookingLinkOwnerEmail(
   return row?.ownerEmail;
 }
 
+function stripCrlf(value: unknown): string {
+  return String(value ?? "")
+    .replace(/[\r\n]+/g, " ")
+    .trim();
+}
+
+function titleCaseToken(value: string): string {
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+}
+
+function displayNameFromEmail(email: string): string {
+  const localPart = email.split("@")[0]?.split("+")[0] ?? "";
+  const parts = localPart
+    .split(/[._-]+/)
+    .map((part) => part.replace(/[^a-zA-Z0-9]/g, ""))
+    .filter(Boolean);
+
+  if (parts.length === 0) return email;
+  return parts.map(titleCaseToken).join(" ");
+}
+
+function buildBookingEventTitle({
+  explicitTitle,
+  hostEmail,
+  attendeeName,
+}: {
+  explicitTitle?: unknown;
+  hostEmail: string;
+  attendeeName: unknown;
+}) {
+  const explicit = stripCrlf(explicitTitle);
+  if (explicit) return explicit;
+
+  const hostName = displayNameFromEmail(hostEmail);
+  const guestName = stripCrlf(attendeeName) || "Guest";
+  return `${hostName} + ${guestName}`;
+}
+
 async function deleteGoogleEventForBooking({
   booking,
   hostEmail,
@@ -396,6 +435,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { error: "Booking link not found" };
     }
 
+    const hostEmail =
+      (bookingLink as any)?.ownerEmail || (bookingLink as any)?.owner_email;
+    if (!hostEmail) {
+      setResponseStatus(event, 500);
+      return { error: "Booking link has no host email" };
+    }
+
+    const eventTitle = buildBookingEventTitle({
+      explicitTitle: body.eventTitle,
+      hostEmail,
+      attendeeName: body.name,
+    });
+
     // Validate custom field responses
     let customFields: CustomField[] = [];
     if (bookingLink?.customFields) {
@@ -501,7 +553,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         start: body.start,
         end: body.end,
         slug: body.slug || "",
-        eventTitle: body.eventTitle || bookingLink?.title || null,
+        eventTitle,
         notes: body.notes || null,
         fieldResponses:
           Object.keys(fieldResponses).length > 0
@@ -542,23 +594,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    const hostEmail =
-      (bookingLink as any)?.ownerEmail || (bookingLink as any)?.owner_email;
-    if (!hostEmail) {
-      setResponseStatus(event, 500);
-      return { error: "Booking link has no host email" };
-    }
-
     // For Zoom, create a real meeting via the host's connected OAuth
     // account. The booking link's owner_email is the host.
     if (conferencing?.type === "zoom") {
       try {
         const zoomResult = await createZoomMeeting({
           hostEmail,
-          title:
-            body.eventTitle ||
-            bookingLink?.title ||
-            `Booking with ${body.name}`,
+          title: eventTitle,
           startTime: body.start,
           endTime: body.end,
           timezone:
@@ -586,6 +628,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     if (await googleCalendar.isConnected(hostEmail)) {
       try {
         const descParts: string[] = [`Booking by ${body.name} (${body.email})`];
+        if (bookingLink?.title) {
+          descParts.push(`Meeting type: ${bookingLink.title}`);
+        }
         if (body.notes) descParts.push(`Notes: ${body.notes}`);
         if (customFields.length > 0 && Object.keys(fieldResponses).length > 0) {
           const fieldLines = customFields
@@ -604,10 +649,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
 
         const calEvent: CalendarEvent = {
           id: nanoid(),
-          title:
-            body.eventTitle ||
-            bookingLink?.title ||
-            `Booking with ${body.name}`,
+          title: eventTitle,
           description: descParts.join("\n\n"),
           start: body.start,
           end: body.end,
@@ -656,7 +698,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       start: body.start,
       end: body.end,
       slug: body.slug || "",
-      eventTitle: body.eventTitle || bookingLink?.title,
+      eventTitle,
       notes: body.notes,
       fieldResponses:
         Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
