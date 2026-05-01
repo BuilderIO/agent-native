@@ -145,6 +145,107 @@ type AvailabilityContext = {
 
 type ConflictItem = { start: string; end: string };
 
+type LocalDateTimeParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+};
+
+function getLocalDateTimeParts(
+  date: Date,
+  timezone: string,
+): LocalDateTimeParts {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts = Object.fromEntries(
+    formatter
+      .formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, Number(part.value)]),
+  );
+  return {
+    year: parts.year,
+    month: parts.month,
+    day: parts.day,
+    hour: parts.hour === 24 ? 0 : parts.hour,
+    minute: parts.minute,
+    second: parts.second,
+  };
+}
+
+function getTimezoneOffsetMs(date: Date, timezone: string): number {
+  const parts = getLocalDateTimeParts(date, timezone);
+  const utcForLocalParts = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+  return utcForLocalParts - date.getTime();
+}
+
+function zonedTimeToUtc(
+  localDate: string,
+  localTime: string,
+  timezone: string,
+): Date {
+  const [year, month, day] = localDate.split("-").map(Number);
+  const [hour, minute] = localTime.split(":").map(Number);
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let result = new Date(
+    utcGuess - getTimezoneOffsetMs(new Date(utcGuess), timezone),
+  );
+  result = new Date(utcGuess - getTimezoneOffsetMs(result, timezone));
+  return result;
+}
+
+function formatLocalDateInTimezone(date: Date, timezone: string): string {
+  const parts = getLocalDateTimeParts(date, timezone);
+  return [
+    String(parts.year).padStart(4, "0"),
+    String(parts.month).padStart(2, "0"),
+    String(parts.day).padStart(2, "0"),
+  ].join("-");
+}
+
+function getDayOfWeekInTimezone(date: Date, timezone: string): number {
+  const parts = getLocalDateTimeParts(date, timezone);
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+}
+
+function createDefaultAvailability(timezone: string): AvailabilityConfig {
+  return {
+    timezone,
+    weeklySchedule: {
+      monday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      tuesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      wednesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      thursday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      friday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      saturday: { enabled: false, slots: [] },
+      sunday: { enabled: false, slots: [] },
+    },
+    bufferMinutes: 15,
+    minNoticeHours: 24,
+    maxAdvanceDays: 60,
+    slotDurationMinutes: 30,
+    bookingPageSlug: "book",
+  };
+}
+
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_AVAILABILITY_RANGE_DAYS = 93;
 
@@ -168,6 +269,12 @@ function addLocalDays(date: Date, days: number): Date {
   return next;
 }
 
+function addDateString(date: string, days: number): string {
+  const next = new Date(`${date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+
 function countDaysInclusive(start: Date, end: Date): number {
   let count = 0;
   for (
@@ -181,12 +288,16 @@ function countDaysInclusive(start: Date, end: Date): number {
   return count;
 }
 
-function dateStartIso(date: string): string {
-  return new Date(`${date}T00:00:00`).toISOString();
+function dateStartIso(date: string, timezone: string): string {
+  return zonedTimeToUtc(date, "00:00", timezone).toISOString();
 }
 
-function dateEndIso(date: string): string {
-  return new Date(`${date}T23:59:59.999`).toISOString();
+function dateEndIso(date: string, timezone: string): string {
+  return zonedTimeToUtc(
+    addDateString(date, 1),
+    "00:00",
+    timezone,
+  ).toISOString();
 }
 
 async function resolveAvailabilityContext(
@@ -209,6 +320,11 @@ async function resolveAvailabilityContext(
         "calendar-availability",
       )) as unknown as AvailabilityConfig | null)
     : null;
+  const ownerSettings = ownerEmail
+    ? ((await getUserSetting(ownerEmail, "calendar-settings")) as {
+        timezone?: string;
+      } | null)
+    : null;
   const conflictSlugs = ownerEmail
     ? await getBookingLinkSlugsForOwner(ownerEmail)
     : slug
@@ -216,7 +332,13 @@ async function resolveAvailabilityContext(
       : [];
 
   return {
-    effectiveConfig: ownerConfig || config,
+    effectiveConfig:
+      ownerConfig ||
+      (ownerEmail
+        ? createDefaultAvailability(
+            ownerSettings?.timezone || "America/New_York",
+          )
+        : config),
     ownerEmail,
     slug,
     conflictSlugs,
@@ -289,7 +411,7 @@ function generateAvailableSlotsForDate({
   config: AvailabilityConfig;
   conflictItems: ConflictItem[];
 }): TimeSlot[] {
-  const targetDate = new Date(`${date}T00:00:00`);
+  const timezone = config.timezone || "UTC";
   const dayNames = [
     "sunday",
     "monday",
@@ -299,7 +421,8 @@ function generateAvailableSlotsForDate({
     "friday",
     "saturday",
   ] as const;
-  const dayName = dayNames[targetDate.getDay()];
+  const targetNoon = zonedTimeToUtc(date, "12:00", timezone);
+  const dayName = dayNames[getDayOfWeekInTimezone(targetNoon, timezone)];
   const daySchedule =
     config.weeklySchedule[dayName as keyof typeof config.weeklySchedule];
 
@@ -321,9 +444,15 @@ function generateAvailableSlotsForDate({
   const bufferMs = Math.max(0, bufferMinutes) * 60 * 1000;
   const earliestStart =
     Date.now() + Math.max(0, minNoticeHours) * 60 * 60 * 1000;
-  const latestDate = new Date();
-  latestDate.setHours(23, 59, 59, 999);
-  latestDate.setDate(latestDate.getDate() + Math.max(0, maxAdvanceDays));
+  const todayInScheduleTimezone = formatLocalDateInTimezone(
+    new Date(),
+    timezone,
+  );
+  const latestDate = zonedTimeToUtc(
+    addDateString(todayInScheduleTimezone, Math.max(0, maxAdvanceDays) + 1),
+    "00:00",
+    timezone,
+  );
 
   for (const scheduleSlot of daySchedule.slots) {
     const [startHour, startMin] = scheduleSlot.start.split(":").map(Number);
@@ -337,11 +466,9 @@ function generateAvailableSlotsForDate({
       continue;
     }
 
-    const slotStart = new Date(`${date}T00:00:00`);
-    slotStart.setHours(startHour, startMin, 0, 0);
-
-    const slotEnd = new Date(`${date}T00:00:00`);
-    slotEnd.setHours(endHour, endMin, 0, 0);
+    const slotStart = zonedTimeToUtc(date, scheduleSlot.start, timezone);
+    const slotEnd = zonedTimeToUtc(date, scheduleSlot.end, timezone);
+    if (slotEnd <= slotStart) continue;
 
     let current = new Date(slotStart);
 
@@ -794,11 +921,12 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
     if (hasRangeQuery) {
       const rangeStart = formatDateOnly(from!);
       const rangeEnd = formatDateOnly(to!);
+      const timezone = context.effectiveConfig.timezone || "UTC";
       const conflictItems = await getConflictItems({
         ownerEmail: context.ownerEmail,
         conflictSlugs: context.conflictSlugs,
-        rangeStartIso: dateStartIso(rangeStart),
-        rangeEndIso: dateEndIso(rangeEnd),
+        rangeStartIso: dateStartIso(rangeStart, timezone),
+        rangeEndIso: dateEndIso(rangeEnd, timezone),
       });
       const dates: string[] = [];
       for (
@@ -820,11 +948,12 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
       return { dates };
     }
 
+    const timezone = context.effectiveConfig.timezone || "UTC";
     const conflictItems = await getConflictItems({
       ownerEmail: context.ownerEmail,
       conflictSlugs: context.conflictSlugs,
-      rangeStartIso: dateStartIso(date),
-      rangeEndIso: dateEndIso(date),
+      rangeStartIso: dateStartIso(date, timezone),
+      rangeEndIso: dateEndIso(date, timezone),
     });
     const availableSlots = generateAvailableSlotsForDate({
       date,

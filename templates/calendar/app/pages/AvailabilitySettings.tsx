@@ -14,6 +14,7 @@ import {
   useAvailability,
   useUpdateAvailability,
 } from "@/hooks/use-availability";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { toast } from "sonner";
@@ -125,6 +126,18 @@ export default function AvailabilitySettings() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+            <Label htmlFor="availability-timezone">Timezone</Label>
+            <TimezoneCombobox
+              id="availability-timezone"
+              value={timezone}
+              onChange={setTimezone}
+            />
+            <p className="text-xs text-muted-foreground">
+              Weekly hours like 9 AM-5 PM are interpreted in this timezone
+              before visitors see them in their own browser timezone.
+            </p>
+          </div>
           {DAYS.map(({ key, label }) => {
             const day = schedule[key];
             const slot = day.slots[0] ?? { start: "09:00", end: "17:00" };
