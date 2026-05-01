@@ -62,6 +62,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       owner,
       desktop,
       addAccount: false,
+      app: "mail",
       flowId,
     });
     const url = getAuthUrl(undefined, redirectUri, state);
@@ -176,6 +177,7 @@ export const handleGoogleCallback = defineEventHandler(
         desktop,
         addAccount: isAddAccount,
         flowId,
+        appName: "Mail",
       });
     } catch (error: any) {
       const msg = error.message || "Unknown error";
@@ -218,6 +220,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         owner: session.email,
         desktop,
         addAccount: true,
+        app: "mail",
         flowId,
       });
       const url = getAuthUrl(undefined, redirectUri, state);
@@ -282,6 +285,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       return oauthCallbackResponse(event, addedEmail, {
         desktop,
         addAccount: true,
+        appName: "Mail",
       });
     } catch (error: any) {
       const msg = error.message || "Unknown error";

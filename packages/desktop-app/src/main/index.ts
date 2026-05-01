@@ -552,7 +552,10 @@ interface OAuthProvider {
 const OAUTH_PROVIDERS: OAuthProvider[] = [
   {
     name: "google",
-    matches: (u) => u.hostname === "accounts.google.com",
+    matches: (u) =>
+      u.hostname === "accounts.google.com" ||
+      u.pathname.endsWith("/_agent-native/google/auth-url") ||
+      u.pathname.endsWith("/_agent-native/google/add-account/auth-url"),
     callbackPathFragment: "google/callback",
   },
   {
@@ -640,6 +643,12 @@ function openOAuthWindow(
   const onNavigate = (_event: Electron.Event, navUrl: string) => {
     try {
       const parsed = new URL(navUrl);
+      if (
+        (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+        provider.matches(parsed)
+      ) {
+        rememberOAuthState(navUrl);
+      }
       // Detect the OAuth callback (works for both /api/google/callback and
       // /_agent-native/google/callback).
       if (parsed.pathname.includes(provider.callbackPathFragment)) {

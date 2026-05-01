@@ -125,6 +125,7 @@ export const handleGoogleCallback = defineEventHandler(
         desktop,
         addAccount: isAddAccount,
         flowId,
+        appName: "Calendar",
       });
     } catch (error: any) {
       const msg = error.message || "Unknown error";
@@ -217,6 +218,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       return oauthCallbackResponse(event, addedEmail, {
         desktop,
         addAccount: true,
+        appName: "Calendar",
       });
     } catch (error: any) {
       const msg = error.message || "Unknown error";

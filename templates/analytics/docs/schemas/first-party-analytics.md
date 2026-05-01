@@ -84,19 +84,19 @@ Invalid keys return `401`; malformed payloads return `400`.
 
 Events are stored in `analytics_events`. Common query columns include:
 
-| Column | Description |
-| ------ | ----------- |
-| `event_name` | Event name |
-| `timestamp` | Client event timestamp |
-| `received_at` | Collector receive time |
-| `user_id` | Identified user, when supplied |
-| `anonymous_id` | Anonymous/distinct visitor id |
-| `session_id` | Session id |
-| `app` | App/site name, usually from `properties.app` |
-| `template` | Template dimension, usually from `properties.template` |
-| `signed_in` | Signed-in state copied from `signed_in` or `signedIn` |
-| `url`, `path`, `hostname`, `referrer` | Page context |
-| `properties`, `context` | Original JSON objects |
+| Column                                | Description                                            |
+| ------------------------------------- | ------------------------------------------------------ |
+| `event_name`                          | Event name                                             |
+| `timestamp`                           | Client event timestamp                                 |
+| `received_at`                         | Collector receive time                                 |
+| `user_id`                             | Identified user, when supplied                         |
+| `anonymous_id`                        | Anonymous/distinct visitor id                          |
+| `session_id`                          | Session id                                             |
+| `app`                                 | App/site name, usually from `properties.app`           |
+| `template`                            | Template dimension, usually from `properties.template` |
+| `signed_in`                           | Signed-in state copied from `signed_in` or `signedIn`  |
+| `url`, `path`, `hostname`, `referrer` | Page context                                           |
+| `properties`, `context`               | Original JSON objects                                  |
 
 Example dashboard panel:
 

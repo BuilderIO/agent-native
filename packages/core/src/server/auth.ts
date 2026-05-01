@@ -212,6 +212,15 @@ const APP_NAME_SLUG = (process.env.APP_NAME || "")
 export const COOKIE_NAME = APP_NAME_SLUG
   ? `an_session_${APP_NAME_SLUG}`
   : "an_session";
+function getOAuthStateAppId(): string | undefined {
+  const raw = process.env.APP_NAME || process.env.npm_package_name;
+  if (!raw) return undefined;
+  const slug = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || undefined;
+}
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 const LOCAL_MODE_MARKER_PATH = path.resolve(
   process.cwd(),
@@ -945,6 +954,9 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
       // Better Auth not initialized yet
     }
 
+    const querySession = await promoteQuerySession(event);
+    if (querySession) return querySession;
+
     return LOCAL_SESSION;
   }
 
@@ -1016,20 +1028,8 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   }
 
   // 6. Mobile WebView bridge — _session query param
-  const qToken = getQuery(event)?._session as string | undefined;
-  if (qToken) {
-    const email = await getSessionEmail(qToken);
-    if (email) {
-      setCookie(event, COOKIE_NAME, qToken, {
-        httpOnly: true,
-        ...crossSiteCookieAttrs(event),
-        path: "/",
-        maxAge: sessionMaxAge,
-      });
-      setResponseHeader(event, "Referrer-Policy", "no-referrer");
-      return { email, token: qToken };
-    }
-  }
+  const querySession = await promoteQuerySession(event);
+  if (querySession) return querySession;
 
   // 7. Dev-mode safety net — in development on a local SQLite database, fall
   // back to local@localhost so the app is usable without any auth configuration.
@@ -1061,6 +1061,18 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   }
 
   return null;
+}
+
+async function promoteQuerySession(
+  event: H3Event,
+): Promise<AuthSession | null> {
+  const qToken = getQuery(event)?._session as string | undefined;
+  if (!qToken) return null;
+  const email = await getSessionEmail(qToken);
+  if (!email) return null;
+  setFrameworkSessionCookie(event, qToken);
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  return { email, token: qToken };
 }
 
 /**
@@ -1121,6 +1133,15 @@ function crossSiteCookieAttrs(event: H3Event): {
   return isHttpsRequest(event)
     ? { sameSite: "none", secure: true }
     : { sameSite: "lax", secure: false };
+}
+
+function setFrameworkSessionCookie(event: H3Event, token: string): void {
+  setCookie(event, COOKIE_NAME, token, {
+    httpOnly: true,
+    ...crossSiteCookieAttrs(event),
+    path: "/",
+    maxAge: sessionMaxAge,
+  });
 }
 
 function isHttpsRequest(event: H3Event): boolean {
@@ -1408,15 +1429,14 @@ async function mountBetterAuthRoutes(
         const validated =
           typeof returnQuery === "string" ? safeReturnPath(returnQuery) : "/";
         const returnUrl = validated !== "/" ? validated : undefined;
-        const state = encodeOAuthState(
+        const state = encodeOAuthState({
           redirectUri,
-          undefined,
           desktop,
-          false,
-          undefined,
+          addAccount: false,
+          app: getOAuthStateAppId(),
           returnUrl,
           flowId,
-        );
+        });
         const params = new URLSearchParams({
           client_id: process.env.GOOGLE_CLIENT_ID!,
           redirect_uri: redirectUri,
@@ -1572,6 +1592,11 @@ async function mountBetterAuthRoutes(
       // Also wipe the DB-persisted entry so it cannot be replayed via the
       // DB fallback path after in-memory consumption.
       void removeSession(`dex:${flowId}`);
+      // Make the exchange itself establish the app session. Older clients
+      // still make a follow-up /auth/session?_session=... request, but the
+      // OAuth handoff should not depend on that second request succeeding.
+      setFrameworkSessionCookie(event, entry.token);
+      setResponseHeader(event, "Referrer-Policy", "no-referrer");
       return { token: entry.token, email: entry.email };
     }),
   );
