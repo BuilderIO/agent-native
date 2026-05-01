@@ -3,6 +3,7 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 import type { AvailabilityConfig } from "../shared/api.js";
+import { ensureBookingUsername } from "../server/handlers/booking-usernames.js";
 
 const DEFAULT_AVAILABILITY: AvailabilityConfig = {
   timezone: "America/New_York",
@@ -29,9 +30,10 @@ export default defineAction({
   run: async () => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
+    const bookingUsername = await ensureBookingUsername(email);
     const config =
       (await getUserSetting(email, "calendar-availability")) ||
       DEFAULT_AVAILABILITY;
-    return config;
+    return { ...config, bookingUsername };
   },
 });

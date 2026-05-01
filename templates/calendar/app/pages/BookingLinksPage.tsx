@@ -372,7 +372,7 @@ export default function BookingLinksPage({
         window.location.hostname !== "localhost"
           ? window.location.origin
           : `https://${PRODUCTION_DOMAIN}`;
-      return `${host}/meet/${bookingUsername}/${slug}`;
+      return `${host}/book/${bookingUsername}/${slug}`;
     }
     // Fallback for no username set
     if (typeof window === "undefined") return `/book/${slug}`;
@@ -460,7 +460,7 @@ export default function BookingLinksPage({
   function openPreview(slug: string) {
     // For local preview, use the local path
     const localPath = bookingUsername
-      ? `/meet/${bookingUsername}/${slug}`
+      ? `/book/${bookingUsername}/${slug}`
       : `/book/${slug}`;
     window.open(localPath, "_blank", "noopener,noreferrer");
   }
@@ -645,7 +645,7 @@ export default function BookingLinksPage({
                       ? window.location.host
                       : PRODUCTION_DOMAIN
                   }
-                  pathPrefix="/meet"
+                  pathPrefix="/book"
                   username={
                     bookingUsername || usernameInput || suggestedUsername || ""
                   }
@@ -1053,7 +1053,7 @@ export default function BookingLinksPage({
                   <p className="text-xs text-muted-foreground">
                     Your unique handle for booking URLs, e.g.{" "}
                     {PRODUCTION_DOMAIN}
-                    /meet/
+                    /book/
                     <strong>{usernameInput || "your-name"}</strong>/meeting-slug
                   </p>
                   <Input

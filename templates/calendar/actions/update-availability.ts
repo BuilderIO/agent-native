@@ -3,6 +3,10 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import { putUserSetting, putSetting } from "@agent-native/core/settings";
 import type { AvailabilityConfig } from "../shared/api.js";
+import {
+  ensureBookingUsername,
+  updateBookingUsername,
+} from "../server/handlers/booking-usernames.js";
 
 const timeSlotSchema = z.object({
   start: z.string(),
@@ -30,7 +34,7 @@ const availabilitySchema = z.object({
   maxAdvanceDays: z.coerce.number(),
   slotDurationMinutes: z.coerce.number(),
   bookingPageSlug: z.string(),
-  bookingUsername: z.string().optional(),
+  bookingUsername: z.string().min(1).optional(),
 });
 
 export default defineAction({
@@ -40,7 +44,13 @@ export default defineAction({
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     // The frontend sends the full availability config as the body
-    const config = args as unknown as AvailabilityConfig;
+    const bookingUsername = args.bookingUsername
+      ? await updateBookingUsername(email, args.bookingUsername)
+      : await ensureBookingUsername(email);
+    const config = {
+      ...(args as unknown as AvailabilityConfig),
+      bookingUsername,
+    };
     const configRecord = config as unknown as Record<string, unknown>;
     await putUserSetting(email, "calendar-availability", configRecord);
     await putSetting("calendar-availability", configRecord);
