@@ -17,6 +17,17 @@ const __dirname = path.dirname(__filename);
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 
+/**
+ * Move "starter" to the top of the list so it lines up with clack's default
+ * highlight on the first option — otherwise users have to scroll to see that
+ * Starter is pre-selected.
+ */
+function starterFirst(templates: TemplateMeta[]): TemplateMeta[] {
+  const starter = templates.find((t) => t.name === "starter");
+  if (!starter) return templates;
+  return [starter, ...templates.filter((t) => t.name !== "starter")];
+}
+
 /** Blank scaffold option appended to every picker. */
 const BLANK_OPTION = {
   name: "blank",
@@ -334,7 +345,7 @@ async function createStandaloneApp(
     const picked = await clack.select({
       message: "Which template would you like to use?",
       options: [
-        ...coreTemplates().map((t) => ({
+        ...starterFirst(coreTemplates()).map((t) => ({
           value: t.name,
           label: t.label,
           hint: t.hint,
@@ -661,7 +672,7 @@ async function promptTemplatePicker(
   opts?: { excludeNames?: string[]; message?: string },
 ): Promise<string[]> {
   const excluded = new Set(opts?.excludeNames ?? []);
-  const options = coreTemplates()
+  const options = starterFirst(coreTemplates())
     .filter((t) => !excluded.has(t.name))
     .map((t) => ({
       value: t.name,
