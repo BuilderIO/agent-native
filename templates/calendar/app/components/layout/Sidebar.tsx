@@ -333,8 +333,8 @@ function GoogleAccountsSection({
   }
 
   return (
-    <div className="border-t border-border px-3 py-2">
-      <div className="mb-1 flex min-h-8 items-center justify-between">
+    <div className="border-t border-border px-2.5 py-1.5">
+      <div className="mb-1 flex min-h-8 items-center justify-between px-3">
         <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           My Calendars
         </span>
@@ -360,7 +360,7 @@ function GoogleAccountsSection({
       {accounts.map((account) => (
         <div
           key={account.email}
-          className="group flex min-h-7 items-center gap-2"
+          className="group flex min-h-7 items-center gap-2 px-3"
         >
           <Popover>
             <PopoverTrigger asChild>
@@ -566,8 +566,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         )}
 
         {/* Other Calendars — people overlays + external ICS feeds combined */}
-        <div className="border-t border-border px-3 py-2">
-          <div className="flex min-h-8 items-center justify-between">
+        <div className="border-t border-border px-2.5 py-1.5">
+          <div className="flex min-h-8 items-center justify-between px-3">
             <div className="flex items-center gap-1">
               <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                 Other Calendars
@@ -601,7 +601,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               {overlayPeople.map((person) => (
                 <div
                   key={person.email}
-                  className="group flex min-h-7 items-center gap-2 text-xs"
+                  className="group flex min-h-7 items-center gap-2 px-3 text-xs"
                 >
                   <ColorPickerPopover
                     color={person.color}
@@ -660,7 +660,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               {externalCalendars.map((cal) => (
                 <div
                   key={cal.id}
-                  className="group flex min-h-7 items-center gap-2 text-xs"
+                  className="group flex min-h-7 items-center gap-2 px-3 text-xs"
                 >
                   <ColorPickerPopover
                     color={cal.color}
