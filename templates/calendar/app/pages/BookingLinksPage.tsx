@@ -696,8 +696,10 @@ export default function BookingLinksPage({
       right: selectedLink ? (
         <Button
           type="button"
+          size="sm"
           onClick={() => void handleSaveRef.current()}
           disabled={updateBookingLink.isPending}
+          className="h-8 px-3"
         >
           {updateBookingLink.isPending ? "Saving..." : "Save changes"}
         </Button>

@@ -50,6 +50,7 @@ export const BUILDER_SUPPORTED_MODELS = [
   "gpt-5-1-codex-mini",
   "gemini-3-1-pro",
   "gemini-3-0-flash",
+  "gemini-3-1-flash-lite",
   "grok-code-fast",
   "qwen3-coder",
   "kimi-k2-5",

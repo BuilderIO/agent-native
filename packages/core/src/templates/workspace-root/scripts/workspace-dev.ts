@@ -21,6 +21,7 @@ const requestedPort = Number(
   process.env.WORKSPACE_PORT || process.env.PORT || 8080,
 );
 const appPortStart = Number(process.env.WORKSPACE_APP_PORT_START || 8100);
+const forceVite = process.env.WORKSPACE_VITE_FORCE === "1";
 let gatewayUrl = `http://${gatewayHost}:${requestedPort}`;
 
 function readJson(file: string): any {
@@ -133,6 +134,7 @@ function startApp(app: WorkspaceApp): void {
       "--port",
       String(app.port),
       "--strictPort",
+      ...(forceVite ? ["--force"] : []),
     ],
     {
       cwd: root,

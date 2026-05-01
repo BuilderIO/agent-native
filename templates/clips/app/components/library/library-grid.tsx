@@ -10,6 +10,7 @@ import {
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
+import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { sendToAgentChat } from "@agent-native/core/client";
 import { RecordingCard } from "./recording-card";
 import { EmptyState } from "./empty-state";
@@ -27,7 +28,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { IconChecks } from "@tabler/icons-react";
-import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import { ShareRecordingDialog } from "@/components/player/share-dialog";
 
 interface LibraryGridProps {
   view: "library" | "space" | "archive" | "trash" | "all";
@@ -109,7 +110,7 @@ export function LibraryGrid({
 
   const openRenameDialog = (rec: RecordingSummary) => {
     setRenamingRec(rec);
-    setRenameValue(rec.title ?? "");
+    setRenameValue(isDefaultTitle(rec.title) ? "" : (rec.title ?? ""));
     // Focus the input after dialog opens
     setTimeout(() => renameInputRef.current?.select(), 50);
   };
@@ -157,18 +158,16 @@ export function LibraryGrid({
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
-      {/* Share popover — programmatically opened from the card context menu */}
+      {/* Share dialog — programmatically opened from the card context menu */}
       {sharingRec && (
-        <ShareRecordingPopover
+        <ShareRecordingDialog
           recordingId={sharingRec.id}
           recordingTitle={sharingRec.title}
           open={!!sharingRec}
           onOpenChange={(open) => {
             if (!open) setSharingRec(null);
           }}
-        >
-          <span />
-        </ShareRecordingPopover>
+        />
       )}
 
       {/* Rename dialog */}

@@ -29,6 +29,22 @@ configureTracking({
   }),
 });
 
+const toasterClassName =
+  "toaster group [--width:min(36rem,calc(100vw_-_2rem))]";
+
+const toastOptions = {
+  classNames: {
+    toast:
+      "group toast !w-[var(--width)] !min-w-[min(20rem,calc(100vw_-_2rem))] !max-w-[var(--width)] !gap-3 !break-normal",
+    title: "break-words",
+    description: "break-words",
+    content:
+      "!min-w-[min(16rem,calc(100vw_-_14rem))] !flex-1 !basis-auto break-words",
+    actionButton: "!shrink-0 !whitespace-nowrap",
+    cancelButton: "!shrink-0 !whitespace-nowrap",
+  },
+};
+
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
@@ -155,7 +171,12 @@ export default function Root() {
           enableSystem
           disableTransitionOnChange
         >
-          <Toaster richColors position="bottom-left" />
+          <Toaster
+            richColors
+            position="bottom-left"
+            className={toasterClassName}
+            toastOptions={toastOptions}
+          />
           <AutoFocus />
           <DbSyncSetup />
           <NavigationStateSync />

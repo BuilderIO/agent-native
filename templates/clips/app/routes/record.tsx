@@ -359,11 +359,10 @@ export default function RecordRoute() {
       // owner opens the recording and triggers the player's backfill path.
       captureThumbnailFromPreview(previewVideoRef.current, pending.id);
 
-      // Stop live transcription and save the browser transcript before the
+      // Stop live transcription and save the native web transcript before the
       // engine finalizes. This gives the recording an instant transcript
-      // (from Web Speech API) with no API key required. If Groq/OpenAI is
-      // configured, request-transcript will refine it with Whisper later.
-      const browserTranscript = liveTranscription.stop();
+      // (from Web Speech API) with no API key required.
+      const browserTranscript = await liveTranscription.stopAndWait();
       if (browserTranscript.trim()) {
         void fetch(
           agentNativePath("/_agent-native/actions/save-browser-transcript"),
@@ -373,6 +372,7 @@ export default function RecordRoute() {
             body: JSON.stringify({
               recordingId: pending.id,
               fullText: browserTranscript,
+              source: "web-speech",
             }),
           },
         ).catch(() => {});

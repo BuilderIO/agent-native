@@ -9,7 +9,6 @@ import {
   IconInfoCircle,
   IconKey,
   IconListCheck,
-  IconMessage,
   IconNetwork,
   IconPlugConnected,
   IconShieldCheck,
@@ -277,38 +276,6 @@ function StepRow({ step }: { step: ChecklistStep }) {
   );
 }
 
-const EXAMPLE_PROMPTS = [
-  "Make me a presentation about Q2 results",
-  "What were our top traffic sources last week?",
-  "Draft a blog post about our new feature",
-  "Create a dashboard showing signup trends",
-  "Search our clips for the product demo",
-  "Generate a video intro for our product",
-];
-
-function ExamplePrompts() {
-  return (
-    <section className="space-y-3">
-      <div className="flex items-center gap-2">
-        <IconMessage size={16} className="text-muted-foreground" />
-        <h2 className="text-sm font-semibold text-foreground">
-          Example prompts
-        </h2>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {EXAMPLE_PROMPTS.map((prompt) => (
-          <span
-            key={prompt}
-            className="inline-block rounded-full border px-3.5 py-1.5 text-sm text-muted-foreground"
-          >
-            {prompt}
-          </span>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 export function meta() {
   return [{ title: "Overview — Dispatch" }];
 }
@@ -439,7 +406,7 @@ export default function OverviewRoute() {
   return (
     <DispatchShell
       title="Overview"
-      description="Workspace control plane — manage secrets, integrations, messaging, and agent delegation."
+      description="Create apps, manage shared keys, and route work across your workspace."
     >
       {hasIncompleteSteps && (
         <section className="space-y-3">
@@ -456,8 +423,6 @@ export default function OverviewRoute() {
           </div>
         </section>
       )}
-
-      <ExamplePrompts />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -507,76 +472,92 @@ export default function OverviewRoute() {
         />
       </div>
 
-      <TaskQueueSection stats={taskQueueStats} />
+      <details className="rounded-xl border">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-foreground hover:bg-muted/30 [&::-webkit-details-marker]:hidden">
+          <span>Operations detail</span>
+          <span className="text-xs font-normal text-muted-foreground">
+            Queue, audit, and approvals
+          </span>
+        </summary>
+        <div className="space-y-5 border-t px-5 py-5">
+          <TaskQueueSection stats={taskQueueStats} />
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <section className="rounded-2xl border bg-card p-5 xl:col-span-2">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-foreground">
-              Recent activity
-            </h2>
-            {isLoading && (
-              <span className="text-xs text-muted-foreground">Loading...</span>
-            )}
-          </div>
-          <div className="mt-4 space-y-3">
-            {(data?.recentAudit || []).map((event) => (
-              <div
-                key={event.id}
-                className="rounded-xl border bg-muted/30 px-4 py-3"
-              >
-                <div className="text-sm font-medium text-foreground">
-                  {event.summary}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {event.actor} · {new Date(event.createdAt).toLocaleString()}
-                </div>
+          <div className="grid gap-4 xl:grid-cols-3">
+            <section className="rounded-2xl border bg-card p-5 xl:col-span-2">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-foreground">
+                  Recent activity
+                </h2>
+                {isLoading && (
+                  <span className="text-xs text-muted-foreground">
+                    Loading...
+                  </span>
+                )}
               </div>
-            ))}
-            {!isLoading && (data?.recentAudit?.length || 0) === 0 && (
-              <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                No activity yet.
+              <div className="mt-4 space-y-3">
+                {(data?.recentAudit || []).map((event) => (
+                  <div
+                    key={event.id}
+                    className="rounded-xl border bg-muted/30 px-4 py-3"
+                  >
+                    <div className="text-sm font-medium text-foreground">
+                      {event.summary}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {event.actor} ·{" "}
+                      {new Date(event.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+                {!isLoading && (data?.recentAudit?.length || 0) === 0 && (
+                  <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                    No activity yet.
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </section>
+            </section>
 
-        <section className="rounded-2xl border bg-card p-5">
-          <h2 className="text-lg font-semibold text-foreground">
-            Approval mode
-          </h2>
-          <div className="mt-4 rounded-xl border bg-muted/30 p-4">
-            <div className="text-sm font-medium text-muted-foreground">
-              Current policy
-            </div>
-            <div className="mt-2 text-2xl font-semibold text-foreground">
-              {data?.settings?.enabled ? "Reviewed" : "Immediate"}
-            </div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {data?.settings?.enabled
-                ? "Changes wait for approval before they apply."
-                : "Changes apply immediately and are recorded in audit."}
-            </p>
-          </div>
-          <div className="mt-4 space-y-2">
-            {(data?.recentApprovals || []).map((approval) => (
-              <div key={approval.id} className="rounded-xl border px-4 py-3">
-                <div className="text-sm font-medium text-foreground">
-                  {approval.summary}
+            <section className="rounded-2xl border bg-card p-5">
+              <h2 className="text-lg font-semibold text-foreground">
+                Approval mode
+              </h2>
+              <div className="mt-4 rounded-xl border bg-muted/30 p-4">
+                <div className="text-sm font-medium text-muted-foreground">
+                  Current policy
                 </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {approval.status} · requested by {approval.requestedBy}
+                <div className="mt-2 text-2xl font-semibold text-foreground">
+                  {data?.settings?.enabled ? "Reviewed" : "Immediate"}
                 </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {data?.settings?.enabled
+                    ? "Changes wait for approval before they apply."
+                    : "Changes apply immediately and are recorded in audit."}
+                </p>
               </div>
-            ))}
-            {(data?.recentApprovals?.length || 0) === 0 && (
-              <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                No approval requests.
+              <div className="mt-4 space-y-2">
+                {(data?.recentApprovals || []).map((approval) => (
+                  <div
+                    key={approval.id}
+                    className="rounded-xl border px-4 py-3"
+                  >
+                    <div className="text-sm font-medium text-foreground">
+                      {approval.summary}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {approval.status} · requested by {approval.requestedBy}
+                    </div>
+                  </div>
+                ))}
+                {(data?.recentApprovals?.length || 0) === 0 && (
+                  <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                    No approval requests.
+                  </div>
+                )}
               </div>
-            )}
+            </section>
           </div>
-        </section>
-      </div>
+        </div>
+      </details>
     </DispatchShell>
   );
 }

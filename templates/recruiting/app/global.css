@@ -138,7 +138,7 @@
   color: hsl(220, 10%, 50%) !important;
   font-size: 13px !important;
   font-weight: 700 !important;
-  letter-spacing: 0.05em !important;
+  letter-spacing: 0 !important;
   padding: 0 !important;
   margin-left: 16px !important;
 }

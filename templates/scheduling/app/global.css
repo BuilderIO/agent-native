@@ -101,12 +101,26 @@
 
 /* Sonner toast sizing to match mail/calendar */
 [data-sonner-toaster] {
-  --width: fit-content !important;
+  --width: min(36rem, calc(100vw - 2rem)) !important;
 }
 [data-sonner-toast] {
-  width: fit-content !important;
-  min-width: 14rem !important;
-  max-width: 24rem !important;
+  width: var(--width) !important;
+  min-width: min(20rem, calc(100vw - 2rem)) !important;
+  max-width: var(--width) !important;
+  overflow-wrap: normal !important;
+}
+[data-sonner-toast] [data-content] {
+  flex: 1 1 auto !important;
+  min-width: min(16rem, calc(100vw - 14rem)) !important;
+  overflow-wrap: break-word !important;
+}
+[data-sonner-toast] [data-title],
+[data-sonner-toast] [data-description] {
+  overflow-wrap: break-word !important;
+}
+[data-sonner-toast] [data-button] {
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
 }
 .dark [data-sonner-toast] {
   border-color: hsl(220 4% 22%) !important;
