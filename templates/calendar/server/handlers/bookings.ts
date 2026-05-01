@@ -70,6 +70,33 @@ async function getBookingLinkOwnerEmail(
   return row?.ownerEmail;
 }
 
+async function deleteGoogleEventForBooking({
+  booking,
+  hostEmail,
+}: {
+  booking: Pick<
+    typeof schema.bookings.$inferSelect,
+    "id" | "slug" | "googleEventId"
+  >;
+  hostEmail?: string;
+}) {
+  if (!booking.googleEventId) return;
+  const ownerEmail =
+    hostEmail ?? (await getBookingLinkOwnerEmail(booking.slug));
+  if (!ownerEmail) return;
+
+  try {
+    await googleCalendar.deleteEvent(booking.googleEventId, ownerEmail, {
+      sendUpdates: "none",
+    });
+  } catch (error) {
+    console.warn(
+      `[bookings] Failed to delete Google Calendar event for booking ${booking.id}:`,
+      error,
+    );
+  }
+}
+
 type AvailabilityContext = {
   effectiveConfig: AvailabilityConfig | null;
   ownerEmail?: string;
@@ -501,6 +528,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       } catch {}
     }
     let meetingLink: string | undefined;
+    let googleEventId: string | undefined;
 
     // For custom-URL conferencing, use the static URL — only http(s).
     if (conferencing?.type === "custom" && conferencing.url) {
@@ -551,8 +579,11 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     const origin = reqUrl.origin;
     const manageUrl = `${origin}/booking/manage/${cancelToken}`;
 
-    // Create a corresponding Google Calendar event if connected
-    if (await googleCalendar.isConnected()) {
+    // Create a corresponding Google Calendar event on the booking link owner's
+    // connected Google account. Public booking requests do not have an
+    // authenticated request context, so this must be explicitly scoped to the
+    // host rather than relying on ambient user state.
+    if (await googleCalendar.isConnected(hostEmail)) {
       try {
         const descParts: string[] = [`Booking by ${body.name} (${body.email})`];
         if (body.notes) descParts.push(`Notes: ${body.notes}`);
@@ -583,6 +614,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           location: meetingLink || "",
           allDay: false,
           source: "google",
+          accountEmail: hostEmail,
           createdAt: now,
           updatedAt: now,
         };
@@ -590,19 +622,30 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           addGoogleMeet: conferencing?.type === "google_meet",
         });
         // Google Meet link is returned by the API when created
+        googleEventId = result.id;
         if (result.meetLink) {
           meetingLink = result.meetLink;
         }
-      } catch {
+      } catch (error) {
+        console.warn(
+          `[bookings] Failed to create Google Calendar event for ${hostEmail}:`,
+          error,
+        );
         // Continue even if Google Calendar creation fails
       }
     }
 
-    // Persist the meeting link to the booking row
-    if (meetingLink) {
+    // Persist provider details created after the initial booking insert.
+    if (meetingLink || googleEventId) {
+      const providerUpdates: {
+        meetingLink?: string;
+        googleEventId?: string;
+      } = {};
+      if (meetingLink) providerUpdates.meetingLink = meetingLink;
+      if (googleEventId) providerUpdates.googleEventId = googleEventId;
       await getDb()
         .update(schema.bookings)
-        .set({ meetingLink })
+        .set(providerUpdates)
         .where(eq(schema.bookings.id, id));
     }
 
@@ -618,6 +661,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       fieldResponses:
         Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
       meetingLink,
+      googleEventId,
       cancelToken,
       status: "confirmed",
       createdAt: now,
@@ -796,6 +840,7 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
         hostEmail,
         bookAgainUrl,
       });
+      await deleteGoogleEventForBooking({ booking: existing, hostEmail });
 
       await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
       return { success: true };
@@ -884,6 +929,7 @@ export const cancelBookingByToken = defineEventHandler(
         hostEmail,
         bookAgainUrl,
       });
+      await deleteGoogleEventForBooking({ booking: row, hostEmail });
 
       return { success: true, slug: row.slug };
     } catch (error: any) {
@@ -912,6 +958,7 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     notes: row.notes ?? undefined,
     fieldResponses,
     meetingLink: row.meetingLink ?? undefined,
+    googleEventId: row.googleEventId ?? undefined,
     status: row.status,
     createdAt: row.createdAt,
   };

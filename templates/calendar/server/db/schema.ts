@@ -19,6 +19,8 @@ export const bookings = table("bookings", {
   fieldResponses: text("field_responses"),
   /** Meeting link (Zoom, Google Meet, or custom) */
   meetingLink: text("meeting_link"),
+  /** Google Calendar event created for this booking, if any */
+  googleEventId: text("google_event_id"),
   /** Token for public cancel/reschedule link */
   cancelToken: text("cancel_token"),
   status: text("status", { enum: ["confirmed", "cancelled"] })

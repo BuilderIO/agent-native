@@ -123,6 +123,10 @@ export default runMigrations(
     created_at TEXT NOT NULL
   )`,
     },
+    {
+      version: 17,
+      sql: `ALTER TABLE bookings ADD COLUMN IF NOT EXISTS google_event_id TEXT`,
+    },
   ],
   { table: "calendar_migrations" },
 );
