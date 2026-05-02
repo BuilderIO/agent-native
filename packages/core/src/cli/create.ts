@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { fileURLToPath } from "url";
 import { execFileSync } from "child_process";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
@@ -915,19 +915,7 @@ function fixPackageJsonName(appDir: string, name: string): void {
 }
 
 function getCoreDependencyVersion(): string {
-  const localCorePackage = findLocalPackage("core");
-  if (localCorePackage) {
-    // Local framework QA must install the local core package that matches the
-    // local templates. Otherwise temp generated apps pull npm `latest`, which
-    // can lag behind unreleased template imports.
-    return pathToFileURL(localCorePackage).href;
-  }
-
-  // Published CLIs should follow the current npm dist-tag for @agent-native/core.
-  // First-party templates are downloaded from this CLI package's version tag
-  // (see getGitHubTemplateRef), so `latest` remains compatible while still
-  // allowing users to receive patched framework builds.
-  return "latest";
+  return getCorePackageVersion() ?? "latest";
 }
 
 function getCorePackageVersion(): string | undefined {
@@ -991,7 +979,9 @@ function rewriteNetlifyToml(
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
     const buildCommand =
-      mode === "workspace" ? `pnpm --filter ${appName} build` : "pnpm build";
+      mode === "workspace"
+        ? `NITRO_PRESET=netlify pnpm --filter ${appName} build`
+        : "NITRO_PRESET=netlify pnpm build";
     const publishPath = mode === "workspace" ? `apps/${appName}/dist` : "dist";
     const functionsPath =
       mode === "workspace"
@@ -999,7 +989,7 @@ function rewriteNetlifyToml(
         : ".netlify/functions-internal";
 
     content = content
-      .replace(/pnpm --filter [^ ]+ build/g, buildCommand)
+      .replace(/^  command = ".*"$/m, `  command = "${buildCommand}"`)
       .replace(
         /publish = "templates\/[^"]+\/dist"/g,
         `publish = "${publishPath}"`,

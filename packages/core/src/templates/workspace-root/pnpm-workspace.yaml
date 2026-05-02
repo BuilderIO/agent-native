@@ -6,4 +6,5 @@ onlyBuiltDependencies:
   - esbuild
   - better-sqlite3
   - lightningcss
+  - node-pty
   - "@swc/core"

@@ -228,10 +228,8 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
 });
 
 describe("template/core version compatibility", () => {
-  it("uses local core for local framework scaffolds", () => {
-    expect(_getCoreDependencyVersion()).toMatch(
-      /^file:\/\/.*\/packages\/core$/,
-    );
+  it("uses the package metadata version for generated projects", () => {
+    expect(_getCoreDependencyVersion()).toMatch(/^\d+\.\d+\.\d+(?:-.+)?$/);
   });
 
   it("downloads first-party templates from the CLI package version tag", () => {
