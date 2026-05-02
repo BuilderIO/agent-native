@@ -1,3 +1,5 @@
+import { visibleTemplates } from "../cli/templates-meta.js";
+
 export interface DiscoveredAgent {
   id: string;
   name: string;
@@ -14,130 +16,38 @@ interface AgentEntry {
   devUrl?: string;
   devPort: number;
   color: string;
-  enabled: boolean;
-  placeholder?: boolean;
-  mode?: "dev" | "prod";
 }
 
 /**
- * Built-in agent registry. Mirrors DEFAULT_APPS from @agent-native/shared-app-config
- * but inlined here to avoid a cross-package dependency that breaks tsc.
+ * Built-in agent registry. Derive this from the published CLI metadata so
+ * connected-agent discovery stays aligned with the public template allow-list
+ * without depending on @agent-native/shared-app-config at runtime.
  */
-const BUILTIN_AGENTS: AgentEntry[] = [
-  {
-    id: "mail",
-    name: "Mail",
-    description: "Email client",
-    url: "https://mail.agent-native.com",
-    devUrl: "http://localhost:8085",
-    devPort: 8085,
-    color: "#3B82F6",
-    enabled: true,
-    mode: "prod",
-  },
-  {
-    id: "calendar",
-    name: "Calendar",
-    description: "Google Calendar integration",
-    url: "https://calendar.agent-native.com",
-    devUrl: "http://localhost:8082",
-    devPort: 8082,
-    color: "#8B5CF6",
-    enabled: true,
-    mode: "prod",
-  },
-  {
-    id: "content",
-    name: "Content",
-    description: "Notion-like content workspace",
-    url: "https://content.agent-native.com",
-    devUrl: "http://localhost:8083",
-    devPort: 8083,
-    color: "#10B981",
-    enabled: true,
-    mode: "prod",
-  },
-  {
-    id: "analytics",
-    name: "Analytics",
-    description: "Analytics dashboard",
-    url: "https://analytics.agent-native.com",
-    devUrl: "http://localhost:8088",
-    devPort: 8088,
-    color: "#F59E0B",
-    enabled: true,
-    mode: "prod",
-  },
-  {
-    id: "slides",
-    name: "Slides",
-    description: "AI slide deck creator",
-    url: "https://slides.agent-native.com",
-    devUrl: "http://localhost:8086",
-    devPort: 8086,
-    color: "#EC4899",
-    enabled: true,
-    mode: "prod",
-  },
-  {
-    id: "videos",
-    name: "Videos",
-    description: "AI video creator",
-    url: "https://videos.agent-native.com",
-    devUrl: "http://localhost:8087",
-    devPort: 8087,
-    color: "#EF4444",
-    enabled: true,
-    mode: "prod",
-  },
-  {
-    id: "clips",
-    name: "Clips",
-    description: "Async screen recording",
-    url: "https://clips.agent-native.com",
-    devUrl: "http://localhost:8094",
-    devPort: 8094,
-    color: "#625DF5",
-    enabled: true,
-    mode: "prod",
-  },
-  {
-    id: "forms",
-    name: "Forms",
-    description: "Form builder",
-    url: "https://forms.agent-native.com",
-    devUrl: "http://localhost:8084",
-    devPort: 8084,
-    color: "#06B6D4",
-    enabled: true,
-    mode: "prod",
-  },
-  {
-    id: "design",
-    name: "Design",
-    description: "Design tool",
-    url: "https://design.agent-native.com",
-    devUrl: "http://localhost:8099",
-    devPort: 8099,
-    color: "#F472B6",
-    enabled: true,
-    mode: "prod",
-  },
-];
+const BUILTIN_AGENTS: AgentEntry[] = visibleTemplates()
+  .filter((template) => !!template.prodUrl)
+  .map((template) => ({
+    id: template.name,
+    name: template.label,
+    description: template.description ?? template.hint,
+    url: template.prodUrl!,
+    devUrl: `http://localhost:${template.devPort}`,
+    devPort: template.devPort,
+    color: template.color,
+  }));
 
 /**
  * Get built-in agents (static, no DB). Used as fallback and for seeding.
  */
 export function getBuiltinAgents(selfAppId?: string): DiscoveredAgent[] {
-  return BUILTIN_AGENTS.filter(
-    (app) => app.id !== selfAppId && app.enabled && !app.placeholder && app.url,
-  ).map((app) => ({
-    id: app.id,
-    name: app.name,
-    description: app.description,
-    url: resolveAgentUrl(app),
-    color: app.color,
-  }));
+  return BUILTIN_AGENTS.filter((app) => app.id !== selfAppId && app.url).map(
+    (app) => ({
+      id: app.id,
+      name: app.name,
+      description: app.description,
+      url: resolveAgentUrl(app),
+      color: app.color,
+    }),
+  );
 }
 
 /**
@@ -246,9 +156,7 @@ function resolveAgentUrl(app: AgentEntry): string {
  * production deploy.
  */
 export const BUILTIN_AGENTS_FOR_SEEDING: DiscoveredAgent[] =
-  BUILTIN_AGENTS.filter(
-    (app) => app.enabled && !app.placeholder && app.url,
-  ).map((app) => ({
+  BUILTIN_AGENTS.filter((app) => app.url).map((app) => ({
     id: app.id,
     name: app.name,
     description: app.description,
