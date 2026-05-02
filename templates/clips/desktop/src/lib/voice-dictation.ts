@@ -712,6 +712,7 @@ export function installDesktopVoiceDictation(
         stopping: false,
         transcribeAbort: null,
         cancelled: false,
+        cleanupProvider: null,
       };
       session = next;
       startInFlight = false;
@@ -809,7 +810,7 @@ export function installDesktopVoiceDictation(
    * No `getUserMedia()` here — the audio engine handles the mic on the Rust
    * side. The synthetic meter still drives the flow-bar's waveform.
    */
-  const startNative = async () => {
+  const startNative = async (cleanupProvider?: ServerVoiceProvider) => {
     console.log("[voice-dictation] startNative: invoke native_speech_start");
     try {
       startInFlight = true;
@@ -847,6 +848,7 @@ export function installDesktopVoiceDictation(
         stopping: false,
         transcribeAbort: null,
         cancelled: false,
+        cleanupProvider: cleanupProvider ?? null,
       };
       session = next;
       startInFlight = false;
@@ -884,7 +886,7 @@ export function installDesktopVoiceDictation(
    * moment we stop the recognizer, so we paste immediately and skip
    * the "Polishing..." state entirely.
    */
-  const startBrowser = async () => {
+  const startBrowser = async (cleanupProvider?: ServerVoiceProvider) => {
     console.log("[voice-dictation] startBrowser: opening mic + recognition");
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) {
@@ -929,6 +931,7 @@ export function installDesktopVoiceDictation(
         stopping: false,
         transcribeAbort: null,
         cancelled: false,
+        cleanupProvider: cleanupProvider ?? null,
       };
       // Lifecycle diagnostics — when something silently fails (common in
       // WKWebView Web Speech), missing logs tell us exactly which stage
@@ -1028,7 +1031,7 @@ export function installDesktopVoiceDictation(
             `[voice-dictation] browser transcribed (${text.length} chars):`,
             text.slice(0, 120),
           );
-          await invoke("complete_voice_dictation", { text });
+          await completeText(text, next);
         } catch (err) {
           console.error(
             "[voice-dictation] complete_voice_dictation failed:",
@@ -1215,14 +1218,9 @@ export function installDesktopVoiceDictation(
               `[voice-dictation] native paste (${text.length} chars):`,
               text.slice(0, 120),
             );
-            invoke("complete_voice_dictation", { text }).catch((err) => {
+            void completeText(text, lingering).catch((err) => {
               console.error("[voice-dictation] paste failed:", err);
             });
-            // Make sure the chip displays the FINAL text (the
-            // install-time final listener also pushes this, but we
-            // emit explicitly so the chip is up-to-date in case the
-            // listener fired before HMR refreshed the flow-bar).
-            emit("voice:partial-transcript", { text }).catch(() => {});
           } else {
             console.warn(
               "[voice-dictation] no transcript captured — native recognizer didn't produce results",
@@ -1232,14 +1230,17 @@ export function installDesktopVoiceDictation(
           // just the floating text), then clear the chip + hide the
           // window. Don't clobber a new session's flow-bar if one started.
           console.log("[voice-dictation] starting linger");
-          window.setTimeout(() => {
-            console.log("[voice-dictation] linger done — dismissing");
-            if (lingeringSession === lingering) lingeringSession = null;
-            if (disposed) return;
-            if (session && session !== lingering) return;
-            invoke("hide_flow_bar").catch(() => {});
-            emit("voice:partial-transcript", { text: "" }).catch(() => {});
-          }, 1200);
+          window.setTimeout(
+            () => {
+              console.log("[voice-dictation] linger done — dismissing");
+              if (lingeringSession === lingering) lingeringSession = null;
+              if (disposed) return;
+              if (session && session !== lingering) return;
+              invoke("hide_flow_bar").catch(() => {});
+              emit("voice:partial-transcript", { text: "" }).catch(() => {});
+            },
+            lingering.cleanupProvider ? 500 : 1200,
+          );
         };
 
         // The install-time `voice:final-transcript` listener calls
