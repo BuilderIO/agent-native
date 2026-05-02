@@ -1,5 +1,0 @@
-import{O as e,P as t,a as n,t as r}from"./@tiptap/core+[...].mjs";var i=/^\s*>\s$/,a=n.create({name:`blockquote`,addOptions(){return{HTMLAttributes:{}}},content:`block+`,group:`block`,defining:!0,parseHTML(){return[{tag:`blockquote`}]},renderHTML({HTMLAttributes:t}){return r(`blockquote`,{...e(this.options.HTMLAttributes,t),children:r(`slot`,{})})},parseMarkdown:(e,t)=>{let n=t.parseBlockChildren??t.parseChildren;return t.createNode(`blockquote`,void 0,n(e.tokens||[]))},renderMarkdown:(e,t)=>{if(!e.content)return``;let n=[];return e.content.forEach((e,r)=>{let i=(t.renderChild?.call(t,e,r)??t.renderChildren([e])).split(`
-`).map(e=>e.trim()===``?`>`:`> ${e}`);n.push(i.join(`
-`))}),n.join(`
->
-`)},addCommands(){return{setBlockquote:()=>({commands:e})=>e.wrapIn(this.name),toggleBlockquote:()=>({commands:e})=>e.toggleWrap(this.name),unsetBlockquote:()=>({commands:e})=>e.lift(this.name)}},addKeyboardShortcuts(){return{"Mod-Shift-b":()=>this.editor.commands.toggleBlockquote()}},addInputRules(){return[t({find:i,type:this.type})]}});export{a as t};

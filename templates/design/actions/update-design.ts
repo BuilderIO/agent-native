@@ -36,6 +36,9 @@ export default defineAction({
     }
 
     await assertAccess("design", id, "editor");
+    if (designSystemId) {
+      await assertAccess("design-system", designSystemId, "viewer");
+    }
 
     const db = getDb();
     const now = new Date().toISOString();

@@ -1,8 +1,0 @@
-import{i as e}from"./request-context-60tSGHqu.mjs";import"./auth-Dww4On4H.mjs";import{u as t}from"./store-D6lpoHgL.mjs";import{r as n,t as r}from"./utils-Bt3wDA98.mjs";var i={".md":`text/markdown`,".ts":`text/typescript`,".tsx":`text/typescript`,".js":`text/javascript`,".jsx":`text/javascript`,".json":`application/json`,".html":`text/html`,".css":`text/css`,".yaml":`text/yaml`,".yml":`text/yaml`,".xml":`application/xml`,".svg":`image/svg+xml`,".txt":`text/plain`,".csv":`text/csv`,".sql":`text/sql`,".sh":`text/x-shellscript`,".py":`text/x-python`,".toml":`text/toml`};function a(e){let t=e.lastIndexOf(`.`);return t===-1?`text/plain`:i[e.slice(t).toLowerCase()]??`text/plain`}async function o(i){let o=n(i);if(o.help===`true`){console.log(`Usage: pnpm action resource-write --path <path> --content <content> [options]
-
-Options:
-  --path <path>            Resource path (required)
-  --content <content>      Content to write (required)
-  --scope personal|shared  Scope to write to (default: personal)
-  --mime <mime-type>       MIME type (default: inferred from extension)
-  --help                   Show this help message`);return}let s=o.path;s||r(`--path is required. Example: --path notes/todo.md`);let c=o.content;c??r(`--content is required.`);let l=o.scope??`personal`,u=o.mime??a(s),d=await t(l===`shared`?`__shared__`:e()??`local@localhost`,s,c,u);console.log(`Wrote resource: ${d.path} (${d.size} bytes)`)}export{o as default};

@@ -6,12 +6,12 @@ import { assertAccess } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:
-    "Delete a design project and all associated files and versions. Requires editor access.",
+    "Delete a design project and all associated files and versions. Requires admin access.",
   schema: z.object({
     id: z.string().describe("Design ID to delete"),
   }),
   run: async ({ id }) => {
-    await assertAccess("design", id, "editor");
+    await assertAccess("design", id, "admin");
 
     const db = getDb();
 

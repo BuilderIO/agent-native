@@ -1,1 +1,0 @@
-import{t as e}from"./createReactComponent-CgPIah5w.js";var t=e(`outline`,`check`,`Check`,[[`path`,{d:`M5 12l5 5l10 -10`,key:`svg-0`}]]),n=e(`outline`,`external-link`,`ExternalLink`,[[`path`,{d:`M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6`,key:`svg-0`}],[`path`,{d:`M11 13l9 -9`,key:`svg-1`}],[`path`,{d:`M15 4h5v5`,key:`svg-2`}]]);export{t as n,n as t};

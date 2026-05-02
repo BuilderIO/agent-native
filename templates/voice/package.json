@@ -62,12 +62,5 @@
     "tsx": "^4.20.3",
     "typescript": "^6.0.3",
     "vite": "catalog:"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "esbuild",
-      "node-pty"
-    ]
   }
 }

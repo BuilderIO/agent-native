@@ -88,21 +88,27 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }));
 
   let domainMatches: Array<{ orgId: string; orgName: string }> = [];
-  if (!ctx.orgId) {
-    const domain = ctx.email.split("@")[1]?.toLowerCase();
-    if (domain) {
-      try {
-        const dmRes = await e.execute({
-          sql: `SELECT id, name FROM organizations WHERE LOWER(allowed_domain) = ?`,
-          args: [domain],
-        });
-        domainMatches = dmRes.rows.map((r: any) => ({
-          orgId: String(r.id),
-          orgName: String(r.name),
-        }));
-      } catch {
-        // allowed_domain column may not exist yet if migration hasn't run
-      }
+  const domain = ctx.email.split("@")[1]?.toLowerCase();
+  if (domain) {
+    try {
+      const dmRes = await e.execute({
+        sql: `SELECT o.id, o.name
+              FROM organizations o
+              WHERE LOWER(o.allowed_domain) = ?
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM org_members m
+                  WHERE m.org_id = o.id
+                    AND LOWER(m.email) = ?
+                )`,
+        args: [domain, ctx.email.toLowerCase()],
+      });
+      domainMatches = dmRes.rows.map((r: any) => ({
+        orgId: String(r.id),
+        orgName: String(r.name),
+      }));
+    } catch {
+      // allowed_domain column may not exist yet if migration hasn't run
     }
   }
 

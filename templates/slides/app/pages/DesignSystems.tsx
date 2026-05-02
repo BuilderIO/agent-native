@@ -136,6 +136,7 @@ export default function DesignSystems() {
                     title={ds.title}
                     data={parsed}
                     isDefault={ds.isDefault}
+                    visibility={ds.visibility}
                     onClick={() => handleCardClick(ds.id)}
                     onSetDefault={() => handleSetDefault(ds.id)}
                   />

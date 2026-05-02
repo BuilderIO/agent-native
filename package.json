@@ -30,10 +30,11 @@
     "guard:no-env-mutation": "node scripts/guard-no-env-mutation.mjs",
     "guard:no-localhost-fallback": "node scripts/guard-no-localhost-fallback.mjs",
     "guard:template-list": "node scripts/guard-template-list.mjs",
-    "guards": "pnpm guard:no-drizzle-push && pnpm guard:no-unscoped-queries && pnpm guard:no-env-credentials && pnpm guard:no-unscoped-credentials && pnpm guard:no-env-mutation && pnpm guard:no-localhost-fallback && pnpm guard:template-list",
+    "guard:no-generated-artifacts": "node scripts/guard-no-generated-artifacts.mjs",
+    "guards": "pnpm guard:no-drizzle-push && pnpm guard:no-unscoped-queries && pnpm guard:no-env-credentials && pnpm guard:no-unscoped-credentials && pnpm guard:no-env-mutation && pnpm guard:no-localhost-fallback && pnpm guard:template-list && pnpm guard:no-generated-artifacts",
     "prep": "concurrently -n fmt,types,test,guard -c blue,cyan,green,yellow \"pnpm fmt\" \"pnpm typecheck\" \"pnpm test\" \"pnpm guards\"",
-    "dev:all": "(pnpm --filter @agent-native/core build || true) && node scripts/dev-all.ts",
-    "dev:all:desktop": "concurrently -k -n apps,tray -c blue,magenta \"(pnpm --filter @agent-native/core build || true) && node scripts/dev-all.ts\" \"pnpm --filter clips-desktop dev\"",
+    "dev:all": "node scripts/dev-all.ts",
+    "dev:all:desktop": "concurrently -k -n apps,tray -c blue,magenta \"node scripts/dev-all.ts\" \"pnpm --filter clips-desktop dev\"",
     "dev:docs": "pnpm --filter @agent-native/docs dev",
     "dev:electron": "node scripts/dev-electron.ts",
     "dev:electron:apps": "node scripts/dev-electron.ts --apps"
@@ -62,14 +63,7 @@
       "glob": ">=10.5.0",
       "@anthropic-ai/sdk": ">=0.90.0",
       "hono": ">=4.12.4"
-    },
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "canvas",
-      "esbuild",
-      "lightningcss",
-      "node-pty"
-    ]
+    }
   },
   "dependencies": {
     "diff-match-patch": "^1.0.5",

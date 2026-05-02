@@ -1,1 +1,0 @@
-import{i as e}from"../../_runtime.mjs";import{E as t}from"../@assistant-ui/core+[...].mjs";var n=e(t(),1),r=globalThis?.document?n.useLayoutEffect:()=>{},i=n.useId||(()=>void 0),a=0;function o(e){let[t,o]=n.useState(i());return r(()=>{e||o(e=>e??String(a++))},[e]),e||(t?`radix-${t}`:``)}export{r as n,o as t};

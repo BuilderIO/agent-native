@@ -45,3 +45,5 @@ build
 
 # Migration scratchpad (not for commit)
 .migration/
+
+.vercel/

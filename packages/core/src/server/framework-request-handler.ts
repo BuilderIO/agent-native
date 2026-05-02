@@ -407,7 +407,7 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
         }
       }
     } catch {
-      // Workspace core module isn't available (e.g. running on an edge
+      // Workspace shared package isn't available (e.g. running on an edge
       // runtime without fs). Silently fall through to framework defaults.
     }
 

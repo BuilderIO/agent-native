@@ -35,16 +35,14 @@ Better Auth routes are mounted at `/_agent-native/auth/ba/*`. The framework also
 
 ## Local Mode {#local-mode}
 
-For solo local development without auth, set `AUTH_MODE=local` in your `.env` file. This returns `{ email: "local@localhost" }` for all requests.
-
-You can also enable local mode from the onboarding page by clicking "Use locally without an account". This writes `AUTH_MODE=local` to your `.env` automatically.
+For solo local development without auth, set `AUTH_MODE=local` in your local shell or `.env` file. This returns `{ email: "local@localhost" }` for all requests.
 
 ```bash
 # .env
 AUTH_MODE=local
 ```
 
-Local mode works in any environment (dev or production). To switch back to real auth, remove the line from `.env`.
+Local mode is only for local development. To switch back to real auth, remove the line from `.env` and restart the dev server. The old `.agent-native/auth-mode` marker file is no longer read or generated.
 
 ## Social Providers {#social-providers}
 

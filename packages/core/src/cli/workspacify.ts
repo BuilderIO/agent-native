@@ -6,7 +6,7 @@
  *
  *   1. Rewrites package.json:
  *      - @agent-native/core stays as a regular npm dep
- *      - Adds @<workspace-scope>/core-module as a workspace:* dep so the app
+ *      - Adds @<workspace-scope>/shared as a workspace:* dep so the app
  *        inherits shared plugins/skills/AGENTS.md via the three-layer model.
  *   2. Removes files that only make sense in standalone apps
  *      (`learnings.defaults.md`, etc.).
@@ -31,7 +31,7 @@ export interface WorkspacifyOptions {
   templateName?: string;
   /** Workspace root directory */
   workspaceRoot: string;
-  /** Core module package name (e.g. "@my-company/core-module") */
+  /** Shared workspace package name (e.g. "@my-company/shared") */
   workspaceCoreName: string;
   /** Version range to use for the published @agent-native/core package */
   coreDependencyVersion?: string;
@@ -67,7 +67,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
           }
         }
       }
-      // Ensure the dependency on the workspace core module is present.
+      // Ensure the dependency on the workspace shared package is present.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies[workspaceCoreName] = "workspace:*";
       // pnpm build-script approvals belong at the workspace root. Leaving the
@@ -126,8 +126,8 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
 
 /**
  * Parse a workspace core package name into its npm scope.
- *   "@my-company/core-module" → "my-company"
- *   "core-module"             → ""  (no scope — shouldn't happen)
+ *   "@my-company/shared" → "my-company"
+ *   "shared"             → ""  (no scope — shouldn't happen)
  */
 export function parseWorkspaceScope(workspaceCoreName: string): string {
   const m = workspaceCoreName.match(/^@([^/]+)\//);

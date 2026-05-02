@@ -1,1 +1,0 @@
-import{w as e}from"./sql-CUJcAdo0.mjs";function t(t){return e`${t} asc`}function n(t){return e`${t} desc`}export{n,t};

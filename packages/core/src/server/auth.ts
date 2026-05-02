@@ -1,15 +1,4 @@
 import crypto from "node:crypto";
-import path from "node:path";
-
-// Lazy fs — loaded via dynamic import() on first use.
-// Avoids static require() which crashes on CF Workers.
-let _fs: typeof import("fs") | undefined;
-async function getFs(): Promise<typeof import("fs")> {
-  if (!_fs) {
-    _fs = await import("node:fs");
-  }
-  return _fs;
-}
 import {
   defineEventHandler,
   getMethod,
@@ -222,11 +211,6 @@ function getOAuthStateAppId(): string | undefined {
   return slug || undefined;
 }
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
-const LOCAL_MODE_MARKER_PATH = path.resolve(
-  process.cwd(),
-  ".agent-native",
-  "auth-mode",
-);
 
 // ---------------------------------------------------------------------------
 // AUTH_MODE detection
@@ -237,9 +221,7 @@ let _warnedRemoteLocalMode = false;
 /**
  * Check if the app is in local-only mode (no auth).
  *
- * Returns true when AUTH_MODE=local is explicitly set or when the dev
- * onboarding flow has enabled local mode for the current workspace via
- * a runtime marker file.
+ * Returns true when AUTH_MODE=local is explicitly set.
  *
  * Local mode is an explicit escape hatch for when you want to guarantee
  * no auth is used. In development, getSession() also falls back to
@@ -251,8 +233,10 @@ let _warnedRemoteLocalMode = false;
  * a shared DB every developer would land on the same account and collide.
  */
 async function isLocalModeEnabled(): Promise<boolean> {
+  if (process.env.AUTH_MODE !== "local") return false;
+
   if (!isLocalDatabase()) {
-    if (process.env.AUTH_MODE === "local" && !_warnedRemoteLocalMode) {
+    if (!_warnedRemoteLocalMode) {
       _warnedRemoteLocalMode = true;
       console.warn(
         "[agent-native] AUTH_MODE=local ignored: database is not local SQLite. " +
@@ -262,15 +246,7 @@ async function isLocalModeEnabled(): Promise<boolean> {
     return false;
   }
 
-  if (process.env.AUTH_MODE === "local") return true;
-
-  try {
-    const fs = await getFs();
-    const mode = fs.readFileSync(LOCAL_MODE_MARKER_PATH, "utf-8").trim();
-    return mode === "local";
-  } catch {
-    return false;
-  }
+  return true;
 }
 
 /**
@@ -1078,8 +1054,8 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
 
   // 7. Dev-mode safety net — in development on a local SQLite database, fall
   // back to local@localhost so the app is usable without any auth configuration.
-  // This prevents 401 errors when Better Auth isn't configured, the marker file
-  // is missing, or the user simply wants to play around locally.
+  // This prevents 401 errors when Better Auth isn't configured or the user
+  // simply wants to play around locally.
   //
   // Gated on isLocalDatabase() because local@localhost has no per-user scoping:
   // on a shared DB (Postgres, Turso, D1) this fallback would land every
@@ -1339,34 +1315,22 @@ const TOKEN_LOGIN_HTML = `<!DOCTYPE html>
 </html>`;
 
 // ---------------------------------------------------------------------------
-// setAuthModeLocal — write AUTH_MODE=local to .env for the escape hatch
+// Local mode route helpers
 // ---------------------------------------------------------------------------
 
-async function setAuthModeLocal(): Promise<boolean> {
-  try {
-    const fs = await getFs();
-    fs.mkdirSync(path.dirname(LOCAL_MODE_MARKER_PATH), { recursive: true });
-    fs.writeFileSync(LOCAL_MODE_MARKER_PATH, "local\n", "utf-8");
-    process.env.AUTH_MODE = "local"; // guard:allow-env-mutation — escape-hatch writes the local-mode marker file; mirrored into env so the in-flight process honors the change without restart
-    return true;
-  } catch {
-    return false;
-  }
+function localModeMarkerDisabled(event: H3Event): { error: string } {
+  setResponseStatus(event, 410);
+  return {
+    error:
+      "The local-mode marker file has been removed. Set AUTH_MODE=local in your local shell or .env only for one-off local development.",
+  };
 }
 
-async function removeAuthModeLocal(): Promise<boolean> {
-  try {
-    const fs = await getFs();
-    try {
-      fs.unlinkSync(LOCAL_MODE_MARKER_PATH);
-    } catch {
-      // Marker already absent
-    }
-    delete process.env.AUTH_MODE; // guard:allow-env-mutation — escape-hatch removes the local-mode marker; mirrored into env so the in-flight process honors the change without restart
-    return true;
-  } catch {
-    return false;
-  }
+function exitLocalMode(event: H3Event): { ok: true } {
+  // Mark the browser so getSession's dev-mode fallback won't silently
+  // re-authenticate the user as local@localhost on the next request.
+  setUpgradePendingCookie(event);
+  return { ok: true };
 }
 
 /**
@@ -1827,8 +1791,8 @@ async function mountBetterAuthRoutes(
     }),
   );
 
-  // POST /_agent-native/auth/local-mode — switch to local mode (onboarding escape hatch)
-  // Only available in dev — production requires real accounts for usage tracking.
+  // POST /_agent-native/auth/local-mode — legacy endpoint kept so old clients
+  // receive an explicit error instead of creating a persistent local marker.
   app.use(
     "/_agent-native/auth/local-mode",
     defineEventHandler(async (event) => {
@@ -1836,26 +1800,7 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-      if (!isDevEnvironment()) {
-        setResponseStatus(event, 403);
-        return {
-          error:
-            "Local mode is not available in production. Create an account to continue.",
-        };
-      }
-      if (!isLocalDatabase()) {
-        setResponseStatus(event, 400);
-        return {
-          error:
-            "Local mode is only available on a local SQLite database. Your DATABASE_URL points at a shared database — create an account instead.",
-        };
-      }
-      const ok = await setAuthModeLocal();
-      if (!ok) {
-        setResponseStatus(event, 500);
-        return { error: "Failed to enable local mode" };
-      }
-      return { ok: true };
+      return localModeMarkerDisabled(event);
     }),
   );
 
@@ -1867,15 +1812,7 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-      const ok = await removeAuthModeLocal();
-      if (!ok) {
-        setResponseStatus(event, 500);
-        return { error: "Failed to disable local mode" };
-      }
-      // Mark the browser so getSession's dev-mode fallback won't silently
-      // re-authenticate the user as local@localhost on the next request.
-      setUpgradePendingCookie(event);
-      return { ok: true };
+      return exitLocalMode(event);
     }),
   );
 
@@ -1968,6 +1905,10 @@ async function mountBetterAuthRoutes(
       const body = await readBody(event);
       const email = body?.email?.trim?.()?.toLowerCase?.();
       const password = body?.password;
+      const callbackURL =
+        typeof body?.callbackURL === "string"
+          ? safeReturnPath(body.callbackURL)
+          : "/";
 
       if (!email || typeof email !== "string" || !email.includes("@")) {
         setResponseStatus(event, 400);
@@ -1980,7 +1921,7 @@ async function mountBetterAuthRoutes(
 
       try {
         await auth.api.signUpEmail({
-          body: { email, password, name: email.split("@")[0] },
+          body: { email, password, name: email.split("@")[0], callbackURL },
         });
         return { ok: true };
       } catch (e: any) {
@@ -2226,15 +2167,7 @@ function mountLocalModeRoutes(app: H3App): void {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-      const ok = await removeAuthModeLocal();
-      if (!ok) {
-        setResponseStatus(event, 500);
-        return { error: "Failed to disable local mode" };
-      }
-      // Mark the browser so getSession's dev-mode fallback won't silently
-      // re-authenticate the user as local@localhost on the next request.
-      setUpgradePendingCookie(event);
-      return { ok: true };
+      return exitLocalMode(event);
     }),
   );
   // Upgrade path: migrate-local-data must be reachable from local mode
@@ -2359,26 +2292,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-      if (!isDevEnvironment()) {
-        setResponseStatus(event, 403);
-        return {
-          error:
-            "Local mode is not available in production. Create an account to continue.",
-        };
-      }
-      if (!isLocalDatabase()) {
-        setResponseStatus(event, 400);
-        return {
-          error:
-            "Local mode is only available on a local SQLite database. Your DATABASE_URL points at a shared database — create an account instead.",
-        };
-      }
-      const ok = await setAuthModeLocal();
-      if (!ok) {
-        setResponseStatus(event, 500);
-        return { error: "Failed to enable local mode" };
-      }
-      return { ok: true };
+      return localModeMarkerDisabled(event);
     }),
   );
 
@@ -2389,15 +2303,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-      const ok = await removeAuthModeLocal();
-      if (!ok) {
-        setResponseStatus(event, 500);
-        return { error: "Failed to disable local mode" };
-      }
-      // Mark the browser so getSession's dev-mode fallback won't silently
-      // re-authenticate the user as local@localhost on the next request.
-      setUpgradePendingCookie(event);
-      return { ok: true };
+      return exitLocalMode(event);
     }),
   );
 

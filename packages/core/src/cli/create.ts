@@ -137,8 +137,7 @@ async function createWorkspaceInteractive(
 
   try {
     await scaffoldWorkspaceRoot(targetDir, name);
-    const workspaceCoreName = `@${name}/core-module`;
-    ensureWorkspaceGatewayDevScript(targetDir);
+    const workspaceCoreName = `@${name}/shared`;
 
     for (const t of templates) {
       const appDir = path.join(targetDir, "apps", t);
@@ -194,6 +193,7 @@ async function scaffoldWorkspaceRoot(
 
   copyDir(rootTemplate, targetDir);
   replacePlaceholders(targetDir, name, titleCase(name));
+  rewriteCoreDependencyVersions(targetDir);
   renameGitignore(targetDir);
 
   // Inject the catalog from this repo's pnpm-workspace.yaml so templates'
@@ -215,7 +215,7 @@ async function scaffoldWorkspaceRoot(
     }
   }
 
-  const corePackageDir = path.join(targetDir, "packages", "core-module");
+  const corePackageDir = path.join(targetDir, "packages", "shared");
   fs.mkdirSync(path.join(targetDir, "packages"), { recursive: true });
   copyDir(coreTemplate, corePackageDir);
   replacePlaceholders(corePackageDir, name, titleCase(name));
@@ -793,6 +793,7 @@ export {
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
+  shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
 };
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -967,17 +968,6 @@ function rewriteCoreDependencyVersions(projectDir: string): void {
   } catch {}
 }
 
-function ensureWorkspaceGatewayDevScript(workspaceRoot: string): void {
-  const pkgPath = path.join(workspaceRoot, "package.json");
-  if (!fs.existsSync(pkgPath)) return;
-  try {
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-    pkg.scripts = pkg.scripts ?? {};
-    pkg.scripts.dev = "tsx scripts/workspace-dev.ts";
-    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-  } catch {}
-}
-
 function rewriteNetlifyToml(
   appDir: string,
   appName: string,
@@ -1096,8 +1086,8 @@ function copyDir(src: string, dest: string, root?: string): void {
   const resolvedRoot = root ?? path.resolve(src);
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    if (shouldSkipScaffoldEntry(entry.name)) continue;
     const srcPath = path.join(src, entry.name);
+    if (shouldSkipScaffoldEntry(entry.name, srcPath)) continue;
     const destPath = path.join(dest, entry.name);
     if (entry.isSymbolicLink()) {
       const target = fs.readlinkSync(srcPath);
@@ -1124,12 +1114,20 @@ function copyDir(src: string, dest: string, root?: string): void {
   }
 }
 
-function shouldSkipScaffoldEntry(name: string): boolean {
+function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
+  if (
+    name === "settings.json" &&
+    srcPath?.split(path.sep).includes(".claude")
+  ) {
+    return true;
+  }
   if (
     name === "node_modules" ||
+    name === ".agent-native" ||
     name === ".env" ||
     name === ".env.local" ||
     name === ".netlify" ||
+    name === ".vercel" ||
     name === ".generated" ||
     name === ".react-router" ||
     name === ".output" ||

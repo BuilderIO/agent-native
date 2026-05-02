@@ -988,6 +988,23 @@ describe("server/auth", () => {
     });
   });
 
+  describe("onboarding signup verification flow", () => {
+    it("renders a dedicated email verification step after signup", async () => {
+      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const html = getOnboardingHtml();
+
+      expect(html).toContain('id="verification-step"');
+      expect(html).toContain('id="verify-continue"');
+      expect(html).toContain('id="resend-verification"');
+      expect(html).toContain('id="back-to-signup"');
+      expect(html).toContain("showVerificationStep(email)");
+      expect(html).toContain("callbackURL: __anGetReturnPath()");
+      expect(html).not.toContain(
+        "Account created! Check your email to verify, then sign in.",
+      );
+    });
+  });
+
   describe("OAuth callback copy", () => {
     it("uses the requested app name for desktop exchange completion", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");

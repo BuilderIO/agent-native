@@ -3,8 +3,10 @@ packages:
   - "apps/*"
 
 onlyBuiltDependencies:
-  - esbuild
+  - "@swc/core"
   - better-sqlite3
+  - canvas
+  - electron
+  - esbuild
   - lightningcss
   - node-pty
-  - "@swc/core"

@@ -1,6 +1,0 @@
-import"./auth.mjs";import{i as e}from"./request-context.mjs";import{i as t,t as n}from"./utils.mjs";import{n as r,o as i}from"./store4.mjs";async function a(a){let o=t(a);if(o.help===`true`){console.log(`Usage: pnpm action resource-read --path <path> [options]
-
-Options:
-  --path <path>            Resource path (required)
-  --scope personal|shared  Scope to read from (default: personal, falls back to shared)
-  --help                   Show this help message`);return}let s=o.path;s||n(`--path is required. Example: --path LEARNINGS.md`);let c=o.scope,l=e()??`local@localhost`;if(c!==`shared`&&await r(l),c===`shared`){let e=await i(`__shared__`,s);if(!e){console.log(`Resource not found: ${s} (scope: shared). You can create it with resource-write.`);return}process.stdout.write(e.content);return}let u=await i(l,s);if(u){process.stdout.write(u.content);return}if(c===`personal`){console.log(`Resource not found: ${s} (scope: personal). You can create it with resource-write.`);return}let d=await i(`__shared__`,s);if(d){process.stdout.write(d.content);return}console.log(`Resource not found: ${s}. You can create it with resource-write.`)}export{a as default};

@@ -1,5 +1,5 @@
 {
-  "name": "@{{APP_NAME}}/core-module",
+  "name": "@{{APP_NAME}}/shared",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -18,19 +18,11 @@
       "types": "./src/client/index.ts",
       "development": "./src/client/index.ts",
       "default": "./dist/client/index.js"
-    },
-    "./credentials": {
-      "types": "./src/credentials.ts",
-      "development": "./src/credentials.ts",
-      "default": "./dist/credentials.js"
-    },
-    "./styles/tokens.css": "./styles/tokens.css"
+    }
   },
   "files": [
     "dist",
     "src",
-    "styles",
-    "actions",
     "AGENTS.md"
   ],
   "scripts": {
@@ -39,17 +31,7 @@
     "typecheck": "tsc --noEmit",
     "prepare": "tsc"
   },
-  "dependencies": {
-    "@agent-native/core": "latest",
-    "zod": "^4.3.6"
-  },
   "devDependencies": {
-    "@types/node": "^24.2.1",
-    "@types/react": "^19.2.14",
-    "react": "^19.2.5",
     "typescript": "^6.0.3"
-  },
-  "peerDependencies": {
-    "react": "^19.2.5"
   }
 }

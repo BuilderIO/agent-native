@@ -31,3 +31,5 @@ data/app.db
 .react-router/
 
 .generated/
+
+.vercel/

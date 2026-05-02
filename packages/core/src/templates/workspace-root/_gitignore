@@ -6,6 +6,9 @@ apps/*/build/
 apps/*/.output/
 apps/*/.netlify/
 apps/*/.vercel/
+packages/*/node_modules/
+packages/*/dist/
+packages/*/build/
 .deploy-tmp/
 
 # Env files — never commit secrets

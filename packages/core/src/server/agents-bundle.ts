@@ -145,7 +145,7 @@ export interface WorkspaceAgentsSource {
  * both the template and workspace-core paths can reuse it. `dirPrefix` is
  * the display path that will be reported to the agent (e.g.
  * `.agents/skills/<name>` for templates, or
- * `<workspace-core-package>/skills/<name>` for the workspace core).
+ * `<workspace-shared-package>/.agents/skills/<name>` for the workspace layer).
  */
 function readSkillsDir(
   skillsDir: string,

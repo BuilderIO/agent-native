@@ -88,6 +88,9 @@ export default defineAction({
     tweaks,
   }) => {
     await assertAccess("design", designId, "editor");
+    if (designSystemId) {
+      await assertAccess("design-system", designSystemId, "viewer");
+    }
 
     const db = getDb();
     const now = new Date().toISOString();
