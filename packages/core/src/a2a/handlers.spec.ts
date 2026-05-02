@@ -7,6 +7,7 @@ import {
 import type { A2AConfig, Message } from "./types.js";
 
 const resolveOrgByDomainMock = vi.hoisted(() => vi.fn());
+const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 
 // Mock h3's setResponseStatus and setResponseHeader
 vi.mock("h3", () => ({
@@ -103,6 +104,7 @@ vi.mock("../shared/agent-chat.js", () => ({
 
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: resolveOrgByDomainMock,
+  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
 
 /** Create a mock H3 event for testing handleJsonRpcH3 */
@@ -128,6 +130,7 @@ function mockEvent(): any {
 describe("handleJsonRpc", () => {
   beforeEach(() => {
     resolveOrgByDomainMock.mockReset();
+    resolveOrgIdForEmailMock.mockReset();
   });
 
   afterEach(() => {
@@ -495,6 +498,58 @@ describe("handleJsonRpc", () => {
     );
     expect(resolveOrgByDomainMock).toHaveBeenCalledWith("acme.test");
     expect(resolveOrgByDomainMock).not.toHaveBeenCalledWith("evil.test");
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves org context from verified email when no verified org domain is present", async () => {
+    resolveOrgIdForEmailMock.mockResolvedValue("org-by-email");
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: `${getRequestUserEmail() ?? "none"}|${getRequestOrgId() ?? "none"}`,
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          metadata: {
+            userEmail: "mallory+qa@agent-native.test",
+            orgDomain: "evil.test",
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+          },
+        },
+      },
+      event,
+      contextConfig,
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.result.status.message.parts[0].text).toBe(
+      "alice+qa@agent-native.test|org-by-email",
+    );
+    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+    expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith(
+      "alice+qa@agent-native.test",
+    );
   });
 
   it("does not trust forged org metadata when async A2A processor reconstructs context", async () => {
@@ -554,6 +609,79 @@ describe("handleJsonRpc", () => {
     expect(followup.error).toBeUndefined();
     expect(followup.result.status.message.parts[0].text).toBe("none|none");
     expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves org context from verified email in async A2A processor", async () => {
+    resolveOrgIdForEmailMock.mockResolvedValue("org-by-email");
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: `${getRequestUserEmail() ?? "none"}|${getRequestOrgId() ?? "none"}`,
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            userEmail: "mallory+qa@agent-native.test",
+            orgDomain: "evil.test",
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+          },
+        },
+      },
+      event,
+      contextConfig,
+    );
+    expect(result.error).toBeUndefined();
+    const taskId = result.result.id;
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(taskId, contextConfig);
+
+    const getEvent = mockEvent();
+    getEvent.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      getEvent,
+      contextConfig,
+    );
+
+    expect(followup.error).toBeUndefined();
+    expect(followup.result.status.message.parts[0].text).toBe(
+      "alice+qa@agent-native.test|org-by-email",
+    );
+    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+    expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith(
+      "alice+qa@agent-native.test",
+    );
   });
 });
 

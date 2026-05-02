@@ -5,9 +5,19 @@ import { createThread, getThread } from "../chat-threads/store.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
+  getOwnerActiveApiKey,
+  getOwnerApiKey,
+  engineToProvider,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { createAnthropicEngine } from "../agent/engine/index.js";
+import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
+import { isLocalDatabase } from "../db/client.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
+import {
+  getStoredModelForEngine,
+  resolveEngine,
+} from "../agent/engine/index.js";
+import type { AgentEngine } from "../agent/engine/types.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
@@ -51,6 +61,11 @@ export interface WebhookHandlerOptions {
   model: string;
   /** Anthropic API key */
   apiKey: string;
+  /** Agent engine to use. Defaults to the same resolver as web chat. */
+  engine?:
+    | AgentEngine
+    | string
+    | { name: string; config: Record<string, unknown> };
   /** Thread owner for personal/shared resource loading */
   ownerEmail: string;
   /**
@@ -71,6 +86,46 @@ export interface WebhookHandlerOptions {
       }
     | { handled: false }
   >;
+}
+
+function explicitEngineName(
+  engineOption: WebhookHandlerOptions["engine"],
+): string | undefined {
+  if (!engineOption) return undefined;
+  if (typeof engineOption === "string") return engineOption;
+  if (
+    typeof engineOption === "object" &&
+    !("stream" in engineOption) &&
+    typeof engineOption.name === "string"
+  ) {
+    return engineOption.name;
+  }
+  return undefined;
+}
+
+function isMultiTenantDeploy(): boolean {
+  if (process.env.NODE_ENV !== "production") return false;
+  return !isLocalDatabase();
+}
+
+async function resolveIntegrationApiKey(
+  engineOption: WebhookHandlerOptions["engine"],
+  ownerEmail: string,
+  fallbackApiKey: string,
+): Promise<string | undefined> {
+  const engineName = explicitEngineName(engineOption);
+  if (engineName) {
+    const provider = engineToProvider(engineName);
+    const userApiKey = await getOwnerApiKey(provider, ownerEmail);
+    if (userApiKey || isMultiTenantDeploy()) return userApiKey;
+    const envVar = PROVIDER_TO_ENV[provider];
+    const providerEnvKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
+    return providerEnvKey || fallbackApiKey.trim() || undefined;
+  }
+
+  const userApiKey = await getOwnerActiveApiKey(ownerEmail);
+  if (userApiKey || isMultiTenantDeploy()) return userApiKey;
+  return fallbackApiKey.trim() || undefined;
 }
 
 /**
@@ -172,7 +227,7 @@ export async function handleWebhook(
  *
  * This pattern works on every supported host:
  *   - Netlify Lambda: function returns; the dispatched request hits a fresh
- *     Lambda with its own 26s budget.
+ *     Lambda with its own function budget.
  *   - Vercel Functions: same.
  *   - Cloudflare Workers: same (no waitUntil dependency).
  *   - Self-hosted Node: a separate request comes back through the same
@@ -320,6 +375,7 @@ export async function processIntegrationTask(
     placeholderRef?: string;
   };
   await processIncomingMessage(parsed.incoming, options, {
+    taskId: task.id,
     placeholderRef: parsed.placeholderRef,
   });
 }
@@ -331,9 +387,17 @@ export async function processIntegrationTask(
 async function processIncomingMessage(
   incoming: IncomingMessage,
   options: WebhookHandlerOptions,
-  opts: { placeholderRef?: string } = {},
+  opts: { taskId?: string; placeholderRef?: string } = {},
 ): Promise<void> {
-  const { adapter, systemPrompt, actions, model, apiKey, ownerEmail } = options;
+  const {
+    adapter,
+    systemPrompt,
+    actions,
+    model,
+    apiKey,
+    ownerEmail,
+    engine: engineOption,
+  } = options;
 
   // Resolve or create internal thread
   let mapping = await getThreadMapping(
@@ -420,7 +484,6 @@ async function processIncomingMessage(
   // A2A delegation. Without this, getRequestOrgId() returns undefined and
   // call-agent can't look up the org's a2a_secret or org_domain.
   const orgId = await resolveOrgIdForEmail(ownerEmail);
-  const engine = createAnthropicEngine({ apiKey });
   const tools = actionsToEngineTools(actions);
 
   const runId = `integration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -440,18 +503,41 @@ async function processIncomingMessage(
             // budgets on integration paths without affecting normal
             // agent-chat. See `isIntegrationCallerRequest()`.
             isIntegrationCaller: true,
+            integration: opts.taskId
+              ? {
+                  taskId: opts.taskId,
+                  incoming,
+                  placeholderRef: opts.placeholderRef,
+                }
+              : undefined,
           },
-          () =>
-            runAgentLoop({
-              engine,
+          async () => {
+            const effectiveApiKey = await resolveIntegrationApiKey(
+              engineOption,
+              ownerEmail,
+              apiKey,
+            );
+            const engine = await resolveEngine({
+              engineOption,
+              apiKey: effectiveApiKey,
               model,
+            });
+            const resolvedModel =
+              (await getStoredModelForEngine(engine)) ??
+              model ??
+              engine.defaultModel;
+
+            return runAgentLoop({
+              engine,
+              model: resolvedModel,
               systemPrompt,
               tools,
               messages,
               actions,
               send,
               signal,
-            }),
+            });
+          },
         );
       },
       async (completedRun: ActiveRun) => {

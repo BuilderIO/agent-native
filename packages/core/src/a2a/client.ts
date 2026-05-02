@@ -7,6 +7,25 @@ import type {
   Task,
 } from "./types.js";
 
+export class A2ATaskTimeoutError extends Error {
+  readonly taskId: string;
+  readonly lastTask: Task;
+  readonly lastState: string;
+  readonly timeoutMs: number;
+
+  constructor(taskId: string, lastTask: Task, timeoutMs: number) {
+    const lastState = lastTask.status.state;
+    super(
+      `A2A task ${taskId} did not complete within ${timeoutMs}ms (last state: ${lastState})`,
+    );
+    this.name = "A2ATaskTimeoutError";
+    this.taskId = taskId;
+    this.lastTask = lastTask;
+    this.lastState = lastState;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 /**
  * Sign a JWT for A2A cross-app identity verification.
  *
@@ -123,8 +142,8 @@ export class A2AClient {
        * state and process the handler in the background. The caller should
        * then poll `getTask(taskId)` until `completed` / `failed` / `canceled`.
        *
-       * Use this when you expect the handler may exceed the gateway timeout
-       * (e.g. Netlify's ~26s per-function / 30s gateway limit on Pro).
+       * Use this when you expect the handler may exceed a synchronous
+       * serverless request budget.
        */
       async?: boolean;
     },
@@ -205,9 +224,7 @@ export class A2AClient {
       }
       if (terminalStates.has(current.status.state)) return current;
     }
-    throw new Error(
-      `A2A task ${submitted.id} did not complete within ${timeoutMs}ms (last state: ${current.status.state})`,
-    );
+    throw new A2ATaskTimeoutError(submitted.id, current, timeoutMs);
   }
 
   async *stream(
@@ -287,8 +304,7 @@ export async function callAgent(
     orgSecret?: string;
     /**
      * Use async/poll instead of a single blocking POST. Recommended for
-     * cross-app calls that may exceed serverless gateway timeouts (Netlify
-     * caps a single function at ~26s; the gateway times out at ~30s).
+     * cross-app calls that may exceed a synchronous serverless request budget.
      * Defaults to true so callers get safe behavior out of the box.
      */
     async?: boolean;

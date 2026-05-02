@@ -1,13 +1,56 @@
 import type { ActionTool } from "../agent/types.js";
 import type { ActionRunContext } from "../agent/production-agent.js";
 import { findAgent, discoverAgents } from "../server/agent-discovery.js";
-import { A2AClient, callAgent, signA2AToken } from "../a2a/client.js";
+import {
+  A2AClient,
+  A2ATaskTimeoutError,
+  callAgent,
+  signA2AToken,
+} from "../a2a/client.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
   isIntegrationCallerRequest,
+  getIntegrationRequestContext,
 } from "../server/request-context.js";
 import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
+
+const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
+const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 50_000;
+
+function parseTimeoutMs(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
+}
+
+function isServerlessHost(): boolean {
+  // Detection mirrors db/migrations.ts:297-301. On Cloudflare Workers/Pages,
+  // `process.env` is shimmed and CF_PAGES isn't reliably populated at runtime —
+  // the canonical signal is the `__cf_env` global injected by workerd.
+  return (
+    !!process.env.NETLIFY ||
+    !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    !!process.env.VERCEL ||
+    "__cf_env" in globalThis
+  );
+}
+
+function getIntegrationCallTimeoutMs(): number | undefined {
+  if (!isServerlessHost() || !isIntegrationCallerRequest()) return undefined;
+
+  const configured = parseTimeoutMs(
+    process.env.AGENT_NATIVE_INTEGRATION_A2A_TIMEOUT_MS,
+  );
+  if (configured !== undefined) return configured;
+
+  // Netlify's current synchronous function budget is 60s, but leave room for
+  // cold start, polling overhead, and the caller's final platform response.
+  if (process.env.NETLIFY) return NETLIFY_INTEGRATION_A2A_TIMEOUT_MS;
+
+  return DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS;
+}
 
 export const tool: ActionTool = {
   description:
@@ -148,35 +191,19 @@ export async function run(
       // response support, so message/stream returns a single JSON-RPC error
       // body in a 200 response that our SSE parser silently consumes — the
       // `for await` loop yields nothing AND keeps the connection open until
-      // the function timeout, eating the 26s budget. By the time we get to
-      // the sync fallback, Lambda is dead and the second fetch errors out
-      // as "fetch failed". Async+poll has its own short fetches with their
-      // own budgets, so it works reliably across hosts. The trade-off is
-      // we lose progressive in-UI text streaming for cross-app A2A calls,
-      // but the receiving agent's full response still surfaces via the
-      // tool_result event below.
+      // the function timeout, eating the current serverless budget. By the
+      // time we get to the sync fallback, Lambda is dead and the second fetch
+      // errors out as "fetch failed". Async+poll has its own short fetches
+      // with their own budgets, so it works reliably across hosts. The
+      // trade-off is we lose progressive in-UI text streaming for cross-app
+      // A2A calls, but the receiving agent's full response still surfaces via
+      // the tool_result event below.
       try {
-        // Apply the 18s polling cap ONLY when we're on a serverless host
-        // (Netlify / Vercel / AWS Lambda / Cloudflare Workers) AND the
-        // call is from an integration-platform path. On those hosts the
-        // function timeout (~26s on Netlify Pro) plus the platform's
-        // deliver-by deadline are the binding budget, so dispatch must
-        // bail before the lambda dies. On long-running hosts (local Node
-        // dev, self-hosted Node, Docker containers) the budget is
-        // effectively infinite, so the cap would just truncate
-        // slow-but-valid answers.
-        //
-        // Detection mirrors db/migrations.ts:297-301. On Cloudflare
-        // Workers/Pages, `process.env` is shimmed and CF_PAGES isn't
-        // reliably populated at runtime — the canonical signal is the
-        // `__cf_env` global injected by the workerd runtime.
-        const onServerlessHost =
-          !!process.env.NETLIFY ||
-          !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
-          !!process.env.VERCEL ||
-          "__cf_env" in globalThis;
-        const callTimeoutMs =
-          onServerlessHost && isIntegrationCallerRequest() ? 18000 : undefined;
+        // Apply a polling cap ONLY for integration-platform callers on
+        // serverless hosts. Normal chat, local Node, self-hosted Node, and
+        // Docker can wait for slow-but-valid answers; integration processors
+        // still need to finish before their current function execution dies.
+        const callTimeoutMs = getIntegrationCallTimeoutMs();
         responseText = await callAgent(agent.url, messageWithHint, {
           userEmail: callerEmail,
           orgDomain: callerOrgDomain,
@@ -191,8 +218,23 @@ export async function run(
         // Mirror the response into the streaming UI so the user sees it.
         if (responseText) emitNewText(responseText);
       } catch (pollErr: any) {
-        const reason = pollErr?.message ?? "unknown error";
-        responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
+        if (pollErr instanceof A2ATaskTimeoutError) {
+          const queued = await enqueueIntegrationContinuationIfPossible(
+            pollErr,
+            agent,
+            callerEmail,
+          );
+          if (queued) {
+            responseText = `The ${agent.name} agent is still working. I will update this thread with the final result when it finishes.`;
+            emitNewText(responseText);
+          } else {
+            const reason = pollErr?.message ?? "unknown error";
+            responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
+          }
+        } else {
+          const reason = pollErr?.message ?? "unknown error";
+          responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
+        }
       }
 
       context.send({
@@ -232,6 +274,45 @@ export async function run(
       return `The ${agent.name} agent is taking longer than expected. Please try again, ask a simpler question, or open the ${agent.name} app directly.`;
     }
     return `Error calling ${agent.name}: ${msg}`;
+  }
+}
+
+async function enqueueIntegrationContinuationIfPossible(
+  error: A2ATaskTimeoutError,
+  agent: { name: string; url: string },
+  ownerEmail: string | undefined,
+): Promise<boolean> {
+  const integration = getIntegrationRequestContext();
+  if (!integration || !ownerEmail) return false;
+
+  try {
+    const [{ insertA2AContinuation }, { dispatchA2AContinuation }] =
+      await Promise.all([
+        import("../integrations/a2a-continuations-store.js"),
+        import("../integrations/a2a-continuation-processor.js"),
+      ]);
+    const continuation = await insertA2AContinuation({
+      integrationTaskId: integration.taskId,
+      platform: integration.incoming.platform,
+      externalThreadId: integration.incoming.externalThreadId,
+      incoming: integration.incoming,
+      placeholderRef: integration.placeholderRef,
+      ownerEmail,
+      orgId: getRequestOrgId() ?? null,
+      agentName: agent.name,
+      agentUrl: agent.url,
+      a2aTaskId: error.taskId,
+    });
+    await dispatchA2AContinuation(continuation.id).catch((err) => {
+      console.error(
+        `[call-agent] Failed to dispatch A2A continuation ${continuation.id}:`,
+        err,
+      );
+    });
+    return true;
+  } catch (err) {
+    console.error("[call-agent] Failed to enqueue A2A continuation:", err);
+    return false;
   }
 }
 

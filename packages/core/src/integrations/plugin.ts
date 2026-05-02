@@ -29,6 +29,10 @@ import {
   handlePushNotification,
 } from "./google-docs-poller.js";
 import { startPendingTasksRetryJob } from "./pending-tasks-retry-job.js";
+import {
+  processA2AContinuationById,
+  processDueA2AContinuations,
+} from "./a2a-continuation-processor.js";
 import { resourceGetByPath, SHARED_OWNER } from "../resources/store.js";
 import { getTaskQueueStats } from "./task-queue-stats.js";
 import { getSession } from "../server/auth.js";
@@ -36,6 +40,19 @@ import { getOrgContext } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
+
+let a2aContinuationRetryInterval: ReturnType<typeof setInterval> | null = null;
+
+function startA2AContinuationRetryJob(
+  adapters: Map<string, PlatformAdapter>,
+): void {
+  if (a2aContinuationRetryInterval) return;
+  a2aContinuationRetryInterval = setInterval(() => {
+    processDueA2AContinuations({ adapters }).catch((err) => {
+      console.error("[integrations] A2A continuation retry job failed:", err);
+    });
+  }, 60_000);
+}
 
 // ─── Google Pub/Sub OIDC verifier (for Drive changes.watch push) ────────────
 // Cache Google's public keys for OIDC verification. jose handles TTL +
@@ -365,6 +382,7 @@ export function createIntegrationsPlugin(
             actions,
             model,
             apiKey: getApiKey(),
+            engine: options?.engine,
             ownerEmail: task.ownerEmail,
           });
           await markTaskCompleted(taskId);
@@ -387,6 +405,50 @@ export function createIntegrationsPlugin(
       }),
     );
 
+    // ─── Process deferred A2A continuation ──────────────────────────
+    // POST /_agent-native/integrations/process-a2a-continuation
+    // Internal endpoint invoked when call-agent timed out inside an
+    // integration processor but the remote A2A task kept running.
+    h3.use(
+      `${P}/process-a2a-continuation`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+
+        const body = (await readBody(event)) as { continuationId?: string };
+        const continuationId = body?.continuationId;
+        if (!continuationId) {
+          setResponseStatus(event, 400);
+          return { error: "continuationId required" };
+        }
+
+        if (!process.env.A2A_SECRET) {
+          if (process.env.NODE_ENV === "production") {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "A2A_SECRET not configured — internal token signing is required to process A2A continuations in production.",
+            };
+          }
+        } else {
+          const tok = extractBearerToken(
+            getRequestHeader(event, "authorization"),
+          );
+          if (!tok || !verifyInternalToken(continuationId, tok)) {
+            setResponseStatus(event, 401);
+            return { error: "Invalid or expired internal token" };
+          }
+        }
+
+        await processA2AContinuationById(continuationId, {
+          adapters: adapterMap,
+        });
+        return { ok: true, continuationId };
+      }),
+    );
+
     // ─── Per-platform catch-all ───────────────────────────────────
     // Handles: webhook, status, enable, disable, setup for each platform
     h3.use(
@@ -403,6 +465,8 @@ export function createIntegrationsPlugin(
         if (parts[0] === "task-queue") return;
         // Already handled by the dedicated /process-task route above
         if (parts[0] === "process-task") return;
+        // Already handled by the dedicated /process-a2a-continuation route above
+        if (parts[0] === "process-a2a-continuation") return;
 
         const platform = parts[0];
         const action = parts[1]; // webhook, status, enable, disable, setup
@@ -536,6 +600,7 @@ export function createIntegrationsPlugin(
             actions,
             model,
             apiKey: getApiKey(),
+            engine: options?.engine,
             ownerEmail: owner,
             beforeProcess: options?.beforeProcess,
             incoming,
@@ -619,6 +684,7 @@ export function createIntegrationsPlugin(
     startPendingTasksRetryJob({
       webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
     });
+    startA2AContinuationRetryJob(adapterMap);
 
     // ─── Start Google Docs poller/push ────────────────────────────
     if (adapterMap.has("google-docs")) {
