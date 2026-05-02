@@ -80,6 +80,22 @@ vi.mock("./task-store.js", () => {
       };
       return task;
     },
+    async getA2ATaskDispatchState(id: string) {
+      const task = tasks[id];
+      if (!task) return null;
+      return {
+        id,
+        statusState: task.status.state,
+        metadata: task.metadata,
+        updatedAt: Date.now(),
+      };
+    },
+    async touchQueuedA2ATaskDispatch() {
+      return true;
+    },
+    async resetStuckA2ATaskForRetry() {
+      return true;
+    },
   };
 });
 

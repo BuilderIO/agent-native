@@ -155,6 +155,65 @@ export async function claimA2ATaskForProcessing(
   return taskFromRow(rows[0]);
 }
 
+export async function getA2ATaskDispatchState(id: string): Promise<{
+  id: string;
+  statusState: string;
+  metadata: Record<string, unknown> | undefined;
+  updatedAt: number;
+} | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT id, status_state, metadata, updated_at FROM a2a_tasks WHERE id = ?`,
+    args: [id],
+  });
+  const row = rows[0] as any;
+  if (!row) return null;
+  return {
+    id: row.id as string,
+    statusState: row.status_state as string,
+    metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
+    updatedAt: Number(row.updated_at ?? 0),
+  };
+}
+
+export async function touchQueuedA2ATaskDispatch(id: string): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  const result = await client.execute({
+    sql: `UPDATE a2a_tasks
+            SET updated_at = ?
+          WHERE id = ?
+            AND status_state IN ('submitted', 'working')`,
+    args: [now, id],
+  });
+  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
+  return affected !== 0;
+}
+
+export async function resetStuckA2ATaskForRetry(
+  id: string,
+  processingCutoff: number,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  const timestamp = new Date().toISOString();
+  const result = await client.execute({
+    sql: `UPDATE a2a_tasks
+            SET status_state = 'working',
+                status_timestamp = ?,
+                updated_at = ?
+          WHERE id = ?
+            AND status_state = 'processing'
+            AND updated_at <= ?`,
+    args: [timestamp, now, id, processingCutoff],
+  });
+  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
+  return affected !== 0;
+}
+
 export async function getTask(id: string): Promise<Task | null> {
   await ensureTable();
   const client = getDbExec();

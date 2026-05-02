@@ -16,6 +16,7 @@ use crate::state::{
 };
 use crate::util::{
     build_overlay_url, mark_popover_shown, primary_monitor_physical_size, set_capture_excluded,
+    set_dictation_active,
 };
 
 /// Native overlay windows for the recording experience. These render the same
@@ -521,8 +522,8 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
     // Wider + taller than the pill alone so the live transcript chip
     // can stack above it. Height accommodates: bottom-anchored 32px pill
     // + 6px gap + ~28px transcript chip + drop-shadow margin.
-    let w: u32 = 800;
-    let h: u32 = 180;
+    let w: u32 = 420;
+    let h: u32 = 120;
     let x: i32 = ((mw as i32 - w as i32) / 2).max(0);
     // Bottom margin: ~14 logical px ≈ 28 physical px, matching Wispr Flow.
     let y: i32 = (mh as i32 - h as i32 - 28).max(0);
@@ -534,6 +535,7 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
         // JS side emitting voice:state-change.
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
         let _ = existing.set_position(PhysicalPosition::new(x, y));
+        let _ = existing.set_ignore_cursor_events(false);
         crate::util::show_without_activation(&existing);
         return Ok(());
     }
@@ -555,7 +557,10 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
         })?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
-    let _ = win.set_ignore_cursor_events(true);
+    // The flow bar contains a visible cancel button, so it must be a real
+    // click target. Keep the OS window compact instead of making a wide
+    // click-through rectangle that strands the X button.
+    let _ = win.set_ignore_cursor_events(false);
     set_capture_excluded(&win);
     crate::util::show_without_activation(&win);
     let app_for_timeout = app.clone();
@@ -584,6 +589,7 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn hide_flow_bar(app: AppHandle) -> Result<(), String> {
+    set_dictation_active(&app, false);
     // Hide (don't close) so the next show_flow_bar can reuse the window
     // and avoid the ~200ms WebKit cold-start that creates the stutter
     // on second/third Fn presses.

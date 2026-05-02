@@ -47,6 +47,11 @@ function startA2AContinuationRetryJob(
   adapters: Map<string, PlatformAdapter>,
 ): void {
   if (a2aContinuationRetryInterval) return;
+  setTimeout(() => {
+    processDueA2AContinuations({ adapters }).catch((err) => {
+      console.error("[integrations] A2A continuation retry job failed:", err);
+    });
+  }, 10_000);
   a2aContinuationRetryInterval = setInterval(() => {
     processDueA2AContinuations({ adapters }).catch((err) => {
       console.error("[integrations] A2A continuation retry job failed:", err);
@@ -386,6 +391,15 @@ export function createIntegrationsPlugin(
             ownerEmail: task.ownerEmail,
           });
           await markTaskCompleted(taskId);
+          await processDueA2AContinuations({
+            adapters: adapterMap,
+            limit: 2,
+          }).catch((err) => {
+            console.error(
+              "[integrations] A2A continuation opportunistic sweep failed:",
+              err,
+            );
+          });
           return { ok: true, taskId };
         } catch (err: any) {
           await markTaskFailed(

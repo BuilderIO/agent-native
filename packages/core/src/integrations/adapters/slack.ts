@@ -280,6 +280,7 @@ export function slackAdapter(): PlatformAdapter {
         }
       } catch (err) {
         console.error("[slack] Failed to send message:", err);
+        throw err;
       }
     },
 
@@ -512,6 +513,9 @@ function markdownToSlackMrkdwn(text: string): string {
   return (
     bounded
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "<$2|$1>")
+      // Do not wrap bare URLs in Slack bold markers. Slack's autolinker can
+      // treat the trailing `*` as part of the URL, producing a broken link.
+      .replace(/\*\*<?(https?:\/\/[^\s>*]+)>?\*\*/g, "<$1>")
       // Bounded character class instead of `.+?` with the `s` flag — caps
       // each bold span at 5000 chars so an attacker can't construct a
       // pathological "**" sequence that exhibits super-linear backtracking.
@@ -605,5 +609,6 @@ async function postFresh(
   const data = (await res.json()) as { ok: boolean; error?: string };
   if (!data.ok) {
     console.error("[slack] chat.postMessage error:", data.error);
+    throw new Error(data.error || "chat.postMessage failed");
   }
 }

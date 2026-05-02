@@ -65,10 +65,16 @@ export class A2AClient {
   private baseUrl: string;
   private apiKey?: string;
   private a2aPath = "/_agent-native/a2a";
+  private requestTimeoutMs?: number;
 
-  constructor(baseUrl: string, apiKey?: string) {
+  constructor(
+    baseUrl: string,
+    apiKey?: string,
+    options?: { requestTimeoutMs?: number },
+  ) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.apiKey = apiKey;
+    this.requestTimeoutMs = options?.requestTimeoutMs;
   }
 
   /**
@@ -107,11 +113,24 @@ export class A2AClient {
     const url = `${this.baseUrl}${this.a2aPath}`;
     console.log(`[A2A Client] POST ${url} method=${method}`);
     const startTime = Date.now();
-    const res = await fetch(url, {
-      method: "POST",
-      headers: this.headers(),
-      body: JSON.stringify(body),
-    });
+    const controller = this.requestTimeoutMs
+      ? new AbortController()
+      : undefined;
+    const timer =
+      controller && this.requestTimeoutMs
+        ? setTimeout(() => controller.abort(), this.requestTimeoutMs)
+        : undefined;
+    let res!: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify(body),
+        signal: controller?.signal,
+      });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     console.log(
       `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
     );

@@ -6,7 +6,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut}
 use crate::clips::toggle_popover;
 use crate::dlog;
 use crate::state::{DictationActive, VoiceWakePopover};
-use crate::util::{is_recording_active, show_without_activation};
+use crate::util::{is_recording_active, set_dictation_active, show_without_activation};
 
 fn escape_shortcut() -> Shortcut {
     Shortcut::new(None, Code::Escape)
@@ -234,6 +234,13 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
     let needs_reenable = Arc::new(AtomicBool::new(false));
     let event_count = Arc::new(AtomicU64::new(0));
 
+    let app_for_cancel = app.clone();
+    let prev_for_cancel = prev_down.clone();
+    app.listen("voice:cancel", move |_event| {
+        prev_for_cancel.store(false, Ordering::SeqCst);
+        set_dictation_active(&app_for_cancel, false);
+    });
+
     dlog!("[clips-tray][fn-tap] install_fn_event_tap called — spawning listener thread");
 
     thread::Builder::new()
@@ -325,6 +332,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                                 serde_json::json!({ "source": "fn" }),
                             );
                         });
+                        install_fn_release_watchdog(app_for_cb.clone(), prev_for_cb.clone());
                     } else {
                         dlog!("[clips-tray] Fn up — stopping voice dictation");
                         let _ = app_for_cb.emit(
@@ -399,10 +407,46 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
 }
 
 #[cfg(target_os = "macos")]
-fn set_dictation_active(app: &tauri::AppHandle, active: bool) {
-    if let Some(state) = app.try_state::<DictationActive>() {
-        if let Ok(mut g) = state.0.lock() {
-            *g = active;
+fn install_fn_release_watchdog(
+    app: tauri::AppHandle,
+    prev_down: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::Ordering;
+    use std::thread;
+    use std::time::Duration;
+
+    thread::spawn(move || {
+        // The CGEventTap occasionally misses the Fn up-edge after sleep,
+        // Mission Control, or tap re-enable churn. Poll the current HID
+        // modifier flags while we believe Fn is down; if the physical state
+        // says it is up, synthesize the missing stop event.
+        thread::sleep(Duration::from_millis(120));
+        while prev_down.load(Ordering::SeqCst) {
+            if !current_fn_flag_down() {
+                if prev_down.swap(false, Ordering::SeqCst) {
+                    dlog!("[clips-tray] Fn up missed — synthesizing voice stop");
+                    set_dictation_active(&app, false);
+                    let _ = app.emit(
+                        "voice:shortcut-stop",
+                        serde_json::json!({ "source": "fn", "synthetic": true }),
+                    );
+                }
+                break;
+            }
+            thread::sleep(Duration::from_millis(120));
         }
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn current_fn_flag_down() -> bool {
+    use core_graphics::event::CGEventFlags;
+    use core_graphics::event_source::CGEventSourceStateID;
+
+    extern "C" {
+        fn CGEventSourceFlagsState(state_id: CGEventSourceStateID) -> CGEventFlags;
     }
+
+    let flags = unsafe { CGEventSourceFlagsState(CGEventSourceStateID::HIDSystemState) };
+    flags.contains(CGEventFlags::CGEventFlagSecondaryFn)
 }

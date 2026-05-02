@@ -106,6 +106,7 @@ async function processClaimedContinuation(
   const client = new A2AClient(
     continuation.agentUrl,
     await signContinuationToken(continuation),
+    { requestTimeoutMs: 10_000 },
   );
   const deadline = Date.now() + PROCESSOR_WAIT_MS;
   let task: Task | null = null;
@@ -125,6 +126,7 @@ async function processClaimedContinuation(
       return;
     }
     await rescheduleA2AContinuation(continuation.id, 30_000);
+    await redispatchContinuation(continuation.id);
     return;
   }
 
@@ -137,6 +139,7 @@ async function processClaimedContinuation(
       return;
     }
     await rescheduleA2AContinuation(continuation.id, 30_000);
+    await redispatchContinuation(continuation.id);
     return;
   }
 
@@ -173,7 +176,17 @@ async function processClaimedContinuation(
       return;
     }
     await rescheduleA2AContinuation(continuation.id, 30_000);
+    await redispatchContinuation(continuation.id);
   }
+}
+
+async function redispatchContinuation(continuationId: string): Promise<void> {
+  await dispatchA2AContinuation(continuationId).catch((err) => {
+    console.error(
+      `[integrations] Failed to redispatch A2A continuation ${continuationId}:`,
+      err,
+    );
+  });
 }
 
 async function signContinuationToken(

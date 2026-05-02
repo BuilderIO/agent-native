@@ -64,7 +64,7 @@ The agent can navigate with:
 
 ### Vault (workspace-wide secrets)
 
-- `list-workspace-apps`: list apps installed in the workspace and their mounted paths
+- `list-workspace-apps`: list apps installed in the workspace and their mounted paths; when `url` is present, use it for links in Slack/email replies instead of returning only the relative path
 - `get-app-creation-settings`: see whether production app creation can use a Builder project
 - `set-app-creation-settings`: set the default Builder project ID in Dispatch settings without writing env vars or files
 - `start-workspace-app-creation`: start a new app request; in local dev, use the returned prompt with the local code agent, and in production it creates a Builder branch when a Builder project is configured

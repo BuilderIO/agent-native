@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow};
 
 use crate::dlog;
-use crate::state::{PopoverShownAt, RecordingActive};
+use crate::state::{DictationActive, PopoverShownAt, RecordingActive};
 
 // ---------------------------------------------------------------------------
 // Exclude-from-capture helper (macOS only)
@@ -170,4 +170,12 @@ pub fn is_recording_active(app: &AppHandle) -> bool {
     app.try_state::<RecordingActive>()
         .and_then(|s| s.0.lock().ok().map(|g| *g))
         .unwrap_or(false)
+}
+
+pub fn set_dictation_active(app: &AppHandle, active: bool) {
+    if let Some(state) = app.try_state::<DictationActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            *g = active;
+        }
+    }
 }
