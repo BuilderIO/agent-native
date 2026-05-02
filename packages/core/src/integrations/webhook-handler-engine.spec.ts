@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlatformAdapter } from "./types.js";
 import type { PendingTask } from "./pending-tasks-store.js";
 
@@ -16,6 +16,7 @@ const resolveEngineMock = vi.hoisted(() => vi.fn());
 const getStoredModelForEngineMock = vi.hoisted(() => vi.fn());
 const isLocalDatabaseMock = vi.hoisted(() => vi.fn());
 const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
+const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
   getThreadMapping: getThreadMappingMock,
@@ -140,6 +141,14 @@ describe("integration webhook handler engine resolution", () => {
         text: `resolved ${engine.name} ${model}`,
       });
     });
+  });
+
+  afterEach(() => {
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 
   it("uses the shared engine resolver instead of forcing Anthropic", async () => {
