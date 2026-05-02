@@ -1,9 +1,9 @@
 # Onboarding
 
 When you first open an app built on the agent-native framework, you'll see a
-**Setup** checklist in the agent sidebar. Each item is something the app needs
-from you — connect an AI engine, paste an API key, configure email delivery —
-before the agent can do its full job.
+**Setup** checklist in the agent sidebar. It keeps first-run configuration close
+to the agent chat: connect an AI engine, optionally point the app at shared
+infrastructure, and add providers only when you need them.
 
 ## For end users
 
@@ -11,9 +11,9 @@ before the agent can do its full job.
 
 - A **Setup** panel above the agent chat with a checklist like "Connect an AI
   engine", "Email delivery", etc.
-- A counter at the top (e.g. "1 of 4") shows how many steps are done.
-- The current step is expanded; finished steps collapse with a green check;
-  remaining steps sit dimmed below.
+- A counter at the top (e.g. "1 of 4") shows how many steps are ready.
+- The current step is expanded; finished steps show a green check and stay
+  readable if you open them.
 - Required steps show a small red **required** pill. The panel stays visible
   until every required step is complete.
 - Once everything required is done, the panel hides itself automatically.
@@ -23,14 +23,14 @@ before the agent can do its full job.
 ### How to complete each step
 
 Steps offer one or more **methods** — different ways to satisfy the same
-requirement. The recommended option is highlighted in blue; alternatives sit
-below it.
+requirement. The primary path is shown first; secondary paths are kept compact
+behind a picker or disclosure when a step has several equivalent providers.
 
 - **Connect a service (one click)** — e.g. _Connect Builder_ for the managed
   AI gateway. Click the button, a window opens, you sign in, the window closes,
   and the step is marked complete. No keys to copy.
-- **Paste an API key or fill a form** — e.g. _Use your Anthropic API key_,
-  _Use Resend_ for email. Click the method, paste the value(s), click **Save**.
+- **Paste an API key or fill a form** — e.g. choose an LLM provider, database,
+  OAuth provider, or email provider, paste the value(s), click **Save**.
   Secret fields use a password input so the value isn't shown on screen. Saved
   values go into your local `.env` (or workspace settings) — see
   [Secrets](/docs/secrets) for where they live.
@@ -42,14 +42,16 @@ below it.
 
 ### The built-in steps you'll usually see
 
-- **Connect an AI engine** (required) — the only mandatory step. Either
-  connect Builder for a one-click managed gateway, or paste a key for
-  Anthropic, OpenAI, Google Gemini, or OpenRouter.
-- **Email delivery** (optional) — needed for password resets and team
-  invitations. Resend or SendGrid; without it, reset emails just log to the
-  server console.
-- **Database** and **Authentication** — only shown in local dev mode.
-  Production deployments configure these via environment variables.
+- **Connect an AI engine** (required) — the only mandatory step. Connect
+  Builder for a one-click managed gateway, or open the secondary provider-key
+  picker and paste your own LLM key.
+- **Database** (optional) — set `DATABASE_URL` when you want to use a specific
+  SQL database connection string.
+- **Authentication** (optional) — built-in email/password accounts work by
+  default. Add OAuth or access-token sign-in only when you want those paths.
+- **Email delivery** (optional) — useful before deploy for password resets,
+  team invitations, and share notifications. Use the provider you already use;
+  local development can run without it.
 
 Templates can add their own steps on top of these — e.g. a CRM template might
 add "Connect Gmail", a docs template might add "Pick a default workspace". See
@@ -127,23 +129,23 @@ export default defineNitroPlugin(() => {
 
 ### Method kinds
 
-| Kind               | Payload                   | Use for                                   |
-| ------------------ | ------------------------- | ----------------------------------------- |
-| `link`             | `{ url, external? }`      | Send user to an OAuth flow or docs page   |
-| `form`             | `{ fields, writeScope? }` | Collect env vars (keys, secrets, URLs)    |
-| `builder-cli-auth` | `{ scope: "browser" }`    | Connect Builder (unlocks shared infra)    |
-| `agent-task`       | `{ prompt }`              | Send a prompt to the agent chat to handle |
+| Kind               | Payload                         | Use for                                   |
+| ------------------ | ------------------------------- | ----------------------------------------- |
+| `link`             | `{ url, external? }`            | Send user to an OAuth flow or docs page   |
+| `form`             | `{ fields, writeScope? }`       | Collect env vars (keys, secrets, URLs)    |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" }` | Connect Builder (unlocks shared infra)    |
+| `agent-task`       | `{ prompt }`                    | Send a prompt to the agent chat to handle |
 
 The `primary: true` flag marks a method as the big CTA for its step.
 
 ### Built-in steps
 
-| ID         | Required | Description                                   |
-| ---------- | -------- | --------------------------------------------- |
-| `llm`      | yes      | ANTHROPIC_API_KEY or Builder connection       |
-| `database` | no       | SQLite default or a DATABASE_URL for Postgres |
-| `auth`     | no       | Local dev mode, Google OAuth, or access token |
-| `email`    | no       | Resend or SendGrid for transactional email    |
+| ID         | Required | Description                                       |
+| ---------- | -------- | ------------------------------------------------- |
+| `llm`      | yes      | Builder connection or a provider LLM key          |
+| `database` | no       | Default database or any SQL `DATABASE_URL`        |
+| `auth`     | no       | Built-in accounts, optional OAuth or access token |
+| `email`    | no       | Resend or SendGrid for transactional email        |
 
 Any of these can be overridden by re-registering with the same `id` after the
 defaults load.

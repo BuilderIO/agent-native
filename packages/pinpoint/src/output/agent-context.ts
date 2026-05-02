@@ -4,13 +4,15 @@
 // Splits annotation output into { message, context } for the agent chat bridge.
 // The message is shown in chat UI. The context is hidden, appended for the agent.
 
-import type { Pin, OutputFormat, QueuedAnnotation } from "../types/index.js";
+import type {
+  AgentOutput,
+  Pin,
+  OutputFormat,
+  QueuedAnnotation,
+} from "../types/index.js";
 import { formatPins } from "./formatter.js";
 
-export interface AgentOutput {
-  message: string;
-  context: string;
-}
+export type { AgentOutput } from "../types/index.js";
 
 /**
  * Format a single pin into rich context for the agent.

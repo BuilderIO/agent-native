@@ -757,6 +757,7 @@ const NODE_BUILTINS = [
   "querystring",
   "readline",
   "repl",
+  "sqlite",
   "stream",
   "stream/web",
   "string_decoder",
@@ -774,7 +775,7 @@ const NODE_BUILTINS = [
   "zlib",
 ];
 
-function getNodeBuiltinNames(): string[] {
+export function getNodeBuiltinNames(): string[] {
   return NODE_BUILTINS;
 }
 
@@ -1213,6 +1214,7 @@ export default bundle;
             "child_process",
             "module",
             "process",
+            "sqlite",
             "worker_threads",
             "querystring",
             "zlib",
@@ -1401,6 +1403,7 @@ export default bundle;
           "child_process",
           "module",
           "process",
+          "sqlite",
           "worker_threads",
           "string_decoder",
           "diagnostics_channel",

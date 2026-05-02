@@ -28,6 +28,10 @@ import {
   resolveBuilderCredential,
   getBuilderGatewayBaseUrl,
 } from "../../server/credential-provider.js";
+import {
+  normalizeReasoningEffortForModel,
+  type ReasoningEffort,
+} from "../../shared/reasoning-effort.js";
 
 export const BUILDER_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -50,6 +54,7 @@ export const BUILDER_SUPPORTED_MODELS = [
   "gpt-5-1-codex-mini",
   "gemini-3-1-pro",
   "gemini-3-0-flash",
+  "gemini-3-1-flash-lite",
   "grok-code-fast",
   "qwen3-coder",
   "kimi-k2-5",
@@ -65,7 +70,7 @@ export const BUILDER_DEFAULT_MODEL = DEFAULT_MODEL;
 
 /**
  * Bucket an Anthropic `thinking.budgetTokens` value into the gateway's
- * three-level `reasoning_effort` enum (low / medium / high).
+ * legacy three-level `reasoning_effort` enum.
  *
  * The thresholds are chosen to align with typical Anthropic extended-thinking
  * budgets we see in the wild:
@@ -78,7 +83,7 @@ export const BUILDER_DEFAULT_MODEL = DEFAULT_MODEL;
  * `budgetTokens` map to "high" via the default. If the gateway later
  * exposes more granular knobs or different thresholds, revisit this map.
  */
-function mapReasoningEffort(budgetTokens: number): "low" | "medium" | "high" {
+function mapReasoningEffort(budgetTokens: number): ReasoningEffort {
   if (budgetTokens < 2000) return "low";
   if (budgetTokens < 8000) return "medium";
   return "high";
@@ -130,6 +135,15 @@ class BuilderEngine implements AgentEngine {
     const tools = engineToolsToAnthropic(opts.tools);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
+    const explicitReasoningEffort = normalizeReasoningEffortForModel(
+      opts.model,
+      opts.reasoningEffort,
+    );
+    const reasoningEffort =
+      explicitReasoningEffort ??
+      (typeof thinkingBudget === "number"
+        ? mapReasoningEffort(thinkingBudget)
+        : undefined);
 
     const body: Record<string, unknown> = {
       model: opts.model,
@@ -139,9 +153,7 @@ class BuilderEngine implements AgentEngine {
       ...(opts.maxOutputTokens !== undefined
         ? { max_tokens: opts.maxOutputTokens }
         : {}),
-      ...(typeof thinkingBudget === "number"
-        ? { reasoning_effort: mapReasoningEffort(thinkingBudget) }
-        : {}),
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     };
 
     const gatewayBaseUrl = getBuilderGatewayBaseUrl();
@@ -181,6 +193,18 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("text/html")) {
+      const rawText = await response.text().catch(() => "");
+      yield {
+        type: "stop",
+        reason: "error",
+        error: normalizeGatewayErrorText(rawText, response.status || 502),
+        errorCode: `http_${response.status || 502}`,
+      };
+      return;
+    }
+
     const reader = response.body?.getReader();
     if (!reader) {
       yield {
@@ -207,7 +231,7 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     try {
       errBody = JSON.parse(rawText) as GatewayErrorBody;
     } catch {
-      errBody.message = rawText;
+      errBody.message = normalizeGatewayErrorText(rawText, status);
     }
   }
   const code = errBody.code ?? `http_${status}`;
@@ -329,10 +353,15 @@ async function* parseJsonlStream(
       try {
         event = JSON.parse(line);
       } catch {
+        const normalized = normalizeGatewayErrorText(line, 502);
         yield {
           type: "stop",
           reason: "error",
-          error: `Builder gateway emitted invalid JSONL: ${line}`,
+          error: `Builder gateway returned invalid JSONL: ${normalized.slice(
+            0,
+            240,
+          )}`,
+          errorCode: "http_502",
         };
         return;
       }
@@ -477,6 +506,38 @@ async function* parseJsonlStream(
       // Already cancelled or closed
     }
   }
+}
+
+function normalizeGatewayErrorText(raw: string, status: number): string {
+  const text = raw.trim();
+  const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(text);
+  const readable = looksHtml ? htmlToText(text) : text;
+  if (/inactivity timeout/i.test(readable)) {
+    return `Builder gateway returned ${status}: Inactivity Timeout. The upstream connection was idle too long before sending data.`;
+  }
+  if (looksHtml) {
+    return `Builder gateway returned ${status}: ${readable.slice(0, 240)}`;
+  }
+  return readable;
+}
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h1|h2|h3|li|tr)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function createBuilderEngine(

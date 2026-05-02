@@ -67,6 +67,33 @@ describe("engineMessagesToAISDK", () => {
     expect(text).toBe("Hi");
   });
 
+  it("converts user file parts", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "file",
+            filename: "slides.pptx",
+            mediaType:
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            data: "UEsDBA==",
+          },
+          { type: "text", text: "Use this deck" },
+        ],
+      },
+    ];
+    const result = engineMessagesToAISDK(messages);
+    const content = result[0].content as any[];
+    expect(content[0]).toEqual({
+      type: "file",
+      filename: "slides.pptx",
+      mediaType:
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      data: "UEsDBA==",
+    });
+  });
+
   it("converts assistant message with tool-call (v6 input field)", () => {
     const messages: EngineMessage[] = [
       {
@@ -245,6 +272,25 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
     ]);
   });
 
+  it("converts AI SDK tool input errors into recoverable tool-call-error events", () => {
+    const events = aiSdkPartToEngineEvents({
+      type: "tool-input-error",
+      toolCallId: "tc-1",
+      toolName: "add-slide",
+      input: { position: "x" },
+      errorText: "position must be a number",
+    });
+    expect(events).toEqual([
+      {
+        type: "tool-call-error",
+        id: "tc-1",
+        name: "add-slide",
+        input: { position: "x" },
+        error: "position must be a number",
+      },
+    ]);
+  });
+
   it("converts finish event with totalUsage to usage + stop events", () => {
     const events = aiSdkPartToEngineEvents({
       type: "finish",
@@ -389,6 +435,27 @@ describe("aiSdkStepToAssistantContent", () => {
         input: { q: "test" },
       },
       { type: "thinking", text: "thinking...", signature: "sig-1" },
+    ]);
+  });
+
+  it("keeps invalid tool inputs in assistant history so an error result can be attached", () => {
+    const parts = aiSdkStepToAssistantContent({
+      content: [
+        {
+          type: "tool-input-error",
+          toolCallId: "tc-1",
+          toolName: "add-slide",
+          input: { position: "x" },
+        },
+      ],
+    });
+    expect(parts).toEqual([
+      {
+        type: "tool-call",
+        id: "tc-1",
+        name: "add-slide",
+        input: { position: "x" },
+      },
     ]);
   });
 

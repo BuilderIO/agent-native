@@ -52,9 +52,11 @@ export default defineAction({
       .describe("Layout type hint"),
     notes: z.string().optional().describe("Speaker notes for this slide"),
     position: z
-      .number()
-      .int()
-      .min(0)
+      .preprocess((value) => {
+        if (typeof value !== "string") return value;
+        const trimmed = value.trim();
+        return trimmed === "" ? value : Number(trimmed);
+      }, z.number().int().min(0))
       .optional()
       .describe(
         "Optional 0-based index to insert at. If not provided, appends to the end of the deck.",

@@ -1,27 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import {
+  IconBrandGoogle,
+  IconBrandZoom,
   IconCalendar,
-  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconCopy,
   IconExternalLink,
-  IconGripVertical,
   IconLink,
   IconDotsVertical,
   IconPlus,
   IconTrash,
-  IconAlertTriangle,
-  IconListCheck,
   IconVideo,
+  IconVideoOff,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import { toast } from "sonner";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
 import {
-  ConferencingSelector,
   CustomFieldsEditor as SharedCustomFieldsEditor,
   SlugEditor,
 } from "@agent-native/scheduling/react/components";
@@ -73,8 +71,21 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
+import { VisibilityBadge } from "@agent-native/core/client";
+import { useAppHeaderControls } from "@/components/layout/AppLayout";
 import {
   useBookingLinks,
   useCreateBookingLink,
@@ -88,9 +99,11 @@ import {
 } from "@/hooks/use-availability";
 import { useDbStatus } from "@/hooks/use-db-status";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import BookingsList from "./BookingsList";
 import type {
   AvailabilityConfig,
+  BookingLink,
   ConferencingConfig,
   CustomField,
   DaySchedule,
@@ -107,6 +120,7 @@ function slugify(value: string) {
 }
 
 const PRODUCTION_DOMAIN = "calendar.agent-native.com";
+const PREVIEW_COLLAPSED_STORAGE_KEY = "calendar.bookingLinks.previewCollapsed";
 
 type DraftLink = {
   id?: string;
@@ -140,6 +154,55 @@ const DEFAULT_SCHEDULE: DaySchedule = {
 };
 
 type Tab = "links" | "availability" | "bookings";
+
+function createEmptyDraft(): DraftLink {
+  return {
+    title: "",
+    slug: "",
+    description: "",
+    duration: 30,
+    durations: [30],
+    customFields: [],
+    conferencing: { type: "none" },
+    isActive: true,
+    slugManuallyEdited: false,
+  };
+}
+
+function draftFromBookingLink(link: BookingLink): DraftLink {
+  const durations =
+    link.durations && link.durations.length > 0
+      ? link.durations
+      : [link.duration];
+
+  return {
+    id: link.id,
+    title: link.title,
+    slug: link.slug,
+    description: link.description || "",
+    duration: link.duration,
+    durations,
+    customFields: link.customFields || [],
+    conferencing: link.conferencing || { type: "none" },
+    isActive: link.isActive,
+    // Always lock the slug for saved links — changing a saved URL would
+    // break existing shared links. Users can still edit the slug manually.
+    slugManuallyEdited: true,
+  };
+}
+
+function getDraftSignature(draft: DraftLink) {
+  return JSON.stringify({
+    title: draft.title.trim(),
+    slug: slugify(draft.slug),
+    description: draft.description.trim(),
+    duration: draft.duration,
+    durations: draft.durations,
+    customFields: draft.customFields,
+    conferencing: draft.conferencing,
+    isActive: draft.isActive,
+  });
+}
 
 /** Format "09:00" → "9 am", "17:00" → "5 pm" */
 function formatTime12(time: string) {
@@ -197,6 +260,193 @@ function formatAvailabilitySummary(config: AvailabilityConfig) {
   return `${dayLabel}, ${formatTime12(slot.start)} - ${formatTime12(slot.end)}`;
 }
 
+function BookingLinksListSkeleton() {
+  return (
+    <div className="space-y-3" aria-label="Loading meeting types">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div
+          key={index}
+          className="rounded-lg border border-border bg-card px-4 py-4 sm:px-5"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-16 rounded-full" />
+              </div>
+              <Skeleton className="h-3 w-44" />
+              <Skeleton className="h-3 w-36" />
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Skeleton className="h-9 w-28 rounded-full" />
+              <Skeleton className="h-9 w-9 rounded-full" />
+              <Skeleton className="h-9 w-9 rounded-full" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type ProviderStatus = "connected" | "disconnected" | "not-configured";
+
+const CONFERENCING_OPTIONS = [
+  {
+    type: "none",
+    label: "No conferencing",
+    description: "In-person, phone, or add details later",
+    Icon: IconVideoOff,
+  },
+  {
+    type: "google_meet",
+    label: "Google Meet",
+    description: "Auto-generate a Meet link",
+    Icon: IconBrandGoogle,
+  },
+  {
+    type: "zoom",
+    label: "Zoom",
+    description: "Auto-create a Zoom meeting per booking",
+    Icon: IconBrandZoom,
+  },
+  {
+    type: "custom",
+    label: "Custom link",
+    description: "Paste any meeting URL",
+    Icon: IconLink,
+  },
+] satisfies Array<{
+  type: ConferencingConfig["type"];
+  label: string;
+  description: string;
+  Icon: typeof IconVideo;
+}>;
+
+function BookingConferencingSelect({
+  value,
+  onChange,
+  zoomStatus,
+  googleStatus,
+  onConnectZoom,
+  zoomPending,
+}: {
+  value: ConferencingConfig;
+  onChange: (next: ConferencingConfig) => void;
+  zoomStatus: ProviderStatus;
+  googleStatus: ProviderStatus;
+  onConnectZoom: () => void;
+  zoomPending: boolean;
+}) {
+  const selected =
+    CONFERENCING_OPTIONS.find((option) => option.type === value.type) ??
+    CONFERENCING_OPTIONS[0];
+  const SelectedIcon = selected.Icon;
+  return (
+    <div className="space-y-3">
+      <Label className="flex items-center gap-1.5">
+        <IconVideo className="h-4 w-4" />
+        Conferencing
+      </Label>
+      <Select
+        value={value.type}
+        onValueChange={(type) =>
+          onChange({
+            type: type as ConferencingConfig["type"],
+            url: type === "custom" ? value.url : undefined,
+          })
+        }
+      >
+        <SelectTrigger className="h-11 py-2">
+          <div className="flex min-w-0 items-center gap-2 text-left">
+            <SelectedIcon className="h-4 w-4 shrink-0" />
+            <span className="truncate font-medium">{selected.label}</span>
+          </div>
+        </SelectTrigger>
+        <SelectContent>
+          {CONFERENCING_OPTIONS.map((option) => {
+            const status =
+              option.type === "zoom"
+                ? zoomStatus
+                : option.type === "google_meet"
+                  ? googleStatus
+                  : "connected";
+            return (
+              <SelectItem
+                key={option.type}
+                value={option.type}
+                className="py-2"
+              >
+                <div className="flex min-w-0 items-start gap-2">
+                  <option.Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{option.label}</span>
+                      {status === "connected" &&
+                        option.type !== "none" &&
+                        option.type !== "custom" && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Connected
+                          </span>
+                        )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {option.description}
+                    </p>
+                  </div>
+                </div>
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+
+      {value.type === "zoom" && zoomStatus !== "connected" && (
+        <div className="rounded-lg border border-border/70 bg-muted/25 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Connect Zoom</p>
+              <p className="text-xs text-muted-foreground">
+                {zoomStatus === "not-configured"
+                  ? "Zoom is selected, but this deployment is missing Zoom OAuth credentials."
+                  : "Zoom is selected. Connect your account to create a meeting for each booking."}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onConnectZoom}
+              disabled={zoomPending}
+              className="gap-1.5"
+            >
+              <IconBrandZoom className="h-4 w-4" />
+              {zoomPending ? "Connecting..." : "Connect Zoom"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {value.type === "custom" && (
+        <div className="space-y-1.5">
+          <Label htmlFor="booking-link-meeting-url" className="text-xs">
+            Meeting URL
+          </Label>
+          <Input
+            id="booking-link-meeting-url"
+            type="url"
+            value={value.url ?? ""}
+            onChange={(e) =>
+              onChange({ type: "custom", url: e.currentTarget.value })
+            }
+            placeholder="https://meet.example.com/room"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BookingLinksPage({
   selectedId = null,
 }: {
@@ -210,18 +460,18 @@ export default function BookingLinksPage({
   const updateBookingLink = useUpdateBookingLink();
   const deleteBookingLink = useDeleteBookingLink();
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
-  const [draft, setDraft] = useState<DraftLink>({
-    title: "",
-    slug: "",
-    description: "",
-    duration: 30,
-    durations: [30],
-    customFields: [],
-    conferencing: { type: "none" },
-    isActive: true,
-    slugManuallyEdited: false,
+  const [draft, setDraft] = useState<DraftLink>(() => createEmptyDraft());
+  const [savedDraftSignature, setSavedDraftSignature] = useState<string | null>(
+    null,
+  );
+  const [isPreviewCollapsed, setIsPreviewCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return (
+      window.localStorage.getItem(PREVIEW_COLLAPSED_STORAGE_KEY) === "true"
+    );
   });
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [customDurationInput, setCustomDurationInput] = useState("");
+  const [showCustomDurationInput, setShowCustomDurationInput] = useState(false);
 
   // Availability state
   const { data: availability } = useAvailability();
@@ -272,6 +522,14 @@ export default function BookingLinksPage({
     }
   }, [availability]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      PREVIEW_COLLAPSED_STORAGE_KEY,
+      String(isPreviewCollapsed),
+    );
+  }, [isPreviewCollapsed]);
+
   function updateDay(day: DayName, updates: Partial<DaySchedule>) {
     setSchedule((prev) => ({
       ...prev,
@@ -303,7 +561,12 @@ export default function BookingLinksPage({
       },
       {
         onSuccess: () => toast.success("Availability saved"),
-        onError: () => toast.error("Failed to save availability"),
+        onError: (error) =>
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to save availability",
+          ),
       },
     );
   }
@@ -326,42 +589,17 @@ export default function BookingLinksPage({
 
   useEffect(() => {
     if (!selectedLink) {
-      setDraft({
-        title: "",
-        slug: "",
-        description: "",
-        duration: 30,
-        durations: [30],
-        customFields: [],
-        conferencing: { type: "none" },
-        isActive: true,
-        slugManuallyEdited: false,
-      });
-      setShowAdvanced(false);
+      setDraft(createEmptyDraft());
+      setSavedDraftSignature(null);
       return;
     }
 
-    const durations =
-      selectedLink.durations && selectedLink.durations.length > 0
-        ? selectedLink.durations
-        : [selectedLink.duration];
-    setDraft({
-      id: selectedLink.id,
-      title: selectedLink.title,
-      slug: selectedLink.slug,
-      description: selectedLink.description || "",
-      duration: selectedLink.duration,
-      durations,
-      customFields: selectedLink.customFields || [],
-      conferencing: selectedLink.conferencing || { type: "none" },
-      isActive: selectedLink.isActive,
-      // Always lock the slug for saved links — changing a saved URL would
-      // break existing shared links. Users can still edit the slug manually.
-      slugManuallyEdited: true,
-    });
-    // Show advanced section if link has a description or custom slug
-    setShowAdvanced(!!selectedLink.description);
-  }, [selectedLink]);
+    const nextDraft = draftFromBookingLink(selectedLink);
+    setDraft(nextDraft);
+    setSavedDraftSignature(getDraftSignature(nextDraft));
+    setCustomDurationInput("");
+    setShowCustomDurationInput(false);
+  }, [selectedLink?.id, selectedLink?.updatedAt]);
 
   const bookingUsername = availability?.bookingUsername;
 
@@ -372,7 +610,7 @@ export default function BookingLinksPage({
         window.location.hostname !== "localhost"
           ? window.location.origin
           : `https://${PRODUCTION_DOMAIN}`;
-      return `${host}/meet/${bookingUsername}/${slug}`;
+      return `${host}/book/${bookingUsername}/${slug}`;
     }
     // Fallback for no username set
     if (typeof window === "undefined") return `/book/${slug}`;
@@ -380,6 +618,11 @@ export default function BookingLinksPage({
   }
 
   const previewUrl = getBookingUrl(draft.slug);
+  const draftSignature = useMemo(() => getDraftSignature(draft), [draft]);
+  const hasUnsavedChanges =
+    !!selectedLink &&
+    savedDraftSignature !== null &&
+    draftSignature !== savedDraftSignature;
 
   function handleCreate() {
     const n = bookingLinks.length + 1;
@@ -415,13 +658,14 @@ export default function BookingLinksPage({
 
   async function handleSave() {
     if (!draft.id) return;
+    if (!hasUnsavedChanges) return;
     // Optimistic row hasn't resolved to a real ID yet — wait for it
     if (draft.id.startsWith(OPTIMISTIC_PREFIX)) {
       toast.error("Still creating — please try again in a moment");
       return;
     }
     try {
-      await updateBookingLink.mutateAsync({
+      const updated = await updateBookingLink.mutateAsync({
         id: draft.id,
         title: draft.title.trim(),
         slug: slugify(draft.slug),
@@ -430,11 +674,12 @@ export default function BookingLinksPage({
         durations: draft.durations.length > 1 ? draft.durations : undefined,
         customFields:
           draft.customFields.length > 0 ? draft.customFields : undefined,
-        conferencing:
-          draft.conferencing.type !== "none" ? draft.conferencing : undefined,
+        conferencing: draft.conferencing,
         isActive: draft.isActive,
       });
-      navigate("/booking-links");
+      const nextDraft = draftFromBookingLink(updated);
+      setDraft(nextDraft);
+      setSavedDraftSignature(getDraftSignature(nextDraft));
       toast.success("Booking link updated");
     } catch {
       toast.error("Failed to update booking link");
@@ -452,6 +697,22 @@ export default function BookingLinksPage({
     }
   }
 
+  function addCustomDuration() {
+    const minutes = Number.parseInt(customDurationInput, 10);
+    if (!Number.isFinite(minutes) || minutes < 5 || minutes > 480) {
+      toast.error("Enter a duration between 5 and 480 minutes");
+      return;
+    }
+    setDraft((prev) => {
+      const next = Array.from(new Set([...prev.durations, minutes])).sort(
+        (a, b) => a - b,
+      );
+      return { ...prev, durations: next, duration: next[0] };
+    });
+    setCustomDurationInput("");
+    setShowCustomDurationInput(false);
+  }
+
   async function copyPreviewUrl(slug: string) {
     await navigator.clipboard.writeText(getBookingUrl(slug));
     toast.success("Booking link copied");
@@ -460,49 +721,111 @@ export default function BookingLinksPage({
   function openPreview(slug: string) {
     // For local preview, use the local path
     const localPath = bookingUsername
-      ? `/meet/${bookingUsername}/${slug}`
+      ? `/book/${bookingUsername}/${slug}`
       : `/book/${slug}`;
     window.open(localPath, "_blank", "noopener,noreferrer");
   }
+
+  const handleSaveRef = useRef(handleSave);
+  useEffect(() => {
+    handleSaveRef.current = handleSave;
+  });
+
+  const detailHeaderControls = useMemo(() => {
+    if (!selectedId) return null;
+    return {
+      left: (
+        <button
+          type="button"
+          onClick={() => navigate("/booking-links")}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <IconChevronLeft className="h-4 w-4" />
+          Back
+        </button>
+      ),
+      right: selectedLink ? (
+        <div className="flex items-center gap-1.5">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void copyPreviewUrl(draft.slug)}
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  aria-label="Copy booking link"
+                >
+                  <IconCopy className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Copy link</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => openPreview(draft.slug)}
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  aria-label="Open booking link"
+                >
+                  <IconExternalLink className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Open link</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void handleSaveRef.current()}
+            disabled={updateBookingLink.isPending || !hasUnsavedChanges}
+            className="h-8 px-3"
+          >
+            {updateBookingLink.isPending
+              ? "Saving..."
+              : hasUnsavedChanges
+                ? "Save changes"
+                : "Saved"}
+          </Button>
+        </div>
+      ) : null,
+    };
+  }, [
+    selectedId,
+    selectedLink,
+    draft.slug,
+    updateBookingLink.isPending,
+    hasUnsavedChanges,
+    navigate,
+  ]);
+  useAppHeaderControls(detailHeaderControls);
 
   const hasLinks = bookingLinks.length > 0;
 
   // If a link is selected, show the detail/edit view
   if (selectedId) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:p-6">
-        {/* Top bar: back + save */}
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => navigate("/booking-links")}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <IconChevronLeft className="h-4 w-4" />
-            Back
-          </button>
-          {selectedLink && (
-            <div className="flex items-center gap-2">
-              <ShareButton
-                resourceType="booking-link"
-                resourceId={selectedLink.id}
-                resourceTitle={selectedLink.title}
-              />
-              <Button
-                type="button"
-                onClick={handleSave}
-                disabled={updateBookingLink.isPending}
-              >
-                {updateBookingLink.isPending ? "Saving…" : "Save changes"}
-              </Button>
-            </div>
-          )}
-        </div>
-
+      <div className="mx-auto max-w-6xl space-y-6 px-4 py-5 sm:p-6">
         {/* Two-column layout: form left, preview right */}
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div
+          className={cn(
+            "grid gap-6",
+            isPreviewCollapsed
+              ? "lg:grid-cols-[minmax(0,1fr)_auto]"
+              : "lg:grid-cols-2",
+          )}
+        >
           {/* Left — Edit form */}
-          <div className="space-y-5">
+          <div
+            className={cn(
+              "space-y-8",
+              isPreviewCollapsed && "mx-auto w-full max-w-4xl",
+            )}
+          >
             {isLoading ? (
               <div className="space-y-5">
                 <div className="space-y-2">
@@ -612,7 +935,88 @@ export default function BookingLinksPage({
                         </button>
                       );
                     })}
+                    {draft.durations
+                      .filter((minutes) => !DURATION_PRESETS.includes(minutes))
+                      .map((minutes) => {
+                        const isSelected = draft.durations.includes(minutes);
+                        return (
+                          <button
+                            key={minutes}
+                            type="button"
+                            onClick={() =>
+                              setDraft((prev) => {
+                                if (prev.durations.length === 1) return prev;
+                                const next = prev.durations.filter(
+                                  (d) => d !== minutes,
+                                );
+                                return {
+                                  ...prev,
+                                  durations: next,
+                                  duration: next[0],
+                                };
+                              })
+                            }
+                            className={cn(
+                              "rounded-full border px-3 py-1.5 text-sm",
+                              isSelected
+                                ? "border-primary bg-primary/10 text-primary"
+                                : "border-border text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                            )}
+                          >
+                            {minutes} min
+                          </button>
+                        );
+                      })}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowCustomDurationInput((visible) => !visible)
+                      }
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm",
+                        showCustomDurationInput
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border border-dashed text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                      )}
+                    >
+                      <IconPlus className="h-3.5 w-3.5" />
+                      Custom
+                    </button>
                   </div>
+                  {showCustomDurationInput && (
+                    <div className="flex max-w-xs items-center gap-2">
+                      <Input
+                        type="number"
+                        min={5}
+                        max={480}
+                        step={5}
+                        autoFocus
+                        value={customDurationInput}
+                        onChange={(e) => setCustomDurationInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addCustomDuration();
+                          }
+                          if (e.key === "Escape") {
+                            setShowCustomDurationInput(false);
+                          }
+                        }}
+                        placeholder="Minutes"
+                        className="h-9"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addCustomDuration}
+                        disabled={!customDurationInput.trim()}
+                        className="shrink-0"
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  )}
                   {draft.durations.length > 1 && (
                     <p className="text-xs text-muted-foreground">
                       Bookers will choose between:{" "}
@@ -621,61 +1025,75 @@ export default function BookingLinksPage({
                   )}
                 </div>
 
-                {/* Visibility toggle */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">Link visibility</p>
-                    <p className="text-xs text-muted-foreground">
-                      Turn this off to disable the public booking page.
-                    </p>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label>URL</Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => openPreview(draft.slug)}
+                      className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                      title="Open in new tab"
+                      aria-label="Open booking page in new tab"
+                    >
+                      <IconExternalLink className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <Switch
-                    checked={draft.isActive}
-                    onCheckedChange={(checked) =>
-                      setDraft((prev) => ({ ...prev, isActive: checked }))
+                  {/* Editable URL parts (username / slug) — shared package component */}
+                  <SlugEditor
+                    hideLabel
+                    host={
+                      typeof window !== "undefined" &&
+                      window.location.hostname !== "localhost"
+                        ? window.location.host
+                        : PRODUCTION_DOMAIN
                     }
+                    pathPrefix="/book"
+                    username={
+                      bookingUsername ||
+                      usernameInput ||
+                      suggestedUsername ||
+                      ""
+                    }
+                    slug={draft.slug}
+                    onUsernameChange={(val) => {
+                      setUsernameInput(val);
+                      if (val) {
+                        updateAvailability.mutate(
+                          {
+                            timezone,
+                            weeklySchedule: schedule,
+                            bufferMinutes,
+                            minNoticeHours,
+                            maxAdvanceDays,
+                            slotDurationMinutes: slotDuration,
+                            bookingPageSlug: bookingSlug,
+                            bookingUsername: val,
+                          },
+                          {
+                            onError: (error) =>
+                              toast.error(
+                                error instanceof Error
+                                  ? error.message
+                                  : "Failed to update booking username",
+                              ),
+                          },
+                        );
+                      }
+                    }}
+                    onSlugChange={(val) => {
+                      setDraft((prev) => ({
+                        ...prev,
+                        slug: val,
+                        slugManuallyEdited: true,
+                      }));
+                    }}
                   />
                 </div>
 
-                {/* Editable URL parts (username / slug) — shared package component */}
-                <SlugEditor
-                  host={
-                    typeof window !== "undefined" &&
-                    window.location.hostname !== "localhost"
-                      ? window.location.host
-                      : PRODUCTION_DOMAIN
-                  }
-                  pathPrefix="/meet"
-                  username={
-                    bookingUsername || usernameInput || suggestedUsername || ""
-                  }
-                  slug={draft.slug}
-                  onUsernameChange={(val) => {
-                    setUsernameInput(val);
-                    if (val) {
-                      updateAvailability.mutate({
-                        timezone,
-                        weeklySchedule: schedule,
-                        bufferMinutes,
-                        minNoticeHours,
-                        maxAdvanceDays,
-                        slotDurationMinutes: slotDuration,
-                        bookingPageSlug: bookingSlug,
-                        bookingUsername: val,
-                      });
-                    }
-                  }}
-                  onSlugChange={(val) => {
-                    setDraft((prev) => ({
-                      ...prev,
-                      slug: val,
-                      slugManuallyEdited: true,
-                    }));
-                  }}
-                />
-
-                {/* Conferencing — shared package component, Zoom uses real OAuth */}
-                <ConferencingSelector
+                {/* Conferencing — Zoom uses real OAuth */}
+                <BookingConferencingSelect
                   value={draft.conferencing}
                   onChange={(conferencing) =>
                     setDraft((prev) => ({ ...prev, conferencing }))
@@ -690,7 +1108,17 @@ export default function BookingLinksPage({
                   googleStatus={
                     googleStatus.data?.connected ? "connected" : "disconnected"
                   }
-                  onConnectZoom={() => connectZoom.mutate()}
+                  onConnectZoom={() =>
+                    connectZoom.mutate(undefined, {
+                      onError: (error) =>
+                        toast.error(
+                          error instanceof Error
+                            ? error.message
+                            : "Could not start Zoom connection",
+                        ),
+                    })
+                  }
+                  zoomPending={connectZoom.isPending}
                 />
 
                 {/* Custom fields editor — shared package component */}
@@ -701,8 +1129,22 @@ export default function BookingLinksPage({
                   }
                 />
 
-                {/* Actions */}
-                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+                {/* Lower-risk settings */}
+                <div className="space-y-5 border-t border-border pt-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium">Link visibility</p>
+                      <p className="text-xs text-muted-foreground">
+                        Turn this off to disable the public page.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={draft.isActive}
+                      onCheckedChange={(checked) =>
+                        setDraft((prev) => ({ ...prev, isActive: checked }))
+                      }
+                    />
+                  </div>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <button
@@ -740,17 +1182,36 @@ export default function BookingLinksPage({
           {/* Right — Live booking page preview */}
           {selectedLink && (
             <div className="lg:sticky lg:top-8 lg:self-start">
-              <BookingPreview
-                title={draft.title}
-                description={draft.description}
-                durations={draft.durations}
-                customFields={draft.customFields}
-                isActive={draft.isActive}
-                availability={availability ?? undefined}
-                bookingUrl={previewUrl}
-                onCopy={() => void copyPreviewUrl(draft.slug)}
-                onOpen={() => openPreview(draft.slug)}
-              />
+              {isPreviewCollapsed ? (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setIsPreviewCollapsed(false)}
+                        className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                        aria-label="Open preview"
+                      >
+                        <IconChevronLeft className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">Open preview</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : (
+                <BookingPreview
+                  title={draft.title}
+                  description={draft.description}
+                  durations={draft.durations}
+                  customFields={draft.customFields}
+                  isActive={draft.isActive}
+                  availability={availability ?? undefined}
+                  bookingUrl={previewUrl}
+                  onCopy={() => void copyPreviewUrl(draft.slug)}
+                  onOpen={() => openPreview(draft.slug)}
+                  onCollapse={() => setIsPreviewCollapsed(true)}
+                />
+              )}
             </div>
           )}
         </div>
@@ -759,7 +1220,7 @@ export default function BookingLinksPage({
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
+    <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Booking Links</h1>
@@ -785,7 +1246,9 @@ export default function BookingLinksPage({
 
         <TabsContent value="links">
           <div className="space-y-6">
-            {!hasLinks && !isLoading ? (
+            {isLoading ? (
+              <BookingLinksListSkeleton />
+            ) : !hasLinks ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 px-6 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-4">
                   <IconLink className="h-6 w-6 text-muted-foreground" />
@@ -844,7 +1307,8 @@ export default function BookingLinksPage({
                           </p>
                           {availability && (
                             <p className="mt-0.5 text-xs text-muted-foreground truncate">
-                              {formatAvailabilitySummary(availability)}
+                              {formatAvailabilitySummary(availability)} •{" "}
+                              {availability.timezone}
                             </p>
                           )}
                         </button>
@@ -934,7 +1398,7 @@ export default function BookingLinksPage({
         </TabsContent>
 
         <TabsContent value="availability">
-          <div className="max-w-2xl space-y-6">
+          <div className="mx-auto max-w-2xl space-y-6">
             {/* Weekly Schedule */}
             <Card>
               <CardHeader>
@@ -944,6 +1408,20 @@ export default function BookingLinksPage({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+                  <Label htmlFor="booking-links-availability-timezone">
+                    Timezone
+                  </Label>
+                  <TimezoneCombobox
+                    id="booking-links-availability-timezone"
+                    value={timezone}
+                    onChange={setTimezone}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Weekly hours like 9 AM-5 PM are interpreted in this timezone
+                    before visitors see them in their own browser timezone.
+                  </p>
+                </div>
                 {DAYS.map(({ key, label, short }) => {
                   const day = schedule[key];
                   const slot = day.slots[0] ?? { start: "09:00", end: "17:00" };
@@ -1053,7 +1531,7 @@ export default function BookingLinksPage({
                   <p className="text-xs text-muted-foreground">
                     Your unique handle for booking URLs, e.g.{" "}
                     {PRODUCTION_DOMAIN}
-                    /meet/
+                    /book/
                     <strong>{usernameInput || "your-name"}</strong>/meeting-slug
                   </p>
                   <Input
@@ -1122,6 +1600,7 @@ function BookingPreview({
   bookingUrl,
   onCopy,
   onOpen,
+  onCollapse,
 }: {
   title: string;
   description: string;
@@ -1132,6 +1611,7 @@ function BookingPreview({
   bookingUrl?: string;
   onCopy?: () => void;
   onOpen?: () => void;
+  onCollapse?: () => void;
 }) {
   const displayTitle = title.trim() || "Untitled Meeting";
   const hasDurationChoice = durations.length > 1;
@@ -1225,6 +1705,16 @@ function BookingPreview({
               <Badge variant="secondary" className="text-[10px]">
                 Hidden
               </Badge>
+            )}
+            {onCollapse && (
+              <button
+                type="button"
+                onClick={onCollapse}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                title="Collapse preview"
+              >
+                <IconChevronRight className="h-3.5 w-3.5" />
+              </button>
             )}
             {onCopy && (
               <button

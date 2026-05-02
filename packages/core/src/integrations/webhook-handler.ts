@@ -397,10 +397,22 @@ async function processIncomingMessage(
     } catch {}
   }
 
-  // Add the new user message
+  // Add the new user message. Include verified platform identity as lightweight
+  // context so app-specific agents can attribute requests without guessing.
+  const identityLines = [
+    `Platform: ${incoming.platform}`,
+    incoming.senderName ? `Sender name: ${incoming.senderName}` : null,
+    incoming.senderEmail ? `Sender email: ${incoming.senderEmail}` : null,
+    incoming.senderId ? `Sender ID: ${incoming.senderId}` : null,
+  ].filter(Boolean);
+  const userText =
+    identityLines.length > 1
+      ? `<integration-context>\n${identityLines.join("\n")}\n</integration-context>\n\n${incoming.text}`
+      : incoming.text;
+
   const messages: EngineMessage[] = [
     ...existingMessages,
-    { role: "user", content: [{ type: "text", text: incoming.text }] },
+    { role: "user", content: [{ type: "text", text: userText }] },
   ];
 
   // Run agent loop via startRun, wrapped in a request context so that

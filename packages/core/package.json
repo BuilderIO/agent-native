@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.7.19",
+  "version": "0.7.22",
   "type": "module",
   "description": "Framework for agent-native application development — where AI agents and UI share state via files",
   "license": "MIT",
@@ -89,7 +89,7 @@
     "build": "tsc && node scripts/finalize-build.mjs",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run",
+    "test": "vitest --run src",
     "prepack": "cp ../../README.md ./README.md",
     "prepublishOnly": "npm run build",
     "release": "npm version patch && npm publish --access public"

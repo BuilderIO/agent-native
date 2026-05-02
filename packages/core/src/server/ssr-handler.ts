@@ -42,6 +42,10 @@ function getAppBasePath(): string {
 
 function stripAppBasePath(pathname: string): string {
   const basePath = getAppBasePath();
+  return stripBasePath(pathname, basePath);
+}
+
+function stripBasePath(pathname: string, basePath: string): string {
   if (!basePath) return pathname;
   if (pathname === basePath) return "/";
   if (pathname.startsWith(`${basePath}/`)) {
@@ -50,15 +54,41 @@ function stripAppBasePath(pathname: string): string {
   return pathname;
 }
 
-function requestWithPathname(request: Request, pathname: string): Request {
+function requestWithPathname(
+  request: Request,
+  pathname: string,
+  basePath: string,
+): Request {
   const url = new URL(request.url);
-  if (url.pathname === pathname) return request;
-  url.pathname = pathname;
-  return new Request(url, {
+  let changed = false;
+  if (basePath && pathname === "/__manifest") {
+    const paths = url.searchParams.get("paths");
+    if (paths) {
+      const strippedPaths = paths
+        .split(",")
+        .map((path) => stripBasePath(path, basePath))
+        .join(",");
+      if (strippedPaths !== paths) {
+        url.searchParams.set("paths", strippedPaths);
+        changed = true;
+      }
+    }
+  }
+  if (url.pathname !== pathname) {
+    url.pathname = pathname;
+    changed = true;
+  }
+  if (!changed) return request;
+  const init: RequestInit & { duplex?: "half" } = {
     method: request.method,
     headers: request.headers,
     signal: request.signal,
-  });
+  };
+  if (request.body && !["GET", "HEAD"].includes(request.method.toUpperCase())) {
+    init.body = request.body;
+    init.duplex = "half";
+  }
+  return new Request(url, init);
 }
 
 function prefixMountedPath(path: string, basePath: string): string {
@@ -131,7 +161,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       return new Response(null, { status: 404 });
     }
     try {
-      const request = requestWithPathname(event.req as Request, p);
+      const request = requestWithPathname(event.req as Request, p, basePath);
       if (request.method === "HEAD") {
         const getRequest = new Request(request.url, {
           method: "GET",

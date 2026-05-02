@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useSendToAgentChat } from "@agent-native/core/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,8 +9,12 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -34,9 +38,9 @@ const CHART_TYPES: { value: ChartType; label: string }[] = [
 
 const SOURCES: { value: DataSourceType; label: string }[] = [
   { value: "bigquery", label: "BigQuery" },
-  { value: "app-db", label: "App DB" },
   { value: "ga4", label: "Google Analytics" },
   { value: "amplitude", label: "Amplitude" },
+  { value: "first-party", label: "First-party Analytics" },
 ];
 
 function generatePanelId(title: string): string {
@@ -117,14 +121,32 @@ interface PanelEditorDialogProps {
   existingPanelTitles: string[];
 }
 
-export function PanelEditorDialog({
+interface PanelEditorContentProps extends PanelEditorDialogProps {}
+
+function EditorFooter({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`flex flex-col-reverse gap-2 sm:flex-row sm:justify-end ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+function PanelEditorContent({
   open,
   onOpenChange,
   panel,
   onSave,
   dashboardId,
   existingPanelTitles,
-}: PanelEditorDialogProps) {
+}: PanelEditorContentProps) {
   const [form, setForm] = useState<PanelFormValues>(() => panelToForm(panel));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,8 +197,9 @@ export function PanelEditorDialog({
         `The user wants to add a new panel to SQL dashboard "${dashboardId}". ${titlesLine} ` +
         `Use the \`update-dashboard\` action with ops=[{op:'insert', path:'/panels/-', value: <panel>}] ` +
         `to append, or an appropriate index to place the panel in the right spot. ` +
-        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'app-db'|'ga4'|'amplitude'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'), width (1 half | 2 full), config? }. ` +
+        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'), width (1 half | 2 full), config? }. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
+        `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +
         `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), description, columns, pivot, limit }. ` +
         `Consult the data dictionary first via \`list-data-dictionary --search <topic>\`, then read the relevant \`.builder/skills/<provider>/SKILL.md\` before writing SQL. ` +
         `Every BigQuery panel is dry-run validated on save — if columns/tables are wrong the save returns a 400 with the BQ error and you must fix the SQL and retry. ` +
@@ -307,119 +330,170 @@ export function PanelEditorDialog({
     </div>
   );
 
+  if (isEdit) {
+    return (
+      <>
+        {manualForm}
+        <EditorFooter>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSubmit}
+            disabled={!canSave || saving}
+          >
+            {saving ? "Saving..." : "Save changes"}
+          </Button>
+        </EditorFooter>
+      </>
+    );
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Tabs value={tab} onValueChange={(v) => setTab(v as "describe" | "manual")}>
+      <TabsList className="grid w-full grid-cols-2">
+        <TabsTrigger value="describe">Describe</TabsTrigger>
+        <TabsTrigger value="manual">Manual</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="describe" className="mt-4">
+        <div className="grid gap-3">
+          <Label htmlFor="panel-prompt">What do you want to chart?</Label>
+          <Textarea
+            id="panel-prompt"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="e.g. Weekly signups by channel over the last 6 months, stacked area"
+            className="min-h-[140px] resize-y text-sm"
+            autoFocus
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                handleDescribe();
+              }
+            }}
+          />
+          <p className="text-xs text-muted-foreground">
+            The agent will consult the data dictionary, write the SQL, and
+            append the panel. Press{" "}
+            <kbd className="px-1 rounded border bg-muted font-mono text-[10px]">
+              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+              +Enter
+            </kbd>{" "}
+            to submit.
+          </p>
+        </div>
+        <EditorFooter className="mt-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            disabled={isGenerating}
+          >
+            Cancel
+          </Button>
+          <Button size="sm" onClick={handleDescribe} disabled={!canGenerate}>
+            {isGenerating ? (
+              <>
+                <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              "Generate"
+            )}
+          </Button>
+        </EditorFooter>
+      </TabsContent>
+
+      <TabsContent value="manual" className="mt-2">
+        {manualForm}
+        <EditorFooter>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSubmit}
+            disabled={!canSave || saving}
+          >
+            {saving ? "Saving..." : "Add panel"}
+          </Button>
+        </EditorFooter>
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+export function PanelEditorDialog(props: PanelEditorDialogProps) {
+  if (!props.panel) return null;
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit panel" : "Add panel"}</DialogTitle>
+          <DialogTitle>Edit panel</DialogTitle>
         </DialogHeader>
 
-        {isEdit ? (
-          <>
-            {manualForm}
-            <DialogFooter>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onOpenChange(false)}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleSubmit}
-                disabled={!canSave || saving}
-              >
-                {saving ? "Saving..." : "Save changes"}
-              </Button>
-            </DialogFooter>
-          </>
-        ) : (
-          <Tabs
-            value={tab}
-            onValueChange={(v) => setTab(v as "describe" | "manual")}
-          >
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="describe">Describe</TabsTrigger>
-              <TabsTrigger value="manual">Manual</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="describe" className="mt-4">
-              <div className="grid gap-3">
-                <Label htmlFor="panel-prompt">What do you want to chart?</Label>
-                <Textarea
-                  id="panel-prompt"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="e.g. Weekly signups by channel over the last 6 months, stacked area"
-                  className="min-h-[140px] resize-y text-sm"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                      e.preventDefault();
-                      handleDescribe();
-                    }
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  The agent will consult the data dictionary, write the SQL, and
-                  append the panel. Press{" "}
-                  <kbd className="px-1 rounded border bg-muted font-mono text-[10px]">
-                    ⌘ ↵
-                  </kbd>{" "}
-                  to send.
-                </p>
-              </div>
-              <DialogFooter className="mt-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onOpenChange(false)}
-                  disabled={isGenerating}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleDescribe}
-                  disabled={!canGenerate}
-                >
-                  {isGenerating ? (
-                    <>
-                      <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    "Generate"
-                  )}
-                </Button>
-              </DialogFooter>
-            </TabsContent>
-
-            <TabsContent value="manual" className="mt-2">
-              {manualForm}
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onOpenChange(false)}
-                  disabled={saving}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleSubmit}
-                  disabled={!canSave || saving}
-                >
-                  {saving ? "Saving..." : "Add panel"}
-                </Button>
-              </DialogFooter>
-            </TabsContent>
-          </Tabs>
-        )}
+        <PanelEditorContent {...props} />
       </DialogContent>
     </Dialog>
+  );
+}
+
+interface AddPanelPopoverProps {
+  children: ReactElement;
+  onSave: (panel: SqlPanel) => Promise<void>;
+  dashboardId: string;
+  existingPanelTitles: string[];
+  align?: "start" | "center" | "end";
+  side?: "top" | "right" | "bottom" | "left";
+}
+
+export function AddPanelPopover({
+  children,
+  onSave,
+  dashboardId,
+  existingPanelTitles,
+  align = "end",
+  side = "bottom",
+}: AddPanelPopoverProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent
+        align={align}
+        side={side}
+        sideOffset={8}
+        aria-label="Add panel"
+        className="w-[calc(100vw-2rem)] sm:w-[640px] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto p-5"
+      >
+        <div className="mb-4">
+          <h2 className="text-base font-semibold leading-none tracking-tight">
+            Add panel
+          </h2>
+        </div>
+        <PanelEditorContent
+          open={open}
+          onOpenChange={setOpen}
+          panel={null}
+          onSave={onSave}
+          dashboardId={dashboardId}
+          existingPanelTitles={existingPanelTitles}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }

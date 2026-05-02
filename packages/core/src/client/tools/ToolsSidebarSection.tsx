@@ -11,6 +11,7 @@ import {
   IconDots,
   IconHelpCircle,
   IconPencil,
+  IconGripVertical,
 } from "@tabler/icons-react";
 import { cn } from "../utils.js";
 import { sendToAgentChat } from "../agent-chat.js";
@@ -19,6 +20,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import { applyToolsOrder, getToolsOrder, setToolsOrder } from "./tool-order.js";
 
 interface Tool {
   id: string;
@@ -60,6 +62,11 @@ export function ToolsSidebarSection() {
   const [renameValue, setRenameValue] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [createPrompt, setCreatePrompt] = useState("");
+  const [toolOrderState, setToolOrderState] = useState<string[]>(() =>
+    typeof window !== "undefined" ? getToolsOrder() : [],
+  );
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const { data: tools, isLoading } = useQuery<Tool[]>({
     queryKey: ["tools"],
@@ -104,6 +111,11 @@ export function ToolsSidebarSection() {
           const next = new Set(prev);
           next.delete(toolId);
           saveFavorites(next);
+          return next;
+        });
+        setToolOrderState((prev) => {
+          const next = prev.filter((id) => id !== toolId);
+          if (next.length !== prev.length) setToolsOrder(next);
           return next;
         });
         if (
@@ -165,13 +177,33 @@ export function ToolsSidebarSection() {
 
   const sortedTools = useMemo(() => {
     if (!tools) return [];
-    return [...tools].sort((a, b) => {
+    const defaultSorted = [...tools].sort((a, b) => {
       const aFav = favoriteIds.has(a.id) ? 0 : 1;
       const bFav = favoriteIds.has(b.id) ? 0 : 1;
       if (aFav !== bFav) return aFav - bFav;
       return a.name.localeCompare(b.name);
     });
-  }, [tools, favoriteIds]);
+    return toolOrderState.length > 0
+      ? applyToolsOrder(defaultSorted, toolOrderState)
+      : defaultSorted;
+  }, [tools, favoriteIds, toolOrderState]);
+
+  const reorderTool = useCallback(
+    (activeId: string, overId: string) => {
+      if (activeId === overId) return;
+      const ids = sortedTools.map((tool) => tool.id);
+      const oldIndex = ids.indexOf(activeId);
+      const newIndex = ids.indexOf(overId);
+      if (oldIndex === -1 || newIndex === -1) return;
+      const next = [...ids];
+      const [moved] = next.splice(oldIndex, 1);
+      if (!moved) return;
+      next.splice(newIndex, 0, moved);
+      setToolsOrder(next);
+      setToolOrderState(next);
+    },
+    [sortedTools],
+  );
 
   const handleCreate = () => {
     if (!createPrompt.trim()) return;
@@ -222,7 +254,9 @@ export function ToolsSidebarSection() {
                 e.preventDefault();
                 handleCreate();
               }}
+              className="space-y-3"
             >
+              <p className="text-sm font-semibold text-foreground">New tool</p>
               <textarea
                 autoFocus
                 value={createPrompt}
@@ -236,10 +270,10 @@ export function ToolsSidebarSection() {
                   }
                 }}
               />
-              <div className="flex items-center justify-end gap-2 mt-3">
+              <div className="flex items-center justify-end gap-2">
                 <span className="text-[11px] text-muted-foreground/75">
                   {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                  +Enter
+                  +Enter to submit
                 </span>
                 <button
                   type="submit"
@@ -273,13 +307,62 @@ export function ToolsSidebarSection() {
               location.pathname === `/tools/${tool.id}/edit`;
             const isFav = favoriteIds.has(tool.id);
             const isRenamingThis = renamingId === tool.id;
+            const actionsVisible = menuOpenId === tool.id || isRenamingThis;
 
             return (
-              <div key={tool.id} className="group/tool relative">
+              <div
+                key={tool.id}
+                onDragOver={(e) => {
+                  if (!draggingId || draggingId === tool.id) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  setDragOverId(tool.id);
+                }}
+                onDragLeave={() => {
+                  setDragOverId((current) =>
+                    current === tool.id ? null : current,
+                  );
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const activeId =
+                    draggingId || e.dataTransfer.getData("text/plain");
+                  setDraggingId(null);
+                  setDragOverId(null);
+                  if (activeId) reorderTool(activeId, tool.id);
+                }}
+                className={cn(
+                  "group/tool relative flex items-center min-w-0 rounded-md",
+                  draggingId === tool.id && "opacity-50",
+                  dragOverId === tool.id &&
+                    draggingId !== tool.id &&
+                    "bg-accent/60",
+                )}
+              >
+                <button
+                  type="button"
+                  draggable
+                  onDragStart={(e) => {
+                    setDraggingId(tool.id);
+                    setDragOverId(null);
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", tool.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingId(null);
+                    setDragOverId(null);
+                  }}
+                  className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/70 active:cursor-grabbing group-hover/tool:opacity-100 group-focus-within/tool:opacity-100"
+                  aria-label={`Reorder ${tool.name}`}
+                  title="Drag to reorder"
+                >
+                  <IconGripVertical className="h-3 w-3" />
+                </button>
                 <Link
                   to={`/tools/${tool.id}`}
                   className={cn(
-                    "flex items-center rounded-md px-2 py-1.5 text-xs transition-colors",
+                    "flex min-w-0 flex-1 items-center rounded-md px-2 py-1.5 pr-12 text-xs transition-[padding,color,background-color] md:pr-2 md:group-hover/tool:pr-12 md:group-focus-within/tool:pr-12",
+                    actionsVisible && "md:pr-12",
                     isActive
                       ? "bg-accent text-accent-foreground font-medium"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
@@ -299,14 +382,19 @@ export function ToolsSidebarSection() {
                         e.preventDefault();
                         e.stopPropagation();
                       }}
-                      className="flex-1 min-w-0 truncate text-xs bg-transparent border-b border-primary outline-none py-0 px-0"
+                      className="min-w-0 flex-1 truncate border-b border-primary bg-transparent px-0 py-0 text-xs outline-none"
                     />
                   ) : (
-                    <span className="truncate">{tool.name}</span>
+                    <span className="block truncate">{tool.name}</span>
                   )}
                 </Link>
 
-                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                <div
+                  className={cn(
+                    "pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/tool:opacity-100 md:group-focus-within/tool:opacity-100",
+                    actionsVisible && "md:opacity-100",
+                  )}
+                >
                   <button
                     type="button"
                     onClick={(e) => {
@@ -315,10 +403,10 @@ export function ToolsSidebarSection() {
                       toggleFavorite(tool.id);
                     }}
                     className={cn(
-                      "cursor-pointer rounded p-0.5",
+                      "pointer-events-auto cursor-pointer rounded p-0.5 transition-colors",
                       isFav
                         ? "text-yellow-500"
-                        : "text-muted-foreground/40 opacity-100 hover:text-yellow-500 md:opacity-0 md:group-hover/tool:opacity-100 md:group-focus-within/tool:opacity-100",
+                        : "text-muted-foreground/40 hover:text-yellow-500",
                     )}
                     aria-label={isFav ? "Unfavorite" : "Favorite"}
                   >
@@ -337,7 +425,7 @@ export function ToolsSidebarSection() {
                         e.stopPropagation();
                         setMenuOpenId(menuOpenId === tool.id ? null : tool.id);
                       }}
-                      className="cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-100 hover:text-foreground md:opacity-0 md:group-hover/tool:opacity-100 md:group-focus-within/tool:opacity-100"
+                      className="pointer-events-auto cursor-pointer rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground"
                       aria-label="Tool actions"
                     >
                       <IconDots className="h-3 w-3" />

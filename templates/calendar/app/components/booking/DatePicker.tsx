@@ -16,8 +16,9 @@ import {
   getDay,
 } from "date-fns";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
-import { useState } from "react";
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { AvailabilityConfig } from "@shared/api";
 
@@ -25,6 +26,10 @@ interface DatePickerProps {
   selectedDate: Date | null;
   onSelect: (date: Date) => void;
   availability: AvailabilityConfig;
+  availableDates: string[];
+  availabilityLoading?: boolean;
+  viewMonth: Date;
+  onViewMonthChange: (month: Date) => void;
 }
 
 const WEEKDAY_HEADERS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -43,23 +48,32 @@ export function DatePicker({
   selectedDate,
   onSelect,
   availability,
+  availableDates,
+  availabilityLoading = false,
+  viewMonth,
+  onViewMonthChange,
 }: DatePickerProps) {
-  const [viewMonth, setViewMonth] = useState(new Date());
-
   const monthStart = startOfMonth(viewMonth);
   const monthEnd = endOfMonth(viewMonth);
   const calendarStart = startOfWeek(monthStart);
   const calendarEnd = endOfWeek(monthEnd);
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+  const availableDateSet = useMemo(
+    () => new Set(availableDates),
+    [availableDates],
+  );
 
   const today = startOfDay(new Date());
   const maxDate = addDays(today, availability.maxAdvanceDays);
 
   function isDayDisabled(day: Date) {
+    const dateKey = format(day, "yyyy-MM-dd");
     if (isBefore(day, today)) return true;
     if (isBefore(maxDate, day)) return true;
     const dayName = DAY_MAP[getDay(day)];
     if (!availability.weeklySchedule[dayName]?.enabled) return true;
+    if (availabilityLoading) return true;
+    if (!availableDateSet.has(dateKey)) return true;
     return false;
   }
 
@@ -70,7 +84,7 @@ export function DatePicker({
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setViewMonth((m) => subMonths(m, 1))}
+          onClick={() => onViewMonthChange(subMonths(viewMonth, 1))}
         >
           <IconChevronLeft className="h-4 w-4" />
         </Button>
@@ -80,7 +94,7 @@ export function DatePicker({
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setViewMonth((m) => addMonths(m, 1))}
+          onClick={() => onViewMonthChange(addMonths(viewMonth, 1))}
         >
           <IconChevronRight className="h-4 w-4" />
         </Button>
@@ -99,26 +113,38 @@ export function DatePicker({
       </div>
 
       {/* Days */}
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-1" aria-busy={availabilityLoading}>
         {days.map((day) => {
           const inMonth = isSameMonth(day, viewMonth);
-          const disabled = isDayDisabled(day);
+
+          if (availabilityLoading) {
+            return inMonth ? (
+              <Skeleton
+                key={day.toISOString()}
+                className="h-10 w-full rounded-md"
+              />
+            ) : (
+              <div key={day.toISOString()} className="h-10 opacity-0" />
+            );
+          }
+
+          const disabled = !inMonth || isDayDisabled(day);
           const selected = selectedDate && isSameDay(day, selectedDate);
           const todayMark = isToday(day);
 
           return (
             <button
               key={day.toISOString()}
-              onClick={() => !disabled && onSelect(day)}
+              onClick={() => onSelect(day)}
               disabled={disabled}
               className={cn(
                 "flex h-10 w-full items-center justify-center rounded-md text-sm transition-colors",
-                !inMonth && "opacity-0 pointer-events-none",
                 inMonth && !disabled && "hover:bg-accent cursor-pointer",
-                disabled && "opacity-30 cursor-not-allowed",
+                disabled && inMonth && "opacity-30 cursor-not-allowed",
                 selected &&
                   "bg-primary text-primary-foreground hover:bg-primary/90",
                 todayMark && !selected && "border border-primary/50",
+                !inMonth && "pointer-events-none opacity-0",
               )}
             >
               {format(day, "d")}

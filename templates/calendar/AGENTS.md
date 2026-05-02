@@ -116,19 +116,28 @@ cd templates/calendar && pnpm action <name> [args]
 
 ### Events
 
-| Action                 | Args                                                         | Purpose                         |
-| ---------------------- | ------------------------------------------------------------ | ------------------------------- |
-| `list-events`          | `--from`, `--to`, `--query`, `--json`                        | Query Google Calendar events    |
-| `search-events`        | `--query` (required), `--from`, `--to`                       | Search events by title          |
-| `get-event`            | `--id` (required), `--calendarId` (default: primary)         | Fetch a single event by id      |
-| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location` | Create event on Google Calendar |
-| `sync-google-calendar` | `--from`, `--to`                                             | Pull Google Calendar events     |
+| Action                 | Args                                                                                       | Purpose                         |
+| ---------------------- | ------------------------------------------------------------------------------------------ | ------------------------------- |
+| `list-events`          | `--from`, `--to`, `--query`, `--json`                                                      | Query Google Calendar events    |
+| `search-events`        | `--query` (required), `--from`, `--to`                                                     | Search events by title          |
+| `get-event`            | `--id` (required), `--calendarId` (default: primary)                                       | Fetch a single event by id      |
+| `create-event`         | `--title`, `--start`, `--end`, `--description`, `--location`                               | Create event on Google Calendar |
+| `update-event`         | `--id`, optional `--title`, `--start`, `--end`, `--recurrence`, `--accountEmail`           | Update an event or recurrence   |
+| `delete-event`         | `--id`, optional `--scope single\|all\|thisAndFollowing`, `--removeOnly`, `--accountEmail` | Delete/remove an event          |
+| `sync-google-calendar` | `--from`, `--to`                                                                           | Pull Google Calendar events     |
 
 ### Availability & Booking
 
-| Action               | Args                   | Purpose                   |
-| -------------------- | ---------------------- | ------------------------- |
-| `check-availability` | `--date`, `--duration` | Show available time slots |
+| Action                   | Args                                                      | Purpose                                              |
+| ------------------------ | --------------------------------------------------------- | ---------------------------------------------------- |
+| `check-availability`     | `--date`, `--duration`                                    | Show available time slots                            |
+| `list-booking-links`     |                                                           | List booking links                                   |
+| `create-booking-link`    | `--title`, `--slug`, `--duration`, optional `--durations` | Create a booking link                                |
+| `duplicate-booking-link` | `--sourceId` or `--sourceSlug`, `--copies`                | Duplicate one booking link into one or more variants |
+
+For booking-link creation or duplication, use the dedicated actions above. Do **not** use `db-exec` to insert `booking_links`; the actions handle IDs, ownership, slug collisions, JSON fields, and timestamps.
+
+Booking creation and cancellation send transactional emails to the attendee and host when `RESEND_API_KEY` or `SENDGRID_API_KEY` is configured. Rescheduling is implemented as canceling the old booking and creating a new one, so recipients get a cancellation email for the old time and a confirmation email for the new time.
 
 ### Sharing
 

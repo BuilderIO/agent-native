@@ -7,26 +7,32 @@ import {
 import { eq } from "drizzle-orm";
 import type { AvailabilityConfig } from "../../shared/api.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { readBody, getSession } from "@agent-native/core/server";
+import {
+  readBody,
+  getRequestTimezone,
+  getSession,
+} from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
 
-const DEFAULT_AVAILABILITY: AvailabilityConfig = {
-  timezone: "America/New_York",
-  weeklySchedule: {
-    monday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
-    tuesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
-    wednesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
-    thursday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
-    friday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
-    saturday: { enabled: false, slots: [] },
-    sunday: { enabled: false, slots: [] },
-  },
-  bufferMinutes: 15,
-  minNoticeHours: 24,
-  maxAdvanceDays: 60,
-  slotDurationMinutes: 30,
-  bookingPageSlug: "book",
-};
+function createDefaultAvailability(timezone: string): AvailabilityConfig {
+  return {
+    timezone,
+    weeklySchedule: {
+      monday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      tuesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      wednesday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      thursday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      friday: { enabled: true, slots: [{ start: "09:00", end: "17:00" }] },
+      saturday: { enabled: false, slots: [] },
+      sunday: { enabled: false, slots: [] },
+    },
+    bufferMinutes: 15,
+    minNoticeHours: 24,
+    maxAdvanceDays: 60,
+    slotDurationMinutes: 30,
+    bookingPageSlug: "book",
+  };
+}
 
 async function uEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
@@ -40,9 +46,14 @@ async function uEmail(event: H3Event): Promise<string> {
 export const getAvailability = defineEventHandler(async (event: H3Event) => {
   try {
     const email = await uEmail(event);
+    const settings = (await getUserSetting(email, "calendar-settings")) as {
+      timezone?: string;
+    } | null;
+    const fallbackTimezone =
+      settings?.timezone || getRequestTimezone() || "America/New_York";
     const config =
       (await getUserSetting(email, "calendar-availability")) ||
-      DEFAULT_AVAILABILITY;
+      createDefaultAvailability(fallbackTimezone);
     return config;
   } catch (error: any) {
     setResponseStatus(event, 500);
@@ -66,6 +77,13 @@ export const getPublicAvailability = defineEventHandler(
           "calendar-availability",
         )) as unknown as AvailabilityConfig | null;
         if (ownerConfig) return ownerConfig;
+        const ownerSettings = (await getUserSetting(
+          link.ownerEmail,
+          "calendar-settings",
+        )) as { timezone?: string } | null;
+        return createDefaultAvailability(
+          ownerSettings?.timezone || "America/New_York",
+        );
       }
     }
 
@@ -73,7 +91,7 @@ export const getPublicAvailability = defineEventHandler(
     // setting. That key was historically dual-written by every user's update
     // (see the matching fix in updateAvailability), which meant a brand-new
     // user's public booking link advertised whoever last saved their hours.
-    return DEFAULT_AVAILABILITY;
+    return createDefaultAvailability("America/New_York");
   },
 );
 

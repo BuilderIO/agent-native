@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { GoogleSetupWizard } from "@/components/calendar/GoogleSetupWizard";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import {
   useGoogleAuthStatus,
@@ -158,7 +159,7 @@ export default function Settings() {
       {!googleStatus.data?.connected && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Setup Google Calendar</CardTitle>
+            <CardTitle className="text-lg">Connect Google Calendar</CardTitle>
             <CardDescription>
               Follow these steps to connect your Google account. Takes about 3
               minutes.
@@ -181,12 +182,7 @@ export default function Settings() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="timezone">Timezone</Label>
-            <Input
-              id="timezone"
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              placeholder="America/New_York"
-            />
+            <TimezoneCombobox value={timezone} onChange={setTimezone} />
           </div>
 
           <div className="space-y-2">

@@ -93,7 +93,7 @@ export interface AvailabilityConfig {
   maxAdvanceDays: number;
   slotDurationMinutes: number;
   bookingPageSlug: string;
-  /** Unique username for booking URLs, e.g. calendar.agent-native.com/meet/{username}/{slug} */
+  /** Unique username for booking URLs, e.g. calendar.agent-native.com/book/{username}/{slug} */
   bookingUsername?: string;
 }
 
@@ -130,6 +130,8 @@ export interface Booking {
   fieldResponses?: Record<string, string | boolean>;
   /** Meeting link (Zoom, Google Meet, or custom) */
   meetingLink?: string;
+  /** Google Calendar event created for this booking, if any */
+  googleEventId?: string;
   /** Token for cancel/reschedule link (only returned to the booker) */
   cancelToken?: string;
   status: "confirmed" | "cancelled";

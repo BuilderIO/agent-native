@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Slide } from "@/context/DeckContext";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -110,8 +110,6 @@ const markdownComponents = {
 
 /** Renders blank slide HTML content and applies white filter to logo images */
 function BlankSlideContent({ content }: { content: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
   // Memoize derived strings + the dangerouslySetInnerHTML object on `content` so
   // the prop value has a stable reference across re-renders. React 19 only checks
   // reference equality on `dangerouslySetInnerHTML` and unconditionally re-assigns
@@ -168,7 +166,6 @@ function BlankSlideContent({ content }: { content: string }) {
 
   return (
     <div
-      ref={containerRef}
       className="slide-content text-white/90 w-full block h-full"
       dangerouslySetInnerHTML={dangerousHtml}
     />

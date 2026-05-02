@@ -1,21 +1,13 @@
 /**
  * Auto-title bridge
  *
- * Watches the `clips-ai-request-:id` application_state queue that server-side
- * actions (notably `request-transcript` after a transcript lands ready) write
- * when a clip still has the default title. For each pending request with
- * kind="regenerate-title" we fire a single `sendToAgentChat` so the agent
- * picks up the delegation — exactly once per (recordingId, requestedAt).
+ * Watches the `clips-ai-request-:id` application_state queue for default-title
+ * follow-up. The bridge sends queued title work to the agent chat exactly
+ * once per (recordingId, requestedAt).
  *
- * Once dispatched we DELETE the request entry so the next page load / tab
- * switch doesn't re-fire. The agent is in charge from that point on; when it
- * calls `update-recording --title=...` the polling layer will flip the
- * skeleton in `recording-card` / `r.$recordingId` over to the real title.
- *
- * This keeps the UI in charge of every LLM call (Rule 1: all AI goes through
- * the agent chat) while letting the server signal "please auto-title this
- * recording" from a request-transcript fire-and-forget where `postMessage`
- * isn't available.
+ * Once handled we DELETE the request entry so the next page load / tab switch
+ * doesn't re-fire. The polling layer flips the skeleton in `recording-card` /
+ * `r.$recordingId` over to the real title when `update-recording` lands.
  */
 
 import { useEffect, useRef } from "react";
@@ -72,9 +64,9 @@ async function clearRequest(recordingId: string): Promise<void> {
 
 /**
  * Mount this once in the app shell. It polls the recording list and fires
- * `sendToAgentChat` for every pending auto-title request queued by the
- * server. Idempotent — a given (recordingId, requestedAt) is only dispatched
- * once per tab session.
+ * `sendToAgentChat` for every pending auto-title request queued by the server.
+ * Idempotent — a given (recordingId, requestedAt) is only dispatched once per
+ * tab session.
  */
 export function useAutoTitleBridge(): void {
   // Use the "all" view so we catch recordings regardless of where the user
@@ -143,15 +135,11 @@ export function useAutoTitleBridge(): void {
             if (dispatched.current.has(fallbackKey)) continue;
             dispatched.current.add(fallbackKey);
 
-            sendToAgentChat({
-              message: `This clip (${rec.id}) still has its default title. Please read its transcript via get-recording-player-data and generate a concise 3-8 word title, then call update-recording --id=${rec.id} --title="...".`,
-              context: JSON.stringify({
-                recordingId: rec.id,
-                currentTitle: rec.title,
-              }),
-              submit: true,
-              openSidebar: false,
-            });
+            fetch(agentNativePath("/_agent-native/actions/regenerate-title"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ recordingId: rec.id }),
+            }).catch(() => {});
           }
         }
       } finally {

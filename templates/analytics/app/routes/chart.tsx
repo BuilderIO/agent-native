@@ -15,13 +15,9 @@ const VALID_CHART_TYPES = new Set([
   "table",
   "pie",
 ]);
-// `app-db` intentionally excluded from embed URLs — the base64 panel param
-// lets the caller control the SQL, and running arbitrary SELECTs against
-// the app DB would let an assistant-crafted chart URL read the `settings`
-// table (which stores provider credentials). Saved dashboards still run
-// app-db panels via /api/sql-query; only the URL-driven embed path is
-// restricted to external data sources.
-const VALID_SOURCES = new Set(["bigquery", "ga4", "amplitude"]);
+// Embed URLs accept external sources plus the restricted first-party analytics
+// source. They intentionally do not expose arbitrary app database querying.
+const VALID_SOURCES = new Set(["bigquery", "ga4", "amplitude", "first-party"]);
 
 function decodePanel(raw: string): SqlPanel | { error: string } {
   try {
@@ -38,8 +34,7 @@ function decodePanel(raw: string): SqlPanel | { error: string } {
     }
     if (typeof p.source !== "string" || !VALID_SOURCES.has(p.source)) {
       return {
-        error:
-          "Panel source must be bigquery or ga4. app-db panels cannot be rendered in embed URLs.",
+        error: "Panel source must be bigquery, ga4, amplitude, or first-party.",
       };
     }
     if (

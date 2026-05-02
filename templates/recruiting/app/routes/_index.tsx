@@ -3,11 +3,11 @@ import { DefaultSpinner } from "@agent-native/core/client";
 
 export function meta() {
   return [
-    { title: "Recruiting" },
+    { title: "Agent-Native Recruiting" },
     {
       name: "description",
       content:
-        "Agent-native ATS — manage candidates, jobs, and interviews with AI assistance.",
+        "Your AI agent screens candidates, manages pipelines, and keeps your hiring on track.",
     },
   ];
 }

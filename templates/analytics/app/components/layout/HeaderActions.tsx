@@ -4,6 +4,7 @@ import {
   type ReactNode,
   type FC,
 } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * External store for the page's header title + actions. We use an external
@@ -81,4 +82,8 @@ export function useSetHeaderActions(node: ReactNode) {
       notify();
     };
   });
+}
+
+export function DashboardTitleSkeleton() {
+  return <Skeleton className="h-6 w-56" aria-label="Loading dashboard title" />;
 }

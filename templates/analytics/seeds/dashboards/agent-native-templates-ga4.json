@@ -82,7 +82,7 @@
     },
     {
       "id": "demo-clicks-by-template",
-      "title": "Demo Clicks by Template",
+      "title": "Try-Demo Clicks by Template",
       "chartType": "bar",
       "source": "ga4",
       "width": 1,
@@ -117,6 +117,47 @@
         "xKey": "date",
         "yKey": "eventCount",
         "color": "#06b6d4"
+      }
+    },
+    {
+      "id": "sessions-by-app",
+      "title": "Sessions by Agent-Native Template",
+      "chartType": "bar",
+      "source": "ga4",
+      "width": 2,
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"customEvent:template\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"session_status\",\"matchType\":\"EXACT\"}}}}",
+      "config": {
+        "xKey": "customEvent:template",
+        "yKey": "eventCount",
+        "color": "#10b981",
+        "description": "Per-template session activity. GA4 exposes template as a registered event dimension."
+      }
+    },
+    {
+      "id": "signed-in-vs-anon",
+      "title": "Session Status Events",
+      "chartType": "metric",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"session_status\",\"matchType\":\"EXACT\"}}}}",
+      "config": {
+        "yKey": "eventCount",
+        "yFormatter": "number",
+        "color": "#f59e0b",
+        "description": "Signed-in split is available in first-party analytics; GA4 needs signed_in registered as a custom dimension before it can segment this panel."
+      }
+    },
+    {
+      "id": "sessions-over-time",
+      "title": "Sessions Over Time",
+      "chartType": "area",
+      "source": "ga4",
+      "width": 1,
+      "sql": "{\"metrics\":[\"eventCount\"],\"dimensions\":[\"date\"],\"days\":{{days}},\"filter\":{\"filter\":{\"fieldName\":\"eventName\",\"stringFilter\":{\"value\":\"session_status\",\"matchType\":\"EXACT\"}}}}",
+      "config": {
+        "xKey": "date",
+        "yKey": "eventCount",
+        "color": "#10b981"
       }
     }
   ]

@@ -22,6 +22,8 @@ import {
   IconTrash,
   IconSearch,
   IconPlus,
+  IconKey,
+  IconCopy,
 } from "@tabler/icons-react";
 import { getIdToken } from "@/lib/auth";
 import {
@@ -32,13 +34,28 @@ import {
   type DataSourceCategory,
   type WalkthroughStep,
 } from "@/lib/data-sources";
-import { appApiPath, useSendToAgentChat } from "@agent-native/core/client";
+import {
+  appApiPath,
+  useActionMutation,
+  useActionQuery,
+  useSendToAgentChat,
+} from "@agent-native/core/client";
 
 interface EnvKeyStatus {
   key: string;
   label: string;
   required: boolean;
   configured: boolean;
+}
+
+interface AnalyticsPublicKeyRow {
+  id: string;
+  name: string;
+  publicKeyPrefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  orgId: string | null;
 }
 
 async function fetchEnvStatus(): Promise<EnvKeyStatus[]> {
@@ -88,7 +105,15 @@ function isSourceConnected(
   envStatus: EnvKeyStatus[],
 ): boolean {
   const statusMap = new Map(envStatus.map((s) => [s.key, s.configured]));
-  return source.envKeys.every((key) => statusMap.get(key) === true);
+  const optionalKeys = new Set(
+    source.walkthroughSteps
+      .filter((step) => step.optional)
+      .map((step) => step.inputKey)
+      .filter(Boolean),
+  );
+  return source.envKeys
+    .filter((key) => !optionalKeys.has(key))
+    .every((key) => statusMap.get(key) === true);
 }
 
 function StepItem({
@@ -759,7 +784,11 @@ function AddDataSourceCTA() {
               }
             }}
           />
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-2">
+            <span className="text-[11px] text-muted-foreground/70">
+              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+              +Enter to submit
+            </span>
             <Button
               type="submit"
               size="sm"
@@ -769,6 +798,190 @@ function AddDataSourceCTA() {
             </Button>
           </div>
         </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FirstPartyAnalyticsCard() {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("Hosted templates");
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const { data, isLoading } = useActionQuery(
+    "list-analytics-public-keys",
+    undefined,
+    { staleTime: 10_000 },
+  );
+  const keys = ((data as AnalyticsPublicKeyRow[] | undefined) ?? []).filter(
+    (key) => !key.revokedAt,
+  );
+
+  const createKey = useActionMutation("create-analytics-public-key", {
+    onSuccess: (result: any) => {
+      setCreatedKey(result.publicKey);
+      setCopied(false);
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-analytics-public-keys"],
+      });
+    },
+  });
+
+  const revokeKey = useActionMutation("revoke-analytics-public-key", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-analytics-public-keys"],
+      });
+    },
+  });
+
+  const copyCreatedKey = async () => {
+    if (!createdKey) return;
+    await navigator.clipboard?.writeText(createdKey);
+    setCopied(true);
+  };
+
+  return (
+    <Card className="bg-card border-border/50">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <IconKey className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-sm font-medium">
+                First-party Analytics
+              </CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                Receive product events at analytics.agent-native.com and query
+                them as a dashboard data source.
+              </CardDescription>
+            </div>
+          </div>
+          {isLoading ? (
+            <Skeleton className="h-4 w-20 rounded-full" />
+          ) : keys.length > 0 ? (
+            <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
+              <IconCheck className="h-3.5 w-3.5" />
+              {keys.length} active
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
+              <IconCircle className="h-3 w-3" />
+              No keys
+            </span>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-2 rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Endpoint</span>
+            <code className="truncate font-mono">
+              https://analytics.agent-native.com/track
+            </code>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Server env</span>
+            <code className="truncate font-mono">
+              AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
+            </code>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted-foreground">Browser env</span>
+            <code className="truncate font-mono">
+              VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
+            </code>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="flex min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+            placeholder="Key name"
+          />
+          <Button
+            size="sm"
+            onClick={() => createKey.mutate({ name })}
+            disabled={createKey.isPending}
+            className="text-xs"
+          >
+            {createKey.isPending ? (
+              <>
+                <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <IconPlus className="h-3 w-3 mr-1.5" />
+                Generate Key
+              </>
+            )}
+          </Button>
+        </div>
+
+        {createdKey && (
+          <div className="space-y-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
+            <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+              New key generated
+            </p>
+            <div className="flex gap-2">
+              <input
+                readOnly
+                value={createdKey}
+                className="flex min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={copyCreatedKey}
+                className="text-xs"
+              >
+                <IconCopy className="h-3 w-3 mr-1.5" />
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {keys.length > 0 && (
+          <div className="space-y-2 border-t border-border/30 pt-3">
+            {keys.map((key) => (
+              <div
+                key={key.id}
+                className="flex items-center justify-between gap-3 text-xs"
+              >
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{key.name}</div>
+                  <div className="text-muted-foreground font-mono">
+                    {key.publicKeyPrefix}...
+                    {key.lastUsedAt
+                      ? ` last used ${new Date(key.lastUsedAt).toLocaleDateString()}`
+                      : " never used"}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => revokeKey.mutate({ id: key.id })}
+                  disabled={revokeKey.isPending}
+                  className="text-xs text-destructive hover:text-destructive"
+                >
+                  {revokeKey.isPending ? (
+                    <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+                  ) : (
+                    <IconTrash className="h-3 w-3 mr-1.5" />
+                  )}
+                  Revoke
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -823,6 +1036,8 @@ export default function DataSources() {
           className="flex w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
         />
       </div>
+
+      {!search && <FirstPartyAnalyticsCard />}
 
       {/* Filtered results */}
       {filteredSources !== null ? (

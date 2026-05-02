@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   ipcMain,
   Menu,
   session,
@@ -444,6 +445,187 @@ function resetActiveWebviewZoom() {
   target.setZoomLevel(0);
 }
 
+// ---------- Native context menus ----------
+// Electron does not provide Chromium's standard right-click menu by default,
+// so add the useful browser/editing actions for both the shell and app webviews.
+
+const contextMenuContents = new WeakSet<Electron.WebContents>();
+
+function canOpenExternalUrl(url: string): boolean {
+  try {
+    const protocol = new URL(url).protocol;
+    return (
+      protocol === "http:" ||
+      protocol === "https:" ||
+      protocol === "mailto:" ||
+      protocol === "tel:"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function openExternalUrl(url: string) {
+  if (!canOpenExternalUrl(url)) return;
+  shell.openExternal(url).catch(() => {});
+}
+
+function cleanContextMenuTemplate(
+  template: Electron.MenuItemConstructorOptions[],
+): Electron.MenuItemConstructorOptions[] {
+  while (template[0]?.type === "separator") template.shift();
+  while (template.at(-1)?.type === "separator") template.pop();
+  return template.filter((item, index, items) => {
+    if (item.type !== "separator") return true;
+    return items[index - 1]?.type !== "separator";
+  });
+}
+
+function addContextMenuSeparator(
+  template: Electron.MenuItemConstructorOptions[],
+) {
+  if (template.length === 0 || template.at(-1)?.type === "separator") return;
+  template.push({ type: "separator" });
+}
+
+function buildContextMenuTemplate(
+  contents: Electron.WebContents,
+  params: Electron.ContextMenuParams,
+): Electron.MenuItemConstructorOptions[] {
+  const template: Electron.MenuItemConstructorOptions[] = [];
+  const editFlags = params.editFlags;
+  const hasLink = params.linkURL.trim().length > 0;
+  const hasSelection = params.selectionText.trim().length > 0;
+  const hasMediaSource = params.srcURL.trim().length > 0;
+  const hasImage = params.mediaType === "image" && params.hasImageContents;
+
+  if (hasLink) {
+    template.push(
+      {
+        label: "Open Link in Browser",
+        enabled: canOpenExternalUrl(params.linkURL),
+        click: () => openExternalUrl(params.linkURL),
+      },
+      {
+        label: "Copy Link",
+        click: () => clipboard.writeText(params.linkURL),
+      },
+    );
+  }
+
+  if (hasImage || hasMediaSource) {
+    addContextMenuSeparator(template);
+    if (hasImage) {
+      template.push({
+        label: "Copy Image",
+        click: () => contents.copyImageAt(params.x, params.y),
+      });
+    }
+    if (hasMediaSource) {
+      template.push({
+        label: hasImage ? "Copy Image Address" : "Copy Media Address",
+        click: () => clipboard.writeText(params.srcURL),
+      });
+    }
+  }
+
+  if (params.isEditable) {
+    if (
+      params.misspelledWord &&
+      params.dictionarySuggestions &&
+      params.dictionarySuggestions.length > 0
+    ) {
+      addContextMenuSeparator(template);
+      for (const suggestion of params.dictionarySuggestions.slice(0, 5)) {
+        template.push({
+          label: suggestion,
+          click: () => contents.replaceMisspelling(suggestion),
+        });
+      }
+    }
+
+    addContextMenuSeparator(template);
+    template.push(
+      {
+        label: "Undo",
+        enabled: editFlags.canUndo,
+        click: () => contents.undo(),
+      },
+      {
+        label: "Redo",
+        enabled: editFlags.canRedo,
+        click: () => contents.redo(),
+      },
+      { type: "separator" },
+      {
+        label: "Cut",
+        enabled: editFlags.canCut,
+        click: () => contents.cut(),
+      },
+      {
+        label: "Copy",
+        enabled: editFlags.canCopy || hasSelection,
+        click: () => contents.copy(),
+      },
+      {
+        label: "Paste",
+        enabled: editFlags.canPaste,
+        click: () => contents.paste(),
+      },
+      {
+        label: "Paste and Match Style",
+        enabled: editFlags.canPaste && editFlags.canEditRichly,
+        click: () => contents.pasteAndMatchStyle(),
+      },
+      {
+        label: "Delete",
+        enabled: editFlags.canDelete,
+        click: () => contents.delete(),
+      },
+      { type: "separator" },
+      {
+        label: "Select All",
+        enabled: editFlags.canSelectAll,
+        click: () => contents.selectAll(),
+      },
+    );
+  } else if (hasSelection) {
+    addContextMenuSeparator(template);
+    template.push({
+      label: "Copy",
+      click: () => contents.copy(),
+    });
+  }
+
+  if (IS_DEV) {
+    addContextMenuSeparator(template);
+    template.push({
+      label: "Inspect Element",
+      click: () => contents.inspectElement(params.x, params.y),
+    });
+  }
+
+  return cleanContextMenuTemplate(template);
+}
+
+function installContextMenu(contents: Electron.WebContents) {
+  if (contextMenuContents.has(contents)) return;
+  contextMenuContents.add(contents);
+
+  contents.on("context-menu", (event, params) => {
+    const template = buildContextMenuTemplate(contents, params);
+    if (template.length === 0) return;
+
+    event.preventDefault();
+    const menu = Menu.buildFromTemplate(template);
+    const window =
+      BrowserWindow.fromWebContents(contents) ||
+      BrowserWindow.getFocusedWindow() ||
+      BrowserWindow.getAllWindows()[0];
+    menu.popup({ window, x: params.x, y: params.y });
+  });
+}
+
 // ---------- IPC: Window controls ----------
 
 ipcMain.on(IPC.WINDOW_MINIMIZE, (event: IpcMainEvent) => {
@@ -544,15 +726,55 @@ ipcMain.on(IPC.INTER_APP_SEND, (event: IpcMainEvent, msg: InterAppMessage) => {
 // never touch the webview/renderer. See credential-provider.ts.
 interface OAuthProvider {
   name: string;
-  matches: (url: URL) => boolean;
+  matches: (url: URL, context?: OAuthMatchContext) => boolean;
   /** Substring to look for in the navigation URL to detect callback arrival. */
   callbackPathFragment: string;
+}
+
+interface OAuthMatchContext {
+  sourceUrl?: string;
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
+function isGoogleOAuthStarterPath(pathname: string): boolean {
+  return (
+    pathname.endsWith("/_agent-native/google/auth-url") ||
+    pathname.endsWith("/_agent-native/google/add-account/auth-url")
+  );
+}
+
+function getUrlOrigin(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+function isTrustedGoogleOAuthStarter(
+  url: URL,
+  context?: OAuthMatchContext,
+): boolean {
+  if (!isGoogleOAuthStarterPath(url.pathname)) return false;
+  if (isLoopbackHost(url.hostname)) return true;
+  return getUrlOrigin(context?.sourceUrl) === url.origin;
 }
 
 const OAUTH_PROVIDERS: OAuthProvider[] = [
   {
     name: "google",
-    matches: (u) => u.hostname === "accounts.google.com",
+    matches: (u, context) =>
+      u.hostname === "accounts.google.com" ||
+      isTrustedGoogleOAuthStarter(u, context),
     callbackPathFragment: "google/callback",
   },
   {
@@ -581,12 +803,40 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
   },
 ];
 
-function matchOAuthProvider(urlString: string): OAuthProvider | null {
+function matchOAuthProvider(
+  urlString: string,
+  context?: OAuthMatchContext,
+): OAuthProvider | null {
   try {
     const parsed = new URL(urlString);
-    return OAUTH_PROVIDERS.find((p) => p.matches(parsed)) ?? null;
+    return OAUTH_PROVIDERS.find((p) => p.matches(parsed, context)) ?? null;
   } catch {
     return null;
+  }
+}
+
+function shouldRememberOAuthStateFromNavigation(
+  provider: OAuthProvider,
+  url: URL,
+): boolean {
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  if (provider.name === "google") {
+    return url.hostname === "accounts.google.com";
+  }
+  return provider.matches(url);
+}
+
+function rememberOAuthStateFromNavigation(
+  provider: OAuthProvider,
+  url: string,
+) {
+  try {
+    const parsed = new URL(url);
+    if (shouldRememberOAuthStateFromNavigation(provider, parsed)) {
+      rememberOAuthState(url);
+    }
+  } catch {
+    // Malformed URL — ignore
   }
 }
 
@@ -595,7 +845,7 @@ function openOAuthWindow(
   sourceSession: Electron.Session | undefined,
   provider: OAuthProvider,
 ) {
-  rememberOAuthState(url);
+  rememberOAuthStateFromNavigation(provider, url);
   const mainWin = BrowserWindow.getAllWindows()[0];
 
   // Critical: the popup MUST share the source webview's session so the
@@ -640,6 +890,7 @@ function openOAuthWindow(
   const onNavigate = (_event: Electron.Event, navUrl: string) => {
     try {
       const parsed = new URL(navUrl);
+      rememberOAuthStateFromNavigation(provider, navUrl);
       // Detect the OAuth callback (works for both /api/google/callback and
       // /_agent-native/google/callback).
       if (parsed.pathname.includes(provider.callbackPathFragment)) {
@@ -675,9 +926,14 @@ function openOAuthWindow(
     scheduleClose();
   });
 
-  // Reload webviews when the OAuth window closes (whether auto or manual)
+  // Builder's callback writes credentials server-side, so reload after it
+  // closes. Google success already reloads through the agentnative:// handoff;
+  // Google failures are delivered to the app through desktop-exchange, so an
+  // unconditional reload here would erase the in-app recovery panel.
   oauthWin.on("closed", () => {
-    reloadAllWebviews();
+    if (provider.name !== "google") {
+      reloadAllWebviews();
+    }
   });
 }
 
@@ -690,15 +946,19 @@ function openOAuthWindow(
 // doesn't reliably catch webviews created this way).
 
 app.on("web-contents-created", (_event, contents) => {
+  installContextMenu(contents);
+
   if (contents.getType() !== "webview") {
     contents.on("did-attach-webview" as any, (_e: any, wc: any) => {
+      installContextMenu(wc);
+
       wc.setWindowOpenHandler(({ url }: any) => {
         try {
           const parsed = new URL(url);
           if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
             return { action: "deny" as const };
           }
-          const provider = matchOAuthProvider(url);
+          const provider = matchOAuthProvider(url, { sourceUrl: wc.getURL() });
           if (provider) {
             openOAuthWindow(url, wc.session, provider);
           } else {
@@ -719,7 +979,9 @@ app.on("web-contents-created", (_event, contents) => {
       if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
         return { action: "deny" };
       }
-      const provider = matchOAuthProvider(url);
+      const provider = matchOAuthProvider(url, {
+        sourceUrl: contents.getURL(),
+      });
       if (provider) {
         openOAuthWindow(url, contents.session, provider);
       } else {

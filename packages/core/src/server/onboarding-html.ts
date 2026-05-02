@@ -154,7 +154,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     letter-spacing: -0.02em;
   }
   .app-name img.brand-mark {
-    height: 1.75rem;
+    height: 2.21375rem;
     width: auto;
     display: block;
     flex-shrink: 0;
@@ -220,7 +220,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .split { flex-direction: column; min-height: auto; }
     .marketing-panel { padding: 2rem 1.5rem 1.5rem; }
     .app-name { font-size: 1.375rem; }
-    .app-name img.brand-mark { height: 1.25rem; }
+    .app-name img.brand-mark { height: 1.58125rem; }
     .app-tagline { font-size: 1rem; margin-bottom: 1rem; }
     .app-desc { margin-bottom: 1rem; }
     .feature-list { gap: 0.5rem; }
@@ -880,14 +880,7 @@ ${
       var data = await res.json();
       if (data.url) {
         try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
-        window.open(data.url, '_blank');
-        btn.disabled = false;
-        btn.textContent = 'Waiting for sign-in…';
-        var poll = setInterval(function() {
-          fetch(__anPath('/_agent-native/auth/session')).then(function(r) { return r.json(); }).then(function(s) {
-            if (s && s.email) { clearInterval(poll); window.location.reload(); }
-          }).catch(function() {});
-        }, 1500);
+        window.location.href = data.url;
       } else {
         err.textContent = data.message || 'Google OAuth is not configured.';
         err.classList.add('show');

@@ -10,6 +10,7 @@ import {
   getAgentEngineEntry,
   isStoredEngineUsable,
 } from "../../agent/engine/index.js";
+import { DEFAULT_MODEL } from "../../agent/default-model.js";
 import { getSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
@@ -64,10 +65,7 @@ export async function run(): Promise<string> {
     })),
     current: {
       engine: currentEngineName,
-      model:
-        currentModel ??
-        currentEntry?.defaultModel ??
-        "claude-haiku-4-5-20251001",
+      model: currentModel ?? currentEntry?.defaultModel ?? DEFAULT_MODEL,
     },
   };
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Generates all logo/icon/favicon assets across the monorepo from the
-// canonical SVGs in packages/core/src/assets/branding/.
+// canonical PNG in packages/core/src/assets/branding/favicon.png.
 //
 // Run from the framework root:
 //   node scripts/build-branding-assets.mjs
@@ -23,19 +23,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const BRANDING = join(ROOT, "packages/core/src/assets/branding");
 
-const FAVICON_SVG = readFileSync(join(BRANDING, "favicon.svg"), "utf8");
+const WEB_ICON_PNG = join(BRANDING, "favicon.png");
+const WEB_ICON_DATA_URI = `data:image/png;base64,${readFileSync(WEB_ICON_PNG).toString("base64")}`;
 
-function sized(svg, size) {
-  return svg.replace(
-    /<svg([^>]*)width="\d+"\s+height="\d+"/,
-    `<svg$1width="${size}" height="${size}"`,
-  );
+function webIconSvg(size) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 600 600"><image href="${WEB_ICON_DATA_URI}" width="600" height="600"/></svg>\n`;
 }
 
 function writeSizedSvg(path, size) {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, sized(FAVICON_SVG, size));
+  writeFileSync(path, webIconSvg(size));
 }
+
+writeSizedSvg(join(BRANDING, "favicon.svg"), 600);
+writeSizedSvg(join(BRANDING, "mac-app-icon.svg"), 600);
 
 function rasterize(svgPath, pngPath, size) {
   mkdirSync(dirname(pngPath), { recursive: true });
@@ -95,13 +96,17 @@ for (const t of TEMPLATE_DIRS) {
   writeSizedSvg(join(pub, "icon-180.svg"), 180);
   writeSizedSvg(join(pub, "icon-192.svg"), 192);
   writeSizedSvg(join(pub, "icon-512.svg"), 512);
+  const icoPath = join(pub, "favicon.ico");
+  if (existsSync(icoPath)) {
+    rasterize(join(pub, "favicon.svg"), icoPath, 64);
+  }
   console.log(`✔ ${t}/public/{favicon,icon-180,icon-192,icon-512}.svg`);
 }
 
 // 2) Calls template historically uses logo.svg as its favicon — overwrite too
 const CALLS_LOGO = join(ROOT, "templates/calls/public/logo.svg");
 if (existsSync(CALLS_LOGO)) {
-  writeFileSync(CALLS_LOGO, sized(FAVICON_SVG, 1024));
+  writeSizedSvg(CALLS_LOGO, 1024);
   console.log("✔ templates/calls/public/logo.svg");
 }
 
@@ -141,7 +146,7 @@ const ICTOOL =
   "/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool";
 const HAS_ICTOOL = existsSync(ICTOOL) && existsSync(ICON_BUNDLE);
 if (existsSync(DESKTOP_BUILD)) {
-  writeFileSync(join(DESKTOP_BUILD, "icon.svg"), sized(FAVICON_SVG, 1024));
+  writeSizedSvg(join(DESKTOP_BUILD, "icon.svg"), 1024);
   rasterize(
     join(DESKTOP_BUILD, "icon.svg"),
     join(DESKTOP_BUILD, "icon.png"),
@@ -200,7 +205,7 @@ const CLIPS_TAURI_DIR = join(ROOT, "templates/clips/desktop/src-tauri");
 const CLIPS_TAURI_ICONS = join(CLIPS_TAURI_DIR, "icons");
 if (existsSync(CLIPS_TAURI_ICONS)) {
   const tmpFav = join(CLIPS_TAURI_ICONS, "_branding-source.svg");
-  writeFileSync(tmpFav, sized(FAVICON_SVG, 1024));
+  writeSizedSvg(tmpFav, 1024);
   // Render the standalone PNGs Tauri references in tauri.conf.json with
   // the same `ictool` pipeline Electron uses, so the dock icon gets the
   // proper macOS template (correct safe-area + Liquid Glass shine) and
@@ -322,7 +327,7 @@ console.log(
 const MOBILE_ASSETS = join(ROOT, "packages/mobile-app/assets");
 if (existsSync(MOBILE_ASSETS)) {
   const tmp = join(MOBILE_ASSETS, "_branding-source.svg");
-  writeFileSync(tmp, sized(FAVICON_SVG, 1024));
+  writeSizedSvg(tmp, 1024);
   rasterize(tmp, join(MOBILE_ASSETS, "icon.png"), 1024);
   rasterize(tmp, join(MOBILE_ASSETS, "adaptive-icon.png"), 1024);
   rasterize(tmp, join(MOBILE_ASSETS, "favicon.png"), 64);

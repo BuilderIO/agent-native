@@ -134,6 +134,121 @@ async function createRecording(
   return (await res.json()) as { id: string };
 }
 
+interface NativeTranscriptCapture {
+  stop(): Promise<string>;
+  cancel(): Promise<void>;
+}
+
+async function startNativeTranscriptCapture(): Promise<NativeTranscriptCapture | null> {
+  let latestText = "";
+  let settleFinal: ((text: string) => void) | null = null;
+  const unlistens: UnlistenFn[] = [];
+
+  const cleanup = () => {
+    unlistens.splice(0).forEach((unlisten) => {
+      try {
+        unlisten();
+      } catch {
+        // ignore
+      }
+    });
+  };
+
+  try {
+    unlistens.push(
+      await listen<{ text: string }>("voice:partial-transcript", (event) => {
+        const text = event.payload?.text?.trim();
+        if (text) latestText = text;
+      }),
+      await listen<{ text: string }>("voice:final-transcript", (event) => {
+        const text = event.payload?.text?.trim();
+        if (text) latestText = text;
+        settleFinal?.(latestText);
+      }),
+      await listen<{ error: string }>("voice:speech-error", (event) => {
+        console.warn(
+          "[clips-recorder] native transcript error:",
+          event.payload?.error,
+        );
+        settleFinal?.(latestText);
+      }),
+    );
+
+    await invoke("native_speech_start", {
+      locale: navigator.language || "en-US",
+    });
+  } catch (err) {
+    cleanup();
+    console.warn("[clips-recorder] native transcript unavailable:", err);
+    return null;
+  }
+
+  return {
+    async stop() {
+      const finalTextPromise = new Promise<string>((resolve) => {
+        const timeout = window.setTimeout(() => resolve(latestText), 1800);
+        settleFinal = (text) => {
+          window.clearTimeout(timeout);
+          resolve(text);
+        };
+      });
+
+      try {
+        await invoke("native_speech_stop");
+      } catch (err) {
+        console.warn("[clips-recorder] native_speech_stop failed:", err);
+        cleanup();
+        return latestText;
+      }
+
+      const finalText = await finalTextPromise;
+      cleanup();
+      return finalText.trim();
+    },
+    async cancel() {
+      try {
+        await invoke("native_speech_cancel");
+      } catch {
+        // ignore
+      }
+      cleanup();
+    },
+  };
+}
+
+async function saveNativeTranscript(
+  serverUrl: string,
+  recordingId: string,
+  fullText: string,
+): Promise<void> {
+  const text = fullText.trim();
+  if (!text) return;
+
+  const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/save-browser-transcript`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        recordingId,
+        fullText: text,
+        source: "macos-native",
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn(
+        "[clips-recorder] save native transcript failed:",
+        res.status,
+        body.slice(0, 200),
+      );
+    }
+  } catch (err) {
+    console.warn("[clips-recorder] save native transcript failed:", err);
+  }
+}
+
 /**
  * Counter of in-flight chunk POSTs. The bubble frame pump reads
  * `window.clipsChunkBusy` and SKIPS frame encoding while it's truthy,
@@ -719,6 +834,10 @@ async function startNativeRecordingInner(
   // MediaRecorder's real state (before the first 500ms tick).
   emitState(false);
 
+  const nativeTranscriptPromise = params.micOn
+    ? startNativeTranscriptCapture()
+    : Promise.resolve(null);
+
   // 6. Bubble + toolbar visibility are owned by the popover's session
   // effect (see app.tsx + bubble-pump.ts) — not the recorder. Both open
   // as soon as the user opens the popover in screen-camera / camera mode
@@ -758,6 +877,19 @@ async function startNativeRecordingInner(
           // ignore
         }
       });
+
+      const nativeTranscriptCapture = await nativeTranscriptPromise.catch(
+        () => null,
+      );
+      const nativeTranscript = await nativeTranscriptCapture
+        ?.stop()
+        .catch((err) => {
+          console.warn("[clips-recorder] native transcript stop failed:", err);
+          return "";
+        });
+      if (nativeTranscript) {
+        await saveNativeTranscript(params.serverUrl, id, nativeTranscript);
+      }
 
       // Null the data handler so the final MediaRecorder teardown
       // doesn't keep the closure (which captures `inflight`, the URL
@@ -871,6 +1003,9 @@ async function startNativeRecordingInner(
       clearInterval(tickHandle);
       stateUnlistens.forEach((u) => u());
       stateUnlistens = [];
+      nativeTranscriptPromise
+        .then((capture) => capture?.cancel())
+        .catch(() => {});
       // Remove MediaRecorder's data handler so any final `ondataavailable`
       // from the stop() below doesn't push a new Blob into `inflight`
       // after we've decided to discard everything.

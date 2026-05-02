@@ -36,6 +36,7 @@ const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
 const VOICE_SHORTCUT_CONFIGURED_KEY = "clips:voice-shortcut-configured";
 const VOICE_MODE_KEY = "clips:voice-mode";
 const VOICE_PROVIDER_KEY = "clips:voice-provider";
+const VOICE_INSTRUCTIONS_KEY = "clips:voice-instructions";
 const SOURCE_KEY = "clips:last-source";
 const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";
@@ -85,6 +86,42 @@ function loadBool(key: string, fallback: boolean): boolean {
 
 function saveBool(key: string, value: boolean): void {
   saveString(key, value ? "1" : "0");
+}
+
+type ByokVoiceProvider = Extract<VoiceProvider, "gemini" | "openai" | "groq">;
+type VoiceProviderMode = "native" | "builder" | "byok";
+
+function isMacPlatform(): boolean {
+  return typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+}
+
+function nativeVoiceProvider(): VoiceProvider {
+  return isMacPlatform() ? "macos-native" : "browser";
+}
+
+function isByokVoiceProvider(value: VoiceProvider): value is ByokVoiceProvider {
+  return value === "gemini" || value === "openai" || value === "groq";
+}
+
+function voiceProviderMode(value: VoiceProvider): VoiceProviderMode {
+  if (isByokVoiceProvider(value)) return "byok";
+  if (value === "builder" || value === "builder-gemini") return "builder";
+  return "native";
+}
+
+function normalizeVoiceProvider(value: string): VoiceProvider {
+  const native = nativeVoiceProvider();
+  if (value === "auto") return native;
+  if (value === "builder") return "builder-gemini";
+  if (value === "macos-native" && !isMacPlatform()) return "browser";
+  return value === "browser" ||
+    value === "macos-native" ||
+    value === "builder-gemini" ||
+    value === "gemini" ||
+    value === "openai" ||
+    value === "groq"
+    ? value
+    : native;
 }
 
 function formatAgo(iso: string): string {
@@ -137,27 +174,13 @@ export function App() {
     return saved === "toggle" ? "toggle" : "push-to-talk";
   });
   const [voiceProvider, setVoiceProvider] = useState<VoiceProvider>(() => {
-    // Default to "browser" — local on-device dictation via the macOS
-    // Speech framework. No server round-trip, no "Polishing..." step,
-    // no API keys. Users wanting cloud-quality can pick a server
-    // provider in Settings → Voice transcription.
-    const saved = loadString(VOICE_PROVIDER_KEY, "browser");
-    const isMac =
-      typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
-    // `macos-native` calls into native_speech_start which only works on
-    // macOS; on Windows/Linux a saved selection would be permanently
-    // broken. Coerce back to "browser" if we're not on a Mac.
-    if (saved === "macos-native" && !isMac) return "browser";
-    return saved === "auto" ||
-      saved === "browser" ||
-      saved === "macos-native" ||
-      saved === "builder" ||
-      saved === "gemini" ||
-      saved === "openai" ||
-      saved === "groq"
-      ? saved
-      : "browser";
+    return normalizeVoiceProvider(
+      loadString(VOICE_PROVIDER_KEY, nativeVoiceProvider()),
+    );
   });
+  const [voiceInstructions, setVoiceInstructions] = useState<string>(() =>
+    loadString(VOICE_INSTRUCTIONS_KEY, ""),
+  );
 
   const [recordings, setRecordings] = useState<RecordingSummary[]>([]);
   const [showRecent, setShowRecent] = useState(false);
@@ -193,6 +216,7 @@ export function App() {
       shortcut: voiceShortcut,
       mode: voiceMode,
       provider: voiceProvider,
+      instructions: voiceInstructions,
     });
   }, [
     featureConfig?.voiceEnabled,
@@ -200,6 +224,7 @@ export function App() {
     voiceShortcut,
     voiceMode,
     voiceProvider,
+    voiceInstructions,
   ]);
 
   // ---- auth status --------------------------------------------------------
@@ -743,6 +768,10 @@ export function App() {
     () => saveString(VOICE_PROVIDER_KEY, voiceProvider),
     [voiceProvider],
   );
+  useEffect(
+    () => saveString(VOICE_INSTRUCTIONS_KEY, voiceInstructions),
+    [voiceInstructions],
+  );
   useEffect(() => saveString(SOURCE_KEY, source), [source]);
   useEffect(() => saveString(CAM_KEY, cameraId), [cameraId]);
   useEffect(() => saveString(MIC_KEY, micId), [micId]);
@@ -1085,9 +1114,11 @@ export function App() {
             voiceShortcut={voiceShortcut}
             voiceMode={voiceMode}
             voiceProvider={voiceProvider}
+            voiceInstructions={voiceInstructions}
             onVoiceShortcutChange={updateVoiceShortcut}
             onVoiceModeChange={setVoiceMode}
             onVoiceProviderChange={setVoiceProvider}
+            onVoiceInstructionsChange={setVoiceInstructions}
             onConnect={(url) => {
               saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
               setServerUrl(url.replace(/\/+$/, ""));
@@ -1196,9 +1227,11 @@ export function App() {
           voiceShortcut={voiceShortcut}
           voiceMode={voiceMode}
           voiceProvider={voiceProvider}
+          voiceInstructions={voiceInstructions}
           onVoiceShortcutChange={updateVoiceShortcut}
           onVoiceModeChange={setVoiceMode}
           onVoiceProviderChange={setVoiceProvider}
+          onVoiceInstructionsChange={setVoiceInstructions}
           onSignOut={signOut}
           onConnect={(url) => {
             saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
@@ -1924,6 +1957,22 @@ type VoiceProviderStatus = {
   groq: boolean;
 };
 
+function keyForByokProvider(provider: ByokVoiceProvider): string {
+  return {
+    gemini: "GEMINI_API_KEY",
+    openai: "OPENAI_API_KEY",
+    groq: "GROQ_API_KEY",
+  }[provider];
+}
+
+function labelForByokProvider(provider: ByokVoiceProvider): string {
+  return {
+    gemini: "Google Gemini",
+    openai: "OpenAI",
+    groq: "Groq",
+  }[provider];
+}
+
 function Setup({
   initial,
   serverUrl,
@@ -1931,9 +1980,11 @@ function Setup({
   voiceShortcut,
   voiceMode,
   voiceProvider,
+  voiceInstructions,
   onVoiceShortcutChange,
   onVoiceModeChange,
   onVoiceProviderChange,
+  onVoiceInstructionsChange,
   onConnect,
   onCancel,
   onSignOut,
@@ -1944,9 +1995,11 @@ function Setup({
   voiceShortcut: VoiceShortcutPreference;
   voiceMode: VoiceMode;
   voiceProvider: VoiceProvider;
+  voiceInstructions: string;
   onVoiceShortcutChange: (value: VoiceShortcutPreference) => void;
   onVoiceModeChange: (value: VoiceMode) => void;
   onVoiceProviderChange: (value: VoiceProvider) => void;
+  onVoiceInstructionsChange: (value: string) => void;
   onConnect: (url: string) => void;
   onCancel?: () => void;
   onSignOut?: () => void;
@@ -1958,6 +2011,12 @@ function Setup({
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);
+  const [apiKeyValue, setApiKeyValue] = useState("");
+  const [apiKeySaving, setApiKeySaving] = useState(false);
+  const [apiKeyMessage, setApiKeyMessage] = useState<{
+    kind: "ok" | "error";
+    text: string;
+  } | null>(null);
 
   function setVoiceEnabled(enabled: boolean) {
     if (!featureConfig) return;
@@ -2026,15 +2085,17 @@ function Setup({
     onConnect(trimmed);
   }
 
-  const providerHint: Record<VoiceProvider, string> = {
-    auto: "Picks the best available provider for your setup.",
-    browser: "Free Web Speech dictation. Cross-platform; quality varies.",
-    "macos-native":
-      "Apple's on-device dictation via SFSpeechRecognizer. Fastest and most reliable on macOS.",
-    builder: "Builder.io's transcription. Needs BUILDER_PRIVATE_KEY.",
-    gemini: "Google Gemini Flash Lite. Needs GEMINI_API_KEY.",
-    openai: "OpenAI Whisper. Needs OPENAI_API_KEY.",
-    groq: "Groq Whisper — fastest cloud option. Needs GROQ_API_KEY.",
+  const selectedMode = voiceProviderMode(voiceProvider);
+  const byokProvider: ByokVoiceProvider = isByokVoiceProvider(voiceProvider)
+    ? voiceProvider
+    : "gemini";
+  const providerHint: Record<VoiceProviderMode, string> = {
+    native: isMacPlatform()
+      ? "Uses macOS on-device speech recognition for the fastest free dictation."
+      : "Uses the browser's built-in speech recognition when available.",
+    builder:
+      "Uses Builder.io's Gemini Flash-Lite path for fast cleanup. No Google API key needed.",
+    byok: "Use your own provider key. Gemini is the recommended default for low-latency cleanup.",
   };
   const shortcutHint: Record<VoiceShortcutPreference, string> = {
     fn: "Press the Fn / globe key to dictate.",
@@ -2047,25 +2108,106 @@ function Setup({
     toggle: "Press once to start, again to stop.",
   };
 
-  // Only warn when the selected provider has no key on the server. Avoids
-  // showing four "missing key" rows at all times.
+  function selectProviderMode(mode: VoiceProviderMode) {
+    setApiKeyMessage(null);
+    if (mode === "native") {
+      onVoiceProviderChange(nativeVoiceProvider());
+    } else if (mode === "builder") {
+      onVoiceProviderChange("builder-gemini");
+    } else {
+      onVoiceProviderChange(byokProvider);
+    }
+  }
+
+  async function saveApiKey() {
+    const value = apiKeyValue.trim();
+    if (!value || apiKeySaving) return;
+    const key = keyForByokProvider(byokProvider);
+    const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
+    setApiKeySaving(true);
+    setApiKeyMessage(null);
+    try {
+      let res = await fetch(
+        `${base}/_agent-native/secrets/${encodeURIComponent(key)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value }),
+          credentials: "include",
+        },
+      );
+
+      // Some apps may not register every BYOK provider. Fall back to the
+      // ad-hoc secret store so the tray can still wire user-scoped keys.
+      if (res.status === 404) {
+        res = await fetch(`${base}/_agent-native/secrets/adhoc`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: key,
+            value,
+            scope: "user",
+            description: `${labelForByokProvider(byokProvider)} key for Clips voice transcription`,
+          }),
+          credentials: "include",
+        });
+      }
+
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error || `Save failed (${res.status})`);
+      }
+
+      setProviderStatus((prev) =>
+        prev
+          ? { ...prev, [byokProvider]: true }
+          : {
+              browser: true,
+              "macos-native": true,
+              builder: false,
+              gemini: byokProvider === "gemini",
+              openai: byokProvider === "openai",
+              groq: byokProvider === "groq",
+            },
+      );
+      setApiKeyValue("");
+      setApiKeyMessage({
+        kind: "ok",
+        text: `${labelForByokProvider(byokProvider)} key saved.`,
+      });
+    } catch (err) {
+      setApiKeyMessage({
+        kind: "error",
+        text: (err as Error)?.message ?? "Could not save key.",
+      });
+    } finally {
+      setApiKeySaving(false);
+    }
+  }
+
+  function connectBuilder() {
+    const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
+    openExternal(`${base}/_agent-native/builder/connect`).catch((err) => {
+      setApiKeyMessage({
+        kind: "error",
+        text: (err as Error)?.message ?? "Could not open Builder.io connect.",
+      });
+    });
+  }
+
+  // Only warn when the selected provider has no key/connection on the server.
   const providerWarning: string | null = (() => {
     if (providerStatusLoading || !providerStatus) return null;
-    if (
-      voiceProvider === "browser" ||
-      voiceProvider === "macos-native" ||
-      voiceProvider === "auto"
-    ) {
-      return null;
+    if (selectedMode === "native") return null;
+    if (selectedMode === "builder") {
+      return providerStatus.builder
+        ? null
+        : "Builder.io is not connected — cleanup will fail until connected.";
     }
-    if (providerStatus[voiceProvider]) return null;
-    const envKey = {
-      builder: "BUILDER_PRIVATE_KEY",
-      gemini: "GEMINI_API_KEY",
-      openai: "OPENAI_API_KEY",
-      groq: "GROQ_API_KEY",
-    }[voiceProvider];
-    return `${envKey} not set on the server — falling back to browser.`;
+    if (providerStatus[byokProvider]) return null;
+    return `${keyForByokProvider(byokProvider)} is not set — cleanup will fail until configured.`;
   })();
 
   return (
@@ -2122,35 +2264,130 @@ function Setup({
           <div className="setup-section">
             <SettingLabel
               label="Provider"
-              hint="Where audio is sent for transcription. Browser is free; cloud providers need an API key set on the server."
+              hint="Choose free on-device dictation, Builder.io cleanup, or a provider key you own."
               htmlFor="voice-provider"
             />
             <select
               id="voice-provider"
               className="setup-select"
-              value={voiceProvider}
+              value={selectedMode}
               onChange={(event) =>
-                onVoiceProviderChange(event.target.value as VoiceProvider)
+                selectProviderMode(event.target.value as VoiceProviderMode)
               }
             >
-              <option value="auto">Auto (recommended)</option>
-              <option value="browser">Browser (free, built-in)</option>
-              {typeof navigator !== "undefined" &&
-              /Mac/i.test(navigator.platform) ? (
-                <option value="macos-native">
-                  macOS native (on-device, fastest)
-                </option>
-              ) : null}
+              <option value="native">On-device (free, fast)</option>
               <option value="builder">Builder.io</option>
-              <option value="gemini">Google Gemini Flash Lite</option>
-              <option value="openai">OpenAI Whisper</option>
-              <option value="groq">Groq Whisper</option>
+              <option value="byok">Add your own key</option>
             </select>
-            <p className="setup-hint">{providerHint[voiceProvider]}</p>
+            <p className="setup-hint">{providerHint[selectedMode]}</p>
             {providerWarning ? (
               <p className="setup-warning">{providerWarning}</p>
             ) : null}
+            {selectedMode === "builder" && !providerStatus?.builder ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={connectBuilder}
+              >
+                Connect Builder.io
+              </button>
+            ) : null}
           </div>
+
+          {selectedMode === "byok" ? (
+            <div className="setup-section">
+              <SettingLabel
+                label="Key provider"
+                hint="Gemini is the recommended provider for fast cleanup; OpenAI and Groq are available when you prefer those keys."
+                htmlFor="voice-byok-provider"
+              />
+              <select
+                id="voice-byok-provider"
+                className="setup-select"
+                value={byokProvider}
+                onChange={(event) => {
+                  setApiKeyMessage(null);
+                  onVoiceProviderChange(
+                    event.target.value as ByokVoiceProvider,
+                  );
+                }}
+              >
+                <option value="gemini">Google Gemini (recommended)</option>
+                <option value="openai">OpenAI</option>
+                <option value="groq">Groq</option>
+              </select>
+              <div className="setup-key-row">
+                <input
+                  type="password"
+                  value={apiKeyValue}
+                  onChange={(event) => setApiKeyValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      saveApiKey();
+                    }
+                  }}
+                  placeholder={
+                    providerStatus?.[byokProvider]
+                      ? "Paste a new key to rotate"
+                      : `Paste ${keyForByokProvider(byokProvider)}`
+                  }
+                />
+                <button
+                  type="button"
+                  className="secondary setup-key-save"
+                  onClick={saveApiKey}
+                  disabled={!apiKeyValue.trim() || apiKeySaving}
+                >
+                  {apiKeySaving
+                    ? "Saving..."
+                    : providerStatus?.[byokProvider]
+                      ? "Rotate"
+                      : "Save"}
+                </button>
+              </div>
+              {providerStatus?.[byokProvider] ? (
+                <p className="setup-hint">
+                  {labelForByokProvider(byokProvider)} key is set.
+                </p>
+              ) : null}
+              {apiKeyMessage ? (
+                <p
+                  className={
+                    apiKeyMessage.kind === "ok"
+                      ? "setup-success"
+                      : "setup-warning"
+                  }
+                >
+                  {apiKeyMessage.text}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {selectedMode !== "native" ? (
+            <div className="setup-section">
+              <SettingLabel
+                label="Custom instructions"
+                hint="Included with LLM cleanup/transcription. Use this for casing, names, punctuation, tone, or terms of art."
+                htmlFor="voice-instructions"
+              />
+              <textarea
+                id="voice-instructions"
+                className="setup-textarea"
+                rows={4}
+                value={voiceInstructions}
+                onChange={(event) =>
+                  onVoiceInstructionsChange(event.target.value)
+                }
+                placeholder="Example: keep it casual, spell Builder.io with a dot, and preserve technical terms exactly."
+              />
+              <p className="setup-hint">
+                These instructions are sent only when an LLM-based provider is
+                selected.
+              </p>
+            </div>
+          ) : null}
 
           <div className="setup-section">
             <SettingLabel

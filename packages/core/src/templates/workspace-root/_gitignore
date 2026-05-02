@@ -19,5 +19,8 @@ packages/*/.env
 .pnpm-store/
 pnpm-debug.log*
 
+# Local workspace data
+data/
+
 # Personal agent memory — per-developer, not shared
 learnings.md

@@ -49,7 +49,7 @@ On next app start you'll see:
 [mcp-client] connected to filesystem: 4 tools
 ```
 
-The tools are registered in the agent's tool registry with the prefix `mcp__<server-id>__<tool-name>` so they can't collide with your template's actions.
+The tools are registered in the agent's tool registry with the prefix `mcp__<server-id>__<tool-name>` so they can't collide with your template's actions. They are also included in `tool-search`, so agents can discover newly connected MCP capabilities by intent instead of needing the exact prefixed name up front.
 
 ## Config precedence {#precedence}
 
@@ -95,7 +95,7 @@ Two scopes are supported:
 - **Personal** — only the signed-in user gets the tools. Stored as a user-scope setting.
 - **Team** — everyone in the active organization gets the tools. Owners and admins can add; members see the list read-only. Stored as an org-scope setting.
 
-Adds and removes hot-reload into the running MCP manager — no process restart, and no server restart. The new `mcp__<scope>-<name>__*` tools appear to the agent on the next message.
+Adds and removes hot-reload into the running MCP manager — no process restart, and no server restart. The new `mcp__<scope>-<name>__*` tools appear to the agent on the next message and are searchable via `tool-search`.
 
 HTTPS URLs are accepted everywhere; plain `http://` is only allowed for `localhost` during development. Optional auth goes in as a Bearer token that's sent via `Authorization: Bearer …` on every request.
 

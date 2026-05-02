@@ -312,7 +312,10 @@ export function AutomationsSection() {
               ref={newPopoverRef}
               className="absolute left-0 top-full mt-1.5 z-[220] w-72 rounded-lg border border-border bg-popover p-3 shadow-lg"
             >
-              <form onSubmit={handleNewSubmit}>
+              <form onSubmit={handleNewSubmit} className="space-y-2.5">
+                <p className="text-sm font-semibold text-foreground">
+                  New automation
+                </p>
                 <textarea
                   value={newPrompt}
                   onChange={(e) => setNewPrompt(e.target.value)}
@@ -327,7 +330,7 @@ export function AutomationsSection() {
                     }
                   }}
                 />
-                <div className="mt-2">
+                <div>
                   <select
                     value={newScope}
                     onChange={(e) =>
@@ -339,7 +342,11 @@ export function AutomationsSection() {
                     <option value="organization">Organization</option>
                   </select>
                 </div>
-                <div className="mt-2.5 flex justify-end">
+                <div className="flex items-center justify-end gap-2">
+                  <span className="text-[11px] text-muted-foreground/70">
+                    {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+                    +Enter to submit
+                  </span>
                   <button
                     type="submit"
                     disabled={!newPrompt.trim()}

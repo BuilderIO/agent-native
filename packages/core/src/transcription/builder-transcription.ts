@@ -6,10 +6,12 @@ import {
 export interface BuilderTranscribeOptions {
   audioBytes: Uint8Array;
   mimeType: string;
+  model?: string;
   diarize?: boolean;
   minSpeakers?: number;
   maxSpeakers?: number;
   language?: string;
+  instructions?: string;
 }
 
 export interface BuilderTranscribeResult {
@@ -42,12 +44,14 @@ export async function transcribeWithBuilder(
 
   const params = new URLSearchParams();
   params.set("mimeType", opts.mimeType);
+  if (opts.model) params.set("model", opts.model);
   if (opts.diarize != null) params.set("diarize", String(opts.diarize));
   if (opts.minSpeakers != null)
     params.set("minSpeakers", String(opts.minSpeakers));
   if (opts.maxSpeakers != null)
     params.set("maxSpeakers", String(opts.maxSpeakers));
   if (opts.language) params.set("language", opts.language);
+  if (opts.instructions) params.set("instructions", opts.instructions);
 
   const url = `${getBuilderProxyOrigin()}/agent-native/transcribe-audio?${params.toString()}`;
 

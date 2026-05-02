@@ -103,6 +103,9 @@ button {
   box-shadow: var(--shadow-md);
   /* No fixed height — the Tauri window is resized to match the rendered
      content via resize_popover, so the shell just flows naturally. */
+  max-height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* Header — logo + mode toggle + close */
@@ -552,6 +555,35 @@ button {
   transform: translateY(1px);
 }
 
+.secondary {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    color 120ms;
+}
+
+.secondary:hover {
+  background: var(--surface-hover);
+}
+
+.secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .primary.start {
   margin-top: 2px;
 }
@@ -776,6 +808,9 @@ button {
   flex-direction: column;
   gap: 10px;
   z-index: 10;
+  max-height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .setup h2 {
@@ -791,7 +826,8 @@ button {
 }
 
 .setup input,
-.setup-select {
+.setup-select,
+.setup-textarea {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border-strong);
@@ -804,7 +840,8 @@ button {
 }
 
 .setup input:focus,
-.setup-select:focus {
+.setup-select:focus,
+.setup-textarea:focus {
   border-color: var(--brand);
   box-shadow: 0 0 0 3px var(--brand-ring);
 }
@@ -894,6 +931,13 @@ button {
   line-height: 1.4;
 }
 
+.setup-success {
+  margin: 0;
+  font-size: 11px;
+  color: #15803d;
+  line-height: 1.4;
+}
+
 .setup-select {
   appearance: none;
   background-image:
@@ -906,6 +950,25 @@ button {
     5px 5px,
     5px 5px;
   background-repeat: no-repeat;
+}
+
+.setup-textarea {
+  min-height: 86px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.setup-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.setup-key-save {
+  width: auto;
+  min-width: 72px;
+  height: 38px;
+  padding-inline: 12px;
 }
 
 .setup-account {
@@ -2078,8 +2141,8 @@ button {
 
 /* Live partial-transcript chip floating above the pill. Same dark glass
    look as the pill, smaller, only there when transcript is non-empty.
-   Caps width and clips long lines so a long sentence doesn't shove the
-   layout outside the transparent window. */
+   Caps width and clips from the left so the newest words stay visible
+   when a long sentence reaches the edge of the transparent window. */
 .flow-bar-transcript {
   max-width: 360px;
   padding: 4px 10px;
@@ -2091,10 +2154,11 @@ button {
   color: rgba(255, 255, 255, 0.92);
   font-size: 12px;
   line-height: 1.35;
-  text-align: center;
+  text-align: right;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  direction: rtl;
   pointer-events: none;
   animation: flow-bar-in 100ms ease-out;
 }

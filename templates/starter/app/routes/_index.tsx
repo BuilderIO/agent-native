@@ -1,22 +1,29 @@
 import { useState, useRef, useEffect } from "react";
+import { Link } from "react-router";
 import {
-  IconArrowRight,
+  IconArrowUp,
   IconArrowUpRight,
-  IconDatabase,
-  IconBolt,
-  IconRefresh,
+  IconBook2,
+  IconBrush,
+  IconPlus,
+  IconSparkles,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { sendToAgentChat, openAgentSidebar } from "@agent-native/core/client";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [
-    { title: "Starter — Agent Native" },
+    { title: "Agent-Native Starter" },
     {
       name: "description",
       content:
-        "Minimal scaffold for building agent-native apps — agent chat and core architecture wired up.",
+        "Build apps where the AI agent and UI are equal partners — sharing state, actions, and context in real time.",
     },
   ];
 }
@@ -29,154 +36,143 @@ export function HydrateFallback() {
   );
 }
 
-const FIRST_VISIT_KEY = "agent-native-first-visit";
-
-const FIRST_VISIT_SUGGESTIONS = [
-  "Walk me through the project structure",
-  "Show me how actions work",
-  "What makes Agent Native unique?",
-  "Add a new page and route",
-];
-
-const RETURNING_SUGGESTIONS = [
-  "What makes Agent Native special?",
-  "How do the agent and UI stay in sync?",
-  "Show me what you can build",
-];
-
-const CONCEPT_PILLS = [
-  {
-    icon: IconDatabase,
-    label: "Shared State",
-    message:
-      "Explain how agent-UI state sync works in Agent Native and show me the relevant code.",
-  },
-  {
-    icon: IconBolt,
-    label: "Actions",
-    message:
-      "Show me the actions/ directory and explain how to add new agent capabilities.",
-  },
-  {
-    icon: IconRefresh,
-    label: "Live Sync",
-    message:
-      "How does useDbSync polling work? Show me the hook and explain jitter prevention.",
-  },
-];
-
 export default function IndexPage() {
   const { theme, setTheme } = useTheme();
   const [prompt, setPrompt] = useState("");
+  const [startOpen, setStartOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [isFirstVisit, setIsFirstVisit] = useState(() => {
-    try {
-      return !localStorage.getItem(FIRST_VISIT_KEY);
-    } catch {
-      return false;
-    }
-  });
 
   useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
-
-  function markVisited() {
-    if (!isFirstVisit) return;
-    try {
-      localStorage.setItem(FIRST_VISIT_KEY, "true");
-    } catch {}
-    setIsFirstVisit(false);
-  }
+    if (!startOpen) return;
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  }, [startOpen]);
 
   function submit() {
     const text = prompt.trim();
     if (!text) return;
-    markVisited();
     openAgentSidebar();
-    sendToAgentChat({ message: text });
+    sendToAgentChat({
+      message: text,
+      context:
+        "The user is starting from the Agent-Native starter template and wants you to customize this app. Make the requested app changes directly in the starter template code.",
+      submit: true,
+      type: "code",
+    });
     setPrompt("");
+    setStartOpen(false);
   }
 
-  const suggestions = isFirstVisit
-    ? FIRST_VISIT_SUGGESTIONS
-    : RETURNING_SUGGESTIONS;
+  const submitShortcut =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent)
+      ? "⌘"
+      : "Ctrl";
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
-      <div className="flex flex-1 flex-col items-center justify-center px-6">
-        <div className="w-full max-w-xl space-y-6">
-          <h1 className="text-center text-3xl font-semibold tracking-tight text-foreground">
-            {isFirstVisit
-              ? "What do you want to build?"
-              : "Pick up where you left off"}
-          </h1>
-
-          {isFirstVisit && (
+      <div className="flex flex-1 flex-col items-center justify-start px-6 pt-12 pb-10 md:pt-16">
+        <div className="w-full max-w-2xl space-y-6">
+          <div className="space-y-4 text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-card shadow-sm">
+              <IconSparkles className="h-5 w-5 text-muted-foreground" />
+            </div>
             <div className="space-y-2">
-              <div className="rounded-xl border border-border bg-card shadow-sm">
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+                Blank app
+              </h1>
+              <p className="mx-auto max-w-md text-sm leading-relaxed text-muted-foreground">
+                This app is ready for your first route, workflow, data model, or
+                custom screen.
+              </p>
+            </div>
+          </div>
+
+          <Popover open={startOpen} onOpenChange={setStartOpen}>
+            <PopoverTrigger asChild>
+              <button className="group flex w-full items-center gap-4 rounded-xl border border-dashed border-border bg-card px-5 py-4 text-left shadow-sm transition-colors hover:border-foreground/20 hover:bg-accent/40">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:text-foreground">
+                  <IconBrush className="h-5 w-5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-foreground">
+                    Start building
+                  </span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    Tell the agent what this blank app should become.
+                  </span>
+                </span>
+                <IconArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-foreground" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="center"
+              sideOffset={10}
+              className="w-[calc(100vw-2rem)] rounded-xl p-4 shadow-xl sm:w-96"
+            >
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  submit();
+                }}
+                className="space-y-3"
+              >
+                <p className="text-sm font-semibold text-foreground">
+                  Start building
+                </p>
                 <textarea
                   ref={textareaRef}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                       e.preventDefault();
                       submit();
                     }
                   }}
-                  placeholder="Describe what you'd like the agent to build..."
-                  rows={4}
-                  className="w-full resize-none rounded-t-xl bg-transparent px-4 pt-4 pb-2 text-sm text-foreground placeholder:text-muted-foreground/60 outline-none"
+                  placeholder="Describe what you want to add or change..."
+                  rows={5}
+                  className="flex min-h-[140px] w-full resize-y rounded-md border border-input bg-background px-3 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
                 />
-                <div className="flex items-center justify-between px-4 pb-3">
-                  <span className="text-[11px] text-muted-foreground/50">
-                    Enter to submit
+                <div className="flex items-center justify-end gap-2">
+                  <span className="text-[11px] text-muted-foreground/75">
+                    {submitShortcut}+Enter to submit
                   </span>
                   <button
-                    onClick={submit}
+                    type="submit"
                     disabled={!prompt.trim()}
                     aria-label="Submit prompt"
-                    className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background disabled:opacity-20 cursor-pointer"
+                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <IconArrowRight className="h-3.5 w-3.5" />
+                    <IconArrowUp className="h-3.5 w-3.5" />
                   </button>
                 </div>
-              </div>
-              <p className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground/60">
-                <IconArrowUpRight className="h-3 w-3" />
-                Sends to your agent in the sidebar
-              </p>
-            </div>
-          )}
-
-          {/* Adaptive suggestion buttons */}
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {suggestions.map((suggestion) => (
-              <button
-                key={suggestion}
-                onClick={() => {
-                  markVisited();
-                  openAgentSidebar();
-                  sendToAgentChat({ message: suggestion });
-                }}
-                className="rounded-full border border-border/60 px-3.5 py-1.5 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground cursor-pointer"
-              >
-                {suggestion}
-              </button>
-            ))}
-          </div>
+              </form>
+            </PopoverContent>
+          </Popover>
 
           <div className="h-px bg-border" />
 
-          <div className="grid grid-cols-2 gap-3 text-left">
+          <div className="grid gap-3 text-left sm:grid-cols-3">
+            <Link
+              to="/new-app"
+              className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50"
+            >
+              <p className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+                <IconPlus className="h-3.5 w-3.5" />
+                New app
+              </p>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                Create a separate workspace app
+              </p>
+            </Link>
             <a
               href="https://agent-native.com/docs"
               target="_blank"
               rel="noopener noreferrer"
               className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50"
             >
-              <p className="text-[13px] font-medium text-foreground">
+              <p className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+                <IconBook2 className="h-3.5 w-3.5" />
                 Documentation
               </p>
               <p className="text-[12px] text-muted-foreground mt-0.5">
@@ -192,23 +188,6 @@ export default function IndexPage() {
                 Toggle dark / light
               </p>
             </button>
-          </div>
-
-          {/* Concept pills */}
-          <div className="flex items-center justify-center gap-2">
-            {CONCEPT_PILLS.map(({ icon: Icon, label, message }) => (
-              <button
-                key={label}
-                onClick={() => {
-                  openAgentSidebar();
-                  sendToAgentChat({ message, submit: true });
-                }}
-                className="flex items-center gap-1.5 rounded-full border border-border/40 px-3 py-1.5 text-xs text-muted-foreground/50 hover:bg-accent/50 hover:text-foreground hover:border-border cursor-pointer"
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </button>
-            ))}
           </div>
         </div>
       </div>

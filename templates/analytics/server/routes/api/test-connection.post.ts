@@ -203,12 +203,17 @@ export default defineEventHandler(async (event) => {
         case "gong": {
           const accessKey = await resolveCredential("GONG_ACCESS_KEY", ctx);
           const secret = await resolveCredential("GONG_ACCESS_SECRET", ctx);
+          const apiBase =
+            (await resolveCredential("GONG_API_BASE", ctx)) ||
+            "https://api.gong.io/v2";
           if (!accessKey || !secret)
             return { ok: false, error: "Missing credentials" };
           const auth = `Basic ${Buffer.from(`${accessKey}:${secret}`).toString("base64")}`;
           const res = await fetch(
-            "https://us-65885.api.gong.io/v2/users?limit=1",
-            { headers: { Authorization: auth } },
+            `${apiBase.replace(/\/+$/, "")}/users?limit=1`,
+            {
+              headers: { Authorization: auth },
+            },
           );
           if (!res.ok) return { ok: false, error: "Invalid credentials" };
           return { ok: true };

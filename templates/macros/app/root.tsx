@@ -72,11 +72,6 @@ function DbSyncSetup() {
       const isOwnEvent = data.requestSource === TAB_ID;
       if (isOwnEvent) return;
 
-      // When data changes from agent or another tab, invalidate all action
-      // queries so list-meals, list-exercises, list-weights, get-analytics,
-      // etc. all refetch. useActionQuery keys are ["action", name, params].
-      qc.invalidateQueries({ queryKey: ["action"] });
-
       if (data.source === "app-state") {
         qc.invalidateQueries({ queryKey: ["navigate-command"] });
       }

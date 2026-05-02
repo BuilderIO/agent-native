@@ -16,6 +16,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,6 +86,14 @@ export interface ShareRecordingPopoverProps {
   onOpenChange?: (open: boolean) => void;
 }
 
+type ShareRecordingDialogProps = Omit<
+  ShareRecordingPopoverProps,
+  "children"
+> & {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+};
+
 /**
  * Clips share popover — anchored to a trigger button, contains Link /
  * Invite / Embed tabs with the same functionality as the framework share
@@ -101,6 +110,62 @@ export function ShareRecordingPopover({
   open,
   onOpenChange,
 }: ShareRecordingPopoverProps) {
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent align="end" className="w-[440px] p-0">
+        <ShareRecordingContent
+          recordingId={recordingId}
+          recordingTitle={recordingTitle}
+          videoUrl={videoUrl}
+          animatedThumbnailUrl={animatedThumbnailUrl}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Dialog shell for menu-driven Share actions. Radix popovers need a real
+ * anchor; opening one from a dropdown item with an invisible trigger can
+ * be dismissed by the same click/focus cycle that closes the menu.
+ */
+export function ShareRecordingDialog({
+  recordingId,
+  recordingTitle,
+  videoUrl,
+  animatedThumbnailUrl,
+  open,
+  onOpenChange,
+}: ShareRecordingDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[440px] p-0">
+        <DialogTitle className="sr-only">
+          {recordingTitle ? `Share ${recordingTitle}` : "Share recording"}
+        </DialogTitle>
+        <ShareRecordingContent
+          recordingId={recordingId}
+          recordingTitle={recordingTitle}
+          videoUrl={videoUrl}
+          animatedThumbnailUrl={animatedThumbnailUrl}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ShareRecordingContent({
+  recordingId,
+  recordingTitle,
+  videoUrl,
+  animatedThumbnailUrl,
+}: {
+  recordingId: string;
+  recordingTitle?: string;
+  videoUrl?: string | null;
+  animatedThumbnailUrl?: string | null;
+}) {
   const shareUrl =
     typeof window === "undefined"
       ? ""
@@ -116,59 +181,56 @@ export function ShareRecordingPopover({
     : "Share recording";
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent align="end" className="w-[440px] p-0">
-        <div className="px-4 pt-3 pb-3 border-b border-border">
-          <div className="truncate text-sm font-semibold" title={titleText}>
-            {titleText}
-          </div>
-          {sharesQuery.data?.ownerEmail ? (
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">
-              Owner: {sharesQuery.data.ownerEmail}
-            </div>
-          ) : null}
+    <>
+      <div className="px-4 pt-3 pb-3 border-b border-border">
+        <div className="truncate text-sm font-semibold" title={titleText}>
+          {titleText}
         </div>
+        {sharesQuery.data?.ownerEmail ? (
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            Owner: {sharesQuery.data.ownerEmail}
+          </div>
+        ) : null}
+      </div>
 
-        <Tabs defaultValue="link" className="px-4 py-3">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="link" className="gap-1.5">
-              <IconLink size={14} />
-              Link
-            </TabsTrigger>
-            <TabsTrigger value="invite" className="gap-1.5">
-              <IconMail size={14} />
-              Invite
-            </TabsTrigger>
-            <TabsTrigger value="embed" className="gap-1.5">
-              <IconCode size={14} />
-              Embed
-            </TabsTrigger>
-          </TabsList>
+      <Tabs defaultValue="link" className="px-4 py-3">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="link" className="gap-1.5">
+            <IconLink size={14} />
+            Link
+          </TabsTrigger>
+          <TabsTrigger value="invite" className="gap-1.5">
+            <IconMail size={14} />
+            Invite
+          </TabsTrigger>
+          <TabsTrigger value="embed" className="gap-1.5">
+            <IconCode size={14} />
+            Embed
+          </TabsTrigger>
+        </TabsList>
 
-          <TabsContent value="link" className="mt-3">
-            <LinkTab
-              recordingId={recordingId}
-              shareUrl={shareUrl}
-              sharesQuery={sharesQuery}
-              videoUrl={videoUrl}
-              animatedThumbnailUrl={animatedThumbnailUrl}
-            />
-          </TabsContent>
+        <TabsContent value="link" className="mt-3">
+          <LinkTab
+            recordingId={recordingId}
+            shareUrl={shareUrl}
+            sharesQuery={sharesQuery}
+            videoUrl={videoUrl}
+            animatedThumbnailUrl={animatedThumbnailUrl}
+          />
+        </TabsContent>
 
-          <TabsContent value="invite" className="mt-3">
-            <InviteTab recordingId={recordingId} sharesQuery={sharesQuery} />
-          </TabsContent>
+        <TabsContent value="invite" className="mt-3">
+          <InviteTab recordingId={recordingId} sharesQuery={sharesQuery} />
+        </TabsContent>
 
-          <TabsContent value="embed" className="mt-3">
-            <ClipsEmbedConfigurator
-              recordingId={recordingId}
-              sharesQuery={sharesQuery}
-            />
-          </TabsContent>
-        </Tabs>
-      </PopoverContent>
-    </Popover>
+        <TabsContent value="embed" className="mt-3">
+          <ClipsEmbedConfigurator
+            recordingId={recordingId}
+            sharesQuery={sharesQuery}
+          />
+        </TabsContent>
+      </Tabs>
+    </>
   );
 }
 

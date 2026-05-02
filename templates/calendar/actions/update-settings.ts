@@ -13,8 +13,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Booking page description"),
-    defaultEventDuration: z
-      .string()
+    defaultEventDuration: z.coerce
+      .number()
+      .int()
+      .positive()
       .optional()
       .describe("Default event duration in minutes"),
   }),

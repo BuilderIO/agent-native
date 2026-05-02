@@ -59,7 +59,8 @@ export function NewAnalysisDialog() {
         side="right"
         align="start"
       >
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <p className="text-sm font-semibold text-foreground">New analysis</p>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -78,10 +79,10 @@ export function NewAnalysisDialog() {
               }
             }}
           />
-          <div className="flex items-center justify-end gap-2 mt-3">
+          <div className="flex items-center justify-end gap-2">
             <span className="text-[11px] text-muted-foreground">
               {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter
+              +Enter to submit
             </span>
             <button
               type="submit"

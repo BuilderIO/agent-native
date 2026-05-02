@@ -16,8 +16,10 @@ export {
   getSessionEmail,
   runAuthGuard,
   setDesktopExchange,
+  setDesktopExchangeError,
   DEV_MODE_USER_EMAIL,
   safeReturnPath,
+  type DesktopExchangeErrorPayload,
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
@@ -165,12 +167,15 @@ export {
   getOrigin,
   getAppBasePath,
   getAppUrl,
+  resolveOAuthRedirectUri,
+  isAllowedOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
   resolveOAuthOwner,
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
+  oauthDesktopExchangePage,
   type OAuthStatePayload,
   type OAuthOwnerResult,
   type OAuthSessionResult,
@@ -179,6 +184,7 @@ export {
 export {
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
+  isBuilderEnvManaged,
   getBuilderProxyOrigin,
   getBuilderAuthHeader,
   resolveBuilderPrivateKey,
@@ -190,6 +196,12 @@ export {
   deleteBuilderCredentials,
   resolveSecret,
 } from "./credential-provider.js";
+export {
+  getBuilderBranchProjectId,
+  isBuilderBranchingEnabled,
+  runBuilderAgent,
+  type RunBuilderAgentResult,
+} from "./builder-browser.js";
 
 export {
   sendEmail,
@@ -201,11 +213,17 @@ export {
 export {
   renderEmail,
   emailStrong,
+  emailLink,
   type RenderEmailArgs,
   type RenderedEmail,
   type EmailCta,
 } from "./email-template.js";
 export { getAppProductionUrl, getFirstPartyProdUrl } from "./app-url.js";
+export {
+  getConfiguredAppBasePath,
+  normalizeAppBasePath,
+  withConfiguredAppBasePath,
+} from "./app-base-path.js";
 export {
   signShortLivedToken,
   verifyShortLivedToken,

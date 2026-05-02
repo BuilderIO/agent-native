@@ -51,6 +51,7 @@ if (hasFlag("--help") || hasFlag("-h")) {
 }
 
 const dryRun = hasFlag("--dry-run");
+const FRAME_PORT = 3334;
 
 // ── App port assignments ───────────────────────────────────────
 // Parsed from packages/shared-app-config/templates.ts (same approach
@@ -84,6 +85,7 @@ const requestedApps = appsArg
 const portsToUse = requestedApps
   .map((a) => PORT_MAP[a])
   .filter(Boolean) as number[];
+portsToUse.push(FRAME_PORT);
 
 function tryKillPort(port: number) {
   try {
@@ -116,9 +118,15 @@ requestedApps.forEach((appName, i) => {
   // both the frontend and all /api/* routes on the one port.
   // PORT pins the dev server port (Nitro's vite plugin reads process.env.PORT
   // first when resolving the dev server port).
-  commands.push(`PORT=${port} pnpm --dir templates/${appName} exec vite`);
+  commands.push(
+    `APP_NAME=${appName} PORT=${port} pnpm --dir templates/${appName} exec vite`,
+  );
   colors.push(appColors[i % appColors.length]);
 });
+
+names.push("frame");
+commands.push("pnpm --filter @agent-native/frame dev");
+colors.push("magenta");
 
 // Electron shell dev (starts electron-vite which starts renderer + main + Electron)
 names.push("electron");

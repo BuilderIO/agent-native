@@ -1,14 +1,12 @@
 /**
- * Save a browser-generated transcript (Web Speech API) for a recording.
+ * Save a native transcript for a recording.
  *
- * Called by the client immediately when recording stops — the Web Speech
- * API transcript is available instantly with zero API-key requirement.
- * Higher-quality backends (Groq Whisper, OpenAI Whisper) can refine this
- * later via `request-transcript`, silently replacing the browser draft.
+ * Called by the web client (Web Speech API) and desktop client (macOS Speech)
+ * immediately when recording stops. Native transcripts are available
+ * instantly with no API-key requirement and are the primary transcript source.
  *
- * After saving, if the recording still has the default title we queue a
- * title-generation delegation so the agent can produce a real title from
- * the transcript even before Whisper runs (or when Whisper isn't configured).
+ * After saving, if the recording still has the default title we queue an
+ * agent title-generation request so the clip gets a useful title.
  *
  * Usage:
  *   pnpm action save-browser-transcript --recordingId=<id> --fullText="..."
@@ -30,10 +28,16 @@ function isDefaultTitle(title: string | null | undefined): boolean {
 
 export default defineAction({
   description:
-    "Save a browser-generated (Web Speech API) transcript for a recording. Provides an instant transcript with no API key required. Whisper can refine it later.",
+    "Save a native transcript (Web Speech API or macOS Speech) for a recording. Provides an instant transcript with no API key required.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
-    fullText: z.string().describe("Full transcript text from Web Speech API"),
+    fullText: z
+      .string()
+      .describe("Full transcript text from native speech recognition"),
+    source: z
+      .enum(["web-speech", "macos-native"])
+      .optional()
+      .describe("Native transcription source"),
   }),
   run: async (args) => {
     const db = getDb();
@@ -103,12 +107,12 @@ export default defineAction({
     }
 
     console.log(
-      `[clips] Browser transcript saved for ${args.recordingId} (${args.fullText.trim().length} chars)`,
+      `[clips] Native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${args.fullText.trim().length} chars)`,
     );
 
-    // Queue a title-generation delegation if the clip still has the default
-    // title. This fires even when no Whisper provider is configured so that
-    // browser-only recordings always get a real title.
+    // Queue title generation if the clip still has the default title. This
+    // fires even when no cloud transcript provider is configured so native-only
+    // recordings can still get a real title through the agent.
     const [rec] = await db
       .select({ title: schema.recordings.title })
       .from(schema.recordings)
@@ -129,7 +133,7 @@ export default defineAction({
     return {
       recordingId: args.recordingId,
       status: "ready" as const,
-      provider: "browser",
+      provider: args.source ?? "web-speech",
       chars: args.fullText.trim().length,
     };
   },

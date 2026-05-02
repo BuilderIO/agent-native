@@ -30,6 +30,8 @@ import {
   IconBolt,
   IconTool,
   IconX,
+  IconClipboardList,
+  IconPencil,
 } from "@tabler/icons-react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import type {
@@ -44,6 +46,11 @@ import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { getComposerDraftKey } from "./draft-key.js";
+import {
+  getReasoningEffortOptionsForModel,
+  reasoningEffortLabel,
+  type ReasoningEffort,
+} from "../../shared/reasoning-effort.js";
 
 export interface TiptapComposerHandle {
   focus(): void;
@@ -53,6 +60,8 @@ const BUILT_IN_COMMANDS: SlashCommand[] = [
   { name: "clear", description: "Start a new chat", icon: "clear" },
   { name: "new", description: "Start a new chat", icon: "new" },
   { name: "history", description: "Browse chat history", icon: "history" },
+  { name: "plan", description: "Switch to read-only planning", icon: "plan" },
+  { name: "act", description: "Switch back to acting", icon: "act" },
   { name: "help", description: "Show available commands", icon: "help" },
 ];
 
@@ -133,7 +142,7 @@ Use manage-automations with action=define to create it. Ask clarifying questions
     getContext: (prompt) =>
       `The user wants to create an interactive tool (mini app). Their description: "${prompt}"
 
-Use the create-tool action with Alpine.js HTML content. The tool runs as a sandboxed iframe with Tailwind CSS.
+Use the create-tool action with Alpine.js HTML content. The tool runs as a sandboxed iframe with Tailwind CSS and modest default canvas padding. For edge-to-edge layouts, put data-tool-layout="full-bleed" on the outermost element.
 
 After creating the tool, navigate the user to it with set-url-path using pathname "/tools/<id>".
 
@@ -189,6 +198,8 @@ interface TiptapComposerProps {
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
   selectedModel?: string;
+  /** Selected reasoning effort override for this conversation */
+  selectedEffort?: ReasoningEffort;
   /** Available models grouped by provider */
   availableModels?: Array<{
     engine: string;
@@ -198,6 +209,8 @@ interface TiptapComposerProps {
   }>;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
+  /** Callback when user picks a reasoning effort */
+  onEffortChange?: (effort: ReasoningEffort) => void;
   /** Stable scope for persisted drafts, usually the active thread or tab id. */
   draftScope?: string;
 }
@@ -210,14 +223,22 @@ function ModeSelector({
   onChange: (mode: ExecMode) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const ActiveIcon = mode === "build" ? IconPencil : IconClipboardList;
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
       <PopoverPrimitive.Trigger asChild>
         <button
           type="button"
-          className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50"
+          aria-label={mode === "build" ? "Act mode" : "Plan mode"}
+          title="Shift+Tab toggles Act and Plan"
+          className={`shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium hover:bg-accent/50 ${
+            mode === "plan"
+              ? "text-amber-700 dark:text-amber-300"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
         >
+          <ActiveIcon className="h-3.5 w-3.5" />
           {mode === "build" ? "Act" : "Plan"}
           <IconChevronDown className="h-3 w-3 opacity-60" />
         </button>
@@ -238,12 +259,13 @@ function ModeSelector({
             }}
             className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left"
           >
+            <IconPencil className="h-4 w-4 shrink-0 text-muted-foreground" />
             <div className="flex-1 min-w-0">
               <span className="font-medium text-foreground text-[13px]">
                 Act
               </span>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Generate and make edits directly
+                Use tools and make approved changes
               </p>
             </div>
             {mode === "build" && (
@@ -258,12 +280,13 @@ function ModeSelector({
             }}
             className="flex w-full items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left"
           >
+            <IconClipboardList className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" />
             <div className="flex-1 min-w-0">
               <span className="font-medium text-foreground text-[13px]">
                 Plan
               </span>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Collaborate on an approach before taking action
+                Read-only research and approval first
               </p>
             </div>
             {mode === "plan" && (
@@ -363,10 +386,13 @@ function latestModelsOnly(models: string[]): string[] {
 
 function ModelSelector({
   model,
+  effort = "auto",
   engines,
   onChange,
+  onEffortChange,
 }: {
   model: string;
+  effort?: ReasoningEffort;
   engines: Array<{
     engine: string;
     label: string;
@@ -374,8 +400,10 @@ function ModelSelector({
     configured: boolean;
   }>;
   onChange: (model: string, engine: string) => void;
+  onEffortChange?: (effort: ReasoningEffort) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const effortOptions = getReasoningEffortOptionsForModel(model);
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
@@ -384,7 +412,12 @@ function ModelSelector({
           type="button"
           className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50"
         >
-          {friendlyModelName(model)}
+          <span>{friendlyModelName(model)}</span>
+          {effortOptions.length > 0 && (
+            <span className="text-muted-foreground/70">
+              · {reasoningEffortLabel(effort)}
+            </span>
+          )}
           <IconChevronDown className="h-3 w-3 opacity-60" />
         </button>
       </PopoverPrimitive.Trigger>
@@ -432,6 +465,14 @@ function ModelSelector({
                         return;
                       }
                       onChange(m, group.engine);
+                      const nextOptions = getReasoningEffortOptionsForModel(m);
+                      if (
+                        effort !== "auto" &&
+                        nextOptions.length > 0 &&
+                        !nextOptions.includes(effort)
+                      ) {
+                        onEffortChange?.("auto");
+                      }
                       setOpen(false);
                     }}
                     className={`flex w-full items-center gap-3 px-3 py-1.5 text-left ${
@@ -451,6 +492,29 @@ function ModelSelector({
               </div>
             );
           })}
+          {effortOptions.length > 0 && (
+            <>
+              <div className="my-1 border-t border-border" />
+              <div className="px-3 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                Effort
+              </div>
+              {effortOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => onEffortChange?.(option)}
+                  className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent/50"
+                >
+                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                    {reasoningEffortLabel(option)}
+                  </span>
+                  {option === effort && (
+                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  )}
+                </button>
+              ))}
+            </>
+          )}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>
@@ -477,8 +541,10 @@ export function TiptapComposer({
   onExecModeChange,
   voiceEnabled = true,
   selectedModel,
+  selectedEffort,
   availableModels,
   onModelChange,
+  onEffortChange,
   draftScope,
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
@@ -720,7 +786,7 @@ export function TiptapComposer({
           }
         }
 
-        // Shift+Tab toggles build/plan mode
+        // Shift+Tab toggles Act/Plan mode
         if (event.key === "Tab" && event.shiftKey) {
           event.preventDefault();
           const current = execModeRef.current;
@@ -1310,8 +1376,10 @@ export function TiptapComposer({
             {selectedModel && availableModels && onModelChange && (
               <ModelSelector
                 model={selectedModel}
+                effort={selectedEffort}
                 engines={availableModels}
                 onChange={onModelChange}
+                onEffortChange={onEffortChange}
               />
             )}
             {execMode && onExecModeChange && (

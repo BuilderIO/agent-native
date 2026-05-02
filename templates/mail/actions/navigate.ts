@@ -10,19 +10,27 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (inbox, starred, sent, drafts, archive, trash)",
+        "View to navigate to (inbox, starred, sent, drafts, archive, trash, draft-queue)",
       ),
     threadId: z.string().optional().describe("Thread ID to open"),
+    queuedDraftId: z
+      .string()
+      .optional()
+      .describe("Queued draft ID to select when navigating to draft-queue"),
   }),
   http: false,
   run: async (args) => {
-    if (!args.view && !args.threadId) {
-      return "Error: At least --view or --threadId is required.";
+    if (!args.view && !args.threadId && !args.queuedDraftId) {
+      return "Error: At least --view, --threadId, or --queuedDraftId is required.";
     }
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view;
     if (args.threadId) nav.threadId = args.threadId;
+    if (args.queuedDraftId) {
+      nav.view = args.view || "draft-queue";
+      nav.queuedDraftId = args.queuedDraftId;
+    }
     await writeAppState("navigate", nav);
-    return `Navigating to ${args.view || ""}${args.threadId ? ` thread:${args.threadId}` : ""}`;
+    return `Navigating to ${nav.view || ""}${args.threadId ? ` thread:${args.threadId}` : ""}${args.queuedDraftId ? ` queued draft:${args.queuedDraftId}` : ""}`;
   },
 });

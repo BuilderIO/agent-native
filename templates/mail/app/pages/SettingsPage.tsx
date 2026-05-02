@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentNativePath } from "@agent-native/core/client";
 import { appApiPath } from "@/lib/api-path";
 import {
@@ -1040,9 +1040,120 @@ function TrackingSection() {
   );
 }
 
+// ─── Slack Intake Section ───────────────────────────────────────────────────
+
+type SlackStatus = {
+  enabled: boolean;
+  configured: boolean;
+  webhookUrl?: string;
+  error?: string;
+};
+
+function SlackIntakeSection() {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery<SlackStatus>({
+    queryKey: ["integration-status", "slack"],
+    queryFn: async () => {
+      const res = await fetch(
+        agentNativePath("/_agent-native/integrations/slack/status"),
+      );
+      if (!res.ok) throw new Error("Failed to load Slack status");
+      return res.json();
+    },
+    retry: false,
+  });
+
+  const toggle = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await fetch(
+        agentNativePath(
+          `/_agent-native/integrations/slack/${enabled ? "enable" : "disable"}`,
+        ),
+        { method: "POST" },
+      );
+      if (!res.ok) throw new Error("Failed to update Slack intake");
+      return res.json();
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["integration-status", "slack"],
+      }),
+  });
+
+  return (
+    <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+      <div className="mb-6">
+        <h2 className="text-[16px] font-semibold text-foreground">
+          Slack Intake
+        </h2>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
+          Let organization members queue email drafts from Slack.
+        </p>
+      </div>
+
+      <div className="max-w-2xl space-y-3">
+        {isLoading ? (
+          <>
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </>
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-border/20 bg-card/50 px-4 py-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  {data?.configured ? (
+                    <IconCircleCheck className="h-4 w-4 text-green-400" />
+                  ) : (
+                    <IconCircleX className="h-4 w-4 text-red-400" />
+                  )}
+                  <span className="text-[13px] font-semibold text-foreground">
+                    {data?.enabled ? "Enabled" : "Disabled"}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[12px] text-muted-foreground">
+                  {data?.configured
+                    ? "Slack credentials are configured."
+                    : "Slack credentials are missing."}
+                </p>
+                {data?.error && (
+                  <p className="mt-1 text-[11px] text-red-400">{data.error}</p>
+                )}
+              </div>
+              <Button
+                size="sm"
+                disabled={!data?.configured || toggle.isPending}
+                onClick={() => toggle.mutate(!data?.enabled)}
+              >
+                {toggle.isPending && (
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                )}
+                {data?.enabled ? "Disable" : "Enable"}
+              </Button>
+            </div>
+            {data?.webhookUrl && (
+              <div>
+                <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Webhook URL
+                </label>
+                <Input readOnly value={data.webhookUrl} className="font-mono" />
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
-type SettingsSection = "automations" | "aliases" | "tracking" | "team";
+type SettingsSection =
+  | "automations"
+  | "aliases"
+  | "tracking"
+  | "slack"
+  | "team";
 
 const navItems: {
   id: SettingsSection;
@@ -1052,6 +1163,7 @@ const navItems: {
   { id: "automations", label: "Automations", icon: IconBolt },
   { id: "aliases", label: "Aliases", icon: IconUsers },
   { id: "tracking", label: "Tracking", icon: IconChartBar },
+  { id: "slack", label: "Slack", icon: IconBolt },
   { id: "team", label: "Team", icon: IconUsers },
 ];
 
@@ -1097,6 +1209,7 @@ export function SettingsPage() {
         {activeSection === "automations" && <AutomationsSection />}
         {activeSection === "aliases" && <AliasesSection />}
         {activeSection === "tracking" && <TrackingSection />}
+        {activeSection === "slack" && <SlackIntakeSection />}
         {activeSection === "team" && (
           <div className="flex-1 overflow-y-auto">
             <TeamPage createOrgDescription="Set up a team to share email automations and settings with your colleagues." />

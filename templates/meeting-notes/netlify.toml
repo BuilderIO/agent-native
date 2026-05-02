@@ -1,4 +1,5 @@
 [build]
+  ignore = "node ./scripts/netlify-ignore-build.mjs meeting-notes"
   command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter meeting-notes build"
   publish = "templates/meeting-notes/dist"
   functions = "templates/meeting-notes/.netlify/functions-internal"

@@ -42,6 +42,17 @@ export {
   type UserInfo,
 } from "./frame.js";
 export {
+  getBuilderParentOrigin,
+  isInBuilderFrame,
+  sendToBuilderChat,
+  type BuilderChatMessage,
+} from "./builder-frame.js";
+export {
+  NewWorkspaceAppFlow,
+  type NewWorkspaceAppFlowProps,
+  type VaultSecretOption,
+} from "./NewWorkspaceAppFlow.js";
+export {
   AssistantChat,
   clearChatStorage,
   type AssistantChatProps,
@@ -78,7 +89,12 @@ export {
   type UseProductionAgentResult,
 } from "./useProductionAgent.js";
 export { Turnstile, type TurnstileProps } from "./Turnstile.js";
-export { PoweredByBadge, type PoweredByBadgeProps } from "./PoweredByBadge.js";
+export {
+  OpenSourceBadge,
+  PoweredByBadge,
+  type OpenSourceBadgeProps,
+  type PoweredByBadgeProps,
+} from "./PoweredByBadge.js";
 export { FeedbackButton, type FeedbackButtonProps } from "./FeedbackButton.js";
 export { ErrorBoundary } from "./ErrorBoundary.js";
 export { ClientOnly } from "./ClientOnly.js";

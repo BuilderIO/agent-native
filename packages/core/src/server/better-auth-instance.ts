@@ -22,6 +22,7 @@ import { getAppProductionUrl } from "./app-url.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
+import { identify, track } from "../tracking/index.js";
 import {
   getDialect,
   getDatabaseUrl,
@@ -166,7 +167,11 @@ function appendEnvLocalSecret(envLocalPath: string, secret: string): void {
 
 export function shouldSkipEmailVerification(): boolean {
   const value = process.env.AUTH_SKIP_EMAIL_VERIFICATION;
-  if (value == null) return false;
+  if (value == null) {
+    return (
+      process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test"
+    );
+  }
   const normalized = value.trim().toLowerCase();
   return normalized !== "" && normalized !== "0" && normalized !== "false";
 }
@@ -625,9 +630,9 @@ async function createBetterAuthInstance(
       minPasswordLength: 8,
       // Only require email verification when an email provider is configured.
       // Without a provider, verification emails can't be sent, so requiring
-      // verification would lock users out of signup entirely. QA deployments
-      // can opt out with AUTH_SKIP_EMAIL_VERIFICATION=1 so +qa accounts can
-      // sign up without waiting on inbox delivery.
+      // verification would lock users out of signup entirely. Local dev/test
+      // skip verification by default so +qa accounts can be created quickly;
+      // hosted QA deployments can opt out with AUTH_SKIP_EMAIL_VERIFICATION=1.
       requireEmailVerification,
       sendResetPassword: async ({ user, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
@@ -688,13 +693,30 @@ async function createBetterAuthInstance(
     databaseHooks: {
       user: {
         create: {
-          after: async (user: { email?: string }) => {
+          after: async (user: {
+            id?: string;
+            email?: string;
+            name?: string | null;
+          }) => {
             // When a newly-created user's email has pending org invitations
             // (common when someone is invited *before* they've signed up),
             // auto-accept them so the user lands in the org on their very
             // first page load instead of a blank-slate workspace.
             const email = user?.email;
             if (!email) return;
+            identify(email, {
+              email,
+              name: user.name ?? undefined,
+              authUserId: user.id,
+            });
+            track(
+              "signup",
+              {
+                auth_provider: "better-auth",
+                auth_user_id: user.id,
+              },
+              { userId: email },
+            );
             try {
               await acceptPendingInvitationsForEmail(email);
             } catch (err) {

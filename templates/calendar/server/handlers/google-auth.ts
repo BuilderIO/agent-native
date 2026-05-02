@@ -16,8 +16,10 @@ import {
   resolveOAuthOwner,
   createOAuthSession,
   oauthCallbackResponse,
+  oauthDesktopExchangePage,
   oauthErrorPage,
   setDesktopExchange,
+  setDesktopExchangeError,
   DEV_MODE_USER_EMAIL,
 } from "@agent-native/core/server";
 import {
@@ -26,6 +28,59 @@ import {
   getAuthStatus,
   disconnect,
 } from "../lib/google-calendar.js";
+import { OAuthAccountOwnedByOtherUserError } from "@agent-native/core/oauth-tokens";
+
+function googleOAuthErrorPayload(
+  error: any,
+  prefix = "Connection failed",
+): {
+  message: string;
+  code?: string;
+  accountId?: string;
+  existingOwner?: string;
+  attemptedOwner?: string;
+} {
+  if (
+    error instanceof OAuthAccountOwnedByOtherUserError ||
+    error?.name === "OAuthAccountOwnedByOtherUserError"
+  ) {
+    const account = error.accountId || "This Google account";
+    const existingOwner = error.existingOwner || undefined;
+    const attemptedOwner = error.attemptedOwner || undefined;
+    const message = `${account} is connected to another login. Sign out, then sign in with ${account}.`;
+    return {
+      message,
+      code: "account_owner_mismatch",
+      accountId: error.accountId,
+      existingOwner,
+      attemptedOwner,
+    };
+  }
+
+  const msg = error?.message || "Unknown error";
+  const isPermission =
+    msg.includes("Insufficient Permission") ||
+    msg.includes("insufficient_scope");
+  return {
+    message: isPermission
+      ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+      : `${prefix}: ${msg}`,
+    code: isPermission ? "missing_google_permissions" : "google_oauth_failed",
+  };
+}
+
+function googleOAuthErrorResponse(
+  event: H3Event,
+  error: any,
+  opts: { desktop?: boolean; flowId?: string; prefix?: string } = {},
+) {
+  const payload = googleOAuthErrorPayload(error, opts.prefix);
+  if (opts.desktop && opts.flowId) {
+    setDesktopExchangeError(opts.flowId, payload);
+    return oauthDesktopExchangePage("Returning to Calendar...");
+  }
+  return oauthErrorPage(payload.message);
+}
 
 export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -72,24 +127,40 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
 
 export const handleGoogleCallback = defineEventHandler(
   async (event: H3Event) => {
+    let desktop = false;
+    let flowId: string | undefined;
     try {
       const query = getQuery(event);
+      const state = decodeOAuthState(
+        query.state as string | undefined,
+        getAppUrl(event, "/_agent-native/google/callback"),
+      );
+      desktop = state.desktop;
+      flowId = state.flowId;
+
+      const googleError = query.error as string | undefined;
+      if (googleError) {
+        const errorDesc =
+          (query.error_description as string | undefined) || googleError;
+        const isPermission =
+          googleError === "access_denied" ||
+          errorDesc.includes("Insufficient Permission");
+        const userMessage = isPermission
+          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+          : `Connection failed: ${errorDesc}`;
+        return googleOAuthErrorResponse(event, new Error(userMessage), {
+          desktop,
+          flowId,
+        });
+      }
+
       const code = query.code as string;
       if (!code) {
         setResponseStatus(event, 400);
         return { error: "Missing authorization code" };
       }
 
-      const {
-        redirectUri,
-        owner: stateOwner,
-        desktop,
-        addAccount,
-        flowId,
-      } = decodeOAuthState(
-        query.state as string | undefined,
-        getAppUrl(event, "/_agent-native/google/callback"),
-      );
+      const { redirectUri, owner: stateOwner, addAccount } = state;
 
       // 1. Resolve owner (needs session context, before exchangeCode)
       const { owner, hasProductionSession } = await resolveOAuthOwner(
@@ -125,16 +196,10 @@ export const handleGoogleCallback = defineEventHandler(
         desktop,
         addAccount: isAddAccount,
         flowId,
+        appName: "Calendar",
       });
     } catch (error: any) {
-      const msg = error.message || "Unknown error";
-      const isPermission =
-        msg.includes("Insufficient Permission") ||
-        msg.includes("insufficient_scope");
-      const userMessage = isPermission
-        ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
-        : `Connection failed: ${msg}`;
-      return oauthErrorPage(userMessage);
+      return googleOAuthErrorResponse(event, error, { desktop, flowId });
     }
   },
 );
@@ -184,17 +249,35 @@ export const getGoogleAddAccountUrl = defineEventHandler(
 
 export const handleGoogleAddAccountCallback = defineEventHandler(
   async (event: H3Event) => {
+    let desktop = false;
+    let flowId: string | undefined;
     try {
       const session = await getSession(event);
       const query = getQuery(event);
-      const {
-        redirectUri,
-        owner: stateOwner,
-        desktop,
-      } = decodeOAuthState(
+      const state = decodeOAuthState(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
+      desktop = state.desktop;
+      flowId = state.flowId;
+
+      const googleError = query.error as string | undefined;
+      if (googleError) {
+        const errorDesc =
+          (query.error_description as string | undefined) || googleError;
+        const isPermission =
+          googleError === "access_denied" ||
+          errorDesc.includes("Insufficient Permission");
+        const userMessage = isPermission
+          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
+          : `Connection failed: ${errorDesc}`;
+        return googleOAuthErrorResponse(event, new Error(userMessage), {
+          desktop,
+          flowId,
+        });
+      }
+
+      const { redirectUri, owner: stateOwner } = state;
 
       const ownerEmail = session?.email || stateOwner;
       if (!ownerEmail) {
@@ -217,16 +300,14 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       return oauthCallbackResponse(event, addedEmail, {
         desktop,
         addAccount: true,
+        appName: "Calendar",
       });
     } catch (error: any) {
-      const msg = error.message || "Unknown error";
-      const isPermission =
-        msg.includes("Insufficient Permission") ||
-        msg.includes("insufficient_scope");
-      const userMessage = isPermission
-        ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen."
-        : `Failed to add account: ${msg}`;
-      return oauthErrorPage(userMessage);
+      return googleOAuthErrorResponse(event, error, {
+        desktop,
+        flowId,
+        prefix: "Failed to add account",
+      });
     }
   },
 );

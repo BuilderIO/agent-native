@@ -56,10 +56,10 @@ Booking links are stored in SQL via Drizzle ORM. Each link has a slug, duration,
 The UI manages booking links at `/booking-links`. The public booking URL pattern is:
 
 ```
-/meet/{username}/{slug}
+/book/{username}/{slug}
 ```
 
-For example: `/meet/steve/30min`
+For example: `/book/steve/30min`
 
 ## Bookings
 

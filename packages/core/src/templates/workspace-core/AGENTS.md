@@ -17,11 +17,12 @@ business context without you having to repeat it per app.
   workspace share `DATABASE_URL` by default, so a record created by one
   app can be read by another as long as it respects the `owner_email` and
   `org_id` scoping conventions.
-- **All API secrets come from the central credential store.** Never
-  hardcode a token. Call `resolveCompanyCredential("KEY")` from
-  `@{{APP_NAME}}/core-module/credentials` — it pulls from env first and
-  falls back to the shared settings table so one rotation updates every
-  app.
+- **All API secrets come from scoped credential storage.** Never hardcode a
+  token or read `process.env` for user/org credentials in production. Call
+  `resolveCompanyCredential("KEY", { userEmail, orgId })` from
+  `@{{APP_NAME}}/core-module/credentials`, or omit the context only when the
+  current request/action already has agent-native request context. The helper
+  reads per-user credentials first and org-shared credentials second.
 - **UI chrome comes from the workspace core.** Wrap every screen in
   `<AuthenticatedLayout>` from `@{{APP_NAME}}/core-module/client`. Don't
   re-implement the brand header, sidebar, or org switcher per app.
@@ -46,9 +47,24 @@ Example rules:
 ## How to add a new app
 
 ```bash
-cd apps
-pnpm exec agent-native create <app-name>
+pnpm exec agent-native create <app-name> --template=starter
 ```
+
+Run this from the workspace root. The CLI detects the workspace and creates
+`apps/<app-name>` with the workspace core module already connected. Use a
+different template when useful, for example `--template=analytics` or
+`--template=forms`.
+
+The workspace dev command is a gateway:
+
+```bash
+pnpm dev
+```
+
+It opens Dispatch at `/dispatch`, serves every app at `/<app-name>`, and
+auto-detects newly-created app directories. After creating an app, do not
+restart the dev server unless the gateway reports an error; wait for it to
+start the new app process, then open `/<app-name>`.
 
 The new app will automatically inherit:
 

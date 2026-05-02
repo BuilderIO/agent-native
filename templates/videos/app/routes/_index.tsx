@@ -3,11 +3,11 @@ import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
   return [
-    { title: "Videos" },
+    { title: "Agent-Native Videos" },
     {
       name: "description",
       content:
-        "Agent-native video editing — generate animated React compositions with Remotion and edit them on a timeline.",
+        "Your AI agent builds, animates, and refines programmatic videos alongside you.",
     },
   ];
 }

@@ -10,6 +10,10 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
+import {
+  markdownPreviewSnippet,
+  normalizeMarkdownHardBreaks,
+} from "@shared/markdown.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { readBody, getSession } from "@agent-native/core/server";
 import {
@@ -458,7 +462,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       const accountTokens = await getAccountTokens(email);
       const labelMap = await getCachedLabelMap(accountTokens);
       const { messages, errors, nextPageTokens, resultSizeEstimate } =
-        await listGmailMessages(searchQuery, undefined, email, pageTokens);
+        await listGmailMessages(searchQuery, undefined, email, pageTokens, {
+          mode: "threads",
+          threadFormat: "metadata",
+        });
       if (messages.length === 0 && errors.length > 0) {
         // All accounts failed — surface as error
         setResponseStatus(event, 502);
@@ -1477,7 +1484,7 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
         }
       : {}),
     subject,
-    snippet: body.slice(0, 120).replace(/\n/g, " "),
+    snippet: markdownPreviewSnippet(body),
     body,
     bodyHtml: bodyToHtml(body),
     date: new Date().toISOString(),
@@ -1610,7 +1617,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
         }
       : {}),
     subject: subject || "(no subject)",
-    snippet: (body || "").slice(0, 120).replace(/\n/g, " "),
+    snippet: markdownPreviewSnippet(body || ""),
     body: body || "",
     bodyHtml: bodyToHtml(body || ""),
     date: new Date().toISOString(),
@@ -1722,7 +1729,7 @@ function applyInlineMarkdown(text: string): string {
 }
 
 function markdownToHtml(markdown: string): string {
-  const normalized = markdown.replace(/\r\n/g, "\n").trim();
+  const normalized = normalizeMarkdownHardBreaks(markdown).trim();
   if (!normalized) return "<div></div>";
 
   const blocks = normalized.split(/\n{2,}/).map((block) => block.trim());
@@ -1761,8 +1768,7 @@ function markdownToHtml(markdown: string): string {
         return `<ol>${items}</ol>`;
       }
 
-      const cleanBlock = block.replace(/\\\n/g, "\n").replace(/\\$/gm, "");
-      return `<p>${applyInlineMarkdown(escapeHtml(cleanBlock)).replace(/\n/g, "<br />")}</p>`;
+      return `<p>${applyInlineMarkdown(escapeHtml(block)).replace(/\n/g, "<br />")}</p>`;
     })
     .join("");
 
@@ -1770,10 +1776,7 @@ function markdownToHtml(markdown: string): string {
 }
 
 function markdownToPlainText(markdown: string): string {
-  return markdown
-    .replace(/\r\n/g, "\n")
-    .replace(/\\\n/g, "\n")
-    .replace(/\\$/gm, "")
+  return normalizeMarkdownHardBreaks(markdown)
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 ($2)")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")

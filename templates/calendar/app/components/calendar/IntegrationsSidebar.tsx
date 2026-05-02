@@ -342,8 +342,8 @@ function AddIntegrationButton() {
           collisionPadding={12}
           className="w-auto rounded-lg border-border/50 bg-card p-2.5 shadow-xl"
         >
-          <p className="text-[11px] text-muted-foreground/60 mb-1.5">
-            What do you want to integrate?
+          <p className="text-[12px] font-medium text-foreground/80 mb-1.5">
+            New integration
           </p>
           <div className="flex gap-1.5">
             <input

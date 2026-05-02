@@ -19,6 +19,8 @@ export const bookings = table("bookings", {
   fieldResponses: text("field_responses"),
   /** Meeting link (Zoom, Google Meet, or custom) */
   meetingLink: text("meeting_link"),
+  /** Google Calendar event created for this booking, if any */
+  googleEventId: text("google_event_id"),
   /** Token for public cancel/reschedule link */
   cancelToken: text("cancel_token"),
   status: text("status", { enum: ["confirmed", "cancelled"] })
@@ -49,6 +51,21 @@ export const bookingLinks = table("booking_links", {
 export const bookingSlugRedirects = table("booking_slug_redirects", {
   oldSlug: text("old_slug").primaryKey(),
   newSlug: text("new_slug").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const bookingUsernames = table("booking_usernames", {
+  username: text("username").primaryKey(),
+  ownerEmail: text("owner_email").notNull().unique(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const bookingUsernameChanges = table("booking_username_changes", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  oldUsername: text("old_username"),
+  newUsername: text("new_username").notNull(),
   createdAt: text("created_at").notNull(),
 });
 

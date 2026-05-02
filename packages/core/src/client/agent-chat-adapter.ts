@@ -6,20 +6,14 @@ import {
 } from "./active-run-state.js";
 import { type ContentPart, readSSEStream } from "./sse-event-processor.js";
 import { agentNativePath } from "./api-path.js";
+import { normalizeChatError } from "./error-format.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 
 /**
- * Instruction prefixed to the outgoing user message when the composer's
- * exec mode is "plan". Lives in the request body only — not in the
- * displayed chat history — so the user's bubble stays clean while the
- * LLM still sees the planning constraint on every plan-mode turn.
+ * The composer's exec mode is sent as explicit request metadata. The server
+ * owns the plan-mode prompt and read-only tool filtering so the chat history
+ * stays clean and Plan mode is enforced outside the model's goodwill.
  */
-export const PLAN_MODE_INSTRUCTION =
-  `PLAN MODE ACTIVE: Before making any changes, you MUST:\n` +
-  `1. Explore the codebase to understand what's needed\n` +
-  `2. Write a plan to \`.builder/plans/YYYY-MM-DD-<topic>.md\`\n` +
-  `3. Present your approach clearly and wait for the user's explicit approval\n` +
-  `Do NOT edit any files, run any scripts, or make any changes until the user says to proceed.`;
-
 /**
  * Creates a ChatModelAdapter that connects to the agent-native
  * `/_agent-native/agent-chat` SSE endpoint. Supports reconnection via run-manager.
@@ -30,6 +24,7 @@ export function createAgentChatAdapter(options?: {
   threadId?: string;
   modelRef?: { current: string | undefined };
   engineRef?: { current: string | undefined };
+  effortRef?: { current: ReasoningEffort | undefined };
   execModeRef?: { current: "build" | "plan" | undefined };
 }): ChatModelAdapter {
   const apiUrl =
@@ -38,6 +33,7 @@ export function createAgentChatAdapter(options?: {
   const threadId = options?.threadId;
   const modelRef = options?.modelRef;
   const engineRef = options?.engineRef;
+  const effortRef = options?.effortRef;
   const execModeRef = options?.execModeRef;
 
   return {
@@ -55,15 +51,12 @@ export function createAgentChatAdapter(options?: {
           .filter((p): p is { type: "text"; text: string } => p.type === "text")
           .map((p) => p.text)
           .join("\n") ?? "";
-
-      // Prepend the plan-mode instruction to the LLM-bound message when the
-      // composer's exec mode is "plan". The chat UI keeps the original text
-      // (rendered from `lastUserMsg.content`), so the user's bubble stays
-      // clean — only the request body carries the prefix.
-      const messageText =
+      const requestMode =
         execModeRef?.current === "plan"
-          ? `${PLAN_MODE_INSTRUCTION}\n\n${rawMessageText}`
-          : rawMessageText;
+          ? "plan"
+          : execModeRef?.current === "build"
+            ? "act"
+            : undefined;
 
       // Extract attachments (images as base64, text as content).
       // assistant-ui puts user attachments on msg.attachments (not on content);
@@ -103,7 +96,9 @@ export function createAgentChatAdapter(options?: {
                   (typeof part.mimeType === "string"
                     ? part.mimeType
                     : undefined),
-                text: part.data,
+                ...(part.data.startsWith("data:")
+                  ? { data: part.data }
+                  : { text: part.data }),
               });
             } else if (part.type === "text" && typeof part.text === "string") {
               attachments.push({
@@ -159,11 +154,13 @@ export function createAgentChatAdapter(options?: {
           method: "POST",
           headers,
           body: JSON.stringify({
-            message: messageText.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1"),
+            message: rawMessageText.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1"),
             history,
             ...(threadId ? { threadId } : {}),
+            ...(requestMode ? { mode: requestMode } : {}),
             ...(modelRef?.current ? { model: modelRef.current } : {}),
             ...(engineRef?.current ? { engine: engineRef.current } : {}),
+            ...(effortRef?.current ? { effort: effortRef.current } : {}),
             ...(attachments.length > 0 ? { attachments } : {}),
             ...(runConfig?.custom?.references
               ? { references: runConfig.custom.references }
@@ -350,11 +347,26 @@ export function createAgentChatAdapter(options?: {
         }
 
         // Reconnect failed or not possible — show error with details
+        const normalized = normalizeChatError(errMsg);
+        const runError = {
+          message: normalized.message,
+          ...(normalized.details ? { details: normalized.details } : {}),
+          errorCode: "connection_error",
+          recoverable: true,
+          ...(runId ? { runId } : {}),
+        };
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:run-error", {
+              detail: { ...runError, tabId },
+            }),
+          );
+        }
         content.push({
           type: "text",
           text: errMsg.startsWith("Server error:")
             ? errMsg
-            : `Something went wrong: ${errMsg}`,
+            : `Something went wrong: ${normalized.message}`,
         });
         yield {
           content: [...content],
@@ -362,7 +374,7 @@ export function createAgentChatAdapter(options?: {
             type: "incomplete" as const,
             reason: "error" as const,
           },
-          ...(runId ? { metadata: { custom: { runId } } } : {}),
+          metadata: { custom: { ...(runId ? { runId } : {}), runError } },
         };
       } finally {
         if (typeof window !== "undefined") {

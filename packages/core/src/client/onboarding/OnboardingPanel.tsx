@@ -15,6 +15,7 @@ import {
   IconChevronRight,
   IconChevronUp,
   IconExternalLink,
+  IconKey,
   IconLoader2,
 } from "@tabler/icons-react";
 import { useOnboarding } from "./use-onboarding.js";
@@ -26,6 +27,8 @@ import type {
   OnboardingMethod,
   OnboardingStepStatus,
 } from "../../onboarding/types.js";
+
+type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
 interface OnboardingPanelProps {
   /** Optional extra styles / classes for the wrapper. */
@@ -176,6 +179,10 @@ function StepCard({
     return a.primary ? -1 : 1;
   });
 
+  const handleCompleted = async () => {
+    await onRefresh();
+  };
+
   return (
     <div
       style={{
@@ -212,21 +219,201 @@ function StepCard({
       {expanded && (
         <div style={styles.cardBody}>
           <p style={styles.cardDesc}>{step.description}</p>
-          <div style={styles.methods}>
-            {sortedMethods.map((method) => (
-              <MethodBlock
-                key={method.id}
-                method={method}
-                stepId={step.id}
-                onCompleted={async () => {
-                  await onRefresh();
-                }}
-                onMarkManualComplete={onMarkComplete}
-              />
-            ))}
-          </div>
+          <StepMethods
+            step={step}
+            methods={sortedMethods}
+            onCompleted={handleCompleted}
+            onMarkManualComplete={onMarkComplete}
+          />
         </div>
       )}
+    </div>
+  );
+}
+
+function isFormMethod(
+  method: OnboardingMethod,
+): method is FormOnboardingMethod {
+  return method.kind === "form";
+}
+
+function StepMethods({
+  step,
+  methods,
+  onCompleted,
+  onMarkManualComplete,
+}: {
+  step: OnboardingStepStatus;
+  methods: OnboardingMethod[];
+  onCompleted: () => Promise<void>;
+  onMarkManualComplete: () => void;
+}) {
+  const formMethods = methods.filter(isFormMethod);
+
+  if (step.id === "llm") {
+    return (
+      <LlmMethodGroup
+        methods={methods}
+        formMethods={formMethods}
+        stepId={step.id}
+        onCompleted={onCompleted}
+        onMarkManualComplete={onMarkManualComplete}
+      />
+    );
+  }
+
+  if (methods.length > 1 && formMethods.length === methods.length) {
+    const pickerLabel = step.id === "auth" ? "Sign-in path" : "Provider";
+    return (
+      <div style={styles.methods}>
+        <FormMethodPicker
+          methods={formMethods}
+          label={pickerLabel}
+          onCompleted={onCompleted}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.methods}>
+      {methods.map((method) => (
+        <MethodBlock
+          key={method.id}
+          method={method}
+          stepId={step.id}
+          onCompleted={onCompleted}
+          onMarkManualComplete={onMarkManualComplete}
+        />
+      ))}
+    </div>
+  );
+}
+
+function LlmMethodGroup({
+  methods,
+  formMethods,
+  stepId,
+  onCompleted,
+  onMarkManualComplete,
+}: {
+  methods: OnboardingMethod[];
+  formMethods: FormOnboardingMethod[];
+  stepId: string;
+  onCompleted: () => Promise<void>;
+  onMarkManualComplete: () => void;
+}) {
+  const [showKeyForm, setShowKeyForm] = useState(false);
+  const primaryMethod =
+    methods.find((method) => method.kind === "builder-cli-auth") ??
+    methods.find((method) => method.primary);
+  const otherMethods = methods.filter(
+    (method) => method !== primaryMethod && !isFormMethod(method),
+  );
+
+  return (
+    <div style={styles.methods}>
+      {primaryMethod && (
+        <MethodBlock
+          method={primaryMethod}
+          stepId={stepId}
+          onCompleted={onCompleted}
+          onMarkManualComplete={onMarkManualComplete}
+        />
+      )}
+
+      {formMethods.length > 0 && (
+        <div style={styles.secondaryPanel}>
+          <button
+            type="button"
+            onClick={() => setShowKeyForm((value) => !value)}
+            style={styles.secondaryToggle}
+            aria-expanded={showKeyForm}
+          >
+            <span style={styles.secondaryToggleLeft}>
+              <IconKey size={13} aria-hidden />
+              <span>Add your own provider key</span>
+            </span>
+            <span style={styles.chevron}>
+              {showKeyForm ? (
+                <IconChevronDown size={14} />
+              ) : (
+                <IconChevronRight size={14} />
+              )}
+            </span>
+          </button>
+          {showKeyForm && (
+            <FormMethodPicker
+              methods={formMethods}
+              label="Provider"
+              onCompleted={onCompleted}
+              embedded
+            />
+          )}
+        </div>
+      )}
+
+      {otherMethods.map((method) => (
+        <MethodBlock
+          key={method.id}
+          method={method}
+          stepId={stepId}
+          onCompleted={onCompleted}
+          onMarkManualComplete={onMarkManualComplete}
+        />
+      ))}
+    </div>
+  );
+}
+
+function FormMethodPicker({
+  methods,
+  label,
+  onCompleted,
+  embedded,
+}: {
+  methods: FormOnboardingMethod[];
+  label: string;
+  onCompleted: () => Promise<void>;
+  embedded?: boolean;
+}) {
+  const [selectedId, setSelectedId] = useState(methods[0]?.id ?? "");
+
+  useEffect(() => {
+    if (!methods.some((method) => method.id === selectedId)) {
+      setSelectedId(methods[0]?.id ?? "");
+    }
+  }, [methods, selectedId]);
+
+  const selectedMethod =
+    methods.find((method) => method.id === selectedId) ?? methods[0];
+
+  if (!selectedMethod) return null;
+
+  return (
+    <div style={embedded ? styles.methodPickerEmbedded : styles.method}>
+      <label style={styles.pickerLabel}>
+        <span style={styles.formLabelText}>{label}</span>
+        <select
+          value={selectedMethod.id}
+          onChange={(event) => setSelectedId(event.target.value)}
+          style={styles.select}
+        >
+          {methods.map((method) => (
+            <option key={method.id} value={method.id}>
+              {method.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {selectedMethod.description && (
+        <p style={styles.methodDesc}>{selectedMethod.description}</p>
+      )}
+      <FormMethod
+        key={selectedMethod.id}
+        method={selectedMethod}
+        onCompleted={onCompleted}
+      />
     </div>
   );
 }
@@ -584,7 +771,8 @@ const styles: Record<string, React.CSSProperties> = {
     background: "hsl(var(--muted, 0 0% 0%) / 0.12)",
   },
   cardDone: {
-    opacity: 0.55,
+    borderColor: "rgba(34,197,94,0.12)",
+    background: "rgba(34,197,94,0.025)",
   },
   cardHeader: {
     width: "100%",
@@ -607,9 +795,13 @@ const styles: Record<string, React.CSSProperties> = {
   cardTitle: {
     fontSize: 12,
     fontWeight: 500,
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+    flexWrap: "wrap" as const,
   },
   requiredPill: {
-    marginLeft: 6,
     fontSize: 10,
     padding: "1px 5px",
     borderRadius: 4,
@@ -672,9 +864,52 @@ const styles: Record<string, React.CSSProperties> = {
   methodHeader: { display: "flex", alignItems: "center" },
   methodLabel: { fontSize: 12, fontWeight: 500 },
   methodDesc: { margin: 0, opacity: 0.6, fontSize: 11, lineHeight: 1.4 },
+  secondaryPanel: {
+    paddingTop: 2,
+  },
+  secondaryToggle: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    padding: "7px 8px",
+    borderRadius: 6,
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.025)",
+    color: "inherit",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 500,
+    textAlign: "left" as const,
+  },
+  secondaryToggleLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+  },
+  methodPickerEmbedded: {
+    paddingTop: 8,
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  pickerLabel: { display: "flex", flexDirection: "column", gap: 3 },
   form: { display: "flex", flexDirection: "column", gap: 6 },
   formLabel: { display: "flex", flexDirection: "column", gap: 2 },
   formLabelText: { fontSize: 11, opacity: 0.6 },
+  select: {
+    width: "100%",
+    padding: "6px 8px",
+    fontSize: 12,
+    borderRadius: 5,
+    border: "1px solid rgba(255,255,255,0.1)",
+    background: "rgba(0,0,0,0.25)",
+    color: "inherit",
+    outline: "none",
+    boxSizing: "border-box" as const,
+  },
   input: {
     width: "100%",
     padding: "6px 8px",

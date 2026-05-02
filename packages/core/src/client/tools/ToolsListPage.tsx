@@ -11,6 +11,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import {
+  TOOLS_ORDER_CHANGE_EVENT,
+  applyToolsOrder,
+  getToolsOrder,
+} from "./tool-order.js";
 
 interface Tool {
   id: string;
@@ -41,6 +46,7 @@ function CreateToolInput({
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
+      <p className="text-sm font-semibold text-foreground">New tool</p>
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
@@ -60,7 +66,8 @@ function CreateToolInput({
       />
       <div className="flex items-center justify-end gap-2">
         <span className="text-[11px] text-muted-foreground/75">
-          {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter
+          {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter to
+          submit
         </span>
         <button
           type="button"
@@ -81,6 +88,9 @@ function CreateToolInput({
 export function ToolsListPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [createPrompt, setCreatePrompt] = useState("");
+  const [toolOrderState, setToolOrderState] = useState<string[]>(() =>
+    typeof window !== "undefined" ? getToolsOrder() : [],
+  );
 
   useEffect(() => {
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
@@ -88,6 +98,17 @@ export function ToolsListPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: { view: "tools" } }),
     }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const syncOrder = () => setToolOrderState(getToolsOrder());
+    window.addEventListener(TOOLS_ORDER_CHANGE_EVENT, syncOrder);
+    window.addEventListener("storage", syncOrder);
+    return () => {
+      window.removeEventListener(TOOLS_ORDER_CHANGE_EVENT, syncOrder);
+      window.removeEventListener("storage", syncOrder);
+    };
   }, []);
 
   const { data: tools, isLoading } = useQuery<Tool[]>({
@@ -99,7 +120,10 @@ export function ToolsListPage() {
     },
   });
 
-  const toolList = tools ?? [];
+  const toolList =
+    toolOrderState.length > 0
+      ? applyToolsOrder(tools ?? [], toolOrderState)
+      : (tools ?? []);
 
   const handleCreate = () => {
     if (!createPrompt.trim()) return;
@@ -134,7 +158,11 @@ export function ToolsListPage() {
                   e.preventDefault();
                   handleCreate();
                 }}
+                className="space-y-3"
               >
+                <p className="text-sm font-semibold text-foreground">
+                  New tool
+                </p>
                 <textarea
                   autoFocus
                   value={createPrompt}
@@ -148,10 +176,10 @@ export function ToolsListPage() {
                     }
                   }}
                 />
-                <div className="flex items-center justify-end gap-2 mt-3">
+                <div className="flex items-center justify-end gap-2">
                   <span className="text-[11px] text-muted-foreground/75">
                     {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                    +Enter
+                    +Enter to submit
                   </span>
                   <button
                     type="submit"

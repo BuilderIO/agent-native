@@ -9,14 +9,15 @@ description: >
 
 ## Connection
 
-- **Base URL**: `https://us-65885.api.gong.io/v2` (region-specific)
+- **Base URL**: `GONG_API_BASE` if configured, otherwise `https://api.gong.io/v2`
 - **Auth**: HTTP Basic — `Base64($GONG_ACCESS_KEY:$GONG_ACCESS_SECRET)`
-- **Env vars**: `GONG_ACCESS_KEY`, `GONG_ACCESS_SECRET`
+- **Env vars**: `GONG_ACCESS_KEY`, `GONG_ACCESS_SECRET`, optional `GONG_API_BASE`
 - **Caching**: 10-minute in-memory cache, max 120 entries
 
-## Server Lib & API Routes
+## Server Lib & Action
 
 - **File**: `server/lib/gong.ts`
+- **Action**: `gong-calls`
 
 ### Exported Functions
 
@@ -28,12 +29,15 @@ description: >
 | `getUsers()`                | List Gong users                           |
 | `searchCalls(query, days)`  | List + client-side filter by company name |
 
-### API Routes
+### UI API Routes
 
 | Route                 | Description       |
 | --------------------- | ----------------- |
 | `GET /api/gong/calls` | List/search calls |
 | `GET /api/gong/users` | List users        |
+
+Use `gong-calls` for agent-facing Gong work. Do not call `/api/gong/*`
+directly from the agent.
 
 ## Script Usage
 
@@ -57,4 +61,4 @@ pnpm action gong-calls --users
   - `POST /v2/calls/transcript` — get transcripts
 - **Search pattern**: List calls via `GET /v2/calls?fromDateTime=...`, then filter client-side by company name matching against call title. No server-side company name search.
 - **Transcripts**: Have `speakerId` (numeric), `topic` (string or null), `sentences` array with `start`/`end` (ms) and `text`. Speaker IDs need cross-referencing with call parties.
-- Region/hostname is hard-coded — different Gong regions need code update
+- Region/hostname is configurable with `GONG_API_BASE`; omit it for the global endpoint.

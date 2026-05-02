@@ -7,12 +7,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  IconBolt,
-  IconCheck,
-  IconExternalLink,
-  IconLoader2,
-} from "@tabler/icons-react";
+import { IconBolt, IconExternalLink, IconLoader2 } from "@tabler/icons-react";
 import { agentNativePath } from "../api-path.js";
 import { getCallbackOrigin } from "../frame.js";
 
@@ -27,10 +22,15 @@ export function BuilderTranscriptionCta() {
     mountedRef.current = true;
     fetch(agentNativePath("/_agent-native/builder/status"))
       .then((r) =>
-        r.ok ? (r.json() as Promise<{ configured: boolean }>) : null,
+        r.ok
+          ? (r.json() as Promise<{ configured: boolean; envManaged?: boolean }>)
+          : null,
       )
       .then((s) => {
-        if (mountedRef.current) setConfigured(s?.configured ?? false);
+        if (!mountedRef.current) return;
+        // Env-managed mode counts as configured for the CTA — the deploy
+        // already routes transcription through Builder, no per-user prompt.
+        setConfigured(!!(s?.configured || s?.envManaged));
       })
       .catch(() => {
         if (mountedRef.current) setConfigured(false);
@@ -99,7 +99,7 @@ export function BuilderTranscriptionCta() {
         <span className="text-destructive text-[10px]">{error}</span>
       ) : connecting ? (
         <IconLoader2 size={12} className="shrink-0 animate-spin" />
-      ) : configured === false ? (
+      ) : (
         <button
           type="button"
           onClick={handleConnect}
@@ -108,11 +108,6 @@ export function BuilderTranscriptionCta() {
           Connect
           <IconExternalLink size={10} />
         </button>
-      ) : (
-        <span className="ml-auto flex items-center gap-1 text-[10px] text-green-600">
-          <IconCheck size={10} />
-          Connected
-        </span>
       )}
     </div>
   );

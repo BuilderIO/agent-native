@@ -112,9 +112,12 @@ export function useUpdateBookingLink() {
       if (!res.ok) throw new Error("Failed to update booking link");
       return res.json() as Promise<BookingLink>;
     },
-    onSuccess: () => {
+    onSuccess: (updated) => {
+      queryClient.setQueryData<BookingLink[]>(LIST_KEY, (current = []) =>
+        current.map((link) => (link.id === updated.id ? updated : link)),
+      );
       queryClient.invalidateQueries({
-        queryKey: ["action", "list-booking-links"],
+        queryKey: LIST_KEY,
       });
     },
   });

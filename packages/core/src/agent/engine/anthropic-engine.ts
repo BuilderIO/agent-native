@@ -21,6 +21,7 @@ import {
   anthropicChunkToEngineEvents,
 } from "./translate-anthropic.js";
 import { readDeployCredentialEnv } from "../../server/credential-provider.js";
+import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
 
 export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -74,6 +75,16 @@ class AnthropicEngine implements AgentEngine {
     }
     if (anthropicOpts?.topK !== undefined) {
       extra.top_k = anthropicOpts.topK;
+    }
+    const reasoningEffort = normalizeReasoningEffortForModel(
+      opts.model,
+      opts.reasoningEffort,
+    );
+    if (reasoningEffort) {
+      if (!extra.thinking) {
+        extra.thinking = { type: "adaptive" };
+      }
+      extra.output_config = { effort: reasoningEffort };
     }
 
     // Apply prompt caching to the system prompt and tools by default.

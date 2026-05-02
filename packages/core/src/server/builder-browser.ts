@@ -25,6 +25,15 @@ const BUILDER_STATE_TTL_MS = 10 * 60 * 1000;
 export interface BuilderBrowserStatus {
   configured: boolean;
   builderEnabled: boolean;
+  branchProjectIdConfigured: boolean;
+  branchProjectId?: string;
+  /**
+   * True when `BUILDER_PRIVATE_KEY` is set at the deployment level. Every
+   * user of this deploy shares the operator's Builder identity; the UI
+   * must hide the per-user connect/disconnect flow and show a read-only
+   * "managed by deployment" state instead.
+   */
+  envManaged: boolean;
   appHost: string;
   apiHost: string;
   connectUrl: string;
@@ -148,6 +157,28 @@ export function getBuilderApiHost(): string {
   );
 }
 
+export const DEFAULT_BUILDER_BRANCH_PROJECT_ID =
+  "274d28fec94b48f2b2d68f2274d390eb";
+
+export function getBuilderBranchProjectId(): string {
+  return (
+    process.env.DISPATCH_BUILDER_PROJECT_ID ||
+    process.env.BUILDER_BRANCH_PROJECT_ID ||
+    process.env.BUILDER_PROJECT_ID ||
+    DEFAULT_BUILDER_BRANCH_PROJECT_ID
+  );
+}
+
+export function isBuilderBranchingEnabled(): boolean {
+  return !!(
+    process.env.ENABLE_BUILDER === "true" ||
+    process.env.ENABLE_BUILDER === "1" ||
+    process.env.DISPATCH_BUILDER_PROJECT_ID ||
+    process.env.BUILDER_BRANCH_PROJECT_ID ||
+    process.env.BUILDER_PROJECT_ID
+  );
+}
+
 /**
  * Build the Builder cli-auth URL for the connect popup. When a signed
  * `state` token is supplied it is embedded inside the `redirect_url`
@@ -197,11 +228,19 @@ export function getBuilderBrowserConnectUrl(origin: string): string {
 }
 
 export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
+  const branchProjectId =
+    process.env.DISPATCH_BUILDER_PROJECT_ID ||
+    process.env.BUILDER_BRANCH_PROJECT_ID ||
+    process.env.BUILDER_PROJECT_ID;
+  const envManaged = !!process.env.BUILDER_PRIVATE_KEY;
   return {
     configured: !!(
       process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY
     ),
-    builderEnabled: !!process.env.ENABLE_BUILDER,
+    builderEnabled: isBuilderBranchingEnabled(),
+    branchProjectIdConfigured: !!branchProjectId,
+    branchProjectId: branchProjectId || undefined,
+    envManaged,
     appHost: getBuilderAppHost(),
     apiHost: getBuilderApiHost(),
     connectUrl: getBuilderBrowserConnectUrl(origin),

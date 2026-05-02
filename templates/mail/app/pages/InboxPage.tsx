@@ -311,7 +311,7 @@ export function InboxPage() {
       );
       return filtered.filter((e) => qualifiedThreadIds.has(e.threadId || e.id));
     }
-    if (view === "inbox" && pinnedUserLabels.length > 0) {
+    if (!searchQuery && view === "inbox" && pinnedUserLabels.length > 0) {
       // Inbox: filter out emails that belong to a pinned label
       // Compute short names for each pinned label so we match email labelIds
       const pinnedShortNames = pinnedUserLabels.map((l) =>
@@ -334,6 +334,7 @@ export function InboxPage() {
   }, [
     rawEmails,
     view,
+    searchQuery,
     activeLabel,
     pinnedUserLabels,
     activeAccounts,
@@ -371,7 +372,12 @@ export function InboxPage() {
     const targetView = navCommand.view || view;
     const targetThread = navCommand.threadId;
 
-    if (targetThread) {
+    if (targetView === "draft-queue") {
+      const target = navCommand.queuedDraftId
+        ? `/draft-queue?id=${encodeURIComponent(navCommand.queuedDraftId)}`
+        : "/draft-queue";
+      navigate(target);
+    } else if (targetThread) {
       navigate(`/${targetView}/${targetThread}`);
     } else if (targetView !== view) {
       navigate(`/${targetView}`);

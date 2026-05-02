@@ -52,6 +52,7 @@ export const credentialKeys: CredentialKeyConfig[] = [
   // Gong
   { key: "GONG_ACCESS_KEY", label: "Gong Access Key", required: false },
   { key: "GONG_ACCESS_SECRET", label: "Gong Access Secret", required: false },
+  { key: "GONG_API_BASE", label: "Gong API Base URL", required: false },
   // Apollo
   { key: "APOLLO_API_KEY", label: "Apollo", required: false },
   // GitHub
@@ -63,6 +64,7 @@ export const credentialKeys: CredentialKeyConfig[] = [
   // Sentry
   { key: "SENTRY_SERVER_TOKEN", label: "Sentry Server Token", required: false },
   { key: "SENTRY_AUTH_TOKEN", label: "Sentry", required: false },
+  { key: "SENTRY_ORG_SLUG", label: "Sentry Organization", required: false },
   // Grafana
   { key: "GRAFANA_URL", label: "Grafana URL", required: false },
   { key: "GRAFANA_API_TOKEN", label: "Grafana API Token", required: false },

@@ -1,7 +1,7 @@
 /**
  * Core script: db-exec
  *
- * Execute a write SQL statement (INSERT, UPDATE, DELETE, etc.)
+ * Execute write SQL statements (INSERT, UPDATE, DELETE, REPLACE)
  * against a SQLite or Postgres database.
  *
  * In production mode, temporary views scope UPDATE/DELETE to the current
@@ -11,6 +11,7 @@
  *
  * Usage:
  *   pnpm action db-exec --sql "UPDATE forms SET status=? WHERE id=?" [--args '["published","abc"]'] [--db path]
+ *   pnpm action db-exec --statements '[{"sql":"INSERT INTO notes (id,title) VALUES (?,?)","args":["n1","One"]},{"sql":"UPDATE counters SET value=value+1 WHERE key=?","args":["notes"]}]'
  */
 
 import path from "path";
@@ -22,12 +23,26 @@ import {
   buildScopingSqlite,
   type ScopingContext,
 } from "./scoping.js";
+import { assertNoSensitiveFrameworkTables } from "./safety.js";
 
 function isPostgresUrl(url: string): boolean {
   return url.startsWith("postgres://") || url.startsWith("postgresql://");
 }
 
-function parseSqlArgs(raw: string | undefined): unknown[] {
+interface DbExecStatement {
+  sql: string;
+  args: unknown[];
+}
+
+interface DbExecResult {
+  index: number;
+  sql: string;
+  changes?: number;
+  lastInsertRowid?: bigint | number;
+  rows?: Record<string, unknown>[];
+}
+
+function parseSqlArgs(raw: string | undefined, label = "--args"): unknown[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -35,7 +50,155 @@ function parseSqlArgs(raw: string | undefined): unknown[] {
   } catch {
     // Fall through to the shared error below.
   }
-  fail("--args must be a JSON array");
+  fail(`${label} must be a JSON array`);
+}
+
+function parseStatements(parsed: Record<string, string>): DbExecStatement[] {
+  if (parsed.statements) {
+    if (parsed.sql) {
+      fail("Pass either --sql or --statements, not both.");
+    }
+    let raw: unknown;
+    try {
+      raw = JSON.parse(parsed.statements);
+    } catch {
+      fail(
+        '--statements must be a JSON array of {"sql": string, "args"?: unknown[]} objects',
+      );
+    }
+    if (!Array.isArray(raw) || raw.length === 0) {
+      fail("--statements must be a non-empty JSON array");
+    }
+    return raw.map((entry, index) => {
+      if (
+        !entry ||
+        typeof entry !== "object" ||
+        typeof (entry as any).sql !== "string" ||
+        !(entry as any).sql.trim()
+      ) {
+        fail(`Statement ${index + 1} must include a non-empty sql string`);
+      }
+      const args = (entry as any).args;
+      if (args != null && !Array.isArray(args)) {
+        fail(`Statement ${index + 1} args must be a JSON array`);
+      }
+      return { sql: (entry as any).sql, args: args ?? [] };
+    });
+  }
+
+  if (!parsed.sql) {
+    fail(
+      '--sql is required unless --statements is provided. Example: --sql "UPDATE forms SET status=? WHERE id=?" --args \'["published","abc"]\'',
+    );
+  }
+  return [{ sql: parsed.sql, args: parseSqlArgs(parsed.args) }];
+}
+
+function stripLeadingSqlComments(sql: string): string {
+  return sql
+    .replace(/^\s*--[^\n]*\n/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trim();
+}
+
+function hasAdditionalStatement(sql: string): boolean {
+  let state: "normal" | "single" | "double" | "line-comment" | "block-comment" =
+    "normal";
+
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (state === "line-comment") {
+      if (ch === "\n") state = "normal";
+      continue;
+    }
+    if (state === "block-comment") {
+      if (ch === "*" && next === "/") {
+        i++;
+        state = "normal";
+      }
+      continue;
+    }
+    if (state === "single") {
+      if (ch === "'" && next === "'") {
+        i++;
+      } else if (ch === "'") {
+        state = "normal";
+      }
+      continue;
+    }
+    if (state === "double") {
+      if (ch === '"' && next === '"') {
+        i++;
+      } else if (ch === '"') {
+        state = "normal";
+      }
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      i++;
+      state = "line-comment";
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      i++;
+      state = "block-comment";
+      continue;
+    }
+    if (ch === "'") {
+      state = "single";
+      continue;
+    }
+    if (ch === '"') {
+      state = "double";
+      continue;
+    }
+    if (ch === ";") {
+      return sql.slice(i + 1).trim().length > 0;
+    }
+  }
+  return false;
+}
+
+function normalizeUserSql(sql: string, index: number): string {
+  const stripped = stripLeadingSqlComments(sql);
+  if (!stripped) {
+    fail(`Statement ${index} is empty`);
+  }
+  if (hasAdditionalStatement(stripped)) {
+    fail(
+      `Statement ${index} contains multiple SQL statements. Use --statements for batches so each write can be validated and run transactionally.`,
+    );
+  }
+  return stripped.replace(/;\s*$/, "");
+}
+
+function validateWriteSql(sql: string, index: number): string {
+  const normalized = normalizeUserSql(sql, index);
+  const upper = normalized.toUpperCase();
+  const allowed = ["INSERT", "UPDATE", "DELETE", "REPLACE"];
+  const blocked = ["SELECT", "WITH", "EXPLAIN", "PRAGMA"];
+
+  if (blocked.some((kw) => upper.startsWith(kw))) {
+    fail(
+      `Statement ${index}: use db-query for SELECT/read statements. db-exec is for writes only.`,
+    );
+  }
+  if (upper.startsWith("CREATE") || upper.startsWith("ALTER")) {
+    fail(
+      `Statement ${index}: schema changes are not allowed through db-exec. Additive schema changes must go through reviewed migrations/startup code, not ad-hoc agent SQL.`,
+    );
+  }
+  if (!allowed.some((kw) => upper.startsWith(kw))) {
+    fail(
+      `Statement ${index}: only ${allowed.join(", ")} statements are allowed. ` +
+        `Dangerous operations like DROP, ATTACH, VACUUM, DETACH, CREATE, and ALTER are blocked.`,
+    );
+  }
+  assertNoSensitiveFrameworkTables(normalized, "write");
+  return normalized;
 }
 
 function convertQuestionMarksToPostgresParams(sql: string): string {
@@ -327,49 +490,101 @@ function printResult(
   }
 }
 
+function printBatchResult(results: DbExecResult[], format?: string): void {
+  if (results.length === 1) {
+    const result = results[0];
+    printResult(
+      result.sql,
+      {
+        count: result.changes,
+        rowsAffected: result.changes,
+        lastInsertRowid: result.lastInsertRowid,
+        rows: result.rows,
+      },
+      Boolean(result.rows?.length),
+      format,
+    );
+    return;
+  }
+
+  const totalChanges = results.reduce(
+    (sum, result) => sum + Number(result.changes ?? 0),
+    0,
+  );
+
+  if (format === "json") {
+    console.log(
+      JSON.stringify(
+        {
+          statements: results.map((result) => ({
+            index: result.index,
+            sql: result.sql,
+            changes: result.changes ?? 0,
+            ...(result.lastInsertRowid && Number(result.changes ?? 0) > 0
+              ? { lastInsertRowid: Number(result.lastInsertRowid) }
+              : {}),
+            ...(result.rows?.length
+              ? { rows: result.rows, count: result.rows.length }
+              : {}),
+          })),
+          changes: totalChanges,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  console.log(`Executed ${results.length} statements in one transaction.`);
+  for (const result of results) {
+    if (result.rows?.length) {
+      console.log(`[${result.index}] Returned ${result.rows.length} row(s):`);
+      console.log(JSON.stringify(result.rows, null, 2));
+    } else {
+      console.log(`[${result.index}] Changes: ${result.changes ?? 0}`);
+    }
+  }
+  console.log(`Total changes: ${totalChanges}`);
+}
+
+function sqliteRowsToObjects(
+  rows: any[],
+  columns: string[],
+): Record<string, unknown>[] {
+  return rows.map((row) => {
+    if (!Array.isArray(row) && row && typeof row === "object") {
+      return { ...row };
+    }
+    const obj: Record<string, unknown> = {};
+    for (let i = 0; i < columns.length; i++) {
+      obj[columns[i]] = row[i];
+    }
+    return obj;
+  });
+}
+
 export default async function dbExec(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
 
   if (parsed.help === "true") {
     console.log(`Usage: pnpm action db-exec --sql "<statement>" [options]
+       pnpm action db-exec --statements '[{"sql":"UPDATE ...","args":[...]}]' [options]
 
 Options:
-  --sql <stmt>    SQL statement to execute (required)
-  --args <json>   JSON array of positional SQL bind parameters
-  --db <path>     Path to SQLite database (default: data/app.db)
-  --format json   Output as JSON
-  --help          Show this help message`);
+  --sql <stmt>         Single INSERT / UPDATE / DELETE / REPLACE statement
+  --args <json>        JSON array of positional SQL bind parameters for --sql
+  --statements <json>  JSON array of {sql, args?}; runs in one transaction
+  --db <path>          Path to SQLite database (default: data/app.db)
+  --format json        Output as JSON
+  --help               Show this help message`);
     return;
   }
 
-  const sql = parsed.sql;
-  if (!sql) {
-    fail(
-      "--sql is required. Example: --sql \"UPDATE forms SET status='published' WHERE id='abc'\"",
-    );
-  }
-  const sqlArgs = parseSqlArgs(parsed.args);
-
-  // Allowlist: only permit DML statements the agent should run
-  const stripped = sql
-    .replace(/^\s*--[^\n]*\n/gm, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .trim();
-  const upper = stripped.toUpperCase();
-  const allowed = ["INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "ALTER"];
-  const blocked = ["SELECT", "WITH", "EXPLAIN", "PRAGMA"];
-
-  if (blocked.some((kw) => upper.startsWith(kw))) {
-    fail(
-      "Use db-query for SELECT/read statements. db-exec is for writes only.",
-    );
-  }
-  if (!allowed.some((kw) => upper.startsWith(kw))) {
-    fail(
-      `Only ${allowed.join(", ")} statements are allowed. ` +
-        `Dangerous operations like DROP, ATTACH, VACUUM, and DETACH are blocked.`,
-    );
-  }
+  const statements = parseStatements(parsed).map((statement, index) => ({
+    sql: validateWriteSql(statement.sql, index + 1),
+    args: statement.args,
+  }));
 
   // Resolve database URL: --db flag → DATABASE_URL env → default file path
   let url: string;
@@ -381,8 +596,6 @@ Options:
     url = "file:" + path.resolve(process.cwd(), "data", "app.db");
   }
 
-  const hasReturning = /\bRETURNING\b/i.test(stripped);
-
   // Postgres path
   if (isPostgresUrl(url)) {
     const { default: pg } = await import("postgres");
@@ -391,34 +604,50 @@ Options:
       // Set up user-scoped temp views in production
       const scoping = await buildScopingPostgres(pgSql);
 
-      // For UPDATE/DELETE: temp views scope to current user's rows
-      for (const stmt of scoping.setup) {
-        await pgSql.unsafe(stmt);
-      }
+      const results: DbExecResult[] = [];
+      await pgSql.begin(async (tx: any) => {
+        try {
+          // For UPDATE/DELETE: temp views scope to current user's rows.
+          // Creating and dropping them inside the same transaction keeps
+          // pooled Postgres backends from retaining session-local views.
+          for (const stmt of scoping.setup) {
+            await tx.unsafe(stmt);
+          }
 
-      // For INSERT: auto-inject owner_email / org_id
-      const finalSql = normalizePostgresSql(
-        injectOwnership(sql, scoping),
-        sqlArgs,
-      );
+          for (let i = 0; i < statements.length; i++) {
+            const statement = statements[i];
+            const hasReturning = /\bRETURNING\b/i.test(statement.sql);
+            const finalSql = normalizePostgresSql(
+              injectOwnership(statement.sql, scoping),
+              statement.args,
+            );
+            try {
+              const result =
+                statement.args.length > 0
+                  ? await tx.unsafe(finalSql, statement.args as any[])
+                  : await tx.unsafe(finalSql);
+              const rows: Record<string, unknown>[] =
+                hasReturning && result.length > 0 ? Array.from(result) : [];
+              results.push({
+                index: i + 1,
+                sql: finalSql,
+                changes: result.count ?? 0,
+                rows,
+              });
+            } catch (err: any) {
+              throw new Error(
+                `Statement ${i + 1} failed: ${err?.message ?? String(err)}`,
+              );
+            }
+          }
+        } finally {
+          for (const stmt of scoping.teardown) {
+            await tx.unsafe(stmt).catch(() => {});
+          }
+        }
+      });
 
-      const result =
-        sqlArgs.length > 0
-          ? await pgSql.unsafe(finalSql, sqlArgs as any[])
-          : await pgSql.unsafe(finalSql);
-      const rows: Record<string, unknown>[] =
-        hasReturning && result.length > 0 ? Array.from(result) : [];
-
-      printResult(
-        finalSql,
-        { count: result.count ?? 0, rows },
-        hasReturning,
-        parsed.format,
-      );
-
-      for (const stmt of scoping.teardown) {
-        await pgSql.unsafe(stmt).catch(() => {});
-      }
+      printBatchResult(results, parsed.format);
     } finally {
       await pgSql.end();
     }
@@ -438,35 +667,52 @@ Options:
       await client.execute(stmt);
     }
 
-    // For INSERT: auto-inject owner_email / org_id
-    const finalSql = qualifySqliteWrite(injectOwnership(sql, scoping), scoping);
+    const results: DbExecResult[] = [];
+    const shouldTransact = statements.length > 1;
+    if (shouldTransact) await client.execute("BEGIN");
+    try {
+      for (let i = 0; i < statements.length; i++) {
+        const statement = statements[i];
+        const hasReturning = /\bRETURNING\b/i.test(statement.sql);
+        const finalSql = qualifySqliteWrite(
+          injectOwnership(statement.sql, scoping),
+          scoping,
+        );
+        try {
+          const result =
+            statement.args.length > 0
+              ? await client.execute({
+                  sql: finalSql,
+                  args: statement.args as any[],
+                })
+              : await client.execute(finalSql);
 
-    const result =
-      sqlArgs.length > 0
-        ? await client.execute({ sql: finalSql, args: sqlArgs as any[] })
-        : await client.execute(finalSql);
+          const rows: Record<string, unknown>[] =
+            hasReturning && result.rows.length > 0
+              ? sqliteRowsToObjects(result.rows, result.columns)
+              : [];
+          results.push({
+            index: i + 1,
+            sql: finalSql,
+            changes: result.rowsAffected,
+            lastInsertRowid: result.lastInsertRowid,
+            rows,
+          });
+        } catch (err: any) {
+          throw new Error(
+            `Statement ${i + 1} failed: ${err?.message ?? String(err)}`,
+          );
+        }
+      }
+      if (shouldTransact) await client.execute("COMMIT");
+    } catch (err) {
+      if (shouldTransact) {
+        await client.execute("ROLLBACK").catch(() => {});
+      }
+      throw err;
+    }
 
-    const rows: Record<string, unknown>[] =
-      hasReturning && result.rows.length > 0
-        ? result.rows.map((row) => {
-            const obj: Record<string, unknown> = {};
-            for (let i = 0; i < result.columns.length; i++) {
-              obj[result.columns[i]] = row[i];
-            }
-            return obj;
-          })
-        : [];
-
-    printResult(
-      finalSql,
-      {
-        rowsAffected: result.rowsAffected,
-        lastInsertRowid: result.lastInsertRowid,
-        rows,
-      },
-      hasReturning,
-      parsed.format,
-    );
+    printBatchResult(results, parsed.format);
 
     for (const stmt of scoping.teardown) {
       await client.execute(stmt).catch(() => {});

@@ -43,12 +43,14 @@ Use resources for:
 
 The UI writes:
 
-- `navigation.view`: `overview`, `vault`, `integrations`, `workspace`, `destinations`, `identities`, `approvals`, `audit`, or `team`
+- `navigation.view`: `overview`, `apps`, `new-app`, `vault`, `integrations`, `workspace`, `destinations`, `identities`, `approvals`, `audit`, or `team`
 - `navigation.path`: current route path
 
 The agent can navigate with:
 
 - `navigate(view="overview")`
+- `navigate(view="apps")`
+- `navigate(view="new-app")`
 - `navigate(view="vault")`
 - `navigate(view="integrations")`
 - `navigate(view="workspace")`
@@ -62,12 +64,18 @@ The agent can navigate with:
 
 ### Vault (workspace-wide secrets)
 
+- `list-workspace-apps`: list apps installed in the workspace and their mounted paths
+- `get-app-creation-settings`: see whether production app creation can use a Builder project
+- `set-app-creation-settings`: set the default Builder project ID in Dispatch settings without writing env vars or files
+- `start-workspace-app-creation`: start a new app request; in local dev, use the returned prompt with the local code agent, and in production it creates a Builder branch when a Builder project is configured
 - `list-vault-secrets`: list all secrets in the vault (values are masked)
+- `list-vault-secret-options`: list vault secrets for app-creation key pickers without exposing values
 - `create-vault-secret`: store a new secret (admin only)
 - `update-vault-secret`: update a secret's value (admin only)
 - `delete-vault-secret`: remove a secret and all its grants (admin only)
 - `list-vault-grants`: list which apps have access to which secrets
 - `create-vault-grant`: grant an app access to a secret (admin only)
+- `grant-vault-secrets-to-app`: grant several selected secrets to a new workspace app, skipping existing active grants
 - `revoke-vault-grant`: revoke an app's access to a secret (admin only)
 - `sync-vault-to-app`: push all granted secrets to an app's env-vars endpoint
 - `list-vault-audit`: view secret access, grant, and sync history
@@ -113,6 +121,8 @@ The agent can navigate with:
 - Keep outbound messages concise and operational.
 - When a user asks about integrations or credentials, use `list-integrations-catalog` to check cross-app status.
 - After granting a secret to an app, always offer to sync it immediately with `sync-vault-to-app`.
+- When a user asks to create a new app from Slack, email, Telegram, or chat, use `start-workspace-app-creation`. If it returns `mode: "builder"`, send the branch URL back to the user. If it returns `mode: "local-agent"`, continue by using the returned prompt to create the app locally under `apps/<app-id>`, mounted at `/<app-id>`, using the workspace shared database. If it returns `mode: "coming-soon"` or `mode: "builder-unavailable"`, ask them to connect/configure Builder or set a Builder project for app creation.
+- New app scaffolding should use the CLI from the workspace root: `pnpm exec agent-native create <app-id> --template=<template>`. The workspace dev gateway auto-detects new `apps/<app-id>` directories and starts their dev servers without a restart.
 - When creating workspace skills or agents, use proper YAML frontmatter (name, description fields).
 - After creating or updating workspace resources, offer to sync them to apps with `sync-workspace-resources-to-app` or `sync-workspace-resources-to-all`.
 - When CC'd on an email, only reply if your input is clearly requested or you have something actionable to add. Don't insert yourself into every CC'd thread.

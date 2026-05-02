@@ -16,7 +16,7 @@ SELECT
   COUNT(*) as submission_count,
   MIN(form_fill_date) as earliest_submission,
   MAX(form_fill_date) as latest_submission
-FROM \`your-gcp-project-id.dbt_intermediate.hubspot_form_submissions\`
+FROM \`.dbt_intermediate.hubspot_form_submissions\`
 WHERE form_name IS NOT NULL
   AND (
     LOWER(form_name) LIKE '%sales%'

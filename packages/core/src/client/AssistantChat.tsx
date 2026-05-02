@@ -20,7 +20,13 @@ import {
   ComposerPrimitive,
   MessagePrimitive,
 } from "@assistant-ui/react";
-import type { ToolCallMessagePartProps, Attachment } from "@assistant-ui/react";
+import type {
+  AttachmentAdapter,
+  CompleteAttachment,
+  PendingAttachment,
+  ToolCallMessagePartProps,
+  Attachment,
+} from "@assistant-ui/react";
 import {
   SimpleImageAttachmentAdapter,
   SimpleTextAttachmentAdapter,
@@ -30,6 +36,7 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { getActiveRun } from "./active-run-state.js";
 import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
@@ -39,6 +46,7 @@ import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { agentNativePath } from "./api-path.js";
+import { BUILDER_SPACE_SETTINGS_URL } from "./error-format.js";
 import {
   TiptapComposer,
   type TiptapComposerHandle,
@@ -72,6 +80,12 @@ import {
   IconGitFork,
   IconId,
   IconQuote,
+  IconGauge,
+  IconArrowRight,
+  IconSettings,
+  IconAlertTriangle,
+  IconRefresh,
+  IconPlayerPlay,
 } from "@tabler/icons-react";
 
 const ThumbsFeedbackLazy = React.lazy(() =>
@@ -79,6 +93,61 @@ const ThumbsFeedbackLazy = React.lazy(() =>
     default: m.ThumbsFeedback,
   })),
 );
+
+class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
+  public accept =
+    "application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pdf,.pptx";
+
+  public async add(state: { file: File }): Promise<PendingAttachment> {
+    return {
+      id: state.file.name,
+      type: "document",
+      name: state.file.name,
+      contentType: inferDocumentContentType(state.file),
+      file: state.file,
+      status: { type: "requires-action", reason: "composer-send" },
+    };
+  }
+
+  public async send(
+    attachment: PendingAttachment,
+  ): Promise<CompleteAttachment> {
+    return {
+      ...attachment,
+      status: { type: "complete" },
+      content: [
+        {
+          type: "file",
+          filename: attachment.name,
+          data: await getFileDataURL(attachment.file),
+          mimeType: inferDocumentContentType(attachment.file),
+        },
+      ],
+    };
+  }
+
+  public async remove() {
+    // noop
+  }
+}
+
+function inferDocumentContentType(file: File): string {
+  if (file.type) return file.type;
+  if (file.name.toLowerCase().endsWith(".pdf")) return "application/pdf";
+  if (file.name.toLowerCase().endsWith(".pptx")) {
+    return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  }
+  return "application/octet-stream";
+}
+
+function getFileDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (error) => reject(error);
+    reader.readAsDataURL(file);
+  });
+}
 
 // ─── Markdown Text ──────────────────────────────────────────────────────────
 
@@ -106,6 +175,7 @@ const markdownStyles = `
 @media (prefers-color-scheme: dark) { :root:not(.light) .agent-markdown-shiki pre { background: var(--shiki-dark-bg); color: var(--shiki-dark); } :root:not(.light) .agent-markdown-shiki pre span { color: var(--shiki-dark); background: var(--shiki-dark-bg); } }
 .agent-markdown hr { border: none; border-top: 1px solid hsl(var(--border, 0 0% 20%)); margin: 0.75em 0; }
 .agent-markdown a { text-decoration: underline; text-underline-offset: 2px; }
+.agent-markdown a.agent-markdown-cta { text-decoration: none; }
 .agent-markdown blockquote { border-left: 2px solid hsl(var(--border, 0 0% 20%)); padding-left: 0.75em; margin: 0.5em 0; opacity: 0.8; }
 .agent-markdown table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.875em; }
 .agent-markdown th, .agent-markdown td { border: 1px solid hsl(var(--border, 0 0% 20%)); padding: 0.35em 0.65em; text-align: left; }
@@ -337,6 +407,39 @@ function HighlightedCodeBlock({ code, lang }: { code: string; lang: string }) {
 }
 
 const markdownComponents = {
+  a(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+    const {
+      href,
+      children,
+      className,
+      rel: _rel,
+      target: _target,
+      ...rest
+    } = props;
+    const isBuilderCta = isBuilderErrorCtaHref(href);
+    if (!isBuilderCta) {
+      return (
+        <a href={href} className={className} {...rest}>
+          {children}
+        </a>
+      );
+    }
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className={cn(
+          "agent-markdown-cta mt-1 inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background no-underline shadow-sm transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          className,
+        )}
+        {...rest}
+      >
+        <span>{children}</span>
+        <IconExternalLink size={13} strokeWidth={2} aria-hidden="true" />
+      </a>
+    );
+  },
   pre(props: React.HTMLAttributes<HTMLPreElement>) {
     const { children, ...rest } = props;
     if (React.isValidElement(children)) {
@@ -361,6 +464,23 @@ const markdownComponents = {
     return <pre {...rest}>{children}</pre>;
   },
 };
+
+function isBuilderErrorCtaHref(href: string | undefined): boolean {
+  if (!href) return false;
+  try {
+    const url = new URL(href);
+    if (url.protocol !== "https:" || url.hostname !== "builder.io") {
+      return false;
+    }
+    return (
+      url.href === BUILDER_SPACE_SETTINGS_URL ||
+      url.pathname === "/account/billing" ||
+      /^\/app\/organizations\/[^/]+\/billing$/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
 
 function MarkdownText() {
   useEffect(() => {
@@ -1133,11 +1253,12 @@ function AssistantMessage() {
   >("idle");
   const messageRuntime = useMessageRuntime();
   const thread = useThread();
+  const chatRunning = React.useContext(ChatRunningContext);
   const msg = messageRuntime.getState();
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
-  const isComplete = !isLast || !thread.isRunning;
+  const isComplete = !isLast || !chatRunning;
   const cpCtx = React.useContext(CheckpointContext);
 
   const handleRestore = useCallback(async () => {
@@ -1206,17 +1327,13 @@ function AssistantMessage() {
           }}
         />
       </div>
-      {/* Always render the actions menu so users can grab the trace ID even
-          mid-stream — including when a run hangs or ends prematurely without
-          flipping isRunning false. Thumbs feedback still gates on isComplete
-          since rating an in-flight response makes no sense. */}
-      <div className="mt-1 flex items-center justify-between">
-        <MessageActionsMenu
-          showRevert={showRestore && restoreState === "idle"}
-          onRevert={handleRestore}
-        />
-        {isComplete &&
-          (showRestore && restoreState === "confirming" ? (
+      {isComplete && (
+        <div className="mt-1 flex items-center justify-between">
+          <MessageActionsMenu
+            showRevert={showRestore && restoreState === "idle"}
+            onRevert={handleRestore}
+          />
+          {showRestore && restoreState === "confirming" ? (
             <div className="flex items-center gap-1 text-xs">
               <button
                 onClick={handleRestore}
@@ -1254,8 +1371,9 @@ function AssistantMessage() {
                 messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
               />
             </React.Suspense>
-          ))}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1465,6 +1583,389 @@ function ApiKeySetupCard({ apiUrl }: { apiUrl: string }) {
   );
 }
 
+// ─── Loop Limit Continue Card ───────────────────────────────────────────────
+
+type LoopLimitInfo = { maxIterations?: number };
+type RunErrorInfo = {
+  message: string;
+  details?: string;
+  errorCode?: string;
+  runId?: string;
+  recoverable?: boolean;
+};
+
+interface AgentLoopSettingsResponse {
+  maxIterations: number;
+  defaultMaxIterations: number;
+  minMaxIterations: number;
+  maxMaxIterations: number;
+  scope: "org" | "user" | "default";
+  source: "org" | "user" | "env" | "default";
+  canUpdate: boolean;
+  orgName?: string | null;
+  role?: string | null;
+}
+
+function getLoopLimitMetadata(message: unknown): LoopLimitInfo | null {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | {
+        custom?: { loopLimit?: LoopLimitInfo };
+        loopLimit?: LoopLimitInfo;
+      }
+    | undefined;
+  const loopLimit = meta?.custom?.loopLimit ?? meta?.loopLimit;
+  if (!loopLimit || typeof loopLimit !== "object") return null;
+  return {
+    ...(typeof loopLimit.maxIterations === "number"
+      ? { maxIterations: loopLimit.maxIterations }
+      : {}),
+  };
+}
+
+function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
+  const meta = (message as { metadata?: unknown })?.metadata as
+    | {
+        custom?: { runError?: RunErrorInfo; runId?: unknown };
+        runError?: RunErrorInfo;
+        runId?: unknown;
+      }
+    | undefined;
+  const runError = meta?.custom?.runError ?? meta?.runError;
+  if (!runError || typeof runError !== "object") return null;
+  const messageText =
+    typeof runError.message === "string" ? runError.message : "";
+  if (!messageText) return null;
+  const runId =
+    typeof runError.runId === "string"
+      ? runError.runId
+      : typeof meta?.custom?.runId === "string"
+        ? meta.custom.runId
+        : typeof meta?.runId === "string"
+          ? meta.runId
+          : undefined;
+  return {
+    message: messageText,
+    ...(typeof runError.details === "string"
+      ? { details: runError.details }
+      : {}),
+    ...(typeof runError.errorCode === "string"
+      ? { errorCode: runError.errorCode }
+      : {}),
+    ...(runId ? { runId } : {}),
+    ...(runError.recoverable ? { recoverable: true } : {}),
+  };
+}
+
+function getMessageText(message: unknown): string {
+  const msg = (message as { message?: unknown })?.message ?? message;
+  const content = (msg as { content?: unknown })?.content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((p: any) => p?.type === "text" && typeof p.text === "string")
+      .map((p: any) => p.text)
+      .join("\n")
+      .trim();
+  }
+  return typeof content === "string" ? content.trim() : "";
+}
+
+function RunErrorRecoveryCard({
+  info,
+  onContinue,
+  onRetry,
+  onFork,
+  onDismiss,
+}: {
+  info: RunErrorInfo;
+  onContinue: () => void;
+  onRetry: () => void;
+  onFork?: () => void;
+  onDismiss: () => void;
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copyDetails = useCallback(() => {
+    const text = [
+      info.message,
+      info.errorCode ? `Code: ${info.errorCode}` : "",
+      info.runId ? `Run: ${info.runId}` : "",
+      info.details ? `Details:\n${info.details}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  }, [info]);
+
+  return (
+    <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300">
+          <IconAlertTriangle size={14} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-medium text-foreground">
+            The agent stopped before finishing
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {info.message}
+          </p>
+          {(info.runId || info.errorCode || info.details) && (
+            <button
+              type="button"
+              onClick={() => setDetailsOpen((v) => !v)}
+              className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+            >
+              <IconChevronDown
+                size={12}
+                className={cn(
+                  "transition-transform",
+                  detailsOpen && "rotate-180",
+                )}
+              />
+              Details
+            </button>
+          )}
+          {detailsOpen && (
+            <div className="mt-2 rounded-md border border-border/60 bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+              {info.runId && <div>run: {info.runId}</div>}
+              {info.errorCode && <div>code: {info.errorCode}</div>}
+              {info.details && (
+                <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono">
+                  {info.details}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/80 hover:text-foreground"
+        >
+          <IconX size={14} />
+        </button>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onContinue}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+        >
+          <IconPlayerPlay size={13} />
+          Continue
+        </button>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
+        >
+          <IconRefresh size={13} />
+          Retry
+        </button>
+        {onFork && (
+          <button
+            type="button"
+            onClick={onFork}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
+          >
+            <IconGitFork size={13} />
+            Fork
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={copyDetails}
+          className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-background/80 hover:text-foreground"
+        >
+          {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LoopLimitContinueCard({
+  info,
+  onContinue,
+}: {
+  info: LoopLimitInfo;
+  onContinue: () => void;
+}) {
+  const [settings, setSettings] = useState<AgentLoopSettingsResponse | null>(
+    null,
+  );
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    let cancelled = false;
+    fetch(agentNativePath("/_agent-native/agent-loop-settings"))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: AgentLoopSettingsResponse | null) => {
+        if (cancelled || !data) return;
+        setSettings(data);
+        setValue(String(data.maxIterations));
+      })
+      .catch(() => {
+        if (!cancelled) setValue(String(info.maxIterations ?? ""));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [info.maxIterations]);
+
+  useEffect(() => load(), [load]);
+
+  const currentLimit = settings?.maxIterations ?? info.maxIterations;
+  const numericValue = Number(value);
+  const hasPendingChange =
+    !!settings &&
+    settings.canUpdate &&
+    Number.isInteger(numericValue) &&
+    numericValue !== settings.maxIterations;
+  const scopeLabel =
+    settings?.scope === "org"
+      ? settings.orgName
+        ? `${settings.orgName} org`
+        : "org"
+      : "your account";
+
+  const saveLimit = useCallback(async (): Promise<boolean> => {
+    if (!settings?.canUpdate) return false;
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      const res = await fetch(
+        agentNativePath("/_agent-native/agent-loop-settings"),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ maxIterations: numericValue }),
+        },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body?.error ?? `Save failed (${res.status})`);
+      }
+      setSettings(body as AgentLoopSettingsResponse);
+      setValue(String((body as AgentLoopSettingsResponse).maxIterations));
+      setSaved(true);
+      window.dispatchEvent(
+        new CustomEvent("agent-loop-settings:changed", { detail: body }),
+      );
+      setTimeout(() => setSaved(false), 2000);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [numericValue, settings?.canUpdate]);
+
+  const handleContinue = useCallback(async () => {
+    if (hasPendingChange) {
+      const ok = await saveLimit();
+      if (!ok) return;
+    }
+    onContinue();
+  }, [hasPendingChange, onContinue, saveLimit]);
+
+  const openSettings = useCallback(() => {
+    try {
+      window.location.hash = "agent-limits";
+    } catch {}
+    window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
+  }, []);
+
+  return (
+    <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-3 shadow-sm">
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+          <IconGauge size={14} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">
+            Step limit reached
+          </p>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            The agent used{" "}
+            {currentLimit
+              ? `${currentLimit.toLocaleString()} steps`
+              : "all available steps"}
+            . Keep going in a fresh turn, or raise the {scopeLabel} limit first.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="min-w-[116px] flex-1 space-y-1">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Max steps
+          </span>
+          <input
+            type="number"
+            min={settings?.minMaxIterations ?? 1}
+            max={settings?.maxMaxIterations ?? 1000}
+            value={value}
+            disabled={!settings?.canUpdate || saving}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setError(null);
+            }}
+            className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={saveLimit}
+          disabled={!hasPendingChange || saving}
+          className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+        >
+          {saving ? (
+            <IconLoader2 size={12} className="animate-spin" />
+          ) : saved ? (
+            <IconCheck size={12} />
+          ) : (
+            "Save"
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={openSettings}
+          className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <IconSettings size={12} />
+          Settings
+        </button>
+        <button
+          type="button"
+          onClick={handleContinue}
+          disabled={saving}
+          className="ml-auto inline-flex h-8 items-center gap-1 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:opacity-60"
+        >
+          {hasPendingChange ? "Save and keep going" : "Keep going"}
+          <IconArrowRight size={12} />
+        </button>
+      </div>
+
+      {settings && !settings.canUpdate && (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Only organization owners and admins can change this limit.
+        </p>
+      )}
+      {error && <p className="mt-2 text-[11px] text-destructive">{error}</p>}
+    </div>
+  );
+}
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export interface AssistantChatHandle {
@@ -1525,6 +2026,8 @@ export interface AssistantChatProps {
   defaultModel?: string;
   /** Selected engine override for this conversation */
   selectedEngine?: string;
+  /** Selected reasoning effort override for this conversation */
+  selectedEffort?: ReasoningEffort;
   /** Available engine/model list for the model picker */
   availableModels?: Array<{
     engine: string;
@@ -1534,6 +2037,8 @@ export interface AssistantChatProps {
   }>;
   /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
+  /** Callback when user picks a reasoning effort from the picker */
+  onEffortChange?: (effort: ReasoningEffort) => void;
   /** Callback when user clicks "Fork Chat" in the message actions menu */
   onForkChat?: () => void;
 }
@@ -1597,8 +2102,10 @@ const AssistantChatInner = forwardRef<
     selectedModel,
     defaultModel,
     selectedEngine,
+    selectedEffort,
     availableModels,
     onModelChange,
+    onEffortChange,
     onForkChat,
   },
   ref,
@@ -1625,6 +2132,13 @@ const AssistantChatInner = forwardRef<
   // on mount, or queue state that hasn't actually changed).
   const lastPersistedQueueRef = useRef<string>("[]");
   const [showContinue, setShowContinue] = useState(false);
+  const [loopLimitInfo, setLoopLimitInfo] = useState<LoopLimitInfo | null>(
+    null,
+  );
+  const [runErrorInfo, setRunErrorInfo] = useState<RunErrorInfo | null>(null);
+  const [dismissedRunErrorKey, setDismissedRunErrorKey] = useState<
+    string | null
+  >(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
@@ -2103,11 +2617,36 @@ const AssistantChatInner = forwardRef<
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!tabId || detail?.tabId === tabId) {
+        setLoopLimitInfo({
+          ...(typeof detail?.maxIterations === "number"
+            ? { maxIterations: detail.maxIterations }
+            : {}),
+        });
         setShowContinue(true);
       }
     };
     window.addEventListener("agent-chat:loop-limit", handler);
     return () => window.removeEventListener("agent-chat:loop-limit", handler);
+  }, [tabId]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as RunErrorInfo & {
+        tabId?: string;
+      };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      if (!detail?.message) return;
+      setRunErrorInfo({
+        message: detail.message,
+        ...(detail.details ? { details: detail.details } : {}),
+        ...(detail.errorCode ? { errorCode: detail.errorCode } : {}),
+        ...(detail.runId ? { runId: detail.runId } : {}),
+        ...(detail.recoverable ? { recoverable: detail.recoverable } : {}),
+      });
+      setDismissedRunErrorKey(null);
+    };
+    window.addEventListener("agent-chat:run-error", handler);
+    return () => window.removeEventListener("agent-chat:run-error", handler);
   }, [tabId]);
 
   // Auto-dequeue: when agent finishes running, send the next queued message
@@ -2171,6 +2710,9 @@ const AssistantChatInner = forwardRef<
   const addToQueue = useCallback(
     (text: string, images?: string[], references?: Reference[]) => {
       setShowContinue(false);
+      setLoopLimitInfo(null);
+      setRunErrorInfo(null);
+      setDismissedRunErrorKey(null);
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
@@ -2287,6 +2829,33 @@ const AssistantChatInner = forwardRef<
     [apiUrl, cpDevMode, threadId],
   );
   const messageActionsCtx = useMemo(() => ({ onForkChat }), [onForkChat]);
+  const lastMessageLoopLimit = useMemo(() => {
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant") return null;
+    return getLoopLimitMetadata(last);
+  }, [messages]);
+  const lastMessageRunError = useMemo(() => {
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant") return null;
+    return getRunErrorMetadata(last);
+  }, [messages]);
+  const lastUserText = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === "user") return getMessageText(messages[i]);
+    }
+    return "";
+  }, [messages]);
+  const visibleLoopLimit = showContinue
+    ? (loopLimitInfo ?? lastMessageLoopLimit ?? {})
+    : lastMessageLoopLimit;
+  const visibleRunError = runErrorInfo ?? lastMessageRunError;
+  const visibleRunErrorKey = visibleRunError
+    ? `${visibleRunError.runId ?? ""}:${visibleRunError.errorCode ?? ""}:${visibleRunError.message}`
+    : null;
+  const shouldShowRunError =
+    !!visibleRunError &&
+    !showRunningInUI &&
+    visibleRunErrorKey !== dismissedRunErrorKey;
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
@@ -2433,19 +3002,41 @@ const AssistantChatInner = forwardRef<
                       AssistantMessage,
                     }}
                   />
-                  {showContinue && !showRunningInUI && (
-                    <div className="flex justify-center py-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowContinue(false);
-                          addToQueue("Continue from where you left off.");
-                        }}
-                        className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
-                      >
-                        Continue
-                      </button>
-                    </div>
+                  {visibleLoopLimit && !showRunningInUI && (
+                    <LoopLimitContinueCard
+                      info={visibleLoopLimit}
+                      onContinue={() => {
+                        setShowContinue(false);
+                        setLoopLimitInfo(null);
+                        addToQueue("Continue from where you left off.");
+                      }}
+                    />
+                  )}
+                  {shouldShowRunError && visibleRunError && (
+                    <RunErrorRecoveryCard
+                      info={visibleRunError}
+                      onContinue={() => {
+                        setRunErrorInfo(null);
+                        addToQueue(
+                          "Continue from where you stopped. Use the partial work above, verify what succeeded, and finish the original request. Prefer dedicated app actions over raw database edits when they exist.",
+                        );
+                      }}
+                      onRetry={() => {
+                        setRunErrorInfo(null);
+                        addToQueue(
+                          lastUserText
+                            ? `Retry the previous request from a clean approach. Original request:\n\n${lastUserText}`
+                            : "Retry the previous request from a clean approach.",
+                        );
+                      }}
+                      onFork={onForkChat}
+                      onDismiss={() => {
+                        if (visibleRunErrorKey) {
+                          setDismissedRunErrorKey(visibleRunErrorKey);
+                        }
+                        setRunErrorInfo(null);
+                      }}
+                    />
                   )}
                   {(isReconnecting || reconnectFrozen) &&
                     reconnectContent.length > 0 && (
@@ -2524,7 +3115,13 @@ const AssistantChatInner = forwardRef<
             <SelectionAttachedPill />
             {/* Input area */}
             <div className="agent-composer-area shrink-0 px-3 py-2">
-              <ComposerPrimitive.Root className="flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
+              <ComposerPrimitive.Root
+                className={cn(
+                  "flex flex-col rounded-lg border border-input bg-background focus-within:ring-1 focus-within:ring-ring",
+                  execMode === "plan" &&
+                    "border-amber-500/50 bg-amber-500/[0.03] focus-within:ring-amber-500/30",
+                )}
+              >
                 <ComposerAttachmentPreviewStrip />
                 <TiptapComposer
                   focusRef={tiptapRef}
@@ -2552,8 +3149,10 @@ const AssistantChatInner = forwardRef<
                   execMode={execMode}
                   onExecModeChange={onExecModeChange}
                   selectedModel={selectedModel ?? defaultModel}
+                  selectedEffort={selectedEffort}
                   availableModels={availableModels}
                   onModelChange={onModelChange}
+                  onEffortChange={onEffortChange}
                   draftScope={threadId || tabId}
                   extraActionButton={
                     showRunningInUI ? (
@@ -2564,14 +3163,17 @@ const AssistantChatInner = forwardRef<
                           // immediately. This unblocks submission even if the
                           // runtime or reconnect state is stuck.
                           setForceStopped(true);
+                          const activeRun = getActiveRun();
+                          const runIdToAbort =
+                            reconnectRunIdRef.current ?? activeRun?.runId;
+                          if (runIdToAbort) {
+                            fetch(
+                              `${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`,
+                              { method: "POST" },
+                            ).catch(() => {});
+                          }
 
                           if (isReconnecting) {
-                            if (reconnectRunIdRef.current) {
-                              fetch(
-                                `${apiUrl}/runs/${encodeURIComponent(reconnectRunIdRef.current)}/abort`,
-                                { method: "POST" },
-                              );
-                            }
                             reconnectAbortRef.current?.abort();
                             reconnectAbortRef.current = null;
                             reconnectRunIdRef.current = null;
@@ -2623,6 +3225,8 @@ export const AssistantChat = forwardRef<
   modelRef.current = props.selectedModel;
   const engineRef = useRef<string | undefined>(props.selectedEngine);
   engineRef.current = props.selectedEngine;
+  const effortRef = useRef<ReasoningEffort | undefined>(props.selectedEffort);
+  effortRef.current = props.selectedEffort;
   const execModeRef = useRef<"build" | "plan" | undefined>(props.execMode);
   execModeRef.current = props.execMode;
 
@@ -2634,6 +3238,7 @@ export const AssistantChat = forwardRef<
         threadId,
         modelRef,
         engineRef,
+        effortRef,
         execModeRef,
       }),
     [apiUrl, tabId, threadId],
@@ -2642,6 +3247,7 @@ export const AssistantChat = forwardRef<
     () =>
       new CompositeAttachmentAdapter([
         new SimpleImageAttachmentAdapter(),
+        new BinaryDocumentAttachmentAdapter(),
         new SimpleTextAttachmentAdapter(),
       ]),
     [],

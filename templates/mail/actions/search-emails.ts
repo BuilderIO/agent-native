@@ -38,6 +38,23 @@ function toCompact(emails: any[]): any[] {
   }));
 }
 
+function latestPerThread(emails: any[]): any[] {
+  const byThread = new Map<string, any>();
+  for (const email of emails) {
+    const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
+    const existing = byThread.get(key);
+    if (
+      !existing ||
+      new Date(email.date).getTime() > new Date(existing.date).getTime()
+    ) {
+      byThread.set(key, email);
+    }
+  }
+  return Array.from(byThread.values()).sort(
+    (a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
+}
+
 export default defineAction({
   description: "Search emails across all views using Gmail search syntax.",
   schema: z.object({
@@ -156,6 +173,8 @@ export default defineAction({
       gmailQuery,
       limit,
       ownerEmail,
+      undefined,
+      { mode: "threads" },
     );
     if (errors.length > 0 && messages.length === 0) {
       return `Error: ${errors.map((e) => `${e.email}: ${e.error}`).join("; ")}`;
@@ -174,7 +193,7 @@ export default defineAction({
       );
     }
 
-    emails = emails.slice(0, limit);
+    emails = latestPerThread(emails).slice(0, limit);
 
     return JSON.stringify(compact ? toCompact(emails) : emails, null, 2);
   },

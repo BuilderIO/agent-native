@@ -182,7 +182,7 @@ Workspace-scope secret writes still require org owner/admin role regardless of t
 - [ ] `A2A_SECRET` set on every app that calls or receives A2A traffic
 - [ ] `SECRETS_ENCRYPTION_KEY` set (or rely on the `BETTER_AUTH_SECRET` fallback)
 - [ ] `AUTH_MODE` is **not** set to `local`
-- [ ] `AUTH_SKIP_EMAIL_VERIFICATION` is **not** set (or set only on QA preview deploys)
+- [ ] `AUTH_SKIP_EMAIL_VERIFICATION` is **not** set in production (or set only on QA preview deploys)
 
 ### Webhook secrets (set the ones for integrations you use)
 

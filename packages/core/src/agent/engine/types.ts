@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+
 /**
  * Pluggable Agent Engine abstraction.
  *
@@ -74,6 +76,14 @@ export interface EngineImagePart {
   mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 }
 
+export interface EngineFilePart {
+  type: "file";
+  /** Base64-encoded file data */
+  data: string;
+  mediaType: string;
+  filename?: string;
+}
+
 export interface EngineToolCallPart {
   type: "tool-call";
   id: string;
@@ -100,6 +110,7 @@ export interface EngineThinkingPart {
 export type EngineContentPart =
   | EngineTextPart
   | EngineImagePart
+  | EngineFilePart
   | EngineToolCallPart
   | EngineToolResultPart
   | EngineThinkingPart;
@@ -116,6 +127,13 @@ export type EngineEvent =
   | { type: "text-delta"; text: string }
   | { type: "thinking-delta"; text: string; signature?: string }
   | { type: "tool-call"; id: string; name: string; input: unknown }
+  | {
+      type: "tool-call-error";
+      id: string;
+      name: string;
+      input: unknown;
+      error: string;
+    }
   | {
       type: "usage";
       inputTokens: number;
@@ -184,6 +202,7 @@ export interface EngineStreamOptions {
   abortSignal: AbortSignal;
   maxOutputTokens?: number;
   temperature?: number;
+  reasoningEffort?: ReasoningEffort;
   /**
    * Provider-specific options passed opaquely.
    * Engines forward options they understand and ignore unknown keys.

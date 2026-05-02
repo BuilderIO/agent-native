@@ -39,8 +39,25 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import { readBody } from "../server/h3-helpers.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import {
+  createToolSearchEntry,
+  TOOL_SEARCH_ACTION_NAME,
+} from "./tool-search.js";
+import {
+  getDefaultMaxIterations,
+  normalizeMaxIterations,
+  readAgentLoopSettings,
+} from "./loop-settings.js";
+import {
+  isReasoningEffort,
+  normalizeReasoningEffortForModel,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -200,6 +217,198 @@ export interface ActionEntry {
 /** @deprecated Use `ActionEntry` instead */
 export type ScriptEntry = ActionEntry;
 
+export type AgentExecutionMode = "act" | "plan";
+
+export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
+
+You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
+
+Hard rules:
+- Use only read-only tools. Do not edit files, write resources, run shell commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
+- If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
+- When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
+- Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector, Shift+Tab, or /act before implementation.`;
+
+const PLAN_MODE_BLOCKED_READONLY_TOOLS = new Set([
+  "refresh-screen",
+  "set-search-params",
+  "set-url-path",
+]);
+
+const PLAN_MODE_ALLOWED_ACTIONS: Record<string, readonly string[]> = {
+  resources: ["list", "read"],
+  "chat-history": ["search"],
+  "agent-teams": ["status", "read-result", "list"],
+  "manage-jobs": ["list"],
+  "manage-automations": ["list-events", "list"],
+  "manage-notifications": ["list"],
+  "manage-progress": ["list"],
+  "manage-agent-engine": ["list"],
+};
+
+const PLAN_MODE_WEB_REQUEST_METHODS = new Set(["GET", "HEAD"]);
+
+function getToolAction(name: string, args: unknown): string {
+  const raw =
+    args && typeof args === "object" && "action" in args
+      ? (args as Record<string, unknown>).action
+      : undefined;
+  if (raw == null && name === "chat-history") return "search";
+  return String(raw ?? "").toLowerCase();
+}
+
+function getWebRequestMethod(args: unknown): string {
+  const raw =
+    args && typeof args === "object" && "method" in args
+      ? (args as Record<string, unknown>).method
+      : undefined;
+  return String(raw ?? "GET").toUpperCase();
+}
+
+function restrictActionEnum(
+  parameters: ActionTool["parameters"] | undefined,
+  allowedActions: readonly string[],
+): ActionTool["parameters"] | undefined {
+  if (!parameters) return parameters;
+  const actionParam = parameters.properties.action;
+  if (!actionParam) return parameters;
+  return {
+    ...parameters,
+    properties: {
+      ...parameters.properties,
+      action: {
+        ...actionParam,
+        enum: [...allowedActions],
+      },
+    },
+  };
+}
+
+function restrictWebRequestMethods(
+  parameters: ActionTool["parameters"] | undefined,
+): ActionTool["parameters"] | undefined {
+  if (!parameters) return parameters;
+  const methodParam = parameters.properties.method;
+  if (!methodParam) return parameters;
+  return {
+    ...parameters,
+    properties: {
+      ...parameters.properties,
+      method: {
+        ...methodParam,
+        enum: [...PLAN_MODE_WEB_REQUEST_METHODS],
+      },
+    },
+  };
+}
+
+function planModeBlockedMessage(toolName: string, reason?: string): string {
+  return (
+    `Plan mode blocked \`${toolName}\`` +
+    (reason ? ` (${reason})` : "") +
+    ". Switch to Act mode after the user approves the plan, then retry the action."
+  );
+}
+
+export function isPlanModeToolCallAllowed(
+  name: string,
+  input: unknown,
+  entry: ActionEntry,
+): boolean {
+  if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) return false;
+
+  if (name === "web-request") {
+    return PLAN_MODE_WEB_REQUEST_METHODS.has(getWebRequestMethod(input));
+  }
+
+  const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
+  if (allowedActions) {
+    return allowedActions.includes(getToolAction(name, input));
+  }
+
+  return entry.readOnly === true;
+}
+
+function createPlanModeGuardedAction(
+  name: string,
+  entry: ActionEntry,
+  allowedActions: readonly string[],
+): ActionEntry {
+  return {
+    ...entry,
+    readOnly: true,
+    tool: {
+      ...entry.tool,
+      description:
+        `${entry.tool.description}\n\nPlan mode: only these read-only actions are available: ` +
+        allowedActions.map((action) => `"${action}"`).join(", ") +
+        ".",
+      parameters: restrictActionEnum(entry.tool.parameters, allowedActions),
+    },
+    run: async (args, context) => {
+      const action = getToolAction(name, args);
+      if (!allowedActions.includes(action)) {
+        return planModeBlockedMessage(
+          name,
+          `action="${action || "(missing)"}"`,
+        );
+      }
+      return entry.run(args, context);
+    },
+  };
+}
+
+function createPlanModeWebRequestAction(entry: ActionEntry): ActionEntry {
+  return {
+    ...entry,
+    readOnly: true,
+    tool: {
+      ...entry.tool,
+      description: `${entry.tool.description}\n\nPlan mode: only GET and HEAD requests are allowed.`,
+      parameters: restrictWebRequestMethods(entry.tool.parameters),
+    },
+    run: async (args, context) => {
+      const method = getWebRequestMethod(args);
+      if (!PLAN_MODE_WEB_REQUEST_METHODS.has(method)) {
+        return planModeBlockedMessage("web-request", `method="${method}"`);
+      }
+      return entry.run(args, context);
+    },
+  };
+}
+
+export function createPlanModeActionRegistry(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  const filtered: Record<string, ActionEntry> = {};
+
+  for (const [name, entry] of Object.entries(actions)) {
+    if (name === TOOL_SEARCH_ACTION_NAME) continue;
+    if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) continue;
+
+    const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
+    if (allowedActions) {
+      filtered[name] = createPlanModeGuardedAction(name, entry, allowedActions);
+      continue;
+    }
+
+    if (name === "web-request") {
+      filtered[name] = createPlanModeWebRequestAction(entry);
+      continue;
+    }
+
+    if (entry.readOnly === true) {
+      filtered[name] = entry;
+    }
+  }
+
+  if (actions[TOOL_SEARCH_ACTION_NAME]) {
+    filtered[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => filtered);
+  }
+
+  return filtered;
+}
+
 export interface ProductionAgentOptions {
   /** Action entries for the agent. Use `actions` (preferred) or `scripts` (deprecated alias). */
   actions?: Record<string, ActionEntry>;
@@ -216,6 +425,8 @@ export interface ProductionAgentOptions {
     | { name: string; config: Record<string, unknown> };
   /** Model to use. Default: claude-sonnet-4-6 */
   model?: string;
+  /** Default reasoning effort for requests that do not supply an override. */
+  reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
   providerOptions?: EngineMessage extends never ? never : any;
   /** Called when a run completes (for server-side thread persistence) */
@@ -242,7 +453,6 @@ export interface ProductionAgentOptions {
   skipFilesContext?: boolean;
 }
 
-const MAX_ITERATIONS = 100;
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 2000;
 
@@ -273,12 +483,24 @@ function isContextTooLongError(err: unknown): boolean {
 function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
+  const code =
+    err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   return (
+    code === "http_502" ||
+    code === "http_503" ||
+    code === "http_504" ||
+    code === "timeout" ||
     msg.includes("overloaded") ||
     msg.includes("rate_limit") ||
     msg.includes("529") ||
+    msg.includes("502") ||
     msg.includes("503") ||
-    msg.includes("too many requests")
+    msg.includes("504") ||
+    msg.includes("too many requests") ||
+    msg.includes("timeout") ||
+    msg.includes("gateway timeout") ||
+    msg.includes("inactivity timeout") ||
+    msg.includes("too much time has passed without sending any data")
   );
 }
 
@@ -338,6 +560,20 @@ function formatTextAttachment(att: AgentChatAttachment): string | null {
   return `<attachment ${attrs.join(" ")}>\n${att.text}\n</attachment>`;
 }
 
+function dataUrlToFilePart(
+  att: AgentChatAttachment,
+): { type: "file"; data: string; mediaType: string; filename?: string } | null {
+  if (att.type !== "file" || typeof att.data !== "string") return null;
+  const match = att.data.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  return {
+    type: "file",
+    data: match[2],
+    mediaType: att.contentType || match[1],
+    filename: att.name || undefined,
+  };
+}
+
 export function buildUserContentWithAttachments(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
@@ -355,6 +591,12 @@ export function buildUserContentWithAttachments(opts: {
           mediaType: match[1],
         });
       }
+      continue;
+    }
+
+    const filePart = dataUrlToFilePart(att);
+    if (filePart) {
+      userContent.push(filePart);
       continue;
     }
 
@@ -450,14 +692,69 @@ export interface AgentLoopUsage {
 export function actionsToEngineTools(
   actions: Record<string, ActionEntry>,
 ): EngineTool[] {
-  return Object.entries(actions).map(([name, entry]) => ({
-    name,
-    description: entry.tool.description,
-    inputSchema: (entry.tool.parameters ?? {
-      type: "object",
-      properties: {},
-    }) as EngineTool["inputSchema"],
-  }));
+  const tools: EngineTool[] = [];
+  for (const [name, entry] of Object.entries(actions)) {
+    const inputSchema = normalizeToolInputSchema(entry.tool.parameters);
+    if (!inputSchema) {
+      console.warn(
+        `[agent] Skipping tool "${name}" because its input schema is not an object.`,
+      );
+      continue;
+    }
+    tools.push({
+      name,
+      description: entry.tool.description,
+      inputSchema,
+    });
+  }
+  return tools;
+}
+
+function normalizeToolInputSchema(
+  schema: ActionTool["parameters"] | undefined,
+): EngineTool["inputSchema"] | null {
+  if (!schema) return { type: "object", properties: {} };
+  if (schema.type !== "object") return null;
+  return {
+    ...schema,
+    type: "object",
+    properties:
+      schema.properties && typeof schema.properties === "object"
+        ? schema.properties
+        : {},
+    required: Array.isArray(schema.required) ? schema.required : [],
+  };
+}
+
+function stringifyToolInput(input: unknown): string {
+  try {
+    const str = JSON.stringify(input);
+    if (!str) return String(input);
+    return str.length > 500 ? `${str.slice(0, 500)}…` : str;
+  } catch {
+    return String(input);
+  }
+}
+
+function normalizeToolCallInputForHistory(
+  input: unknown,
+): Record<string, unknown> {
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    return input as Record<string, unknown>;
+  }
+  return { rawInput: input };
+}
+
+function toolInputSchemaErrorResult(
+  toolName: string,
+  input: unknown,
+  error: string,
+): string {
+  return (
+    `Invalid action parameters for ${toolName}: ${error}. ` +
+    `Received: ${stringifyToolInput(input)}. ` +
+    "The tool was not executed; retry with arguments that match the tool schema."
+  );
 }
 
 /**
@@ -474,7 +771,12 @@ export async function runAgentLoop(opts: {
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
+  ownerEmail?: string | null;
+  orgId?: string | null;
+  reasoningEffort?: ReasoningEffort;
   providerOptions?: any;
+  executionMode?: AgentExecutionMode;
+  maxIterations?: number;
 }): Promise<AgentLoopUsage> {
   const {
     engine,
@@ -495,18 +797,27 @@ export async function runAgentLoop(opts: {
     model,
   };
 
+  const maxIterations = normalizeMaxIterations(
+    opts.maxIterations,
+    getDefaultMaxIterations(),
+  );
   let iterations = 0;
   while (true) {
     if (signal.aborted) break;
-    if (++iterations > MAX_ITERATIONS) {
-      send({ type: "loop_limit" });
+    if (++iterations > maxIterations) {
+      send({ type: "loop_limit", maxIterations });
       break;
     }
 
     let assistantContent: EngineContentPart[] | undefined;
-    let hasToolCalls = false;
+    const toolCallErrors = new Map<
+      string,
+      { name: string; input: unknown; error: string }
+    >();
 
     for (let retry = 0; ; retry++) {
+      assistantContent = undefined;
+      toolCallErrors.clear();
       try {
         const streamOpts = {
           model,
@@ -514,6 +825,7 @@ export async function runAgentLoop(opts: {
           messages,
           tools,
           abortSignal: signal,
+          reasoningEffort: opts.reasoningEffort,
           providerOptions: opts.providerOptions,
         };
 
@@ -529,7 +841,13 @@ export async function runAgentLoop(opts: {
             // we accumulate them. In a future iteration, we can surface
             // them as a collapsible "reasoning" section in the UI.
           } else if (event.type === "tool-call") {
-            hasToolCalls = true;
+            // The authoritative tool-call blocks arrive in assistant-content.
+          } else if (event.type === "tool-call-error") {
+            toolCallErrors.set(event.id, {
+              name: event.name,
+              input: event.input,
+              error: event.error,
+            });
           } else if (event.type === "assistant-content") {
             assistantContent = event.parts;
           } else if (event.type === "usage") {
@@ -569,12 +887,46 @@ export async function runAgentLoop(opts: {
       }
     }
 
+    if (!assistantContent && toolCallErrors.size > 0) {
+      assistantContent = [];
+    }
+
     if (!assistantContent) {
       // No content — done
       break;
     }
 
-    messages.push({ role: "assistant", content: assistantContent });
+    if (toolCallErrors.size > 0) {
+      const existingToolCallIds = new Set(
+        assistantContent
+          .filter(
+            (part): part is import("./engine/types.js").EngineToolCallPart =>
+              part.type === "tool-call",
+          )
+          .map((part) => part.id),
+      );
+      for (const [id, info] of toolCallErrors) {
+        if (!existingToolCallIds.has(id)) {
+          assistantContent.push({
+            type: "tool-call",
+            id,
+            name: info.name,
+            input: info.input,
+          });
+        }
+      }
+    }
+
+    const assistantContentForHistory = assistantContent.map((part) =>
+      part.type === "tool-call"
+        ? {
+            ...part,
+            input: normalizeToolCallInputForHistory(part.input),
+          }
+        : part,
+    );
+
+    messages.push({ role: "assistant", content: assistantContentForHistory });
 
     const toolCallParts = assistantContent.filter(
       (p): p is import("./engine/types.js").EngineToolCallPart =>
@@ -583,89 +935,143 @@ export async function runAgentLoop(opts: {
 
     if (toolCallParts.length === 0) break;
 
-    // Run all tool calls in parallel — engines often return multiple tool-call
-    // blocks in one turn. Running them concurrently saves wall-clock time.
-    const toolResultParts: EngineContentPart[] = await Promise.all(
-      toolCallParts.map(async (toolCall) => {
-        const actionEntry = actions[toolCall.name];
-        if (!actionEntry) {
-          const result = `Error: Unknown tool "${toolCall.name}"`;
-          send({
-            type: "tool_start",
-            tool: toolCall.name,
-            input: toolCall.input as Record<string, string>,
-          });
-          send({ type: "tool_done", tool: toolCall.name, result });
-          return {
-            type: "tool-result" as const,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            content: result,
-            isError: true,
-          };
-        }
-
+    const runToolCall = async (
+      toolCall: import("./engine/types.js").EngineToolCallPart,
+    ): Promise<EngineContentPart> => {
+      const actionEntry = actions[toolCall.name];
+      if (!actionEntry) {
+        const result = `Error: Unknown tool "${toolCall.name}"`;
         send({
           type: "tool_start",
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
-
-        const MAX_TOOL_RESULT_CHARS = 50_000;
-        const TOOL_TIMEOUT_MS = 60_000;
-        let result: string;
-        let isError = false;
-        try {
-          const timeoutSignal = AbortSignal.timeout(TOOL_TIMEOUT_MS);
-          const raw = await Promise.race([
-            actionEntry.run(toolCall.input as Record<string, string>, { send }),
-            new Promise<never>((_, reject) => {
-              timeoutSignal.addEventListener("abort", () =>
-                reject(new Error("Tool call timed out after 60 seconds")),
-              );
-            }),
-          ]);
-          let resultStr =
-            typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
-          if (resultStr.length > MAX_TOOL_RESULT_CHARS) {
-            const truncated = resultStr.slice(0, MAX_TOOL_RESULT_CHARS);
-            resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${MAX_TOOL_RESULT_CHARS.toLocaleString()} shown]`;
-          }
-          result = resultStr;
-        } catch (err: any) {
-          result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
-          isError = true;
-        }
-
-        // Auto-refresh the UI after a successful mutating tool call. Any action
-        // that isn't explicitly read-only is assumed to mutate. The client's
-        // useDbSync listener sees a poll event with source:"action" and
-        // invalidates ["action"] queries so list-* / get-* refetch. This makes
-        // refresh after agent writes reliable without the model needing to
-        // remember to call `refresh-screen` itself.
-        if (!isError && actionEntry.readOnly !== true) {
-          try {
-            const { recordChange } = await import("../server/poll.js");
-            recordChange({
-              source: "action",
-              type: "change",
-              key: toolCall.name,
-            });
-          } catch {
-            // poll module may be unavailable in non-server contexts — ignore
-          }
-        }
-
         send({ type: "tool_done", tool: toolCall.name, result });
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
           content: result,
-          ...(isError ? { isError } : {}),
+          isError: true,
         };
-      }),
-    );
+      }
+
+      send({
+        type: "tool_start",
+        tool: toolCall.name,
+        input: toolCall.input as Record<string, string>,
+      });
+
+      const toolCallSchemaError = toolCallErrors.get(toolCall.id);
+      if (toolCallSchemaError) {
+        const result = toolInputSchemaErrorResult(
+          toolCall.name,
+          toolCallSchemaError.input,
+          toolCallSchemaError.error,
+        );
+        send({ type: "tool_done", tool: toolCall.name, result });
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          content: result,
+          isError: true,
+        };
+      }
+
+      if (
+        opts.executionMode === "plan" &&
+        !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
+      ) {
+        const result = planModeBlockedMessage(toolCall.name);
+        send({ type: "tool_done", tool: toolCall.name, result });
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          content: result,
+          isError: true,
+        };
+      }
+
+      const MAX_TOOL_RESULT_CHARS = 50_000;
+      const TOOL_TIMEOUT_MS = 60_000;
+      let result: string;
+      let isError = false;
+      try {
+        const timeoutSignal = AbortSignal.timeout(TOOL_TIMEOUT_MS);
+        const raw = await Promise.race([
+          actionEntry.run(toolCall.input as Record<string, string>, { send }),
+          new Promise<never>((_, reject) => {
+            timeoutSignal.addEventListener("abort", () =>
+              reject(new Error("Tool call timed out after 60 seconds")),
+            );
+          }),
+        ]);
+        let resultStr =
+          typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+        if (resultStr.length > MAX_TOOL_RESULT_CHARS) {
+          const truncated = resultStr.slice(0, MAX_TOOL_RESULT_CHARS);
+          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${MAX_TOOL_RESULT_CHARS.toLocaleString()} shown]`;
+        }
+        result = resultStr;
+      } catch (err: any) {
+        result = `Error running ${toolCall.name}: ${err?.message ?? String(err)}`;
+        isError = true;
+      }
+
+      // Auto-refresh the UI after a successful mutating tool call. Any action
+      // that isn't explicitly read-only is assumed to mutate. The client's
+      // useDbSync listener sees a poll event with source:"action" and
+      // invalidates ["action"] queries so list-* / get-* refetch. This makes
+      // refresh after agent writes reliable without the model needing to
+      // remember to call `refresh-screen` itself.
+      if (!isError && actionEntry.readOnly !== true) {
+        try {
+          const { recordChange } = await import("../server/poll.js");
+          const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
+          const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
+          recordChange({
+            source: "action",
+            type: "change",
+            key: toolCall.name,
+            ...(owner ? { owner } : {}),
+            ...(orgId ? { orgId } : {}),
+          });
+        } catch {
+          // poll module may be unavailable in non-server contexts — ignore
+        }
+      }
+
+      send({ type: "tool_done", tool: toolCall.name, result });
+      return {
+        type: "tool-result" as const,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        content: result,
+        ...(isError ? { isError } : {}),
+      };
+    };
+
+    const hasMutatingToolCall = toolCallParts.some((toolCall) => {
+      const entry = actions[toolCall.name];
+      return entry && entry.readOnly !== true;
+    });
+
+    // Engines can emit several tool-call blocks in one turn. Keep read-only
+    // calls parallel for latency, but serialize any batch containing a mutating
+    // call so DB writes and UI refresh events preserve model order and do not
+    // interleave or partially race.
+    const toolResultParts: EngineContentPart[] = [];
+    if (hasMutatingToolCall) {
+      for (const toolCall of toolCallParts) {
+        toolResultParts.push(await runToolCall(toolCall));
+      }
+    } else {
+      toolResultParts.push(
+        ...(await Promise.all(toolCallParts.map(runToolCall))),
+      );
+    }
 
     messages.push({ role: "user", content: toolResultParts });
   }
@@ -688,9 +1094,11 @@ export function createProductionAgentHandler(
   // the settings UI) show up to the LLM without a process restart. MCP tools
   // are also scope-filtered per request — a user-scope server added by Alice
   // must not appear in Bob's tool list in a shared-process deployment.
-  const getEngineTools = () => {
+  const getEngineTools = (
+    actions: Record<string, ActionEntry> = resolvedActions,
+  ) => {
     const filtered: Record<string, ActionEntry> = {};
-    for (const [name, entry] of Object.entries(resolvedActions)) {
+    for (const [name, entry] of Object.entries(actions)) {
       if (name.startsWith("mcp__") && !isMcpToolAllowedForRequest(name)) {
         continue;
       }
@@ -721,7 +1129,10 @@ export function createProductionAgentHandler(
       attachments,
       model: requestModel,
       engine: requestEngine,
+      effort: requestEffort,
     } = body;
+    const requestMode: AgentExecutionMode =
+      body.mode === "plan" ? "plan" : "act";
     if (!message) {
       setResponseStatus(event, 400);
       return { error: "message is required" };
@@ -792,6 +1203,12 @@ export function createProductionAgentHandler(
       configuredModel ??
       (await getStoredModelForEngine(engine)) ??
       engine.defaultModel;
+    const reasoningEffort = normalizeReasoningEffortForModel(
+      model,
+      isReasoningEffort(requestEffort)
+        ? requestEffort
+        : options.reasoningEffort,
+    );
 
     options.onEngineResolved?.(engine, model);
 
@@ -826,6 +1243,10 @@ export function createProductionAgentHandler(
     // the DB or invokes an action; running them sequentially was the
     // single biggest contributor to pre-LLM latency.
     const enrichedMessage = enrichMessage(message, references);
+    const loopSettingsPromise = readAgentLoopSettings({
+      userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
+      orgId: getRequestOrgId() ?? null,
+    }).catch(() => readAgentLoopSettings({}));
 
     let systemPromptError: any = null;
     const systemPromptPromise = (async (): Promise<string> => {
@@ -1006,14 +1427,21 @@ export function createProductionAgentHandler(
       return filesContext;
     })();
 
-    const [systemPrompt, screenBlock, urlBlock, selectionBlock, filesContext] =
-      await Promise.all([
-        systemPromptPromise,
-        screenContextPromise,
-        urlContextPromise,
-        selectionContextPromise,
-        filesContextPromise,
-      ]);
+    const [
+      systemPrompt,
+      screenBlock,
+      urlBlock,
+      selectionBlock,
+      filesContext,
+      loopSettings,
+    ] = await Promise.all([
+      systemPromptPromise,
+      screenContextPromise,
+      urlContextPromise,
+      selectionContextPromise,
+      filesContextPromise,
+      loopSettingsPromise,
+    ]);
 
     if (systemPromptError) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -1032,13 +1460,26 @@ export function createProductionAgentHandler(
       });
     }
     const screenContext = screenBlock + urlBlock + selectionBlock;
+    const requestActions =
+      requestMode === "plan"
+        ? createPlanModeActionRegistry(resolvedActions)
+        : resolvedActions;
+    const requestTools = getEngineTools(requestActions);
+    const requestSystemPrompt =
+      requestMode === "plan"
+        ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
+        : systemPrompt;
 
     // Pre-compute agent references for A2A resolution inside the run
     const agentRefs = references.filter((r) => r.type === "agent");
     const customAgentRefs = references.filter((r) => r.type === "custom-agent");
+    const planModeAgentNote =
+      requestMode === "plan" && agentRefs.length > 0
+        ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
+        : "";
 
     const userContent = buildUserContentWithAttachments({
-      text: enrichedMessage + screenContext + filesContext,
+      text: enrichedMessage + screenContext + filesContext + planModeAgentNote,
       attachments,
     });
 
@@ -1099,7 +1540,7 @@ export function createProductionAgentHandler(
                 }
 
                 const profilePrompt =
-                  `${systemPrompt}\n\n<custom-agent-profile name="${profile.name}" path="${profile.path}">\n` +
+                  `${requestSystemPrompt}\n\n<custom-agent-profile name="${profile.name}" path="${profile.path}">\n` +
                   (profile.description ? `${profile.description}\n\n` : "") +
                   `${profile.instructions}\n</custom-agent-profile>`;
 
@@ -1108,7 +1549,7 @@ export function createProductionAgentHandler(
                   engine,
                   model: profile.model ?? model,
                   systemPrompt: profilePrompt,
-                  tools: getEngineTools(),
+                  tools: requestTools,
                   messages: [
                     {
                       role: "user",
@@ -1117,7 +1558,7 @@ export function createProductionAgentHandler(
                       ],
                     },
                   ],
-                  actions: resolvedActions,
+                  actions: requestActions,
                   send: (event) => {
                     if (event.type === "text") {
                       responseText += event.text;
@@ -1129,7 +1570,10 @@ export function createProductionAgentHandler(
                     }
                   },
                   signal,
+                  reasoningEffort,
                   providerOptions: options.providerOptions,
+                  executionMode: requestMode,
+                  maxIterations: loopSettings.maxIterations,
                 });
 
                 // Attribute custom-agent sub-calls under their own label
@@ -1196,7 +1640,7 @@ export function createProductionAgentHandler(
         }
 
         // Resolve connected agent @-mentions via A2A calls.
-        if (agentRefs.length > 0) {
+        if (agentRefs.length > 0 && requestMode !== "plan") {
           const { A2AClient, callAgent } = await import("../a2a/client.js");
           const results = await Promise.allSettled(
             agentRefs.map(async (ref) => {
@@ -1335,13 +1779,18 @@ export function createProductionAgentHandler(
         const agentLoopOpts = {
           engine,
           model: effectiveModel,
-          systemPrompt,
-          tools: getEngineTools(),
+          systemPrompt: requestSystemPrompt,
+          tools: requestTools,
           messages,
-          actions: resolvedActions,
+          actions: requestActions,
           send,
           signal,
+          ownerEmail,
+          orgId: getRequestOrgId() ?? null,
+          reasoningEffort,
           providerOptions: options.providerOptions,
+          executionMode: requestMode,
+          maxIterations: loopSettings.maxIterations,
         };
 
         let loopUsage: AgentLoopUsage;

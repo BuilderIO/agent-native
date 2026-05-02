@@ -44,7 +44,7 @@ The agent uses actions to read/write the database:
 
 - `pnpm action db-schema` — Show all tables, columns, types
 - `pnpm action db-query --sql "SELECT * FROM forms"` — Run SELECT queries
-- `pnpm action db-exec --sql "INSERT INTO ..."` — Run INSERT / UPDATE / DELETE. Use for short columns, multi-column writes, computed updates.
+- `pnpm action db-exec --sql "INSERT INTO ..."` — Run INSERT / UPDATE / DELETE / REPLACE. Use for short columns, multi-column writes, computed updates. For several related writes, prefer `--statements '[{"sql":"...","args":[...]}]'` so they run sequentially in one transaction. Schema changes are blocked; use reviewed additive migrations/startup code instead.
 - `pnpm action db-patch --table <t> --column <c> --where "<clause>" --find "<old>" --replace "<new>"` — **Surgical search/replace on a large text column.** Sends the diff instead of re-transmitting the whole value, so it's dramatically more token-efficient than `db-exec UPDATE` when editing multi-kilobyte documents, slide HTML, dashboard/form JSON, etc. Targets exactly one row per call — narrow `--where` by primary key. Supports `--edits '[{find,replace},...]'` for batch edits and `--all` to replace every occurrence.
 - App-specific actions for domain operations (auto-exposed as HTTP endpoints) — **always prefer these over raw SQL when one exists.** They encode business rules, and for editor-backed tables (documents, slides) they also push live Yjs updates to open collaborative editors. `db-patch` is the generic fallback for tables without a dedicated edit action.
 
@@ -55,6 +55,7 @@ The agent uses actions to read/write the database:
 | `SET status = 'published'` on one row                          | `db-exec`    |
 | `SET calories = calories + 50`                                 | `db-exec`    |
 | Updating several columns at once                               | `db-exec`    |
+| Inserting/updating several rows as one logical operation        | `db-exec --statements` |
 | Fixing a typo in a 50KB markdown document's `content` column   | `db-patch`   |
 | Changing a single key in a dashboard's JSON blob               | `db-patch`   |
 | Tweaking one paragraph of slide HTML stored in `decks.data`    | `db-patch`   |
@@ -97,6 +98,7 @@ Polling streams database changes to the UI. When the agent writes to the databas
 - Use `application-state` for ephemeral UI state that the agent and UI share
 - Use `oauth-tokens` for OAuth credentials
 - Use core DB scripts (`db-schema`, `db-query`, `db-exec`, `db-patch`) for ad-hoc database operations
+- Use `db-exec --statements` instead of several separate `db-exec` calls for related writes; it is faster and rolls back the whole batch if one statement fails
 - Reach for `db-patch` instead of `db-exec UPDATE` whenever you're making a small change to a large text/JSON column — it's much cheaper on tokens
 
 ## Don't
