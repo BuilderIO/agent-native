@@ -24,7 +24,10 @@ export default defineAction({
     );
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
-    const resources = await resourceListAccessible(ownerEmail, "agents/");
+    const resources = await resourceListAccessible(
+      ownerEmail,
+      "remote-agents/",
+    );
     const customById = new Map<
       string,
       { resourceId: string; path: string; scope: "shared" | "personal" }
