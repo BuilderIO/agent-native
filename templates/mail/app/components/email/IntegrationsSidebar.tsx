@@ -413,7 +413,7 @@ function AddIntegrationButton() {
                   ? "bg-primary hover:bg-primary/90 text-primary-foreground"
                   : "bg-muted/50 text-muted-foreground/30 cursor-not-allowed",
               )}
-              title="Submit (⌘↵)"
+              title={`Submit (${/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter)`}
               aria-label="Submit"
             >
               <IconArrowUp className="w-4 h-4" />
