@@ -82,4 +82,26 @@ describe("add-slide", () => {
     expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
   });
+
+  it("rejects empty string positions", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-new",
+        content: "<div>New</div>",
+        position: "",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects null positions", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-new",
+        content: "<div>New</div>",
+        position: null as unknown as number,
+      }),
+    ).rejects.toThrow();
+  });
 });

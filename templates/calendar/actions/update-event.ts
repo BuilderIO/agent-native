@@ -62,6 +62,7 @@ export default defineAction({
       args.location !== undefined ||
       args.start !== undefined ||
       args.end !== undefined ||
+      args.allDay !== undefined ||
       recurrence !== undefined;
 
     if (!hasPatch) {

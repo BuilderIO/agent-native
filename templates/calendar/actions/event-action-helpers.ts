@@ -20,10 +20,21 @@ export async function resolveOwnedAccountEmail(
   requestedAccountEmail: string | undefined,
   ownerEmail: string,
 ): Promise<string> {
-  if (!requestedAccountEmail || requestedAccountEmail === ownerEmail) {
+  const status = await googleCalendar.getAuthStatus(ownerEmail);
+  if (!requestedAccountEmail) {
+    if (status.accounts.length === 1) {
+      return status.accounts[0].email;
+    }
+    if (status.accounts.length > 1) {
+      throw new Error(
+        "Multiple Google Calendar accounts are connected. Pass accountEmail from list-events/search-events.",
+      );
+    }
     return ownerEmail;
   }
-  const status = await googleCalendar.getAuthStatus(ownerEmail);
+  if (requestedAccountEmail === ownerEmail) {
+    return ownerEmail;
+  }
   const isOwned = status.accounts.some(
     (account) => account.email === requestedAccountEmail,
   );
