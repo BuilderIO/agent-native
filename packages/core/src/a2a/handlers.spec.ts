@@ -209,6 +209,43 @@ describe("handleJsonRpc", () => {
     expect(task.status.message.parts[0].text).toBe("custom response");
   });
 
+  it("passes the H3 event through sync message/send handler context", async () => {
+    const event = mockEvent();
+    const eventAwareConfig: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: context.event === event ? "event-present" : "event-missing",
+            },
+          ],
+        },
+      }),
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hello" }],
+          },
+        },
+      },
+      event,
+      eventAwareConfig,
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.result.status.message.parts[0].text).toBe("event-present");
+  });
+
   it("handles message/send with invalid message", async () => {
     const event = mockEvent();
     const result = await handleJsonRpc(
@@ -270,6 +307,45 @@ describe("handleJsonRpc", () => {
       { ...customHandler, streaming: false },
     );
     expect(result.error.code).toBe(-32601);
+  });
+
+  it("passes the H3 event through streaming handler context", async () => {
+    const event = mockEvent();
+    const eventAwareConfig: A2AConfig = {
+      ...customHandler,
+      streaming: true,
+      handler: async function* (_message, context) {
+        yield {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: context.event === event ? "event-present" : "event-missing",
+            },
+          ],
+        };
+      },
+    };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/stream",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hello" }],
+          },
+        },
+      },
+      event,
+      eventAwareConfig,
+    );
+
+    const chunks = event.node.res._writes.join("");
+    expect(chunks).toContain("event-present");
+    expect(chunks).not.toContain("event-missing");
   });
 
   it("handles tasks/get for unknown task", async () => {
@@ -385,6 +461,63 @@ describe("handleJsonRpc", () => {
     expect(followup.result.status.message.parts[0].text).toBe(
       "done eventually",
     );
+  });
+
+  it("passes the processor H3 event through async handler context", async () => {
+    let processorEvent: any;
+    const eventAwareConfig: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text:
+                context.event === processorEvent
+                  ? "event-present"
+                  : "event-missing",
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      eventAwareConfig,
+    );
+    expect(result.error).toBeUndefined();
+    const taskId = result.result.id;
+
+    processorEvent = mockEvent();
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(taskId, eventAwareConfig, processorEvent);
+
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      mockEvent(),
+      eventAwareConfig,
+    );
+    expect(followup.error).toBeUndefined();
+    expect(followup.result.status.message.parts[0].text).toBe("event-present");
   });
 
   it("self-dispatches async A2A tasks under APP_BASE_PATH", async () => {

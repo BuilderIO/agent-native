@@ -6,7 +6,10 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut}
 use crate::clips::toggle_popover;
 use crate::dlog;
 use crate::state::{DictationActive, VoiceWakePopover};
-use crate::util::{is_recording_active, set_dictation_active, show_without_activation};
+use crate::util::{
+    hide_voice_wake_popover, is_dictation_active, is_recording_active, set_dictation_active,
+    show_without_activation,
+};
 
 fn escape_shortcut() -> Shortcut {
     Shortcut::new(None, Code::Escape)
@@ -159,11 +162,22 @@ fn emit_voice_shortcut(
         let app = app.clone();
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(80));
-            let _ = app.emit(event, serde_json::json!({ "source": source }));
+            if should_emit_delayed_voice_start(&app, source) {
+                let _ = app.emit(event, serde_json::json!({ "source": source }));
+            } else {
+                hide_voice_wake_popover(&app);
+            }
         });
         return;
     }
     let _ = app.emit(event, serde_json::json!({ "source": source }));
+}
+
+fn should_emit_delayed_voice_start(app: &tauri::AppHandle, source: &'static str) -> bool {
+    if !is_dictation_active(app) {
+        return false;
+    }
+    source != "fn" || current_fn_flag_down()
 }
 
 fn wake_popover_for_voice(app: &tauri::AppHandle) {
@@ -325,12 +339,19 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                         // hops to the main thread internally so the actual
                         // show happens slightly later than this line.
                         let app_for_emit = app_for_cb.clone();
+                        let prev_for_emit = prev_for_cb.clone();
                         thread::spawn(move || {
                             thread::sleep(Duration::from_millis(80));
-                            let _ = app_for_emit.emit(
-                                "voice:shortcut-start",
-                                serde_json::json!({ "source": "fn" }),
-                            );
+                            if prev_for_emit.load(Ordering::SeqCst)
+                                && should_emit_delayed_voice_start(&app_for_emit, "fn")
+                            {
+                                let _ = app_for_emit.emit(
+                                    "voice:shortcut-start",
+                                    serde_json::json!({ "source": "fn" }),
+                                );
+                            } else {
+                                hide_voice_wake_popover(&app_for_emit);
+                            }
                         });
                         install_fn_release_watchdog(app_for_cb.clone(), prev_for_cb.clone());
                     } else {
@@ -449,4 +470,9 @@ fn current_fn_flag_down() -> bool {
 
     let flags = unsafe { CGEventSourceFlagsState(CGEventSourceStateID::HIDSystemState) };
     flags.contains(CGEventFlags::CGEventFlagSecondaryFn)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn current_fn_flag_down() -> bool {
+    true
 }

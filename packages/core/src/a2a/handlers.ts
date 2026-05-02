@@ -113,6 +113,7 @@ async function fireProcessTaskDispatch(
 export async function processA2ATaskFromQueue(
   taskId: string,
   config: A2AConfig,
+  event?: any,
 ): Promise<void> {
   const claimed = await claimA2ATaskForProcessing(taskId);
   if (!claimed) {
@@ -161,6 +162,7 @@ export async function processA2ATaskFromQueue(
           config,
           contextId,
           callerMetadata,
+          event,
         ),
     );
   } catch (err: any) {
@@ -263,6 +265,7 @@ function makeHandlerContext(
   taskId: string,
   contextId?: string,
   metadata?: Record<string, unknown>,
+  event?: any,
 ): {
   context: A2AHandlerContext;
   artifacts: Artifact[];
@@ -272,6 +275,7 @@ function makeHandlerContext(
     taskId,
     contextId,
     metadata,
+    event,
     writeArtifact(name, content, mimeType) {
       const artifact: Artifact = {
         name,
@@ -361,11 +365,13 @@ async function runHandlerAndPersist(
   config: A2AConfig,
   contextId: string | undefined,
   metadata: Record<string, unknown> | undefined,
+  event?: any,
 ): Promise<void> {
   const { context, artifacts } = makeHandlerContext(
     taskId,
     contextId,
     metadata,
+    event,
   );
   try {
     const result = getHandler(config)(message, context);
@@ -511,7 +517,7 @@ async function handleSend(
     );
     await updateTask(task.id, { state: "working" });
 
-    const ctx = makeHandlerContext(task.id, contextId, metadata);
+    const ctx = makeHandlerContext(task.id, contextId, metadata, event);
 
     try {
       const result = getHandler(config)(message, ctx.context);
@@ -594,6 +600,7 @@ async function handleStream(
       task.id,
       contextId,
       metadata,
+      event,
     );
 
     try {
