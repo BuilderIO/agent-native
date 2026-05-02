@@ -325,6 +325,32 @@ describe("A2A continuation processor", () => {
     );
   });
 
+  it("caps the pre-claim wait for stale future wakeups", async () => {
+    vi.useFakeTimers();
+    const sendResponse = vi.fn(async () => undefined);
+    getA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ status: "pending", nextCheckAt: Date.now() + 30_000 }),
+    );
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ status: "pending", nextCheckAt: Date.now() + 30_000 }),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    const processing = processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(claimA2AContinuationMock).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await processing;
+
+    expect(claimA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(sendResponse).toHaveBeenCalled();
+  });
+
   it("notifies the platform when a remote task exceeds the continuation age limit", async () => {
     vi.useFakeTimers();
     const sendResponse = vi.fn(async () => undefined);

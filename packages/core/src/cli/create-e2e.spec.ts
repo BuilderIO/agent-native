@@ -341,6 +341,7 @@ describe("Netlify scaffold rewrite", () => {
     expectRedirect("/apps", "/dispatch/apps", 302);
     expectRedirect("/new-app", "/dispatch/new-app", 302);
     expectRedirect("/dispatch/*", "/.netlify/functions/server", 200);
+    expect(netlify).not.toContain("force = true");
   });
 
   it("keeps unpooled database build overrides for templates that need them", () => {
@@ -410,6 +411,12 @@ describe("Netlify scaffold rewrite", () => {
         '  to = "/dispatch/"',
         "  status = 302",
         "",
+        "[[redirects]]",
+        '  from = "/dispatch/*"',
+        '  to = "/.netlify/functions/server"',
+        "  status = 200",
+        "  force = true",
+        "",
       ].join("\n"),
     );
 
@@ -419,6 +426,8 @@ describe("Netlify scaffold rewrite", () => {
     expect(netlify).toContain('  from = "/"');
     expect(netlify).toContain('  to = "/dispatch/overview"');
     expect(netlify).not.toContain('  to = "/dispatch/"');
+    expect(netlify).toContain('  from = "/dispatch/*"');
+    expect(netlify).not.toContain("force = true");
   });
 });
 

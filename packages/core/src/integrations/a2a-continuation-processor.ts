@@ -232,9 +232,8 @@ async function waitForContinuationDue(
 
   const waitMs = continuation.nextCheckAt - Date.now();
   if (waitMs <= 0) return true;
-  if (waitMs > MAX_PRE_CLAIM_WAIT_MS) return false;
 
-  await sleep(waitMs);
+  await sleep(Math.min(waitMs, MAX_PRE_CLAIM_WAIT_MS));
   return true;
 }
 
