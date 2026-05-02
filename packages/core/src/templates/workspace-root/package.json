@@ -18,14 +18,5 @@
     "tsx": "catalog:",
     "typescript": "^6.0.3"
   },
-  "packageManager": "pnpm@10.14.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "esbuild",
-      "lightningcss",
-      "node-pty",
-      "@swc/core"
-    ]
-  }
+  "packageManager": "pnpm@10.14.0"
 }

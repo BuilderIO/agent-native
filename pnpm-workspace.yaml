@@ -8,7 +8,6 @@ catalog:
   "@tailwindcss/vite": ^4.2.4
   "@types/react": ^19.2.14
   "@types/react-dom": ^19.2.3
-  "@vitejs/plugin-react": ^6.0.1
   h3: ^2.0.1-rc.20
   listhen: ^1.9.1
   react: ^19.2.5
@@ -19,8 +18,10 @@ catalog:
   vite: 8.0.3
 
 onlyBuiltDependencies:
+  - "@swc/core"
+  - better-sqlite3
+  - canvas
+  - electron
   - esbuild
   - lightningcss
-  - electron
-  - "@swc/core"
   - node-pty

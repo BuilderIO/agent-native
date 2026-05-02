@@ -355,14 +355,14 @@ If your cwd is the monorepo root instead (e.g., running from the Frame wrapper),
 
 ### Sharing
 
-Designs are **private by default** — only the creator sees them. These actions are auto-mounted framework-wide:
+Designs and design systems are **private by default** — only the creator sees them. Use `resourceType design` for design projects and `resourceType design-system` for design systems. These actions are auto-mounted framework-wide:
 
-| Action                    | Args                                                                                                                            | Purpose                          |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| `share-resource`          | `--resourceType design --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant access                     |
-| `unshare-resource`        | `--resourceType design --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                              | Revoke access                    |
-| `list-resource-shares`    | `--resourceType design --resourceId <id>`                                                                                       | Show current visibility + grants |
-| `set-resource-visibility` | `--resourceType design --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility         |
+| Action                    | Args                                                                                                                                           | Purpose                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `share-resource`          | `--resourceType design\|design-system --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant access                     |
+| `unshare-resource`        | `--resourceType design\|design-system --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                              | Revoke access                    |
+| `list-resource-shares`    | `--resourceType design\|design-system --resourceId <id>`                                                                                       | Show current visibility + grants |
+| `set-resource-visibility` | `--resourceType design\|design-system --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility         |
 
 ### Database
 

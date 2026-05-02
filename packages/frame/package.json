@@ -31,7 +31,7 @@
   "devDependencies": {
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@vitejs/plugin-react": "catalog:",
+    "@vitejs/plugin-react-swc": "^4.0.0",
     "typescript": "catalog:",
     "vite": "catalog:",
     "tsx": "catalog:",

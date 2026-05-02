@@ -1968,6 +1968,10 @@ async function mountBetterAuthRoutes(
       const body = await readBody(event);
       const email = body?.email?.trim?.()?.toLowerCase?.();
       const password = body?.password;
+      const callbackURL =
+        typeof body?.callbackURL === "string"
+          ? safeReturnPath(body.callbackURL)
+          : "/";
 
       if (!email || typeof email !== "string" || !email.includes("@")) {
         setResponseStatus(event, 400);
@@ -1980,7 +1984,7 @@ async function mountBetterAuthRoutes(
 
       try {
         await auth.api.signUpEmail({
-          body: { email, password, name: email.split("@")[0] },
+          body: { email, password, name: email.split("@")[0], callbackURL },
         });
         return { ok: true };
       } catch (e: any) {

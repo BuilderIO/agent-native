@@ -409,6 +409,16 @@ ${
   .tab:hover:not(.active) { color: #bbb; }
   .form { display: none; }
   .form.active { display: block; }
+  .card.verifying .tabs,
+  .card.verifying #google-btn,
+  .card.verifying #google-err,
+  .card.verifying #auth-divider,
+  .card.verifying #local-divider,
+  .card.verifying #local-btn,
+  .card.verifying #local-info,
+  .card.verifying #upgrade-note {
+    display: none;
+  }
   label { display: block; font-size: 0.8125rem; color: #888; margin-bottom: 0.375rem; }
   input {
     width: 100%;
@@ -453,6 +463,108 @@ ${
   .msg.error { color: #f87171; }
   .msg.success { color: #4ade80; }
   .msg.show { display: block; }
+  .step-progress {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+  }
+  .progress-step {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.375rem;
+    color: #666;
+    font-size: 0.6875rem;
+    line-height: 1.2;
+    text-align: center;
+  }
+  .progress-step::before {
+    content: '';
+    position: absolute;
+    top: 11px;
+    left: calc(-50% + 16px);
+    width: calc(100% - 32px);
+    height: 1px;
+    background: rgba(255,255,255,0.1);
+  }
+  .progress-step:first-child::before { display: none; }
+  .progress-step span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: #151515;
+    color: #777;
+    font-size: 0.6875rem;
+    font-weight: 600;
+  }
+  .progress-step strong { font-weight: 500; }
+  .progress-step.complete,
+  .progress-step.current { color: #e5e5e5; }
+  .progress-step.complete span {
+    background: #d9f99d;
+    border-color: #d9f99d;
+    color: #111;
+  }
+  .progress-step.current span {
+    background: #fff;
+    border-color: #fff;
+    color: #000;
+    box-shadow: 0 0 0 4px rgba(255,255,255,0.08);
+  }
+  .verification-panel {
+    padding: 1rem;
+    margin-bottom: 0.875rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+  }
+  .verification-kicker {
+    margin-bottom: 0.5rem;
+    color: #bef264;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+  .verification-copy {
+    color: #d4d4d8;
+    font-size: 0.875rem;
+    line-height: 1.55;
+  }
+  .verification-copy strong {
+    color: #fff;
+    font-weight: 600;
+    word-break: break-word;
+  }
+  .verification-note {
+    margin-top: 0.75rem;
+    color: #71717a;
+    font-size: 0.75rem;
+    line-height: 1.45;
+  }
+  .inline-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+  }
+  .link-button {
+    padding: 0.25rem 0;
+    background: none;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    font-size: 0.75rem;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .link-button:hover { color: #bbb; }
+  .link-button:disabled { cursor: wait; opacity: 0.5; }
   .divider {
     display: flex;
     align-items: center;
@@ -542,7 +654,7 @@ ${
     Sign in with Google
   </button>
   <p class="google-error" id="google-err"></p>
-${googleOnly ? "" : `\n  <div class="divider">or</div>\n`}
+${googleOnly ? "" : `\n  <div class="divider" id="auth-divider">or</div>\n`}
 `
     : googleOnly
       ? `
@@ -561,18 +673,37 @@ ${
     <button class="tab" data-tab="login">Sign in</button>
   </div>
 
-  <form id="signup-form" class="form">
-    <label for="s-email">Email</label>
-    <input id="s-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />
+    <form id="signup-form" class="form">
+      <label for="s-email">Email</label>
+      <input id="s-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />
     <label for="s-pass">Password</label>
     <input id="s-pass" type="password" autocomplete="new-password" placeholder="At least 8 characters" required minlength="8" />
     <label for="s-pass2">Confirm password</label>
     <input id="s-pass2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="8" />
-    <button type="submit">Create account</button>
-    <p class="msg" id="s-msg"></p>
-  </form>
+      <button type="submit">Create account</button>
+      <p class="msg" id="s-msg"></p>
+    </form>
 
-  <form id="login-form" class="form">
+    <div id="verification-step" class="form verification-step" aria-live="polite">
+      <div class="step-progress" aria-label="Signup progress">
+        <div class="progress-step complete"><span>1</span><strong>Account</strong></div>
+        <div class="progress-step current"><span>2</span><strong>Verify</strong></div>
+        <div class="progress-step"><span>3</span><strong>Start</strong></div>
+      </div>
+      <div class="verification-panel">
+        <p class="verification-kicker">Verification email sent</p>
+        <p class="verification-copy">We sent a secure link to <strong id="verify-email"></strong>. When you click it, this app will finish signing you in automatically.</p>
+        <p class="verification-note">You can keep this tab open. After verifying, use Continue if the app has not refreshed yet.</p>
+      </div>
+      <button type="button" class="btn-primary" id="verify-continue">Continue</button>
+      <div class="inline-actions">
+        <button type="button" class="link-button" id="resend-verification">Resend email</button>
+        <button type="button" class="link-button" id="back-to-signup">Back</button>
+      </div>
+      <p class="msg" id="verify-msg"></p>
+    </div>
+
+    <form id="login-form" class="form">
     <label for="l-email">Email</label>
     <input id="l-email" type="email" autocomplete="email" placeholder="you@example.com" required />
     <label for="l-pass">Password</label>
@@ -605,10 +736,17 @@ ${localModeBlock}
     var idx = window.location.pathname.indexOf(marker);
     return idx > 0 ? window.location.pathname.slice(0, idx) : '';
   }
-  function __anPath(path) {
-    return __anBasePath() + path;
-  }
-  (function revealLocalNote() {
+    function __anPath(path) {
+      return __anBasePath() + path;
+    }
+    function __anGetReturnPath() {
+      try {
+        var inner = new URLSearchParams(window.location.search).get('return');
+        if (inner) return inner;
+      } catch(e) {}
+      return window.location.pathname + window.location.search;
+    }
+    (function revealLocalNote() {
     var h = location.hostname;
     if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local')) {
       var n = document.getElementById('local-note');
@@ -619,16 +757,19 @@ ${
   googleOnly
     ? ""
     : `  var TAB_STORAGE_KEY = 'an.onboarding.tab';
-  var tabs = document.querySelectorAll('.tab');
-  var forms = document.querySelectorAll('.form');
-  var subtitles = { signup: 'Create an account to get started', login: 'Sign in to your account' };
-  var headings = { signup: 'Welcome', login: 'Welcome back' };
-  function setActiveTab(name, opts) {
-    if (name !== 'signup' && name !== 'login') return;
-    var form = document.getElementById(name + '-form');
-    if (!form) return;
-    tabs.forEach(function(x) { x.classList.remove('active'); });
-    forms.forEach(function(x) { x.classList.remove('active'); });
+    var tabs = document.querySelectorAll('.tab');
+    var forms = document.querySelectorAll('.form');
+    var subtitles = { signup: 'Create an account to get started', login: 'Sign in to your account' };
+    var headings = { signup: 'Welcome', login: 'Welcome back' };
+    var pendingSignupEmail = '';
+    function setActiveTab(name, opts) {
+      if (name !== 'signup' && name !== 'login') return;
+      var form = document.getElementById(name + '-form');
+      if (!form) return;
+      var card = document.querySelector('.card');
+      if (card) card.classList.remove('verifying');
+      tabs.forEach(function(x) { x.classList.remove('active'); });
+      forms.forEach(function(x) { x.classList.remove('active'); });
     var btn = document.querySelector('.tab[data-tab="' + name + '"]');
     if (btn) btn.classList.add('active');
     form.classList.add('active');
@@ -636,11 +777,119 @@ ${
     if (sub && subtitles[name]) sub.textContent = subtitles[name];
     var heading = document.getElementById('heading');
     if (heading && headings[name]) heading.textContent = headings[name];
-    if (opts && opts.persist) {
-      try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch (e) {}
+      if (opts && opts.persist) {
+        try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch (e) {}
+      }
     }
-  }
-  (function initActiveTab() {
+    function showVerificationStep(email) {
+      pendingSignupEmail = email || '';
+      tabs.forEach(function(x) { x.classList.remove('active'); });
+      forms.forEach(function(x) { x.classList.remove('active'); });
+      var card = document.querySelector('.card');
+      if (card) card.classList.add('verifying');
+      var step = document.getElementById('verification-step');
+      if (step) step.classList.add('active');
+      var emailNode = document.getElementById('verify-email');
+      if (emailNode) emailNode.textContent = pendingSignupEmail;
+      var heading = document.getElementById('heading');
+      if (heading) heading.textContent = 'Check your email';
+      var sub = document.getElementById('subtitle');
+      if (sub) sub.textContent = 'Finish creating your account';
+      var msg = document.getElementById('verify-msg');
+      if (msg) {
+        msg.classList.remove('show', 'error', 'success');
+        msg.textContent = '';
+      }
+      try { localStorage.setItem(TAB_STORAGE_KEY, 'signup'); } catch (e) {}
+    }
+    function getVerificationMessageNode() {
+      var verifyStep = document.getElementById('verification-step');
+      if (verifyStep && verifyStep.classList.contains('active')) {
+        return document.getElementById('verify-msg');
+      }
+      return document.getElementById('l-msg') || document.getElementById('verify-msg');
+    }
+    async function checkVerificationSession(fallbackText) {
+      var msg = getVerificationMessageNode();
+      if (msg) {
+        msg.textContent = 'Checking your verification...';
+        msg.classList.remove('error');
+        msg.classList.add('show', 'success');
+      }
+      try {
+        var res = await fetch(__anPath('/_agent-native/auth/session'), {
+          headers: { 'Accept': 'application/json' },
+        });
+        var data = await res.json().catch(function() { return {}; });
+        if (res.ok && data && data.email && !data.error) {
+          window.location.reload();
+          return;
+        }
+        if (msg) {
+          msg.textContent = fallbackText || 'Still waiting on verification. Click the link in your email, then try Continue again.';
+          msg.classList.remove('success');
+          msg.classList.add('show', 'error');
+        }
+      } catch (err) {
+        if (msg) {
+          msg.textContent = 'Could not check verification. Please try again.';
+          msg.classList.remove('success');
+          msg.classList.add('show', 'error');
+        }
+      }
+    }
+    async function resendVerificationEmail() {
+      var btn = document.getElementById('resend-verification');
+      var msg = document.getElementById('verify-msg');
+      var email = pendingSignupEmail || document.getElementById('s-email').value;
+      if (!email) return;
+      var original = btn ? btn.textContent : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+      }
+      if (msg) msg.classList.remove('show', 'error', 'success');
+      try {
+        var res = await fetch(__anPath('/_agent-native/auth/ba/send-verification-email'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email, callbackURL: __anGetReturnPath() }),
+        });
+        if (res.ok) {
+          if (msg) {
+            msg.textContent = 'Sent a fresh verification link.';
+            msg.classList.add('show', 'success');
+          }
+          if (btn) btn.textContent = 'Sent';
+          setTimeout(function() {
+            if (btn) {
+              btn.disabled = false;
+              btn.textContent = original;
+            }
+          }, 1600);
+          return;
+        }
+        var data = await res.json().catch(function() { return {}; });
+        if (msg) {
+          msg.textContent = (data && (data.message || data.error)) || 'Could not resend the verification email.';
+          msg.classList.add('show', 'error');
+        }
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = original;
+        }
+      } catch (err) {
+        if (msg) {
+          msg.textContent = 'Network error. Please try again.';
+          msg.classList.add('show', 'error');
+        }
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = original;
+        }
+      }
+    }
+    (function initActiveTab() {
     var initial = 'signup';
     try {
       var params = new URLSearchParams(location.search);
@@ -655,17 +904,18 @@ ${
       }
     } catch (e) {}
     setActiveTab(initial, { persist: false });
-    try {
-      if (new URLSearchParams(location.search).has('verified')) {
-        var msg = document.getElementById('l-msg');
-        if (msg) {
-          msg.textContent = 'Email verified! Sign in to continue.';
-          msg.classList.remove('error');
-          msg.classList.add('show', 'success');
+      try {
+        if (new URLSearchParams(location.search).has('verified')) {
+          var msg = document.getElementById('l-msg');
+          if (msg) {
+            msg.textContent = 'Email verified. Finishing sign-in...';
+            msg.classList.remove('error');
+            msg.classList.add('show', 'success');
+          }
+          checkVerificationSession('Email verified. Sign in to continue.');
         }
-      }
-    } catch (e) {}
-  })();
+      } catch (e) {}
+    })();
   tabs.forEach(function(t) { t.addEventListener('click', function() {
     setActiveTab(t.dataset.tab, { persist: true });
   }); });
@@ -691,8 +941,12 @@ ${
       var res = await fetch(__anPath('/_agent-native/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email, password: pass }),
-      });
+          body: JSON.stringify({
+            email: email,
+            password: pass,
+            callbackURL: __anGetReturnPath(),
+          }),
+        });
       var data = await res.json().catch(function() { return {}; });
       if (res.ok) {
         // If email verification is required, the server won't return a session.
@@ -708,20 +962,11 @@ ${
           window.location.reload();
           return;
         }
-        // Login failed — likely email verification required.
-        // Switch to login tab first, then show the message there so
-        // the user actually sees it (the signup form is hidden after switch).
-        btn.disabled = false;
-        btn.textContent = originalLabel;
-        setActiveTab('login', { persist: true });
-        var loginMsg = document.getElementById('l-msg');
-        if (loginMsg) {
-          loginMsg.textContent = 'Account created! Check your email to verify, then sign in.';
-          loginMsg.classList.remove('error');
-          loginMsg.classList.add('show', 'success');
+          btn.disabled = false;
+          btn.textContent = originalLabel;
+          showVerificationStep(email);
+          return;
         }
-        return;
-      }
       msg.textContent = data.error || 'Registration failed';
       msg.classList.add('show', 'error');
       btn.disabled = false;
@@ -732,9 +977,27 @@ ${
       btn.disabled = false;
       btn.textContent = originalLabel;
     }
-  });
+    });
 
-  var forgotLink = document.getElementById('forgot-link');
+    var verifyContinue = document.getElementById('verify-continue');
+    if (verifyContinue) verifyContinue.addEventListener('click', function(e) {
+      e.preventDefault();
+      checkVerificationSession();
+    });
+    var resendBtn = document.getElementById('resend-verification');
+    if (resendBtn) resendBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      resendVerificationEmail();
+    });
+    var backToSignup = document.getElementById('back-to-signup');
+    if (backToSignup) backToSignup.addEventListener('click', function(e) {
+      e.preventDefault();
+      setActiveTab('signup', { persist: true });
+      var email = document.getElementById('s-email');
+      setTimeout(function() { if (email) email.focus(); }, 0);
+    });
+
+    var forgotLink = document.getElementById('forgot-link');
   var backToLogin = document.getElementById('back-to-login');
   if (forgotLink) forgotLink.addEventListener('click', function(e) {
     e.preventDefault();
@@ -794,12 +1057,13 @@ ${
     }
   });
 
-  document.getElementById('login-form').addEventListener('submit', async function(e) {
+    document.getElementById('login-form').addEventListener('submit', async function(e) {
     e.preventDefault();
     var form = e.currentTarget;
-    var btn = form.querySelector('button[type="submit"]');
-    var msg = document.getElementById('l-msg');
-    msg.classList.remove('show');
+      var btn = form.querySelector('button[type="submit"]');
+      var msg = document.getElementById('l-msg');
+      msg.classList.remove('show', 'success');
+      msg.classList.add('error');
     var originalLabel = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Signing in…';
@@ -857,18 +1121,7 @@ ${
 ${
   showGoogle
     ? `
-  function __anGetReturnPath() {
-    // If we landed here via /_agent-native/sign-in?return=X (force-sign-in
-    // entrypoint from a public page), prefer the inner return URL.
-    // Otherwise the loginHtml is being served at the URL the user actually
-    // wanted to reach (a bookmarked / deep-linked private path), so use it.
-    try {
-      var inner = new URLSearchParams(window.location.search).get('return');
-      if (inner) return inner;
-    } catch(e) {}
-    return window.location.pathname + window.location.search;
-  }
-  async function signInWithGoogle() {
+    async function signInWithGoogle() {
     var btn = document.getElementById('google-btn');
     var err = document.getElementById('google-err');
     btn.disabled = true;

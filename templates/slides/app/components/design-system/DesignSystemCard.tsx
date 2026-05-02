@@ -1,4 +1,5 @@
 import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
+import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
 import type { DesignSystemData } from "../../../shared/api";
 
 interface DesignSystemCardProps {
@@ -6,6 +7,7 @@ interface DesignSystemCardProps {
   title: string;
   data: DesignSystemData;
   isDefault: boolean;
+  visibility?: "private" | "org" | "public" | null;
   onClick: () => void;
   onSetDefault: () => void;
 }
@@ -15,6 +17,7 @@ export function DesignSystemCard({
   title,
   data,
   isDefault,
+  visibility,
   onClick,
   onSetDefault,
 }: DesignSystemCardProps) {
@@ -98,23 +101,33 @@ export function DesignSystemCard({
               Default
             </span>
           )}
+          <VisibilityBadge
+            visibility={visibility}
+            className="mt-2 text-[11px]"
+          />
         </div>
 
-        {/* Star button */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onSetDefault();
-          }}
-          className="shrink-0 p-1 rounded hover:bg-accent cursor-pointer"
-          title={isDefault ? "Default design system" : "Set as default"}
+        <div
+          className="flex shrink-0 flex-col items-end gap-2"
+          onClick={(e) => e.stopPropagation()}
         >
-          {isDefault ? (
-            <IconStarFilled className="w-4 h-4 text-[#609FF8]" />
-          ) : (
-            <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
-          )}
-        </button>
+          <button
+            onClick={onSetDefault}
+            className="p-1 rounded hover:bg-accent cursor-pointer"
+            title={isDefault ? "Default design system" : "Set as default"}
+          >
+            {isDefault ? (
+              <IconStarFilled className="w-4 h-4 text-[#609FF8]" />
+            ) : (
+              <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
+            )}
+          </button>
+          <ShareButton
+            resourceType="design-system"
+            resourceId={id}
+            resourceTitle={title}
+          />
+        </div>
       </div>
     </div>
   );

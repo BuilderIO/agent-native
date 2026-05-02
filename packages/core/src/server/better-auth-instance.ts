@@ -202,7 +202,12 @@ export interface BetterAuthInstance {
       body: { email: string; password: string };
     }) => Promise<{ token?: string; user?: any } | null>;
     signUpEmail: (opts: {
-      body: { email: string; password: string; name: string };
+      body: {
+        email: string;
+        password: string;
+        name: string;
+        callbackURL?: string;
+      };
     }) => Promise<any>;
     signOut: (opts: { headers: Headers }) => Promise<any>;
     listOrganizations: (opts: { headers: Headers }) => Promise<any[] | null>;

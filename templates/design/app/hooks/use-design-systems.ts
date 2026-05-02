@@ -8,6 +8,7 @@ export function useDesignSystems() {
       description: string | null;
       data: string;
       isDefault: boolean;
+      visibility?: "private" | "org" | "public" | null;
       createdAt: string;
     }>;
   }>("list-design-systems");
