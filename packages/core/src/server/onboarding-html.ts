@@ -2,19 +2,10 @@
  * First-run onboarding page for agent-native apps.
  *
  * Shown when Better Auth is active and the user isn't signed in.
- * Provides two paths:
- * 1. Create account (email/password) — real identity from day one
- * 2. Use locally — sets AUTH_MODE=local for offline/solo dev (dev only)
+ * Provides a path to create or sign into an account from day one.
  *
  * After first account exists, this page acts as a normal login page.
- * The "Use locally" escape hatch is hidden in production to ensure
- * real accounts are used (needed for per-user usage tracking/limits).
- * It's also hidden when DATABASE_URL points at a non-local DB (Postgres,
- * Turso, D1) — local@localhost has no per-user scoping, so enabling it
- * against a shared DB would silently fail server-side.
  */
-
-import { isLocalDatabase } from "../db/client.js";
 
 function isProductionEnv(): boolean {
   const env = process.env.NODE_ENV;
@@ -58,52 +49,9 @@ export interface OnboardingHtmlOptions {
   };
 }
 
-const MIGRATE_FLAG_KEY = "an_migrate_from_local";
-
 export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
-  const showLocalMode =
-    !isProductionEnv() && !opts.googleOnly && isLocalDatabase();
   const showGoogle = hasGoogleOAuth();
   const googleOnly = !!opts.googleOnly;
-  const localModeBlock = showLocalMode
-    ? `
-  <div class="divider" id="local-divider">or</div>
-
-  <button class="btn-secondary" id="local-btn" onclick="useLocally()">Use locally without an account</button>
-  <p class="local-info" id="local-info">Skip auth for solo local development. You can create an account later.</p>`
-    : "";
-
-  const localModeScript = showLocalMode
-    ? `
-  async function useLocally() {
-    var btn = document.getElementById('local-btn');
-    btn.disabled = true;
-    btn.textContent = 'Setting up...';
-    try {
-      try {
-        if (localStorage.getItem('${MIGRATE_FLAG_KEY}')) {
-          localStorage.removeItem('${MIGRATE_FLAG_KEY}');
-        }
-      } catch (e) {}
-      var res = await fetch(__anPath('/_agent-native/auth/local-mode'), { method: 'POST' });
-      if (res.ok) {
-        window.location.reload();
-      } else {
-        var data = await res.json().catch(function() { return {}; });
-        var info = document.getElementById('local-info');
-        if (info && data && data.error) {
-          info.textContent = data.error;
-          info.style.color = '#f87171';
-        }
-        btn.textContent = 'Not available';
-        btn.disabled = true;
-      }
-    } catch(e) {
-      btn.textContent = 'Failed — try again';
-      btn.disabled = false;
-    }
-  }`
-    : "";
 
   const marketing = opts.marketing;
   const hasMarketing = !!marketing;
@@ -413,9 +361,6 @@ ${
   .card.verifying #google-btn,
   .card.verifying #google-err,
   .card.verifying #auth-divider,
-  .card.verifying #local-divider,
-  .card.verifying #local-btn,
-  .card.verifying #local-info,
   .card.verifying #upgrade-note {
     display: none;
   }
@@ -579,12 +524,6 @@ ${
     height: 1px;
     background: rgba(255,255,255,0.08);
   }
-  .local-info {
-    font-size: 0.75rem;
-    color: #666;
-    margin-top: 0.5rem;
-    line-height: 1.4;
-  }
   .upgrade-note {
     margin-bottom: 1rem;
     padding: 0.75rem;
@@ -725,7 +664,6 @@ ${
     </p>
   </form>`
 }
-${localModeBlock}
 </div>
 <p class="local-note" id="local-note">
   Your account is stored in this app's own DB (<strong>${getConnectionLabel()}</strong>), not a third-party service.
@@ -1093,30 +1031,6 @@ ${
     }
   });
 `
-}${localModeScript}
-${
-  showLocalMode
-    ? `
-  (function syncUpgradeFromLocalUi() {
-    var subtitle = document.querySelector('.subtitle');
-    var note = document.getElementById('upgrade-note');
-    var localBtn = document.getElementById('local-btn');
-    var localInfo = document.getElementById('local-info');
-    var divider = document.getElementById('local-divider');
-    if (!subtitle || !note || !localBtn || !localInfo || !divider) return;
-    try {
-      if (!localStorage.getItem('${MIGRATE_FLAG_KEY}')) return;
-    } catch (e) {
-      return;
-    }
-    subtitle.textContent = 'Sign in to upgrade your local workspace';
-    note.classList.add('show');
-    localBtn.textContent = 'Stay in local mode';
-    localInfo.textContent = 'Use this if you want to cancel the upgrade and go back to local@localhost on this device.';
-    divider.textContent = 'or stay local';
-  })();
-`
-    : ""
 }
 ${
   showGoogle

@@ -1122,6 +1122,7 @@ function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
   }
   if (
     name === "node_modules" ||
+    name === ".agent-native" ||
     name === ".env" ||
     name === ".env.local" ||
     name === ".netlify" ||
