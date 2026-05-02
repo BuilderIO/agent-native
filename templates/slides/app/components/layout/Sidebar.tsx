@@ -8,7 +8,7 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
-import { FeedbackButton } from "@agent-native/core/client";
+import { FeedbackButton, appPath } from "@agent-native/core/client";
 
 const navItems = [
   { icon: IconStack2, label: "Decks", href: "/" },
@@ -75,13 +75,13 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         <div className="flex items-center gap-2">
           <img
-            src="/agent-native-icon-light.svg"
+            src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
             className="block h-4 w-auto dark:hidden"
           />
           <img
-            src="/agent-native-icon-dark.svg"
+            src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
             className="hidden h-4 w-auto dark:block"

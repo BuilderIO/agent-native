@@ -58,11 +58,13 @@ function readJson(file: string): any {
 }
 
 function resolveExpectedCoreDependencyVersion(): string {
-  const localCorePackage = path.join(repoRoot, "packages/core");
-  if (fs.existsSync(path.join(localCorePackage, "package.json"))) {
-    return pathToFileURL(localCorePackage).href;
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
+    const localCorePackage = path.join(repoRoot, "packages/core");
+    if (fs.existsSync(path.join(localCorePackage, "package.json"))) {
+      return pathToFileURL(localCorePackage).href;
+    }
   }
-  return `^${readJson(path.join(repoRoot, "packages/core/package.json")).version}`;
+  return "latest";
 }
 
 function assertNoUnresolvedPlaceholders(dir: string): void {

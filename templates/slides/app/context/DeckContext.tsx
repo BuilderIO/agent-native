@@ -9,7 +9,7 @@ import {
   ReactNode,
 } from "react";
 import { nanoid } from "nanoid";
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath, appPath } from "@agent-native/core/client";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 export type SlideLayout =
@@ -223,10 +223,12 @@ async function createDeckOnAPI(deck: Deck): Promise<void> {
   }
 }
 
+const builderLogoSrc = appPath("/assets/builder-logo-white.svg");
+
 const defaultSlideContent: Record<SlideLayout, string> = {
   title: `<div class="fmd-slide" style="padding: 80px 110px; justify-content: space-between;">
   <div>
-    <img src="/assets/builder-logo-white.svg" alt="Builder.io" style="height: 28px; width: auto;" />
+    <img src="${builderLogoSrc}" alt="Builder.io" style="height: 28px; width: auto;" />
   </div>
   <div>
     <div style="font-size: 54px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -1px; font-family: 'Poppins', sans-serif;">Presentation Title</div>

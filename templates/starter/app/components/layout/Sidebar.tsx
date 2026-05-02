@@ -2,7 +2,7 @@ import { Link, useLocation } from "react-router";
 import { IconActivity, IconHome, IconPlus } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
-import { FeedbackButton } from "@agent-native/core/client";
+import { FeedbackButton, appPath } from "@agent-native/core/client";
 
 const navItems = [
   { icon: IconHome, label: "Home", href: "/" },
@@ -17,13 +17,13 @@ export function Sidebar() {
     <aside className="flex h-full w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 shrink-0 items-center gap-2 px-4 border-b border-border">
         <img
-          src="/agent-native-icon-light.svg"
+          src={appPath("/agent-native-icon-light.svg")}
           alt=""
           aria-hidden="true"
           className="block h-4 w-auto dark:hidden"
         />
         <img
-          src="/agent-native-icon-dark.svg"
+          src={appPath("/agent-native-icon-dark.svg")}
           alt=""
           aria-hidden="true"
           className="hidden h-4 w-auto dark:block"

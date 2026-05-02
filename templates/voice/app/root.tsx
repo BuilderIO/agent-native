@@ -7,6 +7,7 @@ import {
   ClientOnly,
   DefaultSpinner,
   CommandMenu,
+  appPath,
   useCommandMenuShortcut,
 } from "@agent-native/core/client";
 import { Toaster } from "sonner";
@@ -45,8 +46,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
-        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-        <link rel="apple-touch-icon" href="/icon-180.svg" />
+        <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
+        <link rel="apple-touch-icon" href={appPath("/icon-180.svg")} />
         <Meta />
         <Links />
       </head>

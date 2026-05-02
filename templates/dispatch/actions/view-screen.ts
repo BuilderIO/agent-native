@@ -43,7 +43,11 @@ export default defineAction({
     if (navigation?.view === "destinations") {
       screen.recentDestinations = overview.recentDestinations;
     }
-    if (navigation?.view === "apps" || navigation?.view === "new-app") {
+    if (
+      navigation?.view === "overview" ||
+      navigation?.view === "apps" ||
+      navigation?.view === "new-app"
+    ) {
       screen.workspaceApps = await listWorkspaceApps();
     }
     if (navigation?.view === "vault" || navigation?.view === "new-app") {

@@ -1,7 +1,11 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { focusAgentChat, agentNativePath } from "@agent-native/core/client";
+import {
+  focusAgentChat,
+  agentNativePath,
+  appPath,
+} from "@agent-native/core/client";
 import {
   QueryClient,
   QueryClientProvider,
@@ -43,7 +47,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
-        <link rel="manifest" href="/manifest.json" />
+        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#0f172a" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -51,8 +55,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="black-translucent"
         />
         <meta name="apple-mobile-web-app-title" content="Dispatch" />
-        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-        <link rel="apple-touch-icon" href="/icon-180.svg" />
+        <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
+        <link rel="apple-touch-icon" href={appPath("/icon-180.svg")} />
         <Meta />
         <Links />
       </head>
@@ -86,6 +90,7 @@ function DbSyncSetup() {
       "list-vault-audit",
       "list-workspace-resources",
       "list-workspace-resource-grants",
+      "list-workspace-apps",
       "list-integrations-catalog",
     ],
     ignoreSource: TAB_ID,

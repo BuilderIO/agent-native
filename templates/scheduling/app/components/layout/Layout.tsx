@@ -14,7 +14,7 @@ import {
 } from "@tabler/icons-react";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar, appPath } from "@agent-native/core/client";
 import { ThemeToggle } from "./ThemeToggle";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
@@ -61,13 +61,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
           >
             <span className="flex h-6 w-6 items-center justify-center rounded-md bg-foreground text-background">
               <img
-                src="/agent-native-icon-light.svg"
+                src={appPath("/agent-native-icon-light.svg")}
                 alt=""
                 aria-hidden="true"
                 className="block h-3.5 w-auto shrink-0 dark:hidden"
               />
               <img
-                src="/agent-native-icon-dark.svg"
+                src={appPath("/agent-native-icon-dark.svg")}
                 alt=""
                 aria-hidden="true"
                 className="hidden h-3.5 w-auto shrink-0 dark:block"

@@ -9,6 +9,7 @@ import {
   claimDueA2AContinuations,
   completeA2AContinuation,
   failA2AContinuation,
+  getA2AContinuation,
   rescheduleA2AContinuation,
   type A2AContinuation,
 } from "./a2a-continuations-store.js";
@@ -16,9 +17,12 @@ import {
 const PROCESSOR_PATH = `${FRAMEWORK_ROUTE_PREFIX}/integrations/process-a2a-continuation`;
 const TERMINAL_STATES = new Set(["completed", "failed", "canceled"]);
 const MAX_ATTEMPTS = 6;
+const MAX_REMOTE_WORK_MS = 10 * 60_000;
+const RESCHEDULE_DELAY_MS = 5_000;
+const MAX_PRE_CLAIM_WAIT_MS = RESCHEDULE_DELAY_MS + 5_000;
 const POLL_INTERVAL_MS = 2_000;
 const PROCESSOR_WAIT_MS = 20_000;
-const DISPATCH_SETTLE_WAIT_MS = 250;
+const DISPATCH_SETTLE_WAIT_MS = 2_000;
 
 export async function dispatchA2AContinuation(
   continuationId: string,
@@ -99,6 +103,8 @@ export async function processA2AContinuationById(
   continuationId: string,
   options: { adapters: Map<string, PlatformAdapter> },
 ): Promise<void> {
+  const shouldClaim = await waitForContinuationDue(continuationId);
+  if (!shouldClaim) return;
   const continuation = await claimA2AContinuation(continuationId);
   if (!continuation) return;
   await processClaimedContinuation(continuation, options);
@@ -155,21 +161,23 @@ async function processClaimedContinuation(
       );
       return;
     }
-    await rescheduleA2AContinuation(continuation.id, 30_000);
+    await rescheduleA2AContinuation(continuation.id, RESCHEDULE_DELAY_MS);
     await redispatchContinuation(continuation.id);
     return;
   }
 
   if (!task || !TERMINAL_STATES.has(task.status.state)) {
-    if (continuation.attempts >= MAX_ATTEMPTS) {
+    if (isRemoteWorkExpired(continuation)) {
       await notifyAndFailA2AContinuation(
         continuation,
         adapter,
-        `Remote A2A task ${continuation.a2aTaskId} did not complete after ${MAX_ATTEMPTS} attempts`,
+        `Remote A2A task ${continuation.a2aTaskId} did not complete within ${Math.round(
+          MAX_REMOTE_WORK_MS / 60_000,
+        )} minutes`,
       );
       return;
     }
-    await rescheduleA2AContinuation(continuation.id, 30_000);
+    await rescheduleA2AContinuation(continuation.id, RESCHEDULE_DELAY_MS);
     await redispatchContinuation(continuation.id);
     return;
   }
@@ -207,9 +215,26 @@ async function processClaimedContinuation(
       );
       return;
     }
-    await rescheduleA2AContinuation(continuation.id, 30_000);
+    await rescheduleA2AContinuation(continuation.id, RESCHEDULE_DELAY_MS);
     await redispatchContinuation(continuation.id);
   }
+}
+
+async function waitForContinuationDue(
+  continuationId: string,
+): Promise<boolean> {
+  const continuation = await getA2AContinuation(continuationId);
+  if (!continuation) return false;
+  if (continuation.status === "completed" || continuation.status === "failed") {
+    return false;
+  }
+  if (continuation.status !== "pending") return true;
+
+  const waitMs = continuation.nextCheckAt - Date.now();
+  if (waitMs <= 0) return true;
+
+  await sleep(Math.min(waitMs, MAX_PRE_CLAIM_WAIT_MS));
+  return true;
 }
 
 async function notifyAndFailA2AContinuation(
@@ -259,6 +284,14 @@ function isLlmCredentialError(reason: string): boolean {
       reason,
     )
   );
+}
+
+function isRemoteWorkExpired(continuation: A2AContinuation): boolean {
+  return Date.now() - continuation.createdAt >= MAX_REMOTE_WORK_MS;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function sanitizeFailureReason(reason: string): string {

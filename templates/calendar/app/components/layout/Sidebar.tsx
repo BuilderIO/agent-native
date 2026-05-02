@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router";
-import { agentNativePath } from "@agent-native/core/client";
 import {
   IconCalendar,
   IconSettings,
@@ -44,6 +43,8 @@ import {
   useGoogleAddAccountUrl,
 } from "@/hooks/use-google-auth";
 import {
+  agentNativePath,
+  appPath,
   useSession,
   FeedbackButton,
   DEV_MODE_USER_EMAIL,
@@ -499,13 +500,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         <div className="flex h-12 shrink-0 items-center justify-between gap-2.5 border-b border-border px-4">
           <div className="flex items-center gap-2">
             <img
-              src="/agent-native-icon-light.svg"
+              src={appPath("/agent-native-icon-light.svg")}
               alt=""
               aria-hidden="true"
               className="block h-4 w-auto shrink-0 dark:hidden"
             />
             <img
-              src="/agent-native-icon-dark.svg"
+              src={appPath("/agent-native-icon-dark.svg")}
               alt=""
               aria-hidden="true"
               className="hidden h-4 w-auto shrink-0 dark:block"

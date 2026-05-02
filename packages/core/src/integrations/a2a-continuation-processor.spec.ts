@@ -5,6 +5,7 @@ import type { PlatformAdapter } from "./types.js";
 const claimA2AContinuationMock = vi.hoisted(() => vi.fn());
 const completeA2AContinuationMock = vi.hoisted(() => vi.fn());
 const failA2AContinuationMock = vi.hoisted(() => vi.fn());
+const getA2AContinuationMock = vi.hoisted(() => vi.fn());
 const rescheduleA2AContinuationMock = vi.hoisted(() => vi.fn());
 const getTaskMock = vi.hoisted(() => vi.fn());
 
@@ -13,6 +14,7 @@ vi.mock("./a2a-continuations-store.js", () => ({
   claimDueA2AContinuations: vi.fn(async () => []),
   completeA2AContinuation: completeA2AContinuationMock,
   failA2AContinuation: failA2AContinuationMock,
+  getA2AContinuation: getA2AContinuationMock,
   rescheduleA2AContinuation: rescheduleA2AContinuationMock,
 }));
 
@@ -30,6 +32,7 @@ vi.mock("./internal-token.js", () => ({
 function continuation(
   overrides: Partial<A2AContinuation> = {},
 ): A2AContinuation {
+  const now = Date.now();
   return {
     id: "cont-1",
     integrationTaskId: "task-1",
@@ -52,8 +55,8 @@ function continuation(
     attempts: 1,
     nextCheckAt: 1,
     errorMessage: null,
-    createdAt: 1,
-    updatedAt: 1,
+    createdAt: now,
+    updatedAt: now,
     completedAt: null,
     ...overrides,
   };
@@ -83,6 +86,9 @@ describe("A2A continuation processor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.APP_URL = "https://dispatch.agent-native.test";
+    getA2AContinuationMock.mockImplementation(async (id: string) =>
+      continuation({ id, status: "pending" }),
+    );
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("ok", { status: 200 })),
@@ -130,7 +136,7 @@ describe("A2A continuation processor", () => {
       undefined,
     );
 
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(2_000);
     await dispatch;
   });
 
@@ -252,11 +258,104 @@ describe("A2A continuation processor", () => {
     );
   });
 
-  it("notifies the platform when a remote task exhausts polling attempts", async () => {
+  it("keeps polling a still-working remote task even after many continuation claims", async () => {
     vi.useFakeTimers();
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(
-      continuation({ attempts: 6 }),
+      continuation({ attempts: 12 }),
+    );
+    getTaskMock.mockResolvedValue({
+      id: "a2a-task-1",
+      status: {
+        state: "working",
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    const processing = processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+    await processing;
+
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(failA2AContinuationMock).not.toHaveBeenCalled();
+    expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith("cont-1", 5_000);
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dispatch.agent-native.test/_agent-native/integrations/process-a2a-continuation",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ continuationId: "cont-1" }),
+      }),
+    );
+  });
+
+  it("waits until a redispatched continuation is due before claiming it", async () => {
+    vi.useFakeTimers();
+    const dueAt = Date.now() + 5_000;
+    const sendResponse = vi.fn(async () => undefined);
+    getA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ status: "pending", nextCheckAt: dueAt }),
+    );
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ status: "pending", nextCheckAt: dueAt }),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    const processing = processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(claimA2AContinuationMock).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await processing;
+
+    expect(claimA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "https://slides.agent-native.test/deck/deck-qa",
+      }),
+      expect.any(Object),
+      { placeholderRef: undefined },
+    );
+  });
+
+  it("caps the pre-claim wait for stale future wakeups", async () => {
+    vi.useFakeTimers();
+    const sendResponse = vi.fn(async () => undefined);
+    getA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ status: "pending", nextCheckAt: Date.now() + 30_000 }),
+    );
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ status: "pending", nextCheckAt: Date.now() + 30_000 }),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    const processing = processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(claimA2AContinuationMock).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await processing;
+
+    expect(claimA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(sendResponse).toHaveBeenCalled();
+  });
+
+  it("notifies the platform when a remote task exceeds the continuation age limit", async () => {
+    vi.useFakeTimers();
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ attempts: 20, createdAt: Date.now() - 10 * 60_000 - 1 }),
     );
     getTaskMock.mockResolvedValue({
       id: "a2a-task-1",
@@ -277,7 +376,7 @@ describe("A2A continuation processor", () => {
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining(
-          "The Slides agent could not finish this request: Remote A2A task a2a-task-1 did not complete after 6 attempts",
+          "The Slides agent could not finish this request: Remote A2A task a2a-task-1 did not complete within 10 minutes",
         ),
       }),
       expect.any(Object),
@@ -285,7 +384,7 @@ describe("A2A continuation processor", () => {
     );
     expect(failA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",
-      "Remote A2A task a2a-task-1 did not complete after 6 attempts",
+      "Remote A2A task a2a-task-1 did not complete within 10 minutes",
     );
   });
 
@@ -301,10 +400,7 @@ describe("A2A continuation processor", () => {
       adapters: new Map([["slack", adapter(sendResponse)]]),
     });
 
-    expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(
-      "cont-1",
-      30_000,
-    );
+    expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith("cont-1", 5_000);
     expect(fetch).toHaveBeenCalledWith(
       "https://dispatch.agent-native.test/_agent-native/integrations/process-a2a-continuation",
       expect.objectContaining({

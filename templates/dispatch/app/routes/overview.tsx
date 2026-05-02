@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { useActionQuery, agentNativePath } from "@agent-native/core/client";
+import {
+  MultiTabAssistantChat,
+  useActionQuery,
+  agentNativePath,
+} from "@agent-native/core/client";
 import {
   IconAlertTriangle,
+  IconApps,
   IconArrowUpRight,
   IconCheck,
   IconClockHour4,
@@ -16,7 +21,9 @@ import {
 } from "@tabler/icons-react";
 import { DispatchShell } from "@/components/dispatch-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -54,6 +61,127 @@ const ZERO_TASK_QUEUE_STATS: TaskQueueStats = {
   oldest_pending_age_seconds: 0,
   recent_failures: [],
 };
+
+interface WorkspaceAppSummary {
+  id: string;
+  name: string;
+  description?: string;
+  path: string;
+  url?: string | null;
+  isDispatch: boolean;
+}
+
+const HOME_CHAT_SUGGESTIONS = [
+  "Create a lightweight customer onboarding app",
+  "Ask Slides to draft a board update from our latest metrics",
+  "Schedule a Monday morning analytics digest",
+];
+
+function HomeChatPanel() {
+  return (
+    <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <div className="h-[620px] min-h-[460px] max-h-[calc(100vh-7rem)]">
+        <MultiTabAssistantChat
+          emptyStateText="What should your apps do next?"
+          suggestions={HOME_CHAT_SUGGESTIONS}
+        />
+      </div>
+    </section>
+  );
+}
+
+function AppCardSkeleton() {
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-3">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-3 w-24" />
+          <div className="space-y-2 pt-1">
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+        </div>
+        <Skeleton className="h-5 w-5 rounded-md" />
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceAppsSection({
+  apps,
+  isLoading,
+}: {
+  apps: WorkspaceAppSummary[];
+  isLoading: boolean;
+}) {
+  const visibleApps = apps.slice(0, 6);
+  const showSkeletons = isLoading && visibleApps.length === 0;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <IconApps size={16} className="text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-foreground">
+            Workspace apps
+          </h2>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link to="/apps">
+            View all
+            <IconArrowUpRight size={15} className="ml-1.5" />
+          </Link>
+        </Button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {showSkeletons
+          ? Array.from({ length: 6 }).map((_, index) => (
+              <AppCardSkeleton key={index} />
+            ))
+          : visibleApps.map((app) => (
+              <a
+                key={app.id}
+                href={app.url || app.path}
+                className="group min-h-32 rounded-lg border bg-card p-4 transition hover:border-foreground/30"
+              >
+                <div className="flex h-full items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="truncate text-sm font-semibold text-foreground">
+                        {app.name}
+                      </h3>
+                      {app.isDispatch ? (
+                        <Badge variant="secondary">Control plane</Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                      {app.path}
+                    </p>
+                    {app.description ? (
+                      <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                        {app.description}
+                      </p>
+                    ) : null}
+                  </div>
+                  <IconArrowUpRight
+                    size={16}
+                    className="shrink-0 text-muted-foreground transition group-hover:text-foreground"
+                  />
+                </div>
+              </a>
+            ))}
+
+        {!showSkeletons && visibleApps.length === 0 ? (
+          <div className="flex min-h-32 items-center justify-center rounded-lg border border-dashed bg-card p-4 text-sm text-muted-foreground sm:col-span-2 xl:col-span-3">
+            No workspace apps found.
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
 
 function formatAgeSeconds(seconds: number): string {
   if (!seconds || seconds < 0) return "0s";
@@ -283,6 +411,13 @@ export function meta() {
 export default function OverviewRoute() {
   const { data, isLoading } = useActionQuery("list-dispatch-overview", {});
   const { data: connectedAgents } = useActionQuery("list-connected-agents", {});
+  const { data: workspaceApps = [], isLoading: appsLoading } = useActionQuery(
+    "list-workspace-apps",
+    {},
+    {
+      refetchInterval: 2_000,
+    },
+  );
   const [integrationStatuses, setIntegrationStatuses] = useState<
     IntegrationStatus[]
   >([]);
@@ -359,6 +494,7 @@ export default function OverviewRoute() {
   ).length;
   const connectedAgentCount = connectedAgents?.length || 0;
   const vaultSecretCount = data?.vault?.secretCount || 0;
+  const typedWorkspaceApps = workspaceApps as WorkspaceAppSummary[];
 
   const messagingDone = connectedMessagingCount > 0;
   const agentsDone = connectedAgentCount > 0;
@@ -408,6 +544,10 @@ export default function OverviewRoute() {
       title="Overview"
       description="Create apps, manage shared keys, and route work across your workspace."
     >
+      <HomeChatPanel />
+
+      <WorkspaceAppsSection apps={typedWorkspaceApps} isLoading={appsLoading} />
+
       {hasIncompleteSteps && (
         <section className="space-y-3">
           <div className="flex items-center gap-2">
