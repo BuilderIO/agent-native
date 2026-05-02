@@ -53,6 +53,7 @@ interface DesktopVoiceDictationOptions {
   shortcut: VoiceShortcutPreference;
   mode: VoiceMode;
   provider: VoiceProvider;
+  instructions?: string;
 }
 
 interface VoiceShortcutEvent {
@@ -100,6 +101,10 @@ interface VoiceSession {
   // Lets the install-time `voice:final-transcript` listener trigger
   // the lingered finalize without it having to know the timer state.
   onNativeFinalize?: (() => void) | null;
+  // Optional LLM cleanup provider. Native/browser sessions still provide
+  // real-time transcript text; this provider does a short cleanup pass
+  // after stop and before paste.
+  cleanupProvider?: ServerVoiceProvider | null;
 }
 
 // Minimal type shim for webkitSpeechRecognition — TypeScript's lib.dom
@@ -331,6 +336,7 @@ async function transcribe(
   mimeType: string,
   providerPref: ServerVoiceProvider,
   controller: AbortController,
+  instructions?: string,
 ): Promise<string> {
   const audioBlob = new Blob(chunks, { type: mimeType });
   const form = new FormData();
@@ -344,6 +350,10 @@ async function transcribe(
   // server default (Builder Gemini → Gemini → Groq → OpenAI fallback chain),
   // anything else pins to that one provider with no fallback.
   form.append("provider", providerPref);
+  const trimmedInstructions = instructions?.trim();
+  if (trimmedInstructions) {
+    form.append("instructions", trimmedInstructions);
+  }
   // Aggressive timeout — short clips should transcribe in well under
   // 2 seconds with Gemini Flash Lite or Whisper. If the server hasn't
   // come back in 8s it's hanging; abort and let the bar dismiss with an
@@ -376,6 +386,45 @@ async function transcribe(
   }
 }
 
+async function cleanupTranscript(
+  serverUrl: string,
+  text: string,
+  providerPref: ServerVoiceProvider,
+  controller: AbortController,
+  instructions?: string,
+): Promise<string> {
+  const form = new FormData();
+  form.append("text", text);
+  form.append("provider", providerPref);
+  const trimmedInstructions = instructions?.trim();
+  if (trimmedInstructions) {
+    form.append("instructions", trimmedInstructions);
+  }
+
+  const timeout = window.setTimeout(() => controller.abort(), 8_000);
+  try {
+    const res = await fetch(
+      `${serverUrl.replace(/\/+$/, "")}/_agent-native/transcribe-voice`,
+      {
+        method: "POST",
+        body: form,
+        credentials: "include",
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) {
+      const body = await res
+        .json()
+        .catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(body?.error || `Cleanup failed (${res.status})`);
+    }
+    const data = (await res.json()) as { text?: string };
+    return (data.text ?? "").trim();
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 export function installDesktopVoiceDictation(
   options: DesktopVoiceDictationOptions,
 ): () => void {
@@ -393,6 +442,7 @@ export function installDesktopVoiceDictation(
   let shortcut = options.shortcut;
   let mode = options.mode;
   let provider = options.provider;
+  let instructions = options.instructions ?? "";
   let startInFlight = false;
   let stopRequestedBeforeReady = false;
   // Cached provider availability fetched once at install time. Used by
@@ -468,8 +518,8 @@ export function installDesktopVoiceDictation(
    * configured, falling through to browser if nothing is set up.
    */
   const resolveProvider = async (): Promise<
-    | { kind: "browser" }
-    | { kind: "native" }
+    | { kind: "browser"; cleanupProvider?: ServerVoiceProvider }
+    | { kind: "native"; cleanupProvider?: ServerVoiceProvider }
     | {
         kind: "server";
         providerPref: ServerVoiceProvider;
@@ -478,10 +528,23 @@ export function installDesktopVoiceDictation(
     if (provider === "browser") return { kind: "browser" };
     if (provider === "macos-native") return { kind: "native" };
     if (provider !== "auto") {
-      // User picked a specific server provider — honor it even if the
-      // status check says it's not configured. The server will return a
-      // clear error which surfaces the misconfiguration.
-      return { kind: "server", providerPref: provider };
+      const cleanupProvider =
+        provider === "builder" ? "builder-gemini" : provider;
+      const status = await refreshProviderStatus();
+      if (
+        status.native &&
+        typeof navigator !== "undefined" &&
+        /Mac/i.test(navigator.platform)
+      ) {
+        return { kind: "native", cleanupProvider };
+      }
+      if (getSpeechRecognitionCtor()) {
+        return { kind: "browser", cleanupProvider };
+      }
+      // No live local recognizer is available, so fall back to the older
+      // audio-upload transcription path. The server will surface a clear
+      // provider/key error if this provider is unavailable.
+      return { kind: "server", providerPref: cleanupProvider };
     }
     const status = await refreshProviderStatus();
     if (status.builder)
@@ -542,12 +605,50 @@ export function installDesktopVoiceDictation(
 
     const resolved = await resolveProvider();
     if (resolved.kind === "browser") {
-      await startBrowser();
+      await startBrowser(resolved.cleanupProvider);
     } else if (resolved.kind === "native") {
-      await startNative();
+      await startNative(resolved.cleanupProvider);
     } else {
       await startServer(resolved.providerPref);
     }
+  };
+
+  const completeText = async (
+    rawText: string,
+    target: VoiceSession,
+  ): Promise<string> => {
+    const original = rawText.trim();
+    if (!original) return "";
+    let text = original;
+    if (target.cleanupProvider) {
+      setFlowState("processing");
+      const controller = new AbortController();
+      target.transcribeAbort = controller;
+      try {
+        text =
+          (await cleanupTranscript(
+            serverUrl,
+            original,
+            target.cleanupProvider,
+            controller,
+            instructions,
+          )) || original;
+      } catch (err) {
+        if ((err as { name?: string })?.name !== "AbortError") {
+          console.warn(
+            "[voice-dictation] cleanup failed, pasting raw transcript:",
+            (err as Error)?.message ?? err,
+          );
+        }
+        text = original;
+      } finally {
+        target.transcribeAbort = null;
+      }
+    }
+    if (target.cancelled || disposed) return "";
+    await invoke("complete_voice_dictation", { text });
+    emit("voice:partial-transcript", { text }).catch(() => {});
+    return text;
   };
 
   /**
@@ -635,6 +736,7 @@ export function installDesktopVoiceDictation(
             next.mimeType,
             providerPref,
             controller,
+            instructions,
           );
           if (next.cancelled) {
             cleanup(next);

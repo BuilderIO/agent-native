@@ -35,12 +35,18 @@ import { resolveHasBuilderPrivateKey } from "./credential-provider.js";
 import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
 import { runWithRequestContext } from "./request-context.js";
 import { getOrgContext } from "../org/context.js";
+import { createBuilderEngine } from "../agent/engine/builder-engine.js";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
+const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
+const GROQ_CLEANUP_MODEL = "llama-3.3-70b-versatile";
 const OPENAI_MODEL = "whisper-1";
+const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
+const OPENAI_CLEANUP_MODEL = "gpt-5.4-mini";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper hard limit.
+const MAX_TRANSCRIPT_CHARS = 40_000;
 // Public Builder transcription model id. The Builder gateway maps this to
 // Gemini 3.1 Flash-Lite.
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
@@ -117,11 +123,15 @@ export function createTranscribeVoiceHandler() {
 
     const parts = await readMultipartFormData(event).catch(() => null);
     const audio = parts?.find((p) => p.name === "audio");
-    if (!audio?.data?.length) {
+    const textPart = parts?.find((p) => p.name === "text");
+    const transcriptText = textPart?.data
+      ? sanitizeTranscriptText(textPart.data.toString("utf8"))
+      : undefined;
+    if (!audio?.data?.length && !transcriptText) {
       setResponseStatus(event, 400);
       return { error: "Missing audio payload" };
     }
-    if (audio.data.length > MAX_AUDIO_BYTES) {
+    if (audio?.data?.length && audio.data.length > MAX_AUDIO_BYTES) {
       setResponseStatus(event, 413);
       return { error: "Audio too large (max 25 MB)" };
     }
@@ -129,6 +139,10 @@ export function createTranscribeVoiceHandler() {
     const languagePart = parts?.find((p) => p.name === "language");
     const language = languagePart?.data
       ? languagePart.data.toString("utf8").trim().slice(0, 8)
+      : undefined;
+    const instructionsPart = parts?.find((p) => p.name === "instructions");
+    const instructions = instructionsPart?.data
+      ? sanitizeInstructions(instructionsPart.data.toString("utf8"))
       : undefined;
 
     // Resolve provider preference. Per-request "provider" form field takes
@@ -148,11 +162,11 @@ export function createTranscribeVoiceHandler() {
       userEmail: session?.email,
       orgId: orgCtx?.orgId ?? undefined,
     };
-    const withRequestContext = <T>(fn: () => Promise<T>) =>
+    const withRequestContext = async <T>(fn: () => Promise<T>): Promise<T> =>
       requestContext.userEmail
         ? runWithRequestContext(requestContext, fn)
         : fn();
-    const hasBuilderPrivateKey = () =>
+    const hasBuilderPrivateKey = async () =>
       withRequestContext(() => resolveHasBuilderPrivateKey());
     const transcribeWithBuilderForRequest = (
       opts: Parameters<typeof transcribeWithBuilder>[0],
@@ -212,15 +226,6 @@ export function createTranscribeVoiceHandler() {
       };
     }
 
-    const mime = audio.type || "audio/webm";
-    const audioBytes = new Uint8Array(
-      audio.data.buffer,
-      audio.data.byteOffset,
-      audio.data.byteLength,
-    );
-
-    let builderError: string | null = null;
-
     // Per-user-or-fallback API key resolution. Hoisted up so the Gemini
     // path below can use it without duplicating logic.
     async function resolveApiKey(key: string): Promise<string | undefined> {
@@ -236,6 +241,32 @@ export function createTranscribeVoiceHandler() {
         userSecret?.value || (await resolveCredential(key, ctx)) || undefined
       );
     }
+
+    if (transcriptText) {
+      return await cleanupTranscriptText({
+        event,
+        text: transcriptText,
+        instructions,
+        providerPref,
+        hasBuilderPrivateKey,
+        withRequestContext,
+        resolveApiKey,
+      });
+    }
+
+    if (!audio?.data?.length) {
+      setResponseStatus(event, 400);
+      return { error: "Missing audio payload" };
+    }
+
+    const mime = audio.type || "audio/webm";
+    const audioBytes = new Uint8Array(
+      audio.data.buffer,
+      audio.data.byteOffset,
+      audio.data.byteLength,
+    );
+
+    let builderError: string | null = null;
 
     // ── Strict per-provider preferences ─────────────────────────────────
     // When the user explicitly picks a single provider (gemini / builder /
@@ -259,6 +290,7 @@ export function createTranscribeVoiceHandler() {
           mimeType: mime,
           apiKey: geminiKey,
           language: language || undefined,
+          instructions,
         });
         const trimmed = text.trim();
         if (!trimmed) {
@@ -294,6 +326,7 @@ export function createTranscribeVoiceHandler() {
               ? BUILDER_GEMINI_TRANSCRIPTION_MODEL
               : undefined,
           language: language || undefined,
+          instructions,
         });
         return { text: (result.text ?? "").trim() };
       } catch (err) {
@@ -327,6 +360,7 @@ export function createTranscribeVoiceHandler() {
         audioBytes,
         mime,
         language,
+        instructions,
       });
     }
 
@@ -342,6 +376,7 @@ export function createTranscribeVoiceHandler() {
           mimeType: mime,
           model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
           language: language || undefined,
+          instructions,
         });
         return { text: (result.text ?? "").trim() };
       } catch (err) {
@@ -368,6 +403,7 @@ export function createTranscribeVoiceHandler() {
             mimeType: mime,
             apiKey: geminiKey,
             language: language || undefined,
+            instructions,
           });
           const trimmed = text.trim();
           if (trimmed) {
@@ -437,6 +473,7 @@ export function createTranscribeVoiceHandler() {
       audioBytes,
       mime,
       language,
+      instructions,
     });
   });
 }
@@ -454,6 +491,7 @@ async function callWhisperCompat({
   audioBytes,
   mime,
   language,
+  instructions,
 }: {
   event: H3Event;
   provider: {
@@ -465,6 +503,7 @@ async function callWhisperCompat({
   audioBytes: Uint8Array;
   mime: string;
   language?: string;
+  instructions?: string;
 }): Promise<{ text: string } | { error: string }> {
   const ext = pickExtension(mime);
   const filename = `composer-voice.${ext}`;
@@ -478,6 +517,7 @@ async function callWhisperCompat({
   form.append("model", provider.model);
   form.append("response_format", "json");
   if (language) form.append("language", language);
+  if (instructions) form.append("prompt", instructions);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45_000);
@@ -513,6 +553,304 @@ async function callWhisperCompat({
   }
 }
 
+async function cleanupTranscriptText({
+  event,
+  text,
+  instructions,
+  providerPref,
+  hasBuilderPrivateKey,
+  withRequestContext,
+  resolveApiKey,
+}: {
+  event: H3Event;
+  text: string;
+  instructions?: string;
+  providerPref?: string;
+  hasBuilderPrivateKey: () => Promise<boolean>;
+  withRequestContext: <T>(fn: () => Promise<T>) => Promise<T>;
+  resolveApiKey: (key: string) => Promise<string | undefined>;
+}): Promise<{ text: string } | { error: string }> {
+  const original = text.trim();
+  if (!original) return { text: "" };
+
+  if (providerPref === "browser") {
+    return { text: original };
+  }
+
+  if (providerPref === "builder" || providerPref === "builder-gemini") {
+    if (!(await hasBuilderPrivateKey())) {
+      setResponseStatus(event, 400);
+      return {
+        error:
+          "Builder.io cleanup is selected but Builder.io is not connected. Connect Builder.io in Settings, or change the provider preference.",
+      };
+    }
+    try {
+      const cleaned = await withRequestContext(() =>
+        cleanupWithBuilder({ text: original, instructions }),
+      );
+      return { text: cleaned || original };
+    } catch (err) {
+      setResponseStatus(event, 502);
+      return {
+        error: `Builder.io cleanup failed: ${(err as Error)?.message ?? String(err)}`,
+      };
+    }
+  }
+
+  if (providerPref === "gemini") {
+    const geminiKey = await resolveApiKey("GEMINI_API_KEY");
+    if (!geminiKey) {
+      setResponseStatus(event, 400);
+      return {
+        error:
+          "Gemini cleanup is selected but GEMINI_API_KEY is not configured.",
+      };
+    }
+    try {
+      const cleaned = await cleanupWithGemini({
+        text: original,
+        apiKey: geminiKey,
+        instructions,
+      });
+      return { text: cleaned || original };
+    } catch (err) {
+      setResponseStatus(event, 502);
+      return {
+        error: `Gemini cleanup failed: ${(err as Error)?.message ?? String(err)}`,
+      };
+    }
+  }
+
+  if (providerPref === "openai" || providerPref === "groq") {
+    const keyName =
+      providerPref === "openai" ? "OPENAI_API_KEY" : "GROQ_API_KEY";
+    const apiKey = await resolveApiKey(keyName);
+    if (!apiKey) {
+      setResponseStatus(event, 400);
+      return {
+        error: `${providerPref} cleanup is selected but ${keyName} is not configured.`,
+      };
+    }
+    try {
+      const cleaned = await cleanupWithChatProvider({
+        provider: providerPref,
+        text: original,
+        apiKey,
+        instructions,
+      });
+      return { text: cleaned || original };
+    } catch (err) {
+      setResponseStatus(event, 502);
+      return {
+        error: `${providerPref} cleanup failed: ${(err as Error)?.message ?? String(err)}`,
+      };
+    }
+  }
+
+  if (await hasBuilderPrivateKey()) {
+    try {
+      const cleaned = await withRequestContext(() =>
+        cleanupWithBuilder({ text: original, instructions }),
+      );
+      if (cleaned) return { text: cleaned };
+    } catch {
+      // Fall through to BYOK providers, then raw text.
+    }
+  }
+
+  const geminiKey = await resolveApiKey("GEMINI_API_KEY");
+  if (geminiKey) {
+    try {
+      const cleaned = await cleanupWithGemini({
+        text: original,
+        apiKey: geminiKey,
+        instructions,
+      });
+      if (cleaned) return { text: cleaned };
+    } catch {
+      // Fall through.
+    }
+  }
+
+  const groqKey = await resolveApiKey("GROQ_API_KEY");
+  if (groqKey) {
+    try {
+      const cleaned = await cleanupWithChatProvider({
+        provider: "groq",
+        text: original,
+        apiKey: groqKey,
+        instructions,
+      });
+      if (cleaned) return { text: cleaned };
+    } catch {
+      // Fall through.
+    }
+  }
+
+  const openaiKey = await resolveApiKey("OPENAI_API_KEY");
+  if (openaiKey) {
+    try {
+      const cleaned = await cleanupWithChatProvider({
+        provider: "openai",
+        text: original,
+        apiKey: openaiKey,
+        instructions,
+      });
+      if (cleaned) return { text: cleaned };
+    } catch {
+      // Fall through.
+    }
+  }
+
+  return { text: original };
+}
+
+async function cleanupWithBuilder({
+  text,
+  instructions,
+}: {
+  text: string;
+  instructions?: string;
+}): Promise<string> {
+  const engine = createBuilderEngine();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  let streamedText = "";
+  let finalText = "";
+  let terminalError: string | undefined;
+  try {
+    for await (const event of engine.stream({
+      model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+      systemPrompt: buildCleanupSystemPrompt(instructions),
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: buildCleanupUserPrompt(text) }],
+        },
+      ],
+      tools: [],
+      abortSignal: controller.signal,
+      maxOutputTokens: Math.min(4096, Math.max(512, text.length * 2)),
+      temperature: 0,
+    })) {
+      if (event.type === "text-delta") streamedText += event.text;
+      if (event.type === "assistant-content") {
+        finalText = event.parts
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("")
+          .trim();
+      }
+      if (event.type === "stop" && event.reason === "error") {
+        terminalError = event.error ?? "Builder gateway returned an error";
+      }
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (terminalError) throw new Error(terminalError);
+  return stripTranscriptEnvelope(finalText || streamedText);
+}
+
+async function cleanupWithGemini({
+  text,
+  apiKey,
+  instructions,
+}: {
+  text: string;
+  apiKey: string;
+  instructions?: string;
+}): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const res = await fetch(GEMINI_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: buildCleanupSystemPrompt(instructions) },
+              { text: buildCleanupUserPrompt(text) },
+            ],
+          },
+        ],
+        generationConfig: { temperature: 0 },
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Gemini ${res.status}: ${body.slice(0, 300)}`);
+    }
+    const data = (await res.json()) as {
+      candidates?: Array<{
+        content?: { parts?: Array<{ text?: string }> };
+      }>;
+    };
+    const cleaned = data.candidates?.[0]?.content?.parts
+      ?.map((p) => p.text ?? "")
+      .join("")
+      .trim();
+    return stripTranscriptEnvelope(cleaned ?? "");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function cleanupWithChatProvider({
+  provider,
+  text,
+  apiKey,
+  instructions,
+}: {
+  provider: "openai" | "groq";
+  text: string;
+  apiKey: string;
+  instructions?: string;
+}): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  const endpoint = provider === "openai" ? OPENAI_CHAT_URL : GROQ_CHAT_URL;
+  const model =
+    provider === "openai" ? OPENAI_CLEANUP_MODEL : GROQ_CLEANUP_MODEL;
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: buildCleanupSystemPrompt(instructions) },
+          { role: "user", content: buildCleanupUserPrompt(text) },
+        ],
+        temperature: 0,
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`${provider} ${res.status}: ${body.slice(0, 300)}`);
+    }
+    const data = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return stripTranscriptEnvelope(
+      data.choices?.[0]?.message?.content?.trim() ?? "",
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function pickExtension(mime: string): string {
   const lower = mime.toLowerCase();
   if (lower.includes("mp4") || lower.includes("m4a")) return "mp4";
@@ -520,6 +858,61 @@ function pickExtension(mime: string): string {
   if (lower.includes("ogg")) return "ogg";
   if (lower.includes("wav")) return "wav";
   return "webm";
+}
+
+function sanitizeInstructions(value: string): string | undefined {
+  const trimmed = value.replace(/\0/g, "").trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, 3000);
+}
+
+function sanitizeTranscriptText(value: string): string | undefined {
+  const trimmed = value.replace(/\0/g, "").trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, MAX_TRANSCRIPT_CHARS);
+}
+
+function buildCleanupSystemPrompt(instructions?: string): string {
+  const custom = instructions
+    ? `\n\nUser's custom cleanup instructions:\n${instructions}`
+    : "";
+  return `You clean up live speech-recognition transcripts before paste.
+
+Rules:
+- Preserve the speaker's meaning and voice.
+- Fix obvious recognition mistakes, punctuation, capitalization, spacing, and casing.
+- Remove false starts and filler only when they are clearly not intentional.
+- Do not add facts, explanations, headings, bullets, quotes, or markdown.
+- Output only the cleaned transcript text.${custom}`;
+}
+
+function buildCleanupUserPrompt(text: string): string {
+  return `Clean up this transcript and return only the final text:\n\n<transcript>\n${text}\n</transcript>`;
+}
+
+function stripTranscriptEnvelope(value: string): string {
+  return value
+    .trim()
+    .replace(/^```(?:text)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .replace(/^["“](.*)["”]$/s, "$1")
+    .trim();
+}
+
+function buildGeminiTranscriptionPrompt({
+  language,
+  instructions,
+}: {
+  language?: string;
+  instructions?: string;
+}): string {
+  const base = language
+    ? `Transcribe the speech in this audio (language: ${language}).`
+    : "Transcribe the speech in this audio.";
+  const custom = instructions
+    ? `\n\nAdditional user instructions for transcription cleanup:\n${instructions}\n\nApply these only to formatting, casing, punctuation, vocabulary, and cleanup. Do not add content that is not present in the audio.`
+    : "";
+  return `${base} Output only the transcript text — no preamble, no quotes, no formatting.${custom}`;
 }
 
 /**
@@ -538,16 +931,16 @@ async function transcribeWithGemini({
   mimeType,
   apiKey,
   language,
+  instructions,
 }: {
   audioBytes: Uint8Array;
   mimeType: string;
   apiKey: string;
   language?: string;
+  instructions?: string;
 }): Promise<string> {
   const base64 = uint8ArrayToBase64(audioBytes);
-  const prompt = language
-    ? `Transcribe the speech in this audio (language: ${language}). Output only the transcript text — no preamble, no quotes, no formatting.`
-    : "Transcribe the speech in this audio. Output only the transcript text — no preamble, no quotes, no formatting.";
+  const prompt = buildGeminiTranscriptionPrompt({ language, instructions });
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
