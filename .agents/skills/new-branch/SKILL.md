@@ -32,9 +32,10 @@ Why the gate: `git stash push` exits 0 even when there are no local changes ("No
 
 ## Branch naming
 
-- Use the pattern `changes-N` where N increments from the last `changes-*` branch
+- Use the pattern `changes-N` where N is at least 50
+- Ignore older `changes-*` branches below 50 when choosing the next branch number
 - Check existing branches: `git branch | grep changes- | sort -t- -k2 -n | tail -1`
-- If no prior branch exists, start with `changes-1`
+- If no prior branch exists at 50 or above, start with `changes-50`
 
 ## After creation
 
