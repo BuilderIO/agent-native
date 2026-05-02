@@ -15,15 +15,15 @@ The **multi-app workspace** pattern is how agent-native solves this. You host al
 
 Anything every app in your org should agree on can live in `packages/shared`:
 
-| Shared thing                  | Where it lives                                                               |
-| ----------------------------- | ---------------------------------------------------------------------------- |
-| Auth / SSO override           | Export `authPlugin` from `src/server/index.ts`                               |
-| Org / RBAC rules              | Better Auth organizations, optionally wrapped by that `authPlugin`           |
-| Agent chat override           | Export `agentChatPlugin` from `src/server/index.ts`                          |
-| Enterprise agent instructions | `AGENTS.md`                                                                  |
-| Agent skills                  | `.agents/skills/<skill-name>/SKILL.md`                                       |
-| Shared agent actions          | `actions/*.ts`                                                               |
-| Shared React components       | Export from `src/client/index.ts`                                            |
+| Shared thing                  | Where it lives                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------- |
+| Auth / SSO override           | Export `authPlugin` from `src/server/index.ts`                                |
+| Org / RBAC rules              | Better Auth organizations, optionally wrapped by that `authPlugin`            |
+| Agent chat override           | Export `agentChatPlugin` from `src/server/index.ts`                           |
+| Enterprise agent instructions | `AGENTS.md`                                                                   |
+| Agent skills                  | `.agents/skills/<skill-name>/SKILL.md`                                        |
+| Shared agent actions          | `actions/*.ts`                                                                |
+| Shared React components       | Export from `src/client/index.ts`                                             |
 | Design tokens / brand         | Add a shared CSS file and import it from each app                             |
 | Shared API credentials        | Prefer framework scoped credentials; add helpers only if you need namespacing |
 
