@@ -42,3 +42,5 @@ build/
 learnings.md
 
 .generated/
+
+.vercel/

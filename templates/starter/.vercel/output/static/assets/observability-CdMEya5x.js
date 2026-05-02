@@ -1,1 +1,0 @@
-import{t as e}from"./jsx-runtime-Cz8tR8ee.js";import{j as t}from"./chunk-QFMPRPBF-C_dPJVQN.js";import{t as n}from"./client-DrQ0nb_P.js";var r=e();function i(){return[{title:`Agent Observability`}]}var a=t(function(){return(0,r.jsx)(`div`,{className:`p-6`,children:(0,r.jsx)(n,{})})});export{a as default,i as meta};

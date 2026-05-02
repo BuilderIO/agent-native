@@ -18,11 +18,23 @@ export default defineAction({
     const now = new Date().toISOString();
 
     const userEmail = getRequestUserEmail();
+    if (!userEmail) throw new Error("no authenticated user");
+
+    const [target] = await db
+      .select({ ownerEmail: schema.designSystems.ownerEmail })
+      .from(schema.designSystems)
+      .where(eq(schema.designSystems.id, id))
+      .limit(1);
+
+    if (target?.ownerEmail !== userEmail) {
+      throw new Error("Only the owner can set a design system as default");
+    }
+
     await db.transaction(async (tx) => {
       await tx
         .update(schema.designSystems)
         .set({ isDefault: false, updatedAt: now })
-        .where(eq(schema.designSystems.ownerEmail, userEmail ?? ""));
+        .where(eq(schema.designSystems.ownerEmail, userEmail));
 
       await tx
         .update(schema.designSystems)
@@ -30,7 +42,7 @@ export default defineAction({
         .where(
           and(
             eq(schema.designSystems.id, id),
-            eq(schema.designSystems.ownerEmail, userEmail ?? ""),
+            eq(schema.designSystems.ownerEmail, userEmail),
           ),
         );
     });

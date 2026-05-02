@@ -219,10 +219,10 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     ).toBe(false);
   });
 
-  it("resolves @agent-native/core in the scaffolded workspace shared package", async () => {
+  it("resolves @agent-native/core at the workspace root for the gateway", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
-    const corePkg = readPkg(path.join(wsDir, "packages", "shared"));
-    expect(corePkg.dependencies["@agent-native/core"]).toBe(
+    const rootPkg = readPkg(wsDir);
+    expect(rootPkg.dependencies["@agent-native/core"]).toBe(
       _getCoreDependencyVersion(),
     );
   });
@@ -253,17 +253,42 @@ describe("template/core version compatibility", () => {
 });
 
 describe("workspace scaffold defaults", () => {
-  it("uses a CI install command that works before a lockfile exists", () => {
-    const coreRoot = path.resolve(__dirname, "../..");
-    const ci = fs.readFileSync(
-      path.join(
-        coreRoot,
-        "src/templates/workspace-root/.github/workflows/ci.yml",
-      ),
-      "utf-8",
+  it("keeps the workspace dev gateway in the framework package", async () => {
+    const wsDir = path.join(tmpDir, "my-ws");
+    await _scaffoldWorkspaceRoot(wsDir, "my-ws");
+    const rootPkg = readPkg(wsDir);
+    expect(rootPkg.scripts?.dev).toBe("agent-native dev");
+    expect(rootPkg.dependencies?.["@agent-native/core"]).toBe(
+      _getCoreDependencyVersion(),
     );
-    expect(ci).toContain("pnpm install --no-frozen-lockfile");
-    expect(ci).not.toContain("pnpm install --frozen-lockfile");
+    expect(fs.existsSync(path.join(wsDir, "scripts", "workspace-dev.ts"))).toBe(
+      false,
+    );
+    expect(fs.existsSync(path.join(wsDir, "packages", "shared"))).toBe(true);
+    expect(fs.existsSync(path.join(wsDir, "packages", "core-module"))).toBe(
+      false,
+    );
+    expect(
+      fs.existsSync(path.join(wsDir, ".github", "workflows", "ci.yml")),
+    ).toBe(false);
+  });
+
+  it("does not copy generated Vercel output or legacy Claude settings", async () => {
+    const wsDir = await (async () => {
+      const targetDir = path.join(tmpDir, "my-ws");
+      await _scaffoldWorkspaceRoot(targetDir, "my-ws");
+      const appDir = path.join(targetDir, "apps", "starter");
+      await _scaffoldAppTemplate(appDir, "starter");
+      return targetDir;
+    })();
+    expect(
+      fs.existsSync(path.join(wsDir, "apps", "starter", ".vercel", "output")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(wsDir, "apps", "starter", ".claude", "settings.json"),
+      ),
+    ).toBe(false);
   });
 });
 

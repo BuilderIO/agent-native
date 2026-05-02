@@ -20,7 +20,7 @@
  *     package.json
  *     src/server/index.ts  (exports <slot>Plugin for any slot it wants to provide)
  *     actions/             (shared agent-callable actions)
- *     skills/              (shared .agents/skills/<name>/SKILL.md)
+ *     .agents/skills/      (shared skills)
  *     AGENTS.md            (enterprise-wide agent instructions)
  *     styles/tokens.css      (brand tokens — `@import "@agent-native/core/styles/agent-native.css"` then your `@theme` overrides)
  */
@@ -251,7 +251,11 @@ export async function getWorkspaceCoreExports(
   const plugins = await discoverPluginExports(packageDir);
 
   const actionsDir = path.join(packageDir, "actions");
-  const skillsDir = path.join(packageDir, "skills");
+  const skillsDir =
+    [
+      path.join(packageDir, ".agents", "skills"),
+      path.join(packageDir, "skills"),
+    ].find((candidate) => fs.existsSync(candidate)) ?? null;
   const agentsMdPath = path.join(packageDir, "AGENTS.md");
 
   const result: WorkspaceCoreExports = {
@@ -260,7 +264,7 @@ export async function getWorkspaceCoreExports(
     packageDir,
     plugins,
     actionsDir: fs.existsSync(actionsDir) ? actionsDir : null,
-    skillsDir: fs.existsSync(skillsDir) ? skillsDir : null,
+    skillsDir,
     agentsMdPath: fs.existsSync(agentsMdPath) ? agentsMdPath : null,
   };
 

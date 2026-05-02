@@ -166,7 +166,7 @@ npx @agent-native/core create my-app --standalone --template mail
 
 ## Workspaces (Monorepo)
 
-A workspace is the default shape of an agent-native project. Every app sits under `apps/`, and a shared `packages/shared/` layers auth, agent-chat config, skills, and branding across every app — so cross-cutting concerns get wired up once, not per app.
+A workspace is the default shape of an agent-native project. Every app sits under `apps/`, and `packages/shared/` is available for the small amount of code, instructions, skills, or branding that should truly apply to every app.
 
 ```
 my-platform/
@@ -174,7 +174,7 @@ my-platform/
 ├── pnpm-workspace.yaml
 ├── .env                           # shared secrets: ANTHROPIC_API_KEY, BUILDER_PRIVATE_KEY, A2A_SECRET, ...
 ├── packages/
-│   └── shared/               # shared auth, agent-chat plugin, skills, Tailwind v4 design tokens
+│   └── shared/                    # optional shared custom code
 └── apps/
     ├── mail/
     ├── calendar/

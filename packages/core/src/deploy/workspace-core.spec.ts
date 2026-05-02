@@ -72,11 +72,11 @@ export const orgPlugin = async () => {};
   }
 
   if (opts.withSkillsDir) {
-    fs.mkdirSync(path.join(corePackageDir, "skills", "policy"), {
+    fs.mkdirSync(path.join(corePackageDir, ".agents", "skills", "policy"), {
       recursive: true,
     });
     fs.writeFileSync(
-      path.join(corePackageDir, "skills", "policy", "SKILL.md"),
+      path.join(corePackageDir, ".agents", "skills", "policy", "SKILL.md"),
       "---\nname: policy\ndescription: Shared enterprise policy\n---\n",
     );
   }
@@ -162,7 +162,9 @@ describe("getWorkspaceCoreExports", () => {
       expect(result!.packageName).toBe("@my-company/shared");
       expect(result!.workspaceRoot).toBe(fix.tmpRoot);
       expect(result!.packageDir).toBe(fix.corePackageDir);
-      expect(result!.skillsDir).toBe(path.join(fix.corePackageDir, "skills"));
+      expect(result!.skillsDir).toBe(
+        path.join(fix.corePackageDir, ".agents", "skills"),
+      );
       expect(result!.actionsDir).toBe(path.join(fix.corePackageDir, "actions"));
       expect(result!.agentsMdPath).toBe(
         path.join(fix.corePackageDir, "AGENTS.md"),
