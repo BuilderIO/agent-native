@@ -1,5 +1,5 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react-swc";
+import react from "@vitejs/plugin-react";
 
 // Tauri expects the frontend to be served from a fixed port during dev.
 // 1420 is the convention the Tauri docs use; we keep it here so
