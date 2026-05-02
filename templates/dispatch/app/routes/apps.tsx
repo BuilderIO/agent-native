@@ -10,6 +10,7 @@ interface WorkspaceAppSummary {
   name: string;
   description?: string;
   path: string;
+  url?: string | null;
   isDispatch: boolean;
 }
 
@@ -53,7 +54,7 @@ export default function AppsRoute() {
             {typedApps.map((app) => (
               <a
                 key={app.id}
-                href={app.path}
+                href={app.url || app.path}
                 className="group rounded-lg border bg-card p-4 transition hover:border-foreground/30"
               >
                 <div className="flex items-start justify-between gap-3">

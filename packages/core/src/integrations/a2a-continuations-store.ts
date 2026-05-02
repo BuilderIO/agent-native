@@ -2,6 +2,7 @@ import { getDbExec, isPostgres, intType } from "../db/client.js";
 import type { IncomingMessage } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
+const PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -194,22 +195,28 @@ export async function claimA2AContinuation(
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
-  const { rows } = await client.execute({
+  const processingCutoff = now - PROCESSING_STUCK_AFTER_MS;
+  const result = await client.execute({
     sql: isPostgres()
       ? `UPDATE integration_a2a_continuations
            SET status = ?, attempts = attempts + 1, updated_at = ?
-         WHERE id = ? AND status = 'pending'
+         WHERE id = ?
+           AND (status = 'pending' OR (status = 'processing' AND updated_at <= ?))
          RETURNING *`
       : `UPDATE integration_a2a_continuations
            SET status = ?, attempts = attempts + 1, updated_at = ?
-         WHERE id = ? AND status = 'pending'`,
-    args: ["processing", now, id],
+         WHERE id = ?
+           AND (status = 'pending' OR (status = 'processing' AND updated_at <= ?))`,
+    args: ["processing", now, id, processingCutoff],
   });
+  const rows = result.rows ?? [];
   if (isPostgres()) {
     return rows[0]
       ? rowToContinuation(rows[0] as Record<string, unknown>)
       : null;
   }
+  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
+  if (affected === 0) return null;
   const fetched = await getA2AContinuation(id);
   if (!fetched || fetched.status !== "processing") return null;
   return fetched;
