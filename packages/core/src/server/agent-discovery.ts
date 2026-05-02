@@ -1,4 +1,4 @@
-import { visibleTemplates } from "../cli/templates-meta.js";
+import { TEMPLATES, visibleTemplates } from "../cli/templates-meta.js";
 
 export interface DiscoveredAgent {
   id: string;
@@ -34,6 +34,12 @@ const BUILTIN_AGENTS: AgentEntry[] = visibleTemplates()
     devPort: template.devPort,
     color: template.color,
   }));
+
+const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set(
+  TEMPLATES.filter((template) => template.hidden && template.prodUrl).map(
+    (template) => template.name,
+  ),
+);
 
 /**
  * Get built-in agents (static, no DB). Used as fallback and for seeding.
@@ -87,6 +93,7 @@ export async function discoverAgents(
         if (!full) continue;
         const manifest = parseRemoteAgentManifest(full.content, r.path);
         if (!manifest || manifest.id === selfAppId) continue;
+        if (HIDDEN_FIRST_PARTY_AGENT_IDS.has(manifest.id)) continue;
 
         // If the resource override carries a localhost URL but we're running
         // in production (e.g. a stale dev-time seed got promoted to the prod
