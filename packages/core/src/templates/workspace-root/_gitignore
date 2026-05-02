@@ -1,6 +1,11 @@
 node_modules/
 dist/
 build/
+apps/*/dist/
+apps/*/build/
+apps/*/.output/
+apps/*/.netlify/
+apps/*/.vercel/
 .deploy-tmp/
 
 # Env files — never commit secrets

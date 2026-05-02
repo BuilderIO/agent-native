@@ -93,6 +93,7 @@ async function findAccessibleLinkBySlug(slug: string) {
 
 async function slugIsReserved(slug: string): Promise<boolean> {
   const [links, redirects] = await Promise.all([
+    // guard:allow-unscoped — public booking-link slugs are globally unique; existence-only check prevents URL collisions
     getDb()
       .select({ id: schema.bookingLinks.id })
       .from(schema.bookingLinks)

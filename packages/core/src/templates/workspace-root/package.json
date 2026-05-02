@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "tsx scripts/workspace-dev.ts",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "fmt:check": "prettier --check .",
+    "lint": "pnpm fmt:check"
   },
   "agent-native": {
     "workspaceCore": "@{{APP_NAME}}/core-module"
@@ -16,5 +18,14 @@
     "tsx": "catalog:",
     "typescript": "^6.0.3"
   },
-  "packageManager": "pnpm@10.14.0"
+  "packageManager": "pnpm@10.14.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "lightningcss",
+      "node-pty",
+      "@swc/core"
+    ]
+  }
 }

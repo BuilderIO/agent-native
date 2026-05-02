@@ -68,7 +68,10 @@ export function slackAdapter(): PlatformAdapter {
       try {
         const parsed = JSON.parse(body);
         if (parsed.type === "url_verification") {
-          return { handled: true, response: { challenge: parsed.challenge } };
+          // Slack's URL verifier expects the raw challenge value in the
+          // response body. Returning JSON works for some clients but the app
+          // settings verifier rejects it as not matching the challenge.
+          return { handled: true, response: parsed.challenge };
         }
       } catch {}
       return { handled: false };

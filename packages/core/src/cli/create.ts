@@ -790,6 +790,7 @@ export {
   loadCatalog as _loadCatalog,
   fixPackageJsonName as _fixPackageJsonName,
   renameGitignore as _renameGitignore,
+  rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
 };
@@ -915,18 +916,15 @@ function fixPackageJsonName(appDir: string, name: string): void {
 }
 
 function getCoreDependencyVersion(): string {
-  const localCorePackage = findLocalPackage("core");
-  if (localCorePackage) {
-    // Local framework QA must install the local core package that matches the
-    // local templates. Otherwise temp generated apps pull npm `latest`, which
-    // can lag behind unreleased template imports.
-    return pathToFileURL(localCorePackage).href;
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
+    const localCore = findLocalPackage("core");
+    if (localCore) return pathToFileURL(localCore).href;
   }
 
-  // Published CLIs should follow the current npm dist-tag for @agent-native/core.
-  // First-party templates are downloaded from this CLI package's version tag
-  // (see getGitHubTemplateRef), so `latest` remains compatible while still
-  // allowing users to receive patched framework builds.
+  // Generated apps must install before the current package version is
+  // published. The dist-tag resolves to the newest released core today and to
+  // this package version once the release goes live. Local file deps are
+  // intentionally opt-in so scaffolded repos remain portable by default.
   return "latest";
 }
 
@@ -990,8 +988,19 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
+    const originalCommand = content.match(/^  command = "([^"]*)"$/m)?.[1];
+    const usesUnpooledDatabase =
+      originalCommand?.includes("NETLIFY_DATABASE_URL_UNPOOLED") ?? false;
     const buildCommand =
-      mode === "workspace" ? `pnpm --filter ${appName} build` : "pnpm build";
+      mode === "workspace"
+        ? `NITRO_PRESET=netlify pnpm --filter ${appName} build`
+        : "NITRO_PRESET=netlify pnpm build";
+    const databaseSetup =
+      "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}";
+    const buildDatabasePrefix = usesUnpooledDatabase
+      ? "DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} "
+      : "";
+    const command = `${databaseSetup} && ${buildDatabasePrefix}${buildCommand}`;
     const publishPath = mode === "workspace" ? `apps/${appName}/dist` : "dist";
     const functionsPath =
       mode === "workspace"
@@ -999,7 +1008,7 @@ function rewriteNetlifyToml(
         : ".netlify/functions-internal";
 
     content = content
-      .replace(/pnpm --filter [^ ]+ build/g, buildCommand)
+      .replace(/^  command = ".*"$/m, `  command = "${command}"`)
       .replace(
         /publish = "templates\/[^"]+\/dist"/g,
         `publish = "${publishPath}"`,
