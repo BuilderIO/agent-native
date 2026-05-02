@@ -915,7 +915,10 @@ function fixPackageJsonName(appDir: string, name: string): void {
 }
 
 function getCoreDependencyVersion(): string {
-  return getCorePackageVersion() ?? "latest";
+  // Generated apps must install before the current package version is
+  // published. The dist-tag resolves to the newest released core today and to
+  // this package version once the release goes live.
+  return "latest";
 }
 
 function getCorePackageVersion(): string | undefined {

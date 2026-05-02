@@ -228,8 +228,8 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
 });
 
 describe("template/core version compatibility", () => {
-  it("uses the package metadata version for generated projects", () => {
-    expect(_getCoreDependencyVersion()).toMatch(/^\d+\.\d+\.\d+(?:-.+)?$/);
+  it("uses the npm latest dist-tag for generated projects", () => {
+    expect(_getCoreDependencyVersion()).toBe("latest");
   });
 
   it("downloads first-party templates from the CLI package version tag", () => {
