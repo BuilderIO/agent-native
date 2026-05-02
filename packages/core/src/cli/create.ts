@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { execFileSync } from "child_process";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
@@ -790,6 +790,7 @@ export {
   loadCatalog as _loadCatalog,
   fixPackageJsonName as _fixPackageJsonName,
   renameGitignore as _renameGitignore,
+  rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
 };
@@ -915,9 +916,15 @@ function fixPackageJsonName(appDir: string, name: string): void {
 }
 
 function getCoreDependencyVersion(): string {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
+    const localCore = findLocalPackage("core");
+    if (localCore) return pathToFileURL(localCore).href;
+  }
+
   // Generated apps must install before the current package version is
   // published. The dist-tag resolves to the newest released core today and to
-  // this package version once the release goes live.
+  // this package version once the release goes live. Local file deps are
+  // intentionally opt-in so scaffolded repos remain portable by default.
   return "latest";
 }
 
@@ -981,10 +988,19 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
+    const originalCommand = content.match(/^  command = "([^"]*)"$/m)?.[1];
+    const usesUnpooledDatabase =
+      originalCommand?.includes("NETLIFY_DATABASE_URL_UNPOOLED") ?? false;
     const buildCommand =
       mode === "workspace"
         ? `NITRO_PRESET=netlify pnpm --filter ${appName} build`
         : "NITRO_PRESET=netlify pnpm build";
+    const databaseSetup =
+      "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}";
+    const buildDatabasePrefix = usesUnpooledDatabase
+      ? "DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} "
+      : "";
+    const command = `${databaseSetup} && ${buildDatabasePrefix}${buildCommand}`;
     const publishPath = mode === "workspace" ? `apps/${appName}/dist` : "dist";
     const functionsPath =
       mode === "workspace"
@@ -992,7 +1008,7 @@ function rewriteNetlifyToml(
         : ".netlify/functions-internal";
 
     content = content
-      .replace(/^  command = ".*"$/m, `  command = "${buildCommand}"`)
+      .replace(/^  command = ".*"$/m, `  command = "${command}"`)
       .replace(
         /publish = "templates\/[^"]+\/dist"/g,
         `publish = "${publishPath}"`,
