@@ -23,6 +23,7 @@ import {
   _fixPackageJsonName,
   _renameGitignore,
   _loadCatalog,
+  _rewriteNetlifyToml,
   _getCoreDependencyVersion,
   _getGitHubTemplateRef,
 } from "./create.js";
@@ -228,14 +229,95 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
 });
 
 describe("template/core version compatibility", () => {
-  it("uses local core for local framework scaffolds", () => {
-    expect(_getCoreDependencyVersion()).toMatch(
-      /^file:\/\/.*\/packages\/core$/,
-    );
+  it("uses the npm latest dist-tag for generated projects", () => {
+    expect(_getCoreDependencyVersion()).toBe("latest");
+  });
+
+  it("can opt into local core linking for framework development", () => {
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
+    try {
+      expect(_getCoreDependencyVersion()).toMatch(/^file:\/\//);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
   });
 
   it("downloads first-party templates from the CLI package version tag", () => {
     expect(_getGitHubTemplateRef()).toMatch(/^v\d+\.\d+\.\d+(?:-.+)?$/);
+  });
+});
+
+describe("workspace scaffold defaults", () => {
+  it("uses a CI install command that works before a lockfile exists", () => {
+    const coreRoot = path.resolve(__dirname, "../..");
+    const ci = fs.readFileSync(
+      path.join(
+        coreRoot,
+        "src/templates/workspace-root/.github/workflows/ci.yml",
+      ),
+      "utf-8",
+    );
+    expect(ci).toContain("pnpm install --no-frozen-lockfile");
+    expect(ci).not.toContain("pnpm install --frozen-lockfile");
+  });
+});
+
+describe("Netlify scaffold rewrite", () => {
+  it("preserves database env setup while removing template install commands", () => {
+    const appDir = path.join(tmpDir, "app");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        '  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter starter build"',
+        '  publish = "templates/starter/dist"',
+        '  functions = "templates/starter/.netlify/functions-internal"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "dispatch", "workspace");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain(
+      'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && NITRO_PRESET=netlify pnpm --filter dispatch build"',
+    );
+    expect(netlify).not.toContain("pnpm install");
+    expect(netlify).toContain('publish = "apps/dispatch/dist"');
+    expect(netlify).toContain(
+      'functions = "apps/dispatch/.netlify/functions-internal"',
+    );
+  });
+
+  it("keeps unpooled database build overrides for templates that need them", () => {
+    const appDir = path.join(tmpDir, "unpooled-app");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        '  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} NITRO_PRESET=netlify pnpm --filter mail build"',
+        '  publish = "templates/mail/dist"',
+        '  functions = "templates/mail/.netlify/functions-internal"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "mail", "standalone");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain(
+      'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} NITRO_PRESET=netlify pnpm build"',
+    );
+    expect(netlify).not.toContain("pnpm install");
+    expect(netlify).toContain('publish = "dist"');
+    expect(netlify).toContain('functions = ".netlify/functions-internal"');
   });
 });
 
