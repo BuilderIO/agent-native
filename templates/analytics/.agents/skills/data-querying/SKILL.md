@@ -16,7 +16,21 @@ The analytics app connects to multiple data sources. This skill covers general p
 3. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 4. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it
 
-For events recorded by the analytics template itself via `analytics.agent-native.com/track`, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. Do not use `db-query` for first-party analytics questions; `db-query` is only for internal app tables and will confuse data-source analysis. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for this source.
+For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification if multiple configured sources are plausible. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
+
+Example pageviews query for a local calendar day:
+
+```sql
+SELECT COUNT(*) AS pageviews
+FROM analytics_events
+WHERE event_name = 'pageview'
+  AND timestamp >= '<start-utc>'
+  AND timestamp < '<end-utc>'
+```
+
+Convert the user's requested local date/timezone to UTC before querying. For
+example, May 1, 2026 in America/New_York is `2026-05-01T04:00:00Z`
+through `2026-05-02T04:00:00Z`.
 
 ## Built-in Filtering
 

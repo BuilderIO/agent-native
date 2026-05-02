@@ -2,6 +2,10 @@ import type { H3Event } from "h3";
 import { getOrgContext } from "@agent-native/core/org";
 import { DEV_MODE_USER_EMAIL } from "@agent-native/core/server";
 import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import {
   deleteOrgSetting,
   deleteSetting,
   deleteUserSetting,
@@ -50,6 +54,13 @@ export async function resolveSettingsScope(
   event: H3Event,
 ): Promise<SettingsScope> {
   const ctx = await getOrgContext(event);
+  if (ctx.email) {
+    return { email: ctx.email, orgId: ctx.orgId };
+  }
+  const requestEmail = getRequestUserEmail();
+  if (requestEmail) {
+    return { email: requestEmail, orgId: getRequestOrgId() ?? null };
+  }
   return { email: ctx.email, orgId: ctx.orgId };
 }
 

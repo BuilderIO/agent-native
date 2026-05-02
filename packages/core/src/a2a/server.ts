@@ -250,7 +250,7 @@ export function mountA2A(
       }
 
       try {
-        await processA2ATaskFromQueue(taskId, config);
+        await processA2ATaskFromQueue(taskId, config, event);
         return { ok: true };
       } catch (err: any) {
         console.error("[a2a] process-task failed:", err);
