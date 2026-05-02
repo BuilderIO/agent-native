@@ -488,7 +488,7 @@ export function SlashCommandMenu({
                 value={generatePrompt}
                 onChange={(e) => setGeneratePrompt(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                     e.preventDefault();
                     handleGenerateSubmit();
                   }
@@ -501,7 +501,11 @@ export function SlashCommandMenu({
                 rows={3}
               />
             </div>
-            <div className="flex items-center justify-end border-t border-border px-4 py-2.5">
+            <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
+              <span className="text-[11px] text-muted-foreground/70">
+                {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+                +Enter to submit
+              </span>
               <button
                 className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
                 onClick={handleGenerateSubmit}

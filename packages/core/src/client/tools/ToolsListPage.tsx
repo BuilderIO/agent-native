@@ -46,6 +46,7 @@ function CreateToolInput({
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
+      <p className="text-sm font-semibold text-foreground">New tool</p>
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
@@ -65,7 +66,8 @@ function CreateToolInput({
       />
       <div className="flex items-center justify-end gap-2">
         <span className="text-[11px] text-muted-foreground/75">
-          {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter
+          {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter to
+          submit
         </span>
         <button
           type="button"
@@ -156,7 +158,11 @@ export function ToolsListPage() {
                   e.preventDefault();
                   handleCreate();
                 }}
+                className="space-y-3"
               >
+                <p className="text-sm font-semibold text-foreground">
+                  New tool
+                </p>
                 <textarea
                   autoFocus
                   value={createPrompt}
@@ -170,10 +176,10 @@ export function ToolsListPage() {
                     }
                   }}
                 />
-                <div className="flex items-center justify-end gap-2 mt-3">
+                <div className="flex items-center justify-end gap-2">
                   <span className="text-[11px] text-muted-foreground/75">
                     {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                    +Enter
+                    +Enter to submit
                   </span>
                   <button
                     type="submit"

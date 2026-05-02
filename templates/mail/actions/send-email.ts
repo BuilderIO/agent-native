@@ -20,6 +20,10 @@ import {
 } from "../server/lib/email-tracking.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import type { UserSettings } from "../shared/types.js";
+import {
+  markdownPreviewSnippet,
+  normalizeMarkdownHardBreaks,
+} from "../shared/markdown.js";
 
 function escapeHtml(value: string): string {
   return value
@@ -48,7 +52,7 @@ function applyInlineMarkdown(text: string): string {
 }
 
 function markdownToHtml(markdown: string): string {
-  const normalized = markdown.replace(/\r\n/g, "\n").trim();
+  const normalized = normalizeMarkdownHardBreaks(markdown).trim();
   if (!normalized) return "<div></div>";
 
   const blocks = normalized.split(/\n{2,}/).map((block) => block.trim());
@@ -83,8 +87,7 @@ function markdownToHtml(markdown: string): string {
           .join("");
         return `<ol>${items}</ol>`;
       }
-      const cleanBlock = block.replace(/\\\n/g, "\n").replace(/\\$/gm, "");
-      return `<p>${applyInlineMarkdown(escapeHtml(cleanBlock)).replace(/\n/g, "<br />")}</p>`;
+      return `<p>${applyInlineMarkdown(escapeHtml(block)).replace(/\n/g, "<br />")}</p>`;
     })
     .join("");
 
@@ -92,10 +95,7 @@ function markdownToHtml(markdown: string): string {
 }
 
 function markdownToPlainText(markdown: string): string {
-  return markdown
-    .replace(/\r\n/g, "\n")
-    .replace(/\\\n/g, "\n")
-    .replace(/\\$/gm, "")
+  return normalizeMarkdownHardBreaks(markdown)
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1 ($2)")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
@@ -295,7 +295,7 @@ export default defineAction({
             }
           : {}),
         subject: args.subject,
-        snippet: args.body.slice(0, 120).replace(/\n/g, " "),
+        snippet: markdownPreviewSnippet(args.body),
         body: args.body,
         bodyHtml: bodyToHtml(args.body),
         date: new Date().toISOString(),

@@ -8,6 +8,7 @@ import {
 import { and, eq, inArray, lte } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { EmailMessage } from "@shared/types.js";
+import { markdownPreviewSnippet } from "@shared/markdown.js";
 import { db, schema } from "../db/index.js";
 import { isConnected, gmailToEmailMessage } from "./google-auth.js";
 import {
@@ -498,7 +499,7 @@ export async function getSyntheticEmailsForView(
             }
           : {}),
         subject: payload.subject,
-        snippet: payload.body.slice(0, 120).replace(/\n/g, " "),
+        snippet: markdownPreviewSnippet(payload.body),
         body: payload.body,
         date: new Date(job.runAt).toISOString(),
         isRead: true,
@@ -611,7 +612,7 @@ export async function sendScheduledEmail(
       return { name: email, email };
     }),
     subject,
-    snippet: body.slice(0, 120),
+    snippet: markdownPreviewSnippet(body),
     body,
     date: new Date().toISOString(),
     isRead: true,

@@ -25,6 +25,7 @@ export type {
   TextNote,
   QueuedAnnotation,
   ToolbarMode,
+  AgentOutput,
 } from "./types/index.js";
 
 // Storage (browser-safe only — FileStore is in @agent-native/pinpoint/server)

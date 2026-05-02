@@ -1,14 +1,14 @@
 ---
 name: event-management
 description: >-
-  How to create, search, and list calendar events via Google Calendar. Covers
-  the list-events, search-events, and create-event scripts, date format
-  patterns, and the --google flag.
+  How to create, search, list, update, and delete calendar events via Google
+  Calendar. Covers the list-events, search-events, create-event, update-event,
+  and delete-event scripts, date format patterns, and recurrence updates.
 ---
 
 # Event Management
 
-Create, search, and list calendar events. Events come from the Google Calendar API — they are NOT stored in the local SQL database.
+Create, search, list, update, and delete calendar events. Events come from the Google Calendar API — they are NOT stored in the local SQL database.
 
 ## Key Principle
 
@@ -72,18 +72,48 @@ Optional: `--description`, `--location`.
 
 The event is created directly on Google Calendar. Google Calendar must be connected first.
 
+### update-event
+
+Update an existing Google Calendar event. Use the event `id` from `list-events`, `search-events`, or `get-event`. If the event includes `accountEmail`, pass it through so multi-account calendars update the right connected account.
+
+```bash
+pnpm action update-event --id google-event-id --title "New title"
+pnpm action update-event --id google-event-id --start 2026-04-03T10:00:00 --end 2026-04-03T10:30:00
+```
+
+For recurring events, pass a Google Calendar RRULE in `--recurrence`. Example: to make a daily event weekdays only, use:
+
+```bash
+pnpm action update-event \
+  --id google-event-id \
+  --recurrence "RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR"
+```
+
+### delete-event
+
+Delete an event if the user is the organizer, or remove it from their own calendar with `--removeOnly true` when they are not. For recurring events, use `--scope single`, `--scope all`, or `--scope thisAndFollowing`.
+
+```bash
+pnpm action delete-event --id google-event-id --scope single
+pnpm action delete-event --id google-event-id --scope thisAndFollowing
+pnpm action delete-event --id google-event-id --removeOnly true
+```
+
 ## Date Patterns
 
 When the user says:
 
-| User says              | What to do                                          |
-| ---------------------- | --------------------------------------------------- |
-| "today's schedule"     | `list-events --from <today> --to <tomorrow>`        |
-| "this week"            | `list-events --from <monday> --to <next-monday>`    |
-| "next Tuesday"         | `list-events --from <tuesday> --to <wednesday>`     |
-| "meetings with Alice"  | `search-events --query "Alice"`                     |
-| "schedule a meeting"   | `create-event --title ... --start ... --end ...`    |
-| "what's coming up"     | `list-events` (uses default 30-day forward window)  |
+| User says                                      | What to do                                                                   |
+| ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| "today's schedule"                             | `list-events --from <today> --to <tomorrow>`                                 |
+| "this week"                                    | `list-events --from <monday> --to <next-monday>`                             |
+| "next Tuesday"                                 | `list-events --from <tuesday> --to <wednesday>`                              |
+| "meetings with Alice"                          | `search-events --query "Alice"`                                              |
+| "schedule a meeting"                           | `create-event --title ... --start ... --end ...`                             |
+| "move/rename/update a meeting"                 | `update-event --id ...`                                                      |
+| "delete/remove a meeting"                      | `delete-event --id ...`                                                      |
+| "remove weekends from a daily recurring event" | `update-event --id ... --recurrence "RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR"` |
+| "what's coming up"                             | `list-events` (uses default 30-day forward window)                           |
 
 ## Google Calendar Connection
 

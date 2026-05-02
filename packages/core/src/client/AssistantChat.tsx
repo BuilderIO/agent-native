@@ -36,6 +36,7 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createAgentChatAdapter } from "./agent-chat-adapter.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { getActiveRun } from "./active-run-state.js";
 import { type ContentPart, readSSEStreamRaw } from "./sse-event-processor.js";
 import { cn } from "./utils.js";
@@ -2025,6 +2026,8 @@ export interface AssistantChatProps {
   defaultModel?: string;
   /** Selected engine override for this conversation */
   selectedEngine?: string;
+  /** Selected reasoning effort override for this conversation */
+  selectedEffort?: ReasoningEffort;
   /** Available engine/model list for the model picker */
   availableModels?: Array<{
     engine: string;
@@ -2034,6 +2037,8 @@ export interface AssistantChatProps {
   }>;
   /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
+  /** Callback when user picks a reasoning effort from the picker */
+  onEffortChange?: (effort: ReasoningEffort) => void;
   /** Callback when user clicks "Fork Chat" in the message actions menu */
   onForkChat?: () => void;
 }
@@ -2097,8 +2102,10 @@ const AssistantChatInner = forwardRef<
     selectedModel,
     defaultModel,
     selectedEngine,
+    selectedEffort,
     availableModels,
     onModelChange,
+    onEffortChange,
     onForkChat,
   },
   ref,
@@ -3142,8 +3149,10 @@ const AssistantChatInner = forwardRef<
                   execMode={execMode}
                   onExecModeChange={onExecModeChange}
                   selectedModel={selectedModel ?? defaultModel}
+                  selectedEffort={selectedEffort}
                   availableModels={availableModels}
                   onModelChange={onModelChange}
+                  onEffortChange={onEffortChange}
                   draftScope={threadId || tabId}
                   extraActionButton={
                     showRunningInUI ? (
@@ -3216,6 +3225,8 @@ export const AssistantChat = forwardRef<
   modelRef.current = props.selectedModel;
   const engineRef = useRef<string | undefined>(props.selectedEngine);
   engineRef.current = props.selectedEngine;
+  const effortRef = useRef<ReasoningEffort | undefined>(props.selectedEffort);
+  effortRef.current = props.selectedEffort;
   const execModeRef = useRef<"build" | "plan" | undefined>(props.execMode);
   execModeRef.current = props.execMode;
 
@@ -3227,6 +3238,7 @@ export const AssistantChat = forwardRef<
         threadId,
         modelRef,
         engineRef,
+        effortRef,
         execModeRef,
       }),
     [apiUrl, tabId, threadId],

@@ -182,7 +182,7 @@ export function FlowBar() {
 
         {state === "processing" ? (
           <div className="flow-bar-processing">
-            <span className="flow-bar-shimmer">Polishing...</span>
+            <span className="flow-bar-shimmer">Cleaning up...</span>
           </div>
         ) : null}
 

@@ -29,6 +29,12 @@ export interface QueuedAnnotation {
   timestamp: string;
 }
 
+export interface AgentOutput {
+  message: string;
+  context: string;
+  submit?: boolean;
+}
+
 // Toolbar mode
 export type ToolbarMode = "select" | "draw" | "queue";
 
@@ -176,6 +182,8 @@ export interface PinpointConfig {
   autoSubmit?: boolean;
   /** Clear pins after sending */
   clearOnSend?: boolean;
+  /** Custom bridge for sending annotations to an agent chat */
+  sendToAgent?: (output: AgentOutput) => void | Promise<void>;
   /** Block page interactions during annotation */
   blockInteractions?: boolean;
   /** Freeze JS timers (opt-in, disabled by default) */

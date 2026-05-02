@@ -11,6 +11,7 @@ export interface BuilderTranscribeOptions {
   minSpeakers?: number;
   maxSpeakers?: number;
   language?: string;
+  instructions?: string;
 }
 
 export interface BuilderTranscribeResult {
@@ -50,6 +51,7 @@ export async function transcribeWithBuilder(
   if (opts.maxSpeakers != null)
     params.set("maxSpeakers", String(opts.maxSpeakers));
   if (opts.language) params.set("language", opts.language);
+  if (opts.instructions) params.set("instructions", opts.instructions);
 
   const url = `${getBuilderProxyOrigin()}/agent-native/transcribe-audio?${params.toString()}`;
 

@@ -784,7 +784,11 @@ function AddDataSourceCTA() {
               }
             }}
           />
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-2">
+            <span className="text-[11px] text-muted-foreground/70">
+              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+              +Enter to submit
+            </span>
             <Button
               type="submit"
               size="sm"

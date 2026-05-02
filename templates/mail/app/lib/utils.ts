@@ -1,4 +1,5 @@
 export { cn } from "@agent-native/core";
+import { normalizeMarkdownHardBreaks } from "@shared/markdown";
 import {
   formatDistanceToNow,
   format,
@@ -120,7 +121,8 @@ export function markdownToHtml(markdown: string): string {
         return `<ol>${items}</ol>`;
       }
 
-      return `<p>${applyInlineMarkdown(escapeHtml(block)).replace(/\n/g, "<br />")}</p>`;
+      const cleanBlock = normalizeMarkdownHardBreaks(block);
+      return `<p>${applyInlineMarkdown(escapeHtml(cleanBlock)).replace(/\n/g, "<br />")}</p>`;
     })
     .join("");
 

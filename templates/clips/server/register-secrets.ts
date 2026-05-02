@@ -10,11 +10,12 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 // Native web/macOS speech is the primary transcript source. These cloud
 // providers are optional fallbacks when native transcription is unavailable.
 //
-// We support two providers (either one unlocks transcription):
-//   1. Groq `whisper-large-v3-turbo` — preferred. Same Whisper model family,
+// We support three BYOK providers:
+//   1. Gemini — recommended for fast LLM cleanup in the desktop tray.
+//   2. Groq `whisper-large-v3-turbo` — preferred Whisper fallback. Same Whisper model family,
 //      ~10x faster than OpenAI's hosted whisper-1, ~$0.04/hour of audio,
 //      OpenAI-compatible API.
-//   2. OpenAI `whisper-1` — fallback. Fine, just slower.
+//   3. OpenAI `whisper-1` — fallback. Fine, just slower.
 //
 // Neither is strictly required — videos still upload and play back without
 // cloud transcription.
@@ -25,6 +26,41 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 // side-effect module that's imported at the top of `server/plugins/agent-chat.ts`
 // matches the mail template's `import "../onboarding.js"` pattern and
 // guarantees the registerRequiredSecret() call runs at boot.
+
+registerRequiredSecret({
+  key: "GEMINI_API_KEY",
+  label: "Gemini API Key (recommended)",
+  description:
+    "Fast LLM-backed transcription cleanup via Gemini Flash Lite. Recommended for Clips voice dictation when you want to bring your own key.",
+  docsUrl: "https://aistudio.google.com/apikey",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+  validator: async (value) => {
+    if (!value) return true;
+    if (typeof value !== "string" || value.length < 20) {
+      return { ok: false, error: "Key looks too short." };
+    }
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(value)}`,
+      );
+      if (res.ok) return true;
+      if (res.status === 400 || res.status === 401 || res.status === 403) {
+        return {
+          ok: false,
+          error: `Gemini rejected this key (${res.status}).`,
+        };
+      }
+      return { ok: false, error: `Gemini returned ${res.status}.` };
+    } catch (err: any) {
+      return {
+        ok: false,
+        error: `Could not reach Gemini: ${err?.message ?? err}`,
+      };
+    }
+  },
+});
 
 registerRequiredSecret({
   key: "GROQ_API_KEY",

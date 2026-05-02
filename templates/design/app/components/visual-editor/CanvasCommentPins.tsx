@@ -234,6 +234,9 @@ export function CanvasCommentPins({
                 data-pin-popover
                 className="absolute left-3 top-1 w-72 rounded-lg border border-border bg-popover shadow-xl p-2"
               >
+                <p className="mb-2 text-xs font-semibold text-foreground">
+                  Edit design
+                </p>
                 <Textarea
                   autoFocus
                   value={pin.draft || ""}
@@ -258,7 +261,8 @@ export function CanvasCommentPins({
                 )}
                 <div className="flex items-center justify-between mt-2">
                   <span className="text-[10px] text-muted-foreground">
-                    ⌘↵ to send
+                    {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+                    +Enter to submit
                   </span>
                   <div className="flex gap-1">
                     <Button

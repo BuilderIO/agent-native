@@ -507,9 +507,14 @@ export async function createEvent(
 export async function updateEvent(
   googleEventId: string,
   event: Partial<CalendarEvent>,
+  options?: { sendUpdates?: "all" | "none" },
 ): Promise<void> {
   const client = await getClient(event.accountEmail);
-  if (!client) return;
+  if (!client) {
+    throw new Error(
+      `Google Calendar account not connected: ${event.accountEmail ?? "selected account"}`,
+    );
+  }
 
   const requestBody: any = {};
   if (event.title !== undefined) requestBody.summary = event.title;
@@ -533,12 +538,16 @@ export async function updateEvent(
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
     }));
   }
+  if (event.recurrence !== undefined) {
+    requestBody.recurrence = event.recurrence;
+  }
 
   await calendarPatchEvent(
     client.accessToken,
     "primary",
     googleEventId,
     requestBody,
+    options?.sendUpdates,
   );
 }
 
@@ -551,7 +560,11 @@ export async function deleteEvent(
   },
 ): Promise<void> {
   const client = await getClient(accountEmail);
-  if (!client) return;
+  if (!client) {
+    throw new Error(
+      `Google Calendar account not connected: ${accountEmail ?? "selected account"}`,
+    );
+  }
 
   const scope = options?.scope || "single";
   const sendUpdates = options?.sendUpdates;
@@ -653,7 +666,9 @@ export async function removeEventFromCalendar(
   },
 ): Promise<void> {
   const client = await getClient(accountEmail);
-  if (!client) return;
+  if (!client) {
+    throw new Error(`Google Calendar account not connected: ${accountEmail}`);
+  }
 
   const scope = options?.scope || "single";
   const sendUpdates = options?.sendUpdates;
@@ -732,7 +747,9 @@ export async function rsvpEvent(
   sendUpdates?: string,
 ): Promise<void> {
   const client = await getClient(accountEmail);
-  if (!client) return;
+  if (!client) {
+    throw new Error(`Google Calendar account not connected: ${accountEmail}`);
+  }
 
   if (scope === "single") {
     await rsvpSingleEvent(

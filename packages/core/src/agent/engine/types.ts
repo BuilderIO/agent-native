@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+
 /**
  * Pluggable Agent Engine abstraction.
  *
@@ -126,6 +128,13 @@ export type EngineEvent =
   | { type: "thinking-delta"; text: string; signature?: string }
   | { type: "tool-call"; id: string; name: string; input: unknown }
   | {
+      type: "tool-call-error";
+      id: string;
+      name: string;
+      input: unknown;
+      error: string;
+    }
+  | {
       type: "usage";
       inputTokens: number;
       outputTokens: number;
@@ -193,6 +202,7 @@ export interface EngineStreamOptions {
   abortSignal: AbortSignal;
   maxOutputTokens?: number;
   temperature?: number;
+  reasoningEffort?: ReasoningEffort;
   /**
    * Provider-specific options passed opaquely.
    * Engines forward options they understand and ignore unknown keys.

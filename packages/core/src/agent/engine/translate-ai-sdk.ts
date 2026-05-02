@@ -198,8 +198,24 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
       });
       break;
 
-    case "tool-result":
+    case "tool-input-error":
     case "tool-error":
+      events.push({
+        type: "tool-call-error",
+        id: part.toolCallId,
+        name: part.toolName,
+        input: part.input ?? {},
+        error:
+          part.errorText ??
+          (part.error instanceof Error
+            ? part.error.message
+            : typeof part.error === "string"
+              ? part.error
+              : JSON.stringify(part.error ?? "Invalid tool input")),
+      });
+      break;
+
+    case "tool-result":
       // Only fired when the SDK itself executes a tool. Our runAgentLoop
       // dispatches tools on the outside, so these don't appear in our flow.
       break;
@@ -304,6 +320,13 @@ export function aiSdkStepToAssistantContent(step: any): EngineContentPart[] {
         id: part.toolCallId,
         name: part.toolName,
         input: part.input,
+      });
+    } else if (part.type === "tool-input-error" || part.type === "tool-error") {
+      parts.push({
+        type: "tool-call",
+        id: part.toolCallId,
+        name: part.toolName,
+        input: part.input ?? {},
       });
     }
   }

@@ -137,6 +137,11 @@ export function NewWorkspaceAppFlow({
   );
 
   const canSubmit = prompt.trim().length > 0 && slugify(appName).length > 0;
+  const submitShortcut =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent)
+      ? "⌘"
+      : "Ctrl";
 
   function buildMessage(): string {
     const safeAppName = slugify(appName) || titleFromPrompt(prompt);
@@ -257,6 +262,12 @@ export function NewWorkspaceAppFlow({
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    submit();
+                  }
+                }}
                 placeholder="Describe the app your teammate should be able to use..."
                 rows={6}
                 className="min-h-36 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring"
@@ -295,19 +306,24 @@ export function NewWorkspaceAppFlow({
               </label>
             </div>
 
-            <button
-              type="button"
-              onClick={submit}
-              disabled={!canSubmit || isSubmitting}
-              className="inline-flex h-10 items-center gap-2 rounded-md bg-foreground px-4 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {isSubmitting ? (
-                <IconLoader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <IconCode className="h-4 w-4" />
-              )}
-              Create app
-            </button>
+            <div className="flex items-center justify-end gap-3">
+              <span className="text-[11px] text-muted-foreground/75">
+                {submitShortcut}+Enter to submit
+              </span>
+              <button
+                type="button"
+                onClick={submit}
+                disabled={!canSubmit || isSubmitting}
+                className="inline-flex h-10 items-center gap-2 rounded-md bg-foreground px-4 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {isSubmitting ? (
+                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <IconCode className="h-4 w-4" />
+                )}
+                Create app
+              </button>
+            </div>
 
             {statusMessage ? (
               <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">

@@ -34,17 +34,21 @@ feature is available in every template that renders `TiptapComposer`.
 
 | Provider         | Backend                                                         | Quality | Needs key                    |
 | ---------------- | --------------------------------------------------------------- | ------- | ---------------------------- |
-| `builder-gemini` | `POST /_agent-native/transcribe-voice` → Builder Gemini Flash-Lite | High    | Builder.io account connected |
-| `builder`        | `POST /_agent-native/transcribe-voice` → Builder proxy          | High    | Builder.io account connected |
+| `builder-gemini` | Native/browser live transcript → Builder Gemini Flash-Lite cleanup (desktop) or Builder audio transcription (web fallback) | High | Builder.io account connected |
+| `builder`        | Legacy alias; normalize to `builder-gemini` in user-facing UI    | High    | Builder.io account connected |
 | `gemini`         | `POST /_agent-native/transcribe-voice` → Google Gemini BYOK     | High    | `GEMINI_API_KEY`             |
 | `groq`           | `POST /_agent-native/transcribe-voice` → Groq Whisper           | High    | `GROQ_API_KEY`               |
 | `openai`         | `POST /_agent-native/transcribe-voice` → OpenAI Whisper         | High    | `OPENAI_API_KEY`             |
 | `browser`        | Web Speech API (`webkitSpeechRecognition`)                      | Low     | No                           |
 
 Selection is persisted in `application_state["voice-transcription-prefs"]`
-as `{ provider: "builder-gemini" | "builder" | "gemini" | "groq" | "openai" | "browser" }`.
+as `{ provider: "builder-gemini" | "builder" | "gemini" | "groq" | "openai" | "browser", instructions?: string }`.
 When no preference is saved, Builder-connected users default to
 `builder-gemini`; everyone else defaults to `browser` in the web composer.
+The Clips desktop tray presents the simpler choices **On-device**, **Builder.io**,
+and **Add your own key**; old stored `builder` values are treated as
+`builder-gemini`, and old `auto` values are treated as the best native option
+for the current OS.
 
 ## Where the pieces live
 
@@ -64,8 +68,8 @@ When no preference is saved, Builder-connected users default to
 
 `transcribe-voice.ts` routes based on the user's provider preference:
 
-1. If `builder-gemini` and `resolveHasBuilderPrivateKey()` → calls `transcribeWithBuilder({ model: "gemini-3-1-flash-lite" })` via Builder proxy.
-2. If `builder` and `resolveHasBuilderPrivateKey()` → calls `transcribeWithBuilder()` via Builder proxy.
+1. If `builder-gemini` and `resolveHasBuilderPrivateKey()` → calls `transcribeWithBuilder({ model: "gemini-3-1-flash-lite" })` via Builder proxy, or uses Builder Gemini Flash-Lite to clean up a live native/browser transcript when the desktop client sends text instead of audio.
+2. If `builder` and `resolveHasBuilderPrivateKey()` → legacy alias; prefer `builder-gemini`.
 3. If `gemini` → resolves `GEMINI_API_KEY` and calls the direct Google Gemini path.
 4. If `groq` → resolves `GROQ_API_KEY` and calls Groq's Whisper-compatible endpoint.
 5. If `openai` → resolves `OPENAI_API_KEY`:
@@ -74,6 +78,10 @@ When no preference is saved, Builder-connected users default to
 
 In auto mode / no preference, the route tries Builder Gemini Flash-Lite first
 when Builder is connected, then Gemini BYOK, Groq, and OpenAI.
+When a request includes `instructions`, pass them through to the selected LLM
+provider. Gemini uses them in the transcription prompt, Builder receives them
+as transcription/cleanup instructions, and Whisper-compatible providers receive
+them as provider prompt/context.
 
 Never hardcode a shared key. Never log the value. Never echo it back to the
 client.

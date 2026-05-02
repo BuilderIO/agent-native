@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getSetting, putSetting } from "@agent-native/core/settings";
-import { runBuilderAgent } from "@agent-native/core/server";
+import {
+  getBuilderBranchProjectId,
+  runBuilderAgent,
+} from "@agent-native/core/server";
 import {
   currentOrgId,
   currentOwnerEmail,
@@ -21,7 +24,7 @@ export interface WorkspaceAppSummary {
 
 export interface AppCreationSettings {
   builderProjectId: string | null;
-  builderProjectIdSource: "env" | "dispatch" | "unset";
+  builderProjectIdSource: "env" | "dispatch" | "default" | "unset";
   envBuilderProjectId: string | null;
   savedBuilderProjectId: string | null;
   builderBranchingEnabled: boolean;
@@ -122,17 +125,21 @@ export async function getAppCreationSettings(): Promise<AppCreationSettings> {
   const builderProjectId = envBuilderProjectId || savedBuilderProjectId;
   const enableBuilder =
     process.env.ENABLE_BUILDER === "true" || process.env.ENABLE_BUILDER === "1";
+  const effectiveBuilderProjectId =
+    builderProjectId || (enableBuilder ? getBuilderBranchProjectId() : null);
 
   return {
-    builderProjectId,
+    builderProjectId: effectiveBuilderProjectId,
     builderProjectIdSource: envBuilderProjectId
       ? "env"
       : savedBuilderProjectId
         ? "dispatch"
-        : "unset",
+        : effectiveBuilderProjectId
+          ? "default"
+          : "unset",
     envBuilderProjectId,
     savedBuilderProjectId,
-    builderBranchingEnabled: !!(builderProjectId || enableBuilder),
+    builderBranchingEnabled: !!effectiveBuilderProjectId,
   };
 }
 
@@ -245,11 +252,28 @@ export async function startWorkspaceAppCreation(input: {
     };
   }
 
-  const result = await runBuilderAgent({
-    prompt,
-    projectId: settings.builderProjectId,
-    userEmail: currentOwnerEmail(),
-  });
+  let result;
+  try {
+    result = await runBuilderAgent({
+      prompt,
+      projectId: settings.builderProjectId,
+      userEmail: currentOwnerEmail(),
+    });
+  } catch (err) {
+    const detail =
+      err instanceof Error && err.message
+        ? err.message
+        : "Builder could not start the app branch";
+    return {
+      mode: "builder-unavailable",
+      appId: built.appId,
+      projectId: settings.builderProjectId,
+      message:
+        `Builder app creation is configured for project ${settings.builderProjectId}, ` +
+        `but it could not start yet: ${detail}. Connect Builder for this user, ` +
+        `link the messaging identity to that user, or configure deployment-managed Builder credentials for this workspace.`,
+    };
+  }
 
   if (input.secretIds?.length) {
     await grantSecretsToApp(input.secretIds, built.appId);

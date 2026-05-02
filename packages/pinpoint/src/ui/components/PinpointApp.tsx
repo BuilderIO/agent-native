@@ -16,6 +16,7 @@ import type {
   TextNote,
   ToolbarMode,
   QueuedAnnotation,
+  AgentOutput,
 } from "../../types/index.js";
 import { ElementPicker } from "../../detection/element-picker.js";
 import { DragSelect } from "../../detection/drag-select.js";
@@ -112,6 +113,27 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
   const [compactPopup, setCompactPopup] = createSignal(
     props.config.compactPopup ?? true,
   );
+
+  async function deliverToAgent(output: AgentOutput) {
+    const agentOutput = {
+      ...output,
+      submit: output.submit ?? autoSubmit(),
+    };
+
+    if (props.config.sendToAgent) {
+      await props.config.sendToAgent(agentOutput);
+      return;
+    }
+
+    try {
+      const { sendToAgentChat } = await import("@agent-native/core/client");
+      sendToAgentChat(agentOutput);
+    } catch {
+      await navigator.clipboard.writeText(
+        [agentOutput.message, agentOutput.context].filter(Boolean).join("\n\n"),
+      );
+    }
+  }
 
   // Storage adapter
   const storage: PinStorage =
@@ -442,12 +464,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
       await import("../../output/agent-context.js");
     const { message, context } = formatQueueForAgent(items, outputFormat());
 
-    try {
-      const { sendToAgentChat } = await import("@agent-native/core/client");
-      sendToAgentChat({ message, context, submit: autoSubmit() });
-    } catch {
-      await navigator.clipboard.writeText(`${message}\n\n${context}`);
-    }
+    await deliverToAgent({ message, context });
 
     setQueue([]);
 
@@ -484,12 +501,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
       await import("../../output/agent-context.js");
     const { message, context } = formatPinsForAgent(selected, outputFormat());
 
-    try {
-      const { sendToAgentChat } = await import("@agent-native/core/client");
-      sendToAgentChat({ message, context, submit: autoSubmit() });
-    } catch {
-      await navigator.clipboard.writeText(`${message}\n\n${context}`);
-    }
+    await deliverToAgent({ message, context });
 
     setSelectedPinIds(new Set<string>());
   }
@@ -585,16 +597,10 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
       await import("../../output/agent-context.js");
     const richMessage = `Please fix: ${formatRichPinContext(pin)}`;
 
-    try {
-      const { sendToAgentChat } = await import("@agent-native/core/client");
-      sendToAgentChat({
-        message: richMessage,
-        context: "",
-        submit: autoSubmit(),
-      });
-    } catch {
-      await navigator.clipboard.writeText(richMessage);
-    }
+    await deliverToAgent({
+      message: richMessage,
+      context: "",
+    });
   }
 
   function openEditPopup(pin: Pin) {
@@ -632,12 +638,7 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
       await import("../../output/agent-context.js");
     const { message, context } = formatPinsForAgent(pins(), outputFormat());
 
-    try {
-      const { sendToAgentChat } = await import("@agent-native/core/client");
-      sendToAgentChat({ message, context, submit: autoSubmit() });
-    } catch {
-      await navigator.clipboard.writeText(`${message}\n\n${context}`);
-    }
+    await deliverToAgent({ message, context });
 
     if (clearOnSend()) {
       const pageUrl = window.location.pathname;
@@ -823,18 +824,11 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
         <PromptMode
           element={selectedElement()!}
           onSend={async (instruction) => {
-            try {
-              const { sendToAgentChat } =
-                await import("@agent-native/core/client");
-              const context = buildElementContext(selectedElement()!);
-              sendToAgentChat({
-                message: instruction,
-                context: JSON.stringify(context, null, 2),
-                submit: autoSubmit(),
-              });
-            } catch {
-              // Fallback
-            }
+            const context = buildElementContext(selectedElement()!);
+            await deliverToAgent({
+              message: instruction,
+              context: JSON.stringify(context, null, 2),
+            });
             setShowPrompt(false);
           }}
           onCancel={() => setShowPrompt(false)}

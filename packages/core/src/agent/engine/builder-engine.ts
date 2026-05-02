@@ -28,6 +28,10 @@ import {
   resolveBuilderCredential,
   getBuilderGatewayBaseUrl,
 } from "../../server/credential-provider.js";
+import {
+  normalizeReasoningEffortForModel,
+  type ReasoningEffort,
+} from "../../shared/reasoning-effort.js";
 
 export const BUILDER_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -66,7 +70,7 @@ export const BUILDER_DEFAULT_MODEL = DEFAULT_MODEL;
 
 /**
  * Bucket an Anthropic `thinking.budgetTokens` value into the gateway's
- * three-level `reasoning_effort` enum (low / medium / high).
+ * legacy three-level `reasoning_effort` enum.
  *
  * The thresholds are chosen to align with typical Anthropic extended-thinking
  * budgets we see in the wild:
@@ -79,7 +83,7 @@ export const BUILDER_DEFAULT_MODEL = DEFAULT_MODEL;
  * `budgetTokens` map to "high" via the default. If the gateway later
  * exposes more granular knobs or different thresholds, revisit this map.
  */
-function mapReasoningEffort(budgetTokens: number): "low" | "medium" | "high" {
+function mapReasoningEffort(budgetTokens: number): ReasoningEffort {
   if (budgetTokens < 2000) return "low";
   if (budgetTokens < 8000) return "medium";
   return "high";
@@ -131,6 +135,15 @@ class BuilderEngine implements AgentEngine {
     const tools = engineToolsToAnthropic(opts.tools);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
+    const explicitReasoningEffort = normalizeReasoningEffortForModel(
+      opts.model,
+      opts.reasoningEffort,
+    );
+    const reasoningEffort =
+      explicitReasoningEffort ??
+      (typeof thinkingBudget === "number"
+        ? mapReasoningEffort(thinkingBudget)
+        : undefined);
 
     const body: Record<string, unknown> = {
       model: opts.model,
@@ -140,9 +153,7 @@ class BuilderEngine implements AgentEngine {
       ...(opts.maxOutputTokens !== undefined
         ? { max_tokens: opts.maxOutputTokens }
         : {}),
-      ...(typeof thinkingBudget === "number"
-        ? { reasoning_effort: mapReasoningEffort(thinkingBudget) }
-        : {}),
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     };
 
     const gatewayBaseUrl = getBuilderGatewayBaseUrl();

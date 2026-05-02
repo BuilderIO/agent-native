@@ -122,8 +122,7 @@ export function NewCompositionPopover({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Submit on Enter (without Shift)
-    if (e.key === "Enter" && !e.shiftKey) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       submitChat();
     }
@@ -208,7 +207,7 @@ export function NewCompositionPopover({
             {/* Header */}
             <div>
               <h3 className="text-sm font-semibold text-foreground">
-                New Composition
+                New composition
               </h3>
               <p className="text-xs text-muted-foreground mt-1">
                 Describe the video you want to create
@@ -225,9 +224,6 @@ export function NewCompositionPopover({
                 placeholder="Describe the video you want to create..."
                 className="min-h-[120px] max-h-[200px] text-sm resize-none"
               />
-              <p className="text-[10px] text-muted-foreground/60">
-                Press Enter to submit or Shift+Enter for new line
-              </p>
             </div>
 
             {/* Attachments */}
@@ -277,16 +273,21 @@ export function NewCompositionPopover({
                 </Button>
               </div>
 
-              {/* Submit button */}
-              <Button
-                size="sm"
-                onClick={submitChat}
-                disabled={!prompt.trim()}
-                aria-label="Submit"
-                className="h-8 text-xs"
-              >
-                <IconArrowUp className="w-3.5 h-3.5" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-muted-foreground/70">
+                  {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+                  +Enter to submit
+                </span>
+                <Button
+                  size="sm"
+                  onClick={submitChat}
+                  disabled={!prompt.trim()}
+                  aria-label="Submit"
+                  className="h-8 text-xs"
+                >
+                  <IconArrowUp className="w-3.5 h-3.5" />
+                </Button>
+              </div>
             </div>
           </div>
         </PopoverContent>

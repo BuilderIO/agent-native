@@ -10,10 +10,10 @@ export type VoiceMode = "push-to-talk" | "toggle";
 
 /**
  * Which transcription backend to use. The desktop app surfaces this in
- * Settings → Voice transcription. "auto" picks the best server-side
- * provider that's actually configured (Builder Gemini 3.1 Flash-Lite →
- * Gemini BYOK → Groq → OpenAI), falling through to macOS native dictation
- * or the browser's Web Speech API if nothing is set up.
+ * Settings → Voice transcription as three modes: native on-device,
+ * Builder.io cleanup, or bring-your-own-key cleanup. Legacy "auto" still
+ * picks a configured server-side provider, falling through to macOS native
+ * dictation or the browser's Web Speech API if nothing is set up.
  */
 export type VoiceProvider =
   | "auto"
@@ -53,6 +53,7 @@ interface DesktopVoiceDictationOptions {
   shortcut: VoiceShortcutPreference;
   mode: VoiceMode;
   provider: VoiceProvider;
+  instructions?: string;
 }
 
 interface VoiceShortcutEvent {
@@ -100,6 +101,10 @@ interface VoiceSession {
   // Lets the install-time `voice:final-transcript` listener trigger
   // the lingered finalize without it having to know the timer state.
   onNativeFinalize?: (() => void) | null;
+  // Optional LLM cleanup provider. Native/browser sessions still provide
+  // real-time transcript text; this provider does a short cleanup pass
+  // after stop and before paste.
+  cleanupProvider?: ServerVoiceProvider | null;
 }
 
 // Minimal type shim for webkitSpeechRecognition — TypeScript's lib.dom
@@ -331,6 +336,7 @@ async function transcribe(
   mimeType: string,
   providerPref: ServerVoiceProvider,
   controller: AbortController,
+  instructions?: string,
 ): Promise<string> {
   const audioBlob = new Blob(chunks, { type: mimeType });
   const form = new FormData();
@@ -344,10 +350,14 @@ async function transcribe(
   // server default (Builder Gemini → Gemini → Groq → OpenAI fallback chain),
   // anything else pins to that one provider with no fallback.
   form.append("provider", providerPref);
+  const trimmedInstructions = instructions?.trim();
+  if (trimmedInstructions) {
+    form.append("instructions", trimmedInstructions);
+  }
   // Aggressive timeout — short clips should transcribe in well under
   // 2 seconds with Gemini Flash Lite or Whisper. If the server hasn't
   // come back in 8s it's hanging; abort and let the bar dismiss with an
-  // error rather than leaving "Polishing..." up for 45 seconds.
+  // error rather than leaving "Cleaning up..." up for 45 seconds.
   const timeout = window.setTimeout(() => controller.abort(), 8_000);
   try {
     const res = await fetch(
@@ -376,6 +386,45 @@ async function transcribe(
   }
 }
 
+async function cleanupTranscript(
+  serverUrl: string,
+  text: string,
+  providerPref: ServerVoiceProvider,
+  controller: AbortController,
+  instructions?: string,
+): Promise<string> {
+  const form = new FormData();
+  form.append("text", text);
+  form.append("provider", providerPref);
+  const trimmedInstructions = instructions?.trim();
+  if (trimmedInstructions) {
+    form.append("instructions", trimmedInstructions);
+  }
+
+  const timeout = window.setTimeout(() => controller.abort(), 8_000);
+  try {
+    const res = await fetch(
+      `${serverUrl.replace(/\/+$/, "")}/_agent-native/transcribe-voice`,
+      {
+        method: "POST",
+        body: form,
+        credentials: "include",
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) {
+      const body = await res
+        .json()
+        .catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(body?.error || `Cleanup failed (${res.status})`);
+    }
+    const data = (await res.json()) as { text?: string };
+    return (data.text ?? "").trim();
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 export function installDesktopVoiceDictation(
   options: DesktopVoiceDictationOptions,
 ): () => void {
@@ -393,6 +442,7 @@ export function installDesktopVoiceDictation(
   let shortcut = options.shortcut;
   let mode = options.mode;
   let provider = options.provider;
+  let instructions = options.instructions ?? "";
   let startInFlight = false;
   let stopRequestedBeforeReady = false;
   // Cached provider availability fetched once at install time. Used by
@@ -468,8 +518,8 @@ export function installDesktopVoiceDictation(
    * configured, falling through to browser if nothing is set up.
    */
   const resolveProvider = async (): Promise<
-    | { kind: "browser" }
-    | { kind: "native" }
+    | { kind: "browser"; cleanupProvider?: ServerVoiceProvider }
+    | { kind: "native"; cleanupProvider?: ServerVoiceProvider }
     | {
         kind: "server";
         providerPref: ServerVoiceProvider;
@@ -478,10 +528,18 @@ export function installDesktopVoiceDictation(
     if (provider === "browser") return { kind: "browser" };
     if (provider === "macos-native") return { kind: "native" };
     if (provider !== "auto") {
-      // User picked a specific server provider — honor it even if the
-      // status check says it's not configured. The server will return a
-      // clear error which surfaces the misconfiguration.
-      return { kind: "server", providerPref: provider };
+      const cleanupProvider =
+        provider === "builder" ? "builder-gemini" : provider;
+      if (typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)) {
+        return { kind: "native", cleanupProvider };
+      }
+      if (getSpeechRecognitionCtor()) {
+        return { kind: "browser", cleanupProvider };
+      }
+      // No live local recognizer is available, so fall back to the older
+      // audio-upload transcription path. The server will surface a clear
+      // provider/key error if this provider is unavailable.
+      return { kind: "server", providerPref: cleanupProvider };
     }
     const status = await refreshProviderStatus();
     if (status.builder)
@@ -542,18 +600,57 @@ export function installDesktopVoiceDictation(
 
     const resolved = await resolveProvider();
     if (resolved.kind === "browser") {
-      await startBrowser();
+      await startBrowser(resolved.cleanupProvider);
     } else if (resolved.kind === "native") {
-      await startNative();
+      await startNative(resolved.cleanupProvider);
     } else {
       await startServer(resolved.providerPref);
     }
   };
 
+  const completeText = async (
+    rawText: string,
+    target: VoiceSession,
+  ): Promise<string> => {
+    const original = rawText.trim();
+    if (!original) return "";
+    let text = original;
+    if (target.cleanupProvider) {
+      setFlowState("processing");
+      const controller = new AbortController();
+      target.transcribeAbort = controller;
+      try {
+        text =
+          (await cleanupTranscript(
+            serverUrl,
+            original,
+            target.cleanupProvider,
+            controller,
+            instructions,
+          )) || original;
+      } catch (err) {
+        if ((err as { name?: string })?.name !== "AbortError") {
+          console.warn(
+            "[voice-dictation] cleanup failed, pasting raw transcript:",
+            (err as Error)?.message ?? err,
+          );
+        }
+        text = original;
+      } finally {
+        target.transcribeAbort = null;
+      }
+    }
+    if (target.cancelled || disposed) return "";
+    await invoke("complete_voice_dictation", { text });
+    emit("voice:partial-transcript", { text }).catch(() => {});
+    if (target.cleanupProvider) setFlowState("idle");
+    return text;
+  };
+
   /**
    * Server-path: capture audio with MediaRecorder, POST it to the
    * transcribe-voice endpoint on Fn-up, paste the response text. The
-   * "Polishing..." processing state is shown while we wait for the
+   * "Cleaning up..." processing state is shown while we wait for the
    * remote transcription.
    */
   const startServer = async (providerPref: ServerVoiceProvider) => {
@@ -611,6 +708,7 @@ export function installDesktopVoiceDictation(
         stopping: false,
         transcribeAbort: null,
         cancelled: false,
+        cleanupProvider: null,
       };
       session = next;
       startInFlight = false;
@@ -635,6 +733,7 @@ export function installDesktopVoiceDictation(
             next.mimeType,
             providerPref,
             controller,
+            instructions,
           );
           if (next.cancelled) {
             cleanup(next);
@@ -651,7 +750,7 @@ export function installDesktopVoiceDictation(
               "[voice-dictation] transcribe returned empty text — nothing to paste",
             );
           }
-          // Dismiss the bar immediately — no "Polishing..." lag after the
+          // Dismiss the bar immediately — no "Cleaning up..." lag after the
           // text already landed in the focused field.
           if (!disposed) cleanup(next);
         } catch (err) {
@@ -707,7 +806,7 @@ export function installDesktopVoiceDictation(
    * No `getUserMedia()` here — the audio engine handles the mic on the Rust
    * side. The synthetic meter still drives the flow-bar's waveform.
    */
-  const startNative = async () => {
+  const startNative = async (cleanupProvider?: ServerVoiceProvider) => {
     console.log("[voice-dictation] startNative: invoke native_speech_start");
     try {
       startInFlight = true;
@@ -745,6 +844,7 @@ export function installDesktopVoiceDictation(
         stopping: false,
         transcribeAbort: null,
         cancelled: false,
+        cleanupProvider: cleanupProvider ?? null,
       };
       session = next;
       startInFlight = false;
@@ -779,10 +879,10 @@ export function installDesktopVoiceDictation(
   /**
    * Browser-path: real-time on-device transcription via WKWebView's
    * webkitSpeechRecognition. No server round-trip — text is ready the
-   * moment we stop the recognizer, so we paste immediately and skip
-   * the "Polishing..." state entirely.
+   * moment we stop the recognizer, so we paste immediately unless an LLM
+   * cleanup provider is selected.
    */
-  const startBrowser = async () => {
+  const startBrowser = async (cleanupProvider?: ServerVoiceProvider) => {
     console.log("[voice-dictation] startBrowser: opening mic + recognition");
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) {
@@ -827,6 +927,7 @@ export function installDesktopVoiceDictation(
         stopping: false,
         transcribeAbort: null,
         cancelled: false,
+        cleanupProvider: cleanupProvider ?? null,
       };
       // Lifecycle diagnostics — when something silently fails (common in
       // WKWebView Web Speech), missing logs tell us exactly which stage
@@ -926,7 +1027,7 @@ export function installDesktopVoiceDictation(
             `[voice-dictation] browser transcribed (${text.length} chars):`,
             text.slice(0, 120),
           );
-          await invoke("complete_voice_dictation", { text });
+          await completeText(text, next);
         } catch (err) {
           console.error(
             "[voice-dictation] complete_voice_dictation failed:",
@@ -975,7 +1076,8 @@ export function installDesktopVoiceDictation(
   // User clicked the X on the flow-bar. Mark cancelled (skips paste),
   // abort any in-flight HTTP, stop the recognizer / recorder, hide.
   const cancel = () => {
-    const current = session;
+    const current = session ?? lingeringSession;
+    const isLingeringOnly = !!current && session !== current;
     if (!current) {
       stopRequestedBeforeReady = true;
       invoke("hide_flow_bar").catch(() => {});
@@ -983,6 +1085,7 @@ export function installDesktopVoiceDictation(
     }
     current.cancelled = true;
     current.transcribeAbort?.abort();
+    if (lingeringSession === current) lingeringSession = null;
     if (!current.stopping) {
       current.stopping = true;
       if (current.kind === "server") {
@@ -1005,6 +1108,14 @@ export function installDesktopVoiceDictation(
           // ignore
         }
       }
+    }
+    if (isLingeringOnly) {
+      stopMeter(current);
+      stopTracks(current);
+      setFlowState("idle");
+      invoke("hide_flow_bar").catch(() => {});
+      emit("voice:partial-transcript", { text: "" }).catch(() => {});
+      return;
     }
     cleanup(current);
   };
@@ -1113,31 +1224,35 @@ export function installDesktopVoiceDictation(
               `[voice-dictation] native paste (${text.length} chars):`,
               text.slice(0, 120),
             );
-            invoke("complete_voice_dictation", { text }).catch((err) => {
-              console.error("[voice-dictation] paste failed:", err);
-            });
-            // Make sure the chip displays the FINAL text (the
-            // install-time final listener also pushes this, but we
-            // emit explicitly so the chip is up-to-date in case the
-            // listener fired before HMR refreshed the flow-bar).
-            emit("voice:partial-transcript", { text }).catch(() => {});
+            void (async () => {
+              try {
+                await completeText(text, lingering);
+              } catch (err) {
+                console.error("[voice-dictation] paste failed:", err);
+              }
+              console.log("[voice-dictation] starting linger");
+              window.setTimeout(
+                () => {
+                  console.log("[voice-dictation] linger done — dismissing");
+                  if (lingeringSession === lingering) lingeringSession = null;
+                  if (disposed) return;
+                  if (session && session !== lingering) return;
+                  invoke("hide_flow_bar").catch(() => {});
+                  emit("voice:partial-transcript", { text: "" }).catch(
+                    () => {},
+                  );
+                },
+                lingering.cleanupProvider ? 500 : 1200,
+              );
+            })();
           } else {
             console.warn(
               "[voice-dictation] no transcript captured — native recognizer didn't produce results",
             );
-          }
-          // Linger ~1.2s with the transcript chip visible (no pill,
-          // just the floating text), then clear the chip + hide the
-          // window. Don't clobber a new session's flow-bar if one started.
-          console.log("[voice-dictation] starting linger");
-          window.setTimeout(() => {
-            console.log("[voice-dictation] linger done — dismissing");
             if (lingeringSession === lingering) lingeringSession = null;
-            if (disposed) return;
-            if (session && session !== lingering) return;
             invoke("hide_flow_bar").catch(() => {});
             emit("voice:partial-transcript", { text: "" }).catch(() => {});
-          }, 1200);
+          }
         };
 
         // The install-time `voice:final-transcript` listener calls
@@ -1239,19 +1354,23 @@ export function installDesktopVoiceDictation(
           // Re-pin the chip text to the final value (paranoia in case
           // the last interim differed from final).
           emit("voice:partial-transcript", { text: finalText }).catch(() => {});
-          invoke("complete_voice_dictation", { text: finalText }).catch(
-            (err) => {
+          void (async () => {
+            try {
+              await completeText(finalText, lingering);
+            } catch (err) {
               console.error("[voice-dictation] paste failed:", err);
-            },
-          );
-          // Linger ~1s with the chip showing the pasted text, then
-          // dismiss the flow bar entirely.
-          window.setTimeout(() => {
-            if (disposed) return;
-            if (session && session !== lingering) return;
-            invoke("hide_flow_bar").catch(() => {});
-            emit("voice:partial-transcript", { text: "" }).catch(() => {});
-          }, 1000);
+            }
+            // Linger with the chip showing the pasted text, then dismiss.
+            window.setTimeout(
+              () => {
+                if (disposed) return;
+                if (session && session !== lingering) return;
+                invoke("hide_flow_bar").catch(() => {});
+                emit("voice:partial-transcript", { text: "" }).catch(() => {});
+              },
+              lingering.cleanupProvider ? 500 : 1000,
+            );
+          })();
         } else {
           // Tail-capture path. Hide pill but keep recognition listening
           // so onresult continues to grow browserTranscript for ~1.5s.
@@ -1309,19 +1428,25 @@ export function installDesktopVoiceDictation(
               emit("voice:partial-transcript", { text: finalText }).catch(
                 () => {},
               );
-              invoke("complete_voice_dictation", { text: finalText }).catch(
-                (err) => {
+              void (async () => {
+                try {
+                  await completeText(finalText, lingering);
+                } catch (err) {
                   console.error("[voice-dictation] paste failed:", err);
-                },
-              );
-              // Linger ~1s with the chip showing the final text, then
-              // dismiss everything.
-              window.setTimeout(() => {
-                if (disposed) return;
-                if (session && session !== lingering) return;
-                invoke("hide_flow_bar").catch(() => {});
-                emit("voice:partial-transcript", { text: "" }).catch(() => {});
-              }, 1000);
+                }
+                // Linger with the chip showing the final text, then dismiss.
+                window.setTimeout(
+                  () => {
+                    if (disposed) return;
+                    if (session && session !== lingering) return;
+                    invoke("hide_flow_bar").catch(() => {});
+                    emit("voice:partial-transcript", { text: "" }).catch(
+                      () => {},
+                    );
+                  },
+                  lingering.cleanupProvider ? 500 : 1000,
+                );
+              })();
             } else {
               // Edge case: tail capture wiped the transcript somehow.
               invoke("hide_flow_bar").catch(() => {});

@@ -7,7 +7,7 @@
  *   - "browser" — Web Speech API (low quality, offline capable)
  *
  * Provider preference lives in application_state under
- * `voice-transcription-prefs` (`{ provider: VoiceProvider }`).
+ * `voice-transcription-prefs` (`{ provider: VoiceProvider, instructions?: string }`).
  * The composer reads it on every start so settings changes take effect
  * immediately without unmounting the composer.
  *
@@ -28,6 +28,7 @@ export type VoiceProvider =
 
 export interface VoicePrefs {
   provider: VoiceProvider;
+  instructions?: string;
 }
 
 const PREFS_KEY = "voice-transcription-prefs";
@@ -92,10 +93,10 @@ export interface VoiceDictationApi {
   cancel: () => void;
 }
 
-async function readProviderPrefs(): Promise<VoiceProvider> {
+async function readVoicePrefs(): Promise<VoicePrefs> {
   try {
     const res = await fetch(PREFS_URL);
-    if (!res.ok) return defaultProvider();
+    if (!res.ok) return { provider: await defaultProvider() };
     const body = (await res.json()) as
       | VoicePrefs
       | { value?: VoicePrefs }
@@ -103,11 +104,20 @@ async function readProviderPrefs(): Promise<VoiceProvider> {
     const p =
       (body as VoicePrefs | null)?.provider ??
       (body as { value?: VoicePrefs } | null)?.value?.provider;
-    if (isVoiceProvider(p)) return p;
+    const instructions =
+      (body as VoicePrefs | null)?.instructions ??
+      (body as { value?: VoicePrefs } | null)?.value?.instructions;
+    if (isVoiceProvider(p)) {
+      return {
+        provider: p === "builder" ? "builder-gemini" : p,
+        instructions:
+          typeof instructions === "string" ? instructions.trim() : undefined,
+      };
+    }
   } catch {
     /* fall through */
   }
-  return defaultProvider();
+  return { provider: await defaultProvider() };
 }
 
 function getSpeechRecognitionCtor(): any {
@@ -281,7 +291,7 @@ export function useVoiceDictation(
   }, []);
 
   const startOpenAi = useCallback(
-    async (providerPref: VoiceProvider) => {
+    async (providerPref: VoiceProvider, instructions?: string) => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       // User may have pressed Escape (cancel) while the permission prompt was
       // open. If so, stop the stream and bail before we start recording.
@@ -325,6 +335,9 @@ export function useVoiceDictation(
             `voice.${localMime.split("/")[1] ?? "webm"}`,
           );
           form.append("provider", providerPref);
+          if (instructions?.trim()) {
+            form.append("instructions", instructions.trim());
+          }
           const res = await fetch(TRANSCRIBE_URL, {
             method: "POST",
             body: form,
@@ -488,7 +501,8 @@ export function useVoiceDictation(
     setState("starting");
     cancelledRef.current = false;
 
-    const pref = await readProviderPrefs();
+    const prefs = await readVoicePrefs();
+    const pref = prefs.provider;
     setProvider(pref);
 
     // Server providers all use the same client-side flow as "openai"
@@ -510,7 +524,7 @@ export function useVoiceDictation(
             "Your browser doesn't support audio recording. Use the browser provider in Settings → Voice Transcription.",
           );
         }
-        await startOpenAi(pref);
+        await startOpenAi(pref, prefs.instructions);
       } else {
         await startBrowser();
       }

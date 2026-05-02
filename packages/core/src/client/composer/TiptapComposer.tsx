@@ -46,6 +46,11 @@ import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { getComposerDraftKey } from "./draft-key.js";
+import {
+  getReasoningEffortOptionsForModel,
+  reasoningEffortLabel,
+  type ReasoningEffort,
+} from "../../shared/reasoning-effort.js";
 
 export interface TiptapComposerHandle {
   focus(): void;
@@ -193,6 +198,8 @@ interface TiptapComposerProps {
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
   selectedModel?: string;
+  /** Selected reasoning effort override for this conversation */
+  selectedEffort?: ReasoningEffort;
   /** Available models grouped by provider */
   availableModels?: Array<{
     engine: string;
@@ -202,6 +209,8 @@ interface TiptapComposerProps {
   }>;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
+  /** Callback when user picks a reasoning effort */
+  onEffortChange?: (effort: ReasoningEffort) => void;
   /** Stable scope for persisted drafts, usually the active thread or tab id. */
   draftScope?: string;
 }
@@ -377,10 +386,13 @@ function latestModelsOnly(models: string[]): string[] {
 
 function ModelSelector({
   model,
+  effort = "auto",
   engines,
   onChange,
+  onEffortChange,
 }: {
   model: string;
+  effort?: ReasoningEffort;
   engines: Array<{
     engine: string;
     label: string;
@@ -388,8 +400,10 @@ function ModelSelector({
     configured: boolean;
   }>;
   onChange: (model: string, engine: string) => void;
+  onEffortChange?: (effort: ReasoningEffort) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const effortOptions = getReasoningEffortOptionsForModel(model);
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
@@ -398,7 +412,12 @@ function ModelSelector({
           type="button"
           className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/50"
         >
-          {friendlyModelName(model)}
+          <span>{friendlyModelName(model)}</span>
+          {effortOptions.length > 0 && (
+            <span className="text-muted-foreground/70">
+              · {reasoningEffortLabel(effort)}
+            </span>
+          )}
           <IconChevronDown className="h-3 w-3 opacity-60" />
         </button>
       </PopoverPrimitive.Trigger>
@@ -446,6 +465,14 @@ function ModelSelector({
                         return;
                       }
                       onChange(m, group.engine);
+                      const nextOptions = getReasoningEffortOptionsForModel(m);
+                      if (
+                        effort !== "auto" &&
+                        nextOptions.length > 0 &&
+                        !nextOptions.includes(effort)
+                      ) {
+                        onEffortChange?.("auto");
+                      }
                       setOpen(false);
                     }}
                     className={`flex w-full items-center gap-3 px-3 py-1.5 text-left ${
@@ -465,6 +492,29 @@ function ModelSelector({
               </div>
             );
           })}
+          {effortOptions.length > 0 && (
+            <>
+              <div className="my-1 border-t border-border" />
+              <div className="px-3 py-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                Effort
+              </div>
+              {effortOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => onEffortChange?.(option)}
+                  className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent/50"
+                >
+                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                    {reasoningEffortLabel(option)}
+                  </span>
+                  {option === effort && (
+                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  )}
+                </button>
+              ))}
+            </>
+          )}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>
@@ -491,8 +541,10 @@ export function TiptapComposer({
   onExecModeChange,
   voiceEnabled = true,
   selectedModel,
+  selectedEffort,
   availableModels,
   onModelChange,
+  onEffortChange,
   draftScope,
 }: TiptapComposerProps) {
   const [popover, setPopover] = useState<PopoverState>(null);
@@ -1324,8 +1376,10 @@ export function TiptapComposer({
             {selectedModel && availableModels && onModelChange && (
               <ModelSelector
                 model={selectedModel}
+                effort={selectedEffort}
                 engines={availableModels}
                 onChange={onModelChange}
+                onEffortChange={onEffortChange}
               />
             )}
             {execMode && onExecModeChange && (

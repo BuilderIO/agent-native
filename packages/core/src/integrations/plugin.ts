@@ -358,9 +358,10 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 404);
             return { error: "Unknown platform" };
           }
+          const resources = await loadResourcesForPrompt(task.ownerEmail);
           await processIntegrationTask(task, {
             adapter,
-            systemPrompt: baseSystemPrompt,
+            systemPrompt: baseSystemPrompt + resources,
             actions,
             model,
             apiKey: getApiKey(),

@@ -372,7 +372,7 @@ function AddIntegrationButton() {
         >
           <div className="px-3.5 pt-3 pb-1.5">
             <span className="text-[12px] font-medium text-foreground/80">
-              What do you want to integrate?
+              New integration
             </span>
           </div>
 
@@ -399,7 +399,11 @@ function AddIntegrationButton() {
             />
           </div>
 
-          <div className="px-3.5 py-2 flex items-center justify-end border-t border-border/30">
+          <div className="px-3.5 py-2 flex items-center justify-end gap-2 border-t border-border/30">
+            <span className="text-[11px] text-muted-foreground/60">
+              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+              +Enter to submit
+            </span>
             <button
               onClick={handleSubmit}
               disabled={!value.trim()}
@@ -409,7 +413,7 @@ function AddIntegrationButton() {
                   ? "bg-primary hover:bg-primary/90 text-primary-foreground"
                   : "bg-muted/50 text-muted-foreground/30 cursor-not-allowed",
               )}
-              title="Submit (⌘↵)"
+              title={`Submit (${/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter)`}
               aria-label="Submit"
             >
               <IconArrowUp className="w-4 h-4" />
