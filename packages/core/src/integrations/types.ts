@@ -181,6 +181,14 @@ export interface IntegrationsPluginOptions {
   model?: string;
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var. */
   apiKey?: string;
+  /** Agent engine to use. Defaults to the same engine resolver as web chat. */
+  engine?:
+    | import("../agent/engine/types.js").AgentEngine
+    | string
+    | {
+        name: string;
+        config: Record<string, unknown>;
+      };
   /**
    * Resolve which owner should receive personal resource context and own the
    * created chat thread for an incoming platform message.

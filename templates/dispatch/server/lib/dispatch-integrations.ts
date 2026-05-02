@@ -48,6 +48,18 @@ function fallbackOwnerForIncoming(incoming: IncomingMessage): string {
   return `dispatch+${hash}@integration.local`;
 }
 
+function configuredDefaultOwnerForIncoming(
+  incoming: IncomingMessage,
+): string | null {
+  // This is intentionally Slack-only: a deployment-wide default owner grants
+  // that Slack workspace access to the owner's connected agents and org
+  // credentials, so other platforms should opt in with explicit identity links.
+  if (incoming.platform !== "slack") return null;
+  const email = process.env.DISPATCH_DEFAULT_OWNER_EMAIL?.trim();
+  if (!email) return null;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
 export async function resolveDispatchOwner(
   incoming: IncomingMessage,
 ): Promise<string> {
@@ -71,8 +83,13 @@ export async function resolveDispatchOwner(
       return incoming.senderId;
     }
 
+    const defaultOwner = configuredDefaultOwnerForIncoming(incoming);
+    if (defaultOwner) return defaultOwner;
+
     return fallbackOwnerForIncoming(incoming);
   } catch {
+    const defaultOwner = configuredDefaultOwnerForIncoming(incoming);
+    if (defaultOwner) return defaultOwner;
     return fallbackOwnerForIncoming(incoming);
   }
 }

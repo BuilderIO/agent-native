@@ -79,6 +79,7 @@
     "tsx": "^4.20.3",
     "typescript": "^6.0.3",
     "vaul": "^1.1.2",
-    "vite": "catalog:"
+    "vite": "catalog:",
+    "vitest": "^4.1.5"
   }
 }

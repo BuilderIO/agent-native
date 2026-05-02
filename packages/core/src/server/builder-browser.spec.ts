@@ -4,6 +4,7 @@ import {
   BUILDER_CALLBACK_PATH,
   BUILDER_STATE_PARAM,
   getBuilderBrowserConnectUrl,
+  runBuilderAgent,
   signBuilderCallbackState,
   verifyBuilderCallbackState,
 } from "./builder-browser.js";
@@ -23,6 +24,7 @@ describe("Builder callback CSRF state", () => {
     }
     Object.assign(process.env, originalEnv);
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   describe("signBuilderCallbackState / verifyBuilderCallbackState", () => {
@@ -257,6 +259,38 @@ describe("Builder callback CSRF state", () => {
       ).toBe(
         "https://alice.agent-native.com/docs/_agent-native/builder/connect",
       );
+    });
+  });
+
+  describe("runBuilderAgent", () => {
+    it("uses the configured Builder user id instead of caller email", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+      const fetchSpy = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            branchName: "qa-branch",
+            projectId: "project-123",
+            url: "https://builder.io/app/projects/project-123/branch/qa-branch",
+            status: "processing",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await runBuilderAgent({
+        prompt: "Create an app",
+        projectId: "project-123",
+        userEmail: "dispatch+slack@integration.local",
+      });
+
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body.userId).toBe("builder-user-123");
+      expect(body.userEmail).toBeUndefined();
     });
   });
 });
