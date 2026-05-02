@@ -7,6 +7,7 @@ import {
 import { type ContentPart, readSSEStream } from "./sse-event-processor.js";
 import { agentNativePath } from "./api-path.js";
 import { normalizeChatError } from "./error-format.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 
 /**
  * The composer's exec mode is sent as explicit request metadata. The server
@@ -23,6 +24,7 @@ export function createAgentChatAdapter(options?: {
   threadId?: string;
   modelRef?: { current: string | undefined };
   engineRef?: { current: string | undefined };
+  effortRef?: { current: ReasoningEffort | undefined };
   execModeRef?: { current: "build" | "plan" | undefined };
 }): ChatModelAdapter {
   const apiUrl =
@@ -31,6 +33,7 @@ export function createAgentChatAdapter(options?: {
   const threadId = options?.threadId;
   const modelRef = options?.modelRef;
   const engineRef = options?.engineRef;
+  const effortRef = options?.effortRef;
   const execModeRef = options?.execModeRef;
 
   return {
@@ -157,6 +160,7 @@ export function createAgentChatAdapter(options?: {
             ...(requestMode ? { mode: requestMode } : {}),
             ...(modelRef?.current ? { model: modelRef.current } : {}),
             ...(engineRef?.current ? { engine: engineRef.current } : {}),
+            ...(effortRef?.current ? { effort: effortRef.current } : {}),
             ...(attachments.length > 0 ? { attachments } : {}),
             ...(runConfig?.custom?.references
               ? { references: runConfig.custom.references }

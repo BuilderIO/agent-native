@@ -55,12 +55,14 @@ describe("createAgentChatAdapter", () => {
 
     const modelRef = { current: "claude-sonnet-4-6" };
     const engineRef = { current: "builder" };
+    const effortRef = { current: "high" as const };
     const adapter = createAgentChatAdapter({
       apiUrl: "/_agent-native/agent-chat",
       tabId: "chat-qa",
       threadId: "thread-qa",
       modelRef,
       engineRef,
+      effortRef,
     });
 
     await drain(
@@ -130,6 +132,7 @@ describe("createAgentChatAdapter", () => {
       threadId: "thread-qa",
       model: "claude-sonnet-4-6",
       engine: "builder",
+      effort: "high",
       history: [
         { role: "user", content: "Earlier turn" },
         { role: "assistant", content: "Earlier answer" },

@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+
 /**
  * Pluggable Agent Engine abstraction.
  *
@@ -200,6 +202,7 @@ export interface EngineStreamOptions {
   abortSignal: AbortSignal;
   maxOutputTokens?: number;
   temperature?: number;
+  reasoningEffort?: ReasoningEffort;
   /**
    * Provider-specific options passed opaquely.
    * Engines forward options they understand and ignore unknown keys.

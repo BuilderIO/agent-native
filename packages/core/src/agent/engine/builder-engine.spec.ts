@@ -507,4 +507,27 @@ describe("createBuilderEngine", () => {
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.reasoning_effort).toBe("high");
   });
+
+  it("forwards explicit reasoning_effort without budget mapping", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        model: "claude-opus-4-7",
+        reasoningEffort: "xhigh",
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("xhigh");
+  });
 });

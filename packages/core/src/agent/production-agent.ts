@@ -53,6 +53,11 @@ import {
   normalizeMaxIterations,
   readAgentLoopSettings,
 } from "./loop-settings.js";
+import {
+  isReasoningEffort,
+  normalizeReasoningEffortForModel,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -420,6 +425,8 @@ export interface ProductionAgentOptions {
     | { name: string; config: Record<string, unknown> };
   /** Model to use. Default: claude-sonnet-4-6 */
   model?: string;
+  /** Default reasoning effort for requests that do not supply an override. */
+  reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
   providerOptions?: EngineMessage extends never ? never : any;
   /** Called when a run completes (for server-side thread persistence) */
@@ -766,6 +773,7 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   ownerEmail?: string | null;
   orgId?: string | null;
+  reasoningEffort?: ReasoningEffort;
   providerOptions?: any;
   executionMode?: AgentExecutionMode;
   maxIterations?: number;
@@ -817,6 +825,7 @@ export async function runAgentLoop(opts: {
           messages,
           tools,
           abortSignal: signal,
+          reasoningEffort: opts.reasoningEffort,
           providerOptions: opts.providerOptions,
         };
 
@@ -1120,6 +1129,7 @@ export function createProductionAgentHandler(
       attachments,
       model: requestModel,
       engine: requestEngine,
+      effort: requestEffort,
     } = body;
     const requestMode: AgentExecutionMode =
       body.mode === "plan" ? "plan" : "act";
@@ -1193,6 +1203,12 @@ export function createProductionAgentHandler(
       configuredModel ??
       (await getStoredModelForEngine(engine)) ??
       engine.defaultModel;
+    const reasoningEffort = normalizeReasoningEffortForModel(
+      model,
+      isReasoningEffort(requestEffort)
+        ? requestEffort
+        : options.reasoningEffort,
+    );
 
     options.onEngineResolved?.(engine, model);
 
@@ -1554,6 +1570,7 @@ export function createProductionAgentHandler(
                     }
                   },
                   signal,
+                  reasoningEffort,
                   providerOptions: options.providerOptions,
                   executionMode: requestMode,
                   maxIterations: loopSettings.maxIterations,
@@ -1770,6 +1787,7 @@ export function createProductionAgentHandler(
           signal,
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
+          reasoningEffort,
           providerOptions: options.providerOptions,
           executionMode: requestMode,
           maxIterations: loopSettings.maxIterations,

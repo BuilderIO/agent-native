@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+
 export interface ActionTool {
   description: string;
   parameters?: {
@@ -71,6 +73,8 @@ export interface AgentChatRequest {
   model?: string;
   /** Per-request engine override (sent alongside model for cross-provider switches). */
   engine?: string;
+  /** Per-request reasoning effort override (ephemeral, from the composer picker). */
+  effort?: ReasoningEffort;
   /** Usage-tracking label for this call (e.g. "chat", "summarize"). Default: "chat". */
   usageLabel?: string;
 }

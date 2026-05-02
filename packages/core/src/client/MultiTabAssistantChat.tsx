@@ -10,6 +10,11 @@ import { cn } from "./utils.js";
 import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
 import { agentNativePath } from "./api-path.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
+import {
+  getReasoningEffortOptionsForModel,
+  isReasoningEffort,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
 
 interface EngineModelGroup {
   engine: string;
@@ -335,20 +340,45 @@ export function MultiTabAssistantChat({
     [],
   );
   const [defaultModel, setDefaultModel] = useState(DEFAULT_MODEL);
-  const threadModelRef = useRef<Map<string, { model: string; engine: string }>>(
-    new Map(),
-  );
+  const threadModelRef = useRef<
+    Map<string, { model: string; engine: string; effort?: ReasoningEffort }>
+  >(new Map());
   const [selectedModelForActiveThread, setSelectedModelForActiveThread] =
     useState<string | undefined>(undefined);
+  const [selectedEffortForActiveThread, setSelectedEffortForActiveThread] =
+    useState<ReasoningEffort>("auto");
 
   const activeThreadModel = selectedModelForActiveThread ?? defaultModel;
 
   const handleModelChange = useCallback((model: string, engine: string) => {
     const threadId = activeThreadIdRef.current;
     if (!threadId) return;
-    threadModelRef.current.set(threadId, { model, engine });
+    const existing = threadModelRef.current.get(threadId);
+    const existingEffort = existing?.effort ?? "auto";
+    const effortOptions = getReasoningEffortOptionsForModel(model);
+    const effort =
+      existingEffort === "auto" || effortOptions.includes(existingEffort)
+        ? existingEffort
+        : "auto";
+    threadModelRef.current.set(threadId, { model, engine, effort });
     setSelectedModelForActiveThread(model);
+    setSelectedEffortForActiveThread(effort);
   }, []);
+
+  const handleEffortChange = useCallback(
+    (effort: ReasoningEffort) => {
+      const threadId = activeThreadIdRef.current;
+      if (!threadId) return;
+      const existing = threadModelRef.current.get(threadId);
+      threadModelRef.current.set(threadId, {
+        model: existing?.model ?? defaultModel,
+        engine: existing?.engine ?? availableModels[0]?.engine ?? "",
+        effort,
+      });
+      setSelectedEffortForActiveThread(effort);
+    },
+    [availableModels, defaultModel],
+  );
 
   const refreshEngines = useCallback(() => {
     Promise.all([
@@ -647,6 +677,9 @@ export function MultiTabAssistantChat({
     setSelectedModelForActiveThread(
       threadModelRef.current.get(activeThreadId)?.model ?? undefined,
     );
+    setSelectedEffortForActiveThread(
+      threadModelRef.current.get(activeThreadId)?.effort ?? "auto",
+    );
     // Small delay to ensure the tab is visible before focusing
     const t = setTimeout(() => {
       chatRefs.current.get(activeThreadId)?.focusComposer();
@@ -704,6 +737,7 @@ export function MultiTabAssistantChat({
       const context = event.data.data?.context as string | undefined;
       const openSidebar = event.data.data?.openSidebar as boolean | undefined;
       const model = event.data.data?.model as string | undefined;
+      const effort = event.data.data?.effort as unknown;
       const newTab = event.data.data?.newTab as boolean | undefined;
       const background = event.data.data?.background as boolean | undefined;
 
@@ -726,11 +760,20 @@ export function MultiTabAssistantChat({
             g.models.includes(model),
           );
           if (matchedGroup) {
+            const requestedEffort = isReasoningEffort(effort) ? effort : "auto";
+            const effortOptions = getReasoningEffortOptionsForModel(model);
+            const selectedEffort =
+              requestedEffort === "auto" ||
+              effortOptions.includes(requestedEffort)
+                ? requestedEffort
+                : "auto";
             threadModelRef.current.set(threadId, {
               model,
               engine: matchedGroup.engine,
+              effort: selectedEffort,
             });
             setSelectedModelForActiveThread(model);
+            setSelectedEffortForActiveThread(selectedEffort);
           }
         }
 
@@ -1383,9 +1426,13 @@ export function MultiTabAssistantChat({
                 onSlashCommand={handleSlashCommand}
                 selectedModel={threadModelRef.current.get(tabId)?.model}
                 selectedEngine={threadModelRef.current.get(tabId)?.engine}
+                selectedEffort={
+                  threadModelRef.current.get(tabId)?.effort ?? "auto"
+                }
                 defaultModel={defaultModel}
                 availableModels={availableModels}
                 onModelChange={handleModelChange}
+                onEffortChange={handleEffortChange}
                 onForkChat={() => handleForkChat(tabId)}
               />
             </div>
