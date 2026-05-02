@@ -22,6 +22,11 @@ export const envKeys: EnvKeyConfig[] = [
     required: false,
   },
   {
+    key: "DISPATCH_DEFAULT_OWNER_EMAIL",
+    label: "Default Slack owner email",
+    required: false,
+  },
+  {
     key: "WHATSAPP_ACCESS_TOKEN",
     label: "WhatsApp access token",
     required: false,

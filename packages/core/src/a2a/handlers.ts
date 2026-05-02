@@ -139,14 +139,10 @@ export async function processA2ATaskFromQueue(
       | null
       | undefined) ?? undefined;
 
-  let resolvedOrgId: string | undefined;
-  if (orgDomainHint) {
-    try {
-      const { resolveOrgByDomain } = await import("../org/context.js");
-      const org = await resolveOrgByDomain(orgDomainHint);
-      if (org) resolvedOrgId = org.orgId;
-    } catch {}
-  }
+  const resolvedOrgId = await resolveVerifiedA2AOrgId(
+    verifiedEmail,
+    orgDomainHint,
+  );
 
   const { runWithRequestContext } =
     await import("../server/request-context.js");
@@ -315,21 +311,38 @@ async function withA2ARequestContext<T>(
   const orgDomain =
     (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
 
-  let resolvedOrgId: string | undefined;
-  if (orgDomain) {
-    try {
-      const { resolveOrgByDomain } = await import("../org/context.js");
-      const org = await resolveOrgByDomain(orgDomain);
-      if (org) resolvedOrgId = org.orgId;
-    } catch {
-      // Org tables may not exist — continue without org context
-    }
-  }
+  const resolvedOrgId = await resolveVerifiedA2AOrgId(verifiedEmail, orgDomain);
 
   return runWithRequestContext(
     { userEmail: verifiedEmail, orgId: resolvedOrgId },
     fn,
   ) as Promise<T>;
+}
+
+async function resolveVerifiedA2AOrgId(
+  verifiedEmail: string | undefined,
+  verifiedOrgDomain: string | undefined,
+): Promise<string | undefined> {
+  if (verifiedOrgDomain) {
+    try {
+      const { resolveOrgByDomain } = await import("../org/context.js");
+      const org = await resolveOrgByDomain(verifiedOrgDomain);
+      if (org) return org.orgId;
+    } catch {
+      // Org tables may not exist — continue without org context
+    }
+  }
+
+  if (verifiedEmail) {
+    try {
+      const { resolveOrgIdForEmail } = await import("../org/context.js");
+      return (await resolveOrgIdForEmail(verifiedEmail)) ?? undefined;
+    } catch {
+      // Org tables may not exist — continue without org context
+    }
+  }
+
+  return undefined;
 }
 
 /**

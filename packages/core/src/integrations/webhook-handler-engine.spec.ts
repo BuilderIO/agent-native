@@ -9,6 +9,7 @@ const getThreadMock = vi.hoisted(() => vi.fn());
 const updateThreadDataMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
+const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
 const resolveEngineMock = vi.hoisted(() => vi.fn());
@@ -31,6 +32,11 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("../agent/production-agent.js", () => ({
   getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
+  getOwnerApiKey: getOwnerApiKeyMock,
+  engineToProvider: (engineName: string) =>
+    engineName.startsWith("ai-sdk:")
+      ? engineName.slice("ai-sdk:".length)
+      : engineName,
   actionsToEngineTools: actionsToEngineToolsMock,
   runAgentLoop: runAgentLoopMock,
 }));
@@ -103,6 +109,7 @@ describe("integration webhook handler engine resolution", () => {
     updateThreadDataMock.mockResolvedValue(undefined);
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
     getOwnerActiveApiKeyMock.mockResolvedValue(undefined);
+    getOwnerApiKeyMock.mockResolvedValue(undefined);
     actionsToEngineToolsMock.mockReturnValue([]);
     getStoredModelForEngineMock.mockResolvedValue(undefined);
     resolveEngineMock.mockResolvedValue({
@@ -173,6 +180,99 @@ describe("integration webhook handler engine resolution", () => {
       }),
       expect.objectContaining({ externalThreadId: "thread-1" }),
       expect.objectContaining({ placeholderRef: undefined }),
+    );
+  });
+
+  it("uses the explicit engine provider when resolving owner API keys", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn();
+    getOwnerApiKeyMock.mockResolvedValue("openai-user-key");
+    const task: PendingTask = {
+      id: "task-openai",
+      platform: "fake",
+      externalEventKey: "fake:thread-2:1002",
+      externalThreadId: "thread-2",
+      payload: JSON.stringify({
+        incoming: {
+          platform: "fake",
+          externalThreadId: "thread-2",
+          text: "hello from slack",
+          senderName: "QA User",
+          platformContext: { channel: "C123" },
+          timestamp: 1002,
+        },
+      }),
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      status: "processing",
+      attempts: 1,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    };
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "gpt-5.2",
+      apiKey: "deploy-anthropic-key",
+      engine: "ai-sdk:openai",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(getOwnerApiKeyMock).toHaveBeenCalledWith("openai", task.ownerEmail);
+    expect(getOwnerActiveApiKeyMock).not.toHaveBeenCalled();
+    expect(resolveEngineMock).toHaveBeenCalledWith({
+      engineOption: "ai-sdk:openai",
+      apiKey: "openai-user-key",
+      model: "gpt-5.2",
+    });
+  });
+
+  it("prefers stored model settings over the integration plugin default", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn();
+    getStoredModelForEngineMock.mockResolvedValue("stored-builder-model");
+    const task: PendingTask = {
+      id: "task-model",
+      platform: "fake",
+      externalEventKey: "fake:thread-3:1003",
+      externalThreadId: "thread-3",
+      payload: JSON.stringify({
+        incoming: {
+          platform: "fake",
+          externalThreadId: "thread-3",
+          text: "hello from slack",
+          senderName: "QA User",
+          platformContext: { channel: "C123" },
+          timestamp: 1003,
+        },
+      }),
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      status: "processing",
+      attempts: 1,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    };
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(runAgentLoopMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "stored-builder-model",
+      }),
     );
   });
 });

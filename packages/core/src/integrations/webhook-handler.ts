@@ -6,6 +6,8 @@ import {
   runAgentLoop,
   actionsToEngineTools,
   getOwnerActiveApiKey,
+  getOwnerApiKey,
+  engineToProvider,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import {
@@ -81,6 +83,33 @@ export interface WebhookHandlerOptions {
       }
     | { handled: false }
   >;
+}
+
+function explicitEngineName(
+  engineOption: WebhookHandlerOptions["engine"],
+): string | undefined {
+  if (!engineOption) return undefined;
+  if (typeof engineOption === "string") return engineOption;
+  if (
+    typeof engineOption === "object" &&
+    !("stream" in engineOption) &&
+    typeof engineOption.name === "string"
+  ) {
+    return engineOption.name;
+  }
+  return undefined;
+}
+
+async function resolveIntegrationApiKey(
+  engineOption: WebhookHandlerOptions["engine"],
+  ownerEmail: string,
+  fallbackApiKey: string,
+): Promise<string> {
+  const engineName = explicitEngineName(engineOption);
+  const userApiKey = engineName
+    ? await getOwnerApiKey(engineToProvider(engineName), ownerEmail)
+    : await getOwnerActiveApiKey(ownerEmail);
+  return userApiKey ?? fallbackApiKey;
 }
 
 /**
@@ -459,16 +488,19 @@ async function processIncomingMessage(
             isIntegrationCaller: true,
           },
           async () => {
-            const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-            const effectiveApiKey = userApiKey ?? apiKey;
+            const effectiveApiKey = await resolveIntegrationApiKey(
+              engineOption,
+              ownerEmail,
+              apiKey,
+            );
             const engine = await resolveEngine({
               engineOption,
               apiKey: effectiveApiKey,
               model,
             });
             const resolvedModel =
-              model ??
               (await getStoredModelForEngine(engine)) ??
+              model ??
               engine.defaultModel;
 
             return runAgentLoop({
