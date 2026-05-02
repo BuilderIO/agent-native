@@ -43,6 +43,12 @@ import { cn } from "./utils.js";
 import { AgentTaskCard } from "./AgentTaskCard.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./components/ui/tooltip.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { agentNativePath } from "./api-path.js";
@@ -2874,14 +2880,21 @@ const AssistantChatInner = forwardRef<
                 </span>
                 <div className="flex items-center gap-1">
                   {onSwitchToCli && (
-                    <button
-                      onClick={onSwitchToCli}
-                      className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
-                      title="Switch to CLI"
-                    >
-                      <IconTerminal className="h-3.5 w-3.5" />
-                      CLI
-                    </button>
+                    <TooltipProvider delayDuration={200}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={onSwitchToCli}
+                            aria-label="Switch to CLI"
+                            className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
+                          >
+                            <IconTerminal className="h-3.5 w-3.5" />
+                            CLI
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Switch to CLI</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   )}
                 </div>
               </div>
