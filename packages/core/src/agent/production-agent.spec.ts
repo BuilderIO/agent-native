@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { attachToolSearch } from "./tool-search.js";
 import {
   buildUserContentWithAttachments,
@@ -310,5 +310,105 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(2);
     expect(events).toContainEqual({ type: "loop_limit", maxIterations: 2 });
     expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("returns tool input schema failures to the model instead of ending the run", async () => {
+    let streamCalls = 0;
+    const seenMessages: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMessages.push(structuredClone(opts.messages));
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call-error",
+            id: "bad-call",
+            name: "add-slide",
+            input: { deckId: "deck-1", content: "<div></div>", position: "x" },
+            error: "position must be a number",
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+
+        yield { type: "text-delta", text: "I fixed the arguments." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "I fixed the arguments." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+    const run = vi.fn(async () => "should not execute");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "add-slide": {
+          ...actionEntry({ readOnly: false }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(streamCalls).toBe(2);
+    expect(events).toContainEqual({
+      type: "tool_start",
+      tool: "add-slide",
+      input: { deckId: "deck-1", content: "<div></div>", position: "x" },
+    });
+    const toolDone = events.find(
+      (event) => event.type === "tool_done" && event.tool === "add-slide",
+    );
+    expect(toolDone?.result).toContain("Invalid action parameters");
+    expect(toolDone?.result).toContain("position must be a number");
+    expect(events).toContainEqual({
+      type: "text",
+      text: "I fixed the arguments.",
+    });
+    expect(events.at(-1)).toEqual({ type: "done" });
+
+    const secondCallMessages = seenMessages[1];
+    expect(secondCallMessages.at(-2)).toMatchObject({
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          id: "bad-call",
+          name: "add-slide",
+        },
+      ],
+    });
+    expect(secondCallMessages.at(-1)).toMatchObject({
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "bad-call",
+          toolName: "add-slide",
+          isError: true,
+        },
+      ],
+    });
   });
 });

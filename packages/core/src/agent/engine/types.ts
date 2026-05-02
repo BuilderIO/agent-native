@@ -126,6 +126,13 @@ export type EngineEvent =
   | { type: "thinking-delta"; text: string; signature?: string }
   | { type: "tool-call"; id: string; name: string; input: unknown }
   | {
+      type: "tool-call-error";
+      id: string;
+      name: string;
+      input: unknown;
+      error: string;
+    }
+  | {
       type: "usage";
       inputTokens: number;
       outputTokens: number;
