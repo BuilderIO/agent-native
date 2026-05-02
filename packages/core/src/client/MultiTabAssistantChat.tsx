@@ -7,6 +7,12 @@ import {
 } from "./AssistantChat.js";
 import { isTrustedFrameMessage } from "./frame.js";
 import { cn } from "./utils.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./components/ui/tooltip.js";
 import { useChatThreads, type ChatThreadSummary } from "./use-chat-threads.js";
 import { agentNativePath } from "./api-path.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
@@ -1272,27 +1278,37 @@ export function MultiTabAssistantChat({
                         );
                       })}
                     </div>
-                    <div className="flex items-center gap-px shrink-0 ml-auto">
-                      <button
-                        onClick={addTab}
-                        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
-                        title="New chat"
-                        aria-label="New chat"
-                      >
-                        <IconPlus size={12} />
-                      </button>
-                      <button
-                        onClick={() => setShowHistory(!showHistory)}
-                        aria-label="Chat history"
-                        className={cn(
-                          "flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
-                          showHistory && "bg-accent text-foreground",
-                        )}
-                        title="Chat history"
-                      >
-                        <IconHistory size={12} />
-                      </button>
-                    </div>
+                    <TooltipProvider delayDuration={200}>
+                      <div className="flex items-center gap-px shrink-0 ml-auto">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={addTab}
+                              aria-label="New chat"
+                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
+                            >
+                              <IconPlus size={12} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>New chat</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => setShowHistory(!showHistory)}
+                              aria-label="Chat history"
+                              className={cn(
+                                "flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
+                                showHistory && "bg-accent text-foreground",
+                              )}
+                            >
+                              <IconHistory size={12} />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Chat history</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </TooltipProvider>
                   </div>
                   {hasSubTabs && (
                     <div className="flex items-center px-1 py-0.5 border-b border-border shrink-0 gap-0.5 bg-muted/30">

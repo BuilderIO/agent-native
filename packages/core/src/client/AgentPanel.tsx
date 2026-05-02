@@ -34,6 +34,12 @@ import React, {
 } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./components/ui/tooltip.js";
+import {
   IconMessage,
   IconTerminal2,
   IconSettings,
@@ -435,65 +441,88 @@ export function AgentPanel({
 
   const renderModeButtons = useCallback(
     (activeMode: PanelMode) => (
-      <div className="flex shrink-0 items-center gap-1">
-        <button
-          onClick={() => switchMode("chat")}
-          className={cn(
-            "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
-            activeMode === "chat"
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+      <TooltipProvider delayDuration={200}>
+        <div className="flex shrink-0 items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => switchMode("chat")}
+                aria-label="Chat mode"
+                className={cn(
+                  "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                  activeMode === "chat"
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+                style={AGENT_PANEL_CONTROL_STYLE}
+              >
+                <IconMessage size={14} />
+                Chat
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Chat mode</TooltipContent>
+          </Tooltip>
+          {isDevMode && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => switchMode("cli")}
+                  aria-label="CLI terminal mode"
+                  className={cn(
+                    "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                    activeMode === "cli"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                  )}
+                  style={AGENT_PANEL_CONTROL_STYLE}
+                >
+                  <IconTerminal2 size={14} />
+                  CLI
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>CLI terminal mode</TooltipContent>
+            </Tooltip>
           )}
-          title="Chat mode"
-          style={AGENT_PANEL_CONTROL_STYLE}
-        >
-          <IconMessage size={14} />
-          Chat
-        </button>
-        {isDevMode && (
-          <button
-            onClick={() => switchMode("cli")}
-            className={cn(
-              "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
-              activeMode === "cli"
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-            )}
-            title="CLI terminal mode"
-            style={AGENT_PANEL_CONTROL_STYLE}
-          >
-            <IconTerminal2 size={14} />
-            CLI
-          </button>
-        )}
-        <button
-          onClick={() => switchMode("resources")}
-          className={cn(
-            "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
-            activeMode === "resources"
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-          title="Workspace files, agents, skills, and tasks"
-          style={AGENT_PANEL_CONTROL_STYLE}
-        >
-          <IconLayoutGrid size={14} />
-          Workspace
-        </button>
-        <button
-          onClick={() => switchMode("settings")}
-          aria-label="Setup and configuration"
-          className={cn(
-            "flex items-center justify-center rounded-md px-1.5 py-1",
-            activeMode === "settings"
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-          title="Setup and configuration"
-        >
-          <IconSettings size={14} />
-        </button>
-      </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => switchMode("resources")}
+                aria-label="Workspace files, agents, skills, and tasks"
+                className={cn(
+                  "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                  activeMode === "resources"
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+                style={AGENT_PANEL_CONTROL_STYLE}
+              >
+                <IconLayoutGrid size={14} />
+                Workspace
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Workspace files, agents, skills, and tasks
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => switchMode("settings")}
+                aria-label="Setup and configuration"
+                className={cn(
+                  "flex items-center justify-center rounded-md px-1.5 py-1",
+                  activeMode === "settings"
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+              >
+                <IconSettings size={14} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Setup and configuration</TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
     ),
     [isDevMode],
   );

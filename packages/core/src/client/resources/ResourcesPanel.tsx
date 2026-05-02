@@ -47,6 +47,14 @@ import {
 } from "./use-mcp-servers.js";
 import { McpServerDetail } from "./McpServerDetail.js";
 import { useOrg } from "../org/hooks.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+
+const WORKSPACE_DOCS_URL = "https://agent-native.com/docs/workspace";
 
 // ─── Create Menu (unified + button) ────────────────────────────────────────
 
@@ -1260,13 +1268,20 @@ export function ResourcesPanel() {
       {isEditing ? (
         <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
           <div className="flex items-center gap-1.5 min-w-0">
-            <button
-              onClick={handleBack}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-              title="Back to workspace"
-            >
-              <IconArrowLeft className="h-3.5 w-3.5" />
-            </button>
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleBack}
+                    aria-label="Back to workspace"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                  >
+                    <IconArrowLeft className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Back to workspace</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             {selectedMcpServer ? (
               <PathBreadcrumb
                 path={`mcp-servers/${selectedMcpServer.name}.json`}
@@ -1281,30 +1296,42 @@ export function ResourcesPanel() {
               (resourceQuery.data.mimeType === "text/markdown" ||
                 resourceQuery.data.path.endsWith(".md")) && (
                 <div className="flex items-center gap-0.5 mr-1">
-                  <button
-                    onClick={() => setEditorView("visual")}
-                    className={cn(
-                      "flex h-6 w-6 items-center justify-center rounded-md",
-                      editorView === "visual"
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                    )}
-                    title="Visual editor"
-                  >
-                    <IconEye className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setEditorView("code")}
-                    className={cn(
-                      "flex h-6 w-6 items-center justify-center rounded-md",
-                      editorView === "code"
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                    )}
-                    title="Code editor"
-                  >
-                    <IconCode className="h-3.5 w-3.5" />
-                  </button>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => setEditorView("visual")}
+                          aria-label="Visual editor"
+                          className={cn(
+                            "flex h-6 w-6 items-center justify-center rounded-md",
+                            editorView === "visual"
+                              ? "bg-accent text-foreground"
+                              : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                          )}
+                        >
+                          <IconEye className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Visual editor</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => setEditorView("code")}
+                          aria-label="Code editor"
+                          className={cn(
+                            "flex h-6 w-6 items-center justify-center rounded-md",
+                            editorView === "code"
+                              ? "bg-accent text-foreground"
+                              : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                          )}
+                        >
+                          <IconCode className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Code editor</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
               )}
             <span className="text-[11px] text-muted-foreground/60 mr-1">
@@ -1314,15 +1341,22 @@ export function ResourcesPanel() {
                   ? "Saved"
                   : ""}
             </span>
-            <button
-              onClick={() => {
-                if (selectedResourceId) handleDelete(selectedResourceId);
-              }}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-accent/50"
-              title="Delete resource"
-            >
-              <IconTrash className="h-3.5 w-3.5" />
-            </button>
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => {
+                      if (selectedResourceId) handleDelete(selectedResourceId);
+                    }}
+                    aria-label="Delete resource"
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-accent/50"
+                  >
+                    <IconTrash className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Delete resource</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
       ) : (
@@ -1336,22 +1370,38 @@ export function ResourcesPanel() {
             canCreateOrgMcp={canCreateOrgMcp}
             hasOrg={hasOrgForMcp}
           />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            title="Upload file"
-          >
-            <IconUpload className="h-3.5 w-3.5" />
-          </button>
-          <a
-            href="https://www.builder.io/c/docs/agent-native-resources"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            title="What is the Workspace? — open docs"
-          >
-            <IconHelp className="h-3.5 w-3.5" />
-          </a>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="Upload file"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                >
+                  <IconUpload className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Upload file</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  href={WORKSPACE_DOCS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="What is the Workspace? — open docs"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                >
+                  <IconHelp className="h-3.5 w-3.5" />
+                </a>
+              </TooltipTrigger>
+              <TooltipContent>
+                What is the Workspace? — open docs
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <input
             ref={fileInputRef}
             type="file"
@@ -1417,7 +1467,7 @@ export function ResourcesPanel() {
                     {org?.orgId ? " — only admins can edit." : "."}
                   </p>
                   <a
-                    href="https://www.builder.io/c/docs/agent-native-resources"
+                    href={WORKSPACE_DOCS_URL}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-foreground hover:underline"

@@ -18,6 +18,34 @@ import {
 import { cn } from "../utils.js";
 import type { TreeNode, ResourceMeta, JobMetadata } from "./use-resources.js";
 import type { McpServer } from "./use-mcp-servers.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+
+function StatusDot({
+  className,
+  tooltip,
+}: {
+  className: string;
+  tooltip: string;
+}) {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            aria-label={tooltip}
+            className={cn("ml-1 inline-block h-1.5 w-1.5 shrink-0", className)}
+          />
+        </TooltipTrigger>
+        <TooltipContent>{tooltip}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -87,24 +115,24 @@ interface CreatingState {
 function McpStatusDot({ server }: { server: McpServer }) {
   if (server.status.state === "connected") {
     return (
-      <span
-        className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-green-500"
-        title={`Connected — ${server.status.toolCount} tool${server.status.toolCount === 1 ? "" : "s"}`}
+      <StatusDot
+        className="rounded-full bg-green-500"
+        tooltip={`Connected — ${server.status.toolCount} tool${server.status.toolCount === 1 ? "" : "s"}`}
       />
     );
   }
   if (server.status.state === "error") {
     return (
-      <span
-        className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-red-500"
-        title={`Error: ${server.status.error}`}
+      <StatusDot
+        className="rounded-full bg-red-500"
+        tooltip={`Error: ${server.status.error}`}
       />
     );
   }
   return (
-    <span
-      className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40"
-      title="Connecting…"
+    <StatusDot
+      className="rounded-full bg-muted-foreground/40"
+      tooltip="Connecting…"
     />
   );
 }
@@ -112,40 +140,40 @@ function McpStatusDot({ server }: { server: McpServer }) {
 function JobStatusDot({ meta }: { meta: JobMetadata }) {
   if (!meta.enabled) {
     return (
-      <span
-        className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40"
-        title="Disabled"
+      <StatusDot
+        className="rounded-full bg-muted-foreground/40"
+        tooltip="Disabled"
       />
     );
   }
   if (meta.lastStatus === "running") {
     return (
-      <span
-        className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500 animate-pulse"
-        title="Running"
+      <StatusDot
+        className="rounded-full bg-blue-500 animate-pulse"
+        tooltip="Running"
       />
     );
   }
   if (meta.lastStatus === "error") {
     return (
-      <span
-        className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-red-500"
-        title="Last run failed"
+      <StatusDot
+        className="rounded-full bg-red-500"
+        tooltip="Last run failed"
       />
     );
   }
   if (meta.lastStatus === "success") {
     return (
-      <span
-        className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-green-500"
-        title="Last run succeeded"
+      <StatusDot
+        className="rounded-full bg-green-500"
+        tooltip="Last run succeeded"
       />
     );
   }
   return (
-    <span
-      className="ml-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
-      title="Scheduled (not yet run)"
+    <StatusDot
+      className="rounded-full bg-amber-500"
+      tooltip="Scheduled (not yet run)"
     />
   );
 }
@@ -221,38 +249,55 @@ function TreeNodeRow({
         {node.mcpServerMeta && <McpStatusDot server={node.mcpServerMeta} />}
         {!readOnly && (
           <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 group-hover/row:opacity-100">
-            {isFolder && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onStartCreate(node.path, "file");
-                }}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                title="New file"
-              >
-                <IconPlus className="h-3 w-3" />
-              </button>
-            )}
-            {node.resource &&
-              (isDeleting ? (
-                <span
-                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground"
-                  title="Deleting..."
-                >
-                  <IconLoader2 className="h-3 w-3 animate-spin" />
-                </span>
-              ) : (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(node.resource!.id);
-                  }}
-                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-accent/50"
-                  title="Delete"
-                >
-                  <IconTrash className="h-3 w-3" />
-                </button>
-              ))}
+            <TooltipProvider delayDuration={200}>
+              {isFolder && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onStartCreate(node.path, "file");
+                      }}
+                      aria-label="New file"
+                      className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                    >
+                      <IconPlus className="h-3 w-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>New file</TooltipContent>
+                </Tooltip>
+              )}
+              {node.resource &&
+                (isDeleting ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        aria-label="Deleting…"
+                        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground"
+                      >
+                        <IconLoader2 className="h-3 w-3 animate-spin" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>Deleting…</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete(node.resource!.id);
+                        }}
+                        aria-label="Delete"
+                        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-accent/50"
+                      >
+                        <IconTrash className="h-3 w-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Delete</TooltipContent>
+                  </Tooltip>
+                ))}
+            </TooltipProvider>
           </div>
         )}
       </div>
@@ -428,26 +473,46 @@ export function ResourceTree({
     >
       {/* Section heading */}
       <div className="group/root flex items-center justify-between px-1.5 py-1">
-        <span
-          className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60"
-          title={titleTooltip}
-        >
-          {title}
-          {headingHint && (
-            <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground/50">
-              {headingHint}
+        <TooltipProvider delayDuration={200}>
+          {titleTooltip ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+                  {title}
+                  {headingHint && (
+                    <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground/50">
+                      {headingHint}
+                    </span>
+                  )}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{titleTooltip}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+              {title}
+              {headingHint && (
+                <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground/50">
+                  {headingHint}
+                </span>
+              )}
             </span>
           )}
-        </span>
-        {!readOnly && (
-          <button
-            onClick={() => handleStartCreate("", "file")}
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/50 opacity-0 group-hover/root:opacity-100 hover:text-foreground hover:bg-accent/50"
-            title="New file"
-          >
-            <IconPlus className="h-3 w-3" />
-          </button>
-        )}
+          {!readOnly && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => handleStartCreate("", "file")}
+                  aria-label="New file"
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/50 opacity-0 group-hover/root:opacity-100 hover:text-foreground hover:bg-accent/50"
+                >
+                  <IconPlus className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>New file</TooltipContent>
+            </Tooltip>
+          )}
+        </TooltipProvider>
       </div>
 
       {tree.map((node) => (
