@@ -27,6 +27,7 @@ import {
 } from "./translate-ai-sdk.js";
 import { DEFAULT_MODEL } from "../default-model.js";
 import { readDeployCredentialEnv } from "../../server/credential-provider.js";
+import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
 
 // ---------------------------------------------------------------------------
 // Provider definitions
@@ -51,7 +52,7 @@ const PROVIDER_CAPABILITIES: Record<AISDKProvider, EngineCapabilities> = {
     parallelToolCalls: true,
   },
   openai: {
-    thinking: false,
+    thinking: true,
     promptCaching: false,
     vision: true,
     computerUse: false,
@@ -174,6 +175,14 @@ const PROVIDER_FACTORIES: Record<AISDKProvider, string> = {
   ollama: "createOllama",
 };
 
+function googleThinkingBudget(effort: string) {
+  if (effort === "low") return 1024;
+  if (effort === "high") return 8000;
+  if (effort === "xhigh") return 16_000;
+  if (effort === "max") return 32_000;
+  return -1;
+}
+
 // ---------------------------------------------------------------------------
 // AISDKEngine implementation
 // ---------------------------------------------------------------------------
@@ -268,6 +277,38 @@ class AISDKEngine implements AgentEngine {
         providerOpts.anthropic = {
           ...((providerOpts.anthropic as object) ?? {}),
           cacheControl: anthropicOpts.cacheControl,
+        };
+      }
+    }
+    const reasoningEffort = normalizeReasoningEffortForModel(
+      opts.model,
+      opts.reasoningEffort,
+    );
+    if (reasoningEffort) {
+      if (this.provider === "anthropic") {
+        providerOpts.anthropic = {
+          ...((providerOpts.anthropic as object) ?? {}),
+          thinking: (
+            providerOpts.anthropic as { thinking?: unknown } | undefined
+          )?.thinking ?? { type: "adaptive" },
+          outputConfig: { effort: reasoningEffort },
+        };
+      } else if (this.provider === "openai") {
+        providerOpts.openai = {
+          ...((providerOpts.openai as object) ?? {}),
+          reasoningEffort,
+        };
+      } else if (this.provider === "openrouter") {
+        providerOpts.openrouter = {
+          ...((providerOpts.openrouter as object) ?? {}),
+          reasoning: { effort: reasoningEffort },
+        };
+      } else if (this.provider === "google") {
+        providerOpts.google = {
+          ...((providerOpts.google as object) ?? {}),
+          thinkingConfig: {
+            thinkingBudget: googleThinkingBudget(reasoningEffort),
+          },
         };
       }
     }

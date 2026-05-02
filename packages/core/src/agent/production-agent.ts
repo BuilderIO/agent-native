@@ -53,6 +53,11 @@ import {
   normalizeMaxIterations,
   readAgentLoopSettings,
 } from "./loop-settings.js";
+import {
+  isReasoningEffort,
+  normalizeReasoningEffortForModel,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -420,6 +425,8 @@ export interface ProductionAgentOptions {
     | { name: string; config: Record<string, unknown> };
   /** Model to use. Default: claude-sonnet-4-6 */
   model?: string;
+  /** Default reasoning effort for requests that do not supply an override. */
+  reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
   providerOptions?: EngineMessage extends never ? never : any;
   /** Called when a run completes (for server-side thread persistence) */
@@ -719,6 +726,37 @@ function normalizeToolInputSchema(
   };
 }
 
+function stringifyToolInput(input: unknown): string {
+  try {
+    const str = JSON.stringify(input);
+    if (!str) return String(input);
+    return str.length > 500 ? `${str.slice(0, 500)}…` : str;
+  } catch {
+    return String(input);
+  }
+}
+
+function normalizeToolCallInputForHistory(
+  input: unknown,
+): Record<string, unknown> {
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    return input as Record<string, unknown>;
+  }
+  return { rawInput: input };
+}
+
+function toolInputSchemaErrorResult(
+  toolName: string,
+  input: unknown,
+  error: string,
+): string {
+  return (
+    `Invalid action parameters for ${toolName}: ${error}. ` +
+    `Received: ${stringifyToolInput(input)}. ` +
+    "The tool was not executed; retry with arguments that match the tool schema."
+  );
+}
+
 /**
  * The core agent loop — calls the engine iteratively until no more tool calls.
  * Decoupled from HTTP transport so it can run in the background.
@@ -735,6 +773,7 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   ownerEmail?: string | null;
   orgId?: string | null;
+  reasoningEffort?: ReasoningEffort;
   providerOptions?: any;
   executionMode?: AgentExecutionMode;
   maxIterations?: number;
@@ -771,9 +810,14 @@ export async function runAgentLoop(opts: {
     }
 
     let assistantContent: EngineContentPart[] | undefined;
-    let hasToolCalls = false;
+    const toolCallErrors = new Map<
+      string,
+      { name: string; input: unknown; error: string }
+    >();
 
     for (let retry = 0; ; retry++) {
+      assistantContent = undefined;
+      toolCallErrors.clear();
       try {
         const streamOpts = {
           model,
@@ -781,6 +825,7 @@ export async function runAgentLoop(opts: {
           messages,
           tools,
           abortSignal: signal,
+          reasoningEffort: opts.reasoningEffort,
           providerOptions: opts.providerOptions,
         };
 
@@ -796,7 +841,13 @@ export async function runAgentLoop(opts: {
             // we accumulate them. In a future iteration, we can surface
             // them as a collapsible "reasoning" section in the UI.
           } else if (event.type === "tool-call") {
-            hasToolCalls = true;
+            // The authoritative tool-call blocks arrive in assistant-content.
+          } else if (event.type === "tool-call-error") {
+            toolCallErrors.set(event.id, {
+              name: event.name,
+              input: event.input,
+              error: event.error,
+            });
           } else if (event.type === "assistant-content") {
             assistantContent = event.parts;
           } else if (event.type === "usage") {
@@ -836,12 +887,46 @@ export async function runAgentLoop(opts: {
       }
     }
 
+    if (!assistantContent && toolCallErrors.size > 0) {
+      assistantContent = [];
+    }
+
     if (!assistantContent) {
       // No content — done
       break;
     }
 
-    messages.push({ role: "assistant", content: assistantContent });
+    if (toolCallErrors.size > 0) {
+      const existingToolCallIds = new Set(
+        assistantContent
+          .filter(
+            (part): part is import("./engine/types.js").EngineToolCallPart =>
+              part.type === "tool-call",
+          )
+          .map((part) => part.id),
+      );
+      for (const [id, info] of toolCallErrors) {
+        if (!existingToolCallIds.has(id)) {
+          assistantContent.push({
+            type: "tool-call",
+            id,
+            name: info.name,
+            input: info.input,
+          });
+        }
+      }
+    }
+
+    const assistantContentForHistory = assistantContent.map((part) =>
+      part.type === "tool-call"
+        ? {
+            ...part,
+            input: normalizeToolCallInputForHistory(part.input),
+          }
+        : part,
+    );
+
+    messages.push({ role: "assistant", content: assistantContentForHistory });
 
     const toolCallParts = assistantContent.filter(
       (p): p is import("./engine/types.js").EngineToolCallPart =>
@@ -876,6 +961,23 @@ export async function runAgentLoop(opts: {
         tool: toolCall.name,
         input: toolCall.input as Record<string, string>,
       });
+
+      const toolCallSchemaError = toolCallErrors.get(toolCall.id);
+      if (toolCallSchemaError) {
+        const result = toolInputSchemaErrorResult(
+          toolCall.name,
+          toolCallSchemaError.input,
+          toolCallSchemaError.error,
+        );
+        send({ type: "tool_done", tool: toolCall.name, result });
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          content: result,
+          isError: true,
+        };
+      }
 
       if (
         opts.executionMode === "plan" &&
@@ -1027,6 +1129,7 @@ export function createProductionAgentHandler(
       attachments,
       model: requestModel,
       engine: requestEngine,
+      effort: requestEffort,
     } = body;
     const requestMode: AgentExecutionMode =
       body.mode === "plan" ? "plan" : "act";
@@ -1100,6 +1203,12 @@ export function createProductionAgentHandler(
       configuredModel ??
       (await getStoredModelForEngine(engine)) ??
       engine.defaultModel;
+    const reasoningEffort = normalizeReasoningEffortForModel(
+      model,
+      isReasoningEffort(requestEffort)
+        ? requestEffort
+        : options.reasoningEffort,
+    );
 
     options.onEngineResolved?.(engine, model);
 
@@ -1461,6 +1570,7 @@ export function createProductionAgentHandler(
                     }
                   },
                   signal,
+                  reasoningEffort,
                   providerOptions: options.providerOptions,
                   executionMode: requestMode,
                   maxIterations: loopSettings.maxIterations,
@@ -1677,6 +1787,7 @@ export function createProductionAgentHandler(
           signal,
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
+          reasoningEffort,
           providerOptions: options.providerOptions,
           executionMode: requestMode,
           maxIterations: loopSettings.maxIterations,

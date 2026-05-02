@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/pinpoint",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Visual feedback and annotation tool for agent-native web applications",
   "license": "MIT",

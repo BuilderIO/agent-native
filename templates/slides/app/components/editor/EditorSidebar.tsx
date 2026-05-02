@@ -387,7 +387,13 @@ function AddSlidePopover({
         setDragging(false);
       }}
     >
-      <div className="px-3.5 pb-2 pt-3">
+      <div className="px-3.5 pt-3 pb-1.5">
+        <span className="text-sm font-medium text-foreground/90">
+          Add slides
+        </span>
+      </div>
+
+      <div className="px-3.5 pb-2">
         <textarea
           ref={inputRef}
           value={prompt}
@@ -451,19 +457,25 @@ function AddSlidePopover({
           className="hidden"
         />
 
-        <button
-          onClick={handleSubmit}
-          disabled={busy}
-          className="p-2 rounded-lg bg-accent hover:bg-accent/80 disabled:opacity-30 disabled:cursor-not-allowed"
-          title="Generate"
-          aria-label="Generate slides"
-        >
-          {busy ? (
-            <IconLoader2 className="w-4 h-4 text-foreground/90 animate-spin" />
-          ) : (
-            <IconArrowUp className="w-4 h-4 text-foreground/90" />
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground/70">
+            {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+Enter
+            to submit
+          </span>
+          <button
+            onClick={handleSubmit}
+            disabled={busy}
+            className="p-2 rounded-lg bg-accent hover:bg-accent/80 disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Generate"
+            aria-label="Generate slides"
+          >
+            {busy ? (
+              <IconLoader2 className="w-4 h-4 text-foreground/90 animate-spin" />
+            ) : (
+              <IconArrowUp className="w-4 h-4 text-foreground/90" />
+            )}
+          </button>
+        </div>
       </div>
     </div>,
     document.body,

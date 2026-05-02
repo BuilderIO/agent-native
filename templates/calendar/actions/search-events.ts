@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 
@@ -22,6 +23,9 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
+
     const query = args.query;
     if (!query) throw new Error("query is required");
 
@@ -36,13 +40,16 @@ export default defineAction({
       ? new Date(args.to).toISOString()
       : defaultTo.toISOString();
 
-    if (!(await googleCalendar.isConnected())) {
+    if (!(await googleCalendar.isConnected(email))) {
       return "Google Calendar is not connected. Connect via the Settings page first.";
     }
 
-    const { events, errors } = await googleCalendar.listEvents(from, to);
+    const { events, errors } = await googleCalendar.listEvents(from, to, email);
 
     if (errors.length > 0) {
+      if (events.length === 0) {
+        throw new Error(errors.map((e) => `${e.email}: ${e.error}`).join("; "));
+      }
       for (const err of errors) {
         console.warn(`Warning: Error fetching from ${err.email}: ${err.error}`);
       }
@@ -64,11 +71,15 @@ export default defineAction({
       start: e.start,
       end: e.end,
       location: e.location || undefined,
+      accountEmail: e.accountEmail || undefined,
+      googleEventId: e.googleEventId || undefined,
       attendees: e.attendees || [],
       conferenceData: e.conferenceData || undefined,
       hangoutLink: e.hangoutLink || undefined,
       status: e.status || undefined,
       recurrence: e.recurrence || undefined,
+      recurringEventId: e.recurringEventId || undefined,
+      organizer: e.organizer || undefined,
     }));
   },
 });

@@ -272,6 +272,25 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
     ]);
   });
 
+  it("converts AI SDK tool input errors into recoverable tool-call-error events", () => {
+    const events = aiSdkPartToEngineEvents({
+      type: "tool-input-error",
+      toolCallId: "tc-1",
+      toolName: "add-slide",
+      input: { position: "x" },
+      errorText: "position must be a number",
+    });
+    expect(events).toEqual([
+      {
+        type: "tool-call-error",
+        id: "tc-1",
+        name: "add-slide",
+        input: { position: "x" },
+        error: "position must be a number",
+      },
+    ]);
+  });
+
   it("converts finish event with totalUsage to usage + stop events", () => {
     const events = aiSdkPartToEngineEvents({
       type: "finish",
@@ -416,6 +435,27 @@ describe("aiSdkStepToAssistantContent", () => {
         input: { q: "test" },
       },
       { type: "thinking", text: "thinking...", signature: "sig-1" },
+    ]);
+  });
+
+  it("keeps invalid tool inputs in assistant history so an error result can be attached", () => {
+    const parts = aiSdkStepToAssistantContent({
+      content: [
+        {
+          type: "tool-input-error",
+          toolCallId: "tc-1",
+          toolName: "add-slide",
+          input: { position: "x" },
+        },
+      ],
+    });
+    expect(parts).toEqual([
+      {
+        type: "tool-call",
+        id: "tc-1",
+        name: "add-slide",
+        input: { position: "x" },
+      },
     ]);
   });
 

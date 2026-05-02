@@ -383,9 +383,10 @@ function PanelEditorContent({
             The agent will consult the data dictionary, write the SQL, and
             append the panel. Press{" "}
             <kbd className="px-1 rounded border bg-muted font-mono text-[10px]">
-              ⌘ ↵
+              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+              +Enter
             </kbd>{" "}
-            to send.
+            to submit.
           </p>
         </div>
         <EditorFooter className="mt-4">

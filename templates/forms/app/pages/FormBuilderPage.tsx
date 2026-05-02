@@ -777,7 +777,7 @@ function BuilderContent({
                     value={agentPrompt}
                     onChange={(e) => onAgentPromptChange(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
+                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                         e.preventDefault();
                         onSubmitAgent();
                       }
@@ -787,7 +787,11 @@ function BuilderContent({
                     className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
                   />
                 </div>
-                <div className="flex items-center justify-end border-t border-border px-4 py-2.5">
+                <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
+                  <span className="text-[11px] text-muted-foreground/70">
+                    {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+                    +Enter to submit
+                  </span>
                   <Button
                     variant="secondary"
                     size="icon"

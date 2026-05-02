@@ -103,7 +103,9 @@ function EditToolPopover({ tool }: { tool: Tool }) {
             e.preventDefault();
             handleSubmit();
           }}
+          className="space-y-3"
         >
+          <p className="text-sm font-semibold text-foreground">Edit tool</p>
           <textarea
             value={editPrompt}
             onChange={(e) => setEditPrompt(e.target.value)}
@@ -117,10 +119,10 @@ function EditToolPopover({ tool }: { tool: Tool }) {
               }
             }}
           />
-          <div className="flex items-center justify-end gap-2 mt-3">
+          <div className="flex items-center justify-end gap-2">
             <span className="text-[11px] text-muted-foreground/75">
               {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter
+              +Enter to submit
             </span>
             <button
               type="submit"

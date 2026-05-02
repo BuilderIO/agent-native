@@ -234,6 +234,7 @@ All options can be passed as props to `<Pinpoint />` or as the config object to 
 | `outputFormat`       | `'compact' \| 'standard' \| 'detailed'` | `'standard'` | Detail level in agent output                      |
 | `autoSubmit`         | `boolean`                               | `true`       | Auto-submit annotations to agent chat             |
 | `clearOnSend`        | `boolean`                               | `false`      | Clear pins after sending                          |
+| `sendToAgent`        | `(output) => void \| Promise<void>`     | —            | Custom bridge for annotation delivery             |
 | `blockInteractions`  | `boolean`                               | `false`      | Block page clicks during selection                |
 | `compactPopup`       | `boolean`                               | `true`       | Hide technical details behind toggle              |
 | `freezeJSTimers`     | `boolean`                               | `false`      | Freeze JS timers during selection                 |
@@ -394,6 +395,9 @@ Inside [Builder.io's Fusion](https://builder.io), annotations are sent via `send
 ```
 
 No additional configuration needed when running inside a Builder.io project.
+
+Hosts with their own chat implementation can pass `sendToAgent` to reuse Pinpoint's pin,
+draw, queue, and prompt UI while delivering `{ message, context, submit }` themselves.
 
 ## Architecture
 

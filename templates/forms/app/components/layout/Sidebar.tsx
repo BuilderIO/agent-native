@@ -93,7 +93,7 @@ export function Sidebar() {
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
               e.preventDefault();
               handleSubmitPrompt();
             }
@@ -114,6 +114,10 @@ export function Sidebar() {
           >
             Skip prompt
           </Button>
+          <span className="text-[11px] text-muted-foreground/70">
+            {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
+            +Enter to submit
+          </span>
           <Button
             variant="secondary"
             size="icon"

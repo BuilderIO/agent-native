@@ -4,6 +4,11 @@ import { createIntegrationsPlugin } from "./plugin.js";
 
 const getSessionMock = vi.hoisted(() => vi.fn());
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
+const processIntegrationTaskMock = vi.hoisted(() => vi.fn());
+const resourceGetByPathMock = vi.hoisted(() => vi.fn(async () => null));
+const claimPendingTaskMock = vi.hoisted(() => vi.fn());
+const markTaskCompletedMock = vi.hoisted(() => vi.fn());
+const markTaskFailedMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -29,8 +34,27 @@ vi.mock("./google-docs-poller.js", () => ({
 
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "shared",
-  resourceGetByPath: vi.fn(async () => null),
+  resourceGetByPath: resourceGetByPathMock,
 }));
+
+vi.mock("./pending-tasks-store.js", () => ({
+  claimPendingTask: claimPendingTaskMock,
+  getPendingTask: vi.fn(),
+  insertPendingTask: vi.fn(),
+  isDuplicateEventError: vi.fn(() => false),
+  markTaskCompleted: markTaskCompletedMock,
+  markTaskFailed: markTaskFailedMock,
+}));
+
+vi.mock("./webhook-handler.js", async () => {
+  const actual = await vi.importActual<typeof import("./webhook-handler.js")>(
+    "./webhook-handler.js",
+  );
+  return {
+    ...actual,
+    processIntegrationTask: processIntegrationTaskMock,
+  };
+});
 
 function createNitroApp() {
   return { h3: { "~middleware": [] as any[] } };
@@ -119,6 +143,7 @@ describe("integrations plugin routes", () => {
       process.env.A2A_SECRET = originalA2ASecret;
     }
     vi.clearAllMocks();
+    resourceGetByPathMock.mockImplementation(async () => null);
   });
 
   it("requires a session for integration status", async () => {
@@ -214,5 +239,61 @@ describe("integrations plugin routes", () => {
       error:
         "A2A_SECRET not configured — internal token signing is required to process integration tasks in production.",
     });
+  });
+
+  it("loads owner resources when processing queued integration tasks", async () => {
+    process.env.NODE_ENV = "development";
+    claimPendingTaskMock.mockResolvedValueOnce({
+      id: "task-with-resources",
+      platform: "fake",
+      externalThreadId: "fake-thread",
+      payload: JSON.stringify({
+        incoming: {
+          platform: "fake",
+          externalThreadId: "fake-thread",
+          text: "create an app",
+          senderId: "UQA",
+          platformContext: {},
+          timestamp: Date.now(),
+        },
+      }),
+      ownerEmail: "owner+qa@example.com",
+      orgId: null,
+      status: "processing",
+      attempts: 1,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    });
+    resourceGetByPathMock.mockImplementation(async (owner, path) => {
+      if (owner === "shared" && path === "AGENTS.md") {
+        return { content: "Shared Dispatch instruction" };
+      }
+      if (owner === "owner+qa@example.com" && path === "AGENTS.md") {
+        return { content: "Personal Dispatch instruction" };
+      }
+      return null;
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [adapter],
+      systemPrompt: "Base prompt.",
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: "task-with-resources" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(processIntegrationTaskMock).toHaveBeenCalledTimes(1);
+    const [, options] = processIntegrationTaskMock.mock.calls[0];
+    expect(options.systemPrompt).toContain("Base prompt.");
+    expect(options.systemPrompt).toContain("Shared Dispatch instruction");
+    expect(options.systemPrompt).toContain("Personal Dispatch instruction");
+    expect(markTaskCompletedMock).toHaveBeenCalledWith("task-with-resources");
   });
 });

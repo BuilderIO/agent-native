@@ -28,6 +28,7 @@ type Provider =
 
 interface Prefs {
   provider: Provider;
+  instructions?: string;
 }
 
 interface SecretStatus {
@@ -65,6 +66,7 @@ function isProvider(value: unknown): value is Provider {
 
 export function VoiceTranscriptionSection() {
   const [provider, setProvider] = useState<Provider | null>(null);
+  const [instructions, setInstructions] = useState("");
   const [hasStoredProvider, setHasStoredProvider] = useState(false);
   const [openAiConfigured, setOpenAiConfigured] = useState<boolean | null>(
     null,
@@ -86,8 +88,20 @@ export function VoiceTranscriptionSection() {
         const p =
           (body as Prefs | null)?.provider ??
           (body as { value?: Prefs } | null)?.value?.provider;
+        const savedInstructions =
+          (body as Prefs | null)?.instructions ??
+          (body as { value?: Prefs } | null)?.value?.instructions;
         setHasStoredProvider(isProvider(p));
-        setProvider(isProvider(p) ? p : DEFAULT_PROVIDER);
+        setProvider(
+          isProvider(p)
+            ? p === "builder"
+              ? "builder-gemini"
+              : p
+            : DEFAULT_PROVIDER,
+        );
+        if (typeof savedInstructions === "string") {
+          setInstructions(savedInstructions);
+        }
       })
       .catch(() => !cancelled && setProvider(DEFAULT_PROVIDER));
     return () => {
@@ -136,21 +150,29 @@ export function VoiceTranscriptionSection() {
   }, []);
 
   const persist = useCallback(
-    async (next: Provider, previous: Provider | null) => {
+    async (
+      nextProvider: Provider,
+      nextInstructions: string,
+      previous: { provider: Provider | null; instructions: string },
+    ) => {
       setSaving(true);
       setSaveError(null);
       try {
         const res = await fetch(PREFS_URL, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider: next }),
+          body: JSON.stringify({
+            provider: nextProvider,
+            instructions: nextInstructions.trim(),
+          }),
         });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
       } catch (err) {
         // Revert the optimistic update so the UI matches server state.
-        setProvider(previous);
+        setProvider(previous.provider);
+        setInstructions(previous.instructions);
         setSaveError(
           `Couldn't save: ${(err as Error)?.message ?? "network error"}. Try again.`,
         );
@@ -163,10 +185,16 @@ export function VoiceTranscriptionSection() {
 
   const choose = (next: Provider) => {
     if (next === provider) return;
-    const previous = provider;
+    const previous = { provider, instructions };
     setHasStoredProvider(true);
     setProvider(next);
-    void persist(next, previous);
+    void persist(next, instructions, previous);
+  };
+
+  const updateInstructions = (next: string) => {
+    const previous = { provider, instructions };
+    setInstructions(next);
+    if (provider) void persist(provider, next, previous);
   };
 
   if (provider === null) {
@@ -214,56 +242,15 @@ export function VoiceTranscriptionSection() {
       />
 
       <ProviderOption
-        id="builder"
-        selected={provider === "builder"}
-        onSelect={() => choose("builder")}
-        disabled={!builderStatus?.configured}
-        title="Builder"
-        subtitle={
-          builderStatus?.configured
-            ? "High-quality transcription via Builder.io. No API key needed."
-            : "Connect your Builder.io account for high-quality transcription."
-        }
-        rightSlot={
-          builderStatus?.configured ? (
-            <span className="flex items-center gap-1 text-[10px] text-green-500">
-              <IconCheck size={10} />
-              Connected
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                const url = new URL(
-                  agentNativePath("/_agent-native/builder/connect"),
-                  window.location.origin,
-                ).href;
-                window.open(
-                  url,
-                  "_blank",
-                  "noopener,noreferrer,width=600,height=700",
-                );
-              }}
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
-            >
-              Connect Builder.io
-              <IconExternalLink size={10} />
-            </button>
-          )
-        }
-      />
-
-      <ProviderOption
         id="builder-gemini"
         selected={provider === "builder-gemini"}
         onSelect={() => choose("builder-gemini")}
         disabled={!builderStatus?.configured}
-        title="Builder Gemini Flash-Lite"
+        title="Builder.io"
         subtitle={
           builderStatus?.configured
-            ? "Fast Gemini 3.1 Flash-Lite transcription through Builder.io. No API key needed."
-            : "Connect Builder.io to try Gemini 3.1 Flash-Lite without a Google key."
+            ? "Fast Gemini Flash-Lite transcription and cleanup through Builder.io. No Google key needed."
+            : "Connect Builder.io to use Gemini Flash-Lite without a Google key."
         }
         rightSlot={
           builderStatus?.configured ? (
@@ -355,9 +342,30 @@ export function VoiceTranscriptionSection() {
         id="browser"
         selected={provider === "browser"}
         onSelect={() => choose("browser")}
-        title="Browser (built-in)"
-        subtitle="Lower quality, works offline. No key required."
+        title="Native browser"
+        subtitle="Free built-in speech recognition. No key required."
       />
+
+      {provider !== "browser" && (
+        <div className="rounded-md border border-border bg-accent/20 px-2.5 py-2">
+          <label
+            htmlFor="voice-transcription-instructions"
+            className="block text-[10px] font-medium text-foreground"
+          >
+            Custom instructions
+          </label>
+          <textarea
+            id="voice-transcription-instructions"
+            value={instructions}
+            onChange={(event) => updateInstructions(event.target.value)}
+            placeholder="Names, casing, punctuation, style, or terms to preserve."
+            className="mt-1 min-h-16 w-full resize-y rounded border border-border bg-background px-2 py-1.5 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+          />
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Included with LLM-based transcription and cleanup.
+          </p>
+        </div>
+      )}
 
       {saving && <p className="text-[10px] text-muted-foreground">Saving…</p>}
       {saveError && !saving && (

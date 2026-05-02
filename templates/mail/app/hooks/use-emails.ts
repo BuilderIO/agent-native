@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type { EmailMessage, Label, UserSettings } from "@shared/types";
+import { markdownPreviewSnippet } from "@shared/markdown";
 import { TAB_ID } from "@/lib/tab-id";
 import { appApiPath } from "@/lib/api-path";
 import { bodyToHtml } from "@/lib/utils";
@@ -95,7 +96,7 @@ export function useAddOptimisticReply() {
       to: parseRecipients(data.to),
       ...(data.cc ? { cc: parseRecipients(data.cc) } : {}),
       subject: data.subject || "(no subject)",
-      snippet: data.body.slice(0, 120).replace(/\n/g, " "),
+      snippet: markdownPreviewSnippet(data.body),
       body: data.body,
       bodyHtml: bodyToHtml(data.body),
       date: new Date().toISOString(),
@@ -664,8 +665,9 @@ export function useSendEmail() {
         ...(data.cc ? { cc: parseRecipients(data.cc) } : {}),
         ...(data.bcc ? { bcc: parseRecipients(data.bcc) } : {}),
         subject: data.subject || "(no subject)",
-        snippet: data.body.slice(0, 120).replace(/\n/g, " "),
+        snippet: markdownPreviewSnippet(data.body),
         body: data.body,
+        bodyHtml: bodyToHtml(data.body),
         date: new Date().toISOString(),
         isRead: true,
         isStarred: false,
