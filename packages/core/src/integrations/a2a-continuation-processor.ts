@@ -18,6 +18,7 @@ const TERMINAL_STATES = new Set(["completed", "failed", "canceled"]);
 const MAX_ATTEMPTS = 6;
 const POLL_INTERVAL_MS = 2_000;
 const PROCESSOR_WAIT_MS = 20_000;
+const DISPATCH_SETTLE_WAIT_MS = 250;
 
 export async function dispatchA2AContinuation(
   continuationId: string,
@@ -52,18 +53,46 @@ export async function dispatchA2AContinuation(
     }
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5_000);
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ continuationId }),
-      signal: controller.signal,
+  const dispatchPromise = fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ continuationId }),
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        await logFailedDispatchResponse(continuationId, response);
+      }
+    })
+    .catch((err) => {
+      console.error(
+        `[integrations] Failed to dispatch A2A continuation ${continuationId}:`,
+        err,
+      );
     });
-  } finally {
-    clearTimeout(timer);
-  }
+
+  await Promise.race([
+    dispatchPromise,
+    new Promise<void>((resolve) =>
+      setTimeout(resolve, DISPATCH_SETTLE_WAIT_MS),
+    ),
+  ]);
+}
+
+async function logFailedDispatchResponse(
+  continuationId: string,
+  response: Response,
+): Promise<void> {
+  let body = "";
+  try {
+    body = await response.text();
+  } catch {}
+
+  const trimmedBody = body.trim();
+  console.error(
+    `[integrations] A2A continuation ${continuationId} processor dispatch returned HTTP ` +
+      `${response.status}${response.statusText ? ` ${response.statusText}` : ""}` +
+      `${trimmedBody ? `: ${trimmedBody.slice(0, 500)}` : ""}`,
+  );
 }
 
 export async function processA2AContinuationById(
@@ -119,8 +148,9 @@ async function processClaimedContinuation(
     }
   } catch (err) {
     if (continuation.attempts >= MAX_ATTEMPTS) {
-      await failA2AContinuation(
-        continuation.id,
+      await notifyAndFailA2AContinuation(
+        continuation,
+        adapter,
         err instanceof Error ? err.message : String(err),
       );
       return;
@@ -132,8 +162,9 @@ async function processClaimedContinuation(
 
   if (!task || !TERMINAL_STATES.has(task.status.state)) {
     if (continuation.attempts >= MAX_ATTEMPTS) {
-      await failA2AContinuation(
-        continuation.id,
+      await notifyAndFailA2AContinuation(
+        continuation,
+        adapter,
         `Remote A2A task ${continuation.a2aTaskId} did not complete after ${MAX_ATTEMPTS} attempts`,
       );
       return;
@@ -144,17 +175,18 @@ async function processClaimedContinuation(
   }
 
   if (task.status.state !== "completed") {
-    await failA2AContinuation(
-      continuation.id,
-      `Remote A2A task ${continuation.a2aTaskId} ended with state ${task.status.state}`,
-    );
+    const reason =
+      extractTaskText(task) ||
+      `Remote A2A task ${continuation.a2aTaskId} ended with state ${task.status.state}`;
+    await notifyAndFailA2AContinuation(continuation, adapter, reason);
     return;
   }
 
   const text = expandRelativeUrls(extractTaskText(task), continuation.agentUrl);
   if (!text.trim()) {
-    await failA2AContinuation(
-      continuation.id,
+    await notifyAndFailA2AContinuation(
+      continuation,
+      adapter,
       `Remote A2A task ${continuation.a2aTaskId} completed without text`,
     );
     return;
@@ -178,6 +210,67 @@ async function processClaimedContinuation(
     await rescheduleA2AContinuation(continuation.id, 30_000);
     await redispatchContinuation(continuation.id);
   }
+}
+
+async function notifyAndFailA2AContinuation(
+  continuation: A2AContinuation,
+  adapter: PlatformAdapter,
+  reason: string,
+): Promise<void> {
+  const message = formatContinuationFailureMessage(continuation, reason);
+  try {
+    await adapter.sendResponse(
+      adapter.formatAgentResponse(message),
+      continuation.incoming,
+      { placeholderRef: continuation.placeholderRef ?? undefined },
+    );
+  } catch (err) {
+    console.error(
+      `[integrations] Failed to notify ${continuation.platform} about failed A2A continuation ${continuation.id}:`,
+      err,
+    );
+  }
+
+  await failA2AContinuation(continuation.id, reason);
+}
+
+function formatContinuationFailureMessage(
+  continuation: A2AContinuation,
+  reason: string,
+): string {
+  if (isLlmCredentialError(reason)) {
+    return `The ${continuation.agentName} agent could not finish this request because that app needs an LLM connection. Connect Builder.io or another LLM provider for the ${continuation.agentName} app, then try again.`;
+  }
+
+  return `The ${continuation.agentName} agent could not finish this request: ${sanitizeFailureReason(
+    reason,
+  )}`;
+}
+
+function isLlmCredentialError(reason: string): boolean {
+  return (
+    /(?:ANTHROPIC|OPENAI|GOOGLE|GEMINI|MISTRAL|GROQ|TOGETHER|XAI|PERPLEXITY|FIREWORKS|DEEPSEEK)_[A-Z0-9_]*API_KEY/i.test(
+      reason,
+    ) ||
+    /(?:api key|llm|model provider).*(?:missing|not set|not configured|required)/i.test(
+      reason,
+    ) ||
+    /(?:missing|not set|not configured|required).*(?:api key|llm|model provider)/i.test(
+      reason,
+    )
+  );
+}
+
+function sanitizeFailureReason(reason: string): string {
+  const oneLine = reason.replace(/\s+/g, " ").trim();
+  const withoutEnvNames = oneLine.replace(
+    /\b[A-Z][A-Z0-9_]*(?:API_KEY|PRIVATE_KEY|SECRET|TOKEN)\b/g,
+    "a required credential",
+  );
+  return (
+    withoutEnvNames.slice(0, 500) ||
+    "the downstream agent returned an empty error"
+  );
 }
 
 async function redispatchContinuation(continuationId: string): Promise<void> {
