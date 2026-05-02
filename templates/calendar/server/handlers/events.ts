@@ -298,10 +298,16 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
     const acctEmail = await resolveAccountEmail(body.accountEmail, email);
 
     try {
-      await googleCalendar.updateEvent(googleEventId, {
-        ...body,
-        accountEmail: acctEmail,
-      });
+      await googleCalendar.updateEvent(
+        googleEventId,
+        {
+          ...body,
+          accountEmail: acctEmail,
+        },
+        {
+          sendUpdates: body.sendUpdates,
+        },
+      );
     } catch (error: any) {
       setResponseStatus(event, 500);
       return { error: `Failed to update Google event: ${error.message}` };

@@ -1,10 +1,16 @@
 import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
 import * as googleCalendar from "../lib/google-calendar.js";
-import { readBody } from "@agent-native/core/server";
+import { getSession, readBody } from "@agent-native/core/server";
 
 export const syncGoogleCalendar = defineEventHandler(async (event: H3Event) => {
   try {
-    if (!(await googleCalendar.isConnected())) {
+    const session = await getSession(event);
+    if (!session?.email) {
+      setResponseStatus(event, 401);
+      return { error: "Unauthenticated" };
+    }
+
+    if (!(await googleCalendar.isConnected(session.email))) {
       setResponseStatus(event, 400);
       return { error: "Google Calendar not connected" };
     }
@@ -24,6 +30,7 @@ export const syncGoogleCalendar = defineEventHandler(async (event: H3Event) => {
     const { events: googleEvents, errors } = await googleCalendar.listEvents(
       from,
       to,
+      session.email,
     );
 
     return {
