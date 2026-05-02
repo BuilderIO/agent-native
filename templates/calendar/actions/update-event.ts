@@ -40,6 +40,7 @@ export default defineAction({
       .optional()
       .describe("Whether Google should notify attendees"),
   }),
+  toolCallable: false,
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
     if (!(await googleCalendar.isConnected(ownerEmail))) {

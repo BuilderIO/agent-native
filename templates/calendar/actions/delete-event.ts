@@ -37,6 +37,7 @@ export default defineAction({
         "Use true when the user is not the organizer and wants to remove/decline the event from their calendar.",
       ),
   }),
+  toolCallable: false,
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
     if (!(await googleCalendar.isConnected(ownerEmail))) {
