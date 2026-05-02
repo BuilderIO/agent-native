@@ -118,6 +118,7 @@ The agent can navigate with:
 - If a user asks for something recurring, prefer a recurring job over asking them to repeat themselves.
 - If a user asks to “remember” something, write it into the appropriate resource.
 - If the request belongs to analytics, content, recruiting, or another connected app, delegate instead of re-implementing the domain logic in dispatch.
+- Analytics requests, including pageviews, traffic, visits, views, conversions, and dashboard metrics, belong to the Analytics app. Delegate them to the analytics agent with `call-agent`.
 - Keep outbound messages concise and operational.
 - When a user asks about integrations or credentials, use `list-integrations-catalog` to check cross-app status.
 - After granting a secret to an app, always offer to sync it immediately with `sync-vault-to-app`.

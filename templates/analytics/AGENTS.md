@@ -153,6 +153,18 @@ First-party analytics events live in SQL tables managed by this template:
 
 Use the `first-party` dashboard source or `query-agent-native-analytics` action for these events. Do **not** use `db-query` for user analytics questions unless the user explicitly asks to inspect the app's internal tables.
 
+**Source selection matters.** Pageviews, traffic, conversions, and usage can come from different sources depending on the workspace: this app's first-party `/track` collector, GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider. When the user names a source, use that source. When the source is ambiguous, use connected-source status, existing dashboards, data-dictionary entries, and user/org resources to pick the intended source; ask one concise clarification if multiple configured sources are plausible. For events collected by this analytics app's `/track` endpoint, call `query-agent-native-analytics` against `analytics_events`. Example first-party pageview query:
+
+```sql
+SELECT COUNT(*) AS pageviews
+FROM analytics_events
+WHERE event_name = 'pageview'
+  AND timestamp >= '<start-utc>'
+  AND timestamp < '<end-utc>'
+```
+
+For calendar-day questions, convert the user's requested timezone to UTC before querying. For example, May 1, 2026 in America/New_York is `2026-05-01T04:00:00Z` through `2026-05-02T04:00:00Z`.
+
 Collector endpoints:
 
 - Hosted collector: `POST https://analytics.agent-native.com/track`
@@ -272,48 +284,48 @@ A `<data-dictionary>` block is injected into your system prompt with the approve
 
 ### Data Source Scripts
 
-| Action                         | Args / Flags                | Use For                                                                                                                     |
-| ------------------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `data-source-status`           | `[--key <name>]`            | Show configured data-source credentials without revealing values                                                            |
-| `github-prs`                   | `--org`, `--query`          | PR & issue search                                                                                                           |
-| `hubspot-deals`                |                             | CRM deals, pipelines                                                                                                        |
-| `hubspot-metrics`              |                             | CRM metrics summary                                                                                                         |
-| `hubspot-pipelines`            |                             | Pipeline stages                                                                                                             |
-| `jira-search`                  | `--jql`, `--fields`         | Ticket search                                                                                                               |
-| `jira-analytics`               |                             | Sprint tracking, velocity                                                                                                   |
-| `jira`                         | `--mode`, `--jql`, `--key`  | Jira issues, issue details, projects, statuses, boards, sprints, and analytics                                              |
-| `pylon-issues`                 | `--account`, `--state`      | Support tickets                                                                                                             |
-| `gong-calls`                   | `--company`, `--days`       | Sales call recordings                                                                                                       |
-| `apollo-search`                | `--query`                   | Contact/company enrichment                                                                                                  |
-| `sentry`                       | `--mode`, `--statsPeriod`   | Sentry projects, frequent issues, issue events, and error stats                                                             |
-| `grafana`                      | `--mode`, `--search`        | Grafana dashboards, datasources, alert rules, and datasource queries                                                        |
-| `gcloud`                       | `--mode`, `--service`       | Google Cloud services, Cloud Monitoring metrics, and Cloud Logging entries                                                  |
-| `stripe`                       | `--mode`, `--email`         | Stripe billing, subscriptions, refunds, and payment status                                                                  |
-| `slack-messages`               | `--mode`, `--channel`       | Slack team info, channels, channel history, multi-channel history, and message search                                       |
-| `seo-top-keywords`             | `--limit`                   | Keyword rankings                                                                                                            |
-| `seo-page-keywords`            | `--url`                     | Keywords for a specific page                                                                                                |
-| `seo-blog-pages`               |                             | Blog page SEO metrics                                                                                                       |
-| `ga4-report`                   | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                    |
-| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery queries (**also available as a native callable agent tool** — call it directly; don't use HTTP workarounds) |
-| `query-agent-native-analytics` | `--sql`                     | Query first-party `analytics_events` recorded via `/track` (use instead of `db-query` for this datasource)                  |
-| `create-analytics-public-key`  | `[--name <label>]`          | Generate a public write key for hosted apps to send events to `analytics.agent-native.com/track`                            |
-| `list-analytics-public-keys`   |                             | List active/revoked first-party analytics write keys                                                                        |
-| `revoke-analytics-public-key`  | `--id <keyId>`              | Revoke a first-party analytics write key                                                                                    |
-| `mixpanel-events`              |                             | Mixpanel event data                                                                                                         |
-| `posthog-events`               |                             | PostHog event data                                                                                                          |
-| `amplitude-events`             |                             | Amplitude event data                                                                                                        |
-| `commonroom-members`           | `--query`, `--email`        | Community member lookup                                                                                                     |
-| `twitter-tweets`               |                             | Tweet engagement                                                                                                            |
-| `generate-chart`               | `--type`, `--data`          | Generate inline charts for chat                                                                                             |
-| `top-amplitude-events`         | `[--days N]`                | Top 20 Amplitude events by count from BigQuery (default 90 days)                                                            |
-| `bigquery-table-info`          |                             | Return embedded BigQuery table schema reference (no network call)                                                           |
-| `content-calendar`             |                             | Get all entries from the Notion content calendar                                                                            |
-| `content-calendar-schema`      |                             | Return content calendar field schema                                                                                        |
-| `notion-page`                  | `--pageId`                  | Read a Notion page's title and blocks                                                                                       |
-| `check-form-schema`            |                             | Show the inbound forms table schema in the app database                                                                     |
-| `query-inbound-forms`          | `[--limit N]`               | Query inbound form submissions from the app database                                                                        |
-| `check-contact-signup`         |                             | Check contacts with signup timestamps from BigQuery dim_hs_contacts                                                         |
-| `onboarding-events`            | `[--days N]`                | Onboarding funnel events from BigQuery                                                                                      |
+| Action                         | Args / Flags                | Use For                                                                                                                                                  |
+| ------------------------------ | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data-source-status`           | `[--key <name>]`            | Show configured data-source credentials without revealing values                                                                                         |
+| `github-prs`                   | `--org`, `--query`          | PR & issue search                                                                                                                                        |
+| `hubspot-deals`                |                             | CRM deals, pipelines                                                                                                                                     |
+| `hubspot-metrics`              |                             | CRM metrics summary                                                                                                                                      |
+| `hubspot-pipelines`            |                             | Pipeline stages                                                                                                                                          |
+| `jira-search`                  | `--jql`, `--fields`         | Ticket search                                                                                                                                            |
+| `jira-analytics`               |                             | Sprint tracking, velocity                                                                                                                                |
+| `jira`                         | `--mode`, `--jql`, `--key`  | Jira issues, issue details, projects, statuses, boards, sprints, and analytics                                                                           |
+| `pylon-issues`                 | `--account`, `--state`      | Support tickets                                                                                                                                          |
+| `gong-calls`                   | `--company`, `--days`       | Sales call recordings                                                                                                                                    |
+| `apollo-search`                | `--query`                   | Contact/company enrichment                                                                                                                               |
+| `sentry`                       | `--mode`, `--statsPeriod`   | Sentry projects, frequent issues, issue events, and error stats                                                                                          |
+| `grafana`                      | `--mode`, `--search`        | Grafana dashboards, datasources, alert rules, and datasource queries                                                                                     |
+| `gcloud`                       | `--mode`, `--service`       | Google Cloud services, Cloud Monitoring metrics, and Cloud Logging entries                                                                               |
+| `stripe`                       | `--mode`, `--email`         | Stripe billing, subscriptions, refunds, and payment status                                                                                               |
+| `slack-messages`               | `--mode`, `--channel`       | Slack team info, channels, channel history, multi-channel history, and message search                                                                    |
+| `seo-top-keywords`             | `--limit`                   | Keyword rankings                                                                                                                                         |
+| `seo-page-keywords`            | `--url`                     | Keywords for a specific page                                                                                                                             |
+| `seo-blog-pages`               |                             | Blog page SEO metrics                                                                                                                                    |
+| `ga4-report`                   | `--metrics`, `--dimensions` | Google Analytics reports                                                                                                                                 |
+| `bigquery`                     | `--sql`                     | Ad-hoc BigQuery queries (**also available as a native callable agent tool** — call it directly; don't use HTTP workarounds)                              |
+| `query-agent-native-analytics` | `--sql`                     | Query first-party `analytics_events` recorded via `/track`, including pageviews, traffic, events, and app/template usage collected by this analytics app |
+| `create-analytics-public-key`  | `[--name <label>]`          | Generate a public write key for hosted apps to send events to `analytics.agent-native.com/track`                                                         |
+| `list-analytics-public-keys`   |                             | List active/revoked first-party analytics write keys                                                                                                     |
+| `revoke-analytics-public-key`  | `--id <keyId>`              | Revoke a first-party analytics write key                                                                                                                 |
+| `mixpanel-events`              |                             | Mixpanel event data                                                                                                                                      |
+| `posthog-events`               |                             | PostHog event data                                                                                                                                       |
+| `amplitude-events`             |                             | Amplitude event data                                                                                                                                     |
+| `commonroom-members`           | `--query`, `--email`        | Community member lookup                                                                                                                                  |
+| `twitter-tweets`               |                             | Tweet engagement                                                                                                                                         |
+| `generate-chart`               | `--type`, `--data`          | Generate inline charts for chat                                                                                                                          |
+| `top-amplitude-events`         | `[--days N]`                | Top 20 Amplitude events by count from BigQuery (default 90 days)                                                                                         |
+| `bigquery-table-info`          |                             | Return embedded BigQuery table schema reference (no network call)                                                                                        |
+| `content-calendar`             |                             | Get all entries from the Notion content calendar                                                                                                         |
+| `content-calendar-schema`      |                             | Return content calendar field schema                                                                                                                     |
+| `notion-page`                  | `--pageId`                  | Read a Notion page's title and blocks                                                                                                                    |
+| `check-form-schema`            |                             | Show the inbound forms table schema in the app database                                                                                                  |
+| `query-inbound-forms`          | `[--limit N]`               | Query inbound form submissions from the app database                                                                                                     |
+| `check-contact-signup`         |                             | Check contacts with signup timestamps from BigQuery dim_hs_contacts                                                                                      |
+| `onboarding-events`            | `[--days N]`                | Onboarding funnel events from BigQuery                                                                                                                   |
 
 ### Action-Specific Filtering
 

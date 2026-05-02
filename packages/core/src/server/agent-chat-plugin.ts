@@ -2470,6 +2470,23 @@ export function createAgentChatPlugin(
         toolActions = createToolActionEntries();
       } catch {}
 
+      const resolveExtraContext = async (
+        event: any,
+        owner: string,
+      ): Promise<string> => {
+        if (!options?.extraContext) return "";
+        try {
+          const extra = await options.extraContext(event, owner);
+          return extra ? `\n\n${extra}` : "";
+        } catch (err) {
+          console.warn(
+            "[agent-chat] extraContext threw:",
+            err instanceof Error ? err.message : err,
+          );
+          return "";
+        }
+      };
+
       // In dev mode, template actions (templateScripts and discoveredActions) are
       // NOT registered as native tools — the agent invokes them via shell instead.
       // This avoids degenerate empty-object tool calls that Anthropic models
@@ -2670,9 +2687,10 @@ export function createAgentChatPlugin(
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, devActive);
+          const extra = await resolveExtraContext(context.event, owner);
           const systemPrompt = devActive
-            ? devPrompt + resources + schemaBlock
-            : basePrompt + resources + schemaBlock;
+            ? devPrompt + resources + schemaBlock + extra
+            : basePrompt + resources + schemaBlock + extra;
 
           const model = options?.model ?? DEFAULT_MODEL;
 
@@ -3240,22 +3258,6 @@ export function createAgentChatPlugin(
       // Always build the production handler (includes resource tools + call-agent + team tools)
       // In production mode (!canToggle), resolve the owner from the request session.
       const isHostedProd = !canToggle;
-      const resolveExtraContext = async (
-        event: any,
-        owner: string,
-      ): Promise<string> => {
-        if (!options?.extraContext) return "";
-        try {
-          const extra = await options.extraContext(event, owner);
-          return extra ? `\n\n${extra}` : "";
-        } catch (err) {
-          console.warn(
-            "[agent-chat] extraContext threw:",
-            err instanceof Error ? err.message : err,
-          );
-          return "";
-        }
-      };
 
       // Lean mode: use only the template's systemPrompt + actions list.
       // Skip resource loading and schema block — those add DB round-trips

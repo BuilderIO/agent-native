@@ -968,6 +968,114 @@ function rewriteCoreDependencyVersions(projectDir: string): void {
   } catch {}
 }
 
+const DISPATCH_WORKSPACE_ROOT_REDIRECTS = [
+  ["overview", "overview"],
+  ["apps", "apps"],
+  ["new-app", "new-app"],
+  ["vault", "vault"],
+  ["integrations", "integrations"],
+  ["agents", "agents"],
+  ["workspace", "workspace"],
+  ["messaging", "messaging"],
+  ["destinations", "destinations"],
+  ["identities", "identities"],
+  ["approvals", "approvals"],
+  ["audit", "audit"],
+  ["team", "team"],
+];
+
+function upsertTomlBuildEnvironment(
+  content: string,
+  vars: Record<string, string>,
+): string {
+  const lines = content.split("\n");
+  const sectionIndex = lines.findIndex(
+    (line) => line.trim() === "[build.environment]",
+  );
+  if (sectionIndex === -1) {
+    const envLines = ["", "[build.environment]"].concat(
+      Object.entries(vars).map(([key, value]) => `  ${key} = "${value}"`),
+    );
+    return content.trimEnd() + "\n" + envLines.join("\n") + "\n";
+  }
+
+  let nextSectionIndex = lines.findIndex(
+    (line, index) => index > sectionIndex && /^\s*\[/.test(line),
+  );
+  if (nextSectionIndex === -1) nextSectionIndex = lines.length;
+
+  for (const [key, value] of Object.entries(vars)) {
+    const existingIndex = lines.findIndex(
+      (line, index) =>
+        index > sectionIndex &&
+        index < nextSectionIndex &&
+        new RegExp(`^\\s*${key}\\s*=`).test(line),
+    );
+    const nextLine = `  ${key} = "${value}"`;
+    if (existingIndex === -1) {
+      lines.splice(nextSectionIndex, 0, nextLine);
+      nextSectionIndex += 1;
+    } else {
+      lines[existingIndex] = nextLine;
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function ensureRedirect(
+  content: string,
+  from: string,
+  to: string,
+  status: number,
+): string {
+  const escapedFrom = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const redirectPattern = new RegExp(
+    `\\n?\\[\\[redirects\\]\\]\\s+from\\s*=\\s*"${escapedFrom}"\\s+to\\s*=\\s*"[^"]*"\\s+status\\s*=\\s*\\d+`,
+    "m",
+  );
+  const block = [
+    "",
+    "[[redirects]]",
+    `  from = "${from}"`,
+    `  to = "${to}"`,
+    `  status = ${status}`,
+  ].join("\n");
+  if (redirectPattern.test(content)) {
+    return content.replace(redirectPattern, block);
+  }
+  return content.trimEnd() + "\n" + block + "\n";
+}
+
+function addWorkspaceMountNetlifyConfig(
+  content: string,
+  appName: string,
+): string {
+  const basePath = `/${appName}`;
+  let next = upsertTomlBuildEnvironment(content, {
+    APP_BASE_PATH: basePath,
+    VITE_APP_BASE_PATH: basePath,
+    NITRO_PRESET: "netlify",
+    NPM_CONFIG_PRODUCTION: "false",
+  });
+
+  if (appName === "dispatch") {
+    next = ensureRedirect(next, "/", "/dispatch/overview", 302);
+    next = ensureRedirect(next, "/dispatch", "/dispatch/overview", 302);
+    for (const [from, to] of DISPATCH_WORKSPACE_ROOT_REDIRECTS) {
+      next = ensureRedirect(next, `/${from}`, `/dispatch/${to}`, 302);
+    }
+    next = ensureRedirect(
+      next,
+      "/dispatch/*",
+      "/.netlify/functions/server",
+      200,
+    );
+  }
+
+  return next;
+}
+
 function rewriteNetlifyToml(
   appDir: string,
   appName: string,
@@ -983,7 +1091,7 @@ function rewriteNetlifyToml(
       originalCommand?.includes("NETLIFY_DATABASE_URL_UNPOOLED") ?? false;
     const buildCommand =
       mode === "workspace"
-        ? `NITRO_PRESET=netlify pnpm --filter ${appName} build`
+        ? `APP_BASE_PATH=/${appName} VITE_APP_BASE_PATH=/${appName} NITRO_PRESET=netlify pnpm --filter ${appName} build`
         : "NITRO_PRESET=netlify pnpm build";
     const databaseSetup =
       "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}";
@@ -1007,6 +1115,10 @@ function rewriteNetlifyToml(
         /functions = "templates\/[^"]+\/\.netlify\/functions-internal"/g,
         `functions = "${functionsPath}"`,
       );
+
+    if (mode === "workspace") {
+      content = addWorkspaceMountNetlifyConfig(content, appName);
+    }
 
     fs.writeFileSync(netlifyPath, content);
   } catch {}

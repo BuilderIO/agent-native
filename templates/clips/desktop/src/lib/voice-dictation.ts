@@ -587,6 +587,13 @@ export function installDesktopVoiceDictation(
     if (hide) invoke("hide_flow_bar").catch(() => {});
   };
 
+  const abortPendingStart = () => {
+    startInFlight = false;
+    stopRequestedBeforeReady = false;
+    setFlowState("idle");
+    invoke("hide_flow_bar").catch(() => {});
+  };
+
   const start = async () => {
     if (disposed || !enabled) return;
     // Wait briefly for any in-flight start() or stopping session to
@@ -602,13 +609,32 @@ export function installDesktopVoiceDictation(
     }
     if (disposed || session || startInFlight) return;
 
-    const resolved = await resolveProvider();
-    if (resolved.kind === "browser") {
-      await startBrowser(resolved.cleanupProvider);
-    } else if (resolved.kind === "native") {
-      await startNative(resolved.cleanupProvider);
-    } else {
-      await startServer(resolved.providerPref);
+    startInFlight = true;
+    stopRequestedBeforeReady = false;
+
+    try {
+      const resolved = await resolveProvider();
+      if (disposed || stopRequestedBeforeReady) {
+        abortPendingStart();
+        return;
+      }
+      if (resolved.kind === "browser") {
+        await startBrowser(resolved.cleanupProvider);
+      } else if (resolved.kind === "native") {
+        await startNative(resolved.cleanupProvider);
+      } else {
+        await startServer(resolved.providerPref);
+      }
+    } catch (err) {
+      console.error("[voice-dictation] start failed", err);
+      startInFlight = false;
+      stopRequestedBeforeReady = false;
+      setFlowState("error");
+      window.setTimeout(() => {
+        if (disposed || session) return;
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+      }, 800);
     }
   };
 
@@ -663,11 +689,10 @@ export function installDesktopVoiceDictation(
       typeof MediaRecorder === "undefined"
     ) {
       console.error("[voice-dictation] MediaRecorder unavailable");
+      abortPendingStart();
       return;
     }
     try {
-      startInFlight = true;
-      stopRequestedBeforeReady = false;
       console.log("[voice-dictation] startServer:", providerPref);
       // Per-press getUserMedia, but still pinned to the built-in mic when
       // we can identify it. The warm-stream pre-warm caused silent
@@ -693,6 +718,11 @@ export function installDesktopVoiceDictation(
         return;
       }
       await invoke("show_flow_bar");
+      if (disposed || stopRequestedBeforeReady) {
+        stream.getTracks().forEach((track) => track.stop());
+        abortPendingStart();
+        return;
+      }
       setFlowState("recording");
       const mimeType = pickMimeType();
       const recorder = new MediaRecorder(stream, { mimeType });
@@ -813,8 +843,6 @@ export function installDesktopVoiceDictation(
   const startNative = async (cleanupProvider?: ServerVoiceProvider) => {
     console.log("[voice-dictation] startNative: invoke native_speech_start");
     try {
-      startInFlight = true;
-      stopRequestedBeforeReady = false;
       // No parallel meter mic — Rust's AVAudioEngine is the only mic
       // consumer in this path. We previously opened a sibling
       // getUserMedia stream so the AnalyserNode could drive a voice-
@@ -829,6 +857,10 @@ export function installDesktopVoiceDictation(
       // and emit `voice:audio-level` events from there — single mic
       // consumer = clean release + real levels.
       await invoke("show_flow_bar");
+      if (disposed || stopRequestedBeforeReady) {
+        abortPendingStart();
+        return;
+      }
       setFlowState("recording");
       // Reset any prior partial transcript display in the flow-bar.
       emit("voice:partial-transcript", { text: "" }).catch(() => {});
@@ -897,8 +929,6 @@ export function installDesktopVoiceDictation(
       return;
     }
     try {
-      startInFlight = true;
-      stopRequestedBeforeReady = false;
       // IMPORTANT: do NOT call getUserMedia here — opening a parallel
       // MediaStream conflicts with webkitSpeechRecognition's own mic
       // capture in WKWebView (they fight over the input device, and
@@ -907,6 +937,10 @@ export function installDesktopVoiceDictation(
       // sees the bar pulsing while they speak. We tried real meters
       // and broke voice capture every time.
       await invoke("show_flow_bar");
+      if (disposed || stopRequestedBeforeReady) {
+        abortPendingStart();
+        return;
+      }
       setFlowState("recording");
       // Reset any prior partial transcript display in the flow-bar.
       emit("voice:partial-transcript", { text: "" }).catch(() => {});
@@ -1129,10 +1163,11 @@ export function installDesktopVoiceDictation(
     if (!current) {
       if (startInFlight) {
         stopRequestedBeforeReady = true;
-        // If start() hangs (e.g. getUserMedia awaiting a permission
-        // dialog the user dismissed), the cleanup path that hides the
-        // flow-bar may never run. Force-hide after a short wait so the
-        // bar can't get stranded.
+        setFlowState("idle");
+        invoke("hide_flow_bar").catch(() => {});
+        // If start() hangs (e.g. getUserMedia awaiting a permission dialog
+        // the user dismissed), keep the request latched but hide any UI now.
+        // The eventual start path sees stopRequestedBeforeReady and bails.
         window.setTimeout(() => {
           if (disposed) return;
           if (!session && startInFlight) {
