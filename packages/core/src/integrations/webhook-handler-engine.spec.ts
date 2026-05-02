@@ -14,6 +14,8 @@ const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
 const resolveEngineMock = vi.hoisted(() => vi.fn());
 const getStoredModelForEngineMock = vi.hoisted(() => vi.fn());
+const isLocalDatabaseMock = vi.hoisted(() => vi.fn());
+const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./thread-mapping-store.js", () => ({
   getThreadMapping: getThreadMappingMock,
@@ -44,6 +46,19 @@ vi.mock("../agent/production-agent.js", () => ({
 vi.mock("../agent/engine/index.js", () => ({
   getStoredModelForEngine: getStoredModelForEngineMock,
   resolveEngine: resolveEngineMock,
+}));
+
+vi.mock("../db/client.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("../db/client.js")>("../db/client.js");
+  return {
+    ...actual,
+    isLocalDatabase: isLocalDatabaseMock,
+  };
+});
+
+vi.mock("../server/credential-provider.js", () => ({
+  readDeployCredentialEnv: readDeployCredentialEnvMock,
 }));
 
 vi.mock("../agent/run-manager.js", () => ({
@@ -110,6 +125,8 @@ describe("integration webhook handler engine resolution", () => {
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
     getOwnerActiveApiKeyMock.mockResolvedValue(undefined);
     getOwnerApiKeyMock.mockResolvedValue(undefined);
+    isLocalDatabaseMock.mockReturnValue(true);
+    readDeployCredentialEnvMock.mockReturnValue(undefined);
     actionsToEngineToolsMock.mockReturnValue([]);
     getStoredModelForEngineMock.mockResolvedValue(undefined);
     resolveEngineMock.mockResolvedValue({
@@ -165,7 +182,7 @@ describe("integration webhook handler engine resolution", () => {
     expect(getOwnerActiveApiKeyMock).toHaveBeenCalledWith(task.ownerEmail);
     expect(resolveEngineMock).toHaveBeenCalledWith({
       engineOption: undefined,
-      apiKey: "",
+      apiKey: undefined,
       model: "claude-sonnet-4-6",
     });
     expect(runAgentLoopMock).toHaveBeenCalledWith(
@@ -229,6 +246,105 @@ describe("integration webhook handler engine resolution", () => {
       apiKey: "openai-user-key",
       model: "gpt-5.2",
     });
+  });
+
+  it("uses the explicit provider env key when no owner key exists in single-tenant mode", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn();
+    readDeployCredentialEnvMock.mockImplementation((key: string) =>
+      key === "OPENAI_API_KEY" ? "openai-env-key" : undefined,
+    );
+    const task: PendingTask = {
+      id: "task-openai-env",
+      platform: "fake",
+      externalEventKey: "fake:thread-env:1005",
+      externalThreadId: "thread-env",
+      payload: JSON.stringify({
+        incoming: {
+          platform: "fake",
+          externalThreadId: "thread-env",
+          text: "hello from slack",
+          senderName: "QA User",
+          platformContext: { channel: "C123" },
+          timestamp: 1005,
+        },
+      }),
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      status: "processing",
+      attempts: 1,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    };
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "gpt-5.2",
+      apiKey: "",
+      engine: "ai-sdk:openai",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(readDeployCredentialEnvMock).toHaveBeenCalledWith("OPENAI_API_KEY");
+    expect(resolveEngineMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        engineOption: "ai-sdk:openai",
+        apiKey: "openai-env-key",
+      }),
+    );
+  });
+
+  it("does not fall back to deployment keys in multi-tenant mode", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn();
+    process.env.NODE_ENV = "production";
+    isLocalDatabaseMock.mockReturnValue(false);
+    const task: PendingTask = {
+      id: "task-multitenant",
+      platform: "fake",
+      externalEventKey: "fake:thread-mt:1006",
+      externalThreadId: "thread-mt",
+      payload: JSON.stringify({
+        incoming: {
+          platform: "fake",
+          externalThreadId: "thread-mt",
+          text: "hello from slack",
+          senderName: "QA User",
+          platformContext: { channel: "C123" },
+          timestamp: 1006,
+        },
+      }),
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      status: "processing",
+      attempts: 1,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    };
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "gpt-5.2",
+      apiKey: "deploy-key",
+      engine: "ai-sdk:openai",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
+    expect(resolveEngineMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        engineOption: "ai-sdk:openai",
+        apiKey: undefined,
+      }),
+    );
   });
 
   it("prefers stored model settings over the integration plugin default", async () => {

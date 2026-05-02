@@ -10,6 +10,9 @@ import {
   engineToProvider,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
+import { isLocalDatabase } from "../db/client.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import {
   getStoredModelForEngine,
   resolveEngine,
@@ -100,16 +103,29 @@ function explicitEngineName(
   return undefined;
 }
 
+function isMultiTenantDeploy(): boolean {
+  if (process.env.NODE_ENV !== "production") return false;
+  return !isLocalDatabase();
+}
+
 async function resolveIntegrationApiKey(
   engineOption: WebhookHandlerOptions["engine"],
   ownerEmail: string,
   fallbackApiKey: string,
-): Promise<string> {
+): Promise<string | undefined> {
   const engineName = explicitEngineName(engineOption);
-  const userApiKey = engineName
-    ? await getOwnerApiKey(engineToProvider(engineName), ownerEmail)
-    : await getOwnerActiveApiKey(ownerEmail);
-  return userApiKey ?? fallbackApiKey;
+  if (engineName) {
+    const provider = engineToProvider(engineName);
+    const userApiKey = await getOwnerApiKey(provider, ownerEmail);
+    if (userApiKey || isMultiTenantDeploy()) return userApiKey;
+    const envVar = PROVIDER_TO_ENV[provider];
+    const providerEnvKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
+    return providerEnvKey || fallbackApiKey.trim() || undefined;
+  }
+
+  const userApiKey = await getOwnerActiveApiKey(ownerEmail);
+  if (userApiKey || isMultiTenantDeploy()) return userApiKey;
+  return fallbackApiKey.trim() || undefined;
 }
 
 /**
