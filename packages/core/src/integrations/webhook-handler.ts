@@ -5,9 +5,14 @@ import { createThread, getThread } from "../chat-threads/store.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
+  getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { createAnthropicEngine } from "../agent/engine/index.js";
+import {
+  getStoredModelForEngine,
+  resolveEngine,
+} from "../agent/engine/index.js";
+import type { AgentEngine } from "../agent/engine/types.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
@@ -51,6 +56,11 @@ export interface WebhookHandlerOptions {
   model: string;
   /** Anthropic API key */
   apiKey: string;
+  /** Agent engine to use. Defaults to the same resolver as web chat. */
+  engine?:
+    | AgentEngine
+    | string
+    | { name: string; config: Record<string, unknown> };
   /** Thread owner for personal/shared resource loading */
   ownerEmail: string;
   /**
@@ -333,7 +343,15 @@ async function processIncomingMessage(
   options: WebhookHandlerOptions,
   opts: { placeholderRef?: string } = {},
 ): Promise<void> {
-  const { adapter, systemPrompt, actions, model, apiKey, ownerEmail } = options;
+  const {
+    adapter,
+    systemPrompt,
+    actions,
+    model,
+    apiKey,
+    ownerEmail,
+    engine: engineOption,
+  } = options;
 
   // Resolve or create internal thread
   let mapping = await getThreadMapping(
@@ -420,7 +438,6 @@ async function processIncomingMessage(
   // A2A delegation. Without this, getRequestOrgId() returns undefined and
   // call-agent can't look up the org's a2a_secret or org_domain.
   const orgId = await resolveOrgIdForEmail(ownerEmail);
-  const engine = createAnthropicEngine({ apiKey });
   const tools = actionsToEngineTools(actions);
 
   const runId = `integration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -441,17 +458,30 @@ async function processIncomingMessage(
             // agent-chat. See `isIntegrationCallerRequest()`.
             isIntegrationCaller: true,
           },
-          () =>
-            runAgentLoop({
-              engine,
+          async () => {
+            const userApiKey = await getOwnerActiveApiKey(ownerEmail);
+            const effectiveApiKey = userApiKey ?? apiKey;
+            const engine = await resolveEngine({
+              engineOption,
+              apiKey: effectiveApiKey,
               model,
+            });
+            const resolvedModel =
+              model ??
+              (await getStoredModelForEngine(engine)) ??
+              engine.defaultModel;
+
+            return runAgentLoop({
+              engine,
+              model: resolvedModel,
               systemPrompt,
               tools,
               messages,
               actions,
               send,
               signal,
-            }),
+            });
+          },
         );
       },
       async (completedRun: ActiveRun) => {

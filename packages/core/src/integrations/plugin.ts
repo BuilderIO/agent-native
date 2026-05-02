@@ -365,6 +365,7 @@ export function createIntegrationsPlugin(
             actions,
             model,
             apiKey: getApiKey(),
+            engine: options?.engine,
             ownerEmail: task.ownerEmail,
           });
           await markTaskCompleted(taskId);
@@ -536,6 +537,7 @@ export function createIntegrationsPlugin(
             actions,
             model,
             apiKey: getApiKey(),
+            engine: options?.engine,
             ownerEmail: owner,
             beforeProcess: options?.beforeProcess,
             incoming,
