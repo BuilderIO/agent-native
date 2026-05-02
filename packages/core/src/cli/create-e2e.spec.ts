@@ -315,14 +315,32 @@ describe("Netlify scaffold rewrite", () => {
     _rewriteNetlifyToml(appDir, "dispatch", "workspace");
 
     const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    const expectRedirect = (from: string, to: string, status: number) => {
+      expect(netlify).toContain(
+        [
+          "[[redirects]]",
+          `  from = "${from}"`,
+          `  to = "${to}"`,
+          `  status = ${status}`,
+        ].join("\n"),
+      );
+    };
+
     expect(netlify).toContain(
-      'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && NITRO_PRESET=netlify pnpm --filter dispatch build"',
+      'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && APP_BASE_PATH=/dispatch VITE_APP_BASE_PATH=/dispatch NITRO_PRESET=netlify pnpm --filter dispatch build"',
     );
     expect(netlify).not.toContain("pnpm install");
     expect(netlify).toContain('publish = "apps/dispatch/dist"');
     expect(netlify).toContain(
       'functions = "apps/dispatch/.netlify/functions-internal"',
     );
+    expect(netlify).toContain('  APP_BASE_PATH = "/dispatch"');
+    expect(netlify).toContain('  VITE_APP_BASE_PATH = "/dispatch"');
+    expectRedirect("/", "/dispatch/overview", 302);
+    expectRedirect("/dispatch", "/dispatch/overview", 302);
+    expectRedirect("/apps", "/dispatch/apps", 302);
+    expectRedirect("/new-app", "/dispatch/new-app", 302);
+    expectRedirect("/dispatch/*", "/.netlify/functions/server", 200);
   });
 
   it("keeps unpooled database build overrides for templates that need them", () => {
@@ -348,6 +366,59 @@ describe("Netlify scaffold rewrite", () => {
     expect(netlify).not.toContain("pnpm install");
     expect(netlify).toContain('publish = "dist"');
     expect(netlify).toContain('functions = ".netlify/functions-internal"');
+  });
+
+  it("does not add Dispatch root redirects to other workspace apps", () => {
+    const appDir = path.join(tmpDir, "starter-app");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        '  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter starter build"',
+        '  publish = "templates/starter/dist"',
+        '  functions = "templates/starter/.netlify/functions-internal"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "starter", "workspace");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain(
+      'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && APP_BASE_PATH=/starter VITE_APP_BASE_PATH=/starter NITRO_PRESET=netlify pnpm --filter starter build"',
+    );
+    expect(netlify).toContain('  APP_BASE_PATH = "/starter"');
+    expect(netlify).toContain('  VITE_APP_BASE_PATH = "/starter"');
+    expect(netlify).not.toContain('  to = "/dispatch/apps"');
+    expect(netlify).not.toContain('  from = "/dispatch/*"');
+  });
+
+  it("repairs stale Dispatch redirects in generated Netlify configs", () => {
+    const appDir = path.join(tmpDir, "dispatch-app");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        '  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter dispatch build"',
+        '  publish = "templates/dispatch/dist"',
+        '  functions = "templates/dispatch/.netlify/functions-internal"',
+        "",
+        "[[redirects]]",
+        '  from = "/"',
+        '  to = "/dispatch/"',
+        "  status = 302",
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "dispatch", "workspace");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain('  from = "/"');
+    expect(netlify).toContain('  to = "/dispatch/overview"');
+    expect(netlify).not.toContain('  to = "/dispatch/"');
   });
 });
 
