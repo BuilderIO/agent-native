@@ -4,6 +4,7 @@ import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
+import type { Duplex } from "node:stream";
 
 interface WorkspaceApp {
   id: string;
@@ -240,7 +241,7 @@ function proxyHttp(
 function proxyUpgrade(
   app: WorkspaceApp,
   req: http.IncomingMessage,
-  socket: net.Socket,
+  socket: Duplex,
   head: Buffer,
 ): void {
   const target = net.connect(app.port, "127.0.0.1", () => {

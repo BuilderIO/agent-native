@@ -259,13 +259,13 @@ try {
   );
   const workspaceDir = path.join(tmpDir, "qa-workspace");
   const workspacePkg = readJson(path.join(workspaceDir, "package.json"));
-  const workspaceCoreName = "@qa-workspace/core-module";
+  const workspaceCoreName = "@qa-workspace/shared";
   assert.equal(workspacePkg.name, "qa-workspace");
   assert.equal(workspacePkg["agent-native"].workspaceCore, workspaceCoreName);
   assert.equal(
     workspacePkg.scripts.dev,
-    "tsx scripts/workspace-dev.ts",
-    "workspace dev script must run the shared gateway",
+    "agent-native dev",
+    "workspace dev script must use the framework gateway",
   );
   assert.match(
     workspacePkg.scripts.postinstall,
@@ -278,9 +278,9 @@ try {
     "calendar workspace scaffold must copy @agent-native/scheduling",
   );
   assert.equal(
-    fs.existsSync(path.join(workspaceDir, "packages", "core-module")),
+    fs.existsSync(path.join(workspaceDir, "packages", "shared")),
     true,
-    "workspace scaffold must include the shared core module",
+    "workspace scaffold must include the shared package",
   );
   assertScaffoldBasics(path.join(workspaceDir, "apps", "starter"));
   assertWorkspaceApp(workspaceDir, "starter", workspaceCoreName);

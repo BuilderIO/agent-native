@@ -105,7 +105,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
   ): Promise<string> {
     const targetDir = path.join(tmpDir, name);
     await _scaffoldWorkspaceRoot(targetDir, name);
-    const workspaceCoreName = `@${name}/core-module`;
+    const workspaceCoreName = `@${name}/shared`;
 
     for (const t of templates) {
       const appDir = path.join(targetDir, "apps", t);
@@ -192,10 +192,10 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     );
   });
 
-  it("adds workspace core-module dependency to apps", async () => {
+  it("adds workspace shared dependency to apps", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
     const appPkg = readPkg(path.join(wsDir, "apps", "starter"));
-    expect(appPkg.dependencies["@my-ws/core-module"]).toBe("workspace:*");
+    expect(appPkg.dependencies["@my-ws/shared"]).toBe("workspace:*");
   });
 
   it("removes starter auth/chat wrappers so workspace-core plugins mount", async () => {
@@ -219,9 +219,9 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     ).toBe(false);
   });
 
-  it("resolves @agent-native/core in the scaffolded workspace core module", async () => {
+  it("resolves @agent-native/core in the scaffolded workspace shared package", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
-    const corePkg = readPkg(path.join(wsDir, "packages", "core-module"));
+    const corePkg = readPkg(path.join(wsDir, "packages", "shared"));
     expect(corePkg.dependencies["@agent-native/core"]).toBe(
       _getCoreDependencyVersion(),
     );

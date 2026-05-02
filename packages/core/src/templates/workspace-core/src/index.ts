@@ -1,5 +1,5 @@
 /**
- * @{{APP_NAME}}/core-module — enterprise-wide workspace core.
+ * @{{APP_NAME}}/shared — enterprise-wide workspace core.
  *
  * Every agent-native app in this workspace inherits from this package:
  *   - Server plugins (auth, org, agent-chat) — see src/server
@@ -12,10 +12,10 @@
  * Apps don't import from this root entry directly — they import from
  * the specific sub-path they need:
  *
- *   import { authPlugin } from "@{{APP_NAME}}/core-module/server";
- *   import { AuthenticatedLayout } from "@{{APP_NAME}}/core-module/client";
- *   import { resolveCompanyCredential } from "@{{APP_NAME}}/core-module/credentials";
+ *   import { authPlugin } from "@{{APP_NAME}}/shared/server";
+ *   import { AuthenticatedLayout } from "@{{APP_NAME}}/shared/client";
+ *   import { resolveCompanyCredential } from "@{{APP_NAME}}/shared/credentials";
  *
  * This root file is for package metadata only.
  */
-export const WORKSPACE_CORE_NAME = "@{{APP_NAME}}/core-module";
+export const WORKSPACE_CORE_NAME = "@{{APP_NAME}}/shared";

@@ -1,5 +1,5 @@
 /**
- * Server-side entry for @{{APP_NAME}}/core-module.
+ * Server-side entry for @{{APP_NAME}}/shared.
  *
  * Exports plugin overrides for any framework slot you want to customize
  * across every app in this workspace. The agent-native framework looks for

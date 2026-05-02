@@ -6,7 +6,7 @@
  * with a real component that pulls in your design system. Every app
  * imports it the same way:
  *
- *   import { AuthenticatedLayout } from "@{{APP_NAME}}/core-module/client";
+ *   import { AuthenticatedLayout } from "@{{APP_NAME}}/shared/client";
  *
  *   export default function Home() {
  *     return (

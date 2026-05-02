@@ -3,19 +3,21 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "dev": "tsx scripts/workspace-dev.ts",
+    "dev": "agent-native dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "fmt:check": "prettier --check .",
     "lint": "pnpm fmt:check"
   },
   "agent-native": {
-    "workspaceCore": "@{{APP_NAME}}/core-module"
+    "workspaceCore": "@{{APP_NAME}}/shared"
+  },
+  "dependencies": {
+    "@agent-native/core": "latest"
   },
   "devDependencies": {
     "@types/node": "^24.2.1",
     "prettier": "^3.6.2",
-    "tsx": "catalog:",
     "typescript": "^6.0.3"
   },
   "packageManager": "pnpm@10.14.0"

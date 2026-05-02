@@ -1,5 +1,5 @@
 {
-  "name": "@{{APP_NAME}}/core-module",
+  "name": "@{{APP_NAME}}/shared",
   "private": true,
   "version": "0.0.0",
   "type": "module",

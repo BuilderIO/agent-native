@@ -1,11 +1,11 @@
 /**
- * Workspace-wide Tailwind v4 design tokens for @{{APP_NAME}}/core-module.
+ * Workspace-wide Tailwind v4 design tokens for @{{APP_NAME}}/shared.
  *
  * Every app in the workspace should import this from its own
  * `app/global.css` so brand updates in one place propagate to all apps:
  *
  *   @import "tailwindcss";
- *   @import "@{{APP_NAME}}/core-module/styles/tokens.css";
+ *   @import "@{{APP_NAME}}/shared/styles/tokens.css";
  *
  * Replace the values below with your real brand palette.
  */

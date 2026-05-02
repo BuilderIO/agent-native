@@ -8,15 +8,15 @@
  * middle layer of the three-layer inheritance model:
  *
  *   1. app local           (highest priority — app's own server/plugins/, actions/, etc.)
- *   2. workspace core      (middle — packages/core-module/ in the enterprise monorepo)
+ *   2. workspace core      (middle — packages/shared/ in the enterprise monorepo)
  *   3. @agent-native/core  (lowest — framework defaults)
  *
  * Discovery works by walking up from the build cwd looking for a package.json
- * that declares `"agent-native": { "workspaceCore": "@company/core-module" }`.
+ * that declares `"agent-native": { "workspaceCore": "@company/shared" }`.
  * The declared package is then resolved through the monorepo's node_modules,
  * and its directory structure is probed for the standard layout:
  *
- *   packages/core-module/
+ *   packages/shared/
  *     package.json
  *     src/server/index.ts  (exports <slot>Plugin for any slot it wants to provide)
  *     actions/             (shared agent-callable actions)
@@ -45,7 +45,7 @@ export type PluginSlot =
 export interface WorkspaceCoreExports {
   /** Absolute path of the monorepo root (the dir containing the root package.json). */
   workspaceRoot: string;
-  /** Resolved package name — e.g. "@my-company/core-module". */
+  /** Resolved package name — e.g. "@my-company/shared". */
   packageName: string;
   /** Absolute path to the workspace core package's root directory. */
   packageDir: string;
@@ -126,7 +126,7 @@ async function resolvePackageDir(
     }
   }
 
-  // 3) scan packages/*/*  (for scoped layouts like packages/@company/core-module)
+  // 3) scan packages/*/*  (for scoped layouts like packages/@company/shared)
   if (fs.existsSync(packagesDir)) {
     for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
       if (!entry.isDirectory() || !entry.name.startsWith("@")) continue;

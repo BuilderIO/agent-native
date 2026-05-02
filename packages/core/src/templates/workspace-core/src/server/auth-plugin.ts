@@ -1,5 +1,5 @@
 /**
- * Workspace-wide auth plugin for @{{APP_NAME}}/core-module.
+ * Workspace-wide auth plugin for @{{APP_NAME}}/shared.
  *
  * Today this just re-uses the framework default, which already does the
  * right thing for most enterprises (Better Auth with Google SSO when
@@ -13,7 +13,7 @@
  *   - Fail closed on unauthenticated requests outside dev
  *
  * Every app in the workspace inherits this automatically (as long as the
- * root package.json has `"agent-native": { "workspaceCore": "@{{APP_NAME}}/core-module" }`).
+ * root package.json has `"agent-native": { "workspaceCore": "@{{APP_NAME}}/shared" }`).
  */
 import { defaultAuthPlugin } from "@agent-native/core/server";
 

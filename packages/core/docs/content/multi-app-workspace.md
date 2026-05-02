@@ -48,7 +48,7 @@ my-company-platform/
 ├── .env.example                 # shared ANTHROPIC_API_KEY, BUILDER_PRIVATE_KEY,
 │                                # A2A_SECRET, DATABASE_URL, ...
 ├── packages/
-│   └── core-module/             # @my-company-platform/core-module
+│   └── shared/             # @my-company-platform/shared
 │       ├── src/
 │       │   ├── server/          # auth / agent-chat plugin overrides
 │       │   ├── client/          # shared React components
@@ -78,7 +78,7 @@ Every app renders through `<AuthenticatedLayout>` from the core. Every agent cha
 {
   "name": "my-company-platform",
   "agent-native": {
-    "workspaceCore": "@my-company-platform/core-module"
+    "workspaceCore": "@my-company-platform/shared"
   }
 }
 ```
@@ -111,7 +111,7 @@ That's it. The new app has the same login as every other app in the workspace, t
 Agent-native apps inside a workspace resolve cross-cutting behavior from three places, in this order:
 
 1. **App local** — files inside `apps/<name>/` (highest priority)
-2. **Workspace core** — files inside `packages/core-module/` (the shared mid-layer)
+2. **Workspace core** — files inside `packages/shared/` (the shared mid-layer)
 3. **Framework default** — `@agent-native/core` (lowest)
 
 The merge happens by file name. If an app provides a local file that also exists upstream, the local one wins. If it doesn't, the workspace core's version applies. If the core doesn't provide one either, the framework default kicks in. This applies to plugins, skills, actions, and `AGENTS.md`.
@@ -130,7 +130,7 @@ No wiring, no config. Create the file and it takes over.
 
 ## Editing shared behavior {#editing-shared-behavior}
 
-Everything cross-cutting lives in `packages/core-module/`. Change `src/server/auth-plugin.ts` and every app in the workspace picks it up on the next dev reload. Add a new file to `skills/` and every app's agent instantly has access to the new skill. Add an action to `actions/` and every app's agent can call it.
+Everything cross-cutting lives in `packages/shared/`. Change `src/server/auth-plugin.ts` and every app in the workspace picks it up on the next dev reload. Add a new file to `skills/` and every app's agent instantly has access to the new skill. Add an action to `actions/` and every app's agent can call it.
 
 Because the core is a `workspace:*` dependency, pnpm symlinks it into each app's `node_modules/`. You never build or publish it — the apps bundle whatever they need from it at build time.
 
@@ -172,7 +172,7 @@ See [MCP Clients](/docs/mcp-clients) for the config schema, precedence rules, re
 Rotate a third-party API key in one place and every app picks it up:
 
 ```ts
-import { resolveCompanyCredential } from "@my-company-platform/core-module/credentials";
+import { resolveCompanyCredential } from "@my-company-platform/shared/credentials";
 
 const slackToken = await resolveCompanyCredential("SLACK_BOT_TOKEN");
 ```
@@ -185,7 +185,7 @@ The framework is on Tailwind v4. The core ships a shared CSS file with the stand
 
 ```css
 @import "tailwindcss";
-@import "@my-company-platform/core-module/styles/tokens.css";
+@import "@my-company-platform/shared/styles/tokens.css";
 @source "./**/*.{ts,tsx}";
 
 :root {

@@ -1,5 +1,5 @@
 /**
- * Client-side entry for @{{APP_NAME}}/core-module.
+ * Client-side entry for @{{APP_NAME}}/shared.
  *
  * This is where shared React components, hooks, and providers that EVERY
  * app in your workspace needs live. Think of it as the "app shell" layer
@@ -14,7 +14,7 @@
  *
  * Apps import from here instead of re-implementing or copy-pasting:
  *
- *   import { AuthenticatedLayout } from "@{{APP_NAME}}/core-module/client";
+ *   import { AuthenticatedLayout } from "@{{APP_NAME}}/shared/client";
  *
  * NOTE: This package does not ship shadcn/ui or a generic design system
  * by default. If you already have an internal `@{{APP_NAME}}/design-system`

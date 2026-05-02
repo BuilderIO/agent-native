@@ -1,5 +1,5 @@
 /**
- * Workspace-wide agent-chat plugin for @{{APP_NAME}}/core-module.
+ * Workspace-wide agent-chat plugin for @{{APP_NAME}}/shared.
  *
  * This mounts the framework's default agent-chat plugin so every app in
  * the workspace gets the same chat endpoint, mention providers, and

@@ -21,7 +21,7 @@ function makeWorkspaceFixture(opts: {
   withAgentsMd: boolean;
 }) {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ws-core-fixture-"));
-  const corePackageDir = path.join(tmpRoot, "packages", "core-module");
+  const corePackageDir = path.join(tmpRoot, "packages", "shared");
   const appDir = path.join(tmpRoot, "apps", "example");
   fs.mkdirSync(corePackageDir, { recursive: true });
   fs.mkdirSync(appDir, { recursive: true });
@@ -43,7 +43,7 @@ function makeWorkspaceFixture(opts: {
   );
   fs.writeFileSync(path.join(tmpRoot, "pnpm-workspace.yaml"), "packages:\n");
 
-  // Core module package.json with the matching name.
+  // Shared package package.json with the matching name.
   fs.writeFileSync(
     path.join(corePackageDir, "package.json"),
     JSON.stringify({ name: opts.corePackageName, version: "0.0.0" }, null, 2),
@@ -149,7 +149,7 @@ describe("getWorkspaceCoreExports", () => {
 
   it("discovers a workspace core via packages/*/package.json name", async () => {
     const fix = makeWorkspaceFixture({
-      corePackageName: "@my-company/core-module",
+      corePackageName: "@my-company/shared",
       withWorkspaceCoreField: true,
       withServerIndex: true,
       withActionsDir: true,
@@ -159,7 +159,7 @@ describe("getWorkspaceCoreExports", () => {
     try {
       const result = await getWorkspaceCoreExports(fix.appDir);
       expect(result).not.toBeNull();
-      expect(result!.packageName).toBe("@my-company/core-module");
+      expect(result!.packageName).toBe("@my-company/shared");
       expect(result!.workspaceRoot).toBe(fix.tmpRoot);
       expect(result!.packageDir).toBe(fix.corePackageDir);
       expect(result!.skillsDir).toBe(path.join(fix.corePackageDir, "skills"));
@@ -174,7 +174,7 @@ describe("getWorkspaceCoreExports", () => {
 
   it("detects plugin exports in src/server/index.ts", async () => {
     const fix = makeWorkspaceFixture({
-      corePackageName: "@my-company/core-module",
+      corePackageName: "@my-company/shared",
       withWorkspaceCoreField: true,
       withServerIndex: true,
       withActionsDir: false,
