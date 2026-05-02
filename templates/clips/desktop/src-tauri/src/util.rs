@@ -1,7 +1,7 @@
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow};
 
 use crate::dlog;
-use crate::state::{DictationActive, PopoverShownAt, RecordingActive};
+use crate::state::{DictationActive, PopoverShownAt, RecordingActive, VoiceWakePopover};
 
 // ---------------------------------------------------------------------------
 // Exclude-from-capture helper (macOS only)
@@ -176,6 +176,31 @@ pub fn set_dictation_active(app: &AppHandle, active: bool) {
     if let Some(state) = app.try_state::<DictationActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = active;
+        }
+    }
+}
+
+pub fn is_dictation_active(app: &AppHandle) -> bool {
+    app.try_state::<DictationActive>()
+        .and_then(|s| s.0.lock().ok().map(|g| *g))
+        .unwrap_or(false)
+}
+
+pub fn hide_voice_wake_popover(app: &AppHandle) {
+    let should_hide = app
+        .try_state::<VoiceWakePopover>()
+        .and_then(|state| {
+            state.0.lock().ok().map(|mut g| {
+                let was_woken = *g;
+                *g = false;
+                was_woken
+            })
+        })
+        .unwrap_or(false);
+    if should_hide {
+        if let Some(w) = app.get_webview_window("popover") {
+            let _ = w.hide();
+            let _ = app.emit("clips:popover-visible", false);
         }
     }
 }
