@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { IconX } from "@tabler/icons-react";
 
@@ -155,6 +156,9 @@ export function FlowBar() {
     // it will abort any in-flight transcribe, stop recording, and hide
     // the bar without pasting text.
     emit("voice:cancel").catch(() => {});
+    window.setTimeout(() => {
+      invoke("hide_flow_bar").catch(() => {});
+    }, 250);
   };
 
   // The transcript chip is independent of the pill — it can linger on

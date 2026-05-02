@@ -15,6 +15,9 @@ import {
   getTaskOwner,
   updateTask,
   claimA2ATaskForProcessing,
+  getA2ATaskDispatchState,
+  resetStuckA2ATaskForRetry,
+  touchQueuedA2ATaskDispatch,
 } from "./task-store.js";
 import { agentChat } from "../shared/agent-chat.js";
 import { signInternalToken } from "../integrations/internal-token.js";
@@ -24,6 +27,8 @@ import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 // transitive deps) into the a2a/handlers test boundary. Must stay in sync
 // with FRAMEWORK_ROUTE_PREFIX in `server/core-routes-plugin.ts`.
 const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task";
+const A2A_QUEUED_DISPATCH_STUCK_AFTER_MS = 10_000;
+const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 
 /**
  * Resolve the base URL we should fire the A2A processor request to. Mirrors
@@ -731,7 +736,41 @@ async function handleGet(
   if (!task) {
     return jsonRpcError(0, -32001, "Task not found");
   }
+  await refireStuckAsyncTaskIfNeeded(id, event).catch((err) => {
+    console.error("[a2a] Failed to refire stuck async task:", err);
+  });
   return jsonRpcResult(0, sanitizeTaskForResponse(task));
+}
+
+async function refireStuckAsyncTaskIfNeeded(
+  taskId: string,
+  event: any,
+): Promise<void> {
+  const state = await getA2ATaskDispatchState(taskId);
+  if (!state) return;
+  if (!state.metadata?.__a2a_processor) return;
+
+  const now = Date.now();
+  if (
+    (state.statusState === "submitted" || state.statusState === "working") &&
+    state.updatedAt <= now - A2A_QUEUED_DISPATCH_STUCK_AFTER_MS
+  ) {
+    if (await touchQueuedA2ATaskDispatch(taskId)) {
+      await fireProcessTaskDispatch(event, taskId);
+    }
+    return;
+  }
+
+  if (
+    state.statusState === "processing" &&
+    state.updatedAt <= now - A2A_PROCESSING_STUCK_AFTER_MS
+  ) {
+    const reset = await resetStuckA2ATaskForRetry(
+      taskId,
+      now - A2A_PROCESSING_STUCK_AFTER_MS,
+    );
+    if (reset) await fireProcessTaskDispatch(event, taskId);
+  }
 }
 
 async function handleCancel(

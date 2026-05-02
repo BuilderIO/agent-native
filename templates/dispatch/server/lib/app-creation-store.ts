@@ -20,6 +20,7 @@ export interface WorkspaceAppSummary {
   name: string;
   description: string;
   path: string;
+  url: string | null;
   isDispatch: boolean;
 }
 
@@ -67,6 +68,21 @@ function scopedSettingsKey(): string {
   return `${SETTINGS_KEY}:user:${currentOwnerEmail()}`;
 }
 
+function workspaceAppUrl(appPath: string): string | null {
+  const base =
+    process.env.APP_URL ||
+    process.env.URL ||
+    process.env.DEPLOY_URL ||
+    process.env.BETTER_AUTH_URL ||
+    null;
+  if (!base) return null;
+  try {
+    return new URL(appPath, `${base.replace(/\/$/, "")}/`).toString();
+  } catch {
+    return null;
+  }
+}
+
 export function getEnvBuilderProjectId(): string | null {
   return (
     process.env.DISPATCH_BUILDER_PROJECT_ID ||
@@ -85,6 +101,7 @@ export async function listWorkspaceApps(): Promise<WorkspaceAppSummary[]> {
         name: "Dispatch",
         description: "Workspace control plane",
         path: "/dispatch",
+        url: workspaceAppUrl("/dispatch"),
         isDispatch: true,
       },
     ];
@@ -105,6 +122,7 @@ export async function listWorkspaceApps(): Promise<WorkspaceAppSummary[]> {
         name: pkg.displayName || titleCase(entry.name),
         description: pkg.description || "",
         path: `/${entry.name}`,
+        url: workspaceAppUrl(`/${entry.name}`),
         isDispatch: entry.name === "dispatch",
       } satisfies WorkspaceAppSummary;
     })
