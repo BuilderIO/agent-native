@@ -51,7 +51,7 @@ export default defineAction({
       .optional()
       .describe("Layout type hint"),
     notes: z.string().optional().describe("Speaker notes for this slide"),
-    position: z
+    position: z.coerce
       .number()
       .int()
       .min(0)
