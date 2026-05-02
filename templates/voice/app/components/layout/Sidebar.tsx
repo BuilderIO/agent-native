@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 
 export function Sidebar() {
@@ -6,13 +7,13 @@ export function Sidebar() {
       <div className="border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <img
-            src="/agent-native-icon-light.svg"
+            src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
             className="block h-4 w-auto dark:hidden"
           />
           <img
-            src="/agent-native-icon-dark.svg"
+            src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
             className="hidden h-4 w-auto dark:block"

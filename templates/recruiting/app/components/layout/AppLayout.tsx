@@ -6,7 +6,11 @@ import { OnboardingScreen } from "@/components/recruiting/OnboardingScreen";
 import { CommandPalette } from "./CommandPalette";
 import { useGreenhouseStatus } from "@/hooks/use-greenhouse";
 import { OrgSwitcher, InvitationBanner } from "@agent-native/core/client/org";
-import { AgentSidebar, FeedbackButton } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  FeedbackButton,
+  appPath,
+} from "@agent-native/core/client";
 import {
   IconLayoutDashboard,
   IconBriefcase,
@@ -172,13 +176,13 @@ export function AppLayout({ children }: AppLayoutProps) {
           >
             <div className="flex h-12 shrink-0 items-center gap-2 px-4 border-b border-border">
               <img
-                src="/agent-native-icon-light.svg"
+                src={appPath("/agent-native-icon-light.svg")}
                 alt=""
                 aria-hidden="true"
                 className="block h-4 w-auto shrink-0 dark:hidden"
               />
               <img
-                src="/agent-native-icon-dark.svg"
+                src={appPath("/agent-native-icon-dark.svg")}
                 alt=""
                 aria-hidden="true"
                 className="hidden h-4 w-auto shrink-0 dark:block"

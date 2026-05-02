@@ -1031,7 +1031,7 @@ function ensureRedirect(
 ): string {
   const escapedFrom = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const redirectPattern = new RegExp(
-    `\\n?\\[\\[redirects\\]\\]\\s+from\\s*=\\s*"${escapedFrom}"\\s+to\\s*=\\s*"[^"]*"\\s+status\\s*=\\s*\\d+`,
+    `\\n?\\[\\[redirects\\]\\]\\s+from\\s*=\\s*"${escapedFrom}"\\s+to\\s*=\\s*"[^"]*"\\s+status\\s*=\\s*\\d+(?:\\s+force\\s*=\\s*(?:true|false))?`,
     "m",
   );
   const block = [

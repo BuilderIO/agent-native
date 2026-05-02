@@ -63,6 +63,7 @@ import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   FeedbackButton,
   appApiPath,
+  appPath,
   useActionMutation,
 } from "@agent-native/core/client";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
@@ -1001,13 +1002,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       <div className="flex h-12 shrink-0 items-center border-b border-border px-4 lg:px-6">
         <Link to="/" className="flex items-center gap-2 font-semibold">
           <img
-            src="/agent-native-icon-light.svg"
+            src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
             className="block h-5 w-auto shrink-0 dark:hidden"
           />
           <img
-            src="/agent-native-icon-dark.svg"
+            src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
             className="hidden h-5 w-auto shrink-0 dark:block"

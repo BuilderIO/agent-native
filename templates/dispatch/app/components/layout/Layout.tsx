@@ -1,6 +1,10 @@
 import { useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router";
-import { AgentSidebar, FeedbackButton } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  FeedbackButton,
+  appPath,
+} from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import {
@@ -95,13 +99,13 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl border bg-card text-foreground">
             <img
-              src="/agent-native-icon-light.svg"
+              src={appPath("/agent-native-icon-light.svg")}
               alt=""
               aria-hidden="true"
               className="block h-4 w-auto shrink-0 dark:hidden"
             />
             <img
-              src="/agent-native-icon-dark.svg"
+              src={appPath("/agent-native-icon-dark.svg")}
               alt=""
               aria-hidden="true"
               className="hidden h-4 w-auto shrink-0 dark:block"
@@ -145,10 +149,27 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const hasEmbeddedAgentChat =
+    location.pathname === "/" || location.pathname === "/overview";
 
   if (CHROMELESS_PATHS.some((path) => location.pathname === path)) {
     return <>{children}</>;
   }
+
+  const appContent = (
+    <div className="flex h-full flex-1 flex-col overflow-hidden">
+      <Header
+        onOpenMobile={() => setMobileOpen(true)}
+        showAgentToggle={!hasEmbeddedAgentChat}
+      />
+      <InvitationBanner />
+      <main className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
+          {children}
+        </div>
+      </main>
+    </div>
+  );
 
   return (
     <HeaderActionsProvider>
@@ -172,22 +193,18 @@ export function Layout({ children }: { children: ReactNode }) {
           </SheetContent>
         </Sheet>
 
-        <AgentSidebar
-          position="right"
-          defaultOpen={false}
-          emptyStateText="Create apps, grant keys, and route work across the workspace."
-          suggestions={SIDEBAR_SUGGESTIONS}
-        >
-          <div className="flex h-full flex-1 flex-col overflow-hidden">
-            <Header onOpenMobile={() => setMobileOpen(true)} />
-            <InvitationBanner />
-            <main className="flex-1 overflow-y-auto">
-              <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
-                {children}
-              </div>
-            </main>
-          </div>
-        </AgentSidebar>
+        {hasEmbeddedAgentChat ? (
+          appContent
+        ) : (
+          <AgentSidebar
+            position="right"
+            defaultOpen={false}
+            emptyStateText="Create apps, grant keys, and route work across the workspace."
+            suggestions={SIDEBAR_SUGGESTIONS}
+          >
+            {appContent}
+          </AgentSidebar>
+        )}
       </div>
     </HeaderActionsProvider>
   );

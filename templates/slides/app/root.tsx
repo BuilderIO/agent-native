@@ -16,6 +16,7 @@ import {
   ClientOnly,
   CommandMenu,
   DefaultSpinner,
+  appPath,
   enterStyleEditing as coreEnterStyleEditing,
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
@@ -97,8 +98,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
-        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-        <link rel="manifest" href="/manifest.json" />
+        <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
+        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#EC4899" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -106,7 +107,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="black-translucent"
         />
         <meta name="apple-mobile-web-app-title" content="Slides" />
-        <link rel="apple-touch-icon" href="/icon-180.svg" />
+        <link rel="apple-touch-icon" href={appPath("/icon-180.svg")} />
         <Meta />
         <Links />
       </head>

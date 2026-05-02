@@ -11,7 +11,11 @@ import {
   IconLayoutSidebar,
   IconUsers,
 } from "@tabler/icons-react";
-import { AgentSidebar, FeedbackButton } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  FeedbackButton,
+  appPath,
+} from "@agent-native/core/client";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { cn } from "@/lib/utils";
@@ -90,13 +94,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             {!sidebarCollapsed && (
               <div className="flex items-center gap-2">
                 <img
-                  src="/agent-native-icon-light.svg"
+                  src={appPath("/agent-native-icon-light.svg")}
                   alt=""
                   aria-hidden="true"
                   className="block h-4 w-auto shrink-0 dark:hidden"
                 />
                 <img
-                  src="/agent-native-icon-dark.svg"
+                  src={appPath("/agent-native-icon-dark.svg")}
                   alt=""
                   aria-hidden="true"
                   className="hidden h-4 w-auto shrink-0 dark:block"

@@ -27,7 +27,13 @@ function resolveTitle(pathname: string): string {
   return "Dispatch";
 }
 
-export function Header({ onOpenMobile }: { onOpenMobile?: () => void }) {
+export function Header({
+  onOpenMobile,
+  showAgentToggle = true,
+}: {
+  onOpenMobile?: () => void;
+  showAgentToggle?: boolean;
+}) {
   const location = useLocation();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
@@ -54,7 +60,9 @@ export function Header({ onOpenMobile }: { onOpenMobile?: () => void }) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+        {showAgentToggle ? (
+          <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
+        ) : null}
       </div>
     </header>
   );

@@ -18,7 +18,11 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { useForms, useCreateForm } from "@/hooks/use-forms";
-import { useSendToAgentChat, FeedbackButton } from "@agent-native/core/client";
+import {
+  useSendToAgentChat,
+  FeedbackButton,
+  appPath,
+} from "@agent-native/core/client";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { Textarea } from "@/components/ui/textarea";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -148,13 +152,13 @@ export function Sidebar() {
           onClick={() => isMobile && setMobileOpen(false)}
         >
           <img
-            src="/agent-native-icon-light.svg"
+            src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
             className="block h-4 w-auto shrink-0 dark:hidden"
           />
           <img
-            src="/agent-native-icon-dark.svg"
+            src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
             className="hidden h-4 w-auto shrink-0 dark:block"
