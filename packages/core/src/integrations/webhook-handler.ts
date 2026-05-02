@@ -211,7 +211,7 @@ export async function handleWebhook(
  *
  * This pattern works on every supported host:
  *   - Netlify Lambda: function returns; the dispatched request hits a fresh
- *     Lambda with its own 26s budget.
+ *     Lambda with its own function budget.
  *   - Vercel Functions: same.
  *   - Cloudflare Workers: same (no waitUntil dependency).
  *   - Self-hosted Node: a separate request comes back through the same
@@ -359,6 +359,7 @@ export async function processIntegrationTask(
     placeholderRef?: string;
   };
   await processIncomingMessage(parsed.incoming, options, {
+    taskId: task.id,
     placeholderRef: parsed.placeholderRef,
   });
 }
@@ -370,7 +371,7 @@ export async function processIntegrationTask(
 async function processIncomingMessage(
   incoming: IncomingMessage,
   options: WebhookHandlerOptions,
-  opts: { placeholderRef?: string } = {},
+  opts: { taskId?: string; placeholderRef?: string } = {},
 ): Promise<void> {
   const {
     adapter,
@@ -486,6 +487,13 @@ async function processIncomingMessage(
             // budgets on integration paths without affecting normal
             // agent-chat. See `isIntegrationCallerRequest()`.
             isIntegrationCaller: true,
+            integration: opts.taskId
+              ? {
+                  taskId: opts.taskId,
+                  incoming,
+                  placeholderRef: opts.placeholderRef,
+                }
+              : undefined,
           },
           async () => {
             const effectiveApiKey = await resolveIntegrationApiKey(

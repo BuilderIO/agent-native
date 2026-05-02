@@ -9,6 +9,6 @@
   NPM_CONFIG_PRODUCTION = "false"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
-# The default 10s timeout is too short — bump to 26s (Netlify Pro plan max).
+# Use Netlify's current standard synchronous function budget.
 [functions."*"]
-  timeout = 26
+  timeout = 60

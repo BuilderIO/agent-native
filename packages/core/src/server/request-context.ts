@@ -52,11 +52,21 @@ export interface RequestContext {
   /**
    * True when this request is being processed by an integration-platform
    * webhook (Slack, Telegram, etc.) where the function timeout is the
-   * binding constraint (~26s on Netlify Pro). Code that calls slow remote
-   * APIs can use this to apply tighter budgets on this path while leaving
-   * normal agent-chat callers (5+ min budget) unaffected.
+   * binding constraint. Code that calls slow remote APIs can use this to apply
+   * tighter budgets on this path while leaving normal agent-chat callers
+   * (5+ min budget) unaffected.
    */
   isIntegrationCaller?: boolean;
+  /**
+   * Metadata for the currently-processing integration task. This lets tools
+   * that start long-running remote work persist a continuation that can update
+   * the originating platform thread after the current function budget ends.
+   */
+  integration?: {
+    taskId: string;
+    incoming: import("../integrations/types.js").IncomingMessage;
+    placeholderRef?: string;
+  };
   /**
    * Mutable per-request agent-run state. Populated by the agent-chat plugin
    * during a run; tool closures dereference it on each invocation.
@@ -156,6 +166,12 @@ export function getRequestTimezone(): string | undefined {
  */
 export function isIntegrationCallerRequest(): boolean {
   return als.getStore()?.isIntegrationCaller === true;
+}
+
+export function getIntegrationRequestContext():
+  | NonNullable<RequestContext["integration"]>
+  | undefined {
+  return als.getStore()?.integration;
 }
 
 /**

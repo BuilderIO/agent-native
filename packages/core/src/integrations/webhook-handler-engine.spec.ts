@@ -275,4 +275,61 @@ describe("integration webhook handler engine resolution", () => {
       }),
     );
   });
+
+  it("exposes integration task context while running tools", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { getIntegrationRequestContext } =
+      await import("../server/request-context.js");
+    const sendResponse = vi.fn();
+    let captured: ReturnType<typeof getIntegrationRequestContext>;
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      captured = getIntegrationRequestContext();
+      send({ type: "text", text: "ok" });
+    });
+    const task: PendingTask = {
+      id: "task-context",
+      platform: "fake",
+      externalEventKey: "fake:thread-4:1004",
+      externalThreadId: "thread-4",
+      payload: JSON.stringify({
+        placeholderRef: "placeholder-qa",
+        incoming: {
+          platform: "fake",
+          externalThreadId: "thread-4",
+          text: "hello from slack",
+          senderName: "QA User",
+          platformContext: { channel: "C123" },
+          timestamp: 1004,
+        },
+      }),
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      status: "processing",
+      attempts: 1,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    };
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(captured).toEqual(
+      expect.objectContaining({
+        taskId: "task-context",
+        placeholderRef: "placeholder-qa",
+        incoming: expect.objectContaining({
+          platform: "fake",
+          externalThreadId: "thread-4",
+        }),
+      }),
+    );
+  });
 });

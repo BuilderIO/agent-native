@@ -430,8 +430,8 @@ async function handleSend(
 
   // Async mode: return the task immediately in `working` state, run the
   // handler in the background, and let the caller poll `tasks/get`. This is
-  // the workaround for Netlify's ~26s function / 30s gateway timeout when the
-  // handler runs LLM + tool loops that can exceed those bounds.
+  // the workaround for synchronous serverless request timeouts when the handler
+  // runs LLM + tool loops that can exceed a single HTTP invocation budget.
   // SECURITY: only honor the explicit top-level `params.async`. The
   // metadata.async fallback was caller-controlled and could force async
   // dispatch (which has weaker auth than the sync path) on otherwise sync
