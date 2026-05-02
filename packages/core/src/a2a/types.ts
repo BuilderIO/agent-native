@@ -127,6 +127,8 @@ export interface A2AHandlerContext {
   contextId?: string;
   /** Metadata from the caller (e.g., userEmail for identity forwarding) */
   metadata?: Record<string, unknown>;
+  /** Current H3 event when the handler is running inside an HTTP request. */
+  event?: unknown;
   writeArtifact: (name: string, content: string, mimeType?: string) => string;
 }
 

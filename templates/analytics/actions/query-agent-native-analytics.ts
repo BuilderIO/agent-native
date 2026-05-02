@@ -14,12 +14,12 @@ function resolveScope() {
 
 export default defineAction({
   description:
-    "Query first-party Agent Native analytics events recorded through analytics.agent-native.com/track. Use this data-source-specific action instead of db-query. SQL may read analytics_events only; reads are automatically scoped to the current user/org.",
+    "Query first-party analytics events recorded through this app's analytics collector endpoint (/track). Use this for questions about pageviews, events, app/site traffic, template/app usage, and other first-party event data in the analytics_events table when the user is asking about data collected by this analytics app. Use source-specific actions such as BigQuery, GA4, Mixpanel, PostHog, or Amplitude when the user asks for those sources or the relevant data lives there. SQL may read analytics_events only; reads are automatically scoped to the current user/org.",
   schema: z.object({
     sql: z
       .string()
       .describe(
-        "Read-only SQL over analytics_events, e.g. SELECT event_name, COUNT(*) AS count FROM analytics_events GROUP BY event_name",
+        "Read-only SQL over analytics_events, e.g. SELECT COUNT(*) AS pageviews FROM analytics_events WHERE event_name = 'pageview' AND timestamp >= '2026-05-01T04:00:00Z' AND timestamp < '2026-05-02T04:00:00Z'",
       ),
   }),
   http: false,
