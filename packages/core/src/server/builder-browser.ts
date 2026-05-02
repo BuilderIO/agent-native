@@ -491,7 +491,9 @@ export async function runBuilderAgent(
   if (!args.prompt || !args.prompt.trim()) {
     throw new Error("prompt is required");
   }
-  if (!args.userEmail && !args.userId) {
+  const builderUserId = args.userId || creds.userId || undefined;
+  const builderUserEmail = builderUserId ? undefined : args.userEmail;
+  if (!builderUserEmail && !builderUserId) {
     throw new Error("userEmail or userId is required");
   }
 
@@ -503,8 +505,8 @@ export async function runBuilderAgent(
   };
   if (args.projectId) body.projectId = args.projectId;
   if (args.branchName) body.branchName = args.branchName;
-  if (args.userEmail) body.userEmail = args.userEmail;
-  if (args.userId) body.userId = args.userId;
+  if (builderUserEmail) body.userEmail = builderUserEmail;
+  if (builderUserId) body.userId = builderUserId;
 
   const response = await fetch(url, {
     method: "POST",

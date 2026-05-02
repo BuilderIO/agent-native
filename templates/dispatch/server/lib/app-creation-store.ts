@@ -3,6 +3,7 @@ import path from "node:path";
 import { getSetting, putSetting } from "@agent-native/core/settings";
 import {
   getBuilderBranchProjectId,
+  resolveBuilderCredentials,
   runBuilderAgent,
 } from "@agent-native/core/server";
 import {
@@ -270,10 +271,14 @@ export async function startWorkspaceAppCreation(input: {
 
   let result;
   try {
+    const builderCreds = await resolveBuilderCredentials().catch(() => null);
+    const builderUserId = builderCreds?.userId || undefined;
     result = await runBuilderAgent({
       prompt,
       projectId: settings.builderProjectId,
-      userEmail: currentOwnerEmail(),
+      ...(builderUserId
+        ? { userId: builderUserId }
+        : { userEmail: currentOwnerEmail() }),
     });
   } catch (err) {
     const detail =
