@@ -10,10 +10,10 @@ export type VoiceMode = "push-to-talk" | "toggle";
 
 /**
  * Which transcription backend to use. The desktop app surfaces this in
- * Settings → Voice transcription. "auto" picks the best server-side
- * provider that's actually configured (Builder Gemini 3.1 Flash-Lite →
- * Gemini BYOK → Groq → OpenAI), falling through to macOS native dictation
- * or the browser's Web Speech API if nothing is set up.
+ * Settings → Voice transcription as three modes: native on-device,
+ * Builder.io cleanup, or bring-your-own-key cleanup. Legacy "auto" still
+ * picks a configured server-side provider, falling through to macOS native
+ * dictation or the browser's Web Speech API if nothing is set up.
  */
 export type VoiceProvider =
   | "auto"
@@ -357,7 +357,7 @@ async function transcribe(
   // Aggressive timeout — short clips should transcribe in well under
   // 2 seconds with Gemini Flash Lite or Whisper. If the server hasn't
   // come back in 8s it's hanging; abort and let the bar dismiss with an
-  // error rather than leaving "Polishing..." up for 45 seconds.
+  // error rather than leaving "Cleaning up..." up for 45 seconds.
   const timeout = window.setTimeout(() => controller.abort(), 8_000);
   try {
     const res = await fetch(
@@ -530,12 +530,7 @@ export function installDesktopVoiceDictation(
     if (provider !== "auto") {
       const cleanupProvider =
         provider === "builder" ? "builder-gemini" : provider;
-      const status = await refreshProviderStatus();
-      if (
-        status.native &&
-        typeof navigator !== "undefined" &&
-        /Mac/i.test(navigator.platform)
-      ) {
+      if (typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)) {
         return { kind: "native", cleanupProvider };
       }
       if (getSpeechRecognitionCtor()) {
@@ -648,13 +643,14 @@ export function installDesktopVoiceDictation(
     if (target.cancelled || disposed) return "";
     await invoke("complete_voice_dictation", { text });
     emit("voice:partial-transcript", { text }).catch(() => {});
+    if (target.cleanupProvider) setFlowState("idle");
     return text;
   };
 
   /**
    * Server-path: capture audio with MediaRecorder, POST it to the
    * transcribe-voice endpoint on Fn-up, paste the response text. The
-   * "Polishing..." processing state is shown while we wait for the
+   * "Cleaning up..." processing state is shown while we wait for the
    * remote transcription.
    */
   const startServer = async (providerPref: ServerVoiceProvider) => {
@@ -754,7 +750,7 @@ export function installDesktopVoiceDictation(
               "[voice-dictation] transcribe returned empty text — nothing to paste",
             );
           }
-          // Dismiss the bar immediately — no "Polishing..." lag after the
+          // Dismiss the bar immediately — no "Cleaning up..." lag after the
           // text already landed in the focused field.
           if (!disposed) cleanup(next);
         } catch (err) {
@@ -883,8 +879,8 @@ export function installDesktopVoiceDictation(
   /**
    * Browser-path: real-time on-device transcription via WKWebView's
    * webkitSpeechRecognition. No server round-trip — text is ready the
-   * moment we stop the recognizer, so we paste immediately and skip
-   * the "Polishing..." state entirely.
+   * moment we stop the recognizer, so we paste immediately unless an LLM
+   * cleanup provider is selected.
    */
   const startBrowser = async (cleanupProvider?: ServerVoiceProvider) => {
     console.log("[voice-dictation] startBrowser: opening mic + recognition");
@@ -1080,7 +1076,8 @@ export function installDesktopVoiceDictation(
   // User clicked the X on the flow-bar. Mark cancelled (skips paste),
   // abort any in-flight HTTP, stop the recognizer / recorder, hide.
   const cancel = () => {
-    const current = session;
+    const current = session ?? lingeringSession;
+    const isLingeringOnly = !!current && session !== current;
     if (!current) {
       stopRequestedBeforeReady = true;
       invoke("hide_flow_bar").catch(() => {});
@@ -1088,6 +1085,7 @@ export function installDesktopVoiceDictation(
     }
     current.cancelled = true;
     current.transcribeAbort?.abort();
+    if (lingeringSession === current) lingeringSession = null;
     if (!current.stopping) {
       current.stopping = true;
       if (current.kind === "server") {
@@ -1110,6 +1108,14 @@ export function installDesktopVoiceDictation(
           // ignore
         }
       }
+    }
+    if (isLingeringOnly) {
+      stopMeter(current);
+      stopTracks(current);
+      setFlowState("idle");
+      invoke("hide_flow_bar").catch(() => {});
+      emit("voice:partial-transcript", { text: "" }).catch(() => {});
+      return;
     }
     cleanup(current);
   };
@@ -1218,29 +1224,35 @@ export function installDesktopVoiceDictation(
               `[voice-dictation] native paste (${text.length} chars):`,
               text.slice(0, 120),
             );
-            void completeText(text, lingering).catch((err) => {
-              console.error("[voice-dictation] paste failed:", err);
-            });
+            void (async () => {
+              try {
+                await completeText(text, lingering);
+              } catch (err) {
+                console.error("[voice-dictation] paste failed:", err);
+              }
+              console.log("[voice-dictation] starting linger");
+              window.setTimeout(
+                () => {
+                  console.log("[voice-dictation] linger done — dismissing");
+                  if (lingeringSession === lingering) lingeringSession = null;
+                  if (disposed) return;
+                  if (session && session !== lingering) return;
+                  invoke("hide_flow_bar").catch(() => {});
+                  emit("voice:partial-transcript", { text: "" }).catch(
+                    () => {},
+                  );
+                },
+                lingering.cleanupProvider ? 500 : 1200,
+              );
+            })();
           } else {
             console.warn(
               "[voice-dictation] no transcript captured — native recognizer didn't produce results",
             );
+            if (lingeringSession === lingering) lingeringSession = null;
+            invoke("hide_flow_bar").catch(() => {});
+            emit("voice:partial-transcript", { text: "" }).catch(() => {});
           }
-          // Linger ~1.2s with the transcript chip visible (no pill,
-          // just the floating text), then clear the chip + hide the
-          // window. Don't clobber a new session's flow-bar if one started.
-          console.log("[voice-dictation] starting linger");
-          window.setTimeout(
-            () => {
-              console.log("[voice-dictation] linger done — dismissing");
-              if (lingeringSession === lingering) lingeringSession = null;
-              if (disposed) return;
-              if (session && session !== lingering) return;
-              invoke("hide_flow_bar").catch(() => {});
-              emit("voice:partial-transcript", { text: "" }).catch(() => {});
-            },
-            lingering.cleanupProvider ? 500 : 1200,
-          );
         };
 
         // The install-time `voice:final-transcript` listener calls
@@ -1342,19 +1354,23 @@ export function installDesktopVoiceDictation(
           // Re-pin the chip text to the final value (paranoia in case
           // the last interim differed from final).
           emit("voice:partial-transcript", { text: finalText }).catch(() => {});
-          invoke("complete_voice_dictation", { text: finalText }).catch(
-            (err) => {
+          void (async () => {
+            try {
+              await completeText(finalText, lingering);
+            } catch (err) {
               console.error("[voice-dictation] paste failed:", err);
-            },
-          );
-          // Linger ~1s with the chip showing the pasted text, then
-          // dismiss the flow bar entirely.
-          window.setTimeout(() => {
-            if (disposed) return;
-            if (session && session !== lingering) return;
-            invoke("hide_flow_bar").catch(() => {});
-            emit("voice:partial-transcript", { text: "" }).catch(() => {});
-          }, 1000);
+            }
+            // Linger with the chip showing the pasted text, then dismiss.
+            window.setTimeout(
+              () => {
+                if (disposed) return;
+                if (session && session !== lingering) return;
+                invoke("hide_flow_bar").catch(() => {});
+                emit("voice:partial-transcript", { text: "" }).catch(() => {});
+              },
+              lingering.cleanupProvider ? 500 : 1000,
+            );
+          })();
         } else {
           // Tail-capture path. Hide pill but keep recognition listening
           // so onresult continues to grow browserTranscript for ~1.5s.
@@ -1412,19 +1428,25 @@ export function installDesktopVoiceDictation(
               emit("voice:partial-transcript", { text: finalText }).catch(
                 () => {},
               );
-              invoke("complete_voice_dictation", { text: finalText }).catch(
-                (err) => {
+              void (async () => {
+                try {
+                  await completeText(finalText, lingering);
+                } catch (err) {
                   console.error("[voice-dictation] paste failed:", err);
-                },
-              );
-              // Linger ~1s with the chip showing the final text, then
-              // dismiss everything.
-              window.setTimeout(() => {
-                if (disposed) return;
-                if (session && session !== lingering) return;
-                invoke("hide_flow_bar").catch(() => {});
-                emit("voice:partial-transcript", { text: "" }).catch(() => {});
-              }, 1000);
+                }
+                // Linger with the chip showing the final text, then dismiss.
+                window.setTimeout(
+                  () => {
+                    if (disposed) return;
+                    if (session && session !== lingering) return;
+                    invoke("hide_flow_bar").catch(() => {});
+                    emit("voice:partial-transcript", { text: "" }).catch(
+                      () => {},
+                    );
+                  },
+                  lingering.cleanupProvider ? 500 : 1000,
+                );
+              })();
             } else {
               // Edge case: tail capture wiped the transcript somehow.
               invoke("hide_flow_bar").catch(() => {});

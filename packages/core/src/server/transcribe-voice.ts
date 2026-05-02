@@ -129,7 +129,7 @@ export function createTranscribeVoiceHandler() {
       : undefined;
     if (!audio?.data?.length && !transcriptText) {
       setResponseStatus(event, 400);
-      return { error: "Missing audio payload" };
+      return { error: "Missing audio or transcript payload" };
     }
     if (audio?.data?.length && audio.data.length > MAX_AUDIO_BYTES) {
       setResponseStatus(event, 413);
@@ -462,8 +462,8 @@ export function createTranscribeVoiceHandler() {
       setResponseStatus(event, builderError ? 502 : 400);
       return {
         error: builderError
-          ? `Builder transcription failed: ${builderError}. Add GROQ_API_KEY or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
-          : "No voice transcription provider configured. Connect Builder.io or add GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
+          ? `Builder transcription failed: ${builderError}. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
+          : "No voice transcription provider configured. Connect Builder.io or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
       };
     }
 
