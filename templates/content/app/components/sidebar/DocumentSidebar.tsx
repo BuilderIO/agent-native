@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client";
+import { FeedbackButton, appPath } from "@agent-native/core/client";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
 import { NotionButton } from "./NotionButton";
 import { DocumentTreeItem } from "./DocumentTreeItem";
@@ -227,13 +227,13 @@ export function DocumentSidebar({
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
         <div className="flex items-center gap-2 min-w-0">
           <img
-            src="/agent-native-icon-light.svg"
+            src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
             className="block h-4 w-auto shrink-0 dark:hidden"
           />
           <img
-            src="/agent-native-icon-dark.svg"
+            src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
             className="hidden h-4 w-auto shrink-0 dark:block"

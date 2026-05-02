@@ -10,7 +10,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
-import { AgentToggleButton } from "@agent-native/core/client";
+import { AgentToggleButton, appPath } from "@agent-native/core/client";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitles: Record<string, string> = {
@@ -74,13 +74,13 @@ export function Header() {
             <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
               <div className="flex items-center gap-2">
                 <img
-                  src="/agent-native-icon-light.svg"
+                  src={appPath("/agent-native-icon-light.svg")}
                   alt=""
                   aria-hidden="true"
                   className="block h-4 w-auto shrink-0 dark:hidden"
                 />
                 <img
-                  src="/agent-native-icon-dark.svg"
+                  src={appPath("/agent-native-icon-dark.svg")}
                   alt=""
                   aria-hidden="true"
                   className="hidden h-4 w-auto shrink-0 dark:block"

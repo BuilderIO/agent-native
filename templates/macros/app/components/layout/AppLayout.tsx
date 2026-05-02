@@ -6,10 +6,13 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { AgentSidebar } from "@agent-native/core/client";
+import {
+  AgentSidebar,
+  FeedbackButton,
+  agentNativePath,
+  appPath,
+} from "@agent-native/core/client";
 import { ToolsSidebarSection } from "@agent-native/core/client/tools";
-import { FeedbackButton } from "@agent-native/core/client";
-import { agentNativePath } from "@agent-native/core/client";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -183,13 +186,13 @@ function SidebarContent({
         {!collapsed && (
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <img
-              src="/agent-native-icon-light.svg"
+              src={appPath("/agent-native-icon-light.svg")}
               alt=""
               aria-hidden="true"
               className="block h-4 w-auto shrink-0 dark:hidden"
             />
             <img
-              src="/agent-native-icon-dark.svg"
+              src={appPath("/agent-native-icon-dark.svg")}
               alt=""
               aria-hidden="true"
               className="hidden h-4 w-auto shrink-0 dark:block"
