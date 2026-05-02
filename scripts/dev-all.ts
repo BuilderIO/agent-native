@@ -189,9 +189,12 @@ if (!skipDocs) {
 }
 
 const proc = spawn(
-  "npx",
+  path.resolve(
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "concurrently.cmd" : "concurrently",
+  ),
   [
-    "concurrently",
     "-n",
     names.join(","),
     "-c",
