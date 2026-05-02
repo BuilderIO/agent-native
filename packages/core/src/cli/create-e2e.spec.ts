@@ -26,6 +26,7 @@ import {
   _rewriteNetlifyToml,
   _getCoreDependencyVersion,
   _getGitHubTemplateRef,
+  _shouldSkipScaffoldEntry,
 } from "./create.js";
 import { workspacifyApp } from "./workspacify.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
@@ -289,6 +290,10 @@ describe("workspace scaffold defaults", () => {
         path.join(wsDir, "apps", "starter", ".claude", "settings.json"),
       ),
     ).toBe(false);
+  });
+
+  it("does not copy local agent-native runtime state", () => {
+    expect(_shouldSkipScaffoldEntry(".agent-native")).toBe(true);
   });
 });
 

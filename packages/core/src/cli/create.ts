@@ -793,6 +793,7 @@ export {
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
+  shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
 };
 
 /* ─────────────────────────────────────────────────────────────────────────

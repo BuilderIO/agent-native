@@ -35,22 +35,20 @@ Better Auth routes are mounted at `/_agent-native/auth/ba/*`. The framework also
 
 ## Development Mode {#dev-mode}
 
-In development (`NODE_ENV=development`), auth is automatically bypassed. If no other auth method succeeds (no account, no token, no local mode marker), `getSession()` returns `{ email: "local@localhost" }` so you can use the app immediately without any configuration.
+In development (`NODE_ENV=development`), auth is automatically bypassed. If no other auth method succeeds (no account, no token), `getSession()` returns `{ email: "local@localhost" }` so you can use the app immediately without any configuration.
 
 This means you can run any template app locally and start using it right away — no account creation, no environment variables needed.
 
 ## Local Mode {#local-mode}
 
-For explicit no-auth in any environment (including production), set `AUTH_MODE=local` in your `.env` file. This returns `{ email: "local@localhost" }` for all requests, skipping all other auth checks.
-
-You can also enable local mode from the onboarding page by clicking "Use locally without an account". This writes a marker file that persists across server restarts.
+For explicit no-auth in local development, set `AUTH_MODE=local` in your local shell or `.env` file. This returns `{ email: "local@localhost" }` for all requests, skipping all other auth checks.
 
 ```bash
 # .env
 AUTH_MODE=local
 ```
 
-To switch back to real auth, remove the line from `.env` (or clear the marker file by calling `POST /_agent-native/auth/exit-local-mode`).
+To switch back to real auth, remove the line from `.env` and restart the dev server. The old `.agent-native/auth-mode` marker file is no longer read or generated.
 
 ## QA Accounts {#qa-accounts}
 

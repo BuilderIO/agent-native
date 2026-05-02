@@ -1054,8 +1054,8 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
 
   // 7. Dev-mode safety net — in development on a local SQLite database, fall
   // back to local@localhost so the app is usable without any auth configuration.
-  // This prevents 401 errors when Better Auth isn't configured, the marker file
-  // is missing, or the user simply wants to play around locally.
+  // This prevents 401 errors when Better Auth isn't configured or the user
+  // simply wants to play around locally.
   //
   // Gated on isLocalDatabase() because local@localhost has no per-user scoping:
   // on a shared DB (Postgres, Turso, D1) this fallback would land every

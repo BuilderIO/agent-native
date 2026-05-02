@@ -7,11 +7,6 @@
  * After first account exists, this page acts as a normal login page.
  */
 
-function isProductionEnv(): boolean {
-  const env = process.env.NODE_ENV;
-  return env !== "development" && env !== "test";
-}
-
 function hasGoogleOAuth(): boolean {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
