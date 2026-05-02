@@ -169,6 +169,22 @@ function slugify(value: string): string {
     .slice(0, 64);
 }
 
+function isLocalAppCreationRuntime(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  if (
+    process.env.NETLIFY ||
+    process.env.VERCEL ||
+    process.env.CF_PAGES ||
+    process.env.DEPLOY_URL ||
+    process.env.URL ||
+    process.env.RENDER ||
+    process.env.FLY_APP_NAME
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function buildWorkspaceAppPrompt(input: {
   prompt: string;
   appId?: string | null;
@@ -228,7 +244,7 @@ export async function startWorkspaceAppCreation(input: {
     selectedKeys,
   });
   const prompt = input.preparedPrompt || built.prompt;
-  const isLocal = process.env.NODE_ENV !== "production";
+  const isLocal = isLocalAppCreationRuntime();
 
   if (isLocal) {
     if (input.secretIds?.length) {

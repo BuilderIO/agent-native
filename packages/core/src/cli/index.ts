@@ -191,6 +191,20 @@ function isReactRouterFramework(): boolean {
   );
 }
 
+function isWorkspaceRoot(): boolean {
+  const pkgPath = path.resolve("package.json");
+  if (!fs.existsSync(pkgPath)) return false;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    return (
+      typeof pkg?.["agent-native"]?.workspaceCore === "string" &&
+      fs.existsSync(path.resolve("apps"))
+    );
+  } catch {
+    return false;
+  }
+}
+
 function run(
   cmd: string,
   cmdArgs: string[],
@@ -221,8 +235,17 @@ trackCli("cli.run");
 
 switch (command) {
   case "dev": {
+    if (isWorkspaceRoot()) {
+      import("./workspace-dev.js");
+      break;
+    }
     const vite = findViteBin();
     run(vite, args);
+    break;
+  }
+
+  case "workspace-dev": {
+    import("./workspace-dev.js");
     break;
   }
 
@@ -393,6 +416,7 @@ switch (command) {
 
 Usage:
   agent-native dev              Start development server
+                                (or the workspace gateway at a workspace root)
   agent-native build            Build for production (client + server)
   agent-native start            Start production server
   agent-native action <name>    Run an action from actions/
@@ -402,6 +426,7 @@ Usage:
                                 multi-select template picker. Use --standalone
                                 for a single-app scaffold.
   agent-native add-app [name]   Add one or more apps to the current workspace
+  agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
                                 a single origin (your-agents.com/<app>/*)
   agent-native setup-agents     Create symlinks for all agent tools

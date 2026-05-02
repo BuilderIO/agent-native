@@ -295,14 +295,14 @@ When generating slides for a deck that has a design system, **always use the des
 
 ### Sharing
 
-Decks are **private by default** — only the creator sees them. To grant access to others, change the visibility or add explicit share grants. These actions are auto-mounted framework-wide:
+Decks and design systems are **private by default** — only the creator sees them. To grant access to others, change the visibility or add explicit share grants. Use `resourceType deck` for decks and `resourceType design-system` for design systems. These actions are auto-mounted framework-wide:
 
-| Action                    | Args                                                                                                                          | Purpose                              |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `share-resource`          | `--resourceType deck --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant a user or org access to a deck |
-| `unshare-resource`        | `--resourceType deck --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                              | Revoke a share grant                 |
-| `list-resource-shares`    | `--resourceType deck --resourceId <id>`                                                                                       | Show current visibility + all grants |
-| `set-resource-visibility` | `--resourceType deck --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility             |
+| Action                    | Args                                                                                                                                         | Purpose                    |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `share-resource`          | `--resourceType deck\|design-system --resourceId <id> --principalType user\|org --principalId <email-or-orgId> --role viewer\|editor\|admin` | Grant a user or org access |
+| `unshare-resource`        | `--resourceType deck\|design-system --resourceId <id> --principalType user\|org --principalId <email-or-orgId>`                              | Revoke a share grant       |
+| `list-resource-shares`    | `--resourceType deck\|design-system --resourceId <id>`                                                                                       | Show visibility + grants   |
+| `set-resource-visibility` | `--resourceType deck\|design-system --resourceId <id> --visibility private\|org\|public`                                                     | Change coarse visibility   |
 
 Read (`get-deck`, `list-decks`, `view-screen`) admits rows the current user owns, has been shared on, or that match the resource's visibility. Write (`create-deck --deckId`, `add-slide`, `update-slide`) requires the `editor` role or above; owners always satisfy. The separate `share-link` dialog (anonymous public URL via `share_token`) is orthogonal to this — anyone with the link can view regardless of visibility. See the `sharing` skill for the full model.
 

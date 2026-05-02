@@ -1,7 +1,0 @@
-import{n as e}from"../_runtime.mjs";import{i as t,l as n,o as r}from"./client.mjs";import{EventEmitter as i}from"events";var a=e({deleteSetting:()=>d,getAllSettings:()=>f,getSetting:()=>l,putSetting:()=>u});let o;const s=new i;async function c(){return o||=(async()=>{await t().execute(`
-        CREATE TABLE IF NOT EXISTS settings (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL,
-          updated_at ${r()} NOT NULL
-        )
-      `)})(),o}async function l(e){await c();let{rows:n}=await t().execute({sql:`SELECT value FROM settings WHERE key = ?`,args:[e]});return n.length===0?null:JSON.parse(n[0].value)}async function u(e,r,i){await c(),await t().execute({sql:n()?`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`:`INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,args:[e,JSON.stringify(r),Date.now()]}),s.emit(`settings`,{source:`settings`,type:`change`,key:e,...i?.requestSource&&{requestSource:i.requestSource}})}async function d(e,n){return await c(),(await t().execute({sql:`DELETE FROM settings WHERE key = ?`,args:[e]})).rowsAffected>0?(s.emit(`settings`,{source:`settings`,type:`delete`,key:e,...n?.requestSource&&{requestSource:n.requestSource}}),!0):!1}async function f(){await c();let{rows:e}=await t().execute(`SELECT key, value FROM settings`),n={};for(let t of e)n[t.key]=JSON.parse(t.value);return n}export{a,u as i,f as n,l as r,d as t};

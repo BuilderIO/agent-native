@@ -19,8 +19,10 @@ catalog:
   vite: 8.0.3
 
 onlyBuiltDependencies:
+  - "@swc/core"
+  - better-sqlite3
+  - canvas
+  - electron
   - esbuild
   - lightningcss
-  - electron
-  - "@swc/core"
   - node-pty

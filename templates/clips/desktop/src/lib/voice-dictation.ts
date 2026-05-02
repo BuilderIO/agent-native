@@ -464,7 +464,9 @@ export function installDesktopVoiceDictation(
    * any error treated as "no server providers available" so we degrade
    * gracefully to the browser path.
    */
-  const refreshProviderStatus = async (): Promise<ProviderStatus> => {
+  const refreshProviderStatus = async (
+    opts: { logFailures?: boolean } = {},
+  ): Promise<ProviderStatus> => {
     if (providerStatus && Date.now() - providerStatusFetchedAt < 60_000) {
       return providerStatus;
     }
@@ -486,7 +488,9 @@ export function installDesktopVoiceDictation(
       providerStatusFetchedAt = Date.now();
       return providerStatus;
     } catch (err) {
-      console.warn("[voice-dictation] provider status fetch failed:", err);
+      if (opts.logFailures) {
+        console.warn("[voice-dictation] provider status fetch failed:", err);
+      }
       // CRITICAL: do NOT cache a failed lookup. Otherwise a transient
       // server-down (dev server still booting, auth churn, network
       // blip) poisons the cache for 60s and every dictation press in
@@ -541,7 +545,7 @@ export function installDesktopVoiceDictation(
       // provider/key error if this provider is unavailable.
       return { kind: "server", providerPref: cleanupProvider };
     }
-    const status = await refreshProviderStatus();
+    const status = await refreshProviderStatus({ logFailures: true });
     if (status.builder)
       return { kind: "server", providerPref: "builder-gemini" };
     if (status.gemini) return { kind: "server", providerPref: "gemini" };
@@ -1467,7 +1471,7 @@ export function installDesktopVoiceDictation(
   // Prime the provider-status cache in the background so the first Fn
   // press doesn't pay a round-trip latency to figure out which provider
   // to use.
-  refreshProviderStatus().catch(() => {});
+  refreshProviderStatus({ logFailures: false }).catch(() => {});
 
   // Native (SFSpeechRecognizer) event subscriptions. These are always
   // installed — the events only fire when the Rust side has an active

@@ -2,27 +2,27 @@
  * Workspace-core discovery.
  *
  * An enterprise can sit many agent-native apps in one monorepo alongside a
- * private "workspace core" package that provides shared plugins, skills,
- * actions, AGENTS.md, and shared Tailwind v4 design tokens. Apps inherit everything from
- * the workspace core without writing any boilerplate — this is the
+ * private workspace shared package that can provide shared plugins, skills,
+ * actions, and AGENTS.md. Apps inherit everything from
+ * the shared package without writing any boilerplate — this is the
  * middle layer of the three-layer inheritance model:
  *
  *   1. app local           (highest priority — app's own server/plugins/, actions/, etc.)
- *   2. workspace core      (middle — packages/core-module/ in the enterprise monorepo)
+ *   2. workspace core      (middle — packages/shared/ in the enterprise monorepo)
  *   3. @agent-native/core  (lowest — framework defaults)
  *
  * Discovery works by walking up from the build cwd looking for a package.json
- * that declares `"agent-native": { "workspaceCore": "@company/core-module" }`.
+ * that declares `"agent-native": { "workspaceCore": "@company/shared" }`.
  * The declared package is then resolved through the monorepo's node_modules,
  * and its directory structure is probed for the standard layout:
  *
- *   packages/core-module/
+ *   packages/shared/
  *     package.json
  *     src/server/index.ts  (exports <slot>Plugin for any slot it wants to provide)
  *     actions/             (shared agent-callable actions)
- *     skills/              (shared .agents/skills/<name>/SKILL.md)
+ *     .agents/skills/      (shared skills)
  *     AGENTS.md            (enterprise-wide agent instructions)
- *     styles/tokens.css      (brand tokens — `@import "@agent-native/core/styles/agent-native.css"` then your `@theme` overrides)
+ *     src/client/         (optional shared React code)
  */
 import path from "path";
 
@@ -45,7 +45,7 @@ export type PluginSlot =
 export interface WorkspaceCoreExports {
   /** Absolute path of the monorepo root (the dir containing the root package.json). */
   workspaceRoot: string;
-  /** Resolved package name — e.g. "@my-company/core-module". */
+  /** Resolved package name — e.g. "@my-company/shared". */
   packageName: string;
   /** Absolute path to the workspace core package's root directory. */
   packageDir: string;
@@ -126,7 +126,7 @@ async function resolvePackageDir(
     }
   }
 
-  // 3) scan packages/*/*  (for scoped layouts like packages/@company/core-module)
+  // 3) scan packages/*/*  (for scoped layouts like packages/@company/shared)
   if (fs.existsSync(packagesDir)) {
     for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
       if (!entry.isDirectory() || !entry.name.startsWith("@")) continue;
@@ -251,7 +251,11 @@ export async function getWorkspaceCoreExports(
   const plugins = await discoverPluginExports(packageDir);
 
   const actionsDir = path.join(packageDir, "actions");
-  const skillsDir = path.join(packageDir, "skills");
+  const skillsDir =
+    [
+      path.join(packageDir, ".agents", "skills"),
+      path.join(packageDir, "skills"),
+    ].find((candidate) => fs.existsSync(candidate)) ?? null;
   const agentsMdPath = path.join(packageDir, "AGENTS.md");
 
   const result: WorkspaceCoreExports = {
@@ -260,7 +264,7 @@ export async function getWorkspaceCoreExports(
     packageDir,
     plugins,
     actionsDir: fs.existsSync(actionsDir) ? actionsDir : null,
-    skillsDir: fs.existsSync(skillsDir) ? skillsDir : null,
+    skillsDir,
     agentsMdPath: fs.existsSync(agentsMdPath) ? agentsMdPath : null,
   };
 

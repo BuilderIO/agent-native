@@ -49,3 +49,5 @@ data/events/
 learnings.md
 
 .generated/
+
+.vercel/

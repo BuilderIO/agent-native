@@ -4,6 +4,7 @@ use tauri::{Emitter, Listener, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
 use crate::clips::toggle_popover;
+use crate::dlog;
 use crate::state::{DictationActive, VoiceWakePopover};
 use crate::util::{is_recording_active, show_without_activation};
 
@@ -233,7 +234,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
     let needs_reenable = Arc::new(AtomicBool::new(false));
     let event_count = Arc::new(AtomicU64::new(0));
 
-    eprintln!("[clips-tray][fn-tap] install_fn_event_tap called — spawning listener thread");
+    dlog!("[clips-tray][fn-tap] install_fn_event_tap called — spawning listener thread");
 
     thread::Builder::new()
         .name("clips-fn-key-tap".into())
@@ -243,7 +244,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
             let needs_reenable_for_cb = needs_reenable.clone();
             let event_count_for_cb = event_count.clone();
 
-            eprintln!("[clips-tray][fn-tap] thread started; about to call CGEventTap::new");
+            dlog!("[clips-tray][fn-tap] thread started; about to call CGEventTap::new");
             let tap_result = CGEventTap::new(
                 CGEventTapLocation::HID,
                 CGEventTapPlacement::HeadInsertEventTap,
@@ -260,7 +261,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                 move |_proxy, etype, event| {
                     let n = event_count_for_cb.fetch_add(1, Ordering::SeqCst) + 1;
                     if n <= 5 || n % 50 == 0 {
-                        eprintln!(
+                        dlog!(
                             "[clips-tray][fn-tap] event #{n} type={:?} flags={:?}",
                             etype,
                             event.get_flags()
@@ -303,7 +304,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     }
                     set_dictation_active(&app_for_cb, fn_down);
                     if fn_down {
-                        eprintln!("[clips-tray] Fn down — starting voice dictation");
+                        dlog!("[clips-tray] Fn down — starting voice dictation");
                         // Wake the popover (parked at 2x2, no focus) so its
                         // JS runtime is live to receive the event. Without
                         // this, if the popover was hidden, macOS may have
@@ -325,7 +326,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                             );
                         });
                     } else {
-                        eprintln!("[clips-tray] Fn up — stopping voice dictation");
+                        dlog!("[clips-tray] Fn up — stopping voice dictation");
                         let _ = app_for_cb.emit(
                             "voice:shortcut-stop",
                             serde_json::json!({ "source": "fn" }),
@@ -337,7 +338,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
 
             let tap = match tap_result {
                 Ok(t) => {
-                    eprintln!("[clips-tray][fn-tap] CGEventTap::new succeeded");
+                    dlog!("[clips-tray][fn-tap] CGEventTap::new succeeded");
                     t
                 }
                 Err(()) => {
@@ -353,7 +354,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
             };
             let source = match tap.mach_port().create_runloop_source(0) {
                 Ok(s) => {
-                    eprintln!("[clips-tray][fn-tap] runloop source created");
+                    dlog!("[clips-tray][fn-tap] runloop source created");
                     s
                 }
                 Err(()) => {
@@ -364,7 +365,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
             let runloop = CFRunLoop::get_current();
             runloop.add_source(&source, unsafe { kCFRunLoopCommonModes });
             tap.enable();
-            eprintln!(
+            dlog!(
                 "[clips-tray][fn-tap] tap enabled; entering runloop — press Fn now to test"
             );
 
@@ -376,7 +377,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
             // This is the handy-keys / linespeed pattern.
             loop {
                 if needs_reenable.swap(false, Ordering::SeqCst) {
-                    eprintln!("[clips-tray] re-enabling Fn event tap");
+                    dlog!("[clips-tray] re-enabling Fn event tap");
                     tap.enable();
                 }
                 CFRunLoop::run_current();
@@ -387,7 +388,7 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                 // — calling on an already-enabled tap is a no-op).
                 if !needs_reenable.load(Ordering::SeqCst) {
                     thread::sleep(Duration::from_millis(50));
-                    eprintln!(
+                    dlog!(
                         "[clips-tray] Fn runloop exited unexpectedly — re-enabling tap"
                     );
                     needs_reenable.store(true, Ordering::SeqCst);

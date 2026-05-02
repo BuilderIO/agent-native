@@ -6,7 +6,12 @@ import {
   IconStar,
   IconStarFilled,
 } from "@tabler/icons-react";
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import {
+  ShareButton,
+  VisibilityBadge,
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 
@@ -16,6 +21,7 @@ interface DesignSystem {
   description?: string | null;
   data: string;
   isDefault: boolean;
+  visibility?: "private" | "org" | "public" | null;
   createdAt: string;
 }
 
@@ -178,8 +184,19 @@ export default function DesignSystems() {
                             {parsed.typography.headingFont}
                           </div>
                         )}
+                        <VisibilityBadge
+                          visibility={ds.visibility}
+                          className="mt-2 text-[11px]"
+                        />
                       </div>
                     </button>
+                    <div className="absolute top-2 left-2 z-10">
+                      <ShareButton
+                        resourceType="design-system"
+                        resourceId={ds.id}
+                        resourceTitle={ds.title}
+                      />
+                    </div>
                     {/* Star button */}
                     <button
                       onClick={() => handleSetDefault(ds.id)}

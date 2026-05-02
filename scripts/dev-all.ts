@@ -188,10 +188,15 @@ if (!skipDocs) {
   commands.push(`pnpm --filter @agent-native/docs dev`);
 }
 
+const concurrentlyBin = path.resolve(
+  "node_modules",
+  ".bin",
+  process.platform === "win32" ? "concurrently.cmd" : "concurrently",
+);
+
 const proc = spawn(
-  "npx",
+  concurrentlyBin,
   [
-    "concurrently",
     "-n",
     names.join(","),
     "-c",
@@ -201,6 +206,7 @@ const proc = spawn(
   {
     stdio: "inherit",
     cwd: process.cwd(),
+    shell: process.platform === "win32",
     env: {
       ...process.env,
       // Forward DEBUG=true to the Vite client as VITE_DEBUG so client code

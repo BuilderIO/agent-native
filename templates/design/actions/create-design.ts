@@ -6,6 +6,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:
@@ -40,6 +41,10 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
+
+    if (designSystemId) {
+      await assertAccess("design-system", designSystemId, "viewer");
+    }
 
     await db.insert(schema.designs).values({
       id,

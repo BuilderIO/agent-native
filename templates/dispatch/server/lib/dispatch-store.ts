@@ -700,10 +700,14 @@ export async function listIdentityState() {
 export async function resolveLinkedOwner(
   platform: string,
   externalUserId?: string | null,
+  options: {
+    orgId?: string | null;
+    allowAnyOrgFallback?: boolean;
+  } = {},
 ) {
   if (!externalUserId) return null;
   const db = getDb();
-  const orgId = currentOrgId();
+  const orgId = options.orgId !== undefined ? options.orgId : currentOrgId();
   const rows = await db
     .select()
     .from(schema.dispatchIdentityLinks)
@@ -718,7 +722,26 @@ export async function resolveLinkedOwner(
     )
     .orderBy(desc(schema.dispatchIdentityLinks.updatedAt))
     .limit(1);
-  return rows[0]?.ownerEmail || null;
+  if (rows[0]?.ownerEmail) return rows[0].ownerEmail;
+
+  if (!options.allowAnyOrgFallback || orgId) return null;
+
+  // Webhook processors run outside a normal request/org context. A linked
+  // Slack/Telegram identity may still be scoped to an org, so fall back to any
+  // org only when every matching link resolves to the same owner.
+  const fallbackRows = await db
+    .select()
+    .from(schema.dispatchIdentityLinks)
+    .where(
+      and(
+        eq(schema.dispatchIdentityLinks.platform, platform),
+        eq(schema.dispatchIdentityLinks.externalUserId, externalUserId),
+      ),
+    )
+    .orderBy(desc(schema.dispatchIdentityLinks.updatedAt))
+    .limit(25);
+  const owners = new Set(fallbackRows.map((row) => row.ownerEmail));
+  return owners.size === 1 ? fallbackRows[0]?.ownerEmail || null : null;
 }
 
 export async function consumeLinkToken(input: {

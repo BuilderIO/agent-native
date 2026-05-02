@@ -54,8 +54,11 @@ export async function resolveDispatchOwner(
   try {
     const externalUserId = identityKeyForIncoming(incoming);
 
-    // Check linked identities first (works for all platforms)
-    const owner = await resolveLinkedOwner(incoming.platform, externalUserId);
+    // Webhooks do not have the browser request's org context, so allow a safe
+    // cross-org fallback when the linked platform identity maps to one owner.
+    const owner = await resolveLinkedOwner(incoming.platform, externalUserId, {
+      allowAnyOrgFallback: true,
+    });
     if (owner) return owner;
 
     // For email, the sender's email address is already a natural identity.

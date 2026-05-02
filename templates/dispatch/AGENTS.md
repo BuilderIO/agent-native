@@ -15,7 +15,7 @@ Dispatch is the workspace control plane. It is the central entrypoint for secret
 Inbound platform webhooks follow a cross-platform queue pattern so they work on every serverless host (Netlify, Vercel, Cloudflare, etc.) without relying on platform-specific background-execution APIs:
 
 1. `POST /_agent-native/integrations/:platform/webhook` verifies the signature, parses the message into `IncomingMessage`, and **inserts a row into `integration_pending_tasks`** with `status='pending'`.
-2. The handler fires a fire-and-forget `POST /_agent-native/integrations/_process-task` and returns `200` immediately so the platform doesn't retry.
+2. The handler fires a fire-and-forget `POST /_agent-native/integrations/process-task` and returns `200` immediately so the platform doesn't retry.
 3. The processor endpoint runs in a **fresh function execution** with its own full timeout. It atomically claims the task (`pending` → `processing` via `claimPendingTask`), runs the agent loop, sends the reply via the adapter, and marks the task `completed`.
 4. A recurring retry job (`startPendingTasksRetryJob`, every 60s) sweeps tasks stuck in `pending` >90s or `processing` >5min and re-fires the processor. Capped at 3 attempts, then `failed`.
 

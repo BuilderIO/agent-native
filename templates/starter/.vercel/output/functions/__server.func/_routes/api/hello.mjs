@@ -1,1 +1,0 @@
-import{o as e}from"../../_libs/h3+rou3+srvx.mjs";var t=e(()=>({message:`Hello from your @agent-native/core app!`}));export{t as default};
