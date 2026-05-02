@@ -10,6 +10,7 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
+import { markdownPreviewSnippet } from "@shared/markdown.js";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { readBody, getSession } from "@agent-native/core/server";
 import {
@@ -1480,7 +1481,7 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
         }
       : {}),
     subject,
-    snippet: body.slice(0, 120).replace(/\n/g, " "),
+    snippet: markdownPreviewSnippet(body),
     body,
     bodyHtml: bodyToHtml(body),
     date: new Date().toISOString(),
@@ -1613,7 +1614,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
         }
       : {}),
     subject: subject || "(no subject)",
-    snippet: (body || "").slice(0, 120).replace(/\n/g, " "),
+    snippet: markdownPreviewSnippet(body || ""),
     body: body || "",
     bodyHtml: bodyToHtml(body || ""),
     date: new Date().toISOString(),

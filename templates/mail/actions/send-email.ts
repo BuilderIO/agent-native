@@ -20,6 +20,7 @@ import {
 } from "../server/lib/email-tracking.js";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import type { UserSettings } from "../shared/types.js";
+import { markdownPreviewSnippet } from "../shared/markdown.js";
 
 function escapeHtml(value: string): string {
   return value
@@ -295,7 +296,7 @@ export default defineAction({
             }
           : {}),
         subject: args.subject,
-        snippet: args.body.slice(0, 120).replace(/\n/g, " "),
+        snippet: markdownPreviewSnippet(args.body),
         body: args.body,
         bodyHtml: bodyToHtml(args.body),
         date: new Date().toISOString(),
