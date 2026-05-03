@@ -3,6 +3,7 @@ import { desc } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
 import { z } from "zod";
+import { getDeckUrl } from "./_app-url.js";
 
 export default defineAction({
   description: "List all decks from the database with metadata.",
@@ -32,6 +33,7 @@ export default defineAction({
         return {
           id: row.id,
           title: row.title,
+          url: getDeckUrl(row.id),
           slideCount: slides?.length ?? 0,
           visibility: row.visibility,
           designSystemId: row.designSystemId ?? null,
@@ -40,6 +42,7 @@ export default defineAction({
       return {
         id: row.id,
         title: row.title,
+        url: getDeckUrl(row.id),
         slideCount: slides?.length ?? 0,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? null,

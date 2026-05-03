@@ -147,6 +147,33 @@ function isReadyDeckArtifact(parsed: Record<string, unknown>): boolean {
   return true;
 }
 
+function addDeckArtifact(
+  decks: Map<string, CreatedDeckArtifact>,
+  parsed: Record<string, unknown>,
+  options: { requireReady: boolean },
+): void {
+  const id = deckIdValue(parsed);
+  if (!id) return;
+  if (options.requireReady && !isReadyDeckArtifact(parsed)) return;
+  decks.set(id, {
+    id,
+    url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+  });
+}
+
+function addListedDeckArtifacts(
+  decks: Map<string, CreatedDeckArtifact>,
+  parsed: Record<string, unknown>,
+): void {
+  const items = parsed.decks;
+  if (!Array.isArray(items)) return;
+  for (const item of items) {
+    const deck = asRecord(item);
+    if (!deck) continue;
+    addDeckArtifact(decks, deck, { requireReady: false });
+  }
+}
+
 function collectArtifacts(results: A2AToolResultSummary[]): {
   documents: CreatedDocumentArtifact[];
   decks: CreatedDeckArtifact[];
@@ -204,16 +231,19 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
 
     if (
       toolResult.tool === "create-deck" ||
-      toolResult.tool === "get-deck" ||
       toolResult.tool === "duplicate-deck"
     ) {
-      const id = deckIdValue(parsed);
-      if (id && isReadyDeckArtifact(parsed)) {
-        decks.set(id, {
-          id,
-          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
-        });
-      }
+      addDeckArtifact(decks, parsed, { requireReady: true });
+      continue;
+    }
+
+    if (toolResult.tool === "get-deck") {
+      addDeckArtifact(decks, parsed, { requireReady: false });
+      continue;
+    }
+
+    if (toolResult.tool === "list-decks") {
+      addListedDeckArtifacts(decks, parsed);
       continue;
     }
 

@@ -157,6 +157,67 @@ describe("appendA2AArtifactLinks", () => {
     );
   });
 
+  it("treats list-decks results as verified read-only deck artifacts", () => {
+    const text = appendA2AArtifactLinks(
+      "Existing deck: https://slides.agent-native.com/deck/deck_123",
+      [
+        {
+          tool: "list-decks",
+          result: JSON.stringify({
+            count: 1,
+            decks: [
+              {
+                id: "deck_123",
+                title: "Builder Workspace Slack QA Deck",
+                url: "https://slides.agent-native.com/deck/deck_123",
+                slideCount: 7,
+              },
+            ],
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://slides.agent-native.com",
+        includeReferencedArtifacts: true,
+      },
+    );
+
+    expect(text).toContain(
+      "Existing deck: https://slides.agent-native.com/deck/deck_123",
+    );
+    expect(text).toContain(
+      "Artifacts:\n- Deck: https://slides.agent-native.com/deck/deck_123 (ID: deck_123)",
+    );
+    expect(text).not.toContain("could not verify");
+  });
+
+  it("does not let list-decks verify deck URLs for IDs that were not listed", () => {
+    const text = appendA2AArtifactLinks(
+      "Existing deck: https://slides.agent-native.com/deck/deck_fake",
+      [
+        {
+          tool: "list-decks",
+          result: JSON.stringify({
+            count: 1,
+            decks: [
+              {
+                id: "deck_real",
+                title: "Real Deck",
+                url: "https://slides.agent-native.com/deck/deck_real",
+                slideCount: 7,
+              },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://slides.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the deck URL");
+    expect(text).not.toContain("deck_fake");
+    expect(text).toContain("https://slides.agent-native.com/deck/deck_real");
+  });
+
   it("blocks hallucinated deck URLs with no successful deck action", () => {
     const text = appendA2AArtifactLinks(
       "Done: https://slides.agent.test/deck/deck_404",
