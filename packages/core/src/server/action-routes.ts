@@ -17,6 +17,10 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "./request-context.js";
 import { recordChange } from "./poll.js";
+import {
+  getAllowedCorsOrigin as resolveAllowedCorsOrigin,
+  readCorsAllowedOrigins,
+} from "./cors-origins.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
 
@@ -36,19 +40,11 @@ function readTimezoneHeader(event: any): string | undefined {
   }
 }
 
-const LOCALHOST_ORIGIN_RE =
-  /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/;
-
 function getAllowedCorsOrigin(origin: string | undefined): string | null {
-  if (!origin) return null;
-  const allowlist = (process.env.CORS_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (allowlist.length > 0) {
-    return allowlist.includes(origin) ? origin : null;
-  }
-  return LOCALHOST_ORIGIN_RE.test(origin) ? origin : null;
+  return resolveAllowedCorsOrigin(origin, {
+    allowedOrigins: readCorsAllowedOrigins(),
+    allowLocalhostWhenNoAllowlist: true,
+  });
 }
 
 function handleOptionsRequest(event: any): string {

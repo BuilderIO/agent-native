@@ -8,7 +8,7 @@ describe("docs actions", () => {
     const output = await listDocs.run({});
 
     expect(output).toContain("[Getting Started](/docs)");
-    expect(output).toContain("[onboarding](/docs/onboarding)");
+    expect(output).toContain("[Onboarding & API Keys](/docs/onboarding)");
     expect(output).toContain("[Workspace](/docs/workspace)");
     expect(output).toContain("[Mail](/docs/template-mail)");
   });

@@ -11,6 +11,10 @@ import {
 import path from "path";
 import { agentEnv } from "../shared/agent-env.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  getAllowedCorsOrigin,
+  readCorsAllowedOrigins,
+} from "./cors-origins.js";
 import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 
 export interface EnvKeyConfig {
@@ -153,20 +157,14 @@ export function createServer(
 
   // CORS middleware
   if (options.cors !== false) {
-    const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
-      ? process.env.CORS_ALLOWED_ORIGINS.split(",").map((o) => o.trim())
-      : null;
+    const allowedOrigins = readCorsAllowedOrigins();
     const isProduction = process.env.NODE_ENV === "production";
 
     /**
-     * Localhost-style origins that we treat as same-trust in development.
-     * When CORS_ALLOWED_ORIGINS is unset we still allow these (desktop tray
-     * windows on a sibling port, the docs site at localhost:5173, etc.) but
-     * in production an unset allowlist means no cross-origin credentials.
+     * When CORS_ALLOWED_ORIGINS is unset, production only allows trusted
+     * localhost/native desktop origins. Development keeps the legacy "echo
+     * any origin" behavior so local tools and docs previews keep working.
      */
-    const LOCALHOST_RE =
-      /^https?:\/\/(localhost|127\.0\.0\.1|tauri\.localhost)(:\d+)?$/;
-
     app.use(
       defineEventHandler((event) => {
         const requestOrigin = getRequestHeader(event, "origin");
@@ -180,25 +178,11 @@ export function createServer(
          * permissive enough that some clients followed through with the
          * credentialed request.
          */
-        let allowedOrigin: string | null = null;
-        if (allowedOrigins && allowedOrigins.length > 0) {
-          if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
-            allowedOrigin = requestOrigin;
-          }
-          // Origin not in the explicit allowlist — emit no ACAO header.
-        } else if (requestOrigin) {
-          // No allowlist configured. In production we refuse credentialed
-          // cross-origin requests except from localhost (desktop tray app
-          // dev usage); in dev we allow any origin echo.
-          if (isProduction) {
-            if (LOCALHOST_RE.test(requestOrigin)) {
-              allowedOrigin = requestOrigin;
-            }
-            // else: production + no allowlist + non-localhost origin → no ACAO
-          } else {
-            allowedOrigin = requestOrigin;
-          }
-        }
+        const allowedOrigin = getAllowedCorsOrigin(requestOrigin, {
+          allowedOrigins,
+          allowAnyOriginWhenNoAllowlist: !isProduction,
+          allowLocalhostWhenNoAllowlist: true,
+        });
         // No origin header at all (same-origin fetch, server-to-server) and
         // no allowlist → fall through with `*`-equivalent behaviour: omit
         // ACAO entirely and let the browser apply its same-origin default.

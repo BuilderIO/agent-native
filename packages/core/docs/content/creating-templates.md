@@ -293,6 +293,16 @@ OPENAI_API_KEY=sk-...
 
 When users fork your template, they copy `.env.example` to `.env` and fill in their own values. Keep the number of required keys minimal — the template should work with example data before any keys are configured.
 
+## Make your template multi-app-workspace ready {#workspace-ready}
+
+Templates rarely live in isolation — most users will scaffold yours alongside other apps in a [multi-app workspace](/docs/multi-app-workspace), often coordinated by [Dispatch](/docs/dispatch). Three checkpoints make your template a good citizen:
+
+1. **Mount A2A so other apps can call yours.** Add `mountA2A()` in a server plugin so your actions are reachable over the agent-to-agent protocol. Other apps in the workspace (and Dispatch's orchestrator) discover and invoke them automatically. See [A2A Protocol](/docs/a2a-protocol).
+2. **Publish an agent card with skill metadata.** Your A2A peer exposes a manifest describing what your template does and which actions it offers. Dispatch reads these cards to decide which specialist to route a request to — clear, specific skill descriptions make routing accurate.
+3. **Register secrets through onboarding.** Any third-party API keys your template needs (OpenAI, Stripe, SendGrid, etc.) should be registered via the [onboarding](/docs/onboarding) system. They show up in the workspace setup checklist and the Dispatch secrets vault, instead of forcing every user to hand-edit `.env`.
+
+Hit those three and your template drops into any workspace cleanly.
+
 ## Publishing {#publishing}
 
 To share your template:

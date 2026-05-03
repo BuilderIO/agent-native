@@ -76,6 +76,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://agent-native.com/docs/dispatch</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://agent-native.com/docs/drop-in-agent</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -127,6 +132,11 @@
   </url>
   <url>
     <loc>https://agent-native.com/docs/notifications</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://agent-native.com/docs/observability</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -276,11 +286,6 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://agent-native.com/templates/calls</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://agent-native.com/templates/clips</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -306,27 +311,7 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://agent-native.com/templates/issues</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://agent-native.com/templates/mail</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://agent-native.com/templates/meeting-notes</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://agent-native.com/templates/recruiting</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://agent-native.com/templates/scheduling</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -342,11 +327,6 @@
   </url>
   <url>
     <loc>https://agent-native.com/templates/video</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://agent-native.com/templates/voice</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
