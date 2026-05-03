@@ -17,6 +17,7 @@ import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
 
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
 const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 50_000;
+const INTEGRATION_A2A_TOKEN_TTL = "30m";
 
 function parseTimeoutMs(value: string | undefined): number | undefined {
   if (!value) return undefined;
@@ -144,6 +145,7 @@ export async function run(
             callerEmail,
             callerOrgDomain,
             callerOrgSecret,
+            { expiresIn: INTEGRATION_A2A_TOKEN_TTL },
           );
         } catch {}
       }
@@ -205,6 +207,7 @@ export async function run(
         // still need to finish before their current function execution dies.
         const callTimeoutMs = getIntegrationCallTimeoutMs();
         responseText = await callAgent(agent.url, messageWithHint, {
+          apiKey,
           userEmail: callerEmail,
           orgDomain: callerOrgDomain,
           orgSecret: callerOrgSecret,
@@ -223,6 +226,7 @@ export async function run(
             pollErr,
             agent,
             callerEmail,
+            apiKey,
           );
           if (queued) {
             responseText = `The ${agent.name} agent is still working. I will update this thread with the final result when it finishes.`;
@@ -281,6 +285,7 @@ async function enqueueIntegrationContinuationIfPossible(
   error: A2ATaskTimeoutError,
   agent: { name: string; url: string },
   ownerEmail: string | undefined,
+  a2aAuthToken: string | undefined,
 ): Promise<boolean> {
   const integration = getIntegrationRequestContext();
   if (!integration || !ownerEmail) return false;
@@ -302,6 +307,7 @@ async function enqueueIntegrationContinuationIfPossible(
       agentName: agent.name,
       agentUrl: agent.url,
       a2aTaskId: error.taskId,
+      a2aAuthToken: a2aAuthToken ?? "",
     });
     await dispatchA2AContinuation(continuation.id).catch((err) => {
       console.error(
