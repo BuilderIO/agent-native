@@ -10,7 +10,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 
 export default defineAction({
   description:
-    "Create a new design project. Returns the new design's ID, title, and project type.",
+    "Create a new empty design project shell. This is not a renderable artifact by itself; call generate-design with at least one HTML/JSX file before reporting a design URL as ready.",
   schema: z.object({
     id: z.string().optional().describe("Optional ID (generated if omitted)"),
     title: z.string().describe("Design project title"),
@@ -59,6 +59,12 @@ export default defineAction({
       updatedAt: now,
     });
 
-    return { id, title, projectType };
+    return {
+      id,
+      title,
+      projectType,
+      renderable: false,
+      nextRequiredAction: "generate-design",
+    };
   },
 });

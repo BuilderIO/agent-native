@@ -378,6 +378,16 @@ Designs and design systems are **private by default** — only the creator sees 
 
 This is the core workflow. The agent generates complete HTML designs and saves them as files in a design project. The canonical flow has four phases — match it precisely so the UX feels like Claude Design.
 
+### Cross-App A2A / Slack Artifact Rule
+
+When a request arrives from Slack, Dispatch, or any other app via A2A, the caller cannot see Design's local editor overlays, question flow, or `design-variants` picker. For those requests:
+
+1. Do **not** use `application-state/show-questions` or `application-state/design-variants`.
+2. Create the design shell with `create-design`.
+3. Immediately persist at least one complete, self-contained HTML/JSX file with `generate-design`.
+4. Verify the saved result with `get-design` or the `generate-design` return value. A design is ready only when `files.length > 0` and an `index.html` or other renderable HTML/JSX file exists.
+5. Only then reply with the design ID and the full URL/path for `/design/<id>`. Never report a `create-design` ID or URL as success before `generate-design` succeeds; that is only an empty shell.
+
 ### Phase 1 — Ask before generating (when ambiguous)
 
 For any non-trivial first prompt, write structured questions to `application-state/show-questions` BEFORE generating. The editor renders them as a full-canvas overlay. The user submits or skips, and the answers come back to you as a chat message. See "Question Flow Protocol" below for the exact JSON shape and when to ask vs skip.

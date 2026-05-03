@@ -242,14 +242,6 @@ function writeNetlifyRedirects(distDir: string, apps: string[]): void {
     lines.push(`/ /${apps[0]}/ 302`);
   }
 
-  for (const app of apps) {
-    const functionPath = `/.netlify/functions/${app}-server`;
-    if (app !== "dispatch") {
-      lines.push(`/${app} ${functionPath} 200`);
-    }
-    lines.push(`/${app}/* ${functionPath} 200`);
-  }
-
   fs.writeFileSync(path.join(distDir, "_redirects"), lines.join("\n") + "\n");
 }
 
