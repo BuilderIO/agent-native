@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { appendA2AArtifactLinks } from "./artifact-response.js";
+import {
+  appendA2AArtifactLinks,
+  buildA2ARecoverableArtifactMessage,
+} from "./artifact-response.js";
 
 describe("appendA2AArtifactLinks", () => {
   it("appends a document URL from a successful create-document result", () => {
@@ -48,6 +51,43 @@ describe("appendA2AArtifactLinks", () => {
 
     expect(text).toContain(
       "- Deck: https://slides.agent.test/deck/deck_123 (ID: deck_123)",
+    );
+  });
+
+  it("treats add-slide with a positive slide count as a recoverable deck artifact", () => {
+    const text = buildA2ARecoverableArtifactMessage(
+      [
+        {
+          tool: "add-slide",
+          result: JSON.stringify({ deckId: "deck_123", slideCount: 3 }),
+        },
+      ],
+      { baseUrl: "https://slides.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Deck: https://slides.agent.test/deck/deck_123 (ID: deck_123)",
+    );
+  });
+
+  it("prefers canonical URLs returned by successful artifact actions", () => {
+    const text = appendA2AArtifactLinks(
+      "Created the deck.",
+      [
+        {
+          tool: "create-deck",
+          result: JSON.stringify({
+            id: "deck_123",
+            title: "Roadmap",
+            url: "https://workspace.example.test/slides/deck/deck_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://slides.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Deck: https://workspace.example.test/slides/deck/deck_123 (ID: deck_123)",
     );
   });
 
