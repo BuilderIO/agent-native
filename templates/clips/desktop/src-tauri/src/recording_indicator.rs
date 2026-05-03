@@ -349,6 +349,46 @@ pub async fn recording_pill_save_position(
     x: i32,
     y: i32,
 ) -> Result<(), String> {
-    save_pill_position_to_disk(&app, x, y);
+    // Persist to the right slot — detached drags shouldn't overwrite the
+    // user's preferred bottom-center position and vice versa.
+    if PILL_DETACHED.load(Ordering::Relaxed) {
+        save_detached_position_to_disk(&app, x, y);
+    } else {
+        save_pill_position_to_disk(&app, x, y);
+    }
+    Ok(())
+}
+
+/// Toggle detached / floating mode. Called from the renderer when the
+/// main app window loses or regains focus. On the way IN to detached mode
+/// we resize + reposition to the saved (or default top-right) detached
+/// anchor; on the way OUT we resize + reposition back to the user's saved
+/// bottom-center anchor.
+#[tauri::command]
+pub async fn recording_pill_set_detached(
+    app: AppHandle,
+    detached: bool,
+) -> Result<(), String> {
+    let prev = PILL_DETACHED.swap(detached, Ordering::SeqCst);
+    if prev == detached {
+        return Ok(());
+    }
+    if let Some(window) = app.get_webview_window(PILL_LABEL) {
+        // Snapshot the OLD anchor before flipping the mode flag matters
+        // here, but `pill_size_physical` reads the atomic each call — so
+        // by the time we hit `anchored_rect` below, the new flag has
+        // already taken effect and we get the right size + position for
+        // the destination mode. (The atomic was flipped above.)
+        let (w, h, x, y) = anchored_rect(&app, false, None);
+        let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+        // Tell the React side which mode it's in so it can show / hide the
+        // drag handle and reflow its layout.
+        use tauri::Emitter;
+        let _ = app.emit(
+            "clips:pill-detached",
+            serde_json::json!({ "detached": detached }),
+        );
+    }
     Ok(())
 }

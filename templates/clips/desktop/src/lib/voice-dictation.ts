@@ -1542,6 +1542,30 @@ export function installDesktopVoiceDictation(
   configureVocabularyClient(serverUrl);
   loadVocabulary().catch(() => {});
 
+  // Detachable pill on focus blur (Wispr / Granola round-3). When the main
+  // app window loses focus to another macOS app, flip the pill into its
+  // floating top-right detached mode (smaller, drag-handle visible). On
+  // refocus, flip back. We filter to the `main` / `popover` windows so we
+  // don't react to the pill window's own focus changes (which would cause
+  // an infinite ping-pong).
+  interface FocusEventPayload {
+    windowLabel?: string;
+  }
+  const isMainWindow = (label?: string) =>
+    label === "main" || label === "popover";
+  listen<FocusEventPayload>("tauri://blur", (ev) => {
+    if (!isMainWindow(ev.windowLabel)) return;
+    invoke("recording_pill_set_detached", { detached: true }).catch(() => {});
+  })
+    .then((u) => unlistens.push(u))
+    .catch(() => {});
+  listen<FocusEventPayload>("tauri://focus", (ev) => {
+    if (!isMainWindow(ev.windowLabel)) return;
+    invoke("recording_pill_set_detached", { detached: false }).catch(() => {});
+  })
+    .then((u) => unlistens.push(u))
+    .catch(() => {});
+
   // Native (SFSpeechRecognizer) event subscriptions. These are always
   // installed — the events only fire when the Rust side has an active
   // session, so subscribing on non-native sessions is harmless. The

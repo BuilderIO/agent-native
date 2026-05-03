@@ -33,6 +33,11 @@ export function RecordingPill() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [ctx, setCtx] = useState<PillContext>({ mode: "clip" });
+  // Detached / "floating" mode — Wispr-style pill that auto-moves to the
+  // top-right when the main app loses focus, with a drag handle. Driven by
+  // the `clips:pill-detached` event from Rust (toggled by JS via
+  // `recording_pill_set_detached`).
+  const [detached, setDetached] = useState(false);
   const startedAtRef = useRef<number>(Date.now());
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Per-source levels. The mic recognizer (native_speech.rs) emits with
@@ -75,6 +80,14 @@ export function RecordingPill() {
         // Reset timer on new context.
         startedAtRef.current = Date.now();
         setElapsed(0);
+      }),
+    );
+    trackListen(
+      listen<{ detached: boolean }>("clips:pill-detached", (ev) => {
+        setDetached(!!ev.payload?.detached);
+        // Detached pill auto-collapses — there's not enough room for the
+        // expanded transcript view in the small floating footprint.
+        if (ev.payload?.detached) setExpanded(false);
       }),
     );
     trackListen(
@@ -212,6 +225,17 @@ export function RecordingPill() {
     }
   }
 
+  // Click on the drag handle (detached mode) un-detaches the pill and
+  // re-anchors it bottom-center on the meeting / main app. Re-focuses the
+  // main app so the pill mode flips back through the focus listener too.
+  async function onHandleClick() {
+    try {
+      await invoke("recording_pill_set_detached", { detached: false });
+    } catch {
+      // ignore — best effort
+    }
+  }
+
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const ss = String(elapsed % 60).padStart(2, "0");
 
@@ -275,6 +299,19 @@ export function RecordingPill() {
             )}
           </button>
         </div>
+
+        {detached ? (
+          // 4px drag handle along the bottom edge of the floating pill.
+          // Click un-detaches; the `data-tauri-drag-region` on the parent
+          // already handles the actual drag.
+          <button
+            type="button"
+            onClick={onHandleClick}
+            data-no-drag
+            aria-label="Re-attach pill to main window"
+            className="mx-auto mb-1 mt-auto h-1 w-10 shrink-0 cursor-pointer rounded-full bg-white/30 hover:bg-white/50"
+          />
+        ) : null}
 
         {expanded ? (
           <>

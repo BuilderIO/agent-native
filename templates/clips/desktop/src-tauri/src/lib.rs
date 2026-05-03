@@ -83,6 +83,7 @@ pub fn run() {
             recording_indicator::recording_pill_expand,
             recording_indicator::recording_pill_hide,
             recording_indicator::recording_pill_save_position,
+            recording_indicator::recording_pill_set_detached,
             // notifications
             notifications::notify_meeting_starting,
             // meetings watcher (background poller)
