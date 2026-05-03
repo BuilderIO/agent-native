@@ -146,7 +146,10 @@ export async function run(
             callerEmail,
             callerOrgDomain,
             callerOrgSecret,
-            { expiresIn: INTEGRATION_A2A_TOKEN_TTL },
+            {
+              expiresIn: INTEGRATION_A2A_TOKEN_TTL,
+              preferGlobalSecret: true,
+            },
           );
         } catch {}
       }
@@ -227,7 +230,6 @@ export async function run(
             pollErr,
             agent,
             callerEmail,
-            apiKey,
           );
           if (queued) {
             responseText = `${A2A_CONTINUATION_QUEUED_MARKER}\nThe ${agent.name} agent is still working. Do not send an interim reply to the user; the final result will be posted to the originating integration thread automatically.`;
@@ -285,7 +287,6 @@ async function enqueueIntegrationContinuationIfPossible(
   error: A2ATaskTimeoutError,
   agent: { name: string; url: string },
   ownerEmail: string | undefined,
-  a2aAuthToken: string | undefined,
 ): Promise<boolean> {
   const integration = getIntegrationRequestContext();
   if (!integration || !ownerEmail) return false;
@@ -307,7 +308,9 @@ async function enqueueIntegrationContinuationIfPossible(
       agentName: agent.name,
       agentUrl: agent.url,
       a2aTaskId: error.taskId,
-      a2aAuthToken: a2aAuthToken ?? "",
+      // Do not persist the short-lived JWT used for the initial send. The
+      // continuation processor can mint a fresh token for each poll.
+      a2aAuthToken: null,
     });
     await dispatchA2AContinuation(continuation.id).catch((err) => {
       console.error(

@@ -553,12 +553,14 @@ async function processIncomingMessage(
       },
       async (completedRun: ActiveRun) => {
         try {
+          const queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
           let responseText = collectFinalResponseTextFromAgentEvents(
             completedRun.events.map((runEvent) => runEvent.event),
+            { fallbackToPreToolText: !queuedA2AContinuation },
           );
 
           const suppressPlatformReply =
-            hasQueuedA2AContinuation(completedRun) &&
+            queuedA2AContinuation &&
             isQueuedA2AContinuationDeferral(responseText);
 
           // If the run errored OR produced no text, post a graceful fallback so

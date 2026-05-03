@@ -102,6 +102,30 @@ describe("mountA2A auth", () => {
     expect(event._status).toBeUndefined();
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
   });
+
+  it("falls back to the shared A2A_SECRET when the receiver org secret differs", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    getA2ASecretByDomainMock.mockResolvedValueOnce("receiver-local-org-secret");
+    const token = await new jose.SignJWT({
+      sub: "alice+qa@builder.io",
+      org_domain: "builder.io",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("https://dispatch.agent-native.test")
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("shared-global-secret"));
+    const handler = await mountedA2AHandler(config);
+
+    const event = postEvent({ authorization: `Bearer ${token}` });
+    const response = await handler(event);
+
+    expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+    expect(event.context.__a2aVerifiedEmail).toBe("alice+qa@builder.io");
+    expect(event.context.__a2aOrgDomain).toBe("builder.io");
+    expect(event._status).toBeUndefined();
+    expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
+  });
 });
 
 async function mountedA2AHandler(
