@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 import exportPptxAction from "./export-pptx.js";
+import { getExportUrl, getSlidesAppUrl } from "./_app-url.js";
 
 /**
  * Google Slides has no first-party "import this URL" REST API — there is no
@@ -32,8 +33,8 @@ export default defineAction({
     const result = await exportPptxAction.run({ deckId, includeNotes });
     const { filename, slideCount } = result;
 
-    const appUrl = process.env.APP_URL || "https://slides.agent-native.com";
-    const downloadUrl = `${appUrl}/api/exports/${filename}`;
+    const appUrl = getSlidesAppUrl();
+    const downloadUrl = getExportUrl(filename);
 
     // The /api/exports/:filename route requires a logged-in session, so
     // Google's importer cannot fetch it directly even when APP_URL is

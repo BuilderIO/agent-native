@@ -7,6 +7,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { nanoid } from "nanoid";
+import { getDeckUrl } from "./_app-url.js";
 
 export default defineAction({
   description:
@@ -60,12 +61,11 @@ export default defineAction({
       orgId: getRequestOrgId() || null,
     });
 
-    const appUrl = process.env.APP_URL || "https://slides.agent-native.com";
     return {
       id: newId,
       title: newTitle,
       slideCount: (deckData.slides || []).length,
-      url: `${appUrl}/deck/${newId}`,
+      url: getDeckUrl(newId),
     };
   },
 });

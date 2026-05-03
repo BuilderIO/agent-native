@@ -66,6 +66,7 @@ import action from "./create-deck";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   existingDeckRow = undefined;
   insertedRow = undefined;
   updatedFields = undefined;
@@ -85,6 +86,17 @@ describe("create-deck — aspectRatio", () => {
     await action.run({ title: "T", slides: [], aspectRatio: "9:16" });
     const data = JSON.parse(insertedRow!.data as string);
     expect(data.aspectRatio).toBe("9:16");
+  });
+
+  it("returns a workspace-scoped deck URL when the app is mounted under a base path", async () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://workspace.example.test");
+    vi.stubEnv("APP_BASE_PATH", "/slides");
+
+    const result = await action.run({ title: "T", slides: [] });
+
+    expect(result.url).toMatch(
+      /^https:\/\/workspace\.example\.test\/slides\/deck\/deck-/,
+    );
   });
 
   it("preserves the existing aspectRatio when bulk-replacing slides without specifying it", async () => {
