@@ -214,12 +214,12 @@ export async function claimA2AContinuation(
       ? `UPDATE integration_a2a_continuations
            SET status = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ?
-           AND (status = 'pending' OR (status IN ('processing', 'delivering') AND updated_at <= ?))
+           AND (status = 'pending' OR (status = 'processing' AND updated_at <= ?))
          RETURNING *`
       : `UPDATE integration_a2a_continuations
            SET status = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ?
-           AND (status = 'pending' OR (status IN ('processing', 'delivering') AND updated_at <= ?))`,
+           AND (status = 'pending' OR (status = 'processing' AND updated_at <= ?))`,
     args: ["processing", now, id, processingCutoff],
   });
   const rows = result.rows ?? [];
@@ -241,10 +241,19 @@ export async function claimDueA2AContinuations(
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
+  // If a processor dies while holding a delivery claim, retry the final send.
+  // The stale cutoff preserves the in-flight delivery guard while keeping
+  // final integration replies at-least-once.
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, next_check_at = ?, updated_at = ?
-          WHERE status IN ('processing', 'delivering') AND updated_at <= ?`,
+          WHERE status = 'delivering' AND updated_at <= ?`,
+    args: ["pending", now, now, now - 5 * 60 * 1000],
+  });
+  await client.execute({
+    sql: `UPDATE integration_a2a_continuations
+          SET status = ?, next_check_at = ?, updated_at = ?
+          WHERE status = 'processing' AND updated_at <= ?`,
     args: ["pending", now, now, now - 5 * 60 * 1000],
   });
   const { rows } = await client.execute({
@@ -314,7 +323,7 @@ export async function completeA2AContinuation(id: string): Promise<void> {
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, updated_at = ?, completed_at = ?
-          WHERE id = ?`,
+          WHERE id = ? AND status IN ('processing', 'delivering', 'completed')`,
     args: ["completed", now, now, id],
   });
 }
@@ -329,7 +338,7 @@ export async function failA2AContinuation(
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, updated_at = ?, error_message = ?
-          WHERE id = ?`,
+          WHERE id = ? AND status <> 'completed'`,
     args: ["failed", now, errorMessage.slice(0, 2000), id],
   });
 }

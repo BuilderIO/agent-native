@@ -6,6 +6,7 @@
     "dev": "agent-native dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
+    "repair:workspace-org": "tsx scripts/repair-workspace-org.ts",
     "fmt:check": "prettier --check .",
     "lint": "pnpm fmt:check"
   },
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@types/node": "^24.2.1",
     "prettier": "^3.6.2",
+    "tsx": "catalog:",
     "typescript": "^6.0.3"
   },
   "packageManager": "pnpm@10.14.0"

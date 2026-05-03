@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const getSettingMock = vi.hoisted(() => vi.fn());
 const putSettingMock = vi.hoisted(() => vi.fn());
 const runBuilderAgentMock = vi.hoisted(() => vi.fn());
+const createRequestMock = vi.hoisted(() => vi.fn());
 const grantSecretsToAppMock = vi.hoisted(() => vi.fn());
 const listSecretsMock = vi.hoisted(() => vi.fn());
 const isIntegrationCallerRequestMock = vi.hoisted(() => vi.fn());
@@ -30,6 +31,7 @@ vi.mock("./dispatch-store.js", () => ({
 }));
 
 vi.mock("./vault-store.js", () => ({
+  createRequest: createRequestMock,
   grantSecretsToApp: grantSecretsToAppMock,
   listSecrets: listSecretsMock,
 }));
@@ -40,6 +42,7 @@ describe("startWorkspaceAppCreation", () => {
     getSettingMock.mockReset();
     putSettingMock.mockReset();
     runBuilderAgentMock.mockReset();
+    createRequestMock.mockReset();
     grantSecretsToAppMock.mockReset();
     listSecretsMock.mockReset();
     isIntegrationCallerRequestMock.mockReset();
@@ -50,6 +53,8 @@ describe("startWorkspaceAppCreation", () => {
       url: "https://builder.io/branch",
       status: "started",
     });
+    createRequestMock.mockResolvedValue({ status: "pending" });
+    listSecretsMock.mockResolvedValue([]);
     isIntegrationCallerRequestMock.mockReturnValue(false);
     currentOwnerEmailMock.mockReturnValue("dispatch-test@example.com");
     process.env.NODE_ENV = "production";
@@ -185,6 +190,112 @@ describe("startWorkspaceAppCreation", () => {
     });
     expect(getSettingMock).not.toHaveBeenCalled();
     expect(runBuilderAgentMock).not.toHaveBeenCalled();
+  });
+
+  it("creates pending vault requests for selected keys in local app creation", async () => {
+    process.env.NODE_ENV = "development";
+    listSecretsMock.mockResolvedValue([
+      { id: "secret-1", credentialKey: "OPENAI_API_KEY" },
+      { id: "secret-2", credentialKey: "STRIPE_SECRET_KEY" },
+    ]);
+
+    const { startWorkspaceAppCreation } =
+      await import("./app-creation-store.js");
+
+    const result = await startWorkspaceAppCreation({
+      prompt: "make a QA dashboard",
+      appId: "qa-dashboard",
+      secretIds: ["secret-1", "secret-2"],
+    });
+
+    expect(result).toMatchObject({
+      mode: "local-agent",
+      appId: "qa-dashboard",
+      prompt: expect.stringContaining(
+        "Dispatch vault keys selected for this app: OPENAI_API_KEY, STRIPE_SECRET_KEY",
+      ),
+    });
+    expect(result).toMatchObject({
+      prompt: expect.stringContaining("pending vault requests"),
+    });
+    expect(String(result.prompt)).not.toContain(
+      "Grant the selected Dispatch vault keys",
+    );
+    expect(createRequestMock).toHaveBeenCalledTimes(2);
+    expect(createRequestMock).toHaveBeenNthCalledWith(1, {
+      appId: "qa-dashboard",
+      credentialKey: "OPENAI_API_KEY",
+      reason: "Requested during workspace app creation for qa-dashboard.",
+    });
+    expect(createRequestMock).toHaveBeenNthCalledWith(2, {
+      appId: "qa-dashboard",
+      credentialKey: "STRIPE_SECRET_KEY",
+      reason: "Requested during workspace app creation for qa-dashboard.",
+    });
+    expect(grantSecretsToAppMock).not.toHaveBeenCalled();
+    expect(runBuilderAgentMock).not.toHaveBeenCalled();
+  });
+
+  it("creates pending vault requests for selected keys after Builder app creation is accepted", async () => {
+    listSecretsMock.mockResolvedValue([
+      { id: "secret-1", credentialKey: "OPENAI_API_KEY" },
+      { id: "secret-2", credentialKey: "STRIPE_SECRET_KEY" },
+    ]);
+
+    const { startWorkspaceAppCreation } =
+      await import("./app-creation-store.js");
+
+    const result = await startWorkspaceAppCreation({
+      prompt: "make a QA dashboard",
+      appId: "qa-dashboard",
+      secretIds: ["secret-1", "secret-2"],
+    });
+
+    expect(result).toMatchObject({
+      mode: "builder",
+      appId: "qa-dashboard",
+    });
+    expect(createRequestMock).toHaveBeenCalledTimes(2);
+    expect(createRequestMock).toHaveBeenNthCalledWith(1, {
+      appId: "qa-dashboard",
+      credentialKey: "OPENAI_API_KEY",
+      reason: "Requested during workspace app creation for qa-dashboard.",
+    });
+    expect(createRequestMock).toHaveBeenNthCalledWith(2, {
+      appId: "qa-dashboard",
+      credentialKey: "STRIPE_SECRET_KEY",
+      reason: "Requested during workspace app creation for qa-dashboard.",
+    });
+    expect(grantSecretsToAppMock).not.toHaveBeenCalled();
+    expect(createRequestMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      runBuilderAgentMock.mock.invocationCallOrder[0],
+    );
+    expect(createRequestMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      putSettingMock.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("does not fail accepted app creation when vault request creation fails", async () => {
+    listSecretsMock.mockResolvedValue([
+      { id: "secret-1", credentialKey: "OPENAI_API_KEY" },
+    ]);
+    createRequestMock.mockRejectedValue(new Error("vault write failed"));
+
+    const { startWorkspaceAppCreation } =
+      await import("./app-creation-store.js");
+
+    await expect(
+      startWorkspaceAppCreation({
+        prompt: "make a QA dashboard",
+        appId: "qa-dashboard",
+        secretIds: ["secret-1"],
+      }),
+    ).resolves.toMatchObject({
+      mode: "builder",
+      appId: "qa-dashboard",
+    });
+    expect(createRequestMock).toHaveBeenCalledTimes(1);
+    expect(grantSecretsToAppMock).not.toHaveBeenCalled();
   });
 
   it("lists pending Builder apps without duplicating apps that are already ready", async () => {

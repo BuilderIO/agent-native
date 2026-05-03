@@ -5,6 +5,11 @@ function normalizeBasePath(value?: string): string {
   return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
 }
 
+function normalizePathname(value: string): string {
+  if (value === "/") return "/";
+  return value.replace(/\/+$/, "") || "/";
+}
+
 const DISPATCH_PAGE_PATHS = new Set([
   "/overview",
   "/login",
@@ -21,6 +26,17 @@ const DISPATCH_PAGE_PATHS = new Set([
   "/approvals",
   "/audit",
   "/team",
+]);
+
+const DISPATCH_ROOT_ALIASES = new Map<string, string>([
+  ...Array.from(DISPATCH_PAGE_PATHS, (path) => [path, path] as const),
+  ["/approval", "/approval"],
+  ["/tools", "/tools"],
+  ["/apps/new-app", "/new-app"],
+]);
+
+const MOUNTED_DISPATCH_ALIASES = new Map<string, string>([
+  ["/apps/new-app", "/new-app"],
 ]);
 
 function isDispatchPagePath(pathname: string): boolean {
@@ -59,42 +75,49 @@ export function rootDispatchRedirect(
   pathname: string,
   search: string,
 ): Response | null {
+  const normalizedPathname = normalizePathname(pathname);
   const basePath = normalizeBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
   if (!basePath) return null;
 
-  if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")) {
+  if (
+    normalizedPathname === "/_agent-native" ||
+    normalizedPathname.startsWith("/_agent-native/")
+  ) {
     return null;
   }
 
-  if (pathname === "/.well-known" || pathname.startsWith("/.well-known/")) {
+  if (
+    normalizedPathname === "/.well-known" ||
+    normalizedPathname.startsWith("/.well-known/")
+  ) {
     return null;
   }
 
-  if (pathname === "/") {
+  if (normalizedPathname === "/") {
     return new Response(null, {
       status: 302,
       headers: { Location: `${basePath}/overview${search}` },
     });
   }
 
-  if (pathname === basePath) {
+  if (normalizedPathname === basePath) {
     return new Response(null, {
       status: 302,
       headers: { Location: `${basePath}/overview${search}` },
     });
   }
 
-  if (pathname === `${basePath}/`) {
-    return new Response(null, {
-      status: 302,
-      headers: { Location: `${basePath}/overview${search}` },
-    });
-  }
-
-  if (pathname.startsWith(`${basePath}/`)) {
-    const dispatchPath = pathname.slice(basePath.length);
+  if (normalizedPathname.startsWith(`${basePath}/`)) {
+    const dispatchPath = normalizedPathname.slice(basePath.length);
+    const mountedAlias = MOUNTED_DISPATCH_ALIASES.get(dispatchPath);
+    if (mountedAlias) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `${basePath}${mountedAlias}${search}` },
+      });
+    }
     if (
       isDispatchPagePath(dispatchPath) ||
       isDispatchAssetOrFrameworkPath(dispatchPath)
@@ -104,10 +127,11 @@ export function rootDispatchRedirect(
     return dispatchNotFoundResponse();
   }
 
-  if (DISPATCH_PAGE_PATHS.has(pathname)) {
+  const rootAlias = DISPATCH_ROOT_ALIASES.get(normalizedPathname);
+  if (rootAlias) {
     return new Response(null, {
       status: 302,
-      headers: { Location: `${basePath}${pathname}${search}` },
+      headers: { Location: `${basePath}${rootAlias}${search}` },
     });
   }
 
