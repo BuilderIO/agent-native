@@ -394,7 +394,7 @@ Clips has a **Meetings** tab (`/meetings`) and a **Dictate** tab (`/dictate`):
 
 **Calendar reminders fire 5 minutes before the meeting starts.** The desktop tray (`src-tauri/`) is the consumer; the recurring job in `server/plugins/calendar-jobs.ts` keeps `calendar_events` fresh. Agents do not need to schedule reminders manually.
 
-See the `meetings` skill for the full pattern (Granola design ref, view-screen shape, agent-callable flows) and the `dictate` skill for the press-and-hold UX (Wispr design ref, Hold-Fn ownership, cleanup pipeline). The shared Gemini Flash-Lite cleanup pipeline (`cleanup-transcript`) leads with **Builder.io Connect (primary)** and falls back to **BYOK Gemini/Groq/OpenAI (secondary)**.
+See the `meetings` skill for the full pattern (Granola design ref, view-screen shape, agent-callable flows) and the `dictate` skill for the press-and-hold UX (Wispr design ref, Hold-Fn ownership, cleanup pipeline). The shared Gemini Flash-Lite cleanup pipeline (`cleanup-transcript`) leads with **Builder.io Connect (primary)** and falls back to **BYOK Gemini (secondary)**. Cleanup does not route to Groq or OpenAI — those are transcription providers, not cleanup providers.
 
 ## Skills
 

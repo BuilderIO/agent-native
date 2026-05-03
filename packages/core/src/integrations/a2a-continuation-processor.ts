@@ -187,6 +187,16 @@ async function processClaimedContinuation(
   }
 
   if (!task || !TERMINAL_STATES.has(task.status.state)) {
+    const recoverableArtifactText = extractRecoverableArtifactText(task);
+    if (recoverableArtifactText) {
+      await deliverAndCompleteA2AContinuation(
+        continuation,
+        adapter,
+        expandRelativeUrls(recoverableArtifactText, continuation.agentUrl),
+      );
+      return;
+    }
+
     if (isRemoteWorkExpired(continuation)) {
       await notifyAndFailA2AContinuation(
         continuation,
@@ -440,6 +450,13 @@ function extractTaskText(task: Task): string {
     })
     .map((part) => part.text)
     .join("\n");
+}
+
+function extractRecoverableArtifactText(task: Task | null): string {
+  if (!task?.status.message?.metadata?.agentNativeRecoverableArtifacts) {
+    return "";
+  }
+  return extractTaskText(task);
 }
 
 function expandRelativeUrls(text: string, agentUrl: string): string {

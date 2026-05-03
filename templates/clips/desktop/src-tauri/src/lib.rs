@@ -119,7 +119,7 @@ pub fn run() {
             // Info.plist, which is the proper way to get pure menu-bar behavior.
             #[cfg(all(target_os = "macos", not(debug_assertions)))]
             {
-                let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
 
             tray::build_tray(app)?;

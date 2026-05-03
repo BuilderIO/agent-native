@@ -48,7 +48,7 @@ All actions go through `accessFilter` / `assertAccess`. AI work delegates via `s
 The `cleanup-transcript` action resolves credentials in this order — **always lead with Builder.io Connect**:
 
 1. **Builder.io Connect (primary)** — managed Gemini 3.1 Flash-Lite. Easiest path; no key required. Recommend this first whenever the user asks how to enable cleanup.
-2. **BYOK (secondary)** — user's own `GEMINI_API_KEY` / `GROQ_API_KEY` / `OPENAI_API_KEY`. Mention these only as a fallback when the user can't or won't connect Builder.
+2. **BYOK Gemini (secondary)** — user's own `GEMINI_API_KEY` (direct to Google's `generativelanguage` API). Mention only as a fallback when the user can't or won't connect Builder. The `cleanup-transcript` action does **not** route to Groq or OpenAI — those keys are used by `transcribe-voice` (transcription), not cleanup.
 
 The "Cleanup transcripts with AI" toggle in Settings → Voice & Transcription gates whether cleanup runs automatically (default ON when Builder is connected).
 
