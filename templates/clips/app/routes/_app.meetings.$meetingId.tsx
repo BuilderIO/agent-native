@@ -7,7 +7,6 @@ import {
   IconEdit,
   IconLoader2,
   IconNotes,
-  IconPlayerPlay,
   IconUsers,
   IconVideo,
 } from "@tabler/icons-react";
@@ -17,7 +16,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   AttendeeStack,
@@ -25,16 +23,15 @@ import {
   type AttendeeStackParticipant,
 } from "@/components/meetings/attendee-stack";
 import { PageHeader } from "@/components/library/page-header";
+import {
+  TranscriptBubbles,
+  type TranscriptSegment,
+} from "@/components/meetings/transcript-bubbles";
+import { BulletLink } from "@/components/meetings/bullet-link";
+import { CanvasEditor } from "@/components/meetings/canvas-editor";
 
 export function meta() {
   return [{ title: "Meeting · Clips" }];
-}
-
-interface TranscriptSegment {
-  startMs: number;
-  endMs?: number;
-  text: string;
-  speaker?: string | null;
 }
 
 interface ActionItem {
@@ -60,17 +57,11 @@ interface Meeting {
   recordingDurationMs?: number | null;
   transcriptStatus?: "pending" | "ready" | "failed" | "in_progress" | string;
   summaryMd?: string | null;
+  userNotesMd?: string | null;
   bulletsJson?: string[] | null;
   actionItemsJson?: ActionItem[] | null;
   segmentsJson?: TranscriptSegment[] | null;
   participants?: Participant[];
-}
-
-function formatTimestamp(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 function formatDateTime(iso?: string | null): string {
@@ -170,168 +161,6 @@ function TitleEditor({
   );
 }
 
-/**
- * Inline-editable summary: renders as text; on click swaps to a Textarea
- * and on blur calls the supplied onChange optimistically.
- */
-function SummaryEditor({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (next: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    if (!editing) setDraft(value);
-  }, [value, editing]);
-
-  useEffect(() => {
-    if (editing) {
-      const el = textareaRef.current;
-      if (el) {
-        el.focus();
-        el.setSelectionRange(el.value.length, el.value.length);
-      }
-    }
-  }, [editing]);
-
-  const commit = () => {
-    setEditing(false);
-    const next = draft.trim();
-    if (next !== (value || "").trim()) onChange(next);
-  };
-
-  if (editing) {
-    return (
-      <Textarea
-        ref={textareaRef}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            setDraft(value);
-            setEditing(false);
-          }
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            commit();
-          }
-        }}
-        className="min-h-[120px] text-sm leading-relaxed"
-        placeholder="Summary…"
-      />
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => setEditing(true)}
-      className="group block w-full text-left cursor-text"
-      title="Click to edit"
-    >
-      <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap rounded -mx-1 px-1 group-hover:bg-accent/40">
-        {value}
-      </p>
-    </button>
-  );
-}
-
-function TranscriptPane({
-  meeting,
-  isLive,
-  onSeek,
-}: {
-  meeting: Meeting;
-  isLive: boolean;
-  onSeek: (ms: number) => void;
-}) {
-  const segments = meeting.segmentsJson ?? [];
-  const liveEndRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const userPausedRef = useRef(false);
-
-  // Auto-scroll while live, but pause if the user scrolls up.
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const handler = () => {
-      const distanceFromBottom =
-        el.scrollHeight - el.scrollTop - el.clientHeight;
-      userPausedRef.current = distanceFromBottom > 80;
-    };
-    el.addEventListener("scroll", handler, { passive: true });
-    return () => el.removeEventListener("scroll", handler);
-  }, []);
-
-  useEffect(() => {
-    if (isLive && !userPausedRef.current) {
-      liveEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [isLive, segments.length]);
-
-  if (segments.length === 0) {
-    if (isLive) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full text-center text-sm text-muted-foreground gap-2">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-          </span>
-          Listening…
-        </div>
-      );
-    }
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center text-sm text-muted-foreground gap-2 px-6">
-        <IconNotes className="h-6 w-6 text-muted-foreground/50" />
-        <span>No transcript yet.</span>
-        <span className="text-xs">
-          Recording will appear here once the meeting starts.
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4">
-      <div className="space-y-3">
-        {segments.map((seg, i) => (
-          <div key={i} className="group flex gap-3 text-sm leading-relaxed">
-            <button
-              type="button"
-              onClick={() => onSeek(seg.startMs)}
-              disabled={!meeting.recordingId}
-              className={cn(
-                "shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums w-12 text-right pt-0.5",
-                meeting.recordingId
-                  ? "hover:text-primary cursor-pointer"
-                  : "cursor-default",
-              )}
-            >
-              {formatTimestamp(seg.startMs)}
-            </button>
-            <div className="flex-1 min-w-0">
-              {seg.speaker && (
-                <div className="text-[11px] font-medium text-foreground/70 mb-0.5">
-                  {seg.speaker}
-                </div>
-              )}
-              <p className="text-foreground/90">{seg.text}</p>
-            </div>
-          </div>
-        ))}
-        <div ref={liveEndRef} />
-      </div>
-    </div>
-  );
-}
-
 function ActionItemsByPerson({
   items,
   onToggle,
@@ -348,7 +177,6 @@ function ActionItemsByPerson({
       arr.push({ item: it, index });
       map.set(key, arr);
     });
-    // Move "Unassigned" to the bottom.
     const entries = Array.from(map.entries());
     entries.sort(([a], [b]) => {
       if (a === "Unassigned") return 1;
@@ -449,10 +277,12 @@ export default function MeetingDetailRoute() {
 
   const updateMeeting = useActionMutation<any, any>("update-meeting");
   const finalize = useActionMutation<any, any>("finalize-meeting");
-  // Track when notes just landed so we can fade-in the AI notes pane.
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const previousHasNotesRef = useRef(false);
   const autoFinalizedRef = useRef(false);
+
+  // Imperative scroll-to handle wired by TranscriptBubbles
+  const transcriptScrollToRef = useRef<((index: number) => void) | null>(null);
 
   const meeting: Meeting | undefined = useMemo(() => {
     if (!data?.meeting) return undefined;
@@ -487,7 +317,12 @@ export default function MeetingDetailRoute() {
       meeting.transcriptStatus === "in_progress")
   );
 
-  const hasNotes = !!meeting?.summaryMd;
+  const hasNotes =
+    !!meeting?.summaryMd ||
+    !!meeting?.userNotesMd ||
+    (meeting?.bulletsJson?.length ?? 0) > 0 ||
+    (meeting?.actionItemsJson?.length ?? 0) > 0;
+
   useEffect(() => {
     if (hasNotes && !previousHasNotesRef.current) {
       setNotesJustArrived(true);
@@ -527,6 +362,29 @@ export default function MeetingDetailRoute() {
     updateMeeting.mutate({ id: meeting.id, summaryMd: next });
   };
 
+  const handleUserNotesChange = (next: string) => {
+    if (!meeting) return;
+    patchCachedMeeting({ userNotesMd: next });
+    updateMeeting.mutate({ id: meeting.id, userNotesMd: next });
+  };
+
+  /**
+   * Granola-signature behavior: when the user edits an AI block, "promote"
+   * its content into userNotesMd so it survives re-generation. The AI block
+   * is cleared on the server in the same mutation.
+   */
+  const handleTransferAiToUser = (transferred: string) => {
+    if (!meeting) return;
+    const merged =
+      [meeting.userNotesMd, transferred].filter(Boolean).join("\n\n") || "";
+    patchCachedMeeting({ userNotesMd: merged, summaryMd: "" });
+    updateMeeting.mutate({
+      id: meeting.id,
+      userNotesMd: merged,
+      summaryMd: "",
+    });
+  };
+
   const handleToggleActionItem = (index: number, completed: boolean) => {
     if (!meeting) return;
     const items = meeting.actionItemsJson ?? [];
@@ -549,14 +407,17 @@ export default function MeetingDetailRoute() {
     }
   };
 
+  const handleJumpToSegment = (segmentIndex: number) => {
+    transcriptScrollToRef.current?.(segmentIndex);
+  };
+
   const handleFinalize = () => {
     if (!meeting) return;
     autoFinalizedRef.current = true;
     finalize.mutate({ meetingId: meeting.id });
   };
 
-  // Auto-generate notes once the transcript is ready and there are no notes
-  // yet. The user can still trigger a regenerate from the header afterwards.
+  // Auto-generate notes once the transcript is ready and no notes yet.
   useEffect(() => {
     if (!meeting) return;
     if (autoFinalizedRef.current) return;
@@ -593,8 +454,7 @@ export default function MeetingDetailRoute() {
 
   const bullets = meeting.bulletsJson ?? [];
   const actionItems = meeting.actionItemsJson ?? [];
-  const showNotes =
-    !!meeting.summaryMd || bullets.length > 0 || actionItems.length > 0;
+  const segments = meeting.segmentsJson ?? [];
   const recordingDuration = formatDurationMs(meeting.recordingDurationMs);
 
   return (
@@ -688,28 +548,8 @@ export default function MeetingDetailRoute() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Transcript pane */}
-        <div className="rounded-lg border border-border bg-background min-h-[480px] flex flex-col">
-          <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-            <div className="flex items-center gap-1.5 text-xs font-medium">
-              <IconNotes className="h-3.5 w-3.5" />
-              Transcript
-            </div>
-            {meeting.transcriptStatus === "ready" && (
-              <span className="text-[10px] text-muted-foreground">
-                {meeting.segmentsJson?.length ?? 0} segments
-              </span>
-            )}
-          </div>
-          <TranscriptPane
-            meeting={meeting}
-            isLive={isLive}
-            onSeek={handleSeek}
-          />
-        </div>
-
-        {/* Notes pane */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
+        {/* Two-tone canvas: user notes (black) + AI summary/bullets (gray) */}
         <div
           className={cn(
             "rounded-lg border border-border bg-background min-h-[480px] flex flex-col",
@@ -728,61 +568,62 @@ export default function MeetingDetailRoute() {
               </span>
             )}
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-5">
-            {!showNotes ? (
-              <div className="flex flex-col items-center justify-center h-full text-center text-sm text-muted-foreground gap-2 px-6 py-12">
-                <IconNotes className="h-6 w-6 text-muted-foreground/50" />
-                <span>No notes yet.</span>
-                <span className="text-xs">
-                  Notes will be generated automatically once the transcript is
-                  ready.
-                </span>
-              </div>
-            ) : (
-              <>
-                {meeting.summaryMd && (
-                  <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                      Summary
-                    </h3>
-                    <SummaryEditor
-                      value={meeting.summaryMd}
-                      onChange={handleSummaryChange}
-                    />
-                  </div>
-                )}
-                {bullets.length > 0 && (
-                  <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                      Key points
-                    </h3>
-                    <ul className="space-y-1.5">
-                      {bullets.map((b, i) => (
-                        <li
-                          key={i}
-                          className="flex gap-2 text-sm leading-relaxed"
-                        >
-                          <span className="text-muted-foreground">•</span>
-                          <span>{b}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {actionItems.length > 0 && (
-                  <div>
-                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                      Action items
-                    </h3>
-                    <ActionItemsByPerson
-                      items={actionItems}
-                      onToggle={handleToggleActionItem}
-                    />
-                  </div>
-                )}
-              </>
+          <CanvasEditor
+            summaryMd={meeting.summaryMd ?? ""}
+            bullets={bullets}
+            actionItems={actionItems}
+            userNotesMd={meeting.userNotesMd ?? ""}
+            onUserNotesChange={handleUserNotesChange}
+            onSummaryChange={handleSummaryChange}
+            onTransferAiToUser={handleTransferAiToUser}
+            renderBullet={(b, i) => (
+              <BulletLink
+                bullet={b}
+                segments={segments}
+                onJumpTo={handleJumpToSegment}
+              >
+                <div className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
+                  <span>•</span>
+                  <span className="flex-1">{b}</span>
+                </div>
+              </BulletLink>
+            )}
+          />
+          {actionItems.length > 0 && (
+            <div className="border-t border-border px-6 py-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                Action items
+              </h3>
+              <ActionItemsByPerson
+                items={actionItems}
+                onToggle={handleToggleActionItem}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Transcript pane — chat-bubble layout */}
+        <div className="rounded-lg border border-border bg-background min-h-[480px] flex flex-col">
+          <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5 sticky top-0 bg-background z-10">
+            <div className="flex items-center gap-1.5 text-xs font-medium">
+              <IconNotes className="h-3.5 w-3.5" />
+              Transcript
+            </div>
+            {meeting.transcriptStatus === "ready" && (
+              <span className="text-[10px] text-muted-foreground">
+                {segments.length} segments
+              </span>
             )}
           </div>
+          <TranscriptBubbles
+            segments={segments}
+            isLive={isLive}
+            recordingId={meeting.recordingId}
+            onSeek={handleSeek}
+            registerScrollTo={(fn) => {
+              transcriptScrollToRef.current = fn;
+            }}
+          />
         </div>
       </div>
     </div>

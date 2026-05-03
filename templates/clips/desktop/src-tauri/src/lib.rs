@@ -13,6 +13,7 @@ mod native_speech;
 mod notifications;
 mod recording_indicator;
 mod shortcuts;
+mod silence_detector;
 mod state;
 mod system_audio;
 mod tray;
@@ -96,6 +97,9 @@ pub fn run() {
             system_audio::system_audio_stop,
             system_audio::meeting_audio_start,
             system_audio::meeting_audio_stop,
+            // silence detector — Granola-style auto-stop heuristics
+            silence_detector::silence_detector_start,
+            silence_detector::silence_detector_stop,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
@@ -111,6 +115,7 @@ pub fn run() {
         .manage(VoiceWakePopover::default())
         .manage(LastTranscript::default())
         .manage(meetings_watcher::MeetingsWatcherState::default())
+        .manage(silence_detector::DetectorState::default())
         .setup(|app| {
             // NOTE: we intentionally do NOT call set_activation_policy(Accessory)
             // in dev here. In unbundled dev runs, Accessory mode sometimes

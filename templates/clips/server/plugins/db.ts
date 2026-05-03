@@ -593,7 +593,7 @@ const migrations = runMigrations(
         uses_count INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        owner_email TEXT,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
         org_id TEXT,
         visibility TEXT NOT NULL DEFAULT 'private'
       )`,

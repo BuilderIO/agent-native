@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/tooltip";
 import type { TranscriptSegment } from "./transcript-bubbles";
 
-const STOPWORDS = new Set([
+const STOPWORDS = new Set<string>([
   "the",
   "a",
   "an",
