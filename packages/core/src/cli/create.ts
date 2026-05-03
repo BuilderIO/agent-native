@@ -144,6 +144,7 @@ async function createWorkspaceInteractive(
       const appDir = path.join(targetDir, "apps", t);
       await scaffoldAppTemplate(appDir, t);
       replacePlaceholders(appDir, t, titleCase(t), name);
+      rewriteTrackingAppId(appDir, t, t);
       workspacifyApp({
         appDir,
         appName: t,
@@ -304,6 +305,7 @@ async function scaffoldOneAppIntoWorkspace(
       titleCase(appName),
       path.basename(workspace.workspaceRoot),
     );
+    rewriteTrackingAppId(appDir, appName, templateName);
     workspacifyApp({
       appDir,
       appName,
@@ -385,7 +387,7 @@ async function createStandaloneApp(
   s.start("Scaffolding your app...");
   try {
     await scaffoldAppTemplate(targetDir, template);
-    postProcessStandalone(name, targetDir);
+    postProcessStandalone(name, targetDir, template);
     s.stop("App created!");
   } catch (err: any) {
     s.stop("Failed to create app.");
@@ -577,9 +579,14 @@ async function scaffoldRequiredPackages(
  * Post-process a standalone scaffold: replace placeholders, strip
  * workspace:* deps, set up agent symlinks, etc.
  */
-function postProcessStandalone(name: string, targetDir: string): void {
+function postProcessStandalone(
+  name: string,
+  targetDir: string,
+  templateName?: string,
+): void {
   const appTitle = titleCase(name);
   replacePlaceholders(targetDir, name, appTitle);
+  rewriteTrackingAppId(targetDir, name, templateName);
   fixPackageJsonName(targetDir, name);
   rewriteNetlifyToml(targetDir, name, "standalone");
 
@@ -1159,6 +1166,48 @@ function rewriteNetlifyToml(
 
     fs.writeFileSync(netlifyPath, content);
   } catch {}
+}
+
+function rewriteTrackingAppId(
+  appDir: string,
+  appName: string,
+  templateName?: string,
+): void {
+  const rootPath = path.join(appDir, "app", "root.tsx");
+  if (!fs.existsSync(rootPath)) return;
+
+  try {
+    const content = fs.readFileSync(rootPath, "utf-8");
+    const pattern =
+      /(^\s*app:\s*)(["'])(?:agent-native-[^"']+|\{\{APP_NAME\}\})\2(\s*,?)/m;
+    if (!pattern.test(content)) return;
+
+    let next = content.replace(
+      pattern,
+      (_match, prefix: string, quote: string, suffix: string) =>
+        `${prefix}${quote}${appName}${quote}${suffix}`,
+    );
+
+    if (
+      templateName &&
+      templateName !== appName &&
+      !hasTrackingTemplate(next)
+    ) {
+      next = next.replace(
+        /(^\s*app:\s*["'][^"']+["'],?\s*$)/m,
+        (line) => `${line}\n    template: ${JSON.stringify(templateName)},`,
+      );
+    }
+
+    if (next !== content) {
+      fs.writeFileSync(rootPath, next);
+    }
+  } catch {}
+}
+
+function hasTrackingTemplate(content: string): boolean {
+  const match = content.match(/configureTracking\(\{[\s\S]*?\}\);/);
+  return !!match && /^\s*template\s*:/m.test(match[0]);
 }
 
 function tryGitInit(dir: string): boolean {

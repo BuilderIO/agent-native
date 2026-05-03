@@ -62,6 +62,18 @@ function allDeps(pkg: Record<string, any>): Record<string, string> {
  * ───────────────────────────────────────────────────────────────────────── */
 
 describe("standalone scaffold — starter template", { timeout: 60000 }, () => {
+  it("rewrites the copied starter tracking app id to the generated app id", async () => {
+    await createApp("test-app", { template: "starter" });
+    const root = fs.readFileSync(
+      path.join(tmpDir, "test-app", "app", "root.tsx"),
+      "utf-8",
+    );
+
+    expect(root).toContain('app: "test-app"');
+    expect(root).toContain('template: "starter"');
+    expect(root).not.toContain('app: "agent-native-starter"');
+  });
+
   it("resolves all workspace:* deps for standalone install", async () => {
     await createApp("test-app", { template: "starter" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
@@ -236,6 +248,31 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(rootPkg.dependencies["@agent-native/core"]).toBe(
       _getCoreDependencyVersion(),
     );
+  });
+});
+
+describe("workspace add-app scaffold", { timeout: 60000 }, () => {
+  it("rewrites starter tracking identity for a renamed workspace app", async () => {
+    await createApp("my-ws", { template: "starter,dispatch" });
+
+    const starterRoot = fs.readFileSync(
+      path.join(tmpDir, "my-ws", "apps", "starter", "app", "root.tsx"),
+      "utf-8",
+    );
+    expect(starterRoot).toContain('app: "starter"');
+    expect(starterRoot).not.toContain('app: "agent-native-starter"');
+
+    process.chdir(path.join(tmpDir, "my-ws"));
+    await createApp("crm", { template: "starter" });
+
+    const root = fs.readFileSync(
+      path.join(tmpDir, "my-ws", "apps", "crm", "app", "root.tsx"),
+      "utf-8",
+    );
+
+    expect(root).toContain('app: "crm"');
+    expect(root).toContain('template: "starter"');
+    expect(root).not.toContain('app: "agent-native-starter"');
   });
 });
 
