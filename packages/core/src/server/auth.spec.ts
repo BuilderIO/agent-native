@@ -1074,6 +1074,16 @@ describe("server/auth", () => {
       expect(html).not.toContain("Waiting for sign-in");
     });
 
+    it("uses sign-in copy when only Google auth is enabled", async () => {
+      const { getOnboardingHtml } = await import("./onboarding-html.js");
+      const html = getOnboardingHtml({ googleOnly: true });
+
+      expect(html).toContain('<h1 id="heading">Sign in</h1>');
+      expect(html).toContain("Use your workspace Google account to continue");
+      expect(html).not.toContain("Create an account to get started");
+      expect(html).not.toContain('data-tab="signup"');
+    });
+
     it("renders marketing assets under APP_BASE_PATH", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       const { getOnboardingHtml } = await import("./onboarding-html.js");
