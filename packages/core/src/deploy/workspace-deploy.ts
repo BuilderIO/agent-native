@@ -88,7 +88,8 @@ export async function runWorkspaceDeploy(
     .readdirSync(appsDir, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
-    .filter((n) => fs.existsSync(path.join(appsDir, n, "package.json")));
+    .filter((n) => fs.existsSync(path.join(appsDir, n, "package.json")))
+    .sort(compareWorkspaceAppIds);
 
   if (apps.length === 0) {
     throw new Error(
@@ -272,13 +273,17 @@ export default {
     const { pathname } = new URL(request.url);
 ${dispatchRootFrameworkRoutes}${dispatch}
     if (pathname === "/") {
-      return Response.redirect(new URL("/${apps[0]}/", request.url).toString(), 302);
+      return Response.redirect(new URL("${cloudflareRootRedirectPath(apps)}", request.url).toString(), 302);
     }
     return new Response("Not found", { status: 404 });
   },
 };
 `;
   fs.writeFileSync(path.join(distDir, "_worker.js"), worker);
+}
+
+function cloudflareRootRedirectPath(apps: string[]): string {
+  return apps.includes("dispatch") ? "/dispatch/overview" : `/${apps[0]}/`;
 }
 
 function writeNetlifyRedirects(distDir: string, apps: string[]): void {
@@ -726,6 +731,12 @@ function normalizePreset(
 
 function moduleIdent(app: string): string {
   return "app_" + app.replace(/[^a-zA-Z0-9_]/g, "_");
+}
+
+function compareWorkspaceAppIds(a: string, b: string): number {
+  if (a === "dispatch") return -1;
+  if (b === "dispatch") return 1;
+  return a.localeCompare(b);
 }
 
 function copyDir(src: string, dest: string): void {
