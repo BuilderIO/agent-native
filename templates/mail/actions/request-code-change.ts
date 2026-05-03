@@ -1,22 +1,15 @@
 import { defineAction } from "@agent-native/core";
+import {
+  getBuilderBranchProjectId,
+  resolveBuilderCredentials,
+  runBuilderAgent,
+} from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
-
-/** Generate a deterministic-looking but unique project branch ID */
-function generateBranchId(description: string): string {
-  const seed = description.length + Date.now();
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let id = "";
-  let n = seed;
-  for (let i = 0; i < 8; i++) {
-    n = (n * 1664525 + 1013904223) & 0xffffffff;
-    id += chars[Math.abs(n) % chars.length];
-  }
-  return id;
-}
 
 export default defineAction({
   description:
-    "Request a code change via the Builder.io background agent. Use this in production whenever the user asks to modify the UI, add features, change styles, or update any source code.",
+    "Request a production code change through configured Builder branch creation. Use this in production when the user asks to modify UI, add features, change styles, fix bugs, or update source code.",
   schema: z.object({
     description: z
       .string()
@@ -40,23 +33,70 @@ export default defineAction({
     const isProduction = process.env.NODE_ENV === "production";
     if (!isProduction) {
       return [
-        "⚠️  request-code-change is only active in production.",
+        "request-code-change is only active in production.",
         "In development, you can edit files directly via the dev agent tools.",
         `Requested change: "${description}"`,
       ].join("\n");
     }
 
-    const branchId = generateBranchId(description);
-    const projectId = `proj_${branchId}`;
-    const url = `https://builder.io/app/projects/${projectId}`;
+    const projectId = getBuilderBranchProjectId();
+    if (!projectId) {
+      return {
+        status: "not_configured",
+        description,
+        ...(files ? { files: files.split(",").map((f) => f.trim()) } : {}),
+        message:
+          "Production code changes need Builder branch creation to be configured. Set ENABLE_BUILDER=true with BUILDER_BRANCH_PROJECT_ID or BUILDER_PROJECT_ID, then connect Builder credentials for this user or deployment.",
+      };
+    }
+
+    const credentials = await resolveBuilderCredentials().catch(() => null);
+    if (!credentials?.privateKey || !credentials.publicKey) {
+      return {
+        status: "not_configured",
+        projectId,
+        description,
+        ...(files ? { files: files.split(",").map((f) => f.trim()) } : {}),
+        message:
+          "Builder branch creation is enabled, but Builder credentials are not connected. Connect Builder for this user or configure deployment-managed Builder credentials.",
+      };
+    }
+
+    const userEmail = getRequestUserEmail() || undefined;
+    const userId = credentials.userId || undefined;
+    if (!userEmail && !userId) {
+      return {
+        status: "not_authenticated",
+        projectId,
+        description,
+        ...(files ? { files: files.split(",").map((f) => f.trim()) } : {}),
+        message:
+          "A signed-in user or Builder user ID is required to start a production code branch.",
+      };
+    }
+
+    const prompt = [
+      "Make this production code change in the app:",
+      description,
+      files?.trim() ? `Likely files: ${files}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const result = await runBuilderAgent({
+      prompt,
+      projectId,
+      ...(userId ? { userId } : { userEmail }),
+    });
 
     return {
       status: "queued",
-      projectId,
-      url,
+      projectId: result.projectId || projectId,
+      branchName: result.branchName,
+      url: result.url,
       description,
       ...(files ? { files: files.split(",").map((f) => f.trim()) } : {}),
-      message: `Builder.io background agent queued. Track the change at: ${url}`,
+      message: `Builder branch creation is running. Track the change at: ${result.url}`,
     };
   },
 });

@@ -58,6 +58,11 @@ interface AnalyticsPublicKeyRow {
   orgId: string | null;
 }
 
+const firstPartyAnalyticsEndpoint =
+  (import.meta.env as Record<string, string | undefined>)
+    .VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
+  "https://analytics.agent-native.com/track";
+
 async function fetchEnvStatus(): Promise<EnvKeyStatus[]> {
   const token = await getIdToken();
   const res = await fetch(appApiPath("/api/credential-status"), {
@@ -855,7 +860,7 @@ function FirstPartyAnalyticsCard() {
                 First-party Analytics
               </CardTitle>
               <CardDescription className="text-xs mt-0.5">
-                Receive product events at analytics.agent-native.com and query
+                Receive product events at your first-party endpoint and query
                 them as a dashboard data source.
               </CardDescription>
             </div>
@@ -880,7 +885,7 @@ function FirstPartyAnalyticsCard() {
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted-foreground">Endpoint</span>
             <code className="truncate font-mono">
-              https://analytics.agent-native.com/track
+              {firstPartyAnalyticsEndpoint}
             </code>
           </div>
           <div className="flex items-center justify-between gap-3">

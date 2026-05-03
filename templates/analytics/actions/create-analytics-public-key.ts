@@ -14,7 +14,7 @@ function resolveScope() {
 
 export default defineAction({
   description:
-    "Generate a public write key for first-party analytics ingestion. Use this when the user wants hosted apps to send events to analytics.agent-native.com/track. The returned publicKey is shown once and should be put in AGENT_NATIVE_ANALYTICS_PUBLIC_KEY / VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY on the emitting app.",
+    "Generate a public write key for first-party analytics ingestion. Use this when the user wants hosted apps to send events to the configured analytics endpoint. The returned publicKey is shown once and should be put in AGENT_NATIVE_ANALYTICS_PUBLIC_KEY / VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY on the emitting app.",
   schema: z.object({
     name: z
       .string()
