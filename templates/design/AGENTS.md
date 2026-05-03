@@ -267,6 +267,7 @@ You do NOT get auto-injected screen state. You MUST call `view-screen` yourself 
 ### Running actions
 
 **Always use `pnpm action <name>` for operations** — never curl or raw HTTP.
+For design artifacts, projects, files, and design systems, use the design actions (`create-design`, `generate-design`, `create-file`, `update-file`, etc.). Do **not** create or modify design rows with `db-exec` or raw SQL; raw SQL bypasses action validation, sharing/ownership, file bookkeeping, and the UI refresh contract.
 
 Your shell cwd is this template's root (e.g., `templates/design/`). Run actions directly:
 
@@ -383,8 +384,8 @@ This is the core workflow. The agent generates complete HTML designs and saves t
 When a request arrives from Slack, Dispatch, or any other app via A2A, the caller cannot see Design's local editor overlays, question flow, or `design-variants` picker. For those requests:
 
 1. Do **not** use `application-state/show-questions` or `application-state/design-variants`.
-2. Create the design shell with `create-design`.
-3. Immediately persist at least one complete, self-contained HTML/JSX file with `generate-design`.
+2. Create the design shell with `create-design` — never by inserting rows with `db-exec` or raw SQL.
+3. Immediately persist at least one complete, self-contained HTML/JSX file with `generate-design` — never by writing directly to design tables.
 4. Verify the saved result with `get-design` or the `generate-design` return value. A design is ready only when `files.length > 0` and an `index.html` or other renderable HTML/JSX file exists.
 5. Only then reply with the design ID and the full URL/path for `/design/<id>`. Never report a `create-design` ID or URL as success before `generate-design` succeeds; that is only an empty shell.
 

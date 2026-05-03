@@ -39,6 +39,10 @@ agent-native deploy --preset netlify
 
 Generated workspaces include a root `netlify.toml` that runs `agent-native deploy --preset netlify --build-only`, publishes `dist`, and points Netlify at `.netlify/functions-internal`.
 
+Hosted workspace builds require `A2A_SECRET` in the deploy provider environment.
+This makes Slack, inbound webhooks, and cross-app A2A resume work through signed
+background processors. Local `--build-only` artifact checks still run without it.
+
 Per-app independent deploy is still supported — just `cd apps/<name> && agent-native build` like a standalone scaffold.
 
 ## How It Works {#how-it-works}

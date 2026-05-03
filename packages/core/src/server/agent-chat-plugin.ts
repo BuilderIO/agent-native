@@ -22,6 +22,7 @@ import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import { resolveEngine, createAnthropicEngine } from "../agent/engine/index.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import type {
+  AgentChatEvent,
   ActionTool,
   MentionProvider,
   MentionProviderItem,
@@ -81,7 +82,12 @@ import { readBody } from "./h3-helpers.js";
 import { getBuilderBrowserConnectUrl } from "./builder-browser.js";
 import { captureCliOutput } from "./cli-capture.js";
 import { withConfiguredAppBasePath } from "./app-base-path.js";
-import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
+import {
+  appendA2AArtifactLinks,
+  type A2AArtifactResponseOptions,
+  type A2AToolResultSummary,
+} from "../a2a/artifact-response.js";
+import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -138,6 +144,18 @@ function resolveArtifactBaseUrl(event: any | undefined): string | undefined {
   } catch {}
 
   return undefined;
+}
+
+export function assembleA2AFinalResponse(
+  events: readonly AgentChatEvent[],
+  toolResults: readonly A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions & { event?: any } = {},
+): { responseText: string; finalText: string } {
+  const responseText = collectFinalResponseTextFromAgentEvents(events);
+  const finalText = appendA2AArtifactLinks(responseText, [...toolResults], {
+    baseUrl: options.baseUrl ?? resolveArtifactBaseUrl(options.event),
+  });
+  return { responseText, finalText };
 }
 
 /**
@@ -2749,8 +2767,9 @@ export function createAgentChatPlugin(
             { role: "user", content: [{ type: "text", text }] },
           ];
 
-          // Run the SAME agent loop, collect text events, yield as A2A messages
-          let accumulatedText = "";
+          // Run the SAME agent loop, then extract the final answer from the
+          // event stream so pre-tool narration never leaks as the A2A result.
+          const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: Array<{ tool: string; result: string }> = [];
           const controller = new AbortController();
 
@@ -2766,9 +2785,8 @@ export function createAgentChatPlugin(
             messages: a2aMessages,
             actions: a2aActions,
             send: (event) => {
-              if (event.type === "text") {
-                accumulatedText += event.text;
-              } else if (event.type === "tool_start") {
+              a2aEvents.push(event);
+              if (event.type === "tool_start") {
                 console.log(`[A2A] Tool call: ${event.tool}`);
               } else if (event.type === "tool_done") {
                 a2aToolResults.push({
@@ -2778,22 +2796,20 @@ export function createAgentChatPlugin(
               } else if (event.type === "error") {
                 console.error(`[A2A] Error: ${event.error}`);
               } else if (event.type === "done") {
-                console.log(
-                  `[A2A] Done. Response: ${accumulatedText.length} chars`,
-                );
+                console.log(`[A2A] Done. Events: ${a2aEvents.length}`);
               }
             },
             signal: controller.signal,
           });
 
-          console.log(
-            `[A2A] Loop complete. Text: ${accumulatedText.slice(0, 100)}...`,
+          const { responseText, finalText } = assembleA2AFinalResponse(
+            a2aEvents,
+            a2aToolResults,
+            { event: context.event },
           );
 
-          const finalText = appendA2AArtifactLinks(
-            accumulatedText,
-            a2aToolResults,
-            { baseUrl: resolveArtifactBaseUrl(context.event) },
+          console.log(
+            `[A2A] Loop complete. Text: ${responseText.slice(0, 100)}...`,
           );
 
           // Yield the final accumulated text

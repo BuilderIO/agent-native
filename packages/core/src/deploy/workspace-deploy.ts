@@ -100,6 +100,7 @@ export async function runWorkspaceDeploy(
   const workspaceApps = readWorkspaceAppManifest(workspaceRoot, apps);
 
   const preset = resolvePreset(opts.preset, rawArgs);
+  assertWorkspaceDeployProductionEnv({ buildOnly, preset });
   const distDir = path.join(workspaceRoot, "dist");
   fs.rmSync(distDir, { recursive: true, force: true });
   fs.mkdirSync(distDir, { recursive: true });
@@ -714,6 +715,40 @@ function resolvePreset(
     normalizePreset(process.env.NITRO_PRESET) ??
     "cloudflare_pages"
   );
+}
+
+function assertWorkspaceDeployProductionEnv(opts: {
+  buildOnly: boolean;
+  preset: WorkspaceDeployPreset;
+}): void {
+  if (!isProductionWorkspaceDeploy(opts)) return;
+  if (process.env.A2A_SECRET?.trim()) return;
+  throw new Error(
+    [
+      "A2A_SECRET is required for production workspace deploys.",
+      "Workspace Slack, webhook, and cross-app A2A work resumes through signed background processors; without A2A_SECRET those production routes return 503.",
+      'Set A2A_SECRET in your deploy provider (for example: netlify env:set A2A_SECRET "$(openssl rand -hex 32)") and redeploy.',
+      "For local artifact checks, run agent-native deploy --build-only outside the deploy provider environment.",
+    ].join(" "),
+  );
+}
+
+function isProductionWorkspaceDeploy(opts: {
+  buildOnly: boolean;
+  preset: WorkspaceDeployPreset;
+}): boolean {
+  if (!opts.buildOnly) return true;
+  if (
+    opts.preset === "netlify" &&
+    process.env.NETLIFY === "true" &&
+    process.env.NETLIFY_LOCAL !== "true"
+  ) {
+    return true;
+  }
+  if (opts.preset === "cloudflare_pages" && process.env.CF_PAGES === "1") {
+    return true;
+  }
+  return false;
 }
 
 function normalizePreset(

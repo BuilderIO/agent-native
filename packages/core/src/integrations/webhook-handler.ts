@@ -39,6 +39,8 @@ import {
 import { signInternalToken } from "./internal-token.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
+import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
 
 const PROCESSOR_DISPATCH_SETTLE_WAIT_MS = 1_500;
 
@@ -551,39 +553,13 @@ async function processIncomingMessage(
       },
       async (completedRun: ActiveRun) => {
         try {
-          // Collect text events from the run, but drop any pre-tool-call
-          // preamble so the user sees just the final answer instead of
-          // "I need to delegate this..." run-on into the raw tool result.
-          //
-          // Heuristic: when the agent fired any tool, only keep text events
-          // that come AFTER the last tool. The preamble ("Let me check…")
-          // and the final answer ("630") are emitted as two separate text
-          // events, and concatenating them with no separator was producing
-          // "...signup data.630" in Slack.
-          let lastToolIdx = -1;
-          for (let i = completedRun.events.length - 1; i >= 0; i--) {
-            const t = completedRun.events[i].event.type;
-            if (t === "tool_start" || t === "tool_done") {
-              lastToolIdx = i;
-              break;
-            }
-          }
-          const startIdx = lastToolIdx >= 0 ? lastToolIdx + 1 : 0;
-          let responseText = "";
-          for (let i = startIdx; i < completedRun.events.length; i++) {
-            const ev = completedRun.events[i].event;
-            if (ev.type === "text") responseText += ev.text;
-          }
-          // If the post-tool window had no text (tool spoke for itself),
-          // fall back to all text events so we never leave the user with
-          // an empty reply.
-          if (!responseText.trim() && lastToolIdx >= 0) {
-            for (const runEvent of completedRun.events) {
-              if (runEvent.event.type === "text") {
-                responseText += runEvent.event.text;
-              }
-            }
-          }
+          let responseText = collectFinalResponseTextFromAgentEvents(
+            completedRun.events.map((runEvent) => runEvent.event),
+          );
+
+          const suppressPlatformReply =
+            hasQueuedA2AContinuation(completedRun) &&
+            isQueuedA2AContinuationDeferral(responseText);
 
           // If the run errored OR produced no text, post a graceful fallback so
           // the user isn't left wondering whether the bot saw their message.
@@ -601,7 +577,10 @@ async function processIncomingMessage(
             isLlmCredentialError(runErrorText)
           ) {
             responseText = formatLlmCredentialErrorMessage();
-          } else if (!responseText.trim() || runErrored) {
+          } else if (
+            !suppressPlatformReply &&
+            (!responseText.trim() || runErrored)
+          ) {
             if (runErrored) {
               responseText =
                 (responseText.trim() ? responseText + "\n\n" : "") +
@@ -627,12 +606,14 @@ async function processIncomingMessage(
 
           // Format and send back to platform — update the "thinking…"
           // placeholder in place if the adapter supplied one.
-          const outgoing = adapter.formatAgentResponse(responseText, {
-            threadDeepLinkUrl,
-          });
-          await adapter.sendResponse(outgoing, incoming, {
-            placeholderRef: opts.placeholderRef,
-          });
+          if (!suppressPlatformReply) {
+            const outgoing = adapter.formatAgentResponse(responseText, {
+              threadDeepLinkUrl,
+            });
+            await adapter.sendResponse(outgoing, incoming, {
+              placeholderRef: opts.placeholderRef,
+            });
+          }
 
           // Persist thread data
           await persistThreadData(
@@ -659,6 +640,26 @@ async function processIncomingMessage(
       },
     );
   });
+}
+
+function hasQueuedA2AContinuation(completedRun: ActiveRun): boolean {
+  return completedRun.events.some((runEvent) => {
+    const event = runEvent.event;
+    return (
+      event.type === "tool_done" &&
+      event.tool === "call-agent" &&
+      String(event.result ?? "").includes(A2A_CONTINUATION_QUEUED_MARKER)
+    );
+  });
+}
+
+function isQueuedA2AContinuationDeferral(text: string): boolean {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return true;
+  if (normalized.includes(A2A_CONTINUATION_QUEUED_MARKER)) return true;
+  return /\b(?:still (?:working|processing)|taking longer than expected|will (?:post|update|surface|show up)|final result when it finishes|while you wait|as soon as (?:it|the result) (?:comes back|is ready)|relay from the .* agent)\b/i.test(
+    normalized,
+  );
 }
 
 /**
