@@ -367,6 +367,7 @@ describe("Netlify scaffold rewrite", () => {
     expectRedirect("/", "/dispatch/overview", 302);
     expectRedirect("/dispatch", "/dispatch/overview", 302);
     expectRedirect("/apps", "/dispatch/apps", 302);
+    expectRedirect("/apps/new-app", "/dispatch/new-app", 302);
     expectRedirect("/new-app", "/dispatch/new-app", 302);
     expect(netlify).not.toContain('from = "/dispatch/*"');
     expect(netlify).not.toContain('to = "/.netlify/functions/server"');
