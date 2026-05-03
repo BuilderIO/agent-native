@@ -62,6 +62,9 @@ export interface OnboardingHtmlOptions {
 export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const showGoogle = hasGoogleOAuth();
   const googleOnly = !!opts.googleOnly;
+  const appBasePath = normalizeAppBasePath(
+    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
+  );
 
   const marketing = opts.marketing;
   const hasMarketing = !!marketing;
@@ -683,6 +686,8 @@ ${
 </p>${marketingCloseHtml}
 <script>
   function __anBasePath() {
+    var configured = ${JSON.stringify(appBasePath)};
+    if (configured) return configured;
     var marker = '/_agent-native';
     var idx = window.location.pathname.indexOf(marker);
     return idx > 0 ? window.location.pathname.slice(0, idx) : '';

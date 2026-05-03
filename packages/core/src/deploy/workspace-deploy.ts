@@ -22,16 +22,27 @@ import { findWorkspaceRoot } from "../scripts/utils.js";
 export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify";
 
 const NETLIFY_WORKSPACE_STATIC_DIR = "_workspace_static";
-const NETLIFY_PUBLIC_ASSET_EXTENSIONS = [
-  "svg",
-  "json",
-  "webmanifest",
+const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
+  "avif",
+  "css",
+  "gif",
   "ico",
-  "png",
-  "jpg",
   "jpeg",
+  "jpg",
+  "js",
+  "json",
+  "map",
+  "mp4",
+  "pdf",
+  "png",
+  "svg",
+  "txt",
+  "wasm",
+  "webm",
+  "webmanifest",
   "webp",
-];
+  "xml",
+]);
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
@@ -207,7 +218,7 @@ function moveAppBuildIntoDist(
     // dist/<app>/<app>/...; the workspace root already supplies the outer
     // mount path, so keeping it would publish duplicate /<app>/<app> URLs.
     fs.rmSync(path.join(target, app), { recursive: true, force: true });
-    copyNetlifyFunctionIntoWorkspace(workspaceRoot, app, workspaceApps);
+    copyNetlifyFunctionIntoWorkspace(workspaceRoot, app, workspaceApps, target);
   } else {
     const target = path.join(distDir, app);
     fs.mkdirSync(target, { recursive: true });
@@ -280,7 +291,7 @@ function writeNetlifyRedirects(distDir: string, apps: string[]): void {
   }
 
   for (const app of apps) {
-    lines.push(...netlifyAssetRedirectsFor(app));
+    lines.push(...netlifyAssetRedirectsFor(app, distDir));
   }
 
   if (apps.includes("dispatch")) {
@@ -296,14 +307,18 @@ function writeNetlifyRedirects(distDir: string, apps: string[]): void {
   fs.writeFileSync(path.join(distDir, "_redirects"), lines.join("\n") + "\n");
 }
 
-function netlifyAssetRedirectsFor(app: string): string[] {
+function netlifyAssetRedirectsFor(app: string, distDir: string): string[] {
   const from = `/${app}`;
   const to = `/${NETLIFY_WORKSPACE_STATIC_DIR}/${app}`;
   return [
     `${from}/assets/* ${to}/assets/:splat 200`,
-    ...NETLIFY_PUBLIC_ASSET_EXTENSIONS.map(
-      (ext) => `${from}/:file.${ext} ${to}/:file.${ext} 200`,
-    ),
+    ...netlifyPublicRootAssetPaths(
+      app,
+      path.join(distDir, NETLIFY_WORKSPACE_STATIC_DIR, app),
+    ).map((assetPath) => {
+      const assetName = assetPath.slice(from.length + 1);
+      return `${assetPath} ${to}/${assetName} 200`;
+    }),
   ];
 }
 
@@ -344,6 +359,7 @@ function copyNetlifyFunctionIntoWorkspace(
   workspaceRoot: string,
   app: string,
   workspaceApps: WorkspaceAppManifestEntry[],
+  staticDir: string,
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
   const src = path.join(appDir, ".netlify", "functions-internal", "server");
@@ -356,13 +372,14 @@ function copyNetlifyFunctionIntoWorkspace(
   const dest = path.join(netlifyFunctionsDir(workspaceRoot), `${app}-server`);
   fs.rmSync(dest, { recursive: true, force: true });
   copyDir(src, dest);
-  patchNetlifyFunctionEntry(dest, app, workspaceApps);
+  patchNetlifyFunctionEntry(dest, app, workspaceApps, staticDir);
 }
 
 function patchNetlifyFunctionEntry(
   functionDir: string,
   app: string,
   workspaceApps: WorkspaceAppManifestEntry[],
+  staticDir: string,
 ): void {
   const serverPath = path.join(functionDir, "server.mjs");
   if (!fs.existsSync(serverPath)) return;
@@ -420,7 +437,11 @@ export const config = {
   path: ${JSON.stringify(pathConfig)},
   nodeBundler: "none",
   includedFiles: ["**"],
-  excludedPath: ${JSON.stringify(netlifyFunctionExcludedPaths(app), null, 2)
+  excludedPath: ${JSON.stringify(
+    netlifyFunctionExcludedPaths(app, staticDir),
+    null,
+    2,
+  )
     .split("\n")
     .join("\n  ")},
   preferStatic: false,
@@ -430,12 +451,29 @@ export const config = {
   fs.writeFileSync(path.join(functionDir, `${app}-server.mjs`), server);
 }
 
-function netlifyFunctionExcludedPaths(app: string): string[] {
+function netlifyFunctionExcludedPaths(
+  app: string,
+  staticDir: string,
+): string[] {
   return [
     "/.netlify/*",
     `/${app}/assets/*`,
-    ...NETLIFY_PUBLIC_ASSET_EXTENSIONS.map((ext) => `/${app}/*.${ext}`),
+    ...netlifyPublicRootAssetPaths(app, staticDir),
   ];
+}
+
+function netlifyPublicRootAssetPaths(app: string, staticDir: string): string[] {
+  if (!fs.existsSync(staticDir)) return [];
+  return fs
+    .readdirSync(staticDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => {
+      const ext = path.extname(name).slice(1).toLowerCase();
+      return NETLIFY_PUBLIC_ASSET_EXTENSIONS.has(ext);
+    })
+    .sort()
+    .map((name) => `/${app}/${encodeURI(name)}`);
 }
 
 function netlifyFunctionsDir(workspaceRoot: string): string {
