@@ -12,6 +12,7 @@ let previousDatabaseUrl: string | undefined;
 let previousUnpooledDatabaseUrl: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousViteAppBasePath: string | undefined;
+let previousWorkspaceAppsJson: string | undefined;
 let execFile: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -27,11 +28,13 @@ beforeEach(() => {
   previousUnpooledDatabaseUrl = process.env.NETLIFY_DATABASE_URL_UNPOOLED;
   previousNitroPreset = process.env.NITRO_PRESET;
   previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
+  previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
   delete process.env.APP_BASE_PATH;
   delete process.env.DATABASE_URL;
   delete process.env.NETLIFY_DATABASE_URL_UNPOOLED;
   delete process.env.NITRO_PRESET;
   delete process.env.VITE_APP_BASE_PATH;
+  delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
 });
 
 afterEach(() => {
@@ -40,6 +43,7 @@ afterEach(() => {
   restoreEnv("NETLIFY_DATABASE_URL_UNPOOLED", previousUnpooledDatabaseUrl);
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
+  restoreEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", previousWorkspaceAppsJson);
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -63,6 +67,24 @@ describe("workspace deploy", () => {
       APP_BASE_PATH: "/dispatch",
       VITE_APP_BASE_PATH: "/dispatch",
     });
+    expect(
+      JSON.parse(dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]"),
+    ).toEqual([
+      {
+        id: "dispatch",
+        name: "Dispatch",
+        description: "",
+        path: "/dispatch",
+        isDispatch: true,
+      },
+      {
+        id: "starter",
+        name: "Starter",
+        description: "",
+        path: "/starter",
+        isDispatch: false,
+      },
+    ]);
 
     const starterCall = buildCallForApp("starter");
     expect(starterCall?.env).toMatchObject({
@@ -171,6 +193,39 @@ describe("workspace deploy", () => {
       ),
     ).toBe(false);
 
+    const dispatchManifest = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "dispatch-server",
+          ".agent-native",
+          "workspace-apps.json",
+        ),
+        "utf-8",
+      ),
+    );
+    expect(dispatchManifest).toEqual({
+      version: 1,
+      apps: [
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          description: "",
+          path: "/dispatch",
+          isDispatch: true,
+        },
+        {
+          id: "starter",
+          name: "Starter",
+          description: "",
+          path: "/starter",
+          isDispatch: false,
+        },
+      ],
+    });
+
     const dispatchServer = fs.readFileSync(
       path.join(
         tmpDir,
@@ -184,6 +239,8 @@ describe("workspace deploy", () => {
     expect(dispatchServer).toContain('const basePath = "/dispatch";');
     expect(dispatchServer).toContain("Object.assign(processRef.env");
     expect(dispatchServer).toContain("APP_BASE_PATH: basePath");
+    expect(dispatchServer).toContain("AGENT_NATIVE_WORKSPACE_APPS_JSON");
+    expect(dispatchServer).toContain('\\"path\\":\\"/starter\\"');
     expect(dispatchServer).toContain('await import("./main.mjs")');
     expect(dispatchServer).toContain(
       'path: ["/_agent-native/*","/dispatch/*"]',
@@ -228,6 +285,14 @@ describe("workspace deploy", () => {
     await dispatchModule.default();
     expect(process.env.APP_BASE_PATH).toBe("/dispatch");
     expect(process.env.VITE_APP_BASE_PATH).toBe("/dispatch");
+    expect(
+      JSON.parse(process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]").map(
+        (app: { id: string; path: string }) => [app.id, app.path],
+      ),
+    ).toEqual([
+      ["dispatch", "/dispatch"],
+      ["starter", "/starter"],
+    ]);
 
     const starterModule = await import(
       `${
