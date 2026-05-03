@@ -9,6 +9,10 @@ import {
 } from "../a2a/client.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "../integrations/a2a-continuation-marker.js";
 import {
+  formatLlmCredentialErrorMessage,
+  isLlmCredentialError,
+} from "../agent/engine/credential-errors.js";
+import {
   getRequestUserEmail,
   getRequestOrgId,
   isIntegrationCallerRequest,
@@ -52,6 +56,15 @@ function getIntegrationCallTimeoutMs(): number | undefined {
   if (process.env.NETLIFY) return NETLIFY_INTEGRATION_A2A_TIMEOUT_MS;
 
   return DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS;
+}
+
+function formatDownstreamLlmCredentialFailure(
+  agentName: string,
+  value: unknown,
+): string | null {
+  return isLlmCredentialError(value)
+    ? formatLlmCredentialErrorMessage({ agentName })
+    : null;
 }
 
 export const tool: ActionTool = {
@@ -217,6 +230,9 @@ export async function run(
           orgSecret: callerOrgSecret,
           ...(callTimeoutMs ? { timeoutMs: callTimeoutMs } : {}),
         });
+        responseText =
+          formatDownstreamLlmCredentialFailure(agent.name, responseText) ??
+          responseText;
         // Some agents reply with relative paths (e.g. slides emits
         // "/deck/abc"). Those resolve against the caller's host, not the
         // receiver's, so they're broken for the user. Expand any leading-slash
@@ -239,7 +255,9 @@ export async function run(
           }
         } else {
           const reason = pollErr?.message ?? "unknown error";
-          responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
+          responseText =
+            formatDownstreamLlmCredentialFailure(agent.name, pollErr) ??
+            `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
         }
       }
 
@@ -271,9 +289,16 @@ export async function run(
       orgDomain: domain,
       orgSecret,
     });
-    return expandRelativeUrls(response, agent.url) || "(empty response)";
+    const sanitized =
+      formatDownstreamLlmCredentialFailure(agent.name, response) ?? response;
+    return expandRelativeUrls(sanitized, agent.url) || "(empty response)";
   } catch (err: any) {
     const msg = err?.message ?? String(err);
+    const credentialMessage = formatDownstreamLlmCredentialFailure(
+      agent.name,
+      err,
+    );
+    if (credentialMessage) return credentialMessage;
     // Friendlier message for the common timeout case so the calling agent can
     // decide whether to give up or retry.
     if (/timeout|did not complete|Inactivity|504/i.test(msg)) {
