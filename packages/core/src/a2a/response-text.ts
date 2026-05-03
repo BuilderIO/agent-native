@@ -1,8 +1,14 @@
 import type { AgentChatEvent } from "../agent/types.js";
 
+export interface CollectFinalResponseTextOptions {
+  fallbackToPreToolText?: boolean;
+}
+
 export function collectFinalResponseTextFromAgentEvents(
   events: readonly AgentChatEvent[],
+  options: CollectFinalResponseTextOptions = {},
 ): string {
+  const fallbackToPreToolText = options.fallbackToPreToolText ?? true;
   let lastToolIdx = -1;
   for (let i = events.length - 1; i >= 0; i--) {
     const type = events[i].type;
@@ -18,7 +24,7 @@ export function collectFinalResponseTextFromAgentEvents(
   // Some agents let the final tool output speak for itself. Fall back to all
   // text so callers do not get an empty reply just because no post-tool text
   // was emitted.
-  if (!responseText.trim() && lastToolIdx >= 0) {
+  if (!responseText.trim() && lastToolIdx >= 0 && fallbackToPreToolText) {
     responseText = collectTextEvents(events, 0);
   }
 

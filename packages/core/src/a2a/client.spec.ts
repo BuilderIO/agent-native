@@ -1,9 +1,22 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { A2AClient, A2ATaskTimeoutError, callAgent } from "./client.js";
+import * as jose from "jose";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  A2AClient,
+  A2ATaskTimeoutError,
+  callAgent,
+  signA2AToken,
+} from "./client.js";
 
 describe("A2AClient", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
+    process.env = originalEnv;
   });
 
   it("uses the A2A endpoint advertised by the agent card", async () => {
@@ -121,6 +134,29 @@ describe("A2AClient", () => {
         { timeoutMs: 1, pollIntervalMs: 1 },
       ),
     ).rejects.toBeInstanceOf(A2ATaskTimeoutError);
+  });
+
+  it("can prefer the shared global A2A secret before an org secret", async () => {
+    process.env.A2A_SECRET = "global-a2a-secret";
+
+    const token = await signA2AToken(
+      "alice+qa@agent-native.test",
+      "builder.io",
+      "org-a2a-secret",
+      { preferGlobalSecret: true },
+    );
+
+    await expect(
+      jose.jwtVerify(token, new TextEncoder().encode("global-a2a-secret")),
+    ).resolves.toMatchObject({
+      payload: {
+        sub: "alice+qa@agent-native.test",
+        org_domain: "builder.io",
+      },
+    });
+    await expect(
+      jose.jwtVerify(token, new TextEncoder().encode("org-a2a-secret")),
+    ).rejects.toThrow();
   });
 });
 

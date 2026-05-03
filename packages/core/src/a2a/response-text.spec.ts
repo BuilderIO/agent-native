@@ -53,4 +53,24 @@ describe("collectFinalResponseTextFromAgentEvents", () => {
 
     expect(collectFinalResponseTextFromAgentEvents(events)).toBe("Created it.");
   });
+
+  it("can leave the response empty instead of falling back to pre-tool narration", () => {
+    const events: AgentChatEvent[] = [
+      { type: "text", text: "I will ask Analytics to check that." },
+      { type: "tool_start", tool: "call-agent", input: {} },
+      {
+        type: "tool_done",
+        tool: "call-agent",
+        result:
+          "[agent-native:a2a-continuation-queued]\nThe Analytics agent is still working.",
+      },
+      { type: "done" },
+    ];
+
+    expect(
+      collectFinalResponseTextFromAgentEvents(events, {
+        fallbackToPreToolText: false,
+      }),
+    ).toBe("");
+  });
 });

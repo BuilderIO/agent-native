@@ -48,6 +48,7 @@ interface EnsureResult {
   orgCreated: boolean;
   orgNameUpdated: boolean;
   a2aSecretCreated: boolean;
+  a2aSecretSynced: boolean;
   memberCreated: boolean;
   memberPromoted: boolean;
   betterAuthOrgCreated: boolean;
@@ -56,6 +57,12 @@ interface EnsureResult {
   betterAuthUserMissing: boolean;
   clipsSettingsCreated: boolean;
   activeOrgSet: boolean;
+}
+
+interface A2ASecretSource {
+  secret: string;
+  source: "env" | "generated";
+  envName?: string;
 }
 
 const argv = process.argv.slice(2);
@@ -71,11 +78,29 @@ if (argv.includes("--help")) {
   process.exit(0);
 }
 
+const orgA2ASecretEnvNames = orgA2ASecretEnvCandidates();
+let orgA2ASecret: A2ASecretSource;
+try {
+  orgA2ASecret = resolveOrgA2ASecret(orgA2ASecretEnvNames);
+} catch (error) {
+  console.error(`failed - ${formatError(error)}`);
+  process.exit(1);
+}
+
 console.log(
   write
     ? "Applying Builder.io org seed to production template databases..."
     : "Dry run. Pass --write to apply Builder.io org seed.",
 );
+if (orgA2ASecret.source === "env") {
+  console.log(`Using shared org A2A secret from ${orgA2ASecret.envName}.`);
+} else if (write) {
+  console.warn(
+    `No shared org A2A secret env set (${orgA2ASecretEnvNames.join(
+      ", ",
+    )}); generated one secret for orgs created or filled during this run. Existing non-empty secrets will not be rotated.`,
+  );
+}
 
 const failures: Array<{ app: string; error: unknown }> = [];
 
@@ -89,7 +114,7 @@ for (const app of apps) {
       await ensureBetterAuthOrgTables(db);
       if (app === "clips") await ensureClipsOrgSettingsTable(db);
     }
-    const result = await ensureBuilderOrg(db, app, write);
+    const result = await ensureBuilderOrg(db, app, write, orgA2ASecret);
     printResult(result, write);
   } catch (error) {
     failures.push({ app, error });
@@ -105,7 +130,7 @@ if (failures.length > 0) {
 }
 
 function printHelp(): void {
-  console.log(`Usage: pnpm exec tsx scripts/ensure-builder-orgs.ts [--write] [--apps mail,slides]
+  console.log(`Usage: pnpm exec tsx scripts/ensure-builder-orgs.ts [--write] [--apps mail,slides] [--org-a2a-secret-env AGENT_NATIVE_ORG_A2A_SECRET]
 
 Creates or verifies the standard Builder.io organization in core app production
 databases from each app's templates/<app>/.env:
@@ -115,7 +140,14 @@ databases from each app's templates/<app>/.env:
   - org_members includes steve@builder.io as owner
   - settings u:steve@builder.io:active-org-id points at that org
 
-Without --write, the script only reports what it would do.`);
+Set AGENT_NATIVE_ORG_A2A_SECRET (or pass --org-a2a-secret-env NAME) to sync the
+same org A2A secret across every app, including existing app org rows whose
+secret differs. Without a shared secret env, --write uses one generated secret
+for orgs created or filled during that run and leaves existing non-empty secrets
+untouched.
+
+Without --write, the script only reports what it would do. Secret values are
+never printed.`);
 }
 
 function flagValue(name: string): string | null {
@@ -188,6 +220,29 @@ function parseEnv(contents: string): Record<string, string> {
     result[key] = value;
   }
   return result;
+}
+
+function orgA2ASecretEnvCandidates(): string[] {
+  const explicit = flagValue("--org-a2a-secret-env")?.trim();
+  if (explicit) return [explicit];
+  return ["AGENT_NATIVE_ORG_A2A_SECRET", "ORG_A2A_SECRET"];
+}
+
+function resolveOrgA2ASecret(envNames: string[]): A2ASecretSource {
+  for (const envName of envNames) {
+    const secret = process.env[envName]?.trim();
+    if (!secret) continue;
+    validateA2ASecret(secret, envName);
+    return { secret, source: "env", envName };
+  }
+
+  return { secret: randomSecret(), source: "generated" };
+}
+
+function validateA2ASecret(secret: string, source: string): void {
+  if (secret.length < 32) {
+    throw new Error(`${source} must be at least 32 characters.`);
+  }
 }
 
 async function importWorkspacePackage<T>(specifier: string): Promise<T> {
@@ -415,6 +470,7 @@ async function ensureBuilderOrg(
   db: Db,
   app: string,
   shouldWrite: boolean,
+  a2aSecretSource: A2ASecretSource,
 ): Promise<EnsureResult> {
   const existing = await db.execute(
     `SELECT id, name, a2a_secret
@@ -430,24 +486,40 @@ async function ensureBuilderOrg(
   let orgCreated = false;
   let orgNameUpdated = false;
   let a2aSecretCreated = false;
+  let a2aSecretSynced = false;
 
   if (existing.rows[0]) {
     const row = existing.rows[0];
     orgId = String(row.id);
+    const existingA2ASecret = String(row.a2a_secret ?? "").trim();
     orgNameUpdated = String(row.name) !== ORG_NAME;
-    a2aSecretCreated = !String(row.a2a_secret ?? "");
+    a2aSecretCreated = !existingA2ASecret;
+    a2aSecretSynced =
+      a2aSecretSource.source === "env" &&
+      !!existingA2ASecret &&
+      existingA2ASecret !== a2aSecretSource.secret;
 
-    if (shouldWrite && (orgNameUpdated || a2aSecretCreated)) {
+    if (
+      shouldWrite &&
+      (orgNameUpdated || a2aSecretCreated || a2aSecretSynced)
+    ) {
       await db.execute(
         `UPDATE organizations
          SET name = ?,
-             a2a_secret = COALESCE(NULLIF(a2a_secret, ''), ?)
+             a2a_secret = ?
          WHERE id = ?`,
-        [ORG_NAME, randomSecret(), orgId],
+        [
+          ORG_NAME,
+          a2aSecretCreated || a2aSecretSynced
+            ? a2aSecretSource.secret
+            : existingA2ASecret,
+          orgId,
+        ],
       );
     }
   } else {
     orgCreated = true;
+    a2aSecretCreated = true;
     orgId = shouldWrite
       ? ((await findBetterAuthBuilderOrgId(db)) ?? (await availableOrgId(db)))
       : ORG_ID_BASE;
@@ -457,9 +529,8 @@ async function ensureBuilderOrg(
         `INSERT INTO organizations
            (id, name, created_by, created_at, allowed_domain, a2a_secret)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [orgId, ORG_NAME, OWNER_EMAIL, now, ORG_DOMAIN, randomSecret()],
+        [orgId, ORG_NAME, OWNER_EMAIL, now, ORG_DOMAIN, a2aSecretSource.secret],
       );
-      a2aSecretCreated = true;
     }
   }
 
@@ -506,6 +577,7 @@ async function ensureBuilderOrg(
     orgCreated,
     orgNameUpdated,
     a2aSecretCreated,
+    a2aSecretSynced,
     memberCreated,
     memberPromoted,
     betterAuthOrgCreated: betterAuth.orgCreated,
@@ -748,6 +820,7 @@ function printResult(result: EnsureResult, didWrite: boolean): void {
         ? "org renamed"
         : "org present",
     result.a2aSecretCreated ? "a2a secret set" : null,
+    result.a2aSecretSynced ? "a2a secret synced" : null,
     result.memberCreated
       ? `${OWNER_EMAIL} added as owner`
       : result.memberPromoted
