@@ -505,6 +505,9 @@ describe("workspace deploy", () => {
       "utf-8",
     );
     expect(worker).toContain(
+      'return Response.redirect(new URL("/dispatch/overview", request.url).toString(), 302);',
+    );
+    expect(worker).toContain(
       'if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")) return app_dispatch.fetch(request, env, ctx);',
     );
     expect(worker).toContain(
