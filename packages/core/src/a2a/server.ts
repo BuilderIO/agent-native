@@ -280,6 +280,8 @@ export function mountA2A(
       const authHeader = getRequestHeader(event, "authorization");
       let verifiedCallerEmail: string | null = null;
       let verifiedOrgDomain: string | null = null;
+      let legacyApiKeyAuthenticated = false;
+      let bearerTokenRejectedByJwt = false;
 
       // SECURITY: when neither A2A_SECRET nor an apiKeyEnv is configured,
       // there's no way to authenticate the caller. Default to "auth required"
@@ -288,39 +290,13 @@ export function mountA2A(
       // warning but allow so local templates work out of the box.
       const hasA2ASecret = !!process.env.A2A_SECRET;
       const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
-      if (!hasA2ASecret && !hasApiKey) {
-        if (process.env.NODE_ENV === "production") {
-          setResponseStatus(event, 503);
-          return {
-            jsonrpc: "2.0",
-            id: null,
-            error: {
-              code: -32001,
-              message:
-                "A2A authentication not configured. Set A2A_SECRET (preferred) or configure apiKeyEnv to accept inbound A2A traffic.",
-            },
-          };
-        }
-        warnA2AUnauthOnce();
-      }
 
       // Try JWT verification first (org-level or global A2A_SECRET-based identity)
       if (authHeader?.startsWith("Bearer ")) {
         const tokenPayload = await verifyA2AToken(authHeader, event);
         verifiedCallerEmail = tokenPayload.email;
         verifiedOrgDomain = tokenPayload.orgDomain;
-        // If a secret exists (org-level or global) and token fails verification, reject
-        if (!verifiedCallerEmail && process.env.A2A_SECRET) {
-          setResponseStatus(event, 401);
-          return {
-            jsonrpc: "2.0",
-            id: null,
-            error: {
-              code: -32001,
-              message: "Invalid or expired A2A token",
-            },
-          };
-        }
+        bearerTokenRejectedByJwt = !verifiedCallerEmail;
       }
 
       // Fall back to legacy API key check (exact string match)
@@ -344,6 +320,39 @@ export function mountA2A(
               error: { code: -32001, message: "Invalid API key" },
             };
           }
+          legacyApiKeyAuthenticated = true;
+        }
+      }
+
+      if (!verifiedCallerEmail && !legacyApiKeyAuthenticated) {
+        // If a global secret exists and JWT verification failed, reject after
+        // giving the legacy exact-match apiKeyEnv path a chance to succeed.
+        if (bearerTokenRejectedByJwt && process.env.A2A_SECRET) {
+          setResponseStatus(event, 401);
+          return {
+            jsonrpc: "2.0",
+            id: null,
+            error: {
+              code: -32001,
+              message: "Invalid or expired A2A token",
+            },
+          };
+        }
+
+        if (!hasA2ASecret && !hasApiKey) {
+          if (process.env.NODE_ENV === "production") {
+            setResponseStatus(event, 503);
+            return {
+              jsonrpc: "2.0",
+              id: null,
+              error: {
+                code: -32001,
+                message:
+                  "A2A authentication not configured. Set A2A_SECRET (preferred) or configure apiKeyEnv to accept inbound A2A traffic.",
+              },
+            };
+          }
+          warnA2AUnauthOnce();
         }
       }
 

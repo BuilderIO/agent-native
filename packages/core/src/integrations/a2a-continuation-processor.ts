@@ -308,7 +308,9 @@ function isRemoteWorkExpired(continuation: A2AContinuation): boolean {
 function isTransientA2APollError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   if (err.name === "AbortError") return true;
-  return /operation was aborted|aborted|timed out|timeout/i.test(err.message);
+  return /operation was aborted|aborted|timed out|timeout|Invalid or expired A2A token|A2A request failed \(401\)/i.test(
+    err.message,
+  );
 }
 
 function remotePollTimeoutReason(continuation: A2AContinuation): string {
@@ -363,6 +365,10 @@ async function redispatchContinuation(continuationId: string): Promise<void> {
 async function signContinuationToken(
   continuation: A2AContinuation,
 ): Promise<string | undefined> {
+  if (continuation.a2aAuthToken !== null) {
+    return continuation.a2aAuthToken || undefined;
+  }
+
   let orgDomain: string | undefined;
   let orgSecret: string | undefined;
   if (continuation.orgId) {
@@ -379,7 +385,9 @@ async function signContinuationToken(
   }
 
   try {
-    return await signA2AToken(continuation.ownerEmail, orgDomain, orgSecret);
+    return await signA2AToken(continuation.ownerEmail, orgDomain, orgSecret, {
+      expiresIn: "30m",
+    });
   } catch {
     return undefined;
   }
