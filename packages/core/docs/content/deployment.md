@@ -18,7 +18,7 @@ agent-native deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-Each app is built with `APP_BASE_PATH=/<name>`, packaged into `dist/<name>/`, and fronted by a generated dispatcher worker at `dist/_worker.js`. A `_routes.json` manifest tells Cloudflare Pages which paths are dynamic.
+Each app is built with `APP_BASE_PATH=/<name>` and `VITE_APP_BASE_PATH=/<name>`, then packaged into `dist/<name>/`. Cloudflare Pages is the default preset and uses a generated dispatcher worker at `dist/_worker.js`; Netlify uses one function per app in `.netlify/functions-internal/<app>-server` plus generated redirects.
 
 Same-origin deploy gives you two big wins for free:
 
@@ -31,7 +31,13 @@ Publish the output with:
 wrangler pages deploy dist
 ```
 
-Only need to deploy to Cloudflare Pages? That's the out-of-the-box target. Other targets stay per-app (see below) — or file an issue if you want another unified preset.
+For Netlify unified deploys, use the Netlify preset:
+
+```bash
+agent-native deploy --preset netlify
+```
+
+Generated workspaces include a root `netlify.toml` that runs `agent-native deploy --preset netlify --build-only`, publishes `dist`, and points Netlify at `.netlify/functions-internal`.
 
 Per-app independent deploy is still supported — just `cd apps/<name> && agent-native build` like a standalone scaffold.
 
@@ -126,6 +132,14 @@ export default defineConfig({
 ```
 
 …or set `NITRO_PRESET=netlify` at build time.
+
+For a workspace, deploy every app from one Netlify site by running:
+
+```bash
+agent-native deploy --preset netlify
+```
+
+The workspace build writes static assets to `dist/<app>/` and routes each app to its own Netlify function without forced redirects, so files like `/mail/assets/...` are served statically before the server function handles app routes.
 
 ## Cloudflare Pages {#cloudflare-pages}
 
